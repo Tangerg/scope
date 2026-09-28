@@ -21,9 +21,6 @@ func outputs(t *testing.T, vectors ...[]float64) []*embedding.Output {
 	return built
 }
 
-// Outputs declares one entry per input text, and that pairing is the whole
-// basis for using an embedding: one vector short leaves every later text
-// carrying its neighbor's vector with nothing downstream able to notice.
 func TestValidateForRequiresOneOutputPerInput(t *testing.T) {
 	t.Parallel()
 
@@ -106,9 +103,6 @@ func TestPlaceOutputRejectsInvalidVectorWithoutClaimingPosition(t *testing.T) {
 	}
 }
 
-// A provider that tags each embedding with its own index may answer out of
-// order. Appending in arrival order would pair texts with the wrong vectors,
-// so placement is by index.
 func TestPlaceOutputRestoresRequestOrder(t *testing.T) {
 	t.Parallel()
 
@@ -132,8 +126,6 @@ func TestPlaceOutputRestoresRequestOrder(t *testing.T) {
 	}
 }
 
-// An index the request cannot hold, or a position claimed twice, means the
-// reply does not describe the request that was sent.
 func TestPlaceOutputRejectsPositionsTheRequestCannotHold(t *testing.T) {
 	t.Parallel()
 
@@ -159,8 +151,6 @@ func TestPlaceOutputRejectsPositionsTheRequestCannotHold(t *testing.T) {
 	}
 }
 
-// An input the provider never answered leaves a hole, and building the
-// Response names the text that went unanswered.
 func TestUnansweredInputFailsWhenTheResponseIsBuilt(t *testing.T) {
 	t.Parallel()
 

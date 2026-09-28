@@ -15,10 +15,8 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// ErrNilModel rejects a dedicated reranker without its sole dependency.
 var ErrNilModel = errors.New("rag: rerank model must not be nil")
 
-// RefinerConfig binds a dedicated rerank model to portable request defaults.
 type RefinerConfig struct {
 	Model corererank.Model
 	// Formatter defaults to [rag.TextFormatter], which rejects media with
@@ -50,7 +48,6 @@ type Refiner struct {
 
 var _ rag.Refiner = (*Refiner)(nil)
 
-// NewRefiner freezes defaults while leaving query-specific limits on Refine.
 func NewRefiner(config RefinerConfig) (*Refiner, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

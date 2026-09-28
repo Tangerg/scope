@@ -9,16 +9,12 @@ import (
 	"strings"
 )
 
-// Number is any built-in numeric type or a user-defined type with the same
-// underlying representation.
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
 		~float32 | ~float64
 }
 
-// LiteralValue is an input accepted by [NewLiteral] and comparison
-// constructors.
 type LiteralValue interface {
 	Number | string | bool | *Literal
 }
@@ -33,9 +29,7 @@ func newLiteral(value any) (*Literal, error) {
 			return &Literal{kind: LiteralNumber, text: strconv.FormatUint(reflected.Uint(), 10)}, nil
 		case reflect.Float32, reflect.Float64:
 			number := reflected.Float()
-			// Collapse negative zero: FormatFloat renders -0.0 as "-0", which
-			// fails the canonical round-trip in Validate (canonicalNumber("-0")
-			// yields "0"), so a -0.0 literal would reject its own value.
+			// Canonical zero has no sign; preserving -0 would fail Validate.
 			if number == 0 {
 				return &Literal{kind: LiteralNumber, text: "0"}, nil
 			}
@@ -62,21 +56,14 @@ func newLiteral(value any) (*Literal, error) {
 	}
 }
 
-// NewLiteral panics instead of returning an error because the type parameter
-// already excludes every unsupported value. An error return would force
-// callers to handle a branch the compiler has proven unreachable, at the cost
-// of readable filter construction.
 func NewLiteral[T LiteralValue](value T) *Literal {
 	lit, err := newLiteral(value)
 	if err != nil {
-		// Unreachable while the generic constraint is honored.
 		panic(fmt.Errorf("filter: create literal: %w", err))
 	}
 	return lit
 }
 
-// NewLiterals builds the operand list for membership tests, where the values
-// are homogeneous by construction.
 func NewLiterals[T LiteralValue](values []T) []*Literal {
 	literals := make([]*Literal, 0, len(values))
 	for _, v := range values {
@@ -111,8 +98,6 @@ func canonicalNumber(literal string) (string, error) {
 	return strconv.FormatFloat(number, 'g', -1, 64), nil
 }
 
-// ListValue is a homogeneous scalar slice, a pre-built literal slice, or an
-// existing list node.
 type ListValue interface {
 	[]int | []int8 | []int16 | []int32 | []int64 |
 		[]uint | []uint8 | []uint16 | []uint32 | []uint64 |
@@ -166,12 +151,9 @@ func newListLiteral(value any) (*ListLiteral, error) {
 	return result, nil
 }
 
-// NewListLiteral panics for the same reason as [NewLiteral]: the constraint
-// makes an unsupported list type impossible to express.
 func NewListLiteral[T ListValue](value T) *ListLiteral {
 	list, err := newListLiteral(value)
 	if err != nil {
-		// Unreachable while the generic constraint is honored.
 		panic(fmt.Errorf("filter: create list literal: %w", err))
 	}
 	return list

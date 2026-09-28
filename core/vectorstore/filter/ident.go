@@ -1,8 +1,11 @@
 package filter
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"unicode"
+)
 
-// Ident names a metadata field.
 type Ident struct {
 	name  string
 	start Position
@@ -20,8 +23,8 @@ func (i *Ident) Name() string {
 }
 
 func (i *Ident) Path() ([]string, error) {
-	if i == nil {
-		return nil, errors.New("filter: read identifier path: identifier is nil")
+	if err := i.validate(); err != nil {
+		return nil, err
 	}
 	return []string{i.name}, nil
 }
@@ -43,4 +46,34 @@ func (i *Ident) End() Position {
 func (i *Ident) Equal(other Expr) bool {
 	o, ok := other.(*Ident)
 	return ok && i != nil && o != nil && i.name == o.name
+}
+
+func (i *Ident) validate() error {
+	if i == nil {
+		return errors.New("filter: identifier is nil")
+	}
+	if !i.validName() {
+		return fmt.Errorf("filter: invalid identifier %q at %s", i.name, i.Start())
+	}
+	return nil
+}
+
+func (i *Ident) validName() bool {
+	if keywordKind(i.name) != tokenIdent {
+		return false
+	}
+	first := true
+	for _, r := range i.name {
+		if first {
+			if !unicode.IsLetter(r) {
+				return false
+			}
+			first = false
+			continue
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return !first
 }

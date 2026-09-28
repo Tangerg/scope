@@ -11,9 +11,7 @@ import (
 )
 
 var (
-	// ErrNilModel rejects a client whose only required capability is absent.
-	ErrNilModel = errors.New("chatclient: nil model")
-	// ErrInvalidClient identifies use of a zero-value Client.
+	ErrNilModel      = errors.New("chatclient: nil model")
 	ErrInvalidClient = errors.New("chatclient: uninitialized client")
 )
 
@@ -28,7 +26,6 @@ type Client struct {
 	model chat.Model
 }
 
-// New binds the required call capability and composes middleware in order.
 func New(model chat.Model, config Config) (Client, error) {
 	if lo.IsNil(model) {
 		return Client{}, ErrNilModel

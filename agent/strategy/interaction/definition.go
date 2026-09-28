@@ -14,10 +14,8 @@ const executionStateKind = "interaction"
 // DefinitionConfig describes immutable Interaction behavior. Cumulative quotas
 // default to unlimited; the Host retains cancellation and capacity controls.
 type DefinitionConfig struct {
-	// Name is the stable qualified Definition name.
 	Name string
 
-	// Description states the managed behavior for discovery.
 	Description string
 
 	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
@@ -67,9 +65,6 @@ type Definition struct {
 	maxConcurrentToolCalls int
 }
 
-// NewDefinition freezes the managed contract, delegates, completion policy,
-// and model-call limit for one interaction loop. The provider client and
-// executable Tools remain bound to their external dispatch boundaries.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if !config.MaxModelCalls.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidDefinitionConfig)
@@ -129,7 +124,6 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	}, nil
 }
 
-// Descriptor returns the immutable model-visible Definition contract.
 func (d *Definition) Descriptor() agent.Descriptor {
 	if d == nil {
 		return agent.Descriptor{}
@@ -137,7 +131,6 @@ func (d *Definition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-// Start creates a fresh Interaction from validated caller input.
 func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

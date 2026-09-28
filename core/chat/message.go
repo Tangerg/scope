@@ -11,31 +11,20 @@ import (
 )
 
 var (
-	// ErrInvalidMessage identifies a message whose role, parts, or metadata
-	// violate the portable conversation contract.
-	ErrInvalidMessage = errors.New("chat: invalid message")
-	// ErrInvalidPart identifies a part whose kind and active payload disagree.
-	ErrInvalidPart = errors.New("chat: invalid part")
-	// ErrInvalidToolCall identifies an incomplete tool invocation request.
-	ErrInvalidToolCall = errors.New("chat: invalid tool call")
-	// ErrInvalidToolOutput identifies a malformed tool execution payload.
+	ErrInvalidMessage    = errors.New("chat: invalid message")
+	ErrInvalidPart       = errors.New("chat: invalid part")
+	ErrInvalidToolCall   = errors.New("chat: invalid tool call")
 	ErrInvalidToolOutput = errors.New("chat: invalid tool output")
-	// ErrInvalidToolResult identifies a result that cannot answer a tool call.
 	ErrInvalidToolResult = errors.New("chat: invalid tool result")
 )
 
-// Role identifies a message's participant in a conversation.
 type Role string
 
 const (
-	// RoleSystem carries model instructions.
-	RoleSystem Role = "system"
-	// RoleUser carries user input.
-	RoleUser Role = "user"
-	// RoleAssistant carries model output.
+	RoleSystem    Role = "system"
+	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
-	// RoleTool carries results for tool calls requested by the assistant.
-	RoleTool Role = "tool"
+	RoleTool      Role = "tool"
 )
 
 func (r Role) Valid() bool {
@@ -47,8 +36,6 @@ func (r Role) Valid() bool {
 	}
 }
 
-// allowsPart reports whether a message with role r may carry a part of the
-// given kind.
 func (r Role) allowsPart(kind PartKind) bool {
 	switch r {
 	case RoleSystem:
@@ -86,8 +73,6 @@ func (m Message) Clone() Message {
 	return clone
 }
 
-// NewSystemMessage creates an instruction message suitable for the leading
-// system prefix required by Request.
 func NewSystemMessage(text string) Message {
 	return Message{Role: RoleSystem, Parts: []Part{NewTextPart(text)}}
 }

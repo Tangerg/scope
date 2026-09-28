@@ -18,15 +18,11 @@ var (
 	ErrInvalidSource = errors.New("media: invalid source")
 )
 
-// SourceKind identifies which Source value is active.
 type SourceKind string
 
 const (
-	// SourceBytes carries an inline byte payload.
-	SourceBytes SourceKind = "bytes"
-	// SourceURI carries an absolute URI resolved by a provider or client.
-	SourceURI SourceKind = "uri"
-	// SourceReference carries a provider-native media reference.
+	SourceBytes     SourceKind = "bytes"
+	SourceURI       SourceKind = "uri"
 	SourceReference SourceKind = "reference"
 )
 
@@ -63,9 +59,7 @@ func (s Source) Validate() error {
 	return nil
 }
 
-// Media describes a media payload without retaining runtime-only objects.
-// Inline-byte construction snapshots the caller's buffer so the protocol value
-// cannot change when that buffer is reused.
+// Inline-byte construction snapshots the caller's buffer.
 type Media struct {
 	MIME     string       `json:"mime"`
 	Source   Source       `json:"source"`
@@ -84,9 +78,7 @@ func (m *Media) Clone() *Media {
 	return &clone
 }
 
-// NewBytes owns the payload: it copies the input so a caller reusing its
-// buffer cannot alter media already attached to a message. Use it when the
-// content must travel with the request.
+// NewBytes copies the payload so later caller mutation cannot change the media.
 func NewBytes(mimeType string, data []byte) (*Media, error) {
 	m := &Media{
 		MIME: mimeType,
@@ -102,9 +94,7 @@ func NewBytes(mimeType string, data []byte) (*Media, error) {
 	return m, nil
 }
 
-// NewURI delegates content resolution instead of copying the payload into the
-// protocol value. The URI must therefore be reachable by the provider or
-// client that resolves it.
+// NewURI leaves content resolution to the provider or client; the URI must be reachable by it.
 func NewURI(mimeType, uri string) (*Media, error) {
 	m := &Media{
 		MIME: mimeType,
@@ -120,9 +110,7 @@ func NewURI(mimeType, uri string) (*Media, error) {
 	return m, nil
 }
 
-// NewReference names content already held by the provider, such as an uploaded
-// file handle. The reference is opaque to Core, so it stays valid only with the
-// provider that issued it.
+// NewReference retains an opaque handle valid only with the provider that issued it.
 func NewReference(mimeType, reference string) (*Media, error) {
 	m := &Media{
 		MIME: mimeType,

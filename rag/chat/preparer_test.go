@@ -14,8 +14,6 @@ import (
 	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
-// stubRetriever returns a fixed document set; used to exercise the
-// preparer without a real vector store.
 type stubRetriever struct {
 	docs rag.Candidates
 }
@@ -24,8 +22,6 @@ func (s *stubRetriever) Retrieve(_ context.Context, _ rag.Query) (rag.Candidates
 	return s.docs, nil
 }
 
-// echoChatModel mirrors the user's last message back. It implements both
-// target chat capabilities so call and stream preparer share one fixture.
 type echoChatModel struct {
 	captured string
 }

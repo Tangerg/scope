@@ -10,10 +10,8 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// MetricName identifies one quality calculation within a namespace.
 type MetricName string
 
-// MetricNameComposite identifies the explicit score-aggregating evaluator.
 const MetricNameComposite MetricName = "composite"
 
 const metricConfigurationKey = "configuration"
@@ -23,12 +21,9 @@ const metricConfigurationKey = "configuration"
 type Direction string
 
 const (
-	// DirectionUnspecified means the metric has no raw measurement direction.
-	DirectionUnspecified Direction = ""
-	// DirectionHigherIsBetter marks increasing raw measurements as improvement.
+	DirectionUnspecified    Direction = ""
 	DirectionHigherIsBetter Direction = "higher_is_better"
-	// DirectionLowerIsBetter marks decreasing raw measurements as improvement.
-	DirectionLowerIsBetter Direction = "lower_is_better"
+	DirectionLowerIsBetter  Direction = "lower_is_better"
 )
 
 func (d Direction) Validate() error {
@@ -53,7 +48,6 @@ type Metric struct {
 	parameters metadata.Map
 }
 
-// MetricConfig supplies the full comparison identity of one metric.
 type MetricConfig struct {
 	Namespace  string
 	Name       MetricName

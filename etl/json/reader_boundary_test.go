@@ -28,10 +28,6 @@ func read(t *testing.T, source string, config etljson.ReaderConfig) ([]string, e
 	return texts, nil
 }
 
-// TestReaderSplitsOnlyTopLevelArrays pins the one structural decision this
-// reader makes: a top-level array becomes one document per element, and every
-// other JSON value stays a single document. Getting it wrong silently changes
-// the retrieval unit.
 func TestReaderSplitsOnlyTopLevelArrays(t *testing.T) {
 	cases := map[string]struct {
 		source string
@@ -80,8 +76,6 @@ func TestReaderPreservesJSONNumbersOutsideFloat64Range(t *testing.T) {
 	}
 }
 
-// TestReaderRejectsMalformedSourcesWithoutPartialOutput keeps a broken source
-// from producing a half-read corpus that looks complete.
 func TestReaderRejectsMalformedSourcesWithoutPartialOutput(t *testing.T) {
 	cases := map[string]string{
 		"truncated object": `{"a":`,
@@ -103,9 +97,6 @@ func TestReaderRejectsMalformedSourcesWithoutPartialOutput(t *testing.T) {
 	}
 }
 
-// TestReaderHonorsTheSourceBudget is the memory contract: a whole-source reader
-// must refuse an oversized input rather than truncate it into documents that
-// look whole.
 func TestReaderHonorsTheSourceBudget(t *testing.T) {
 	large := "[" + strings.Repeat(`"padding",`, 100) + `"end"]`
 	budget, err := etl.NewSourceBudget(16)
@@ -121,8 +112,6 @@ func TestReaderHonorsTheSourceBudget(t *testing.T) {
 	}
 }
 
-// TestReaderObservesCancellation keeps a canceled read from returning a corpus
-// the caller no longer wants.
 func TestReaderObservesCancellation(t *testing.T) {
 	reader, err := etljson.NewReader(strings.NewReader(`[1,2,3]`), etljson.ReaderConfig{})
 	if err != nil {

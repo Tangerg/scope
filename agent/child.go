@@ -29,11 +29,9 @@ type DeploymentResolver interface {
 // Input is validated by the target Deployment before any Process is created.
 type ChildSpec struct {
 	// Key is the parent-scoped logical identity of this child start.
-	Key ChildKey `json:"key"`
-	// DeploymentRef identifies the exact child behavior binding.
+	Key           ChildKey      `json:"key"`
 	DeploymentRef DeploymentRef `json:"deployment_ref"`
-	// Input is the portable input validated by the target Descriptor.
-	Input Payload `json:"input"`
+	Input         Payload       `json:"input"`
 	// Budget is permanently allocated from the parent to this child.
 	Budget Budget `json:"budget"`
 	// Capabilities is the attenuated authority granted to this child.

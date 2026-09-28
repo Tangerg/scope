@@ -7,16 +7,12 @@ import (
 	"strings"
 )
 
-// ErrInvalidCitation identifies a citation that cannot be represented by the
-// portable evidence contract.
 var ErrInvalidCitation = errors.New("chat: invalid citation")
 
 // CitationSourceKind distinguishes a resolvable URI from an opaque source
 // reference whose interpretation remains with the provider or host.
 type CitationSourceKind string
 
-// Portable citation source kinds deliberately stop short of provider-specific
-// page, block, or character coordinates.
 const (
 	CitationSourceURI       CitationSourceKind = "uri"
 	CitationSourceReference CitationSourceKind = "reference"

@@ -22,9 +22,6 @@ func mediaPart(t *testing.T, part corechat.ToolContent) *media.Media {
 	return part.Media
 }
 
-// TestMapRemoteContentCoversEveryProtocolShape pins the inbound half of the
-// adapter. Every branch is a distinct MCP content type whose payload must
-// remain usable as content after projection.
 func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 	cases := map[string]struct {
 		content sdkmcp.Content
@@ -154,9 +151,6 @@ func TestMapRemoteContentRejectsUnusableResources(t *testing.T) {
 	}
 }
 
-// TestMapServerToolOutputCoversEveryPartKind pins the outbound half: what a
-// Scope Tool returns has to arrive at an MCP client as the matching content
-// type, and structured details must land in StructuredContent rather than text.
 func TestMapServerToolOutputCoversEveryPartKind(t *testing.T) {
 	image, err := media.NewBytes(pngMIME, []byte("\x89PNG"))
 	if err != nil {
@@ -282,9 +276,6 @@ func TestMapServerMediaRejectsAnUnusableSource(t *testing.T) {
 	}
 }
 
-// TestMapServerMediaCarriesReferences keeps a by-reference payload addressable:
-// collapsing it into an empty resource would lose the only handle the client
-// has.
 func TestMapServerMediaCarriesReferences(t *testing.T) {
 	reference, err := media.NewReference(pngMIME, "store://bucket/key")
 	if err != nil {
@@ -309,8 +300,6 @@ func TestMapServerMediaCarriesReferences(t *testing.T) {
 	}
 }
 
-// TestPromptContentToPartCoversEveryProtocolShape mirrors the tool-result
-// mapping for prompts through the shared content codec.
 func TestPromptContentToPartCoversEveryProtocolShape(t *testing.T) {
 	cases := map[string]struct {
 		content sdkmcp.Content

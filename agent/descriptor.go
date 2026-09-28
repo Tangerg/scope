@@ -32,10 +32,8 @@ type DescriptorConfig struct {
 	// discovery without execution-specific state.
 	Description string
 
-	// InputSchema is the authoritative structural contract for Process input.
 	InputSchema Schema
 
-	// OutputSchema is the authoritative structural contract for completed output.
 	OutputSchema Schema
 
 	// SignalSchema declares unaddressed Host input. The zero value rejects all
@@ -71,9 +69,6 @@ type Descriptor struct {
 	digest       Digest
 }
 
-// NewDescriptor validates the schemas at construction because they enter the
-// Deployment digest. A schema accepted here and rejected later would change a
-// Deployment's identity after Processes had already been started against it.
 func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	if err := config.validate(); err != nil {
 		return Descriptor{}, err
@@ -100,15 +95,12 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	return descriptor, nil
 }
 
-// Name returns the stable Definition name.
 func (d Descriptor) Name() string { return d.name }
 
 func (d Descriptor) Description() string { return d.description }
 
-// InputSchema returns the immutable schema value.
 func (d Descriptor) InputSchema() Schema { return d.inputSchema }
 
-// OutputSchema returns the immutable schema value.
 func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
 
 // SignalSchema returns the unaddressed input contract; false rejects all input.

@@ -62,10 +62,12 @@ sort -u "$work/selected" -o "$work/selected"
 # closure ensures a contract change also checks every module that compiles
 # against it, while an isolated provider change stays isolated.
 while IFS=$'\t' read -r _ module; do
+  requirements=$(cd "$root/$module" && go mod edit -json | jq -r '.Require[]?.Path')
   while IFS= read -r requirement; do
+    [[ -z "$requirement" ]] && continue
     dependency=$(awk -F '\t' -v path="$requirement" '$1 == path { print $2; exit }' "$work/module-paths")
     [[ -z "$dependency" ]] || printf '%s\t%s\n' "$module" "$dependency" >> "$work/dependencies"
-  done < <(cd "$root/$module" && go mod edit -json | jq -r '.Require[]?.Path')
+  done <<< "$requirements"
 done < "$work/modules-by-depth"
 touch "$work/dependencies"
 

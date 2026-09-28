@@ -17,11 +17,6 @@ import (
 
 const goListPackageNameFormat = "{{.ImportPath}}\t{{.Name}}"
 
-// TestReceiversAreTheirTypeInitial keeps one receiver spelling across the
-// repository. A receiver named after a word inside the type reads fine in
-// isolation but makes two methods on sibling types look unrelated, and a
-// receiver spelled out in full collides with the domain vocabulary used for
-// locals in the same body.
 func TestReceiversAreTheirTypeInitial(t *testing.T) {
 	t.Parallel()
 	forEachGoFile(t, func(path string, fset *token.FileSet, file *ast.File) {
@@ -48,10 +43,6 @@ func TestReceiversAreTheirTypeInitial(t *testing.T) {
 	})
 }
 
-// TestParametersDoNotShadowImportedPackages keeps an identifier from meaning
-// two things inside one body. A parameter named like an imported package makes
-// `filter.Predicate` and `filter.Accept` read alike while resolving to
-// different objects, which survives review and misleads the next reader.
 func TestParametersDoNotShadowImportedPackages(t *testing.T) {
 	t.Parallel()
 	packageNames := loadPackageNames(t)
@@ -179,9 +170,6 @@ func receiverTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// forEachGoFile visits every Go source file in the repository, including tests,
-// because a naming rule that stops at production code drifts in the tests that
-// document it.
 func forEachGoFile(t *testing.T, visit func(path string, fset *token.FileSet, file *ast.File)) {
 	t.Helper()
 	root := repositoryRoot(t)

@@ -61,14 +61,10 @@ type ToolObserver interface {
 // means its external outcome remains unestablished, including host failures,
 // cancellation, deadlines, and panics. Observation never settles the Effect.
 type ToolSettlement struct {
-	// Result is the exact ordinary Tool result produced by this call.
-	Result *chat.ToolResult
-	// InputRequired reports that the Tool paused before producing Result.
+	Result        *chat.ToolResult
 	InputRequired bool
-	// Failure diagnoses an attempt that produced no Result.
-	Failure string
-	// Unknown reports that the external Tool settlement could not be determined.
-	Unknown bool
+	Failure       string
+	Unknown       bool
 	// Evidence is non-final output from an unknown call. It is never promoted
 	// to Result and cannot establish whether the external operation succeeded.
 	Evidence *chat.ToolOutput
@@ -134,11 +130,7 @@ func (o ObservationFailures) LastToolSettledPanic() (ObserverPanic, bool) {
 	return *o.lastToolSettledPanic, true
 }
 
-// observationCallback selects the counter and latest-diagnostic slot one
-// callback owns. Binding the slot to the callback keeps that mapping in a single
-// declaration: a new callback cannot exist without its slot, and no dispatch
-// table can disagree with it. A table would also have to fail somewhere, and the
-// only place to fail here is inside the recover that isolates observer panics.
+// Each callback owns its counter slot, so panic recovery needs no fallible lookup.
 type observationCallback func(*ObservationFailures) (panics *uint64, latest **ObserverPanic)
 
 func modelStartedCallback(failures *ObservationFailures) (*uint64, **ObserverPanic) {

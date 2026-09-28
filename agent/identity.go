@@ -88,7 +88,6 @@ func (identity) JSONSchemaAlias() any { return "" }
 // ProcessID is the stable identity of one Engine-owned Process.
 type ProcessID struct{ identity }
 
-// ParseProcessID validates an externally encoded Process identity.
 func ParseProcessID(value string) (ProcessID, error) {
 	id, err := parseIdentity("process ID", value)
 	return ProcessID{id}, err
@@ -139,7 +138,6 @@ func (s *SignalID) UnmarshalText(text []byte) error {
 // a WaitID does not create a wait; the Engine rejects identities it did not mint.
 type WaitID struct{ identity }
 
-// ParseWaitID validates the wire representation of a Wait identity.
 func ParseWaitID(value string) (WaitID, error) {
 	id, err := parseIdentity("wait ID", value)
 	return WaitID{id}, err
@@ -164,7 +162,6 @@ func (w WaitID) childWaitSignalID() SignalID {
 // EffectID identifies one Effect at a stable Process, Step, and batch index.
 type EffectID struct{ identity }
 
-// ParseEffectID validates an externally encoded Effect identity.
 func ParseEffectID(value string) (EffectID, error) {
 	id, err := parseIdentity("effect ID", value)
 	return EffectID{id}, err
@@ -198,7 +195,6 @@ func (e EffectID) childProcessID() ProcessID {
 // with the WaitID later minted by the Engine.
 type WaitKey struct{ identity }
 
-// ParseWaitKey validates an Execution-owned logical wait key.
 func ParseWaitKey(value string) (WaitKey, error) {
 	id, err := parseIdentity("wait key", value)
 	return WaitKey{id}, err
@@ -221,7 +217,6 @@ func (w *WaitKey) UnmarshalText(text []byte) error {
 // identity to make retries and restoration idempotent.
 type ChildKey struct{ identity }
 
-// ParseChildKey validates an Execution-owned logical child identity.
 func ParseChildKey(value string) (ChildKey, error) {
 	id, err := parseIdentity("child key", value)
 	return ChildKey{id}, err

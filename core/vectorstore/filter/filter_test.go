@@ -178,8 +178,6 @@ func TestParse_IsNull(t *testing.T) {
 }
 
 func TestParse_IsNullRejectsNonNull(t *testing.T) {
-	// IS must be followed by NULL (optionally NOT NULL); other right
-	// sides are rejected at parse time.
 	for _, src := range []string{
 		`owner is 5`,
 		`owner is 'x'`,
@@ -192,8 +190,6 @@ func TestParse_IsNullRejectsNonNull(t *testing.T) {
 }
 
 func TestParse_NotIn(t *testing.T) {
-	// `NOT IN` reuses the NOT + IN tokens: it parses to a NOT wrapping an
-	// IN, not a dedicated node.
 	expr, err := filter.Parse(`tags not in ('a', 'b', 'c')`)
 	if err != nil {
 		t.Fatal(err)
@@ -208,10 +204,24 @@ func TestParse_NotIn(t *testing.T) {
 }
 
 func TestParse_NotInRejectsNonIn(t *testing.T) {
-	// Infix NOT only accepts IN after it.
 	for _, src := range []string{`a not == 1`, `a not 5`} {
 		if _, err := filter.Parse(src); err == nil {
 			t.Fatalf("Parse(%q): expected error, got nil", src)
 		}
+	}
+}
+
+func TestMatchRejectsNilPredicates(t *testing.T) {
+	for _, predicate := range []filter.Predicate{nil, (*filter.BinaryExpr)(nil), (*filter.UnaryExpr)(nil)} {
+		func() {
+			defer func() {
+				if value := recover(); value != nil {
+					t.Fatalf("Match panicked: %v", value)
+				}
+			}()
+			if matched, err := filter.Match(predicate, nil); err == nil || matched {
+				t.Fatalf("Match() = %v, %v; want false and error", matched, err)
+			}
+		}()
 	}
 }

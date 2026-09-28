@@ -33,9 +33,6 @@ func (*typedNilBackend) Grep(context.Context, GrepInput) (GrepResponse, error) {
 	panic("typed nil backend was used")
 }
 
-// Compile-time assertions that every tool constructor returns a value
-// satisfying chat.Tool. (We re-assert here for documentation
-// and to catch refactors that break the interface.)
 func TestTools_Definitions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -137,7 +134,6 @@ func TestReadTool_OneBasedStartLineTranslation(t *testing.T) {
 
 	tool := mustReadTool(t, mustLocalExecutor(t, dir))
 
-	// start_line=2 means "start at line 2"; max_lines=2 takes line2,line3.
 	output, err := invokeTestTool(t.Context(), tool, `{"path":"`+path+`","start_line":2,"max_lines":2}`)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
@@ -293,7 +289,7 @@ func TestGrepTool_FilesWithMatchesMode(t *testing.T) {
 	if len(resp.Lines) != 0 {
 		t.Errorf("lines must be empty in files mode: %v", resp.Lines)
 	}
-	// JSON sum-type sanity: lines/counts must be absent (omitempty)
+
 	if strings.Contains(string(output.Details), `"lines"`) {
 		t.Errorf("body should omit lines in files mode; got %s", output.Details)
 	}

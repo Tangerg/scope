@@ -20,13 +20,11 @@ type MapConfig[I, O any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	// Deployment is the exact child behavior binding used for every item.
 	Deployment agent.Deployment
 
 	// Budget is permanently allocated from the parent for each started item.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to each child.
 	Capabilities agent.CapabilitySet
 
 	// WindowSize is the positive number of items started and settled as one

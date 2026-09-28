@@ -94,7 +94,6 @@ type TreeInspection struct {
 	Processes     []ProcessInspection
 }
 
-// Process finds a published Process in the report's canonical depth/ID order.
 func (t TreeInspection) Process(processID ProcessID) (ProcessInspection, bool) {
 	for _, process := range t.Processes {
 		if process.Snapshot.ProcessID() == processID {

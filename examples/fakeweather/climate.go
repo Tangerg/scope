@@ -1,8 +1,7 @@
 package fakeweather
 
-// climateZone is the package's climate-band enum. Used to look up
-// monthly base temperature, seasonal pattern, plausible weather
-// conditions, and other downstream correlates.
+import "math"
+
 type climateZone int
 
 const (
@@ -17,9 +16,6 @@ const (
 	zoneAlpine
 )
 
-// candidateConditions returns the list of weather conditions that are
-// plausible for the given (mean temp, month, zone, seasonal pattern).
-// The caller picks one uniformly at random.
 func (c climateZone) candidateConditions(temp int, month int, seasonal seasonalPattern) []Condition {
 	isSummer := month >= 6 && month <= 8
 	isWinter := month == 12 || month <= 2
@@ -72,7 +68,6 @@ func (c climateZone) candidateConditions(temp int, month int, seasonal seasonalP
 		return []Condition{ConditionPartlyCloudy, ConditionSunny, ConditionClear, ConditionCloudy, ConditionRainy}
 	}
 
-	// zoneTemperate (default)
 	switch {
 	case temp < 0:
 		return []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionFreezing}
@@ -87,9 +82,8 @@ func (c climateZone) candidateConditions(temp int, month int, seasonal seasonalP
 	return []Condition{ConditionSunny, ConditionHot, ConditionPartlyCloudy, ConditionClear}
 }
 
-// seasonalPattern describes a zone's rainfall seasonality. Months are
-// 1-based on the *northern hemisphere calendar*; monthForLookup applies
-// the southern-hemisphere six-month shift where appropriate.
+// Months use the northern hemisphere calendar; monthForLookup shifts known
+// southern locations by six months.
 type seasonalPattern struct {
 	rainyStart       int // inclusive (1..12), 0 = no rainy season
 	rainyEnd         int // inclusive
@@ -97,24 +91,20 @@ type seasonalPattern struct {
 	drySeason        bool
 }
 
-// climateProfile bundles a zone's monthly mean temperature table plus
-// realistic floor/ceiling bounds. Floors prevent jitter+elevation
-// from producing impossible values (e.g., a 30°C summer reading
-// dropping below 0°C). Index is month-1 (0..11).
 type climateProfile struct {
 	mean [12]int // monthly mean (°C)
-	// dailyAmplitude is the typical Mean→Max swing in °C; Min is
-	// symmetric around mean. Day-of-year jitter on top is ±2°C.
+	// Mean-to-maximum temperature swing in Celsius.
 	dailyAmplitude int
-	// floor and ceiling clamp the final synthesized temperature so
-	// jitter+elevation can never produce physically absurd values.
+
 	floor   int // °C lower bound (regardless of month)
 	ceiling int // °C upper bound (regardless of month)
 }
 
-// climateProfiles is the per-zone table used by every temperature
-// derivation. Numbers are deliberately conservative — a synthesized
-// "typical" climate, not record extremes.
+func (c climateProfile) dailyVariation(hour int) int {
+	const peakHour = 14
+	return int(math.Round(float64(c.dailyAmplitude) * math.Cos(float64(hour-peakHour)*math.Pi/12)))
+}
+
 var climateProfiles = map[climateZone]climateProfile{
 	zoneTemperate: {
 		mean:           [12]int{5, 7, 12, 18, 23, 28, 30, 29, 24, 18, 12, 7},
@@ -163,9 +153,6 @@ var climateProfiles = map[climateZone]climateProfile{
 	},
 }
 
-// seasonalPatterns is the per-zone rainfall pattern. Only zones with
-// a meaningful pattern are listed; the default zero value is fine for
-// the rest.
 var seasonalPatterns = map[climateZone]seasonalPattern{
 	zoneTropical:      {rainyStart: 5, rainyEnd: 10, monsoonInfluence: true},
 	zoneSubtropical:   {rainyStart: 4, rainyEnd: 9, monsoonInfluence: true},
@@ -173,29 +160,18 @@ var seasonalPatterns = map[climateZone]seasonalPattern{
 	zoneDesert:        {drySeason: true},
 }
 
-// identifyClimateZone returns the zone for the requested location.
-// All lookups go through the data tables in cities.go — this
-// function holds no city/region names of its own. Order:
-//
-//  1. Regional patterns ([lookupRegion]) — most specific intent
-//     ("antarctica research base" → polar).
-//  2. Known cities ([lookupCity]) — gazetteer entries.
-//  3. zoneTemperate fallback — also signals "treat as northern
-//     hemisphere" downstream so unknown locations retain deterministic
-//     seasonal behavior.
+// Regional hints take precedence over city climate profiles.
 func identifyClimateZone(location string) climateZone {
-	if zone, ok := lookupRegion(location); ok {
+	if zone, ok := regionalZones.lookup(location); ok {
 		return zone
 	}
-	if profile, ok := lookupCity(location); ok {
+	if profile, ok := knownCities.lookup(location); ok {
 		return profile.Zone
 	}
 	return zoneTemperate
 }
 
-// monthInRange returns whether month falls within the inclusive
-// [start, end] window, handling wrap-around (e.g., Mediterranean
-// rainy season Nov..Mar).
+// The interval is inclusive and may cross December; zero bounds disable it.
 func monthInRange(month, start, end int) bool {
 	if start == 0 && end == 0 {
 		return false

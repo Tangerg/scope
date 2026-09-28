@@ -12,10 +12,6 @@ import (
 	"testing"
 )
 
-// TestWireDTOFieldsExcludeArbitraryRuntimeValues keeps protocol DTOs safe at
-// assignment time. Provider SDK objects, functions, readers, and other
-// runtime-only values must be converted at an adapter boundary instead of
-// surviving in Core until json.Marshal discovers them.
 func TestWireDTOFieldsExcludeArbitraryRuntimeValues(t *testing.T) {
 	t.Parallel()
 

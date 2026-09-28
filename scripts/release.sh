@@ -41,7 +41,8 @@ done
 
 cd "$release_root"
 [[ $(git branch --show-current) == "$release_branch" ]] || fail "run from branch $release_branch"
-[[ -z $(git status --porcelain) ]] || fail "working tree must be clean"
+release_status=$(git status --porcelain)
+[[ -z "$release_status" ]] || fail "working tree must be clean"
 
 git fetch --prune --tags "$release_remote"
 release_remote_head=$(git rev-parse "$release_remote/$release_branch")
@@ -61,7 +62,9 @@ mkdir -p "$release_modcache"
 
 git ls-remote --tags "$release_remote" >"$release_remote_tags"
 
+release_workspace_paths=$(go work edit -json | jq -r '.Use[].DiskPath')
 while IFS= read -r release_disk_path; do
+  [[ -z "$release_disk_path" ]] && continue
   [[ "$release_disk_path" == ./* && "$release_disk_path" != *'/../'* ]] ||
     fail "workspace module path is not repository-relative: $release_disk_path"
   release_module_dir=$release_root/${release_disk_path#./}
@@ -69,18 +72,19 @@ while IFS= read -r release_disk_path; do
   [[ "$release_module_path" == "$release_module_prefix"* ]] ||
     fail "workspace module is outside $release_module_prefix: $release_module_path"
   printf '%s\t%s\n' "$release_module_path" "$release_module_dir" >>"$release_module_table"
-done < <(go work edit -json | jq -r '.Use[].DiskPath')
+done <<< "$release_workspace_paths"
 
 [[ -s "$release_module_table" ]] || fail "go.work contains no releasable modules"
 sort -o "$release_module_table" "$release_module_table"
 
 while IFS=$'\t' read -r release_module_path release_module_dir; do
+  release_requirements=$(env GOWORK=off go -C "$release_module_dir" mod edit -json | jq -r '.Require[]?.Path')
   while IFS= read -r release_dependency; do
     [[ -n "$release_dependency" ]] || continue
     if awk -F '\t' -v dependency="$release_dependency" '$1 == dependency { found = 1 } END { exit !found }' "$release_module_table"; then
       printf '%s\t%s\n' "$release_dependency" "$release_module_path" >>"$release_edge_table"
     fi
-  done < <(env GOWORK=off go -C "$release_module_dir" mod edit -json | jq -r '.Require[]?.Path')
+  done <<< "$release_requirements"
 done <"$release_module_table"
 
 awk -F '\t' '
@@ -180,13 +184,14 @@ while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
   release_module_count=$((release_module_count + 1))
   release_tag=$(tag_for "$release_module_path")
   release_latest=
+  release_candidate_tags=$(git tag --list "${release_tag%/*}/v*" --sort=-version:refname)
   while IFS= read -r release_candidate_tag; do
     [[ "$release_candidate_tag" == "$release_tag" ]] && continue
     if [[ "$release_candidate_tag" =~ /v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
       release_latest=${release_candidate_tag##*/}
       break
     fi
-  done < <(git tag --list "${release_tag%/*}/v*" --sort=-version:refname)
+  done <<< "$release_candidate_tags"
   if [[ -n "$release_latest" ]] && ! version_greater_than "$release_version" "$release_latest"; then
     fail "$release_tag must be greater than ${release_tag%/*}/$release_latest"
   fi
@@ -211,12 +216,14 @@ if [[ -n "$release_first_existing_tag" ]]; then
   release_existing_commit=$(git rev-list -n 1 "$release_first_existing_tag")
   git merge-base --is-ancestor "$release_existing_commit" HEAD ||
     fail "$release_first_existing_tag is not an ancestor of HEAD"
+  release_changed_paths=$(git diff --name-only "$release_existing_commit" HEAD)
   while IFS= read -r release_changed_path; do
+    [[ -z "$release_changed_path" ]] && continue
     case "$release_changed_path" in
       */go.mod | */go.sum) ;;
       *) fail "source changed after $release_first_existing_tag; use a new version" ;;
     esac
-  done < <(git diff --name-only "$release_existing_commit" HEAD)
+  done <<< "$release_changed_paths"
 fi
 
 if ((release_remote_count == release_module_count)); then
@@ -228,7 +235,8 @@ printf 'release: running repository gates before freezing %s\n' "$release_versio
 # Tidy belongs to the dependency layer below: a new package in an internal
 # module cannot be resolved independently until that module's new tag exists.
 scripts/check.sh build vet test race lint
-[[ -z $(git status --porcelain) ]] || fail "repository gates changed the working tree"
+release_status=$(git status --porcelain)
+[[ -z "$release_status" ]] || fail "repository gates changed the working tree"
 
 release_go() {
   env \
@@ -248,12 +256,13 @@ for ((release_layer = 0; release_layer <= release_max_layer; release_layer++)); 
   release_stage_paths=()
   while IFS=$'\t' read -r release_planned_layer release_module_path release_module_dir; do
     [[ "$release_planned_layer" == "$release_layer" ]] || continue
+    release_requirements=$(env GOWORK=off go -C "$release_module_dir" mod edit -json | jq -r '.Require[]?.Path')
     while IFS= read -r release_dependency; do
       [[ -n "$release_dependency" ]] || continue
       if awk -F '\t' -v dependency="$release_dependency" '$1 == dependency { found = 1 } END { exit !found }' "$release_module_table"; then
         env GOWORK=off go -C "$release_module_dir" mod edit -require="$release_dependency@$release_version"
       fi
-    done < <(env GOWORK=off go -C "$release_module_dir" mod edit -json | jq -r '.Require[]?.Path')
+    done <<< "$release_requirements"
 
     release_go -C "$release_module_dir" mod tidy
     release_go -C "$release_module_dir" mod tidy -diff
@@ -289,7 +298,8 @@ for ((release_layer = 0; release_layer <= release_max_layer; release_layer++)); 
   done <"$release_plan"
 done
 
-[[ -z $(git status --porcelain) ]] || fail "release staging left uncommitted changes"
+release_status=$(git status --porcelain)
+[[ -z "$release_status" ]] || fail "release staging left uncommitted changes"
 
 git push "$release_remote" "$release_branch"
 while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do

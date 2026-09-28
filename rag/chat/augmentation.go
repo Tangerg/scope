@@ -39,8 +39,6 @@ Answer:`
 const contextualEmptyContextTemplate = `The user query is outside your knowledge base.
 Politely inform the user that you can't answer it.`
 
-// ContextualAugmenterConfig fixes formatting, citation, and token-budget policy
-// for generation context.
 type ContextualAugmenterConfig struct {
 	// PromptTemplate is the augmentation template. Defaults to
 	// [contextualDefaultTemplate]. Custom templates must declare
@@ -109,7 +107,6 @@ func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error
 
 var _ rag.Augmenter = (*ContextualAugmenter)(nil)
 
-// ContextualAugmenter folds retrieved documents into a contextual query.
 type ContextualAugmenter struct {
 	promptTemplate             *chatclient.Template
 	emptyContextPromptTemplate *chatclient.Template
@@ -129,8 +126,6 @@ type contextualEvidence struct {
 	Content  string `json:"content"`
 }
 
-// NewContextualAugmenter validates the complete context policy before retrieval
-// results are admitted.
 func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmenter, error) {
 	budget, err := newContextBudget(config.MaxContextTokens, config.TokenCounter)
 	if err != nil {

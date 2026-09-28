@@ -16,7 +16,6 @@ const (
 	thresholdParameter = "threshold"
 )
 
-// NewScore rejects non-finite and out-of-range values at construction.
 func NewScore(value float64) (Score, error) {
 	score := Score(value)
 	if err := score.Validate(); err != nil {

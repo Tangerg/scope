@@ -35,17 +35,4 @@
 // which can lose precision before Scope receives them. Exact numeric schema
 // constraints and native metadata beyond that precision require an SDK fix.
 // Core metadata uses a JSON-text envelope to preserve its numbers on round trips.
-//
-// # Naming
-//
-// The package shares its name with the SDK
-// (github.com/Tangerg/go-sdk/mcp). Consumers will normally
-// import it as:
-//
-//	import (
-//	    scopemcp "github.com/Tangerg/scope/mcp"
-//	    sdkmcp "github.com/Tangerg/go-sdk/mcp"
-//	)
-//
-// Inside this package the SDK is imported under the alias sdkmcp.
 package mcp

@@ -12,9 +12,7 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ApplyPatchRequest applies a Git-compatible unified diff. The local executor
-// supports create, modify, delete, and Git rename patches, which makes a
-// coordinated refactor one call.
+// ApplyPatchRequest accepts Git-compatible create, modify, delete, and rename patches.
 type ApplyPatchRequest struct {
 	Patch string `json:"patch" jsonschema:"minLength=1" jsonschema_description:"Git-compatible unified diff. Supports create, modify, delete, and rename operations; express moves with Git rename metadata."`
 }
@@ -31,13 +29,11 @@ type ApplyPatchResponse struct {
 // LocalExecutor reports paths relative to its authority root, even when patch
 // headers use absolute paths.
 type PatchFileResponse struct {
-	// Path is where the file ended up.
 	Path    string `json:"path"`
 	Hunks   int    `json:"hunks"`
 	Created bool   `json:"created,omitzero"`
 	Deleted bool   `json:"deleted,omitzero"`
-	// MovedFrom is the path the file left, set only for a move. Path alone would
-	// say a file exists somewhere new without saying which one stopped existing.
+	// MovedFrom is set only after a move removes its source.
 	MovedFrom string `json:"moved_from,omitempty"`
 }
 
@@ -49,8 +45,6 @@ type ApplyPatchTool struct {
 	typed    toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
 }
 
-// NewApplyPatchTool requires patch authority explicitly and derives one stable
-// tool schema.
 func NewApplyPatchTool(executor PatchApplier) (*ApplyPatchTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor

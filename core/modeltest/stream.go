@@ -4,13 +4,7 @@ import (
 	"iter"
 )
 
-// Collect drains an iter.Seq2[T, error] iterator into a slice. The
-// iteration stops on the first non-nil error, which is returned along
-// with whatever was yielded so far.
-//
-// This is the canonical helper for streaming-test assertions: spin up
-// a mock SSE server, call model.Stream(ctx, req), Collect the result,
-// then assert on the slice + final error.
+// Collect stops at the first error and returns values yielded before it.
 func Collect[T any](seq iter.Seq2[T, error]) ([]T, error) {
 	var out []T
 	for v, err := range seq {
@@ -22,19 +16,19 @@ func Collect[T any](seq iter.Seq2[T, error]) ([]T, error) {
 	return out, nil
 }
 
-// CollectN drains at most n items from the iterator. Use this for
-// cancellation tests — break early to verify the iterator's stop
-// function tears down the upstream connection cleanly.
+// CollectN returns at most count values, stopping on the first error.
+// A nonpositive count does not start the iterator.
 func CollectN[T any](sequence iter.Seq2[T, error], count int) ([]T, error) {
+	if count <= 0 {
+		return nil, nil
+	}
 	var values []T
-	var collected int
 	for value, err := range sequence {
 		if err != nil {
 			return values, err
 		}
 		values = append(values, value)
-		collected++
-		if collected >= count {
+		if len(values) >= count {
 			return values, nil
 		}
 	}

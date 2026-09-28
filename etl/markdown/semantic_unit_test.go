@@ -8,11 +8,6 @@ import (
 	markdownsplitter "github.com/Tangerg/scope/etl/markdown"
 )
 
-// TestSplitterNamesTheIndivisibleUnit is what makes an over-limit failure
-// actionable. Each structure has its own smallest indivisible unit — a table
-// row, a list item, a code line, a word — and the error has to say which one
-// blew the budget, otherwise the caller only learns that some part of a large
-// document did not fit.
 func TestSplitterNamesTheIndivisibleUnit(t *testing.T) {
 	cases := map[string]struct {
 		source string
@@ -52,9 +47,6 @@ func TestSplitterNamesTheIndivisibleUnit(t *testing.T) {
 	}
 }
 
-// TestSplitterSplitsAParagraphRatherThanFailing is the boundary of the previous
-// rule: prose has no indivisible unit above the word, so a long paragraph must
-// fall back to token windows instead of being reported as too large.
 func TestSplitterSplitsAParagraphRatherThanFailing(t *testing.T) {
 	splitter := newSplitter(t, 25, 0)
 	chunks, err := splitter.SplitText(t.Context(), strings.Repeat("word ", 40))

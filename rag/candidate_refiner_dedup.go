@@ -6,7 +6,6 @@ import (
 
 var _ Refiner = deduper{}
 
-// deduper collapses retrieval candidates that identify the same document.
 type deduper struct{}
 
 // Dedup returns a [Refiner] that keeps the highest-scoring candidate for each
@@ -17,8 +16,6 @@ func Dedup() Refiner {
 	return deduper{}
 }
 
-// Refine returns the best candidate for every known document identity. Honors
-// ctx cancellation.
 func (d deduper) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -10,7 +10,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ErrNilStreamer rejects a missing streaming dependency at construction.
 var ErrNilStreamer = errors.New("chatclient: nil streamer")
 
 var errNilStreamSequence = errors.New("chatclient: streamer returned a nil sequence")
@@ -28,7 +27,6 @@ type StreamClient struct {
 	streamer chat.Streamer
 }
 
-// NewStreamClient rejects absent streaming dependencies before any work starts.
 func NewStreamClient(streamer chat.Streamer, config StreamConfig) (StreamClient, error) {
 	if lo.IsNil(streamer) {
 		return StreamClient{}, ErrNilStreamer

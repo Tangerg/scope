@@ -31,7 +31,6 @@ func (a Artifact) ToolCallID() string { return a.toolCallID }
 
 func (a Artifact) DelegateName() string { return a.delegateName }
 
-// Output returns the immutable, schema-validated child output.
 func (a Artifact) Output() agent.Payload { return a.output }
 
 // Decode strictly decodes a's output into T. The output was already
@@ -93,9 +92,7 @@ func (c CompletionCandidate) Artifacts() []Artifact { return slices.Clone(c.arti
 // non-empty Feedback that will be appended as a user message before the next
 // model call.
 type CompletionDecision struct {
-	// Accepted permits completion with the proposed final semantic output.
 	Accepted bool
-	// Feedback explains a rejection to the model and is empty when accepted.
 	Feedback string
 }
 

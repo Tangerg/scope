@@ -125,10 +125,9 @@ func newTestFS() ResourceSource {
 		"pdf-processing/SKILL.md":                {Data: []byte(pdfSkill)},
 		"pdf-processing/references/REFERENCE.md": {Data: []byte("# Reference\nDetailed notes.")},
 		"data-analysis/SKILL.md":                 {Data: []byte("---\nname: data-analysis\ndescription: Analyze data.\n---\nbody")},
-		// A directory that is not a valid skill — must be skipped by List.
-		"not-a-skill/readme.txt": {Data: []byte("ignore me")},
-		"malformed/SKILL.md":     {Data: []byte("missing frontmatter")},
-		"UPPER/SKILL.md":         skillFile("UPPER", "invalid directory name", "body"),
+		"not-a-skill/readme.txt":                 {Data: []byte("ignore me")},
+		"malformed/SKILL.md":                     {Data: []byte("missing frontmatter")},
+		"UPPER/SKILL.md":                         skillFile("UPPER", "invalid directory name", "body"),
 	})
 }
 
@@ -345,7 +344,6 @@ func TestList(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d summaries, want 2 (non-skill dir skipped): %v", len(got), got)
 	}
-	// Sorted by name: data-analysis before pdf-processing.
 	if got[0].Name != "data-analysis" || got[1].Name != "pdf-processing" {
 		t.Errorf("summaries not sorted by name: %v", got)
 	}
@@ -482,7 +480,6 @@ func TestReadResource(t *testing.T) {
 		t.Error("resource content is empty")
 	}
 
-	// Traversal out of the skill directory must be rejected.
 	if _, _, err := ReadResource(context.Background(), fsrc, "pdf-processing", "../data-analysis/SKILL.md", DefaultMaxResourceBytes); !errors.Is(err, ErrResourcePath) {
 		t.Errorf("traversal err = %v, want ErrResourcePath", err)
 	}

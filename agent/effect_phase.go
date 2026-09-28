@@ -85,13 +85,14 @@ func (p *preparedEffect) validatePhase() error {
 	if (p.Phase == effectPhaseSettled) != (p.Settlement != nil) {
 		return errors.New("prepared Effect settlement presence disagrees with phase")
 	}
-	if p.Settlement != nil {
-		if !p.Settlement.Valid() {
-			return errors.New("prepared Effect settlement is invalid")
-		}
-		if p.Settlement.EffectID() != p.ID {
-			return errors.New("prepared Effect settlement identifies another Effect")
-		}
+	if p.Settlement == nil {
+		return nil
+	}
+	if !p.Settlement.Valid() {
+		return errors.New("prepared Effect settlement is invalid")
+	}
+	if p.Settlement.EffectID() != p.ID {
+		return errors.New("prepared Effect settlement identifies another Effect")
 	}
 	return nil
 }

@@ -103,18 +103,6 @@ func TestExactNumberConversions(t *testing.T) {
 		}
 	})
 
-	// Provider filter grammars document decimal numerals, not exponents, and a
-	// store pastes NumberText straight into a filter string. The canonical text
-	// of these literals is "1e+06" and "9.223372036854776e+18"; emitting that
-	// would hand Typesense and Vespa a numeral their documented grammars never
-	// promise to read.
-	//
-	// 2^63 also pins the boundary that made the adapters' own rendering
-	// architecture-dependent: they decided integer-ness with
-	// float64(int64(val)) == val, and Go leaves an out-of-range float-to-int
-	// conversion implementation-defined — arm64 saturates to MaxInt64, whose
-	// float64 equals 2^63, so the comparison passed and the filter carried
-	// 9223372036854775807 while amd64 carried the right digits.
 	t.Run("decimal numeral without exponent", func(t *testing.T) {
 		tests := []struct {
 			name    string

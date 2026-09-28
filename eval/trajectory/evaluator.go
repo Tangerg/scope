@@ -10,9 +10,6 @@ import (
 	"github.com/Tangerg/scope/eval"
 )
 
-// These metric names are constants because a report is aggregated by exact
-// metric identity. A renamed or restated metric silently splits a series that
-// a reader would compare as one.
 const (
 	metricNamespace                       = "agent"
 	metricMaximumKey                      = "maximum"
@@ -36,7 +33,6 @@ const (
 // OutputProjection is required only when comparing a replay baseline.
 // Resource counts cover the whole tree; unknown evidence returns an error.
 type Evaluator struct {
-	// OutputProjection selects the business output used by optional replay comparison.
 	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
 }
 

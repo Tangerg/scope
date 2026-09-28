@@ -13,29 +13,20 @@ import (
 
 const integrationEmbeddingTimeout = 30 * time.Second
 
-// EmbeddingContract drives the mock-test contract for any embedding
-// vendor. The `Response` field is the canned JSON body the mock server
-// returns — it should encode a response with 2 embeddings (matching
-// the 2-input request the contract sends).
 type EmbeddingContract struct {
-	// ModelID is the model id passed into the embedding request.
 	ModelID string
-	// Response is the canned JSON body — must encode 2 outputs so the
-	// contract can validate batching.
+	// Response must encode two embeddings matching ExpectedEmbeddings in order.
 	Response string
 	// InputField names the provider JSON field containing the ordered input texts.
 	InputField string
-	// ExpectedEmbeddings is the exact ordered result encoded by Response.
+
 	ExpectedEmbeddings [][]float64
-	// ExpectedPath is the URL path the SDK should hit (e.g. "/embeddings"
-	// or "/embedding/text"). Empty means skip the path assertion.
+	// An empty path skips the URL-path assertion.
 	ExpectedPath string
-	// Build returns the model wired against the mock server.
+
 	Build func(t *testing.T, baseURL string) embedding.Model
 }
 
-// RunEmbeddingContract checks the request and its exact ordered response through
-// the provider transport boundary.
 func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 	t.Helper()
 	t.Run("Call_Mock", func(t *testing.T) {
@@ -100,16 +91,11 @@ func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 	})
 }
 
-// IntegrationEmbeddingProbe is the standard real-API embedding smoke
-// probe: Call returns 2 outputs with non-empty embeddings.
 type IntegrationEmbeddingProbe struct {
 	Provider string
 	Build    func(t *testing.T, key string) embedding.Model
 }
 
-// RunIntegrationEmbedding repeats the mock assertions against the live
-// service, because a canned body cannot reject an adapter whose auth header,
-// path, or request encoding the real vendor would refuse.
 func RunIntegrationEmbedding(t *testing.T, probe IntegrationEmbeddingProbe) {
 	t.Helper()
 	key := RequireKey(t, probe.Provider)

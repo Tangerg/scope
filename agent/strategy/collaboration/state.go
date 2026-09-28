@@ -241,8 +241,6 @@ func (e executionState) validateReady() error {
 	return nil
 }
 
-// Each of these three facts is carried both by Phase and by a field, so a
-// state that disagrees with itself has two answers to the same question.
 func (e executionState) validatePhaseCorrespondence(unapplied int) error {
 	if e.Phase != phaseApplying && unapplied != 0 {
 		return fmt.Errorf("%w: phase %q retains unapplied work", ErrInvalidExecutionState, e.Phase)

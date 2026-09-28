@@ -4,7 +4,6 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -15,8 +14,6 @@ type execution struct {
 	state      executionState
 }
 
-// Step advances exactly one pure Interaction boundary. Model and tool I/O are
-// represented as dispatcher Effects and therefore never occur in this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
 	if err != nil {
@@ -38,10 +35,10 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		if addSteerErr := e.addSteer(steer); addSteerErr != nil {
+		if addSteerErr := e.state.addSteer(steer); addSteerErr != nil {
 			return agent.Transition{}, addSteerErr
 		}
-		appliedSteerSignalIDs, err := e.applyPendingSteer()
+		appliedSteerSignalIDs, err := e.state.applyPendingSteer()
 		if err != nil {
 			return agent.Transition{}, err
 		}
@@ -51,7 +48,7 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		if steerErr := e.addSteer(steer); steerErr != nil {
+		if steerErr := e.state.addSteer(steer); steerErr != nil {
 			return agent.Transition{}, steerErr
 		}
 		if e.state.Phase == phaseRoundComplete {
@@ -73,8 +70,6 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	}
 }
 
-// Snapshot returns a complete, self-sufficient WorkingContext and checkpoint.
-// Restore owns full validation, including Engine admission of each candidate.
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	return e.state.snapshot()
 }
@@ -164,7 +159,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
 	}
-	if addSteerErr := e.addSteer(steer); addSteerErr != nil {
+	if addSteerErr := e.state.addSteer(steer); addSteerErr != nil {
 		return agent.Transition{}, addSteerErr
 	}
 	if len(calls) == 0 {
@@ -198,7 +193,7 @@ func (e *execution) acceptFinalModelResponse(
 	request := e.state.WorkingContext.Clone()
 	request.Messages = append(request.Messages, modelOutput.Message.Clone())
 	e.state.WorkingContext = request
-	appliedSteerSignalIDs, err := e.applyPendingSteer()
+	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -339,7 +334,7 @@ func (e *execution) finishToolCallBatch(
 	request := e.state.WorkingContext.Clone()
 	request.Messages = append(request.Messages, completionContext...)
 	e.state.WorkingContext = request
-	appliedSteerSignalIDs, err := e.applyPendingSteer()
+	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -347,50 +342,6 @@ func (e *execution) finishToolCallBatch(
 		return agent.Transition{}, fmt.Errorf("%w: continuation request: %w", ErrInvalidExecutionState, err)
 	}
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
-}
-
-func (e *execution) addSteer(batch steerBatch) error {
-	if batch.empty() {
-		return nil
-	}
-	if err := batch.validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if e.state.PendingSteer == nil {
-		cloned := batch.clone()
-		e.state.PendingSteer = &cloned
-		return nil
-	}
-	e.state.PendingSteer.Messages = append(
-		e.state.PendingSteer.Messages,
-		cloneMessages(batch.Messages)...,
-	)
-	e.state.PendingSteer.SignalIDs = append(
-		e.state.PendingSteer.SignalIDs,
-		batch.SignalIDs...,
-	)
-	if err := e.state.PendingSteer.validate(); err != nil {
-		return fmt.Errorf("%w: merged pending steer: %w", ErrInvalidExecutionState, err)
-	}
-	return nil
-}
-
-func (e *execution) applyPendingSteer() ([]agent.SignalID, error) {
-	if e.state.PendingSteer == nil {
-		return nil, nil
-	}
-	if err := e.state.PendingSteer.validate(); err != nil {
-		return nil, fmt.Errorf("%w: pending steer: %w", ErrInvalidExecutionState, err)
-	}
-	request := e.state.WorkingContext.Clone()
-	request.Messages = append(request.Messages, cloneMessages(e.state.PendingSteer.Messages)...)
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: steered model request: %w", ErrInvalidExecutionState, err)
-	}
-	appliedSignalIDs := slices.Clone(e.state.PendingSteer.SignalIDs)
-	e.state.WorkingContext = request
-	e.state.PendingSteer = nil
-	return appliedSignalIDs, nil
 }
 
 func collectSteerSignals(signals []agent.Signal) (steerBatch, uint32, error) {
@@ -486,7 +437,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if steerErr := e.addSteer(steer); steerErr != nil {
+	if steerErr := e.state.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
 	calls, err := e.state.ToolRound.activeCalls(ctx)
@@ -543,7 +494,7 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if steerErr := e.addSteer(steer); steerErr != nil {
+	if steerErr := e.state.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
 	want, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
@@ -562,7 +513,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if steerErr := e.addSteer(steer); steerErr != nil {
+	if steerErr := e.state.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
 	calls, err := e.state.ToolRound.activeCalls(ctx)

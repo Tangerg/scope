@@ -17,11 +17,6 @@ import (
 // treeRuntime serializes authoritative changes because sibling jobs must not
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
-//
-// run owns command/completion ordering; advanceOne grants worker permission.
-// setTreeCommit/applySuccessfulTreeCommit keep acknowledgment ahead of publication.
-// advancePrepared finalizes Effects; completeFreeze and publishJoins expose
-// quiescence and drainage without creating another state-transition owner.
 type treeRuntime struct {
 	// Incarnation and head travel together to prevent a retired writer from
 	// advancing the current tree.
@@ -93,18 +88,16 @@ type treeFreezeAcquisitionResult struct {
 	err      error
 }
 
-// activeTreeFreeze owes its acquirer exactly one answer. The acquisition is
-// retained only while that answer is outstanding, so its absence is the barrier
-// phase itself rather than a second flag that could disagree with it.
+// Cancellation remains observable after answering: the caller may select its
+// canceled context while the acquisition result is still buffered.
 type activeTreeFreeze struct {
 	acquisition *treeFreezeAcquisition
 	freeze      *treeFreeze
+	canceled    <-chan struct{}
 }
 
-func (a *activeTreeFreeze) delivered() bool { return a.acquisition == nil }
+func (a *activeTreeFreeze) answered() bool { return a.acquisition == nil }
 
-// answer settles the outstanding acquisition exactly once. A delivered freeze
-// has no one waiting, so a later result is not owed to anybody.
 func (a *activeTreeFreeze) answer(result treeFreezeAcquisitionResult) {
 	if a.acquisition == nil {
 		return
@@ -401,10 +394,10 @@ func (t *treeRuntime) tryCommitCompletion() bool {
 }
 
 func (t *treeRuntime) freezeCancellation() <-chan struct{} {
-	if t.freeze == nil || t.freeze.acquisition == nil {
+	if t.freeze == nil {
 		return nil
 	}
-	return t.freeze.acquisition.canceled
+	return t.freeze.canceled
 }
 
 func (t *treeRuntime) tryFreezeCancellation() bool {
@@ -463,7 +456,7 @@ func (t *treeRuntime) tryCompletion() bool {
 func (t *treeRuntime) mutationsBlocked() bool {
 	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
 	// command to drain. Only the completed snapshot barrier blocks both lanes.
-	return t.commit != nil || t.freeze != nil && t.freeze.delivered()
+	return t.commit != nil || t.freeze != nil && t.freeze.answered()
 }
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
@@ -1193,8 +1186,8 @@ func (t *treeRuntime) failRuntime(
 	if t.freeze != nil {
 		freeze := t.freeze
 		t.releaseCurrentFreeze()
-		// A delivered freeze has no waiting acquirer; releaseFreeze reports the
-		// fault to its holder instead.
+		// An answered acquisition needs no second reply; releaseFreeze reports
+		// the fault to its holder.
 		freeze.answer(treeFreezeAcquisitionResult{err: cause})
 	}
 }
@@ -1364,13 +1357,13 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 		return
 	}
 	freeze := &treeFreeze{runtime: t}
-	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze}
+	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze, canceled: acquisition.canceled}
 	t.freezeActive.Store(true)
 	t.completeFreeze()
 }
 
 func (t *treeRuntime) completeFreeze() {
-	if t.freeze == nil || t.freeze.delivered() || t.commit != nil || t.freezeBlockedByJob() {
+	if t.freeze == nil || t.freeze.answered() || t.commit != nil || t.freezeBlockedByJob() {
 		return
 	}
 	snapshot, err := t.captureTree()
@@ -1717,7 +1710,7 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 	}
 	if t.freeze != nil {
 		inspection.Freeze = TreeFreezePhaseAcquiring
-		if t.freeze.delivered() {
+		if t.freeze.answered() {
 			inspection.Freeze = TreeFreezePhaseHeld
 		}
 	}
@@ -2345,21 +2338,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	settlement := result.settlement
-	replaying := record.unknown()
-	if !replaying {
-		candidate := process.candidate()
-		if err := candidate.prepared.Effects[index].settle(settlement, result.err); err != nil {
-			t.failProcessContract(process, failureCodeEngineEffectSettlementInvalid, err)
-			return
-		}
-		if err := t.validateSnapshotCapacity(candidate); err != nil {
-			t.failRuntime(err, process.handle.processID, record.ID)
-			return
-		}
-		process.adoptCandidate(candidate)
-		record = &process.prepared.Effects[index]
-	}
-	if replaying {
+	if record.unknown() {
 		command := processCommand{settlement: settlement, response: job.response}
 		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
 			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
@@ -2369,6 +2348,17 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 
+	candidate := process.candidate()
+	if err := candidate.prepared.Effects[index].settle(settlement, result.err); err != nil {
+		t.failProcessContract(process, failureCodeEngineEffectSettlementInvalid, err)
+		return
+	}
+	if err := t.validateSnapshotCapacity(candidate); err != nil {
+		t.failRuntime(err, process.handle.processID, record.ID)
+		return
+	}
+	process.adoptCandidate(candidate)
+	record = &process.prepared.Effects[index]
 	snapshot, err := t.captureTree()
 	if err != nil {
 		t.failRuntime(err, process.handle.processID, record.ID)
@@ -2543,14 +2533,15 @@ func (t *treeRuntime) childWaitOutcomes(
 		if registration.spec.Boundary == ChildWaitBoundaryDrained {
 			ready = child.handle.joinDone() && child.handle.joinError() == nil
 		}
-		if ready {
-			key, _ := child.handle.relation.ChildKey()
-			outcome := ChildOutcome{key: key, result: child.result(), boundary: registration.spec.Boundary}
-			if registration.spec.Boundary == ChildWaitBoundaryDrained {
-				outcome.subtreeUnresolvedEffects = t.subtreeUnresolvedEffects(childID)
-			}
-			outcomes = append(outcomes, outcome)
+		if !ready {
+			continue
 		}
+		key, _ := child.handle.relation.ChildKey()
+		outcome := ChildOutcome{key: key, result: child.result(), boundary: registration.spec.Boundary}
+		if registration.spec.Boundary == ChildWaitBoundaryDrained {
+			outcome.subtreeUnresolvedEffects = t.subtreeUnresolvedEffects(childID)
+		}
+		outcomes = append(outcomes, outcome)
 	}
 	return outcomes, uint32(len(outcomes)) >= registration.spec.required()
 }

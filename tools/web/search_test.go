@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// fakeSearcher is a test double for the [Searcher] SPI. It records
-// the last request it received and returns a canned response. This
-// is the only mocking in the package — searcher impls themselves are
-// tested against the real upstream via env-keyed integration tests.
 type fakeSearcher struct {
 	last *SearchRequest
 	resp *SearchResponse
@@ -158,6 +154,7 @@ func TestSearchToolRejectsInvalidProviderResponse(t *testing.T) {
 		nil,
 		{Query: "query", Results: []*SearchResult{nil}},
 		{Query: "query", Results: []*SearchResult{{URL: "not-a-url"}}},
+		{Query: "query", Results: []*SearchResult{{URL: "http://:80/page"}}},
 	} {
 		tool, err := NewSearchTool(&fakeSearcher{resp: response})
 		if err != nil {

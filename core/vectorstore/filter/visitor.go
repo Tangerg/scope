@@ -6,11 +6,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// Visitor processes a complete expression tree. Implementations own traversal
-// order and any target-specific state so they can validate, evaluate, or
-// compile the tree while returning the first error encountered. Callers should
-// pass a predicate accepted by [Predicate.Validate]; [Parse] and vector-store request
-// validation already enforce that boundary.
 type Visitor interface {
 	// Visit consumes one complete, already validated predicate. Implementations
 	// own traversal and may stop at the first target-specific error; they must not
@@ -19,6 +14,9 @@ type Visitor interface {
 }
 
 func accept(predicate Predicate, visitor Visitor) error {
+	if lo.IsNil(predicate) {
+		return errors.New("filter: accept visitor: predicate is nil")
+	}
 	if err := predicate.Validate(); err != nil {
 		return err
 	}

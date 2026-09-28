@@ -7,8 +7,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// DefaultMaxConcurrency bounds evaluation fan-out when a host does not choose
-// an explicit limit.
 const DefaultMaxConcurrency = 4
 
 // ErrorPolicy controls whether independent failures are collected or stop new
@@ -54,8 +52,6 @@ type Experiment[T any] struct {
 	errorPolicy    ErrorPolicy
 }
 
-// NewExperiment binds the immutable Dataset and resolves bounded scheduling
-// before a run starts.
 func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
 	if config.Dataset.fixtureID == "" {
 		return Experiment[T]{}, fmt.Errorf("%w: dataset fixture identity is required", ErrInvalidExperiment)

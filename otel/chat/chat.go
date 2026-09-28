@@ -48,15 +48,12 @@ var (
 	ErrNilStream     = errors.New("otel/chat: nil stream sequence")
 )
 
-// MiddlewareConfig identifies the remote GenAI provider and optionally supplies
-// providers scoped to this middleware. Provider is normalized to lowercase so
-// span and metric dimensions remain stable. The global OpenTelemetry providers
-// are used when a signal provider is nil.
+// Provider is normalized to lowercase for stable telemetry dimensions. Nil
+// signal providers use the corresponding OpenTelemetry globals.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
-	// LoggerProvider receives GenAI exception events. Nil uses the global provider.
 	LoggerProvider log.LoggerProvider
 }
 
@@ -80,8 +77,6 @@ type Middleware struct {
 	chunkInterval genaiconv.ClientOperationTimePerOutputChunk
 }
 
-// NewMiddleware fixes instrument identity and provider binding once so every
-// model request contributes to the same telemetry series.
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
@@ -308,22 +303,21 @@ func (m Middleware) recordMetrics(
 		genaiconv.ProviderNameAttr(m.provider),
 		durationAttrs...,
 	)
-	if observation.usage != nil {
-		m.tokens.Record(ctx, observation.usage.InputTokens,
-			genaiconv.OperationNameChat,
-			genaiconv.ProviderNameAttr(m.provider),
-			genaiconv.TokenTypeInput,
-			attrs...,
-		)
+	if observation.usage == nil {
+		return
 	}
-	if observation.usage != nil {
-		m.tokens.Record(ctx, observation.usage.OutputTokens,
-			genaiconv.OperationNameChat,
-			genaiconv.ProviderNameAttr(m.provider),
-			genaiconv.TokenTypeOutput,
-			attrs...,
-		)
-	}
+	m.tokens.Record(ctx, observation.usage.InputTokens,
+		genaiconv.OperationNameChat,
+		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.TokenTypeInput,
+		attrs...,
+	)
+	m.tokens.Record(ctx, observation.usage.OutputTokens,
+		genaiconv.OperationNameChat,
+		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.TokenTypeOutput,
+		attrs...,
+	)
 }
 
 func requestAttributes(request *corechat.Request) []attribute.KeyValue {

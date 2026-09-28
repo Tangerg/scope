@@ -9,12 +9,8 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// CostFunc lets an action's cost depend on the world state it would run in,
-// which is what allows a planner to prefer a cheap path under current facts
-// rather than a fixed ordering. Returning an error keeps an uncomputable cost
-// from being silently treated as zero, which would make that action always
-// win. The callback must be pure, deterministic, concurrency-safe, and bounded;
-// a Planner cannot interrupt a callback that does not return.
+// CostFunc must be pure, deterministic, concurrency-safe, and bounded. A Planner
+// cannot interrupt a callback that does not return. Invalid costs fail the search.
 type CostFunc func(source WorldState) (float64, error)
 
 // FixedCost returns a CostFunc that always returns value. Validation occurs
@@ -31,13 +27,10 @@ type ActionConfig struct {
 	// Name is the stable lower-case qualified Action identity.
 	Name string
 
-	// Description explains what the Action is expected to accomplish.
 	Description string
 
-	// Preconditions are truths required in the source WorldState.
 	Preconditions []Condition
 
-	// Effects are truths predicted in the successor WorldState after success.
 	Effects []Condition
 
 	// Cost computes the non-negative search edge cost. Nil defaults to 1.
@@ -54,10 +47,6 @@ type Action struct {
 	cost          CostFunc
 }
 
-// NewAction builds the predictive half of an action — preconditions, effects,
-// and cost — with no executable body. Keeping execution out means the planner
-// can search over actions without the risk of running one, and the same action
-// can be bound to different executors.
 func NewAction(config ActionConfig) (Action, error) {
 	if !agent.ValidQualifiedName(config.Name) {
 		return Action{}, fmt.Errorf("%w: invalid name %q", ErrInvalidAction, config.Name)
@@ -90,7 +79,6 @@ func NewAction(config ActionConfig) (Action, error) {
 	return action, nil
 }
 
-// Name returns the stable Action identity.
 func (a Action) Name() string { return a.name }
 
 func (a Action) Description() string { return a.description }
@@ -138,7 +126,6 @@ func (a Action) Apply(source WorldState) (WorldState, error) {
 	return source.apply(a.effects), nil
 }
 
-// Valid distinguishes a constructed Action from its invalid zero value.
 func (a Action) Valid() bool { return a.cost != nil }
 
 func (a Action) changesState() bool {

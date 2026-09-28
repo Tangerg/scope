@@ -11,26 +11,9 @@ import (
 	"testing"
 )
 
-// A store that has something to configure is constructed the same way
-// everywhere: NewStore(ctx, StoreConfig).
-//
-// The shape is not cosmetic. A store that took no context could not read the
-// backend it was pointed at, and several of them used to declare a fact about
-// the live backend — a vector index's distance metric, a Cosmos container's
-// partition-key path — as an unchecked obligation on the caller. A wrong
-// metric returns scores that are wrong rather than absent, which is the one
-// failure nothing downstream can notice. Adding the check meant adding the
-// context, so a store reintroducing the context-free form is also giving up
-// the ability to confirm its own configuration.
-//
-// A caller should not have to remember which backend happens to be checkable,
-// so the parameter is required across a family even where one member reaches
-// no service — core/vectorstore/inmemory still has to be handed an embedding
-// model and still rejects a config without one.
-//
-// core/history/inmemory is deliberately absent: it configures nothing, so the
-// shape there could only be an empty config and an error that never arrives,
-// and a call site moving to a backend store is rewritten regardless.
+// Constructors take context so each store can validate its backend before use.
+// The config-free history/inmemory store needs neither an empty config nor a
+// fallible construction contract.
 func TestConfigurableStoresShareOneConstructionShape(t *testing.T) {
 	t.Parallel()
 
@@ -104,9 +87,7 @@ func secondParameterIsStoreConfig(function *ast.FuncDecl) bool {
 	if parameters == nil {
 		return false
 	}
-	// A signature may name both parameters in one field only if they share a
-	// type, which context.Context and StoreConfig do not, so the second field
-	// is the config.
+
 	if len(parameters.List) < 2 {
 		return false
 	}
@@ -114,16 +95,8 @@ func secondParameterIsStoreConfig(function *ast.FuncDecl) bool {
 	return ok && identifier.Name == "StoreConfig"
 }
 
-// Every model adapter constructor takes a context first, for the same reason
-// the stores do: two of them already had to (google and bedrock, because their
-// SDKs build a client from one), and a caller should not have to remember which
-// provider happens to need it. The parameter is unused in most of them today
-// and named _ there, which says so; what it buys is that an adapter that later
-// needs to reach the provider at construction can do it without changing its
-// signature.
-//
-// Value constructors are excluded. NewTextPart and NewThinkingPart build a
-// datum out of arguments and reach nothing, so a context there would be noise.
+// Context is uniform across adapter constructors. Value constructors perform
+// no I/O and are excluded.
 func TestModelConstructorsTakeAContext(t *testing.T) {
 	t.Parallel()
 

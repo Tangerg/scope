@@ -23,8 +23,6 @@ func personSchema(t *testing.T) jsonschema.Schema {
 	return schema
 }
 
-// TestSchemaJSONRoundTrip proves a compiled Schema survives the wire: it is the
-// form a tool definition travels in, so a decoded Schema must still validate.
 func TestSchemaJSONRoundTrip(t *testing.T) {
 	schema := personSchema(t)
 
@@ -78,9 +76,6 @@ func TestUnmarshalJSONRejectsNilReceiverAndInvalidDocuments(t *testing.T) {
 	}
 }
 
-// TestJSONReturnsAnIndependentDocument keeps the compiled schema immutable:
-// handing out the backing slice would let a caller corrupt every later
-// validation.
 func TestJSONReturnsAnIndependentDocument(t *testing.T) {
 	schema := personSchema(t)
 	document := schema.JSON()
@@ -93,9 +88,6 @@ func TestJSONReturnsAnIndependentDocument(t *testing.T) {
 	}
 }
 
-// TestNormalizeRejectsUnusableDocuments pins every rejection reason of the
-// document gate, because each one describes a payload a provider could hand us
-// and none of them may reach the compiler.
 func TestNormalizeRejectsUnusableDocuments(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":              nil,
@@ -123,9 +115,6 @@ func oversizedDocument() []byte {
 	return []byte(builder.String())
 }
 
-// TestValidateRejectsUndecodableValues separates "the value is not JSON" from
-// "the value does not conform", so callers can tell a transport failure from a
-// contract failure.
 func TestValidateRejectsUndecodableValues(t *testing.T) {
 	schema := personSchema(t)
 	if err := schema.Validate([]byte(`{`)); err == nil {
@@ -154,9 +143,6 @@ type brokenModelerHolder struct {
 	Value brokenModeler `json:"value"`
 }
 
-// TestForRejectsAModelerReturningNil proves the derivation reports an error
-// rather than panicking out of the reflector when an implementation breaks the
-// Modeler contract.
 func TestForRejectsAModelerReturningNil(t *testing.T) {
 	if _, err := jsonschema.For[brokenModelerHolder](); !errors.Is(err, jsonschema.ErrInvalid) {
 		t.Fatalf("For error = %v, want ErrInvalid", err)
@@ -171,17 +157,12 @@ type underivableModelerHolder struct {
 	Value underivableModeler `json:"value"`
 }
 
-// TestForRejectsAModelerWithAnUnderivableModel keeps a broken Modeler from
-// escaping as a panic through the reflector: the failure has to arrive as an
-// ordinary ErrInvalid at the derivation boundary.
 func TestForRejectsAModelerWithAnUnderivableModel(t *testing.T) {
 	if _, err := jsonschema.For[underivableModelerHolder](); !errors.Is(err, jsonschema.ErrInvalid) {
 		t.Fatalf("For error = %v, want ErrInvalid", err)
 	}
 }
 
-// TestForRejectsTypesWithNoJSONRepresentation keeps unsupported Go types out of
-// tool schemas instead of publishing a contract no provider can satisfy.
 func TestForRejectsTypesWithNoJSONRepresentation(t *testing.T) {
 	if _, err := jsonschema.For[chan int](); !errors.Is(err, jsonschema.ErrInvalid) {
 		t.Fatalf("For[chan int] error = %v, want ErrInvalid", err)
@@ -191,9 +172,6 @@ func TestForRejectsTypesWithNoJSONRepresentation(t *testing.T) {
 	}
 }
 
-// TestForEncodesByteSlicesAsNullableBase64 documents the one wire shape the
-// derivation overrides by hand, because encoding/json/v2 writes []byte as a
-// base64 string and a naive reflection would publish an array of integers.
 func TestForEncodesByteSlicesAsNullableBase64(t *testing.T) {
 	type payload struct {
 		Data []byte `json:"data"`

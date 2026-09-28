@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// Moving a file with apply_patch uses Git's rename metadata. What makes it safe
-// is that a destination is never overwritten, the origin is reported, and both
-// endpoints are locked during the operation.
-
 func movePatch(from, to, body string) string {
 	patch := fmt.Sprintf("diff --git a/%s b/%s\nsimilarity index 100%%\nrename from %s\nrename to %s\n", from, to, from, to)
 	if body != "" {
@@ -48,8 +44,7 @@ func TestApplyPatch_MoveCarriesContentAndRemovesTheOrigin(t *testing.T) {
 }
 
 func TestApplyPatch_PureRenameNeedsNoHunk(t *testing.T) {
-	// git emits a rename with two headers and nothing to apply. Requiring a hunk
-	// would make the one patch that changes no content impossible to express.
+
 	dir := t.TempDir()
 	from := writeTemp(t, dir, "old.txt", "unchanged\n")
 	to := filepath.Join(dir, "renamed.txt")
@@ -73,8 +68,7 @@ func TestApplyPatch_PureRenameNeedsNoHunk(t *testing.T) {
 }
 
 func TestApplyPatch_MoveRefusesToOverwriteItsDestination(t *testing.T) {
-	// The one outcome a rename must never produce. Without this the model's
-	// mistaken destination silently replaces a file nobody asked about.
+
 	dir := t.TempDir()
 	from := writeTemp(t, dir, "old.txt", "moving\n")
 	occupied := writeTemp(t, dir, "taken.txt", "do not lose me\n")
@@ -98,8 +92,7 @@ func TestApplyPatch_MoveRefusesToOverwriteItsDestination(t *testing.T) {
 }
 
 func TestApplyPatch_RefusesTwoPatchesTouchingOneEndpoint(t *testing.T) {
-	// Editing a file and moving another one onto it are two edits to one path, and
-	// the result would depend on which was applied first.
+
 	dir := t.TempDir()
 	writeTemp(t, dir, "target.txt", "one\n")
 	writeTemp(t, dir, "moving.txt", "two\n")

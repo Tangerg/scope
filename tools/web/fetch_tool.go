@@ -2,54 +2,51 @@ package web
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 var _ toolcontract.Tool = (*FetchTool)(nil)
 
-// FetchTool is the LLM-facing adapter for a [Fetcher]. Construct
-// with [NewFetchTool] — there is no nil-default fallback because rendering
-// modern web pages reliably requires an upstream API.
 type FetchTool struct {
 	readOnlyTool
+	fetcher Fetcher
 }
 
-// NewFetchTool requires a fetcher for the same reason the shell tool requires
-// an executor: retrieving a model-supplied URL is an SSRF boundary, and
-// defaulting it would grant network reach the caller never chose.
 func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
-	inner, err := newProviderReadOnlyTool(
-		"fetch",
+	if lo.IsNil(fetcher) {
+		return nil, ErrMissingFetcher
+	}
+	f := &FetchTool{fetcher: fetcher}
+	inner, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{Name: "web_fetch", Description: webFetchDescription},
-		fetcher,
-		ErrMissingFetcher,
-		func(request FetchRequest) (*FetchRequest, error) { return request.Prepare() },
-		func(ctx context.Context, request *FetchRequest) (*FetchResponse, error) {
-			return fetcher.Fetch(ctx, request)
-		},
-		func(response *FetchResponse) error { return response.Validate() },
+		f.fetch,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("web: build fetch tool: %w", err)
 	}
-	return &FetchTool{readOnlyTool: inner}, nil
+	f.inner = inner
+	return f, nil
 }
 
-const webFetchDescription = `Fetch and read a single web page, returning the content in a clean format.
-- Takes a fully-formed http(s) URL
-- Returns the page content rendered to the requested format (markdown by default)
-- Use this after web_search when result snippets don't contain enough detail
-- Use this when the user gives you a specific URL
-- For JS-heavy / SPA pages, prefer this tool over shell + curl — rendering is handled automatically
+func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("web: prepare fetch request: %w", err)
+	}
+	response, err := f.fetcher.Fetch(ctx, prepared)
+	if err != nil {
+		return nil, fmt.Errorf("web: execute fetch: %w", err)
+	}
+	if validationErr := response.Validate(); validationErr != nil {
+		return nil, fmt.Errorf("web: validate fetch response: %w", validationErr)
+	}
+	return response, nil
+}
 
-Format options:
-- "markdown" (default) — best for readable structured content
-- "html" — when you need DOM structure or specific elements
-- "text" — plain text, no markup
-
-Usage notes:
-- The tool is read-only; it never modifies files
-- This tool WILL FAIL on authenticated or private URLs (Google Docs, Confluence, Jira, internal wikis) — look for an authenticated integration tool
-- For GitHub URLs, prefer shell + the gh CLI (gh pr view / gh issue view / gh api) — it handles auth and pagination properly
-- If you get a redirect or 4xx error, the URL is likely wrong, gated, or expired — don't retry blindly`
+const webFetchDescription = `Fetch a fully formed HTTP(S) URL. Returns page content in markdown (default), html, or text format.
+Use this to read a supplied URL or inspect a search result beyond its snippet.
+Network access, authentication, redirects, and JavaScript rendering depend on the configured fetcher.`

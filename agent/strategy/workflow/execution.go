@@ -130,11 +130,6 @@ func (e *execution) singleChildBinding() (childBinding, bool) {
 	}
 }
 
-func (e *execution) clearSingleChild() {
-	e.state.SelectedCaseID = ""
-	e.state.Child = nil
-}
-
 func (e *execution) stageInvocationLabel() string {
 	if e.stage().kind == StageKindSwitch {
 		return e.stage().id + ".case." + e.state.SelectedCaseID
@@ -222,25 +217,18 @@ func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.Chi
 		return e.finishLoopIteration(ctx, 1, output)
 	}
 	e.state.CurrentValue = output.JSON()
-	e.clearSingleChild()
-	e.state.Phase = phaseReady
 	return e.finishStage(1)
 }
 
 func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error) {
-	e.clearSingleChild()
-	e.clearFanout()
-	e.state.LoopIteration = 0
-	e.state.StageIndex++
-	if e.state.StageIndex < uint32(len(e.definition.stages)) {
-		e.state.Phase = phaseReady
+	e.state.finishStage(uint32(len(e.definition.stages)))
+	if e.state.Phase == phaseReady {
 		return agent.Continue(consumedSignals)
 	}
 	output, err := agent.ParsePayload(e.state.CurrentValue)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseCompleted
 	return agent.Complete(consumedSignals, output)
 }
 
@@ -303,11 +291,9 @@ func (e *execution) finishLoopIteration(
 			return agent.Transition{}, err
 		}
 		e.state.CurrentValue = value
-		e.clearSingleChild()
-		e.state.Phase = phaseReady
 		return e.finishStage(consumedSignals)
 	}
-	e.clearSingleChild()
+	e.state.clearSingleChild()
 	if e.state.LoopIteration == ^uint64(0) {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
@@ -335,7 +321,6 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 			return agent.Transition{}, err
 		}
 		e.state.CurrentValue = value
-		e.state.Phase = phaseReady
 		return e.finishStage(consumedSignals)
 	}
 	end := start + uint32(len(inputs))
@@ -421,8 +406,8 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 		}
 	}
 	consumed := uint32(count)
-	if !e.fanoutHasStartedChildren() {
-		return agent.Fail(consumed, e.firstFanoutFailure())
+	if !e.state.fanoutHasStartedChildren() {
+		return agent.Fail(consumed, e.state.firstFanoutFailure())
 	}
 	batch, err = e.fanoutBatch()
 	if err != nil {
@@ -492,82 +477,23 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	outcomes := completed.Outcomes()
 	windowOutputs := make([]json.RawMessage, len(e.state.ActiveFanoutWindow))
 	for index, offset := range indices {
-		failure, output, err := e.fanoutOutcome(e.state.fanoutWindowStart()+uint32(offset), outcomes[index])
+		failure, output, err := e.stage().fanoutOutcome(e.state.fanoutWindowStart()+uint32(offset), outcomes[index])
 		if err != nil {
 			return agent.Transition{}, err
 		}
 		if failure != nil {
 			e.state.ActiveFanoutWindow[offset].Failure = failure
-		} else {
-			windowOutputs[offset] = output
+			continue
 		}
+		windowOutputs[offset] = output
 	}
-	if failure := e.firstFanoutFailure(); failure.Valid() {
+	if failure := e.state.firstFanoutFailure(); failure.Valid() {
 		return agent.Fail(1, failure)
 	}
 	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, windowOutputs...)
 	e.state.FanoutWaitID = nil
 	e.state.ActiveFanoutWindow = nil
 	return e.startFanoutWindow(ctx, 1)
-}
-
-func (e *execution) fanoutOutcome(
-	index uint32,
-	outcome agent.ChildOutcome,
-) (*agent.Failure, json.RawMessage, error) {
-	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
-		failure, err := agent.NewFailure(agent.FailureKindExternal, e.stage().fanoutFailureCode(failureSuffixUnresolvedEffects), e.fanoutFailureMessage(index, "has unresolved subtree Effects"))
-		return &failure, nil, err
-	}
-	result := outcome.Result()
-	if result.Status() != agent.StatusCompleted {
-		if failure, failed := result.Termination().Failure(); failed {
-			return &failure, nil, nil
-		}
-		code := e.stage().fanoutFailureCode(failureSuffixNotCompleted)
-		message := e.fanoutFailureMessage(index, "terminated with status "+result.Status().String())
-		failure, err := agent.NewFailure(agent.FailureKindExternal, code, message)
-		return &failure, nil, err
-	}
-	output, present := result.Output()
-	if !present {
-		failure, err := agent.NewFailure(
-			agent.FailureKindContract, e.stage().fanoutFailureCode(failureSuffixOutputMissing),
-			e.fanoutFailureMessage(index, "returned no Output"),
-		)
-		return &failure, nil, err
-	}
-	if err := e.stage().fanout.outputSchema.Validate(output.JSON()); err != nil {
-		failure, failureErr := agent.NewFailure(
-			agent.FailureKindContract, e.stage().fanoutFailureCode(failureSuffixOutputInvalid),
-			e.fanoutFailureMessage(index, "violated its Output contract"),
-		)
-		return &failure, nil, failureErr
-	}
-	return nil, output.JSON(), nil
-}
-
-func (e *execution) fanoutFailureMessage(index uint32, diagnostic string) string {
-	return string(e.stage().kind) + " Stage " + e.stage().id + " " +
-		e.stage().fanoutMemberLabel(index) + " " + diagnostic
-}
-
-func (e *execution) firstFanoutFailure() agent.Failure {
-	for _, child := range e.state.ActiveFanoutWindow {
-		if child.Failure != nil && child.Failure.Valid() {
-			return *child.Failure
-		}
-	}
-	return agent.Failure{}
-}
-
-func (e *execution) fanoutHasStartedChildren() bool {
-	for _, child := range e.state.ActiveFanoutWindow {
-		if child.ChildProcessID != nil {
-			return true
-		}
-	}
-	return false
 }
 
 func (e *execution) fanoutChildKey(index uint32) (agent.ChildKey, error) {
@@ -583,11 +509,6 @@ func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {
 		string(e.stage().kind), e.stage().id,
 		strconv.FormatUint(uint64(e.state.fanoutWindowStart()), 10),
 	)
-}
-
-func (e *execution) clearFanout() {
-	e.state.ActiveFanoutWindow = nil
-	e.state.CompletedFanoutOutputs = nil
 }
 
 var _ agent.Execution = (*execution)(nil)

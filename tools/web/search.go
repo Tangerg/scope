@@ -11,12 +11,9 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// Recency is a coarse "last N period" filter. Providers map this to
-// their native syntax (e.g. Tavily's time_range, Serper's tbs=qdr:).
+// Recency expresses a relative freshness window shared across backends.
 type Recency string
 
-// Recency windows are a closed vocabulary so the same freshness request means
-// the same thing across backends that each spell it differently.
 const (
 	RecencyHour  Recency = "hour"
 	RecencyDay   Recency = "day"
@@ -34,21 +31,14 @@ func (r Recency) Validate() error {
 	}
 }
 
-// SearchRequest is both the provider-neutral search contract and the
-// LLM-facing argument shape.
 type SearchRequest struct {
-	// Query is the search string. Required.
 	Query string `json:"query" jsonschema:"minLength=1" jsonschema_description:"Non-empty web search query. Include the current year when asking for the latest information."`
 
-	// MaxResults caps the number of returned results. 0 = use the
-	// provider's default (typically 5-10).
+	// Zero selects the configured provider default.
 	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=20" jsonschema_description:"Maximum results to return, from 1 to 20. Omit to use the configured search default (typically 5-10)."`
 
-	// AllowedDomains restricts results to any of these domains. Mutually
-	// exclusive with BlockedDomains on most providers.
 	AllowedDomains []string `json:"allowed_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Only include results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with blocked_domains."`
 
-	// BlockedDomains drops results from these domains.
 	BlockedDomains []string `json:"blocked_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Exclude results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with allowed_domains."`
 
 	// Recency filters to a coarse time-window. "" = no time filter.
@@ -178,7 +168,6 @@ func (s *SearchRequest) QueryWithSiteOperators() string {
 	return b.String()
 }
 
-// SearchResult is one normalized search hit.
 type SearchResult struct {
 	Title         string    `json:"title"`
 	URL           string    `json:"url"`
@@ -188,8 +177,6 @@ type SearchResult struct {
 	Source        string    `json:"source,omitempty"`
 }
 
-// SearchResponse carries the executed query plus normalized results. Used
-// as both the SPI return type and the LLM-facing serialization shape.
 type SearchResponse struct {
 	Query   string          `json:"query"`
 	Results []*SearchResult `json:"results"`
@@ -207,7 +194,7 @@ func (s *SearchResponse) Validate() error {
 			return fmt.Errorf("%w: result %d is nil", ErrInvalidSearchResponse, index)
 		}
 		parsed, err := url.Parse(strings.TrimSpace(result.URL))
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			return fmt.Errorf("%w: result %d has invalid URL %q", ErrInvalidSearchResponse, index, result.URL)
 		}
 	}

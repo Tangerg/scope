@@ -7,18 +7,13 @@ import (
 	"slices"
 )
 
-// Problem is one immutable Planner input: a current observation, one Goal, and
-// the available predictive Actions. It contains no dispatcher, Process, or
-// application dependency.
+// Problem is immutable and contains only predictive planning data.
 type Problem struct {
 	initial WorldState
 	goal    Goal
 	actions []Action
 }
 
-// NewProblem binds the initial state, the goal, and the actions available to
-// reach it into one value, so a planner cannot be handed a goal without the
-// vocabulary it is expected to search over.
 func NewProblem(initial WorldState, goal Goal, actions ...Action) (Problem, error) {
 	if !goal.Valid() {
 		return Problem{}, fmt.Errorf("%w: Goal", ErrInvalidProblem)
@@ -37,10 +32,8 @@ func NewProblem(initial WorldState, goal Goal, actions ...Action) (Problem, erro
 	return Problem{initial: initial, goal: goal, actions: values}, nil
 }
 
-// InitialState returns the immutable starting observation.
 func (p Problem) InitialState() WorldState { return p.initial }
 
-// Goal returns the immutable desired state.
 func (p Problem) Goal() Goal { return p.goal }
 
 // Actions returns an independently owned slice in declaration order.
@@ -55,7 +48,6 @@ func (p Problem) Action(name string) (Action, bool) {
 	return Action{}, false
 }
 
-// Valid distinguishes a constructed Problem from its invalid zero value.
 func (p Problem) Valid() bool { return p.goal.Valid() }
 
 // ValidatePlan verifies that every referenced Action exists and is applicable

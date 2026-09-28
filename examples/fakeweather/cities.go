@@ -2,63 +2,36 @@ package fakeweather
 
 import "strings"
 
-// cityProfile bundles every location-specific characteristic the
-// generator needs for a known city. It's the single source of truth
-// — the system code only reads from it; adding a new city is just
-// adding a row, no system changes required (inversion-of-control:
-// behavior is parameterised by data, not by code).
-//
-// Keys in [knownCities] are lowercase substrings — a request
-// location matches when its lowercase form contains the key.
-// Substrings let "Beijing, China" / "near beijing" / "BEIJING" all
-// resolve to the same record without per-format aliases.
 type cityProfile struct {
 	Latitude  float64
 	Longitude float64
-	Elevation int         // meters
-	Zone      climateZone // climate band → climateProfiles lookup
-	Polluted  bool        // baseline AQI elevated (megacities, basin geographies, dense industry)
+	Elevation int // meters
+	Zone      climateZone
+	Polluted  bool // Elevated baseline AQI.
 }
 
-// lookupCity is the single read path the rest of the package uses
-// for any city-specific characteristic. Returns the matched profile
-// plus a bool that callers use to fall back to "unknown location"
-// behavior (random northern coords, default pollution baseline).
-func lookupCity(location string) (cityProfile, bool) {
-	low := strings.ToLower(location)
-	for city, profile := range knownCities {
-		if strings.Contains(low, city) {
-			return profile, true
+type locationCatalog[T any] map[string]T
+
+// Earlier mentions win; at the same position, the more specific name wins.
+func (l locationCatalog[T]) lookup(location string) (T, bool) {
+	location = strings.ToLower(location)
+	position := len(location)
+	matchedLength := 0
+	var result T
+	for name, value := range l {
+		index := strings.Index(location, name)
+		if index < 0 || index > position || (index == position && len(name) <= matchedLength) {
+			continue
 		}
+		position = index
+		matchedLength = len(name)
+		result = value
 	}
-	return cityProfile{}, false
+	return result, matchedLength > 0
 }
 
-// lookupRegion returns the climate zone for non-city geographic
-// patterns (deserts, polar regions). Consulted before [lookupCity]
-// in [identifyClimateZone] so a query like "across the sahara"
-// resolves to zoneDesert without needing a specific city match.
-func lookupRegion(location string) (climateZone, bool) {
-	low := strings.ToLower(location)
-	for region, zone := range regionalZones {
-		if strings.Contains(low, region) {
-			return zone, true
-		}
-	}
-	return 0, false
-}
-
-// knownCities is the global gazetteer the package recognizes.
-// Coverage spans every climate zone the package models; extending
-// it is just a matter of adding one row per city. Coordinates are
-// approximate city-center values; elevations are typical local
-// reference altitudes.
-//
-// The map's keys are case-insensitive substrings; ordering is not
-// significant because each row's zone is fixed (no two rows
-// disagree on the climate band for the same location).
-var knownCities = map[string]cityProfile{
-	// — East Asia ——————————————————————————————————————————————
+// Keys are lowercase substrings. Coordinates and elevations are approximate.
+var knownCities = locationCatalog[cityProfile]{
 	"beijing":   {39.9042, 116.4074, 43, zoneContinental, true},
 	"tianjin":   {39.3434, 117.3616, 5, zoneContinental, false},
 	"harbin":    {45.8038, 126.5340, 142, zoneContinental, false},
@@ -80,7 +53,6 @@ var knownCities = map[string]cityProfile{
 	"seoul":     {37.5665, 126.9780, 38, zoneContinental, false},
 	"busan":     {35.1796, 129.0756, 5, zoneSubtropical, false},
 
-	// — Southeast & South Asia ———————————————————————————————————
 	"singapore":    {1.3521, 103.8198, 15, zoneTropical, false},
 	"bangkok":      {13.7563, 100.5018, 1, zoneTropical, false},
 	"kuala lumpur": {3.1390, 101.6869, 22, zoneTropical, false},
@@ -103,7 +75,6 @@ var knownCities = map[string]cityProfile{
 	"kathmandu":    {27.7172, 85.3240, 1400, zoneAlpine, false},
 	"lhasa":        {29.6500, 91.1000, 3656, zoneAlpine, false},
 
-	// — Middle East ——————————————————————————————————————————————
 	"dubai":     {25.2048, 55.2708, 5, zoneDesert, false},
 	"abu dhabi": {24.4539, 54.3773, 27, zoneDesert, false},
 	"riyadh":    {24.7136, 46.6753, 612, zoneDesert, false},
@@ -117,7 +88,6 @@ var knownCities = map[string]cityProfile{
 	"tel aviv":  {32.0853, 34.7818, 5, zoneMediterranean, false},
 	"beirut":    {33.8938, 35.5018, 56, zoneMediterranean, false},
 
-	// — Europe ———————————————————————————————————————————————————
 	"london":        {51.5074, -0.1278, 11, zoneOceanic, false},
 	"paris":         {48.8566, 2.3522, 35, zoneOceanic, false},
 	"dublin":        {53.3498, -6.2603, 20, zoneOceanic, false},
@@ -148,7 +118,6 @@ var knownCities = map[string]cityProfile{
 	"geneva":        {46.2044, 6.1432, 375, zoneAlpine, false},
 	"innsbruck":     {47.2692, 11.4041, 574, zoneAlpine, false},
 
-	// — North America ————————————————————————————————————————————
 	"new york":      {40.7128, -74.0060, 10, zoneSubtropical, false},
 	"boston":        {42.3601, -71.0589, 43, zoneContinental, false},
 	"washington":    {38.9072, -77.0369, 125, zoneSubtropical, false},
@@ -174,7 +143,6 @@ var knownCities = map[string]cityProfile{
 	"yellowknife":   {62.4540, -114.3718, 206, zonePolar, false},
 	"mexico city":   {19.4326, -99.1332, 2240, zoneAlpine, true},
 
-	// — South America ————————————————————————————————————————————
 	"sao paulo":      {-23.5505, -46.6333, 760, zoneSubtropical, false},
 	"rio de janeiro": {-22.9068, -43.1729, 5, zoneSubtropical, false},
 	"buenos aires":   {-34.6037, -58.3816, 25, zoneSubtropical, false},
@@ -186,7 +154,6 @@ var knownCities = map[string]cityProfile{
 	"cusco":          {-13.5320, -71.9675, 3399, zoneAlpine, false},
 	"caracas":        {10.4806, -66.9036, 900, zoneTropical, false},
 
-	// — Africa ———————————————————————————————————————————————————
 	"cairo":        {30.0444, 31.2357, 23, zoneDesert, true},
 	"lagos":        {6.5244, 3.3792, 11, zoneTropical, false},
 	"nairobi":      {-1.2864, 36.8172, 1795, zoneAlpine, false},
@@ -197,7 +164,6 @@ var knownCities = map[string]cityProfile{
 	"tunis":        {36.8065, 10.1815, 4, zoneMediterranean, false},
 	"addis ababa":  {9.0320, 38.7469, 2355, zoneAlpine, false},
 
-	// — Oceania ——————————————————————————————————————————————————
 	"sydney":     {-33.8688, 151.2093, 58, zoneSubtropical, false},
 	"melbourne":  {-37.8136, 144.9631, 31, zoneOceanic, false},
 	"brisbane":   {-27.4698, 153.0251, 27, zoneSubtropical, false},
@@ -205,18 +171,12 @@ var knownCities = map[string]cityProfile{
 	"auckland":   {-36.8485, 174.7633, 196, zoneOceanic, false},
 	"wellington": {-41.2865, 174.7762, 13, zoneOceanic, false},
 
-	// — Central Asia ——————————————————————————————————————————————
 	"almaty":      {43.2389, 76.8897, 700, zoneContinental, false},
 	"tashkent":    {41.2995, 69.2401, 455, zoneContinental, false},
 	"ulaanbaatar": {47.8864, 106.9057, 1300, zoneContinental, false},
 }
 
-// regionalZones maps non-city geographic patterns (deserts, polar
-// regions, etc.) to their climate band. Consulted before
-// [knownCities] in [identifyClimateZone] so a query like "across the
-// sahara" or "antarctica research station" resolves correctly even
-// without a specific city match.
-var regionalZones = map[string]climateZone{
+var regionalZones = locationCatalog[climateZone]{
 	"sahara":     zoneDesert,
 	"gobi":       zoneDesert,
 	"antarctica": zonePolar,

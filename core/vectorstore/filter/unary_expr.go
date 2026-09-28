@@ -3,9 +3,10 @@ package filter
 import (
 	"errors"
 	"fmt"
+
+	"github.com/samber/lo"
 )
 
-// UnaryExpr negates one predicate.
 type UnaryExpr struct {
 	operator Operator
 	right    Predicate
@@ -49,7 +50,19 @@ func (u *UnaryExpr) Equal(other Expr) bool {
 	return ok && u != nil && o != nil && u.operator == o.operator && equalExpr(u.right, o.right)
 }
 
-func (u *UnaryExpr) Validate() error              { return validatePredicate(u) }
+func (u *UnaryExpr) Validate() error {
+	if u == nil {
+		return errors.New("filter: unary expression is nil")
+	}
+	if !u.operator.IsUnaryOperator() {
+		return fmt.Errorf("filter: invalid unary operator %q at %s", u.operator, u.Start())
+	}
+	if lo.IsNil(u.right) {
+		return fmt.Errorf("filter: NOT operand is nil at %s", u.Start())
+	}
+	return u.right.Validate()
+}
+
 func (u *UnaryExpr) Accept(visitor Visitor) error { return accept(u, visitor) }
 func (u *UnaryExpr) String() string               { return formatPredicate(u) }
 

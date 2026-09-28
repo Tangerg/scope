@@ -16,9 +16,6 @@ var ErrInvalidConversationID = errors.New("history: invalid conversation ID")
 // be converted directly when the value is known at compile time.
 type ConversationID string
 
-// NewConversationID makes the identifier a validated type so a raw, unchecked
-// string cannot reach a store boundary. Product identity stays with the host;
-// this type only guarantees the value is usable as a key.
 func NewConversationID(value string) (ConversationID, error) {
 	conversationID := ConversationID(value)
 	if err := conversationID.Validate(); err != nil {

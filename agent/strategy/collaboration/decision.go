@@ -4,11 +4,9 @@ import agent "github.com/Tangerg/scope/agent"
 
 const invalidEnumName = "invalid"
 
-// Mode chooses when the next coordinator turn runs.
 type Mode string
 
 const (
-	// Undecided records the absence of a coordinator decision.
 	Undecided Mode = ""
 	// Continue starts the next turn after action receipts, while tasks run.
 	Continue Mode = "continue"
@@ -59,7 +57,6 @@ type Control struct {
 	CancelReason *string              `json:"cancel_reason,omitzero"`
 }
 
-// ControlReceipt preserves both the declared action and its admission result.
 type ControlReceipt struct {
 	Control Control                   `json:"control"`
 	Result  *agent.ChildControlResult `json:"result,omitzero"`

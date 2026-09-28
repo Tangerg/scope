@@ -14,8 +14,6 @@ import (
 // PassPolicy controls categorical aggregation independently from score weights.
 type PassPolicy string
 
-// Composite pass policies remain explicit so required components and minimum
-// counts cannot be encoded in magic thresholds.
 const (
 	PassNone    PassPolicy = ""
 	PassAll     PassPolicy = "all"
@@ -91,8 +89,7 @@ type CompositeEvaluator[T any] struct {
 	maxConcurrency int
 }
 
-// NewCompositeEvaluator snapshots components and resolves all zero-value
-// defaults before evaluation begins.
+// NewCompositeEvaluator copies the component slice; evaluators remain shared.
 func NewCompositeEvaluator[T any](config CompositeConfig[T]) (*CompositeEvaluator[T], error) {
 	if len(config.Components) == 0 {
 		return nil, fmt.Errorf("%w: at least one component is required", ErrInvalidEvaluatorConfig)

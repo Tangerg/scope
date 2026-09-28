@@ -14,8 +14,7 @@ func directionFromDegree(deg int) string {
 	return directions[int(math.Round(float64(deg)/22.5))%16]
 }
 
-// calculateFeelsLike applies wind-chill (cold + windy) and heat-index
-// (hot + humid) corrections; falls back to the raw temp otherwise.
+// Uses wind-chill and heat-index formulas in Celsius and km/h.
 func calculateFeelsLike(temp, humidity int, windSpeed float64) int {
 	t := float64(temp)
 	feels := t
@@ -35,8 +34,7 @@ func calculateFeelsLike(temp, humidity int, windSpeed float64) int {
 	return int(math.Round(feels))
 }
 
-// calculateDewPoint applies the Magnus formula. Returns the dew point
-// in °C, rounded to int.
+// Magnus formula; temperatures are in Celsius.
 func calculateDewPoint(temp, humidity int) int {
 	const a = 17.27
 	const b = 237.7

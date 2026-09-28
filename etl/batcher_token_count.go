@@ -12,10 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// TokenCountBatcherConfig binds one tokenizer to hard per-document and
-// per-batch token budgets.
 type TokenCountBatcherConfig struct {
-	// Counter is required.
 	Counter tokenizer.TextCounter
 	// MaxTokens is the required provider input limit. The batching layer has no
 	// provider-neutral default because model limits differ.
@@ -59,14 +56,8 @@ func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
 	return t, nil
 }
 
-// TokenCountBatcher carves a document slice into batches that fit
-// downstream embedding-service token limits. Document order is
-// preserved across batches so callers can map embeddings back by
-// position.
-//
-// A single document whose token count exceeds the per-batch budget is
-// rejected with an error — the caller is expected to split it first
-// (see [TokenSplitter]).
+// TokenCountBatcher preserves document order and rejects any document that
+// exceeds the batch token budget. Split oversized documents before batching.
 type TokenCountBatcher struct {
 	counter   tokenizer.TextCounter
 	maxTokens int
@@ -78,8 +69,6 @@ type sizedDocument struct {
 	tokens   int
 }
 
-// NewTokenCountBatcher validates budgets before any document reaches a load
-// boundary.
 func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, error) {
 	config, err := config.normalize()
 	if err != nil {
@@ -94,6 +83,9 @@ func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, e
 }
 
 func (t *TokenCountBatcher) Batch(ctx context.Context, docs []*document.Document) ([][]*document.Document, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sized, err := t.measure(ctx, docs)
 	if err != nil {
 		return nil, err
@@ -146,9 +138,7 @@ func (t *TokenCountBatcher) partition(sized []sizedDocument) [][]*document.Docum
 
 	for _, item := range sized {
 		if item.tokens > t.maxTokens-currentSum {
-			if len(currentBatch) > 0 {
-				batches = append(batches, currentBatch)
-			}
+			batches = append(batches, currentBatch)
 			currentBatch = nil
 			currentSum = 0
 		}

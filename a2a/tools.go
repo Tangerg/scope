@@ -59,8 +59,7 @@ func (t *ToolSet) Tools() []toolcontract.Tool {
 	return slices.Clone(t.tools)
 }
 
-// Close releases every remote-agent client in reverse acquisition order. It
-// is nil-safe and idempotent so multiple shutdown paths can share the owner.
+// Close releases clients in reverse acquisition order and is nil-safe and idempotent.
 func (t *ToolSet) Close() error {
 	if t == nil {
 		return nil

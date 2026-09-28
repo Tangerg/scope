@@ -11,8 +11,7 @@ var (
 	// ErrInvalidAugmentation identifies generation input or citation numbering
 	// that cannot be represented portably.
 	ErrInvalidAugmentation = errors.New("rag: invalid augmentation")
-	// ErrNilAugmenter rejects composition without explicit prompt policy.
-	ErrNilAugmenter = errors.New("rag: augmenter must not be nil")
+	ErrNilAugmenter        = errors.New("rag: augmenter must not be nil")
 )
 
 // Augmentation is immutable generation input that can be copied by assignment.
@@ -78,7 +77,6 @@ func (c Citation) Clone() Citation {
 	return c
 }
 
-// Marker returns the stable prompt marker for this citation.
 func (c Citation) Marker() string { return fmt.Sprintf("[%d]", c.Number) }
 
 func (c Citation) Validate() error {
@@ -91,7 +89,6 @@ func (c Citation) Validate() error {
 	return nil
 }
 
-// NewAugmentation validates final generation text before citations are attached.
 func NewAugmentation(text string) (Augmentation, error) {
 	augmentation := Augmentation{text: text}
 	if err := augmentation.Validate(); err != nil {
@@ -122,8 +119,6 @@ func (a Augmentation) Validate() error {
 	return a.citations.Validate()
 }
 
-// Augmenter turns a retrieval query and its candidates into final generation
-// input.
 type Augmenter interface {
 	// Augment creates the complete generation input from one query and its
 	// ordered candidates. It must not mutate either input, must preserve any
@@ -131,7 +126,6 @@ type Augmenter interface {
 	Augment(ctx context.Context, query Query, candidates Candidates) (Augmentation, error)
 }
 
-// AugmenterFunc adapts a function to Augmenter without another composition API.
 type AugmenterFunc func(context.Context, Query, Candidates) (Augmentation, error)
 
 func (a AugmenterFunc) Augment(ctx context.Context, query Query, candidates Candidates) (Augmentation, error) {

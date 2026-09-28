@@ -17,12 +17,8 @@ var (
 	ErrInvalidInvocation = errors.New("tool: invalid invocation")
 )
 
-// Tool is the minimal executable capability used by model-driven runtimes.
-// Definition returns an independent snapshot safe to expose to a model. Call
-// receives only an Invocation promoted by its exact frozen [Contract].
-//
-// Tool assigns no control-flow meaning to errors. Retry, pause, abort, and
-// ordinary error feedback belong to the runtime driving the tool.
+// Tool executes invocations admitted by its exact frozen Contract. Errors carry
+// no retry, pause, or abort policy; the driving runtime owns those decisions.
 type Tool interface {
 	// Definition returns a detached, valid schema snapshot. Callers may expose or
 	// mutate the returned value without changing subsequent calls or execution.
@@ -43,11 +39,10 @@ type contractState struct {
 	validate   func([]byte) error
 }
 
-// Contract is the immutable trust boundary between an untrusted [chat.ToolCall]
-// and a validated Invocation. It holds the frozen definition and compiled input
-// schema and independent input validator without retaining an executable Tool.
-// A Contract obtained from
-// [Binding.Contract] is safe for concurrent use independently of the Tool.
+// Contract is the immutable trust boundary from an untrusted chat.ToolCall to
+// an Invocation. It retains the frozen definition, compiled schema, and input
+// validator without retaining an executable Tool. It is safe for concurrent use
+// independently of the Tool.
 type Contract struct {
 	state *contractState
 }

@@ -13,27 +13,14 @@ import (
 
 var errNilResourceMetrics = errors.New("otel/slog: resource metrics must not be nil")
 
-// MetricExporter writes OpenTelemetry metric data to a log/slog logger —
-// the Metrics leg of the dev observability triad, a sibling of
-// [SpanExporter] so all three signals share one slog stream.
-//
-// Install it on a MeterProvider via a PeriodicReader:
-//
-//	reader := sdkmetric.NewPeriodicReader(slog.NewMetricExporter(logger))
-//	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-//	otel.SetMeterProvider(mp)
-//
-// Each metric becomes one slog record carrying the instrument name, unit,
-// scope, and a compact rendering of its data points. Like [SpanExporter]
-// this is for local visibility; production should use an OTLP metric exporter.
+// MetricExporter writes one slog record per metric, including its instrument,
+// unit, scope, and data points. It preserves SDK accumulation defaults and
+// provides local diagnostics without additional delivery guarantees.
 type MetricExporter struct {
 	logger   *stdslog.Logger
 	shutdown atomic.Bool
 }
 
-// NewMetricExporter writes metrics through [log/slog] for the same reason as
-// [NewLogExporter] — inspecting instrumentation locally without a collector —
-// and carries the same caveat about production volume.
 func NewMetricExporter(logger *stdslog.Logger) *MetricExporter {
 	if logger == nil {
 		logger = stdslog.Default()
@@ -41,8 +28,6 @@ func NewMetricExporter(logger *stdslog.Logger) *MetricExporter {
 	return &MetricExporter{logger: logger}
 }
 
-// Temporality / Aggregation defer to the SDK defaults — this is a passive
-// dev sink with no opinion on accumulation semantics.
 func (m *MetricExporter) Temporality(k sdkmetric.InstrumentKind) metricdata.Temporality {
 	return sdkmetric.DefaultTemporalitySelector(k)
 }
@@ -104,8 +89,6 @@ func (m *MetricExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// summarize renders a metric's aggregation as a compact human string for the
-// exporter's dev log line.
 func (m *MetricExporter) summarize(data metricdata.Aggregation) string {
 	switch d := data.(type) {
 	case metricdata.Sum[int64]:

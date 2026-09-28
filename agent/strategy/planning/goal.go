@@ -7,15 +7,11 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// GoalConfig contains the complete immutable description of a Planning goal.
 type GoalConfig struct {
-	// Name is the stable lower-case qualified goal identity.
 	Name string
 
-	// Description explains the desired state to a human consumer.
 	Description string
 
-	// Conditions are the known truths the final WorldState must establish.
 	Conditions []Condition
 }
 
@@ -26,9 +22,6 @@ type Goal struct {
 	conditions  []Condition
 }
 
-// NewGoal states the target as conditions rather than as a procedure, which is
-// what lets the planner decide the route and re-plan when observed facts
-// change.
 func NewGoal(config GoalConfig) (Goal, error) {
 	if !agent.ValidQualifiedName(config.Name) {
 		return Goal{}, fmt.Errorf("%w: invalid name %q", ErrInvalidGoal, config.Name)
@@ -46,7 +39,6 @@ func NewGoal(config GoalConfig) (Goal, error) {
 	return Goal{name: config.Name, description: config.Description, conditions: conditions}, nil
 }
 
-// Name returns the stable goal identity.
 func (g Goal) Name() string { return g.name }
 
 func (g Goal) Description() string { return g.description }
@@ -58,5 +50,4 @@ func (g Goal) SatisfiedBy(state WorldState) bool {
 	return g.Valid() && state.Satisfies(g.conditions...)
 }
 
-// Valid distinguishes a constructed Goal from its invalid zero value.
 func (g Goal) Valid() bool { return len(g.conditions) > 0 }

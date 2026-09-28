@@ -7,10 +7,7 @@ import (
 	"unicode"
 )
 
-// Extensions is the JSON-only, namespaced provider extension value used by
-// protocol options. It owns both the namespace/name key policy and encoded
-// value ownership, so invalid extension state cannot be constructed through a
-// public map.
+// Extensions owns namespaced JSON values and prevents unchecked public map mutation.
 type Extensions struct {
 	values Map
 }

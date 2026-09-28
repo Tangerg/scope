@@ -11,10 +11,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
-// TestErrorTypeAttributeStaysLowCardinality is the whole point of this
-// classification: the error.type attribute is a metric dimension, so every
-// failure has to collapse into a small fixed vocabulary. A provider message
-// leaking through would create one time series per distinct error string.
 func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 	cases := map[string]struct {
 		err  error
@@ -54,8 +50,6 @@ func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 	}
 }
 
-// TestUnclassifiedErrorsFallBackToTheirType keeps an unknown failure out of the
-// metric as a message: semconv derives a type name, never the error text.
 func TestUnclassifiedErrorsFallBackToTheirType(t *testing.T) {
 	attribute := errorTypeAttribute(errors.New("a very specific provider message with an id 12345"))
 	if got := attribute.Value.AsString(); got == "a very specific provider message with an id 12345" {

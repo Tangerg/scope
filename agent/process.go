@@ -311,10 +311,8 @@ func (r Result) FinishedAt() time.Time { return r.finishedAt }
 
 func (r Result) Status() Status { return r.termination.Status() }
 
-// Termination returns the stable terminal cause and optional Failure.
 func (r Result) Termination() Termination { return r.termination }
 
-// Usage returns the final Framework-owned resource counters.
 func (r Result) Usage() Usage { return r.usage }
 
 // Output returns the final semantic result only for StatusCompleted.
@@ -341,7 +339,6 @@ func (p *Process) Budget() Budget {
 	return p.handle.budget
 }
 
-// Capabilities returns the immutable authority set assigned to this Process.
 func (p *Process) Capabilities() CapabilitySet {
 	return p.handle.capabilities
 }

@@ -28,10 +28,7 @@ Candidates (JSON):
 
 const chatRerankerOutputName = "rag_reranking"
 
-// RerankerConfig binds explicit prompt, output, and candidate limits to a
-// provider-neutral chat model.
 type RerankerConfig struct {
-	// Model ranks candidates. Required.
 	Model corechat.Model
 
 	// PromptTemplate defaults to [chatRerankerDefaultTemplate]. Custom
@@ -100,7 +97,6 @@ type chatRerankingInput struct {
 
 var _ rag.Refiner = (*Reranker)(nil)
 
-// NewReranker validates ranking policy and freezes model options.
 func NewReranker(config RerankerConfig) (*Reranker, error) {
 	format, err := chatclient.JSONSchema[chatRerankingOutput](chatclient.JSONSchemaConfig{Name: chatRerankerOutputName})
 	if err != nil {
@@ -169,7 +165,6 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 	if err != nil {
 		return nil, err
 	}
-	// Preserve every model-scored candidate through the shared ordering policy.
 	ordering, err := rag.TopK(len(scored))
 	if err != nil {
 		return nil, err

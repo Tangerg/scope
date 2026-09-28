@@ -13,7 +13,6 @@ var ErrInvalidDeployment = errors.New("agent: invalid deployment")
 // The digests must cover the exact code artifact and all frozen dispatcher or
 // Strategy configuration that can affect execution or restoration.
 type DeploymentConfig struct {
-	// Definition owns the Strategy contract and creates per-Process execution.
 	Definition Definition
 
 	// Dispatcher interprets this Definition's external Effects. Nil binds a
@@ -21,7 +20,6 @@ type DeploymentConfig struct {
 	// then fails admission before any Effect in its Step can execute.
 	Dispatcher Dispatcher
 
-	// ImplementationDigest identifies the exact executable Definition artifact.
 	ImplementationDigest Digest
 
 	// ConfigurationDigest identifies all frozen behavior-affecting Definition
@@ -66,10 +64,8 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 	}, nil
 }
 
-// DeploymentRef returns the exact value identity stored in Process snapshots.
 func (d Deployment) DeploymentRef() DeploymentRef { return d.reference }
 
-// Descriptor returns the frozen static Definition contract.
 func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 
 func (d Deployment) Definition() Definition { return d.definition }

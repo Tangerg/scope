@@ -7,10 +7,8 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// ErrUnsupportedMedia means a formatter cannot represent document media.
 var ErrUnsupportedMedia = errors.New("rag: document formatter does not support media")
 
-// DocumentFormatter renders one retrieved document for model input.
 type DocumentFormatter interface {
 	// Format renders one valid document without mutating or retaining it. The
 	// returned text is inserted into model context, so implementations must be
@@ -19,7 +17,6 @@ type DocumentFormatter interface {
 	Format(doc *document.Document) (string, error)
 }
 
-// DocumentFormatterFunc adapts a pure document projection to DocumentFormatter.
 type DocumentFormatterFunc func(*document.Document) (string, error)
 
 func (d DocumentFormatterFunc) Format(doc *document.Document) (string, error) {

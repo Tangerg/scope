@@ -14,9 +14,7 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-// Reader reads the entire contents of an [io.Reader] and packages
-// it into one [*document.Document]. Use it for files, in-memory buffers, or
-// network streams that fit comfortably in memory.
+// Reader consumes source once within its configured memory budget.
 type Reader struct {
 	source       io.Reader
 	sourceBudget etl.SourceBudget
@@ -28,7 +26,6 @@ type ReaderConfig struct {
 	SourceBudget etl.SourceBudget
 }
 
-// NewReader fixes decoding and source-budget policy before extraction.
 func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("text reader: source must not be nil")

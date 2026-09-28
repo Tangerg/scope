@@ -76,7 +76,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	mustCloseEngine(t, engine)
 }
 
-func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
+func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
@@ -92,16 +92,35 @@ func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiveTreeRuntimeProbe(t, dispatcher.started)
 	ctx, cancel := context.WithTimeout(t.Context(), treeRuntimeProgressTimeout)
 	defer cancel()
-	const readers = 4
+	const (
+		readers              = 4
+		inspectionsPerReader = 64
+	)
 	started := make(chan struct{}, readers)
 	finished := make(chan error, readers)
+	continueInspections := make(chan struct{})
+	var workers sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		unblock()
+		workers.Wait()
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(t.Context()), treeRuntimeProgressTimeout)
+		defer cancelCleanup()
+		if joinErr := root.Join(cleanupCtx); joinErr != nil {
+			t.Error(joinErr)
+		}
+		if closeErr := engine.Close(cleanupCtx); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	receiveTreeRuntimeProbe(t, dispatcher.started)
 	for range readers {
-		go func() {
-			announced := false
-			for {
+		workers.Go(func() {
+			// Bounded callers exercise API races; owner-turn tests keep lanes full
+			// without depending on Go's scheduling of an unlimited query loop.
+			for index := range inspectionsPerReader {
 				inspection, inspectErr := engine.InspectTree(ctx, root.ID())
 				if errors.Is(inspectErr, ErrInvalidProcessRelation) {
 					finished <- nil
@@ -111,21 +130,29 @@ func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
 					finished <- inspectErr
 					return
 				}
-				if !announced {
-					announced = true
-					started <- struct{}{}
-				}
-				if inspection.RootID != root.ID() || len(inspection.Processes) != 1 {
+				if inspection.RootID != root.ID() || len(inspection.Processes) != 1 ||
+					inspection.Processes[0].Snapshot.ProcessID() != root.ID() {
 					finished <- errors.New("inspection lost the published root")
 					return
 				}
 				inspection.Processes[0] = ProcessInspection{}
+				if index == 0 {
+					started <- struct{}{}
+					select {
+					case <-continueInspections:
+					case <-ctx.Done():
+						finished <- ctx.Err()
+						return
+					}
+				}
 			}
-		}()
+			finished <- nil
+		})
 	}
 	for range readers {
 		receiveTreeRuntimeProbe(t, started)
 	}
+	close(continueInspections)
 	unblock()
 	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Status() != StatusCompleted {
 		t.Fatalf("queries delayed completion: status=%s error=%v", result.Status(), awaitErr)
@@ -133,11 +160,15 @@ func TestInspectTreeFloodCannotDelayCompletionOrRelease(t *testing.T) {
 	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 		t.Fatalf("queries delayed release: %v", releaseErr)
 	}
+	if _, inspectErr := engine.InspectTree(ctx, root.ID()); !errors.Is(inspectErr, ErrInvalidProcessRelation) {
+		t.Fatalf("released tree inspection error=%v", inspectErr)
+	}
 	for range readers {
 		if readerErr := receiveTreeRuntimeProbe(t, finished); readerErr != nil {
 			t.Fatal(readerErr)
 		}
 	}
+	workers.Wait()
 	mustCloseEngine(t, engine)
 }
 

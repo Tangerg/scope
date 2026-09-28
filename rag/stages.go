@@ -16,14 +16,10 @@ var (
 	ErrInvalidCandidate = errors.New("rag: invalid retrieval candidate")
 	// ErrInvalidReranking identifies invalid model rankings or candidate projections.
 	ErrInvalidReranking = errors.New("rag: invalid reranking")
-	// ErrNilTransformer rejects a missing query transformation stage.
-	ErrNilTransformer = errors.New("rag: transformer must not be nil")
-	// ErrNilExpander rejects a missing query expansion stage.
-	ErrNilExpander = errors.New("rag: expander must not be nil")
-	// ErrNilRefiner rejects a missing candidate refinement stage.
-	ErrNilRefiner = errors.New("rag: refiner must not be nil")
-	// ErrEmptyExpansion prevents an expander from erasing a query.
-	ErrEmptyExpansion = errors.New("rag: expander returned no queries")
+	ErrNilTransformer   = errors.New("rag: transformer must not be nil")
+	ErrNilExpander      = errors.New("rag: expander must not be nil")
+	ErrNilRefiner       = errors.New("rag: refiner must not be nil")
+	ErrEmptyExpansion   = errors.New("rag: expander returned no queries")
 	// ErrInvalidExpansion identifies invalid or duplicate expanded queries.
 	ErrInvalidExpansion = errors.New("rag: invalid query expansion")
 )
@@ -124,8 +120,6 @@ func (c Candidate) Validate() error {
 	return nil
 }
 
-// Transformer rewrites a query to be more retrieval-friendly — translation,
-// compression, ambiguity resolution, vocabulary normalization.
 type Transformer interface {
 	// Transform returns one valid query that preserves the caller's retrieval
 	// intent while changing its representation. It must not mutate query, must
@@ -133,15 +127,12 @@ type Transformer interface {
 	Transform(ctx context.Context, query Query) (Query, error)
 }
 
-// TransformerFunc adapts a function to Transformer.
 type TransformerFunc func(context.Context, Query) (Query, error)
 
 func (t TransformerFunc) Transform(ctx context.Context, query Query) (Query, error) {
 	return t(ctx, query)
 }
 
-// Expander turns one query into many — useful for poorly formed inputs
-// (alternative phrasings) or complex problems (decompose into sub-queries).
 type Expander interface {
 	// Expand returns a non-empty, ordered set of valid alternative or decomposed
 	// queries with distinct Text values. Per-query values do not create another
@@ -150,14 +141,12 @@ type Expander interface {
 	Expand(ctx context.Context, query Query) ([]Query, error)
 }
 
-// ExpanderFunc adapts a function to Expander.
 type ExpanderFunc func(context.Context, Query) ([]Query, error)
 
 func (e ExpanderFunc) Expand(ctx context.Context, query Query) ([]Query, error) {
 	return e(ctx, query)
 }
 
-// Retriever pulls candidate documents from a knowledge source.
 type Retriever interface {
 	// Retrieve returns independently owned, valid candidates in the source's
 	// relevance order. Scores remain query-relative; the implementation must
@@ -174,7 +163,6 @@ func (r RetrieverFunc) Retrieve(ctx context.Context, query Query) (Candidates, e
 	return r(ctx, query)
 }
 
-// Refiner narrows candidate documents down to what the LLM should see.
 type Refiner interface {
 	// Refine returns a valid, independently owned subset or reordering of
 	// candidates for query. It must not mutate either input; a successful empty
@@ -182,7 +170,6 @@ type Refiner interface {
 	Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error)
 }
 
-// RefinerFunc adapts a function to Refiner.
 type RefinerFunc func(context.Context, Query, Candidates) (Candidates, error)
 
 func (r RefinerFunc) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {

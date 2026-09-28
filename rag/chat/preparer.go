@@ -18,10 +18,7 @@ import (
 )
 
 var (
-	// ErrNilResponse identifies a successful model call with no response.
-	ErrNilResponse = errors.New("rag: chat model returned a nil response")
-	// ErrNilStreamSequence identifies a streaming implementation that did
-	// not return the required iterator.
+	ErrNilResponse       = errors.New("rag: chat model returned a nil response")
 	ErrNilStreamSequence = errors.New("rag: chat streamer returned a nil sequence")
 	// ErrNoFinalUserMessage rejects requests whose active retrieval query is
 	// ambiguous.
@@ -34,10 +31,7 @@ var historyValueKey = lo.Must(rag.NewValueKey[[]corechat.Message]("chat history"
 // snapshot produced by [Preparer] before the active user turn.
 func HistoryValueKey() rag.ValueKey[[]corechat.Message] { return historyValueKey }
 
-// PreparerConfig makes retrieval and augmentation independently replaceable
-// while requiring both policies explicitly.
 type PreparerConfig struct {
-	// Retriever fetches documents for the latest user message. Required.
 	Retriever rag.Retriever
 
 	// Augmenter folds retrieved documents into the outgoing user message.
@@ -139,7 +133,6 @@ func (p PreparedRequest) Evidence() Evidence {
 	return Evidence{Candidates: p.candidates.Clone(), Citations: p.citations.Clone()}
 }
 
-// NewPreparer freezes the retrieval and augmentation policies.
 func NewPreparer(config PreparerConfig) (*Preparer, error) {
 	if err := config.validate(); err != nil {
 		return nil, err

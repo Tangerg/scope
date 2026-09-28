@@ -10,11 +10,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// mcpTracer is the package-level tracer for MCP client and server span
-// emission. It is a no-op when no TracerProvider is installed.
 var mcpTracer = otel.Tracer("github.com/Tangerg/scope/mcp")
 
-// MCP tool attribute key (GenAI semconv).
 const attrToolName = "gen_ai.tool.name"
 
 // Raw remote errors can contain business content; telemetry retains only their classification.

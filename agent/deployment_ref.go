@@ -47,7 +47,6 @@ func newDeploymentRef(descriptor Descriptor, implementationDigest, configuration
 	return reference, nil
 }
 
-// Name returns the stable Definition name.
 func (d DeploymentRef) Name() string { return d.name }
 
 func (d DeploymentRef) ContractDigest() Digest { return d.contractDigest }

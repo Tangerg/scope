@@ -41,10 +41,7 @@ type LocalExecutor struct {
 	maxBytesPerStream int
 }
 
-// NewLocalExecutor resolves the working directory to an absolute path and
-// freezes it, so a command cannot relocate the executor by changing process
-// state. The output cap is set here because a command that writes without
-// bound would otherwise be truncated only after the memory was already spent.
+// NewLocalExecutor freezes an absolute working directory and output limits.
 func NewLocalExecutor(config LocalConfig) (*LocalExecutor, error) {
 	if config.Directory == "" {
 		return nil, fmt.Errorf("%w: directory must not be empty", ErrInvalidConfig)
@@ -127,15 +124,9 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	return out, cleanupErr
 }
 
-// boundedBuffer is an [io.Writer] that accepts up to `limit` bytes
-// and silently drops the rest, counting how many bytes were dropped
-// so [boundedBuffer.finalize] can append a truncation marker.
-//
-// Reporting len(p), nil for writes that are partially or fully
-// dropped is deliberate: breaking the child's stdio pipe would surface
-// as a confusing write error, which is avoided. The
-// trade-off is that a runaway command keeps running until the
-// command's own timeout / outer ctx fires.
+// Writes report len(p), nil even when truncated: breaking the child's stdio
+// pipe would introduce an unrelated execution failure. The command continues
+// until it exits or its context ends.
 type boundedBuffer struct {
 	buf     bytes.Buffer
 	limit   int
@@ -160,16 +151,12 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// finalize returns the captured bytes plus a truncation marker if
-// anything was dropped. The marker is placed on its own line for
-// readability.
 func (b *boundedBuffer) finalize() []byte {
 	if b.dropped == 0 {
 		return b.buf.Bytes()
 	}
 	out := b.buf.Bytes()
-	// Try to cut at the last newline so the marker doesn't dangle
-	// mid-line.
+
 	if i := bytes.LastIndexByte(out, '\n'); i > 0 {
 		shift := len(out) - (i + 1)
 		out = out[:i+1]

@@ -9,13 +9,11 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Output is one transcription segment.
 type Output struct {
 	// Text is the transcribed text. Empty is allowed for partial /
 	// silence segments.
 	Text string `json:"text"`
 
-	// Metadata carries per-segment extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
@@ -63,15 +61,11 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata holds response-level metadata for a transcription call.
 type ResponseMetadata struct {
-	// Model is the model name actually served.
 	Model string `json:"model"`
 
-	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
 
-	// Extra carries JSON-safe provider-specific metadata.
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -123,7 +117,6 @@ type Response struct {
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(output *Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Output: output, Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {

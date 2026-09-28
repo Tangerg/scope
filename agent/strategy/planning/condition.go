@@ -16,9 +16,6 @@ type Condition struct {
 	truth Truth
 }
 
-// NewCondition names one fact the planner reasons over. Conditions are keys
-// with a truth value rather than arbitrary predicates, because the planner has
-// to compare and combine them without executing anything.
 func NewCondition(key string, truth Truth) (Condition, error) {
 	condition := Condition{key: key, truth: truth}
 	if !agent.ValidQualifiedName(key) || !truth.known() {
@@ -27,13 +24,10 @@ func NewCondition(key string, truth Truth) (Condition, error) {
 	return condition, nil
 }
 
-// Key returns the stable condition identity.
 func (c Condition) Key() string { return c.key }
 
-// Truth returns the known truth asserted by the condition.
 func (c Condition) Truth() Truth { return c.truth }
 
-// Valid distinguishes a constructed Condition from its invalid zero value.
 func (c Condition) Valid() bool { return c.key != "" }
 
 func (c Condition) MarshalJSON() ([]byte, error) {
@@ -64,5 +58,4 @@ type conditionWire struct {
 	Truth Truth  `json:"truth" jsonschema:"enum=false,enum=true"`
 }
 
-// JSONSchemaAlias returns the typed JSON wire model owned by Condition.
 func (Condition) JSONSchemaAlias() any { return conditionWire{} }

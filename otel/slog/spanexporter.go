@@ -9,37 +9,14 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// SpanExporter writes finished OpenTelemetry spans to a log/slog logger —
-// the Traces leg of the dev observability triad, a sibling of
-// [MetricExporter] and [LogExporter] so all three OTel signals share one
-// slog stream keyed by trace_id.
-//
-// It implements sdktrace.SpanExporter and is intended to be installed on a
-// TracerProvider via sdktrace.WithSyncer (for dev/debug, synchronous output)
-// or sdktrace.WithBatcher (for production-ish batched output).
-//
-// Each span becomes a single slog record. The record message is "span" for
-// OK/Unset status and "span (error): <description>" for Error status, with
-// the log level promoted to Error accordingly.
-//
-// The following attributes are always included:
-//
-//   - trace_id       (span.SpanContext().TraceID())
-//   - span_id        (span.SpanContext().SpanID())
-//   - name           (span.Name())
-//   - duration       (EndTime - StartTime)
-//   - parent_span_id (only if the span has a parent)
-//
-// All span attributes and event names are attached as additional slog
-// attributes, preserving their OTel key names (e.g. "gen_ai.provider.name").
+// SpanExporter writes one slog record per finished span. Error spans use the
+// error log level; attributes and event names retain their OTel keys. Trace
+// structure is represented by trace_id, span_id, and parent_span_id.
 type SpanExporter struct {
 	logger   *stdslog.Logger
 	shutdown atomic.Bool
 }
 
-// NewSpanExporter writes spans through [log/slog] for the same reason as
-// [NewLogExporter]. Each finished span becomes an independent record, so trace
-// structure remains encoded in its identifiers rather than rendered as a tree.
 func NewSpanExporter(logger *stdslog.Logger) *SpanExporter {
 	if logger == nil {
 		logger = stdslog.Default()

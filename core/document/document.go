@@ -62,11 +62,8 @@ func (d *Document) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// NewDocument requires at least one of text or media. A document with neither
-// carries nothing to rank or read, and would travel through splitting,
-// embedding, and retrieval before failing somewhere that no longer identifies
-// where it was created. Whether the two describe the same thing is the caller's
-// responsibility; only their presence is checked here.
+// NewDocument requires text or media; their agreement remains the caller's
+// responsibility.
 func NewDocument(text string, payload *media.Media) (*Document, error) {
 	if text == "" && payload == nil {
 		return nil, fmt.Errorf("document: create: %w: text or media is required", ErrInvalidDocument)

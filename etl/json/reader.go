@@ -20,13 +20,6 @@ import (
 // arrays produce one document per element; every other JSON value produces one
 // document containing its raw representation. Numbers retain their source
 // spelling and are not restricted to the float64 range.
-//
-// Use it to ingest API responses, dump files, or seed fixture data.
-//
-// Example:
-//
-//	r, err := json.NewReader(strings.NewReader(`[{"id":1},{"id":2}]`), json.ReaderConfig{})
-//	docs, err := r.Read(ctx) // 2 documents
 type Reader struct {
 	source       io.Reader
 	sourceBudget etl.SourceBudget
@@ -38,8 +31,6 @@ type ReaderConfig struct {
 	SourceBudget etl.SourceBudget
 }
 
-// NewReader validates the typed JSON projection and source budget before any
-// input is consumed.
 func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("json reader: source must not be nil")

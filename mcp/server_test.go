@@ -23,7 +23,6 @@ type echoInput struct {
 	Text string `json:"text"`
 }
 
-// newEchoTool builds a minimal scope Tool for tests.
 func newEchoTool() tool.Tool {
 	return testTool{
 		definition: corechat.ToolDefinition{
@@ -65,9 +64,6 @@ func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (corecha
 	return t.call(ctx, invocation)
 }
 
-// connectPair wires an in-memory MCP server (with the supplied scope tools
-// already registered) to a fresh client session, returning the live session
-// and a cleanup func.
 func connectPair(t *testing.T, ctx context.Context, registered ...tool.Tool) (*sdkmcp.ClientSession, func()) {
 	t.Helper()
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "scope-srv"}, nil)
@@ -103,7 +99,6 @@ func TestRegister_RoundTrip(t *testing.T) {
 	assert.Equal(t, "echo", list.Tools[0].Name)
 	assert.Equal(t, "echo the input", list.Tools[0].Description)
 
-	// Schema arrived intact (decoded as map[string]any on the client side).
 	schema, ok := list.Tools[0].InputSchema.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "object", schema["type"])
@@ -191,19 +186,14 @@ func TestRegister_RejectsNilArgs(t *testing.T) {
 
 func TestRegister_RejectsInvalidSchema(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
-	// NewTool always derives a valid schema, so an invalid one can only reach
-	// Register via a hand-rolled Tool — which is exactly what Register must reject.
+
 	require.Error(t, scopemcp.Register(srv, badSchemaTool{}))
 
 	err := scopemcp.Register(srv, missingSchemaTypeTool{})
 	require.ErrorContains(t, err, `input schema type must be "object"`)
 }
 
-// The low-level AddTool path panics on a schema that does not declare an object, and
-// Register hands the schema straight to it. What stops the panic is the Registry
-// refusing the definition first, so every shape the server cannot hold is listed
-// here against the one validator that refuses it — a second copy of this rule inside
-// this module would be a second answer that drifts from the first.
+// The SDK panics on non-object schemas; the Core validator must reject them first.
 func TestRegister_RefusesEverySchemaShapeTheServerCannotHold(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -223,8 +213,7 @@ func TestRegister_RefusesEverySchemaShapeTheServerCannotHold(t *testing.T) {
 				Name:        "shape",
 				InputSchema: json.RawMessage(test.schema),
 			}})
-			// The sentinel is the point: the definition's own package owns what a valid
-			// tool definition is, and the error says so all the way out to the caller.
+
 			require.ErrorIs(t, err, corechat.ErrInvalidToolDefinition)
 		})
 	}
@@ -260,8 +249,6 @@ func TestRegister_SnapshotsDefinitionOnce(t *testing.T) {
 	assert.EqualValues(t, 1, tool.definitionCalls.Load())
 }
 
-// badSchemaTool is a tool.Tool whose InputSchema is not valid JSON, used to
-// exercise Register's schema validation.
 type badSchemaTool struct{}
 
 func (badSchemaTool) Definition() corechat.ToolDefinition {

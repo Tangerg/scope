@@ -56,9 +56,6 @@ func (c *Capability) UnmarshalText(text []byte) error {
 // is the valid empty set, encoded as an empty JSON array. JSON null is invalid.
 type CapabilitySet struct{ values []Capability }
 
-// NewCapabilitySet builds the frozen grant a Process runs under. It is a set
-// rather than a slice because a duplicated or reordered grant must not change
-// authority, and because every child grant must be a subset of its parent's.
 func NewCapabilitySet(capabilities ...Capability) (CapabilitySet, error) {
 	values := slices.Clone(capabilities)
 	for _, capability := range values {

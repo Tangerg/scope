@@ -68,7 +68,6 @@ func New(config Config) (Trajectory, error) {
 	return trajectory, nil
 }
 
-// Config supplies the retained facts and known observation gaps.
 type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
@@ -331,6 +330,8 @@ func (t *Trajectory) canonicalize() error {
 // The required projection selects the semantic root output; the generic
 // recorder never guesses which opaque output fields are business data.
 // Complete event history and declared semantic coverage are required.
+// Projected JSON object order and string escapes are normalized; number
+// spellings and precision are preserved.
 func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.RawMessage]) (string, error) {
 	if err := t.Validate(); err != nil {
 		return "", err
@@ -370,9 +371,11 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 		if err != nil {
 			return behaviorProjection{}, fmt.Errorf("project output: %w", err)
 		}
-		if len(projection.Output) == 0 || !jsontext.Value(projection.Output).IsValid() {
-			return behaviorProjection{}, fmt.Errorf("%w: projection must return JSON", ErrInvalidSample)
+		output := jsontext.Value(projection.Output).Clone()
+		if formatErr := output.Format(jsontext.ReorderRawObjects(true)); formatErr != nil {
+			return behaviorProjection{}, fmt.Errorf("%w: projection must return JSON: %w", ErrInvalidSample, formatErr)
 		}
+		projection.Output = json.RawMessage(output)
 	}
 	// Acknowledgments may interleave with later candidate attempts. Each phase
 	// retains its order; their publication interleaving is storage scheduling.

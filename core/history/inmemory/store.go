@@ -15,15 +15,9 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
-// Store is a concurrent in-process history store suitable for tests,
-// development, and single-instance applications. Writes validate then snapshot
-// messages before locking; reads return deep caller-owned snapshots, and
-// missing conversations behave as empty histories.
-//
-// The zero value is ready: this store configures nothing and reaches nothing,
-// so there is no construction to fail. State lives in process and is lost when
-// the process exits, which is why this is a reference implementation rather
-// than a production store.
+// Store is a concurrency-safe in-process history store with a usable zero value.
+// Writes snapshot inputs; reads return independently owned values. Missing
+// conversations are empty, and all history is lost when the process exits.
 type Store struct {
 	mu       sync.RWMutex
 	messages map[history.ConversationID][]chat.Message

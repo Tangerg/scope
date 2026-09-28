@@ -18,16 +18,12 @@ import (
 
 var routeKey = lo.Must(rag.NewValueKey[string]("route"))
 
-// fakeChatModel is the target core/chat mock used by every LLM-backed
-// component test.
 type fakeChatModel struct {
 	reply   string
 	err     error
 	request *chat.Request
 	calls   int
 
-	// captured holds the last rendered prompt so tests can assert that
-	// per-call variables (Number, Target, Query, ...) reached the LLM.
 	captured string
 }
 

@@ -8,9 +8,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ChatContract describes one provider's happy-path Model and Streamer contract.
-// New and Request are called independently for each subtest so provider state
-// and request mutation cannot leak between Call and Stream.
+// New and Request must return fresh state for each Call and Stream subtest.
 type ChatContract struct {
 	New              func(t *testing.T) (chat.Model, chat.Streamer)
 	Request          func(t *testing.T) *chat.Request
@@ -19,8 +17,6 @@ type ChatContract struct {
 	AssertAggregated func(t *testing.T, response *chat.Response)
 }
 
-// RunChatContract checks the shared synchronous and streaming cases through the
-// provider transport boundary.
 func RunChatContract(t *testing.T, contract ChatContract) {
 	t.Helper()
 	if contract.New == nil {

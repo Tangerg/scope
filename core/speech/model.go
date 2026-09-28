@@ -16,9 +16,6 @@ type Model interface {
 	Call(ctx context.Context, request *Request) (*Response, error)
 }
 
-// ModelFunc lets an ordinary function satisfy [Model] without declaring a
-// named type, which is what keeps middleware and test doubles from each
-// inventing their own adapter.
 type ModelFunc func(context.Context, *Request) (*Response, error)
 
 func (m ModelFunc) Call(ctx context.Context, request *Request) (*Response, error) {
@@ -35,9 +32,6 @@ type Streamer interface {
 	Stream(ctx context.Context, request *Request) iter.Seq2[*Response, error]
 }
 
-// StreamerFunc is the [Streamer] counterpart of [ModelFunc]. Speech carries
-// one because synthesis is the only non-chat modality whose output is consumed
-// while it is still being produced.
 type StreamerFunc func(context.Context, *Request) iter.Seq2[*Response, error]
 
 func (s StreamerFunc) Stream(ctx context.Context, request *Request) iter.Seq2[*Response, error] {

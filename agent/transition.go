@@ -16,24 +16,16 @@ const maxPauseReasonBytes = 4096
 
 var ErrInvalidTransition = errors.New("agent: invalid transition")
 
-// TransitionKind is the lifecycle intent produced by one bounded Step.
 type TransitionKind string
 
 const (
-	// TransitionKindInvalid is the invalid zero value.
-	TransitionKindInvalid TransitionKind = ""
-	// TransitionKindContinue advances to another runnable Step.
-	TransitionKindContinue TransitionKind = "continue"
-	// TransitionKindCheckpoint persists state before another Step can run.
+	TransitionKindInvalid    TransitionKind = ""
+	TransitionKindContinue   TransitionKind = "continue"
 	TransitionKindCheckpoint TransitionKind = "checkpoint"
-	// TransitionKindWait enters an Engine-minted wait.
-	TransitionKindWait TransitionKind = "wait"
-	// TransitionKindPause enters an explicit scheduling pause.
-	TransitionKindPause TransitionKind = "pause"
-	// TransitionKindComplete commits a validated semantic Output.
-	TransitionKindComplete TransitionKind = "complete"
-	// TransitionKindFail commits a classified failure.
-	TransitionKindFail TransitionKind = "fail"
+	TransitionKindWait       TransitionKind = "wait"
+	TransitionKindPause      TransitionKind = "pause"
+	TransitionKindComplete   TransitionKind = "complete"
+	TransitionKindFail       TransitionKind = "fail"
 )
 
 func (t TransitionKind) Valid() bool {
@@ -93,7 +85,6 @@ func Wait(consumedSignals uint32, waitID WaitID) (Transition, error) {
 	return Transition{kind: TransitionKindWait, consumedSignals: consumedSignals, waitID: waitID}, nil
 }
 
-// Pause requests an explicit scheduling pause with a bounded diagnostic reason.
 func Pause(consumedSignals uint32, reason string) (Transition, error) {
 	if !validPauseReason(reason) {
 		return Transition{}, fmt.Errorf("%w: pause reason must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidTransition, maxPauseReasonBytes)
@@ -128,12 +119,10 @@ func (t Transition) Effects() []Effect { return cloneEffectsUnchecked(t.effects)
 
 func (t Transition) WaitID() (WaitID, bool) { return t.waitID, t.kind == TransitionKindWait }
 
-// Reason returns the pause reason for a Pause transition.
 func (t Transition) Reason() (string, bool) { return t.reason, t.kind == TransitionKindPause }
 
 func (t Transition) Output() (Payload, bool) { return t.output, t.kind == TransitionKindComplete }
 
-// Failure returns the terminal failure for a Fail transition.
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.kind == TransitionKindFail }
 
 func (t Transition) Valid() bool {

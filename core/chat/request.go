@@ -6,7 +6,6 @@ import (
 	"fmt"
 )
 
-// ErrInvalidRequest identifies an invalid complete model input.
 var ErrInvalidRequest = errors.New("chat: invalid request")
 
 // Request is the complete provider-neutral input to a chat model. It contains

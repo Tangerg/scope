@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// expandHome turns the ~ the model habitually emits into the home dir, so a
-// read/glob/edit on "~/x" resolves to the real file instead of ".../~/x".
 func TestExpandHome(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -15,12 +13,12 @@ func TestExpandHome(t *testing.T) {
 	}
 	cases := map[string]string{
 		"~":           home,
-		"~/":          home, // Join(home, "") cleans to home
+		"~/":          home,
 		"~/Desktop/x": filepath.Join(home, "Desktop", "x"),
-		"relative/x":  "relative/x", // not anchored here — resolve()/rootDir() do that
+		"relative/x":  "relative/x",
 		"/abs/x":      "/abs/x",
-		"~user/x":     "~user/x", // only the current-user form expands
-		"a~b":         "a~b",     // ~ not at the start
+		"~user/x":     "~user/x",
+		"a~b":         "a~b",
 		"":            "",
 	}
 	for in, want := range cases {

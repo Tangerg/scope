@@ -17,10 +17,6 @@ type WorldState struct {
 	conditions []Condition
 }
 
-// NewWorldState collects the facts a plan is evaluated against. It is a
-// validated set rather than a free-form map because the planner compares
-// states for equality while searching, and duplicate or conflicting conditions
-// would make that comparison meaningless.
 func NewWorldState(conditions ...Condition) (WorldState, error) {
 	values, err := canonicalConditions(conditions)
 	if err != nil {
@@ -32,7 +28,6 @@ func NewWorldState(conditions ...Condition) (WorldState, error) {
 // Conditions returns an independently owned, key-sorted snapshot.
 func (w WorldState) Conditions() []Condition { return slices.Clone(w.conditions) }
 
-// Truth returns the observed truth for key, or Unknown when key is absent.
 func (w WorldState) Truth(key string) Truth {
 	index, found := slices.BinarySearchFunc(w.conditions, key, func(condition Condition, key string) int {
 		return strings.Compare(condition.key, key)
@@ -151,5 +146,4 @@ type worldStateWire struct {
 	Conditions []Condition `json:"conditions"`
 }
 
-// JSONSchemaAlias returns the typed JSON wire model owned by WorldState.
 func (WorldState) JSONSchemaAlias() any { return worldStateWire{} }

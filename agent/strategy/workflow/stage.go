@@ -20,24 +20,16 @@ const (
 	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
 )
 
-// StageKind is the operation kind owned by a sealed Workflow Stage.
 type StageKind string
 
 const (
-	// StageKindInvalid is the invalid zero value.
-	StageKindInvalid StageKind = ""
-	// StageKindTransform identifies a pure value transformation.
+	StageKindInvalid   StageKind = ""
 	StageKindTransform StageKind = "transform"
-	// StageKindCall identifies one exact child Process call.
-	StageKindCall StageKind = "call"
-	// StageKindSwitch identifies pure selection among exact child cases.
-	StageKindSwitch StageKind = "switch"
-	// StageKindFork identifies bounded homogeneous branch fan-out.
-	StageKindFork StageKind = "fork"
-	// StageKindMap identifies bounded homogeneous item fan-out.
-	StageKindMap StageKind = "map"
-	// StageKindLoop identifies at-least-once child iteration with an optional quota.
-	StageKindLoop StageKind = "loop"
+	StageKindCall      StageKind = "call"
+	StageKindSwitch    StageKind = "switch"
+	StageKindFork      StageKind = "fork"
+	StageKindMap       StageKind = "map"
+	StageKindLoop      StageKind = "loop"
 )
 
 func (s StageKind) Valid() bool {
@@ -104,7 +96,6 @@ type CallConfig struct {
 	// Budget is permanently allocated from the parent when the child starts.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to the child.
 	Capabilities agent.CapabilitySet
 }
 
@@ -171,7 +162,6 @@ func Call(config CallConfig) (Stage, error) {
 	}, nil
 }
 
-// Valid reports whether a constructor admitted this immutable Stage.
 func (s Stage) Valid() bool { return s.kind.Valid() }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
@@ -199,6 +189,47 @@ func (s Stage) fanoutMemberNoun() string {
 		return "branch"
 	}
 	return "item"
+}
+
+func (s Stage) fanoutOutcome(
+	index uint32,
+	outcome agent.ChildOutcome,
+) (*agent.Failure, json.RawMessage, error) {
+	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
+		failure, err := agent.NewFailure(agent.FailureKindExternal, s.fanoutFailureCode(failureSuffixUnresolvedEffects), s.fanoutFailureMessage(index, "has unresolved subtree Effects"))
+		return &failure, nil, err
+	}
+	result := outcome.Result()
+	if result.Status() != agent.StatusCompleted {
+		if failure, failed := result.Termination().Failure(); failed {
+			return &failure, nil, nil
+		}
+		code := s.fanoutFailureCode(failureSuffixNotCompleted)
+		message := s.fanoutFailureMessage(index, "terminated with status "+result.Status().String())
+		failure, err := agent.NewFailure(agent.FailureKindExternal, code, message)
+		return &failure, nil, err
+	}
+	output, present := result.Output()
+	if !present {
+		failure, err := agent.NewFailure(
+			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputMissing),
+			s.fanoutFailureMessage(index, "returned no Output"),
+		)
+		return &failure, nil, err
+	}
+	if err := s.fanout.outputSchema.Validate(output.JSON()); err != nil {
+		failure, failureErr := agent.NewFailure(
+			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputInvalid),
+			s.fanoutFailureMessage(index, "violated its Output contract"),
+		)
+		return &failure, nil, failureErr
+	}
+	return nil, output.JSON(), nil
+}
+
+func (s Stage) fanoutFailureMessage(index uint32, diagnostic string) string {
+	return string(s.kind) + " Stage " + s.id + " " +
+		s.fanoutMemberLabel(index) + " " + diagnostic
 }
 
 func (s Stage) topology() StageTopology {

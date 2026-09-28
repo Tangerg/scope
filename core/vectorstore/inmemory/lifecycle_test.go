@@ -54,8 +54,6 @@ func TestStoreClearRemovesEveryRecord(t *testing.T) {
 	}
 }
 
-// TestStoreClearKeepsTheStoreUsable proves Clear resets state rather than
-// invalidating the store, so a caller can reuse it for the next corpus.
 func TestStoreClearKeepsTheStoreUsable(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store, mustDoc(t, "1", "alpha", nil))
@@ -75,9 +73,6 @@ func TestNewStoreRejectsAMissingEmbeddingModel(t *testing.T) {
 	}
 }
 
-// TestNewStoreAcceptsACustomSimilarity proves the score function is a real
-// policy seam: search ordering must follow the configured strategy rather than
-// a hardcoded cosine.
 func TestNewStoreAcceptsACustomSimilarity(t *testing.T) {
 	inverted := func(left, right []float64) vectorstore.Score {
 		return 1 - inmemory.CosineSimilarity(left, right)
@@ -147,8 +142,6 @@ func (f failingEmbeddingModel) Call(context.Context, *embedding.Request) (*embed
 	return nil, f.err
 }
 
-// TestIndexAndSearchReportEmbeddingFailures keeps a provider outage from
-// silently producing an empty corpus or an empty result page.
 func TestIndexAndSearchReportEmbeddingFailures(t *testing.T) {
 	boom := errors.New("boom")
 	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: failingEmbeddingModel{err: boom}})
@@ -193,8 +186,6 @@ func TestSearchRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-// TestDeleteWhereRequiresAFilter keeps an omitted predicate from being read as
-// "delete everything".
 func TestDeleteWhereRequiresAFilter(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store, mustDoc(t, "1", "alpha", nil))
@@ -206,8 +197,6 @@ func TestDeleteWhereRequiresAFilter(t *testing.T) {
 	}
 }
 
-// TestDeleteWhereHonorsContextCancellation proves the scan checks the deadline
-// per record instead of running the whole corpus after the caller gave up.
 func TestDeleteWhereHonorsContextCancellation(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store,
@@ -248,8 +237,6 @@ func TestDeleteIDsIgnoresAnEmptyList(t *testing.T) {
 	}
 }
 
-// TestSearchAndDeleteReportUndecodableMetadata keeps a corrupt record loud: a
-// silent skip would quietly shrink both result pages and delete sets.
 func TestSearchAndDeleteReportUndecodableMetadata(t *testing.T) {
 	store := newStore(t)
 	corrupt := &document.Document{
@@ -269,8 +256,6 @@ func TestSearchAndDeleteReportUndecodableMetadata(t *testing.T) {
 	}
 }
 
-// TestSearchReportsMalformedFilters keeps a type-confused predicate from
-// degrading into an empty page that looks like "no matches".
 func TestSearchReportsMalformedFilters(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store, mustDoc(t, "1", "alpha", map[string]any{"name": "alpha"}))

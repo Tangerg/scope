@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 type parser struct {
@@ -11,6 +12,9 @@ type parser struct {
 }
 
 func newParser(input string) (*parser, error) {
+	if !utf8.ValidString(input) {
+		return nil, newSyntaxError(Position{Line: 1, Column: 1}, "", "expression contains invalid UTF-8")
+	}
 	if strings.TrimSpace(input) == "" {
 		return nil, newSyntaxError(Position{Line: 1, Column: 1}, "", "expression is empty")
 	}

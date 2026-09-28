@@ -197,9 +197,6 @@ func runContextReductionInteraction(
 	return runInteraction(t, deployment, "original context")
 }
 
-// retainingContextReducer returns a sequence it keeps referencing. The contract
-// permits this because the Dispatcher owns the reduced messages once they are
-// returned.
 type retainingContextReducer struct{ retained []chat.Message }
 
 func (r *retainingContextReducer) ReduceModelContext(
@@ -209,16 +206,10 @@ func (r *retainingContextReducer) ReduceModelContext(
 	return r.retained, nil
 }
 
-// The Dispatcher, not the implementation, owns the reduced sequence. Without
-// that clone a reducer holding its result could rewrite the model request after
-// returning it, so the guarantee needs its own check rather than a promise in
-// the interface documentation.
 func TestModelContextReductionClonesTheReducedSequence(t *testing.T) {
 	reducer := &retainingContextReducer{}
 	var seen atomic.Value
 	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
-		// Mutate through the reference the reducer still holds, then read what
-		// the Dispatcher actually handed the model.
 		reducer.retained[0] = chat.NewUserMessage(chat.NewTextPart("tampered"))
 		if len(request.Messages) != 1 {
 			return nil, errors.New("reduction did not replace the whole context")

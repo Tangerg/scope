@@ -66,8 +66,6 @@ type metricConfiguration struct {
 	Samples     int          `json:"samples"`
 }
 
-// Evaluator asks a chat model for normalized scores without teaching the eval
-// kernel any domain vocabulary.
 type Evaluator[T any] struct {
 	client    chatclient.Client
 	format    chatclient.OutputFormat[modelReport]
@@ -78,7 +76,7 @@ type Evaluator[T any] struct {
 	samples   int
 }
 
-// NewEvaluator freezes metric identity, options, threshold, and sampling policy.
+// NewEvaluator copies Options and Threshold; Model and Prompt remain shared.
 func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if lo.IsNil(config.Model) {
 		return nil, fmt.Errorf("%w: model is nil", eval.ErrInvalidEvaluatorConfig)

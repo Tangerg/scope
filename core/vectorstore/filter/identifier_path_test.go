@@ -7,10 +7,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// An indexed key is a string literal, so the caller chooses its bytes. A
-// compiler that pastes the path into query text reads those bytes as syntax:
-// metadata['a:1 OR b'] == 'x' compiled to Lucene as metadata.a:1 OR b:"x",
-// where a key became a term boundary and a boolean operator.
 func TestIdentifierPathRefusesWhatQueryTextCannotName(t *testing.T) {
 	t.Parallel()
 
@@ -39,8 +35,6 @@ func TestIdentifierPathRefusesWhatQueryTextCannotName(t *testing.T) {
 		{name: "hyphen", source: `profile['a-b'] == 'x'`, wantErr: "a-b"},
 		{name: "empty", source: `profile[''] == 'x'`, wantErr: `""`},
 		{name: "leading digit", source: `profile['1a'] == 'x'`, wantErr: "1a"},
-		// A nested segment is checked too: one safe segment does not vouch for
-		// the next.
 		{name: "nested injection", source: `profile['a']['b c'] == 'x'`, wantErr: "b c"},
 	}
 
@@ -80,9 +74,6 @@ func TestIdentifierPathRefusesWhatQueryTextCannotName(t *testing.T) {
 	}
 }
 
-// Path stays unrestricted: a compiler that binds the segment as a value can
-// carry any key, and restricting it would take that away from the stores whose
-// map subscript or BSON field name quotes it for them.
 func TestPathStaysUnrestricted(t *testing.T) {
 	t.Parallel()
 

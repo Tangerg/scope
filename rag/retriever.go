@@ -80,8 +80,6 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 	}), nil
 }
 
-// ExpansionConfig selects the query expansion stage, retrieval source, and
-// rank fusion policy used to combine the independent query results.
 type ExpansionConfig struct {
 	Retriever Retriever
 	Expander  Expander
@@ -216,10 +214,8 @@ func refine(ctx context.Context, refiner Refiner, query Query, candidates Candid
 	return refined, nil
 }
 
-// DefaultMaxConcurrentRetrievals bounds fan-out when no limit is specified.
 const DefaultMaxConcurrentRetrievals = 4
 
-// ErrInvalidRetrievalConcurrency rejects a negative retrieval concurrency bound.
 var ErrInvalidRetrievalConcurrency = errors.New("rag: retrieval concurrency must not be negative")
 
 func normalizeRetrievalConcurrency(limit int) (int, error) {

@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-// Request is the model-facing argument shape, and its struct tags are the
-// contract the model actually sees. The schema is derived from this type so
-// the description a model reads and the fields the tool decodes cannot drift
-// apart.
 type Request struct {
 	URL       string            `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL. Host must match the configured allowlist."`
 	Method    Method            `json:"method,omitempty" jsonschema:"enum=GET,enum=HEAD,enum=POST,enum=PUT,enum=PATCH,enum=DELETE" jsonschema_description:"HTTP method: GET (default), HEAD, POST, PUT, PATCH, or DELETE. Must be in the configured method allowlist."`
@@ -48,7 +44,7 @@ func (r *Request) Validate() error {
 		return ErrEmptyURL
 	}
 	parsed, err := url.Parse(trimmedURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return ErrInvalidURL
 	}
 	if err := r.Method.Validate(); err != nil {

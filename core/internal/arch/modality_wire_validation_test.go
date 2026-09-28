@@ -12,9 +12,6 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 )
 
-// TestModalityWireValuesValidateAtJSONBoundary keeps invariant-bearing
-// modality values from silently falling back to encoding/json's field-only
-// behavior. Each value must reject invalid state on both encode and decode.
 func TestModalityWireValuesValidateAtJSONBoundary(t *testing.T) {
 	t.Parallel()
 

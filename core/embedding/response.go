@@ -11,12 +11,9 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Output is one embedding plus its metadata.
 type Output struct {
-	// Embedding is the vector representation of the input.
 	Embedding []float64 `json:"embedding"`
 
-	// Metadata carries provider-specific per-output extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
@@ -72,12 +69,8 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Usage records the token consumption an embedding request reported back.
-// Embedding is input-only — there is no completion, reasoning, or cache
-// dimension — so a single count is the whole story. Providers that report
-// a "total" figure map it here: for embeddings every token is input.
+// Usage contains input tokens only; provider totals map to InputTokens.
 type Usage struct {
-	// InputTokens are tokens consumed embedding the inputs.
 	InputTokens int64 `json:"input_tokens"`
 }
 
@@ -113,20 +106,15 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata holds response-level metadata: the model actually
-// used, token usage, creation time, and provider extras.
 type ResponseMetadata struct {
-	// Model is the model name actually served.
 	Model string `json:"model"`
 
 	// Usage breaks down token consumption. nil means the provider did not
 	// report usage.
 	Usage *Usage `json:"usage,omitzero"`
 
-	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
 
-	// Extra carries JSON-safe provider-specific metadata.
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -173,8 +161,6 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Response is the full embedding output: one [*Output] per input plus
-// shared response metadata.
 type Response struct {
 	// Outputs holds one entry per input text, in the same order.
 	Outputs []*Output `json:"outputs,omitzero"`
@@ -182,7 +168,6 @@ type Response struct {
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(outputs []*Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Outputs: slices.Clone(outputs), Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {
@@ -215,14 +200,7 @@ func (r *Response) Validate() error {
 	return nil
 }
 
-// ValidateFor checks a provider result against the request it answers.
-//
-// Outputs declares one entry per input text in the same order, and that
-// correspondence is the whole basis for using an embedding: a response one
-// vector short leaves every later text paired with its neighbor's vector, and
-// nothing downstream can notice. Validate alone cannot see it, because the
-// input count is not part of the response, so this is the check that makes the
-// declared correspondence enforceable rather than aspirational.
+// ValidateFor checks input/output correspondence and any explicitly requested dimensions.
 func (r *Response) ValidateFor(request *Request) error {
 	if err := request.Validate(); err != nil {
 		return err
@@ -234,16 +212,6 @@ func (r *Response) ValidateFor(request *Request) error {
 		return fmt.Errorf("%w: got %d outputs for %d input texts",
 			ErrInvalidResponse, len(r.Outputs), len(request.Texts))
 	}
-	// A requested size is a promise about the vectors, not a hint. OpenAI
-	// documents its dimensions parameter as "the number of dimensions the
-	// resulting output embeddings should have" and Google documents
-	// outputDimensionality as a reduced dimension where "excessive values in
-	// the output embedding are truncated from the end" — both mean the vectors
-	// come back at exactly that size. A model that does not support the
-	// parameter would otherwise return its full-width vectors and the caller
-	// would find out from whatever it fed them to, if at all. Validate has
-	// already established that every output shares one size, so one comparison
-	// answers for all of them.
 	if request.Options.Dimensions != nil {
 		want := *request.Options.Dimensions
 		if got := int64(len(r.Outputs[0].Embedding)); got != want {
@@ -254,14 +222,9 @@ func (r *Response) ValidateFor(request *Request) error {
 	return nil
 }
 
-// PlaceOutput stores one provider result at the position it belongs to.
-//
-// outputs must already be sized to the input count. Providers that tag each
-// embedding with its own index may answer out of order, so placing by index is
-// what restores the correspondence [Response.Outputs] declares; appending in
-// arrival order silently pairs texts with the wrong vectors. An index outside
-// the request and a position claimed twice are both rejected, and a position
-// left unfilled fails when the Response is built.
+// PlaceOutput restores input order for indexed provider results. outputs must be sized
+// to the input count. Out-of-range and duplicate indices are rejected; unfilled
+// positions fail when the Response is built.
 func PlaceOutput(outputs []*Output, index int, embedding []float64, outputMetadata metadata.Map) error {
 	if index < 0 || index >= len(outputs) {
 		return fmt.Errorf("%w: output index %d is out of range for %d inputs",

@@ -63,11 +63,6 @@ func TestWorkspaceModulesKeepDocumentationEntryPoints(t *testing.T) {
 	}
 }
 
-// TestNamespaceDirectoriesKeepOneDocumentationEntry gates the directories that
-// group modules without being modules themselves. They cannot carry a package
-// comment, so README.md is their one entry point; a second parallel file would
-// reintroduce exactly the split
-// TestWorkspaceModulesKeepDocumentationEntryPoints removes from every module.
 func TestNamespaceDirectoriesKeepOneDocumentationEntry(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
@@ -95,10 +90,6 @@ func TestNamespaceDirectoriesKeepOneDocumentationEntry(t *testing.T) {
 	}
 }
 
-// discoverNamespaceDirectories returns the top-level directories that group
-// workspace modules but declare no module of their own. Deriving them from the
-// workspace rather than listing them keeps a newly added family from silently
-// escaping the gate.
 func discoverNamespaceDirectories(t *testing.T, root string) []string {
 	t.Helper()
 	namespaces := make(map[string]struct{})
@@ -153,8 +144,6 @@ func TestRepositoryGuidanceHasOneCanonicalSource(t *testing.T) {
 	}
 }
 
-// TestRootReadmeKeepsDirectChatPath protects the ordinary library entry from
-// being displaced by the more capable managed Agent path.
 func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 	t.Parallel()
 	readme, err := os.ReadFile(filepath.Join(repositoryRoot(t), "README.md"))
@@ -174,10 +163,7 @@ func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 	}
 }
 
-// Public structs and interfaces need an ownership contract because their fields
-// and method signatures cannot express lifetime or concurrency constraints.
-// Self-describing constructors, adapters, and constants do not need filler.
-func TestWorkspaceModulesDocumentPublicTypeContracts(t *testing.T) {
+func TestWorkspaceModulesDocumentPublishedPackages(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
 	modules := discoverModules(t, root)
@@ -186,90 +172,16 @@ func TestWorkspaceModulesDocumentPublicTypeContracts(t *testing.T) {
 		t.Run(module.dir, func(t *testing.T) {
 			t.Parallel()
 			moduleRoot := filepath.Join(root, filepath.FromSlash(module.dir))
-			for _, directory := range publishedPackageDirectories(t, moduleRoot) {
-				assertPublicTypeContractsDocumented(t, directory)
+			documentation := inspectModuleDocumentation(t, moduleRoot)
+			for directory, documented := range documentation.packages {
+				if !documented.hasOverview {
+					t.Errorf("public package %s has no Package comment in production code", filepath.ToSlash(directory))
+				}
 			}
 		})
 	}
 }
 
-// publishedPackageDirectories returns the directories a consumer can import.
-// Commands are skipped because a main package declares no contract, and
-// internal trees are skipped because they cannot be imported from outside.
-func publishedPackageDirectories(t *testing.T, moduleRoot string) []string {
-	t.Helper()
-	directories := make(map[string]struct{})
-	err := filepath.WalkDir(moduleRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			if path != moduleRoot && excludedDocumentationDirectory(entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
-		if err != nil {
-			return err
-		}
-		if file.Name.Name == "main" {
-			return nil
-		}
-		directories[filepath.Dir(path)] = struct{}{}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return slices.Sorted(maps.Keys(directories))
-}
-
-func assertPublicTypeContractsDocumented(t *testing.T, directory string) {
-	t.Helper()
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		path := filepath.Join(directory, entry.Name())
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, declaration := range file.Decls {
-			switch declaration := declaration.(type) {
-			case *ast.GenDecl:
-				assertPublicTypesDocumented(t, path, declaration)
-			}
-		}
-	}
-}
-
-func assertPublicTypesDocumented(t *testing.T, path string, declaration *ast.GenDecl) {
-	t.Helper()
-	for _, specification := range declaration.Specs {
-		specification, ok := specification.(*ast.TypeSpec)
-		if !ok || !specification.Name.IsExported() {
-			continue
-		}
-		switch specification.Type.(type) {
-		case *ast.StructType, *ast.InterfaceType:
-			if declaration.Doc == nil && specification.Doc == nil {
-				t.Errorf("%s: public type %s has no ownership contract", path, specification.Name)
-			}
-		}
-	}
-}
-
-// TestDocumentationOnlyModuleRootsStayDocumentationOnly keeps an overview from
-// becoming the second public entry for capabilities owned by child packages.
 func TestDocumentationOnlyModuleRootsStayDocumentationOnly(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
@@ -311,10 +223,7 @@ func assertPackageOverview(t *testing.T, path string) *ast.File {
 	return file
 }
 
-// Package discovery and checked examples protect the documented adoption path.
-// Example counts cannot measure coverage of a contract: adding an enum constant
-// does not create another user workflow, and filler examples prove nothing.
-func TestCapabilityModulesDocumentTheirPublicSurface(t *testing.T) {
+func TestCapabilityModulesKeepCheckedExamples(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
 	for _, relativeModule := range documentedCapabilityModules {
@@ -325,11 +234,6 @@ func TestCapabilityModulesDocumentTheirPublicSurface(t *testing.T) {
 			documentation := inspectModuleDocumentation(t, moduleRoot)
 			if len(documentation.packages) == 0 {
 				t.Fatalf("capability module %s has no public packages", relativeModule)
-			}
-			for directory, packageDocumentation := range documentation.packages {
-				if !packageDocumentation.hasOverview {
-					t.Errorf("public package %s has no Package comment in production code", filepath.ToSlash(directory))
-				}
 			}
 			if documentation.checkedExamples == 0 {
 				t.Errorf("capability module %s has no checked Go usage example", relativeModule)

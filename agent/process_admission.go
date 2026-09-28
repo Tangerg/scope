@@ -67,8 +67,6 @@ type ProcessAdmitter interface {
 	Admit(ctx context.Context, admission ProcessAdmission) error
 }
 
-// ProcessAdmitterFunc adapts a plain function to the admitter interface, so a
-// host quota or policy check does not require a named type.
 type ProcessAdmitterFunc func(ctx context.Context, admission ProcessAdmission) error
 
 func (p ProcessAdmitterFunc) Admit(ctx context.Context, admission ProcessAdmission) error {

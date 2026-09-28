@@ -20,8 +20,6 @@ import (
 // remaining permissions for the caller's environment.
 const createdTextFileMode os.FileMode = 0o666
 
-// FileWriterConfig fixes the output authority and filename policy at
-// construction time.
 type FileWriterConfig struct {
 	// Path is required. Existing files are replaced unless Append is true.
 	Path string
@@ -33,18 +31,7 @@ type FileWriterConfig struct {
 	Formatter etl.Formatter
 }
 
-// FileWriter persists documents as plain text. It honors Append,
-// optionally injects document-marker headers, and calls [*os.File].Sync
-// before returning so callers can rely on durability when the call
-// completes.
-//
-// Example:
-//
-//	w, err := text.NewFileWriter(text.FileWriterConfig{
-//	    Path:            "out.txt",
-//	    DocumentMarkers: true,
-//	})
-//	err = w.Write(ctx, docs)
+// FileWriter calls os.File.Sync before a successful Write returns.
 type FileWriter struct {
 	path            string
 	documentMarkers bool
@@ -52,8 +39,6 @@ type FileWriter struct {
 	formatter       etl.Formatter
 }
 
-// NewFileWriter validates its filesystem boundary before accepting
-// documents.
 func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
 	if config.Path == "" {
 		return nil, errors.New("etl: output path is required")

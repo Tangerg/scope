@@ -45,10 +45,7 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("register echo tool: %w", registerErr)
 	}
 
-	// In-memory transports keep the example executable without hiding the
-	// production boundary: a deployed server would use StdioTransport here.
-	//
-	//	server.Run(ctx, &sdkmcp.StdioTransport{})
+	// In-memory transports keep this demonstration offline.
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {

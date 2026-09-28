@@ -64,7 +64,11 @@ func (c ChildControlResult) Matches(effect Effect) bool {
 		return false
 	}
 	request, err := decodeChildControlEffect(effect.Payload())
-	return err == nil && request.Operation == c.operation && request.ChildID == c.childID &&
+	return err == nil && c.matches(request)
+}
+
+func (c ChildControlResult) matches(request childControlEffectWire) bool {
+	return request.Operation == c.operation && request.ChildID == c.childID &&
 		(!c.signalID.Valid() || request.Signal != nil && request.Signal.ID() == c.signalID)
 }
 

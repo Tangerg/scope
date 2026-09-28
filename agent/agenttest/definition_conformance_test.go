@@ -353,6 +353,7 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 	}{
 		{"accepted", nil, "instead of a classified Failure"},
 		{"unclassified", errors.New("plain failure"), "unclassified error"},
+		{"typed nil failure", (*agent.StepError)(nil), "invalid Failure"},
 		{"invalid failure", &agent.StepError{}, "invalid Failure"},
 		{
 			"wrong classification",

@@ -10,11 +10,8 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// ErrInvalidResponse identifies provider output that cannot satisfy the
-// portable response contract.
 var ErrInvalidResponse = errors.New("chat: invalid response")
 
-// ResponseMetadata holds provider identity, usage, and response-scoped extras.
 type ResponseMetadata struct {
 	ID    string `json:"id,omitempty"`
 	Model string `json:"model,omitempty"`
@@ -96,13 +93,11 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Response is one complete provider output with exactly one generation output.
 type Response struct {
 	Output   *Output           `json:"output,omitzero"`
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates one complete output and its response-scoped metadata.
 func NewResponse(output *Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	if output == nil {
 		return nil, fmt.Errorf("chat: create response: %w: output must not be nil", ErrInvalidResponse)

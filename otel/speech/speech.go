@@ -41,8 +41,6 @@ var (
 	ErrInvalidStreamer = errors.New("otel/speech: invalid streamer")
 )
 
-// MiddlewareConfig identifies the provider and optional OTel providers used by
-// speech instrumentation.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
@@ -51,7 +49,6 @@ type MiddlewareConfig struct {
 	LoggerProvider log.LoggerProvider
 }
 
-// Validate checks construction inputs without resolving global providers.
 func (m MiddlewareConfig) Validate() error {
 	if strings.TrimSpace(m.Provider) == "" {
 		return fmt.Errorf("%w: provider is required", ErrInvalidConfig)
@@ -118,7 +115,6 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Wrap decorates one synchronous speech Model.
 func (m Middleware) Wrap(next corespeech.Model) (corespeech.Model, error) {
 	if err := m.validate(); err != nil {
 		return nil, err

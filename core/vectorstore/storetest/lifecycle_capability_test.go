@@ -7,18 +7,10 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-// noopCloser is the shape this capability exists to separate out: a store that
-// was handed everything it holds, answering the lifecycle question with a Close
-// that releases nothing. Twenty-three adapters answered that way — one of them
-// by closing the client its caller had injected — and a caller could not tell
-// any of them from a store that really did need closing.
 type noopCloser struct{ validatingCapabilities }
 
 func (noopCloser) Close() error { return nil }
 
-// A Close method is what makes a store a Closer, so a store that owns nothing
-// and declares no capability must not have one. [storetest.Run] compares the
-// two sets, and this pins the detection that comparison rests on.
 func TestCapabilitiesOfDetectsACloser(t *testing.T) {
 	t.Parallel()
 
@@ -32,8 +24,6 @@ func TestCapabilitiesOfDetectsACloser(t *testing.T) {
 	}
 }
 
-// The rest of the set keeps working the same way, so a store cannot gain or
-// lose a capability without the declared set moving with it.
 func TestCapabilitiesOfReportsTheWholeSet(t *testing.T) {
 	t.Parallel()
 

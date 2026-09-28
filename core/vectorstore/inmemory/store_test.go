@@ -16,9 +16,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 )
 
-// fakeEmbeddingModel hashes each input text into a deterministic
-// 4-dim vector. Texts sharing a common prefix have higher cosine
-// similarity — gives the unit tests something realistic to assert on.
 type fakeEmbeddingModel struct{}
 
 func (fakeEmbeddingModel) Call(_ context.Context, req *embedding.Request) (*embedding.Response, error) {
@@ -33,9 +30,6 @@ func (fakeEmbeddingModel) Call(_ context.Context, req *embedding.Request) (*embe
 	return embedding.NewResponse(results, &embedding.ResponseMetadata{Model: "fake"})
 }
 
-// vectorFor maps a text to a deterministic 4-dim float vector.
-// Designed so that texts sharing a common prefix have higher cosine
-// similarity — gives the unit tests something realistic to assert on.
 func vectorFor(text string) []float64 {
 	v := []float64{0, 0, 0, 0}
 	for i, r := range text {
@@ -101,7 +95,6 @@ func TestStore_IndexAndSearchBasics(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d results, want 2", len(got))
 	}
-	// Identical vector means doc "1" must rank first.
 	if got[0].Document.ID != "1" {
 		t.Fatalf("top result = %q, want %q", got[0].Document.ID, "1")
 	}
@@ -312,8 +305,6 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 	createReq := docs
 	_ = store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
 
-	// Get baseline scores via low threshold to find a discriminating
-	// cutoff that mirrors how real callers tune MinScore.
 	baseline := &vectorstore.SearchRequest{Query: "alpha", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	baseline.Options.TopK = 10
 	baseline.Options.MinScore = 0.0
@@ -325,9 +316,6 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 		t.Fatalf("baseline got %d, want 2", len(all))
 	}
 
-	// Pick a threshold above the unrelated doc's score but below the
-	// exact match's. The fake embedder makes the exact match's score
-	// strictly higher than the unrelated doc's.
 	allScores := make([]vectorstore.Score, 0, len(all))
 	for _, match := range all {
 		allScores = append(allScores, inmemory.CosineSimilarity(
@@ -355,6 +343,12 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 }
 
 func TestStore_RejectsMissingEmbeddingModel(t *testing.T) {
+	for _, model := range []embedding.Model{nil, (*fakeEmbeddingModel)(nil)} {
+		config := inmemory.StoreConfig{EmbeddingModel: model}
+		if err := config.Validate(); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
+			t.Fatalf("StoreConfig.Validate() = %v, want ErrMissingEmbeddingModel", err)
+		}
+	}
 	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
 		t.Fatalf("NewStore error = %v, want ErrMissingEmbeddingModel", err)
 	}
@@ -429,7 +423,6 @@ func TestStore_SearchIsNull(t *testing.T) {
 		t.Fatalf("Index: %v", err)
 	}
 
-	// IS NULL: matches docs missing "owner".
 	expr, err := filter.Parse(`owner is null`)
 	if err != nil {
 		t.Fatalf("Parse(is null): %v", err)
@@ -445,7 +438,6 @@ func TestStore_SearchIsNull(t *testing.T) {
 		t.Fatalf("is null matched %d docs, want 2 (ids 1,3)", len(got))
 	}
 
-	// IS NOT NULL: matches the doc that has "owner".
 	expr2, err := filter.Parse(`owner is not null`)
 	if err != nil {
 		t.Fatalf("Parse(is not null): %v", err)
@@ -508,7 +500,6 @@ func TestStore_DeleteIDs(t *testing.T) {
 		t.Fatalf("Index: %v", err)
 	}
 
-	// Empty slice is a no-op; an unknown id is ignored.
 	if err := store.DeleteIDs(ctx, nil); err != nil {
 		t.Fatalf("DeleteIDs(nil): %v", err)
 	}

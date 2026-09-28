@@ -139,9 +139,6 @@ func TestResponseMetadataRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMalformedJSONIsRejectedPerType keeps every protocol decoder reporting its
-// own package sentinel, so a transport-level syntax error stays classifiable by
-// the value it was decoding into.
 func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	malformed := []byte(`{`)
 	cases := map[string]struct {
@@ -165,8 +162,6 @@ func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	}
 }
 
-// TestNilReceiversAreRejected proves the decoders refuse to write through a nil
-// receiver instead of panicking inside encoding/json.
 func TestNilReceiversAreRejected(t *testing.T) {
 	cases := map[string]struct {
 		target json.Unmarshaler
@@ -290,9 +285,6 @@ func TestNewRequestDoesNotAliasCallerSlice(t *testing.T) {
 	}
 }
 
-// TestDecodedValuesAreValidatedBeforeAssignment covers the branch where the
-// payload is syntactically valid JSON but violates the protocol: the receiver
-// must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	categories := moderation.Categories{"keep": {}}
 	if err := jsonv2.Unmarshal([]byte(`{" padded ":{"flagged":false,"score":0}}`), &categories); !errors.Is(err, moderation.ErrInvalidResponse) {

@@ -14,10 +14,6 @@ import (
 	"github.com/Tangerg/scope/otel/slog"
 )
 
-// TestMetricExporter_WritesOneRecordPerMetric drives a real MeterProvider
-// through the exporter and asserts each instrument lands as a "metric"
-// slog record carrying the instrument name — the Metrics leg of the dev
-// triad, sharing the same slog stream as spans and logs.
 func TestMetricExporter_WritesOneRecordPerMetric(t *testing.T) {
 	cap := &captureHandler{}
 	logger := stdslog.New(cap)

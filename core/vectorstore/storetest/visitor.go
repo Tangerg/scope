@@ -7,77 +7,29 @@ import (
 	"testing"
 )
 
-// BuildFn parses a filter expression source and feeds it through the
-// vendor's visitor. It returns nil on success, an error on failure.
-// Implementations are responsible for assembling the AST (typically
-// via [filter.Parse]) and driving the vendor visitor.
+// BuildFn must parse the source and compile it through the provider visitor.
 type BuildFn func(source string) error
 
-// Options tunes the conformance suite for vendors with genuine
-// capability gaps.
 type Options struct {
-	// Unsupported lists cases the vendor cannot represent exactly. The suite
-	// verifies that each one returns an error; capability gaps must never turn
-	// into silent approximations or unexecuted tests.
+	// Unsupported cases must return an error; approximation and skipping are forbidden.
 	Unsupported []string
 
-	// InterpolatesKeyPaths declares that this compiler writes a metadata key
-	// into the query language as text rather than binding it as a value.
-	//
-	// It decides which way the suite reads a key the target language cannot
-	// name. An indexed key is a string literal, so the caller chooses its
-	// bytes; a compiler that pastes them into query text has the caller's key
-	// read as syntax — profile['a:1 OR b'] compiled to Lucene as
-	// profile.a:1 OR b, and the same shape reached Typesense's filter_by,
-	// Vespa's YQL, an OData filter and a RediSearch tag clause. None of those
-	// languages can quote a field name, so such a key has to be refused, and
-	// the suite requires it.
-	//
-	// A compiler that binds the key instead — a SQL map subscript, a BSON
-	// field name, a JSON object key — is not exposed, and the suite requires
-	// the opposite: it must keep accepting any key, because refusing one would
-	// take away a document it can otherwise filter perfectly well.
+	// InterpolatesKeyPaths declares that keys are written as query syntax.
+	// Such compilers must reject keys the language cannot name safely; compilers
+	// that bind keys as values must preserve arbitrary keys.
 	InterpolatesKeyPaths bool
 
-	// CompileText compiles a filter and returns the query text it produced.
-	//
-	// Set it when the compiler's whole output is text, because then a number
-	// has to be written as a numeral and the digits are the only thing standing
-	// between the caller's filter and a different one. Six compilers derived
-	// those digits from a Go scalar and decided integer-ness with
-	// float64(int64(value)) == value — an out-of-range float-to-int conversion
-	// Go leaves implementation-defined — so at 2^63 arm64 emitted
-	// 9223372036854775807 while amd64 emitted the right digits. Every existing
-	// test passed: nothing compared the digits to anything.
-	//
-	// Leave it nil when the compiler binds values as arguments or builds a
-	// provider structure. There is no numeral to get wrong then, and rendering
-	// one for the suite's benefit would assert something the store never sends.
+	// Set CompileText when the emitted query is text so the suite can verify
+	// numerals retain their exact value. Leave it nil for bound arguments or
+	// provider structures; rendering those solely for this check would test a
+	// representation the backend never receives.
 	CompileText func(source string) (string, error)
 
-	// NumericDomainIsFloat64 declares that the provider's numeric fields are
-	// doubles, so a numeral only has to denote the same double.
-	//
-	// RediSearch is the case: its NUMERIC range bounds are doubles, which is
-	// why that store refuses an integer past 2^53 outright. An integer that a
-	// double does hold exactly — 2^63, being a power of two — then comes out as
-	// the shortest decimal that reads back as the same double, which is
-	// 9223372036854776000 rather than 9223372036854775808. Demanding the
-	// literal's digits there would demand precision the field cannot keep, so
-	// the suite asks only that the numeral read back as the same double, which
-	// still catches a digit lost or invented along the way.
+	// NumericDomainIsFloat64 requires equal float64 values instead of equal
+	// integer digits, matching the precision of providers that store doubles.
 	NumericDomainIsFloat64 bool
 }
 
-// VisitorConformance runs the standard expression-coverage suite
-// against a vendor's visitor.
-//
-// The case lists below are the union of what every backend's filter
-// language must accept (success cases) and the known-rejected shapes
-// every backend must error on (failure cases). Adding a new shape
-// here exercises it across ALL vendors that opt into the suite — the
-// single best lever for "no more silent visitor regressions on the
-// 27th provider".
 func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	t.Helper()
 
@@ -110,9 +62,7 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 		{"indexed_key", `profile['author'] == 'Alice'`},
 		{"nested_index", `profile['a']['b'] == 'x'`},
 		{"nested_logical", `(a == 1 and b == 2) or (c == 3 and not (d == 4))`},
-		// IS is in the operator set, so a compiler owes it an answer.
-		// Omitting these let twelve adapters ship without handling a null
-		// test at all, which nothing else noticed.
+
 		{"null_test", `author is null`},
 		{"not_null_test", `author is not null`},
 	}
@@ -135,14 +85,9 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	failure := []struct {
 		name string
 		src  string
-		// hint is an optional substring expected in the error message.
-		// Empty hint means "any error is acceptable" — useful when
-		// vendors wrap with their own prefixes and the test suite
-		// should avoid over-coupling to wording.
+		// Error hints are informational; providers may wrap errors with different wording.
 		hint string
 	}{
-		// LIKE with a non-string right side hits every backend's pattern
-		// validation.
 		{"like_number", `title like 42`, ""},
 	}
 	for _, tc := range failure {
@@ -152,18 +97,11 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 				t.Fatalf("expected error on %q, got nil", tc.src)
 			}
 			if tc.hint != "" && !strings.Contains(err.Error(), tc.hint) {
-				// Hint mismatch is informational only — vendors that
-				// wrap errors with their own prefixes still pass the
-				// suite as long as they error at all.
 				t.Logf("err = %v (hint %q not in error — fine if vendor wraps)", err, tc.hint)
 			}
 		})
 	}
 
-	// A key the target language cannot name: refused by a compiler that writes
-	// keys as text, accepted by one that binds them. Both directions are
-	// asserted, so neither an injection nor a needless refusal can appear
-	// without this suite noticing.
 	unnameable := []struct {
 		name string
 		src  string
@@ -193,15 +131,8 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	}
 }
 
-// runNumeralCases requires a compiler that emits text to emit the literal's
-// exact digits.
-//
-// The assertion is provider-independent because the digits are: whatever syntax
-// surrounds it, a numeral that reads as a different number is a different
-// filter. Each case is a value a re-derived numeral gets wrong — a magnitude no
-// float64 holds, the int64 boundary where Go's out-of-range conversion is
-// implementation-defined, and an integral float whose canonical form is
-// exponential while no provider grammar here documents exponents.
+// These magnitudes expose lossy float64 round trips and architecture-dependent
+// out-of-range float-to-int conversions.
 func runNumeralCases(t *testing.T, compile func(string) (string, error), float64Domain bool) {
 	t.Helper()
 
@@ -220,9 +151,7 @@ func runNumeralCases(t *testing.T, compile func(string) (string, error), float64
 		t.Run("Numeral_"+tc.name, func(t *testing.T) {
 			text, err := compile(tc.src)
 			if err != nil {
-				// A compiler may refuse a magnitude it cannot carry — redis
-				// refuses an integer RediSearch cannot hold exactly — but it
-				// must refuse rather than round.
+				// A compiler may reject an unrepresentable magnitude, but must never round it.
 				t.Skipf("compiler refused %q: %v", tc.src, err)
 			}
 			if strings.Contains(text, tc.digits) {
@@ -237,11 +166,6 @@ func runNumeralCases(t *testing.T, compile func(string) (string, error), float64
 	}
 }
 
-// assertSameFloat64 accepts any numeral in the emitted text that reads back as
-// the same double as the expected digits. A provider whose numeric field is a
-// double cannot tell the two apart, so requiring one spelling would require
-// precision the field does not keep — but a numeral that reads as a different
-// double is a different filter on any provider.
 func assertSameFloat64(t *testing.T, source, text, digits string) {
 	t.Helper()
 
@@ -257,9 +181,7 @@ func assertSameFloat64(t *testing.T, source, text, digits string) {
 	t.Fatalf("compiled %q to %q, want a numeral reading back as %v", source, text, want)
 }
 
-// numeralsIn pulls the numeral-shaped runs out of query text. The surrounding
-// syntax is the provider's, so the scan stays deliberately loose: it only has
-// to find the candidates, and ParseFloat decides which of them is a number.
+// Query syntax is provider-owned; scan loosely and let ParseFloat validate candidates.
 func numeralsIn(text string) []string {
 	var numerals []string
 	var current strings.Builder

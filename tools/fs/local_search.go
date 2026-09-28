@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// Default result caps applied when the caller leaves MaxResults at 0.
-// The defaults prevent LLM context bloat without forcing the LLM to pass a
-// cap on every call.
 const (
 	defaultGrepMaxResults = 250
 	defaultGlobMaxResults = 100

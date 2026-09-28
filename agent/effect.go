@@ -19,11 +19,8 @@ var ErrInvalidEffect = errors.New("agent: invalid effect")
 type EffectTarget string
 
 const (
-	// EffectTargetInvalid is the invalid zero value.
-	EffectTargetInvalid EffectTarget = ""
-	// EffectTargetFramework identifies an Engine-interpreted Effect.
-	EffectTargetFramework EffectTarget = "framework"
-	// EffectTargetDispatcher identifies a Strategy dispatcher Effect.
+	EffectTargetInvalid    EffectTarget = ""
+	EffectTargetFramework  EffectTarget = "framework"
 	EffectTargetDispatcher EffectTarget = "dispatcher"
 )
 
@@ -52,10 +49,8 @@ type Effect struct {
 	requirements CapabilitySet
 }
 
-// NewDispatcherEffect carries an opaque payload plus the capabilities it
-// requires, so the Engine can refuse an effect the Process was never granted
-// without understanding what the effect does. Keeping the payload opaque is
-// what stops model and tool vocabulary from entering the kernel.
+// NewDispatcherEffect freezes an opaque request and its required capabilities.
+// Insufficient authority rejects the entire Step before dispatch.
 func NewDispatcherEffect(payload json.RawMessage, required ...Capability) (Effect, error) {
 	requirements, err := NewCapabilitySet(required...)
 	if err != nil {
@@ -109,7 +104,6 @@ func freezeEffect(
 	return Effect{target: target, payload: normalized, requirements: requirements}, nil
 }
 
-// Target returns the owner responsible for interpreting Payload.
 func (e Effect) Target() EffectTarget { return e.target }
 
 // Payload returns an independently owned copy of the operation intent.

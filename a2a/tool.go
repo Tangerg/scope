@@ -23,14 +23,8 @@ type callArguments struct {
 	Message string `json:"message" jsonschema_description:"The natural-language request to send to the remote agent."`
 }
 
-// remoteTool wraps a remote A2A agent as a [tool.Tool]. Each Call sends the
-// argument text as an A2A message and returns the agent's reply, so an
-// agent can delegate to a remote agent through the ordinary tool-calling
-// loop. A task that does not complete successfully is mapped to
-// [*RemoteAgentError] (use [errors.AsType]) so a remote failure or unsupported
-// continuation is not fed back as a successful result.
-//
-// The wrapper is immutable after construction and does not own the client.
+// remoteTool is immutable after construction and does not own its client.
+// Non-completed tasks return RemoteAgentError instead of a successful result.
 type remoteTool struct {
 	client            *a2aclient.Client
 	definition        corechat.ToolDefinition
@@ -74,14 +68,10 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 
 func (r remoteTool) Definition() corechat.ToolDefinition { return r.definition.Clone() }
 
-// ConcurrencyPolicy exports only the host's independent scheduling declaration.
 func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return r.concurrencyPolicy
 }
 
-// Each remote call owns a client span named `a2a.agent.call <name>` with
-// gen_ai.agent.name attribution; remote failure records the error and marks
-// the span failed rather than hiding transport state in the textual result.
 func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
 	ctx, span := a2aTracer.Start(ctx, "a2a.agent.call "+r.definition.Name,
 		trace.WithSpanKind(trace.SpanKindClient),
@@ -124,9 +114,6 @@ func parseCallArguments(arguments []byte) (callArguments, error) {
 	return input, nil
 }
 
-// describeAgent builds the tool description from the card: its description
-// plus a compact list of skill names so the model knows what the remote can
-// do.
 func describeAgent(card *sdka2a.AgentCard) string {
 	var b strings.Builder
 	b.WriteString(card.Description)
@@ -145,9 +132,6 @@ func describeAgent(card *sdka2a.AgentCard) string {
 	return b.String()
 }
 
-// sanitizeToolName maps an AgentCard name (which may contain spaces or
-// punctuation) to a tool identifier: lowercased, with runs of non-alphanumeric
-// characters collapsed to single underscores.
 func sanitizeToolName(name string) string {
 	var b strings.Builder
 	prevUnderscore := false

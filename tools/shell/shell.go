@@ -21,10 +21,7 @@ type Executor interface {
 	Run(ctx context.Context, in Input) (Output, error)
 }
 
-// Input captures everything an executor needs to launch a single
-// command. Only Cmd is required.
 type Input struct {
-	// Cmd is the shell command line. Required.
 	Cmd string
 
 	// Timeout bounds the run. 0 = no timeout; ctx cancellation still

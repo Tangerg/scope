@@ -22,6 +22,34 @@ type childInvocationState struct {
 	Result    *toolCallResult  `json:"result,omitzero"`
 }
 
+func (c childInvocationState) validate(kind childCallKind, key agent.ChildKey, call chat.ToolCall) error {
+	if c.ChildKey != nil && *c.ChildKey != key {
+		return fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
+	}
+	if c.ChildKey == nil && (kind != childCallsDelegate || c.ProcessID != nil || c.Result == nil) {
+		return fmt.Errorf("%w: planned child has no key", ErrInvalidExecutionState)
+	}
+	if c.ProcessID != nil && !c.ProcessID.Valid() {
+		return ErrInvalidExecutionState
+	}
+	if c.Result == nil {
+		return nil
+	}
+	if err := c.Result.validateCall(call); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
+	if kind == childCallsDelegate {
+		if c.ProcessID != nil || !c.Result.Result.IsError || c.Result.Direct || len(c.Result.AdvertisedToolNames) != 0 {
+			return fmt.Errorf("%w: pending Delegate batch retains a completed child", ErrInvalidExecutionState)
+		}
+		return nil
+	}
+	if c.ProcessID == nil {
+		return fmt.Errorf("%w: unstarted Tool has a result", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
 // One batch owns child admission, the active wait, and ordered settlements.
 // Kind selects binding and scheduling policy without creating another protocol.
 type childCallBatch struct {
@@ -61,29 +89,13 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 			continue
 		}
 		key, err := c.childKey(modelSequence, calls[index])
-		if err != nil || invocation.ChildKey != nil && *invocation.ChildKey != key {
+		if err != nil {
 			return fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
 		}
-		if invocation.ChildKey == nil && (c.Kind != childCallsDelegate || invocation.ProcessID != nil || invocation.Result == nil) {
-			return fmt.Errorf("%w: planned child has no key", ErrInvalidExecutionState)
-		}
-		if invocation.ProcessID != nil {
-			if !invocation.ProcessID.Valid() {
-				return ErrInvalidExecutionState
-			}
+		if err := invocation.validate(c.Kind, key, calls[index]); err != nil {
+			return err
 		}
 		if invocation.Result != nil {
-			if err := invocation.Result.validateCall(calls[index]); err != nil {
-				return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-			}
-			if c.Kind == childCallsDelegate {
-				if invocation.ProcessID != nil || !invocation.Result.Result.IsError ||
-					invocation.Result.Direct || len(invocation.Result.AdvertisedToolNames) != 0 {
-					return fmt.Errorf("%w: pending Delegate batch retains a completed child", ErrInvalidExecutionState)
-				}
-			} else if invocation.ProcessID == nil {
-				return fmt.Errorf("%w: unstarted Tool has a result", ErrInvalidExecutionState)
-			}
 			continue
 		}
 		if invocation.ProcessID == nil {

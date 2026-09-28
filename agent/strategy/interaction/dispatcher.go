@@ -13,7 +13,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// DispatcherConfig binds external capabilities for one Deployment.
 type DispatcherConfig struct {
 	// Exactly one of Model and Streamer is required. The selected capability
 	// owns the entire response lifecycle; streaming is accumulated before settlement.
@@ -64,8 +63,6 @@ func (d *Dispatcher) ObservationFailures() ObservationFailures {
 	return d.observationFailures.snapshot()
 }
 
-// NewDispatcher binds the model boundary to its immutable Interaction manifest.
-// Ordinary Tools run in the separate Deployment supplied by Definition's ToolSet.
 func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
 	if !definition.valid() {
 		return nil, fmt.Errorf("%w: Definition is required", ErrInvalidDispatcherConfig)
@@ -174,14 +171,8 @@ func (d *Dispatcher) dispatchModel(
 		}
 	}
 	result := &modelCallResult{}
-	// Comparing lengths or digests would be cheaper and wrong: a reducer that
-	// rewrites a message without changing the count would compare equal, and the
-	// unrecorded replacement would leave the tree disagreeing with what the model
-	// saw. DeepEqual also stays correct when a new Part implementation appears.
-	//
-	// A reducer that trims anything changes the length, which DeepEqual rejects
-	// before reading a message; only one returning its input unchanged pays the
-	// full walk. BenchmarkDeepEqualUnchanged measures that case.
+	// DeepEqual detects in-place message rewrites as well as trimming; otherwise
+	// recovery could retain a context different from the one sent to the model.
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}

@@ -11,9 +11,6 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// concurrencyAware is the optional scheduling contract the tool loop discovers
-// on a tool. It is declared here rather than imported so this package keeps
-// depending only on what it uses.
 type concurrencyAware interface {
 	ConcurrencyPolicy() func(toolcontract.Invocation) (key string, concurrent bool)
 }
@@ -33,7 +30,6 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	return invocation
 }
 
-// Backends promise concurrent use; the adapters do not impose a resource key.
 func TestReadOnlyToolsDeclareNoConflict(t *testing.T) {
 	root := t.TempDir()
 	executor := mustLocalExecutor(t, root)
@@ -123,8 +119,6 @@ func TestReadToolUsesConcurrentReaderContract(t *testing.T) {
 	}
 }
 
-// Mutation adapters cannot infer resource identity or concurrency guarantees
-// from an arbitrary Writer or Editor's path strings.
 func TestMutatingToolsDoNotDeclareBackendConcurrency(t *testing.T) {
 	executor := mustLocalExecutor(t, t.TempDir())
 	for _, executable := range []toolcontract.Tool{mustEditTool(t, executor), mustWriteTool(t, executor)} {
@@ -134,9 +128,6 @@ func TestMutatingToolsDoNotDeclareBackendConcurrency(t *testing.T) {
 	}
 }
 
-// TestGrepLineKindIsAClosedVocabulary keeps the structured grep event readable:
-// a kind outside the pair would leave a consumer unable to tell a match from
-// requested context.
 func TestGrepLineKindIsAClosedVocabulary(t *testing.T) {
 	for _, kind := range []GrepLineKind{GrepLineMatch, GrepLineContext} {
 		if !kind.Valid() {
@@ -153,9 +144,6 @@ func TestGrepLineKindIsAClosedVocabulary(t *testing.T) {
 	}
 }
 
-// TestReadLineNumberSurfacesTheOffendingLine is what turns an oversized-line
-// failure into an actionable one: without the line number the caller only knows
-// that some line in the file was too long.
 func TestReadLineNumberSurfacesTheOffendingLine(t *testing.T) {
 	err := &lineLimitError{path: "a.txt", line: 42, limit: 1024}
 	if !errors.Is(err, ErrLineTooLarge) {

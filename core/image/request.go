@@ -15,25 +15,20 @@ import (
 // default. Resolve snapshots mutable values and overlays only fields explicitly
 // supplied by the request.
 type Options struct {
-	// Model is the provider model identifier (e.g. "dall-e-3").
 	Model string `json:"model"`
 
-	// NegativePrompt describes what should not appear in the image.
 	NegativePrompt string `json:"negative_prompt"`
 
 	// Width / Height set the output dimensions in pixels.
 	Width  *int64 `json:"width,omitzero"`
 	Height *int64 `json:"height,omitzero"`
 
-	// Seed pins the RNG so repeated calls produce the same image.
 	Seed *int64 `json:"seed,omitzero"`
 
 	// OutputFormat picks the image MIME type of the rendered bytes.
 	// Empty leaves the format to the provider.
 	OutputFormat string `json:"output_format,omitempty"`
 
-	// Extensions carries JSON-safe provider-specific options unknown to this
-	// struct.
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -155,16 +150,12 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Request is one image-generation call: the prompt and explicit options.
 type Request struct {
-	// Prompt is the natural-language description of the desired image.
 	Prompt string `json:"prompt"`
 
 	Options Options `json:"options,omitzero"`
 }
 
-// NewRequest validates the required input while leaving per-call options at
-// their portable zero defaults.
 func NewRequest(prompt string) (*Request, error) {
 	r := &Request{Prompt: prompt}
 	if err := r.Validate(); err != nil {

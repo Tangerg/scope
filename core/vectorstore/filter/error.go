@@ -2,7 +2,6 @@ package filter
 
 import "fmt"
 
-// SyntaxError describes invalid filter text and its source position.
 type SyntaxError struct {
 	Position Position
 	Token    string

@@ -7,13 +7,9 @@ import (
 	"github.com/samber/lo"
 )
 
-// ErrInvalidWrappingChain reports a decorator chain too deep to traverse safely.
 var ErrInvalidWrappingChain = errors.New("tool: invalid wrapping chain")
 
-// WrappingTool is implemented by a decorator that stands in for another tool.
-// Optional capabilities are resolved through this chain, so a decorator states
-// once that it wraps a tool instead of re-implementing every optional interface
-// the inner tool may acquire.
+// WrappingTool exposes the decorator chain used to resolve optional capabilities.
 type WrappingTool interface {
 	// Unwrap returns the next inner tool in a finite decorator chain. It must
 	// return the same tool for the wrapper's lifetime and must not perform I/O;

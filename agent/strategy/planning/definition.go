@@ -16,23 +16,18 @@ const executionStateKind = "planning"
 // Planner, and Action bindings are fixed for the exact Deployment; only Input
 // varies per Process.
 type DefinitionConfig struct {
-	// Name is the stable qualified Definition name.
 	Name string
 
-	// Description states the managed goal-directed behavior for discovery.
 	Description string
 
 	// InputSchema is the authoritative schema for opaque task input passed to
 	// Sensor, ActionExecutor, and child input functions.
 	InputSchema agent.Schema
 
-	// Goal is the immutable target state.
 	Goal Goal
 
-	// Actions binds every predictive Action to exactly one execution mechanism.
 	Actions []ActionBinding
 
-	// Planner selects Actions from each newly observed WorldState.
 	Planner Planner
 
 	// MaxActionAttempts bounds external Action attempts. Its zero value is
@@ -58,10 +53,6 @@ type Definition struct {
 	maxActionAttempts agent.Quota
 }
 
-// NewDefinition freezes the goal, actions, and planner into one immutable
-// behavior. The planner is chosen here rather than at run time so that a
-// restored Execution searches with the same algorithm that produced the plan
-// it is resuming.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if !config.MaxActionAttempts.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxActionAttempts must admit one Action", ErrInvalidDefinitionConfig)
@@ -98,7 +89,6 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	}, nil
 }
 
-// Descriptor returns the immutable managed Planning contract.
 func (d *Definition) Descriptor() agent.Descriptor {
 	if d == nil {
 		return agent.Descriptor{}
@@ -106,7 +96,6 @@ func (d *Definition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-// Start creates a fresh Planning Execution from validated opaque task input.
 func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

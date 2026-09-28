@@ -8,8 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/chatclient"
 )
 
-// echoModel stands in for a provider so the overview stays runnable. A real
-// implementation lives in its own models/<provider> module.
 type echoModel struct{}
 
 func (echoModel) Call(_ context.Context, request *chat.Request) (*chat.Response, error) {
@@ -21,9 +19,6 @@ func (echoModel) Call(_ context.Context, request *chat.Request) (*chat.Response,
 	return chat.NewResponse(output, nil)
 }
 
-// Example shows the ordinary path through the module: build a protocol request,
-// wrap a provider model in a client, and read the
-// response through the protocol value rather than a provider type.
 func Example() {
 	client, err := chatclient.New(echoModel{}, chatclient.Config{})
 	if err != nil {

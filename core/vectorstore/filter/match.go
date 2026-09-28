@@ -29,19 +29,12 @@ func (e *evaluator) Visit(predicate Predicate) error {
 	return nil
 }
 
-// Match reports whether values satisfies expr. It is the canonical
-// client-side evaluation of a Predicate, used by stores whose provider cannot
-// express the filter and by any caller that must decide membership locally.
-//
-// values holds decoded metadata; [github.com/Tangerg/scope/core/metadata.Map]
-// Values decodes numbers as json.Number, which this evaluator compares exactly
-// rather than through float64. Evaluation errors (type mismatch, unsupported
-// node) are surfaced rather than swallowed, because a malformed filter is a
-// programmer bug and silently reporting "no match" would delete or omit the
-// wrong documents.
+// Match evaluates a predicate against decoded metadata. json.Number values are
+// compared exactly without conversion through float64. Invalid predicates and
+// type mismatches return errors rather than silently omitting matching documents.
 func Match(expr Predicate, values map[string]any) (bool, error) {
 	visitor := evaluator{values: values}
-	if err := expr.Accept(&visitor); err != nil {
+	if err := accept(expr, &visitor); err != nil {
 		return false, err
 	}
 	return visitor.match, nil
@@ -237,7 +230,6 @@ func (e *evaluator) evalLogical(b *BinaryExpr) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("filter: evaluate logical expression: %s left operand must be bool, got %T", b.Operator(), left)
 	}
-	// Short-circuit.
 	if b.Operator() == OpAnd && !lb {
 		return false, nil
 	}
@@ -410,9 +402,7 @@ func (e *evaluator) evalLike(b *BinaryExpr) (any, error) {
 	return likeMatch(s, pattern), nil
 }
 
-// likeMatch is SQL LIKE: % matches any run of characters, _ matches
-// one. The pattern must match the whole input. Greedy backtracking is
-// acceptable here because metadata strings are short.
+// likeMatch implements case-sensitive SQL LIKE: % matches any run, _ one rune, and the whole input must match.
 func likeMatch(s, pattern string) bool {
 	return likeMatchRunes([]rune(s), []rune(pattern))
 }
@@ -443,8 +433,6 @@ func likeMatchRunes(s, p []rune) bool {
 	return pi == len(p)
 }
 
-// lookupField returns nil for absent fields. IS NULL treats that as null;
-// ordering and pattern predicates treat it as a non-match.
 func (e *evaluator) lookupField(name string) any {
 	if e.values == nil {
 		return nil

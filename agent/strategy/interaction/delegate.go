@@ -15,7 +15,6 @@ type DelegateConfig struct {
 	// Name is the provider-compatible model Tool name.
 	Name string
 
-	// Description tells the model when and why to delegate this work.
 	Description string
 
 	// Deployment is the exact child behavior binding. The Delegate retains only
@@ -25,7 +24,6 @@ type DelegateConfig struct {
 	// Budget is permanently allocated from the parent for each invocation.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to each child.
 	Capabilities agent.CapabilitySet
 }
 
@@ -41,10 +39,8 @@ type Delegate struct {
 	capabilities  agent.CapabilitySet
 }
 
-// NewDelegate exposes exactly one child Deployment to the model as a tool. The
-// target is fixed at construction so a model cannot choose which agent to
-// invoke: routing is a host decision, and a model-selected Deployment would be
-// an unbounded authority grant.
+// NewDelegate fixes the target at construction; model selection cannot change
+// its Deployment, budget, or capabilities.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
 	if !config.Deployment.Valid() || !config.Capabilities.Valid() ||
 		!agent.ValidDescription(config.Description) {

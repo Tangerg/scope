@@ -13,7 +13,6 @@ import (
 // only explicitly supplied values, merges namespaced extensions, and never
 // aliases mutable data from either input.
 type Options struct {
-	// Model is the provider model identifier (e.g. "tts-1").
 	Model string `json:"model"`
 
 	// Voice selects the speaker profile. Provider-specific values.
@@ -25,8 +24,6 @@ type Options struct {
 	// Speed scales the playback rate. 1.0 is normal speed.
 	Speed float64 `json:"speed"`
 
-	// Extensions carries JSON-safe provider-specific options unknown to this
-	// struct.
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -110,16 +107,12 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Request is one TTS call: the input text and explicit options.
 type Request struct {
-	// Text is the prompt converted to speech.
 	Text string `json:"text"`
 
 	Options Options `json:"options,omitzero"`
 }
 
-// NewRequest validates the required input while leaving per-call options at
-// their portable zero defaults.
 func NewRequest(text string) (*Request, error) {
 	r := &Request{Text: text}
 	if err := r.Validate(); err != nil {

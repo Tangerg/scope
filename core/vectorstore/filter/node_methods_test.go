@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// mustParseBinary parses src and asserts the result is a [*filter.BinaryExpr].
 func mustParseBinary(t *testing.T, src string) *filter.BinaryExpr {
 	t.Helper()
 	expr, err := filter.Parse(src)
@@ -274,5 +273,24 @@ func TestListLiteralValuesBools(t *testing.T) {
 	}
 	if len(bs) != 3 || bs[0] != true || bs[1] != false {
 		t.Fatalf("bs = %v, want [true false true]", bs)
+	}
+}
+
+func TestListValuesRejectMixedLiteralKinds(t *testing.T) {
+	for name, values := range map[string][]*filter.Literal{
+		"signed":   {filter.NewLiteral(1), filter.NewLiteral("two")},
+		"unsigned": {filter.NewLiteral(uint64(1 << 63)), filter.NewLiteral(true)},
+		"decimal":  {filter.NewLiteral(1.5), filter.NewLiteral("two")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if value := recover(); value != nil {
+					t.Fatalf("Values panicked: %v", value)
+				}
+			}()
+			if got, err := filter.NewListLiteral(values).Values(); err == nil || got != nil {
+				t.Fatalf("Values() = %v, %v; want nil and error", got, err)
+			}
+		})
 	}
 }

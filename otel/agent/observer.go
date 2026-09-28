@@ -77,17 +77,10 @@ var (
 	errIncompleteSpan        = errors.New("agent otel: observer closed before span completion")
 )
 
-// ObserverConfig selects the official OpenTelemetry providers used by Observer.
-// A nil provider uses the corresponding OpenTelemetry global provider.
+// Nil providers use the corresponding OpenTelemetry global providers.
 type ObserverConfig struct {
-	// TracerProvider creates Process, Step, and Effect spans. Nil uses the
-	// OpenTelemetry global provider.
 	TracerProvider trace.TracerProvider
-
-	// MeterProvider creates Process lifecycle and usage instruments, Step/Effect
-	// duration histograms, committer duration and snapshot size, and the Delta
-	// drop counter. Nil uses the OpenTelemetry global provider.
-	MeterProvider metric.MeterProvider
+	MeterProvider  metric.MeterProvider
 }
 
 // Observer projects immutable Framework Event facts into OpenTelemetry spans
@@ -151,9 +144,8 @@ type observerInstruments struct {
 	durabilitySnapshotBytes   metric.Int64Histogram
 }
 
-// NewObserver validates providers and creates the observation instruments.
-// Instrument construction failures wrap ErrInvalidObserverConfig. Export
-// failures remain with the configured providers and never change Agent state.
+// NewObserver wraps instrument construction failures with ErrInvalidObserverConfig.
+// Export failures remain with the providers and never change Agent state.
 func NewObserver(config ObserverConfig) (*Observer, error) {
 	if config.TracerProvider != nil && lo.IsNil(config.TracerProvider) {
 		return nil, fmt.Errorf("%w: tracer provider is typed nil", ErrInvalidObserverConfig)

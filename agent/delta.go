@@ -64,7 +64,6 @@ func newDelta(
 	}, nil
 }
 
-// ProcessID returns the Process that owns the Effect attempt.
 func (d Delta) ProcessID() ProcessID { return d.processID }
 
 // EffectID identifies the logical Effect and remains stable across replay attempts.

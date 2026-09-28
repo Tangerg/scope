@@ -12,8 +12,6 @@ import (
 	ragvectorstore "github.com/Tangerg/scope/rag/vectorstore"
 )
 
-// fakeVectorSearcher captures the request the retriever issues so
-// tests can assert that filters / topK / minScore are wired through.
 type fakeVectorSearcher struct {
 	got         *vectorstore.SearchRequest
 	err         error

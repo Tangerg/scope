@@ -1,13 +1,57 @@
 package history
 
 import (
+	"math"
 	"sync"
 	"testing"
 	"time"
 )
 
-// The regression guard is the whole reason a Sequence exists: a clock that
-// steps backward must not place a later batch before an earlier one.
+func TestSequenceRejectsOverflowWithoutConsumingPositions(t *testing.T) {
+	sequence, err := NewSequence(time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first := sequence.reserveAt(math.MaxInt64-2, 1); first != math.MaxInt64-2 {
+		t.Fatalf("first reservation = %d", first)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("overflowing reservation did not panic")
+			}
+		}()
+		sequence.reserveAt(math.MaxInt64-1, 3)
+	}()
+	if next := sequence.reserveAt(1, 2); next != math.MaxInt64-1 {
+		t.Fatalf("next reservation = %d, want %d", next, int64(math.MaxInt64-1))
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("exhausted sequence did not panic")
+		}
+	}()
+	sequence.reserveAt(1, 1)
+}
+
+func TestSequenceRejectsMultiplicationOverflow(t *testing.T) {
+	sequence, err := NewSequence(time.Duration(math.MaxInt64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("overflowing stride multiplication did not panic")
+			}
+		}()
+		sequence.reserveAt(1, 2)
+	}()
+	if next := sequence.reserveAt(1, 1); next != 1 {
+		t.Fatalf("next reservation = %d, want 1", next)
+	}
+}
+
 func TestSequenceIgnoresAClockThatMovesBackward(t *testing.T) {
 	t.Parallel()
 
@@ -19,7 +63,6 @@ func TestSequenceIgnoresAClockThatMovesBackward(t *testing.T) {
 	if first != 1_000 {
 		t.Fatalf("first reservation = %d, want 1000", first)
 	}
-	// The clock has gone back behind the whole first run.
 	second := sequence.reserveAt(900, 2)
 	if second != 1_003 {
 		t.Fatalf("second reservation = %d, want 1003, the position after the first run", second)
@@ -30,7 +73,6 @@ func TestSequenceIgnoresAClockThatMovesBackward(t *testing.T) {
 	}
 }
 
-// A batch owns a contiguous run so its messages read back in argument order.
 func TestSequenceReservesContiguousRuns(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +93,6 @@ func TestSequenceReservesContiguousRuns(t *testing.T) {
 			if first := sequence.reserveAt(1_000, sample.count); first != 1_000 {
 				t.Fatalf("first reservation = %d, want 1000", first)
 			}
-			// The next run starts past every position the first run covers.
 			if next := sequence.reserveAt(1_000, 1); next != sample.want {
 				t.Fatalf("next reservation = %d, want %d", next, sample.want)
 			}
@@ -59,7 +100,6 @@ func TestSequenceReservesContiguousRuns(t *testing.T) {
 	}
 }
 
-// Concurrent writers must never share a position.
 func TestSequenceHandsOutDisjointRunsConcurrently(t *testing.T) {
 	t.Parallel()
 
@@ -96,7 +136,6 @@ func TestSequenceHandsOutDisjointRunsConcurrently(t *testing.T) {
 	}
 }
 
-// A stride that cannot separate two positions is a configuration error.
 func TestNewSequenceRejectsNonPositiveStride(t *testing.T) {
 	t.Parallel()
 

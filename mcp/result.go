@@ -28,23 +28,23 @@ func (r remoteResult) unwrap() (chat.ToolOutput, error) {
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}
-	if !r.value.IsError {
-		if r.outputSchema.Valid() {
-			if validationErr := r.outputSchema.Validate(output.Details); validationErr != nil {
-				return chat.ToolOutput{}, fmt.Errorf("mcp: tool %q structured content does not match its output schema: %w", r.remoteName, validationErr)
-			}
+	if r.value.IsError {
+		cause := fmt.Errorf("mcp: tool %q reported failure", r.remoteName)
+		if len(output.Content) == 0 && len(output.Details) == 0 {
+			output = chat.NewTextToolOutput(cause.Error())
 		}
-		return output, nil
+		failure, failureErr := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: output})
+		if failureErr != nil {
+			return chat.ToolOutput{}, failureErr
+		}
+		return chat.ToolOutput{}, failure
 	}
-	cause := fmt.Errorf("mcp: tool %q reported failure", r.remoteName)
-	if len(output.Content) == 0 && len(output.Details) == 0 {
-		output = chat.NewTextToolOutput(cause.Error())
+	if r.outputSchema.Valid() {
+		if validationErr := r.outputSchema.Validate(output.Details); validationErr != nil {
+			return chat.ToolOutput{}, fmt.Errorf("mcp: tool %q structured content does not match its output schema: %w", r.remoteName, validationErr)
+		}
 	}
-	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: output})
-	if err != nil {
-		return chat.ToolOutput{}, err
-	}
-	return chat.ToolOutput{}, failure
+	return output, nil
 }
 
 func (r remoteResult) content() (chat.ToolOutput, error) {

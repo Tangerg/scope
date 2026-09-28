@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-// WithTimeout bounds one integration call. A provider that hangs would
-// otherwise consume the whole package deadline and report the timeout against
-// an unrelated test; deriving from t.Context keeps the bound tied to this test
-// so cancellation still propagates when the test fails first.
+// WithTimeout derives the call deadline from the test context.
 func WithTimeout(t *testing.T, duration time.Duration) (context.Context, context.CancelFunc) {
 	t.Helper()
 	return context.WithTimeout(t.Context(), duration)
@@ -19,10 +16,7 @@ func WithTimeout(t *testing.T, duration time.Duration) (context.Context, context
 
 const envKeyPrefix = "SCOPE_TEST_"
 
-// RequireKey skips rather than fails when a provider credential is absent, so
-// the same suite is runnable both in CI without secrets and locally with them.
-// Deriving the variable name from the provider keeps credentials discoverable
-// without a per-provider convention to look up.
+// RequireKey reads SCOPE_TEST_<PROVIDER>_KEY and skips the test when empty.
 func RequireKey(t *testing.T, provider string) string {
 	t.Helper()
 	name := envKeyPrefix + strings.ToUpper(provider) + "_KEY"
@@ -33,10 +27,7 @@ func RequireKey(t *testing.T, provider string) string {
 	return v
 }
 
-// RequireEnv carries the same skip semantics as [RequireKey] for the settings
-// that are not credentials: an endpoint, region, or deployment name a provider
-// cannot infer. It is separate because those names are vendor-specific and
-// cannot be derived from the provider alone.
+// RequireEnv skips the test when the named environment variable is empty.
 func RequireEnv(t *testing.T, name string) string {
 	t.Helper()
 	v := os.Getenv(name)
@@ -46,9 +37,7 @@ func RequireEnv(t *testing.T, name string) string {
 	return v
 }
 
-// LookupEnv reads an optional setting whose absence is a valid configuration
-// rather than a reason to skip, so the caller decides what a missing value
-// means instead of losing the test to an unconditional skip.
+// LookupEnv treats an empty value as absent.
 func LookupEnv(name string) (string, bool) {
 	v := os.Getenv(name)
 	return v, v != ""

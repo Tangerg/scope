@@ -89,7 +89,6 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 	}
 }
 
-// Capture the actual settlement returned to Engine, including its canonical bytes.
 type responseLimitDispatcher struct {
 	*interaction.Dispatcher
 	finished chan responseLimitOutcome
@@ -186,7 +185,6 @@ func TestResponseLimitMeasuresCanonicalSettlementBoundaries(t *testing.T) {
 func TestResponseAdmissionReservesMinimumCompleteProtocol(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		for _, replacement := range []string{"", strings.Repeat("<>&\u2028\u2029", 20)} {
-			// Measure the canonical envelope without a response, then leave one byte.
 			base := `{"operation":"model_call","model_result":{}}`
 			if replacement != "" {
 				messages, err := agent.EncodePayload([]chat.Message{chat.NewUserMessage(chat.NewTextPart(replacement))})

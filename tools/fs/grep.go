@@ -10,12 +10,8 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// GrepRequest is the LLM-facing argument shape for the grep tool.
-//
-// Notes on pattern syntax: the underlying engine is ripgrep. Literal braces /
-// brackets need escaping (`interface\{\}` to find `interface{}`).
-// By default patterns match within a single line; set `multiline=true`
-// for patterns that span newlines.
+// GrepRequest patterns use ripgrep syntax. Matches stay within a single line
+// unless Multiline is set.
 type GrepRequest struct {
 	Pattern  string `json:"pattern" jsonschema:"minLength=1" jsonschema_description:"Regular expression in ripgrep syntax."`
 	Path     string `json:"path,omitempty" jsonschema_description:"File or directory to search. Defaults to the workspace root."`
@@ -33,9 +29,7 @@ type GrepRequest struct {
 	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum result entries. Defaults to 250 and cannot exceed 1000."`
 }
 
-// GrepResponse is the LLM-facing return shape. Exactly one of
-// lines / files / counts is populated based on the request's
-// output_mode.
+// Exactly one of Lines, Files, or Counts is populated according to OutputMode.
 type GrepResponse struct {
 	Lines     []GrepLine      `json:"lines,omitempty"`
 	Files     []string        `json:"files,omitempty"`
@@ -45,13 +39,11 @@ type GrepResponse struct {
 
 var _ toolcontract.Tool = (*GrepTool)(nil)
 
-// GrepTool is the model-facing adapter for the narrow Grepper port.
 type GrepTool struct {
 	executor Grepper
 	typed    toolcontract.Func[GrepRequest, GrepResponse]
 }
 
-// NewGrepTool requires content-search authority explicitly.
 func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor
@@ -77,7 +69,6 @@ func (g *GrepTool) Definition() chat.ToolDefinition {
 	return g.typed.Definition()
 }
 
-// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
 func (g *GrepTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }

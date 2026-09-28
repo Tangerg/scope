@@ -11,8 +11,6 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// SimpleFormatterConfig controls the stable textual projection used before
-// splitting or indexing.
 type SimpleFormatterConfig struct {
 	// ExcludedMetadata lists metadata keys omitted from rendered output.
 	ExcludedMetadata []string

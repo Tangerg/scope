@@ -43,9 +43,7 @@ var coreOwnedChatOptionSymbols = map[string]struct{}{
 	"ToolParallelism": {},
 }
 
-// A name Core has stopped exporting is a ban with nothing behind it: it reads
-// as though Core still defines the option, and it keeps a provider from using
-// a name that is free again for its own wire field.
+// An obsolete Core name must not remain forbidden for provider-owned fields.
 func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
 	t.Parallel()
 
@@ -84,13 +82,8 @@ func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
 	}
 }
 
-// TestSharedProtocolsArePromotedWithoutDelegatingWrappers keeps exact wire
-// ownership honest. A provider that uses the shared OpenAI or Anthropic
-// implementation owns its Config and constructor, but promotes the resulting
-// model type directly. A single-field wrapper adds no semantic boundary and
-// merely duplicates Call/Stream methods. Provider-private internal protocols
-// are deliberately outside this rule because their wrappers enforce Go's
-// internal visibility boundary.
+// Exact shared wire implementations need no forwarding wrapper. Private
+// protocol wrappers remain necessary for Go internal visibility.
 func TestSharedProtocolsArePromotedWithoutDelegatingWrappers(t *testing.T) {
 	t.Parallel()
 
@@ -172,10 +165,6 @@ func checkSharedProtocolType(
 	t.Errorf("%s:%d %s is a behaviorless shared-protocol wrapper; promote the protocol model with a type alias", filepath.ToSlash(path), fset.Position(typeSpec.Pos()).Line, typeSpec.Name.Name)
 }
 
-// TestModelProvidersOwnTheirPublicSurface prevents provider facades from
-// exporting transport owners, wire DTOs, or third-party SDK types. SDK values
-// may exist behind a provider boundary, but consumers must only see Core,
-// stdlib, and provider-owned semantic types.
 func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {
 	t.Parallel()
 
@@ -200,10 +189,6 @@ func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {
 	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "openai"), retiredProtocolChatSymbols)
 }
 
-// TestModelProvidersDoNotDuplicateCoreChatOptions keeps portable request
-// semantics at their owning layer. Provider-private wire values may mirror an
-// external schema, but provider public APIs must not make callers choose
-// between Core options and a synonymous provider option.
 func TestModelProvidersDoNotDuplicateCoreChatOptions(t *testing.T) {
 	t.Parallel()
 
@@ -261,9 +246,6 @@ func assertNoCoreOwnedChatOptions(t *testing.T, dir string) {
 	}
 }
 
-// TestWebProvidersExposeOnlyNormalizedTransport locks each provider package to
-// Config + Client + the family SPI. Provider wire DTOs stay private, and every
-// provider keeps an offline test without environment-dependent credentials.
 func TestWebProvidersExposeOnlyNormalizedTransport(t *testing.T) {
 	t.Parallel()
 
@@ -289,8 +271,6 @@ func TestWebProvidersExposeOnlyNormalizedTransport(t *testing.T) {
 	}
 }
 
-// TestFixedConstructionStateUsesConfig prevents stable constructor
-// dependencies from being hidden again behind one-shot option closures.
 func TestFixedConstructionStateUsesConfig(t *testing.T) {
 	t.Parallel()
 

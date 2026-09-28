@@ -11,12 +11,10 @@ import (
 type ReplayPolicy string
 
 const (
-	// ReplayPolicyInvalid is the invalid zero value.
 	ReplayPolicyInvalid ReplayPolicy = ""
 	// ReplayPolicyNever forbids both restored pending replay and explicit
 	// replay of an Unknown. A host can still supply a definite settlement.
-	ReplayPolicyNever ReplayPolicy = "never"
-	// ReplayPolicySameIdentity permits replay only with the original EffectID.
+	ReplayPolicyNever        ReplayPolicy = "never"
 	ReplayPolicySameIdentity ReplayPolicy = "same_identity"
 )
 
@@ -54,8 +52,6 @@ func (e EffectRequest) clone() EffectRequest {
 	return e
 }
 
-// Valid reports whether the request contains one complete Engine-minted
-// dispatch identity and immutable Effect.
 func (e EffectRequest) Valid() bool {
 	return e.processID.Valid() && e.deploymentRef.Valid() && e.relation.Valid() &&
 		e.relation.ProcessID() == e.processID && e.stepSequence > 0 && e.id.Valid() &&
@@ -79,7 +75,6 @@ func newEffectRequest(
 	}
 }
 
-// ProcessID returns the Process that owns the Effect.
 func (e EffectRequest) ProcessID() ProcessID { return e.processID }
 
 // TreeIncarnationID identifies the active durable writer for observation and
@@ -92,7 +87,6 @@ func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
 
 func (e EffectRequest) DeploymentRef() DeploymentRef { return e.deploymentRef }
 
-// Relation returns the immutable Process tree location executing the Effect.
 func (e EffectRequest) Relation() ProcessRelation { return e.relation }
 
 // StepSequence returns the one-based Step sequence that declared the Effect.
@@ -101,7 +95,6 @@ func (e EffectRequest) StepSequence() uint64 { return e.stepSequence }
 // BatchIndex returns the zero-based declaration order within the Step Effect batch.
 func (e EffectRequest) BatchIndex() uint32 { return e.batchIndex }
 
-// ID returns the stable identity assigned during Step preparation.
 func (e EffectRequest) ID() EffectID { return e.id }
 
 // AttemptID identifies this physical Dispatch invocation. Captured requests and

@@ -25,21 +25,16 @@ var (
 // complete immutable Effect must match. Error may follow emitted Deltas and is
 // mutually exclusive with SettlementStatus and SettlementPayload.
 type DispatchStep struct {
-	// ExpectedEffect is the optional complete Effect expected at this step.
 	ExpectedEffect *agent.Effect
 	// Deltas are emitted in declaration order before the final outcome.
-	Deltas []json.RawMessage
-	// SettlementStatus is the definite or unknown settlement status.
-	SettlementStatus agent.SettlementStatus
-	// SettlementPayload is the Strategy-owned settlement payload.
+	Deltas            []json.RawMessage
+	SettlementStatus  agent.SettlementStatus
 	SettlementPayload json.RawMessage
 	// Error makes Dispatch return an indeterminate external error.
 	Error error
 }
 
-// ScriptedDispatcherConfig declares a finite deterministic dispatch script.
 type ScriptedDispatcherConfig struct {
-	// ReplayPolicy is returned for every valid Dispatcher Effect.
 	ReplayPolicy agent.ReplayPolicy
 	// Steps are consumed in actual Dispatch order.
 	Steps []DispatchStep
@@ -65,11 +60,8 @@ type ScriptedDispatcher struct {
 	requests []agent.EffectRequest
 }
 
-// NewScriptedDispatcher freezes the script at construction so a test cannot
-// mutate expectations while the Engine is running against them. It fails calls
-// that go beyond or contrary to the script rather than returning a zero
-// settlement, because a dispatcher that quietly answers anything turns an
-// ordering bug into a passing test.
+// NewScriptedDispatcher copies the script so callers cannot change expectations
+// while dispatch is running.
 func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher, error) {
 	if config.ReplayPolicy != agent.ReplayPolicyNever &&
 		config.ReplayPolicy != agent.ReplayPolicySameIdentity {
@@ -121,8 +113,6 @@ func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
 	return step, nil
 }
 
-// Dispatch consumes the next scripted step, emits its Deltas, and returns its
-// configured settlement or error.
 func (s *ScriptedDispatcher) Dispatch(
 	ctx context.Context,
 	request agent.EffectRequest,
@@ -186,7 +176,6 @@ func (d dispatchStep) matches(effect agent.Effect) (bool, error) {
 	return bytes.Equal(d.expectedEffectJSON, actual), nil
 }
 
-// ReplayPolicy returns the immutable policy declared at construction.
 func (s *ScriptedDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 	if s == nil || !effect.Valid() {
 		return agent.ReplayPolicyInvalid

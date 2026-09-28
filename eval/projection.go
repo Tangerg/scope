@@ -10,15 +10,11 @@ import (
 // Projection narrows an aggregate case to the subject owned by one evaluator.
 type Projection[T, Subject any] func(T) (Subject, error)
 
-// ProjectionEvaluator adapts one aggregate case to the narrower subject a
-// domain evaluator consumes.
 type ProjectionEvaluator[T, Subject any] struct {
 	evaluator  Evaluator[Subject]
 	projection Projection[T, Subject]
 }
 
-// NewProjectionEvaluator keeps domain projection at the edge instead of adding
-// domain nouns to the evaluation kernel.
 func NewProjectionEvaluator[T, Subject any](
 	evaluator Evaluator[Subject],
 	projection Projection[T, Subject],

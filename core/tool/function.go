@@ -22,8 +22,6 @@ type Func[In, Out any] struct {
 	function func(context.Context, In) (Out, error)
 }
 
-// FuncConfig describes a typed function tool. NewFunc derives the model-visible
-// schema and the independent input validator from In.
 type FuncConfig struct {
 	Name        string
 	Description string
@@ -86,8 +84,6 @@ func (f Func[In, Out]) Definition() chat.ToolDefinition {
 	}
 }
 
-// Call strictly decodes a promoted invocation, invokes the wrapped function,
-// and returns a provider-neutral result.
 func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
 	if f.function == nil {
 		return chat.ToolOutput{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)

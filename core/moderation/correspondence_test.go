@@ -24,10 +24,6 @@ func flaggedOutputs(t *testing.T, count int) []*moderation.Output {
 	return built
 }
 
-// Outputs declares one entry per input in the same order, and nothing on an
-// Output ties it back to a text. A response one verdict short therefore leaves
-// the last input unmoderated while every earlier verdict still looks well
-// formed — the caller allows content nobody judged.
 func TestValidateForRequiresOneVerdictPerInput(t *testing.T) {
 	t.Parallel()
 

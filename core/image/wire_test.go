@@ -57,9 +57,6 @@ func TestOptionsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAbsentDimensionsStayAbsent proves the pointer fields carry presence
-// rather than a zero-value default: an option the caller never set must not
-// reappear as an explicit 0 on the wire.
 func TestAbsentDimensionsStayAbsent(t *testing.T) {
 	encoded, err := jsonv2.Marshal(image.Options{Model: "dall-e-3"})
 	if err != nil {
@@ -166,9 +163,6 @@ func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMalformedJSONIsRejectedPerType keeps every protocol decoder reporting its
-// own package sentinel, so a transport-level syntax error stays classifiable by
-// the value it was decoding into.
 func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	malformed := []byte(`{`)
 	cases := map[string]struct {
@@ -190,8 +184,6 @@ func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	}
 }
 
-// TestNilReceiversAreRejected proves the decoders refuse to write through a nil
-// receiver instead of panicking inside encoding/json.
 func TestNilReceiversAreRejected(t *testing.T) {
 	cases := map[string]struct {
 		target json.Unmarshaler
@@ -212,9 +204,6 @@ func TestNilReceiversAreRejected(t *testing.T) {
 	}
 }
 
-// TestDecodedValuesAreValidatedBeforeAssignment covers the branch where the
-// payload is syntactically valid JSON but violates the protocol: the receiver
-// must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	options := image.Options{Model: "keep"}
 	if err := jsonv2.Unmarshal([]byte(`{"width":0}`), &options); !errors.Is(err, image.ErrInvalidOptions) {
@@ -282,9 +271,6 @@ func TestInvalidValuesFailToMarshal(t *testing.T) {
 	}
 }
 
-// TestOutputFormatMustBeCanonicalImageMIME pins every rejection reason of the
-// output-format rule, because a provider that accepts a non-canonical form here
-// would silently disagree with the media MIME check on the response side.
 func TestOutputFormatMustBeCanonicalImageMIME(t *testing.T) {
 	for name, format := range map[string]string{
 		"unparsable":       "image//png",
@@ -305,8 +291,6 @@ func TestOutputFormatMustBeCanonicalImageMIME(t *testing.T) {
 	}
 }
 
-// TestOutputRejectsNonImageMedia guards the response side of the same rule: a
-// provider must not smuggle a JSON or text payload through the image protocol.
 func TestOutputRejectsNonImageMedia(t *testing.T) {
 	text, err := media.NewBytes("text/plain", []byte("not an image"))
 	if err != nil {
@@ -375,9 +359,6 @@ func TestOptionsResolveRejectsInvalidOverride(t *testing.T) {
 	}
 }
 
-// TestOptionsResolveClonesPointerFields keeps Resolve from handing the caller a
-// pointer that still aliases the override, which would let a later mutation
-// change an already-resolved request.
 func TestOptionsResolveClonesPointerFields(t *testing.T) {
 	override := image.Options{Width: int64Pointer(512), Height: int64Pointer(512), Seed: int64Pointer(7)}
 	resolved, err := (image.Options{}).Resolve(override)

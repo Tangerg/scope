@@ -15,7 +15,6 @@ import (
 // Verdict is one moderation dimension's outcome — a flagged bit plus a
 // confidence score in [0, 1].
 type Verdict struct {
-	// Flagged is true when the content violates this category's policy.
 	Flagged bool `json:"flagged"`
 
 	// Score is the provider's confidence in the violation, 0–1.
@@ -108,12 +107,9 @@ func (c *Categories) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Output is one input's moderation verdict plus metadata.
 type Output struct {
-	// Categories holds the per-category verdict.
 	Categories Categories `json:"categories,omitzero"`
 
-	// Metadata carries per-input extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
@@ -164,18 +160,13 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata holds response-level metadata for a moderation call.
 type ResponseMetadata struct {
-	// ID is the provider-assigned response id.
 	ID string `json:"id"`
 
-	// Model is the model name actually served.
 	Model string `json:"model"`
 
-	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
 
-	// Extra carries JSON-safe provider-specific metadata.
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -220,17 +211,13 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Response is the full moderation output: one [*Output] per input plus
-// shared response metadata.
 type Response struct {
 	// Outputs holds one entry per input, in the same order.
 	Outputs []*Output `json:"outputs,omitzero"`
 
-	// Metadata carries shared response-level fields.
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(outputs []*Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Outputs: slices.Clone(outputs), Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {
@@ -257,15 +244,7 @@ func (r *Response) Validate() error {
 	return nil
 }
 
-// ValidateFor checks a provider result against the request it answers.
-//
-// Outputs declares one entry per input in the same order, and here the
-// correspondence decides what a caller allows and blocks: a result short of
-// the inputs leaves the last text unmoderated while every earlier verdict still
-// looks well formed, and there is no field on an Output tying it back to a
-// text. Validate cannot see it, because the input count is not part of the
-// response, so this is the check that keeps a moderation verdict attached to
-// the text it judged.
+// ValidateFor requires one output per input, in input order.
 func (r *Response) ValidateFor(request *Request) error {
 	if err := request.Validate(); err != nil {
 		return err

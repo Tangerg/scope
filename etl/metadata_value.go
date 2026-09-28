@@ -9,8 +9,6 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// metadataValue owns the deterministic text representation used by document
-// formatters.
 type metadataValue json.RawMessage
 
 func (m metadataValue) text() (string, error) {

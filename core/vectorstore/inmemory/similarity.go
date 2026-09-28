@@ -79,9 +79,7 @@ func DotProductSimilarity(left, right []float64) vectorstore.Score {
 	return vectorstore.ScoreFromInnerProduct(dot)
 }
 
-// EuclideanSimilarity maps Euclidean distance into [0, 1] via
-// 1 / (1 + d). Useful when the embedding space is *not* angular and
-// magnitude differences carry information.
+// EuclideanSimilarity maps distance d to 1/(1+d), preserving magnitude differences.
 func EuclideanSimilarity(left, right []float64) vectorstore.Score {
 	if len(left) != len(right) {
 		return 0

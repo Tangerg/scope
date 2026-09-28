@@ -6,12 +6,9 @@ import (
 	"testing"
 )
 
-// NewBlockingServer holds a request open until its context is released, which
-// is what makes cancellation and early-stop assertions deterministic: the
-// returned [Lifecycle] proves the request was genuinely in flight before the
-// test cancels, and proves the handler exited afterward. A sleeping fixture
-// could only guess at both, and would turn a provider that leaks its
-// connection into a flake instead of a failure.
+// NewBlockingServer holds one request until cancellation. Lifecycle signals
+// allow tests to synchronize with the initial write and handler exit.
+// The test owns server cleanup.
 func NewBlockingServer(t *testing.T, writeInitial func(http.ResponseWriter)) (*httptest.Server, Lifecycle) {
 	t.Helper()
 	started := make(chan struct{})

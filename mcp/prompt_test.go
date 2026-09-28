@@ -44,6 +44,8 @@ func TestPromptMessagesToChatRejectsLossyInput(t *testing.T) {
 	}{
 		{name: "nil message"},
 		{name: "unknown role", message: &sdkmcp.PromptMessage{Role: "system", Content: &sdkmcp.TextContent{Text: "x"}}},
+		{name: "unknown role with empty text", message: &sdkmcp.PromptMessage{Role: "system", Content: &sdkmcp.TextContent{}}},
+		{name: "missing role with empty text", message: &sdkmcp.PromptMessage{Content: &sdkmcp.TextContent{}}},
 		{name: "nil content", message: &sdkmcp.PromptMessage{Role: "user"}},
 		{name: "empty image", message: &sdkmcp.PromptMessage{Role: "user", Content: &sdkmcp.ImageContent{MIMEType: "image/png"}}},
 	}

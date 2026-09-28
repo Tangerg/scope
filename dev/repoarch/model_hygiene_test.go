@@ -12,9 +12,6 @@ import (
 	"testing"
 )
 
-// TestClosedSchemaVocabulariesUseNamedTypes prevents model-facing enums from
-// degrading into ordinary strings. A named string type keeps schema, decode,
-// validation, projection, and execution on one vocabulary owner.
 func TestClosedSchemaVocabulariesUseNamedTypes(t *testing.T) {
 	t.Parallel()
 	walkProductionGoFiles(t, func(path string, fset *token.FileSet, file *ast.File) {
@@ -37,9 +34,6 @@ func TestClosedSchemaVocabulariesUseNamedTypes(t *testing.T) {
 	})
 }
 
-// TestValidateMethodsAreSideEffectFree keeps validation observational. Values
-// that need defaults or canonicalization must expose an explicit operation
-// returning a prepared copy instead of silently changing their caller.
 func TestValidateMethodsAreSideEffectFree(t *testing.T) {
 	t.Parallel()
 	walkProductionGoFiles(t, func(path string, fset *token.FileSet, file *ast.File) {

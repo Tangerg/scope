@@ -8,10 +8,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// translationDefaultTemplate asks the LLM to translate the query into
-// the target language, returning the original unchanged when it's
-// already in that language or when language detection is uncertain.
-// {{.Target}} and {{.Query}} are filled at transform time.
 const translationDefaultTemplate = `Given a user query, translate it to {{.Target}}.
 If the query is already in {{.Target}}, return it unchanged.
 If you don't know the language of the query, return it unchanged.
@@ -21,10 +17,7 @@ Original query: {{.Query}}
 
 Translated query:`
 
-// TranslationTransformerConfig binds one model and target language without
-// changing retrieval-scoped query values.
 type TranslationTransformerConfig struct {
-	// Model performs the translation. Required.
 	Model corechat.Model
 
 	// TargetLanguage is the language the embedding model expects —
@@ -39,12 +32,10 @@ type TranslationTransformerConfig struct {
 
 var _ rag.Transformer = (*TranslationTransformer)(nil)
 
-// TranslationTransformer translates queries into a configured language.
 type TranslationTransformer struct {
 	transformer targetedTextTransformer
 }
 
-// NewTranslationTransformer validates target-language and model policy once.
 func NewTranslationTransformer(config TranslationTransformerConfig) (*TranslationTransformer, error) {
 	transformer, err := newTargetedTextTransformer(
 		config.Model,

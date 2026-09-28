@@ -10,17 +10,13 @@ import (
 	"github.com/samber/lo"
 )
 
-// DefaultMaxSourceBytes is the bounded zero-value policy for whole-source
-// readers.
 const DefaultMaxSourceBytes int64 = 32 * 1024 * 1024
 
 const maxSupportedSourceBytes = math.MaxInt64 - 1
 
 var (
-	// ErrInvalidSourceBudget identifies a non-positive or unrepresentable bound.
 	ErrInvalidSourceBudget = errors.New("etl: invalid source budget")
-	// ErrNilSource rejects an absent reader before attempting extraction.
-	ErrNilSource = errors.New("etl: source must not be nil")
+	ErrNilSource           = errors.New("etl: source must not be nil")
 	// ErrSourceTooLarge reports that no partial payload is returned.
 	ErrSourceTooLarge = errors.New("etl: source exceeds byte budget")
 )
@@ -32,7 +28,6 @@ type SourceBudget struct {
 	maxBytes int64
 }
 
-// NewSourceBudget makes a custom whole-source memory bound explicit.
 func NewSourceBudget(maxBytes int64) (SourceBudget, error) {
 	if maxBytes <= 0 || maxBytes > maxSupportedSourceBytes {
 		return SourceBudget{}, fmt.Errorf(

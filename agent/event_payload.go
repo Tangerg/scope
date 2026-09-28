@@ -239,14 +239,12 @@ func (s StepFinishedFact) Valid() bool {
 	return s.status.Valid() && s.workDuration >= 0 && s.adoptionDelay >= 0
 }
 
-// StepCommittedFact is the Process status installed by one committed Step.
 type StepCommittedFact struct{ status Status }
 
 func (s StepCommittedFact) Status() Status { return s.status }
 
 func (s StepCommittedFact) Valid() bool { return s.status.Valid() }
 
-// EffectStartedFact identifies the target of one Effect attempt.
 type EffectStartedFact struct {
 	target    EffectTarget
 	attemptID EffectAttemptID

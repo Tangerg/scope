@@ -21,9 +21,6 @@ type Client struct {
 	defaultTimeout   time.Duration
 }
 
-// NewClient fails closed: without an allowlist there is no host a model-
-// supplied URL may reach. The alternative — an empty allowlist meaning
-// unrestricted — turns a forgotten configuration line into an open proxy.
 func NewClient(config ClientConfig) (*Client, error) {
 	policy, err := config.compilePolicy()
 	if err != nil {

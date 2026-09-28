@@ -66,16 +66,13 @@ func TestNotifyHelpers_Progress(t *testing.T) {
 	require.NoError(t, err)
 	defer cliSession.Close()
 
-	// Issue a tools/call with a progress token so notifications flow.
 	params := &sdkmcp.CallToolParams{Name: "progress_demo"}
 	params.SetProgressToken("p1")
 	res, err := cliSession.CallTool(ctx, params)
 	require.NoError(t, err)
 	assert.False(t, res.IsError, "tool result: %#v", res)
 
-	// Give the SDK a moment to deliver notifications (they go through
-	// a goroutine on the client side). Close the sessions, which
-	// flushes pending notifications.
+	// Closing the sessions flushes queued SDK notifications.
 	require.NoError(t, cliSession.Close())
 	require.NoError(t, srvSession.Wait())
 

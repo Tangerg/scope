@@ -14,13 +14,10 @@ const executionStateKind = "workflow"
 // DefinitionConfig contains one immutable managed Workflow behavior. Stages
 // execute in declaration order and must have exactly matching adjacent schemas.
 type DefinitionConfig struct {
-	// Name is the stable qualified Definition name.
 	Name string
 
-	// Description states the managed orchestration behavior for discovery.
 	Description string
 
-	// Stages is a non-empty ordered sequence of sealed operations.
 	Stages []Stage
 }
 
@@ -30,9 +27,6 @@ type Definition struct {
 	stages     []Stage
 }
 
-// NewDefinition connects adjacent stage schemas at construction, so a
-// mismatched pipeline fails where it is declared rather than midway through a
-// run that has already started child Processes and spent budget.
 func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if len(config.Stages) == 0 || uint64(len(config.Stages)) > math.MaxUint32 {
 		return nil, fmt.Errorf("%w: Stages must contain 1 to %d entries", ErrInvalidDefinitionConfig, uint64(math.MaxUint32))
@@ -64,7 +58,6 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	return &Definition{descriptor: descriptor, stages: stages}, nil
 }
 
-// Descriptor returns the immutable erased Workflow contract.
 func (d *Definition) Descriptor() agent.Descriptor {
 	if d == nil {
 		return agent.Descriptor{}
@@ -72,7 +65,6 @@ func (d *Definition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
-// Start creates a fresh Workflow from validated caller input.
 func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
@@ -84,9 +76,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	return &execution{definition: d, state: state}, nil
 }
 
-// Restore recreates a Workflow solely from its opaque state and this exact
-// Definition. Phase-specific progress, window bounds, and unique child identities
-// are validated before admitting the restored Execution.
+// Restore rejects progress inconsistent with the exact Definition bindings.
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

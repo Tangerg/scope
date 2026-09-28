@@ -23,12 +23,13 @@ type TextSplitter struct {
 	splitter  *Splitter
 }
 
-// NewTextSplitter treats the separator as a literal boundary and preserves the
-// configured identity policy for emitted chunks.
 func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 	separator := config.Separator
 	if separator == "" {
 		separator = "\n"
+	}
+	if err := validateTextEncoding(separator); err != nil {
+		return nil, err
 	}
 	splitter := &TextSplitter{separator: separator}
 	base, err := NewSplitter(SplitterConfig{

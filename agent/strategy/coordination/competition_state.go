@@ -117,7 +117,6 @@ func (f firstSuccessState) batch() childcall.Batch {
 		if index < len(f.Starts) {
 			id, started := f.Starts[index].ProcessID()
 			child.ProcessID, child.Done = id, !started
-			// Outcomes are a validated subset in candidate order.
 			if started && next < len(f.Outcomes) && f.Outcomes[next].Result().ProcessID() == id {
 				child.Done = true
 				next++

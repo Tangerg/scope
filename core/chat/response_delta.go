@@ -15,7 +15,6 @@ import (
 // complete Part, including incomplete tool arguments and citation attachment.
 type PartDeltaKind string
 
-// Delta kinds name the only payload shape active in each stream increment.
 const (
 	PartDeltaText      PartDeltaKind = "text"
 	PartDeltaMedia     PartDeltaKind = "media"
@@ -25,9 +24,6 @@ const (
 	PartDeltaRefusal   PartDeltaKind = "refusal"
 )
 
-// deltaPayload names the optional slots an increment can carry. A kind allows
-// a subset, so one exclusion rule replaces restating per kind which of the
-// other slots must stay empty.
 type deltaPayload uint8
 
 const (
@@ -38,8 +34,6 @@ const (
 	deltaPayloadCitation
 )
 
-// A kind that allows no payload is not a kind, so this answers validity too
-// rather than letting a second switch drift from this one.
 func (p PartDeltaKind) allowedPayloads() (deltaPayload, bool) {
 	switch p {
 	case PartDeltaText, PartDeltaRefusal:
@@ -75,7 +69,6 @@ type PartDelta struct {
 	Metadata       metadata.Map   `json:"metadata,omitzero"`
 }
 
-// NewTextDelta carries one non-empty text increment.
 func NewTextDelta(text string) PartDelta {
 	return PartDelta{Kind: PartDeltaText, Text: text}
 }
@@ -89,8 +82,6 @@ func NewReasoningDelta(text string, state []byte) PartDelta {
 	return PartDelta{Kind: PartDeltaReasoning, Text: text, ReasoningState: slices.Clone(state)}
 }
 
-// NewToolCallDelta carries the next identity, name, or argument fragment for a
-// tool call under construction.
 func NewToolCallDelta(delta ToolCallDelta) PartDelta {
 	return PartDelta{Kind: PartDeltaToolCall, ToolCall: new(delta)}
 }
@@ -99,8 +90,6 @@ func NewCitationDelta(citation Citation) PartDelta {
 	return PartDelta{Kind: PartDeltaCitation, Citation: new(citation)}
 }
 
-// NewRefusalDelta keeps refusal text distinct from ordinary text while it is
-// streamed.
 func NewRefusalDelta(text string) PartDelta {
 	return PartDelta{Kind: PartDeltaRefusal, Text: text}
 }

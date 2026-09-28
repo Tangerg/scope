@@ -1405,8 +1405,13 @@ func waitForUnknownSettlement(t testing.TB, process *Process) ProcessSnapshot {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
+	return waitForUnknownSettlementContext(ctx, t, process)
+}
+
+func waitForUnknownSettlementContext(ctx context.Context, t testing.TB, process *Process) ProcessSnapshot {
+	t.Helper()
 	for {
-		snapshot := inspectProcessSnapshot(t, process)
+		snapshot := inspectProcessSnapshotContext(ctx, t, process)
 		if len(snapshot.UnknownEffectIDs()) != 0 {
 			return snapshot
 		}

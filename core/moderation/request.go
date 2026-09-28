@@ -13,11 +13,8 @@ import (
 // explicitly supplied values, merges namespaced extensions, and never aliases
 // mutable data from either input.
 type Options struct {
-	// Model is the provider model identifier.
 	Model string `json:"model"`
 
-	// Extensions carries JSON-safe provider-specific options unknown to this
-	// struct.
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -86,7 +83,6 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Request is one moderation call: the input texts and explicit options.
 type Request struct {
 	// Texts is the input list. Each entry is moderated independently.
 	Texts []string `json:"texts,omitzero"`
@@ -94,8 +90,7 @@ type Request struct {
 	Options Options `json:"options,omitzero"`
 }
 
-// NewRequest preserves the provider-neutral batch shape and clones the input,
-// so later caller mutation cannot change a request already in flight.
+// NewRequest snapshots the caller's input texts.
 func NewRequest(texts []string) (*Request, error) {
 	r := &Request{Texts: slices.Clone(texts)}
 	if err := r.Validate(); err != nil {

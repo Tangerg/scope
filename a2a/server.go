@@ -10,9 +10,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-// ServerConfig wires a [Agent] into an HTTP A2A endpoint.
 type ServerConfig struct {
-	// Agent is the capability served over A2A. Required.
 	Agent Agent
 
 	// Card is the AgentCard served at the well-known path. Required and
@@ -23,11 +21,8 @@ type ServerConfig struct {
 	Card *sdka2a.AgentCard
 }
 
-// NewHTTPHandler returns a plain [http.Handler] rather than starting a server,
-// so the host keeps ownership of the listener, TLS, timeouts, and middleware.
-// The card is encoded during construction because an AgentCard that cannot be
-// marshaled would otherwise fail at the well-known path, where a peer reads it
-// as an unreachable agent rather than a misconfigured one.
+// NewHTTPHandler leaves listener, TLS, timeouts, and middleware ownership with
+// the Host. It rejects unencodable AgentCards during construction.
 func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	exec, err := newExecutor(config.Agent)
 	if err != nil {

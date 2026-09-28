@@ -10,8 +10,6 @@ import (
 )
 
 var (
-	// ErrInvalidToolBatch identifies an executable set or request that
-	// cannot satisfy the middleware's single-batch ownership contract.
 	ErrInvalidToolBatch = errors.New("chatclient: invalid tool batch")
 )
 

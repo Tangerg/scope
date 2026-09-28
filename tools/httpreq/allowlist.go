@@ -17,10 +17,6 @@ type Allowlist struct {
 	patterns []hostPattern
 }
 
-// NewAllowlist compiles host patterns once so every request is matched against
-// normalized forms rather than raw strings. Comparing hosts textually is what
-// lets case, a trailing dot, or an IDNA variant slip past a filter that looks
-// correct.
 func NewAllowlist(hosts []string) (Allowlist, error) {
 	patterns := make([]hostPattern, 0, len(hosts))
 	for index, host := range hosts {

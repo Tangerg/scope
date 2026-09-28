@@ -4,9 +4,6 @@ import (
 	"fmt"
 )
 
-// IdentifierValue is the input constraint for [NewIdent]: a raw string is
-// turned into a fresh [Ident]; an existing [*Ident] passes
-// through unchanged.
 type IdentifierValue interface {
 	string | *Ident
 }
@@ -23,12 +20,9 @@ func newIdent(value any) (*Ident, error) {
 	}
 }
 
-// NewIdent panics for the same reason as [NewLiteral]: the constraint admits
-// only a string or an existing identifier.
 func NewIdent[T IdentifierValue](value T) *Ident {
 	ident, err := newIdent(value)
 	if err != nil {
-		// Unreachable while the generic constraint is honored.
 		panic(fmt.Errorf("filter: create identifier: %w", err))
 	}
 	return ident

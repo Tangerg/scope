@@ -25,10 +25,6 @@ func worldState(t *testing.T, conditions ...planning.Condition) planning.WorldSt
 	return state
 }
 
-// TestActionPublishesItsCompleteContract covers the accessors a planner and a
-// human consumer read, plus the ownership rule behind them: a caller must not be
-// able to reach back into an Action's condition sets, which the search treats as
-// immutable.
 func TestActionPublishesItsCompleteContract(t *testing.T) {
 	action, err := planning.NewAction(planning.ActionConfig{
 		Name:          "scope.test.gather",
@@ -63,9 +59,6 @@ func TestActionPublishesItsCompleteContract(t *testing.T) {
 	}
 }
 
-// TestActionApplicabilityFollowsItsPreconditions is the property the search
-// depends on: an Action is a legal edge exactly when the state establishes every
-// precondition.
 func TestActionApplicabilityFollowsItsPreconditions(t *testing.T) {
 	action, err := planning.NewAction(planning.ActionConfig{
 		Name:          "scope.test.gather",
@@ -93,9 +86,6 @@ func TestActionApplicabilityFollowsItsPreconditions(t *testing.T) {
 	}
 }
 
-// TestGoalPublishesItsCompleteContract mirrors the Action rules for the other
-// half of the search: identity, human-readable intent, and an owned condition
-// set.
 func TestGoalPublishesItsCompleteContract(t *testing.T) {
 	goal, err := planning.NewGoal(planning.GoalConfig{
 		Name:        "scope.test.answered",
@@ -137,8 +127,6 @@ func TestNewGoalRequiresAtLeastOneCondition(t *testing.T) {
 	}
 }
 
-// TestEmptyPlanMustHaveZeroCost is the invariant that keeps a plan's cost
-// meaningful: a plan with no edges cannot have accumulated a cost.
 func TestEmptyPlanMustHaveZeroCost(t *testing.T) {
 	empty, err := planning.NewPlan(nil, 0)
 	if err != nil {

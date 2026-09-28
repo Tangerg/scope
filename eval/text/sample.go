@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// ErrInvalidSample identifies missing generated-text inputs or evidence.
 var ErrInvalidSample = errors.New("eval/text: invalid sample")
 
 const evidenceSeparator = "\n"

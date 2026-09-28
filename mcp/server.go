@@ -18,21 +18,13 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// Register installs every [tool.Tool] in tools onto server using
-// the low-level [(*sdkmcp.Server).AddTool] API.
+// Register snapshots and validates the complete batch before adding any tool.
+// Duplicate names are rejected; handlers retain the advertised identity even
+// if a Tool later changes. Structured details preserve exact numbers and the
+// distinction between null and absence.
 //
-// Registration is all-or-nothing: definitions are snapshotted, duplicate names
-// within the batch are rejected, and every tool is built before any is added.
-// A bad entry mid-list therefore never leaves the server half-registered, and
-// handlers use the same identity the server advertised even when a Tool
-// implementation is mutable.
-// Structured details are handed to the SDK as raw JSON, preserving numeric
-// precision and the distinction between explicit null and absent details.
-//
-// The generic sdkmcp.AddTool[In, Out] form is deliberately avoided:
-// tools already supply a hand-authored JSON schema, and the
-// generic API would otherwise reflect over a Go In type and overwrite
-// it.
+// The low-level SDK API preserves tool-supplied schemas; generic AddTool would
+// replace them with reflected schemas.
 func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
 	if server == nil {
 		return ErrNilServer

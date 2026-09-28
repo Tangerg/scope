@@ -12,12 +12,9 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Output is one generated image plus its metadata.
 type Output struct {
-	// Media holds the generated image as bytes or an absolute URI.
 	Media *media.Media `json:"media,omitzero"`
 
-	// Metadata carries per-image extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
@@ -72,13 +69,9 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata holds response-level metadata for an image
-// generation request.
 type ResponseMetadata struct {
-	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
 
-	// Extra carries JSON-safe provider-specific metadata.
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -117,17 +110,13 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Response is the full image-generation output: every rendered image plus
-// shared response metadata.
 type Response struct {
 	// Outputs contains every image returned by the provider, in provider order.
 	Outputs []*Output `json:"outputs,omitzero"`
 
-	// Metadata carries shared response-level fields.
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(outputs []*Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Outputs: slices.Clone(outputs), Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {

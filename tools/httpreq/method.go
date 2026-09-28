@@ -5,12 +5,8 @@ import (
 	"strings"
 )
 
-// Method is an HTTP method exposed by the tool contract.
 type Method string
 
-// Methods are an allowlist rather than a pass-through, because the tool
-// decides what a model may do to a remote host. An unlisted method is refused
-// before the request is built.
 const (
 	MethodGET    Method = http.MethodGet
 	MethodHEAD   Method = http.MethodHead

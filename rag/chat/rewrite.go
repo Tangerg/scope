@@ -8,9 +8,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// rewriteDefaultTemplate asks the LLM to rewrite the query to be
-// concise, specific, and tuned to a particular search target.
-// {{.Target}} and {{.Query}} are filled at transform time.
 const rewriteDefaultTemplate = `Given a user query, rewrite it to provide better results when querying a {{.Target}}.
 Remove any irrelevant information, and ensure the query is concise and specific.
 
@@ -19,9 +16,7 @@ Original query:
 
 Rewritten query:`
 
-// RewriteTransformerConfig binds one model and prompt policy to query rewriting.
 type RewriteTransformerConfig struct {
-	// Model performs the rewrite. Required.
 	Model corechat.Model
 
 	// TargetSearchSystem names the downstream search engine — "vector
@@ -36,12 +31,10 @@ type RewriteTransformerConfig struct {
 
 var _ rag.Transformer = (*RewriteTransformer)(nil)
 
-// RewriteTransformer tightens a query for a configured search target.
 type RewriteTransformer struct {
 	transformer targetedTextTransformer
 }
 
-// NewRewriteTransformer freezes options while preserving query-scoped values.
 func NewRewriteTransformer(config RewriteTransformerConfig) (*RewriteTransformer, error) {
 	transformer, err := newTargetedTextTransformer(
 		config.Model,

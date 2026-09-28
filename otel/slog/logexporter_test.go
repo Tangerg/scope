@@ -13,11 +13,6 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
-// TestLogExporter_EmitViaProvider drives the real path a production app
-// uses — emit through a LoggerProvider whose processor feeds the exporter —
-// and asserts the record lands in the slog stream with body + attrs. It also
-// pins down the SDK's Enabled semantics (a SimpleProcessor-only provider
-// must report enabled, else the otelslog bridge would silently drop logs).
 func TestLogExporter_EmitViaProvider(t *testing.T) {
 	var buf bytes.Buffer
 	logger := stdslog.New(stdslog.NewTextHandler(&buf, &stdslog.HandlerOptions{Level: stdslog.LevelInfo}))

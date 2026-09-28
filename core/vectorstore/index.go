@@ -13,9 +13,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// IndexRequest describes documents for one indexing call. It owns their
-// provider-independent validation and batching lifecycle. Validation covers
-// the complete request; it does not make backend writes atomic across batches.
+// IndexRequest validates the complete input and batching result; backend writes need not be atomic across batches.
 type IndexRequest struct {
 	Documents []*document.Document `json:"documents"`
 }
@@ -151,11 +149,6 @@ func (i *IndexRequest) validateBatches(batches [][]*document.Document) error {
 	return nil
 }
 
-// Indexer embeds and indexes documents in the vector store. The store runs:
-//
-//  1. Embedding (text → vector)
-//  2. Indexing (vector + metadata → searchable record)
-//  3. Storage (record → durable backend)
 type Indexer interface {
 	// Index persists request documents using caller-assigned IDs. Existing IDs
 	// are replaced according to the backend's upsert semantics. Implementations

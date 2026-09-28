@@ -24,9 +24,6 @@ func mustMatch(t *testing.T, predicate Predicate, metadata map[string]any) bool 
 	return matched
 }
 
-// TestEvaluatorOperatorSemantics pins the truth table the DSL promises. A
-// backend compiler is validated against the same predicates, so any drift here
-// silently makes in-memory results disagree with a real store.
 func TestEvaluatorOperatorSemantics(t *testing.T) {
 	metadata := map[string]any{
 		"category": "tech",
@@ -76,10 +73,8 @@ func TestEvaluatorOperatorSemantics(t *testing.T) {
 		"like absent field":     {source: `missing like '%'`, want: false},
 		"has absent field":      {source: `missing has 'x'`, want: false},
 
-		// An absent key evaluates as the value nil, not as SQL's UNKNOWN, so
-		// every comparison against it is decided rather than dropped. These
-		// are the cases a SQL compiler gets wrong by default, because a
-		// NULL-propagating predicate excludes the row whatever the operator.
+		// Missing keys share explicit nil semantics; SQL translations must account
+		// for NULL propagation to preserve these results.
 		"equal absent field":       {source: `missing == 'x'`, want: false},
 		"not equal absent field":   {source: `missing != 'x'`, want: true},
 		"in absent field":          {source: `missing in ('x','y')`, want: false},
@@ -102,8 +97,6 @@ func TestEvaluatorOperatorSemantics(t *testing.T) {
 	}
 }
 
-// TestEvaluatorReportsMalformedPredicates keeps a type-confused filter loud. A
-// silent false would make a store quietly return the wrong document set.
 func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 	metadata := map[string]any{
 		"category": "tech",
@@ -141,9 +134,6 @@ func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 	}
 }
 
-// TestEvaluatorComparesAcrossIntegerSignedness covers the mixed-signedness
-// path: collapsing through float64 would make values near the 64-bit limits
-// compare equal when they are not.
 func TestEvaluatorComparesAcrossIntegerSignedness(t *testing.T) {
 	cases := map[string]struct {
 		stored any
@@ -168,9 +158,6 @@ func TestEvaluatorComparesAcrossIntegerSignedness(t *testing.T) {
 	}
 }
 
-// TestEvaluatorAcceptsEveryGoNumericWidth keeps metadata decoded by a backend
-// comparable regardless of which concrete Go numeric type it arrived as. Both
-// the exact integer path and the mixed float fallback must agree.
 func TestEvaluatorAcceptsEveryGoNumericWidth(t *testing.T) {
 	widths := map[string]any{
 		"int":     int(5),
@@ -202,8 +189,6 @@ func TestEvaluatorAcceptsEveryGoNumericWidth(t *testing.T) {
 	}
 }
 
-// TestEvaluatorTreatsNaNAsUnordered keeps NaN out of the ordering result rather
-// than letting it satisfy both `<` and `>=`.
 func TestEvaluatorTreatsNaNAsUnordered(t *testing.T) {
 	metadata := map[string]any{"n": math.NaN()}
 	for _, source := range []string{`n < 1`, `n > 1`, `n <= 1`, `n >= 1`, `n == 1`} {
@@ -213,17 +198,12 @@ func TestEvaluatorTreatsNaNAsUnordered(t *testing.T) {
 	}
 }
 
-// TestEvaluatorRejectsNumericStringCoercion documents the deliberate refusal to
-// coerce: "12" < "9" is a caller mistake, not a numeric comparison.
 func TestEvaluatorRejectsNumericStringCoercion(t *testing.T) {
 	if _, err := Match(mustParse(t, `n < 9`), map[string]any{"n": "12"}); err == nil {
 		t.Fatal("numeric string was silently coerced")
 	}
 }
 
-// TestEvaluatorArrayIndexBounds pins which index values address an array. A
-// fractional or negative index is a filter bug, while an out-of-range one is
-// simply absent.
 func TestEvaluatorArrayIndexBounds(t *testing.T) {
 	metadata := map[string]any{"list": []any{int64(1), int64(2)}}
 	if !mustMatch(t, EQ(Index("list", 1), 2), metadata) {
@@ -245,8 +225,6 @@ func TestEvaluatorArrayIndexBounds(t *testing.T) {
 	}
 }
 
-// TestEvaluatorHandlesNilMetadata proves a document with no metadata evaluates
-// as all-absent instead of panicking on a nil map.
 func TestEvaluatorHandlesNilMetadata(t *testing.T) {
 	if !mustMatch(t, mustParse(t, `anything is null`), nil) {
 		t.Fatal("nil metadata did not read as absent")
@@ -256,8 +234,6 @@ func TestEvaluatorHandlesNilMetadata(t *testing.T) {
 	}
 }
 
-// TestEvaluatorHasRequiresACollection keeps HAS from silently succeeding on a
-// scalar that happens to equal the wanted value.
 func TestEvaluatorHasRequiresACollection(t *testing.T) {
 	if mustMatch(t, mustParse(t, `scalar has 'x'`), map[string]any{"scalar": "x"}) {
 		t.Fatal("HAS matched a scalar field")
@@ -267,8 +243,6 @@ func TestEvaluatorHasRequiresACollection(t *testing.T) {
 	}
 }
 
-// TestLikeMatchPatterns exercises the backtracking matcher directly, including
-// the wildcard-restart path a whole-input match depends on.
 func TestLikeMatchPatterns(t *testing.T) {
 	cases := map[string]struct {
 		input   string
@@ -299,8 +273,6 @@ func TestLikeMatchPatterns(t *testing.T) {
 	}
 }
 
-// TestEvaluatorInRequiresAList keeps IN from accepting a scalar right operand
-// that a provider compiler would have rejected.
 func TestEvaluatorInRequiresAList(t *testing.T) {
 	metadata := map[string]any{"category": "tech"}
 	if !mustMatch(t, In("category", []string{"tech", "news"}), metadata) {

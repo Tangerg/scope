@@ -11,9 +11,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// multiExpanderDefaultTemplate asks the LLM for N alternative phrasings.
-// {{.Number}} and {{.Query}} are filled at expansion time; the native output
-// contract carries the response shape.
 const multiExpanderDefaultTemplate = `You are an expert at information retrieval and search optimization.
 Your task is to generate {{.Number}} different versions of the given query.
 
@@ -27,14 +24,9 @@ Original query: {{.Query}}`
 
 const multiQueryOutputName = "rag_multi_query"
 
-// DefaultMultiQueryCount is the variant count used when
-// [MultiQueryExpanderConfig.NumberOfQueries] is unset.
 const DefaultMultiQueryCount = 3
 
-// MultiQueryExpanderConfig binds one chat model to a bounded alternative-query
-// policy.
 type MultiQueryExpanderConfig struct {
-	// Model produces the variants. Required.
 	Model corechat.Model
 
 	// IncludeOriginal prepends the original query to the variant list.
@@ -63,7 +55,6 @@ func (m MultiQueryExpanderConfig) normalize() (MultiQueryExpanderConfig, error) 
 
 var _ rag.Expander = (*MultiQueryExpander)(nil)
 
-// MultiQueryExpander asks a model for alternate query phrasings.
 type MultiQueryExpander struct {
 	prompt          modelPrompt[multiQueryOutput]
 	includeOriginal bool
@@ -120,8 +111,6 @@ func (m multiQueryOutput) queries(source rag.Query, count int, includeOriginal b
 	return append(queries, variants...), nil
 }
 
-// NewMultiQueryExpander validates query-count bounds and freezes model prompt
-// policy.
 func NewMultiQueryExpander(config MultiQueryExpanderConfig) (*MultiQueryExpander, error) {
 	config, err := config.normalize()
 	if err != nil {

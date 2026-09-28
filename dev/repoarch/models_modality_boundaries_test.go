@@ -67,10 +67,7 @@ func publishesModelInterface(file *ast.File) bool {
 	return false
 }
 
-// TestModalityModelBoundariesValidateRequests prevents adapters from
-// dereferencing or translating a Core request before its complete protocol
-// value has been checked. A convenience method may delegate to the validated
-// canonical method; the delegated method is checked independently.
+// Delegation is allowed because the canonical method is checked separately.
 func TestModalityModelBoundariesValidateRequests(t *testing.T) {
 	t.Parallel()
 

@@ -16,19 +16,14 @@ var (
 	ErrInvalidRegistry = errors.New("tool: invalid registry")
 )
 
-// Registry is an instance-scoped, concurrency-safe collection of executable
-// tools. Its zero value is ready to use. Each runtime or process owns its
-// registry explicitly; there is no package-global counterpart. Registration is
-// atomic for the full batch, definitions are snapshotted at registration time,
-// and model-visible views are returned as defensive copies in stable name order.
+// Registry is concurrency-safe with a usable zero value. Registration is atomic
+// for the full batch and snapshots definitions; model-visible views are detached
+// and ordered by name.
 type Registry struct {
 	mu      sync.RWMutex
 	entries map[string]Binding
 }
 
-// NewRegistry is a convenience over the usable zero value for the common case
-// of a fixed tool set. Registration is all-or-nothing, so a duplicate name in
-// the initial batch leaves no partially populated registry behind.
 func NewRegistry(initial ...Tool) (*Registry, error) {
 	registry := &Registry{}
 	if err := registry.Register(initial...); err != nil {

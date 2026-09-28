@@ -18,8 +18,6 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// echoAgent is a stub scope Agent that streams a fixed reply, echoing the
-// inbound text so the test can assert the message reached the server.
 type echoAgent struct{}
 
 func (echoAgent) Run(_ context.Context, input string) iter.Seq2[string, error] {
@@ -118,10 +116,6 @@ func TestNewHTTPHandlerSnapshotsAgentCard(t *testing.T) {
 	}
 }
 
-// TestRoundTrip wires the server side (echoAgent → NewHTTPHandler) behind an
-// httptest server, then drives the client side (a2a.Tools → Tool.Call)
-// against it — proving the full A2A loop: tool call → JSON-RPC → executor →
-// task lifecycle → reply text, with the AgentCard resolved over the wire.
 func TestRoundTrip(t *testing.T) {
 	ctx := t.Context()
 
@@ -153,7 +147,6 @@ func TestRoundTrip(t *testing.T) {
 	}
 	delegate = handler
 
-	// Client side: resolve the card and wrap the remote agent as a tool.
 	toolSet, err := a2a.OpenToolSet(ctx, a2a.Endpoint{
 		CardURL: ts.URL,
 		ConcurrencyPolicy: func(invocation toolcontract.Invocation) (string, bool) {

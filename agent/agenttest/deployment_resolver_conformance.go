@@ -11,10 +11,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// DeploymentResolverConformanceConfig describes one resolver and the exact
-// bindings it must answer.
 type DeploymentResolverConformanceConfig struct {
-	// Resolver is the implementation under test.
 	Resolver agent.DeploymentResolver
 
 	// Resolvable lists every Deployment the resolver must return for that
@@ -105,8 +102,6 @@ func verifyUnknownReferencesRejected(config DeploymentResolverConformanceConfig)
 	return nil
 }
 
-// verifyRepeatedResolution walks every reference twice: a resolver retaining
-// caller state answers differently once another reference has passed through.
 func verifyRepeatedResolution(config DeploymentResolverConformanceConfig) error {
 	for round := range 2 {
 		for _, deployment := range config.Resolvable {
@@ -183,9 +178,8 @@ func validateDeploymentResolverConformanceConfig(config DeploymentResolverConfor
 	return nil
 }
 
-// nameCollisionReference derives a reference that shares its name, contract,
-// and implementation with deployment but froze different configuration. Only a
-// resolver keyed by the exact reference rejects it.
+// Only an exact-reference resolver rejects a binding with the same name,
+// contract and implementation but different frozen configuration.
 func nameCollisionReference(deployment agent.Deployment) (agent.DeploymentRef, error) {
 	reference := deployment.DeploymentRef()
 	probe, err := agent.NewDeployment(agent.DeploymentConfig{

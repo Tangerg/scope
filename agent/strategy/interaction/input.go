@@ -6,15 +6,10 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// Input is the complete caller-supplied starting working context. Tools are
-// deliberately absent: a Deployment freezes executable Tools in its
-// Dispatcher so model-visible definitions and executable behavior cannot drift
-// per Process.
+// Input excludes executable Tools: the Deployment fixes their ToolSet authority.
 type Input struct {
-	// Messages is the initial provider-neutral WorkingContext.
 	Messages []chat.Message `json:"messages"`
 
-	// Options contains request-specific generation overrides.
 	Options chat.Options `json:"options,omitzero"`
 }
 

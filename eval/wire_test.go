@@ -25,8 +25,6 @@ func accuracyMetric(t *testing.T) eval.Metric {
 	return metric
 }
 
-// TestReportSurvivesJSON is the contract a Host relies on when it persists a
-// result: a report has to come back validated, with its child tree intact.
 func TestReportSurvivesJSON(t *testing.T) {
 	score := eval.Score(0.75)
 	measurement := 12.5
@@ -82,9 +80,6 @@ func TestReportJSONRejectsUnknownMembers(t *testing.T) {
 	}
 }
 
-// TestAbsentMeasurementsStayAbsent proves the pointer fields carry presence:
-// an evaluation that produced no score must not encode one, or a consumer would
-// read a zero score as a real judgment.
 func TestAbsentMeasurementsStayAbsent(t *testing.T) {
 	qualitative := eval.Report{Metric: accuracyMetric(t), Feedback: "reads well"}
 	encoded, err := jsonv2.Marshal(qualitative)
@@ -102,8 +97,6 @@ func TestAbsentMeasurementsStayAbsent(t *testing.T) {
 	}
 }
 
-// TestReportDecodeIsValidatedBeforeAssignment keeps a malformed persisted
-// report from replacing a good one in memory.
 func TestReportDecodeIsValidatedBeforeAssignment(t *testing.T) {
 	if err := (*eval.Report)(nil).UnmarshalJSON([]byte(`{}`)); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("nil receiver error = %v", err)
@@ -121,17 +114,12 @@ func TestReportDecodeIsValidatedBeforeAssignment(t *testing.T) {
 	}
 }
 
-// TestReportMarshalRefusesAnInvalidReport keeps a report that would fail
-// validation from reaching a store, where it would only fail on the way back.
 func TestReportMarshalRefusesAnInvalidReport(t *testing.T) {
 	if _, err := jsonv2.Marshal(eval.Report{}); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("Marshal error = %v", err)
 	}
 }
 
-// TestReportDepthIsBoundedAtEveryBoundary is the invariant that keeps a deeply
-// nested or cyclic-looking tree from being accepted at one boundary and
-// rejected at another.
 func TestReportDepthIsBoundedAtEveryBoundary(t *testing.T) {
 	metric := accuracyMetric(t)
 	deep := eval.Report{Metric: metric}
@@ -150,8 +138,6 @@ func TestReportDepthIsBoundedAtEveryBoundary(t *testing.T) {
 	}
 }
 
-// TestMetricIdentityReadsAsANamespacedName is what a caller sees in a report
-// and a metric dimension, so it has to stay stable and unambiguous.
 func TestMetricIdentityReadsAsANamespacedName(t *testing.T) {
 	namespaced := accuracyMetric(t)
 	if namespaced.String() != "quality/accuracy" {
@@ -207,8 +193,6 @@ func TestMetricCopiesPreserveParameterIsolation(t *testing.T) {
 	}
 }
 
-// TestCaseValidationCoversItsWholeIdentity keeps a dataset from accepting a
-// case whose metadata cannot be persisted alongside its result.
 func TestCaseValidationCoversItsWholeIdentity(t *testing.T) {
 	if err := (eval.Case[string]{}).Validate(); err == nil {
 		t.Fatal("a case without an ID validated")
@@ -222,8 +206,6 @@ func TestCaseValidationCoversItsWholeIdentity(t *testing.T) {
 	}
 }
 
-// TestDatasetOwnsItsCases is the ownership rule: a caller must not be able to
-// change a dataset after construction, or an experiment would not be repeatable.
 func TestDatasetOwnsItsCases(t *testing.T) {
 	original := metadata.Map{"tag": json.RawMessage(`"a"`)}
 	dataset, err := eval.NewDataset("test-fixture", eval.Case[string]{ID: "one", Subject: "s", Metadata: original})
@@ -262,10 +244,6 @@ func (c constantEvaluator) Evaluate(context.Context, string) (eval.Report, error
 	return c.report, nil
 }
 
-// TestProjectionEvaluatorAdaptsAndReportsProjectionFailure is the whole point
-// of a projection: an aggregate subject reaches a narrow evaluator, and a
-// projection that cannot produce one fails loudly instead of evaluating a zero
-// value.
 func TestProjectionEvaluatorAdaptsAndReportsProjectionFailure(t *testing.T) {
 	inner := constantEvaluator{report: eval.Report{Metric: accuracyMetric(t), Feedback: "ok"}}
 

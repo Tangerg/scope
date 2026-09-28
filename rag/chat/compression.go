@@ -10,9 +10,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// compressionDefaultTemplate asks the LLM to fold a chat history plus a
-// follow-up question into one self-contained query. {{.History}} and
-// {{.Query}} are filled at transform time.
 const compressionDefaultTemplate = `Given the following conversation history and a follow-up query, your task is to synthesize
 a concise, standalone query that incorporates the context from the history.
 Ensure the standalone query is clear, specific, and maintains the user's intent.
@@ -25,10 +22,7 @@ Follow-up query:
 
 Standalone query:`
 
-// CompressionTransformerConfig binds a chat model and token budget to one
-// history-aware query compression policy.
 type CompressionTransformerConfig struct {
-	// Model performs the compression. Required.
 	Model corechat.Model
 
 	// PromptTemplate is the LLM prompt. Defaults to
@@ -39,8 +33,6 @@ type CompressionTransformerConfig struct {
 
 var _ rag.Transformer = (*CompressionTransformer)(nil)
 
-// CompressionTransformer turns conversation history and a follow-up into one
-// self-contained query.
 type CompressionTransformer struct {
 	prompt textModelPrompt
 }
@@ -50,8 +42,6 @@ type compressionPromptVariables struct {
 	Query   string
 }
 
-// NewCompressionTransformer validates and freezes the model-backed compression
-// boundary.
 func NewCompressionTransformer(config CompressionTransformerConfig) (*CompressionTransformer, error) {
 	prompt, err := newTextModelPrompt(
 		config.Model,
@@ -90,9 +80,6 @@ func (c *CompressionTransformer) Transform(ctx context.Context, query rag.Query)
 	return query.WithText(compressed)
 }
 
-// extractHistory pulls the conversation messages out of the query value under
-// [HistoryValueKey] and renders them as one string.
-// Returns "" when the slot is missing.
 func (c *CompressionTransformer) extractHistory(ctx context.Context, query rag.Query) (string, error) {
 	messages, exists, err := query.Value(historyValueKey)
 	if err != nil {

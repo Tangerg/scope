@@ -22,10 +22,6 @@ type concurrencyDeclarer interface {
 	ConcurrencyPolicy() func(toolcontract.Invocation) (key string, concurrent bool)
 }
 
-// startServerWithEcho boots an in-memory MCP server that exposes a single
-// "echo" tool (text -> text). It returns the live ClientSession the test
-// should use to list tools, the underlying Server (so tests can mutate its
-// tool list), and a cleanup that closes both sessions.
 func startServerWithEcho(t *testing.T, ctx context.Context) (*sdkmcp.ClientSession, *sdkmcp.Server, func()) {
 	t.Helper()
 	srvT, cliT := sdkmcp.NewInMemoryTransports()
@@ -67,11 +63,6 @@ func startServerWithEcho(t *testing.T, ctx context.Context) (*sdkmcp.ClientSessi
 	return cs, srv, cleanup
 }
 
-// TestToolsDefaultNamingSanitizesForProviderCharset locks the bridge that maps an
-// MCP server/tool name onto the provider-accepted function-name charset
-// (^[a-zA-Z0-9_-]{1,64}$). A server like "html.to.design" must NOT yield a
-// dotted public name — that makes the whole chat request invalid and the
-// provider rejects every turn.
 func TestToolsDefaultNamingSanitizesForProviderCharset(t *testing.T) {
 	cases := []struct {
 		source string
@@ -79,9 +70,9 @@ func TestToolsDefaultNamingSanitizesForProviderCharset(t *testing.T) {
 		want   string
 	}{
 		{"html.to.design", "import-url", "html_to_design_import-url"},
-		{"srv", "ok_tool-1", "srv_ok_tool-1"}, // already valid → unchanged
-		{"", "bare.tool", "bare_tool"},        // empty source → sanitized bare name
-		{"a b", "c/d", "a_b_c_d"},             // spaces + slash → underscores
+		{"srv", "ok_tool-1", "srv_ok_tool-1"},
+		{"", "bare.tool", "bare_tool"},
+		{"a b", "c/d", "a_b_c_d"},
 	}
 	for _, c := range cases {
 		srvT, cliT := sdkmcp.NewInMemoryTransports()

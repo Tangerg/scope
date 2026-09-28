@@ -11,40 +11,21 @@ import (
 // non-empty value; ResponseDelta uses the empty value before termination.
 type FinishReason string
 
-// A provider's native reason maps to exactly one of these. Callers act on the
-// distinction — retrying, continuing, or surfacing a policy outcome — so an
-// adapter classifies by what happened to the output, not by how the provider
-// spelled it. The native value belongs in
-// [OutputMetadata.Extra] either way.
+// Adapters classify the outcome using these reasons and preserve the native reason in OutputMetadata.Extra.
 const (
 	// FinishReasonStop means the model reached a natural stop condition,
 	// including one of the caller's stop sequences. The output is complete.
 	FinishReasonStop FinishReason = "stop"
-	// FinishReasonLength means the output is incomplete and continuing is the
-	// caller's remedy. It groups by the state the caller is left in rather than
-	// by the cause: the caller's own token budget, a provider limit such as a
-	// context window that filled first, or a provider pausing a long-running
-	// turn and inviting the caller to send the response back to resume all
-	// leave the same half-finished output, so all of them map here. An adapter
-	// that files one of them under [FinishReasonOther] instead hides it from
-	// every caller that decides whether to continue by reading this field; the
-	// provider's own reason belongs in [OutputMetadata.Extra] alongside, not
-	// in place of, this one.
-	FinishReasonLength FinishReason = "length"
-	// FinishReasonToolCalls means the model stopped to request tool execution.
+	// FinishReasonLength means incomplete output that the caller may continue,
+	// including token limits and provider pauses requiring another request.
+	FinishReasonLength    FinishReason = "length"
 	FinishReasonToolCalls FinishReason = "tool_calls"
-	// FinishReasonContentFilter means provider policy withheld or cut short the
-	// content — safety, blocklists, prohibited content, recitation, and the
-	// like. It covers policy acting on what was generated, whereas
-	// [FinishReasonRefusal] is the model itself declining the request.
+	// FinishReasonContentFilter means provider policy withheld or cut short
+	// generated content; FinishReasonRefusal means the model declined the request.
 	FinishReasonContentFilter FinishReason = "content_filter"
-	// FinishReasonRefusal means the model declined the request.
-	FinishReasonRefusal FinishReason = "refusal"
-	// FinishReasonOther preserves a known terminal state with no portable
-	// match, such as a malformed tool call or a provider-side iteration limit.
-	// It is not a default for reasons an adapter has not classified: mapping a
-	// truncation or a policy stop here hides it from every caller that checks
-	// the two reasons above.
+	FinishReasonRefusal       FinishReason = "refusal"
+	// FinishReasonOther is a terminal outcome without a portable match, such as
+	// a malformed tool call. It must not hide truncation or policy stops.
 	FinishReasonOther FinishReason = "other"
 )
 
@@ -59,7 +40,6 @@ func (f FinishReason) Valid() bool {
 	}
 }
 
-// OutputMetadata holds provider-specific metadata for one generation output.
 type OutputMetadata struct {
 	Extra metadata.Map `json:"extra,omitzero"`
 }
@@ -112,8 +92,6 @@ type Output struct {
 	Metadata     *OutputMetadata `json:"metadata,omitzero"`
 }
 
-// NewOutput validates the single stable generation promoted from a provider
-// response or accumulated stream.
 func NewOutput(message *Message, finishReason FinishReason, outputMetadata *OutputMetadata) (*Output, error) {
 	output := &Output{Message: message, FinishReason: finishReason, Metadata: outputMetadata}
 	if err := output.Validate(); err != nil {

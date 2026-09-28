@@ -59,8 +59,6 @@ type TokenSplitter struct {
 	splitter          *Splitter
 }
 
-// NewTokenSplitter validates token and chunk bounds before retaining the
-// tokenizer.
 func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 	if lo.IsNil(config.Tokenizer) {
 		return nil, errors.New("etl: tokenizer is required")

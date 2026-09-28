@@ -13,17 +13,12 @@ var _ toolcontract.Tool = (*Tool)(nil)
 
 const toolName = "http_request"
 
-// Tool adapts a configured [Client] to the tool contract. It takes a concrete
-// client rather than an interface because the allowlist, method restrictions,
-// and timeouts are the point of this tool; a substitutable transport would let
-// a caller bypass them.
+// Tool requires a Client so every invocation enforces its frozen network policy.
 type Tool struct {
 	client *Client
 	inner  toolcontract.Tool
 }
 
-// NewTool rejects a nil client so a tool cannot be advertised to a model before
-// the restrictions that make it safe exist.
 func NewTool(client *Client) (*Tool, error) {
 	if client == nil {
 		return nil, ErrNilClient

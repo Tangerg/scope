@@ -136,7 +136,6 @@ func TestQueryValueKeyRejectsUntypedValuesAndIsolatesSameNameKeys(t *testing.T) 
 	}
 }
 
-// fakeRetriever mocks Retriever for composition tests.
 type fakeRetriever struct {
 	docs rag.Candidates
 	err  error
@@ -238,7 +237,6 @@ func TestWithRefinersRejectsInvalidOutputBeforeNextRefiner(t *testing.T) {
 	}
 }
 
-// fakeTransformer mocks Transformer.
 type fakeTransformer struct {
 	suffix string
 	err    error

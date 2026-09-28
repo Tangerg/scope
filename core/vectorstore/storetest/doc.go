@@ -1,78 +1,36 @@
-// Package storetest contains provider-independent contract tests for
-// vector-store implementations and their filter visitors.
+// Package storetest provides conformance suites for vector stores and filters.
 //
-// [Run] verifies the exact capability set and validation boundary of a store,
-// comparing the set the store declares against the set [CapabilitiesOf]
-// detects. Exact means both directions: a capability the store implements but
-// does not declare fails just as a declared one it does not implement does,
-// which is what keeps a no-op [vectorstore.Closer] from passing as cleanup.
-// [VisitorConformance] exercises the common filter AST shapes, while
-// [VisitorLifecycle] verifies that a visitor can be safely reused.
-// [FilterConformance] executes an isolated backend fixture for each semantic
-// case and compares its selected IDs with [filter.Match] and exact expected
-// IDs, including LIKE case sensitivity and whole-value matching. Wire it to
-// actual backend queries; using Match in the callback would test only the
-// reference evaluator. Unsupported cases require explicit classified errors.
-//
-// Each vendor wires the suite up in a single test file:
-//
-//	func TestVisitor_Conformance(t *testing.T) {
-//	    storetest.VisitorConformance(t, func(src string) error {
-//	        expr, err := filter.Parse(src)
-//	        if err != nil {
-//	            return err
-//	        }
-//	        compiler := newVisitor(myFieldSchema)
-//	        return expr.Accept(compiler)
-//	    })
-//	}
-//
-// VisitorConformance checks acceptance and rejection, not emitted SQL or
-// provider structs. Vendor tests own exact wire assertions. FilterConformance
-// checks selection semantics independently of those heterogeneous wire types.
+// [Run] checks the exact capability set and validation before external I/O.
+// Undeclared and missing capabilities both fail; a no-op Close is not cleanup.
+// [VisitorConformance] checks filter compilation and [VisitorLifecycle] checks
+// reuse after failure. Provider tests own exact wire assertions.
+// [FilterConformance] runs isolated backend queries and compares selected IDs
+// with exact expectations and [filter.Match]. Its callback must query the backend,
+// not evaluate the predicate locally. Unsupported semantics need classified errors.
 //
 // # Field identifiers
 //
-// Every success case uses a disjoint field name per filter-value type
-// so schema-required backends (redis, elasticsearch, opensearch, …)
-// can declare each identifier with one fixed type:
+// Schema-required backends assign one fixed type to each field:
 //
-//	author           — string-comparable
-//	year             — number-comparable
-//	published        — bool-comparable
-//	n, a, b, c, d    — number-comparable (used in ordering / AND / OR)
-//	tags             — string-list (IN)
-//	years            — number-list (IN)
-//	flags            — bool-list (IN)
-//	title            — string-pattern (LIKE)
-//	metadata['author'], metadata['a']['b'] — keyed access
+//	author           - string
+//	year             - number
+//	published        - bool
+//	n, a, b, c, d    - number
+//	tags             - string list
+//	years            - number list
+//	flags            - bool list
+//	title            - string pattern
+//	metadata['author'], metadata['a']['b'] - keyed access
 //
-// # Key paths
+// # Compiler options
 //
-// An indexed key is a string literal, so the caller chooses its bytes. A
-// compiler that writes a metadata key into the query language as text has those
-// bytes read as syntax; one that binds the key as a value does not.
-// [Options.InterpolatesKeyPaths] declares which kind a compiler is, and the
-// suite asserts the matching direction: an interpolating compiler must refuse a
-// key the language cannot name, and a binding compiler must keep accepting any
-// key. Neither an injection nor a needless refusal can appear without failing
-// here.
+// [Options.InterpolatesKeyPaths] distinguishes keys inserted into query syntax
+// from bound values. The former must reject unsafe names; the latter must
+// preserve arbitrary keys.
 //
-// # Numerals
+// [Options.CompileText] checks numerals without lossy scalar conversions.
+// [Options.NumericDomainIsFloat64] permits equivalent float64 representations
+// when that is the backend's numeric domain.
 //
-// A compiler whose whole output is text has to write a number as a numeral, and
-// the digits are the only thing between the caller's filter and a different
-// one. Set [Options.CompileText] and the suite requires the literal's exact
-// digits — the check that was missing when six compilers derived them from a Go
-// scalar through an implementation-defined conversion, so 2^63 came out as
-// 9223372036854775807 on arm64 and correctly on amd64 with every test passing.
-// [Options.NumericDomainIsFloat64] relaxes it to same-double equivalence for a
-// provider whose numeric field is a double, because demanding one spelling
-// there would demand precision the field does not keep.
-//
-// # Capability gaps
-//
-// A backend that genuinely doesn't support a shape (redis can't IN on
-// numeric fields, for example) declares that case via [Options.Unsupported]. Each
-// entry documents a real vendor capability gap; use sparingly.
+// [Options.Unsupported] names real capability gaps; each must fail explicitly.
 package storetest

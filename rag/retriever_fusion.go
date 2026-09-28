@@ -33,7 +33,6 @@ func (r ReciprocalRankFusionConfig) normalize() (ReciprocalRankFusionConfig, err
 	return r, nil
 }
 
-// FusionRetrieverConfig selects ranking policy and retrieval scheduling.
 type FusionRetrieverConfig struct {
 	Fusion ReciprocalRankFusionConfig
 	// MaxConcurrentRetrievals bounds active child calls independently per

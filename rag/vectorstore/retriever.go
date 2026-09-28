@@ -21,10 +21,7 @@ var vectorStoreFilterValueKey = lo.Must(rag.NewValueKey[filter.Predicate]("vecto
 // filter. Parse textual filter DSL with [filter.Parse] before attaching it.
 func FilterValueKey() rag.ValueKey[filter.Predicate] { return vectorStoreFilterValueKey }
 
-// RetrieverConfig binds one search capability and its defaults.
-// Per-query filters remain on Query.
 type RetrieverConfig struct {
-	// VectorStore performs the actual relevance search. Required.
 	VectorStore corevs.Searcher
 
 	// TopK caps the number of returned documents. Zero uses
@@ -58,14 +55,12 @@ func (r RetrieverConfig) validate() error {
 
 var _ rag.Retriever = (*Retriever)(nil)
 
-// Retriever retrieves candidates from a core vector store.
 type Retriever struct {
 	vectorStore corevs.Searcher
 	options     corevs.SearchOptions
 	filterFunc  func(ctx context.Context, query rag.Query) (filter.Predicate, error)
 }
 
-// NewRetriever validates the search boundary and its defaults.
 func NewRetriever(config RetrieverConfig) (*Retriever, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
@@ -110,9 +105,6 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	return candidates, nil
 }
 
-// resolveFilter picks the filter expression to use for this call,
-// preferring the per-query [FilterValueKey] slot over the configured
-// FilterFunc. Returns nil, nil when no filter applies.
 func (r *Retriever) resolveFilter(ctx context.Context, query rag.Query) (filter.Predicate, error) {
 	expression, exists, err := query.Value(vectorStoreFilterValueKey)
 	if err != nil {

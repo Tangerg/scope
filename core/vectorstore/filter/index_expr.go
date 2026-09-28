@@ -1,8 +1,12 @@
 package filter
 
-import "errors"
+import (
+	"errors"
+	"fmt"
 
-// IndexExpr selects an array element or map key from another field/index.
+	"github.com/samber/lo"
+)
+
 type IndexExpr struct {
 	left  Selector
 	index *Literal
@@ -30,6 +34,9 @@ func (i *IndexExpr) Index() *Literal {
 func (i *IndexExpr) Path() ([]string, error) {
 	if i == nil {
 		return nil, errors.New("filter: read index path: index expression is nil")
+	}
+	if lo.IsNil(i.left) {
+		return nil, errors.New("filter: read index path: base is nil")
 	}
 	path, err := i.left.Path()
 	if err != nil {
@@ -59,4 +66,26 @@ func (i *IndexExpr) End() Position {
 func (i *IndexExpr) Equal(other Expr) bool {
 	o, ok := other.(*IndexExpr)
 	return ok && i != nil && o != nil && equalExpr(i.left, o.left) && equalExpr(i.index, o.index)
+}
+
+func (i *IndexExpr) validate() error {
+	if i == nil {
+		return errors.New("filter: index expression is nil")
+	}
+	if err := validateSelector(i.left); err != nil {
+		return fmt.Errorf("filter: index base: %w", err)
+	}
+	if i.index == nil {
+		return fmt.Errorf("filter: index is nil at %s", i.Start())
+	}
+	if !i.index.IsString() && !i.index.IsNumber() {
+		return fmt.Errorf("filter: index must be a string or number, got %s at %s", i.index.Kind(), i.index.Start())
+	}
+	if err := i.index.validate(); err != nil {
+		return err
+	}
+	if i.index.IsNumber() && !i.index.isIntegerIndex() {
+		return fmt.Errorf("filter: numeric index must be a non-negative integer, got %q at %s", i.index.Text(), i.index.Start())
+	}
+	return nil
 }

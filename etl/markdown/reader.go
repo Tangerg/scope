@@ -17,8 +17,6 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-// Markdown metadata keys keep structural lineage explicit without changing the
-// core document contract.
 const (
 	MetadataHeading      = "markdown.heading"
 	MetadataHeadingLevel = "markdown.heading.level"
@@ -38,7 +36,6 @@ type ReaderConfig struct {
 	SourceBudget      etl.SourceBudget
 }
 
-// Reader extracts documents from Markdown.
 type Reader struct {
 	source            io.Reader
 	parser            goldmark.Markdown
@@ -48,7 +45,6 @@ type Reader struct {
 	sourceBudget      etl.SourceBudget
 }
 
-// NewReader freezes Markdown extraction and source-budget policy.
 func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("markdown reader: source must not be nil")
@@ -136,8 +132,6 @@ func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, e
 		}
 		heading, ok := n.(*ast.Heading)
 		if !ok || heading.Level > r.headingSplitLevel {
-			// Body content — attach to the most recent open section, or
-			// create an unnamed lead-in section if none exists yet.
 			if len(sections) == 0 {
 				sections = append(sections, &section{})
 			}
@@ -145,7 +139,6 @@ func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, e
 			continue
 		}
 
-		// New split-level heading: open a new section, manage the path stack.
 		title := r.headingText(heading, raw)
 		path.push(heading.Level, title)
 
@@ -160,9 +153,6 @@ func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, e
 	return sections, nil
 }
 
-// sectionsToDocuments materializes each non-empty section into a
-// [document.Document], stamping heading metadata when present. ctx
-// cancellation is honored between sections.
 func (r *Reader) sectionsToDocuments(ctx context.Context, sections []*section) ([]*document.Document, error) {
 	var docs []*document.Document
 	for _, sec := range sections {
@@ -214,7 +204,6 @@ func (r *Reader) baseMetadata() (coremetadata.Map, error) {
 	return md, nil
 }
 
-// section is the accumulated body of a single emitted document.
 type section struct {
 	heading string
 	level   int

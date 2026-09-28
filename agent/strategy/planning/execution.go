@@ -20,9 +20,6 @@ type execution struct {
 	state      executionState
 }
 
-// Step advances exactly one pure Planning boundary. Sensing, dispatcher
-// Action I/O, and child Process work are represented as Effects and never run
-// inside this method.
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	transition, err := e.step(ctx, signals)
 	if err != nil {
@@ -57,8 +54,6 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	}
 }
 
-// Snapshot returns the complete, self-sufficient Planning state. It contains
-// only Strategy-owned portable values and Framework child identities.
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
 	return e.state.snapshot()
 }
@@ -200,8 +195,6 @@ func (e *execution) startAction(
 		e.state.Phase = phaseChild
 		return agent.Continue(consumedSignals, effect)
 	default:
-		// The Definition validated every binding target, so an unknown one is a
-		// disagreement between restored state and that Definition.
 		return agent.Transition{}, fmt.Errorf("%w: Action %q has an unknown binding target", ErrInvalidExecutionState, binding.action.name)
 	}
 }

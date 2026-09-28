@@ -12,16 +12,12 @@ import (
 	skillsrc "github.com/Tangerg/scope/skills"
 )
 
-// LoadSkillRequest names a skill exactly. Loading is by name rather than by a
-// query so a model cannot broaden what it loads, and so the same prompt
-// resolves to the same skill on every run.
+// LoadSkillRequest uses an exact name; it does not search or broaden the selection.
 type LoadSkillRequest struct {
 	Name string `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact skill name returned by list_skills or already known from the prompt."`
 }
 
-// ReadSkillResourceRequest carries the skill name alongside the resource path,
-// so a read is confined to the skill that referenced it. A path alone would
-// let one skill read another's files.
+// Resource reads remain confined to the named skill.
 type ReadSkillResourceRequest struct {
 	Name string `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact name of the skill whose instructions referenced the resource."`
 	Path string `json:"path" jsonschema:"minLength=1" jsonschema_description:"Resource path relative to the skill directory, such as references/REFERENCE.md or scripts/run.py."`
@@ -32,7 +28,6 @@ type toolSet struct {
 	maxOutputBytes int64
 }
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultMaxOutputBytes = int64(256 * 1024)
 	minimumMaxOutputBytes = int64(len("<available_skills>\n  <truncated>true</truncated>\n</available_skills>"))
@@ -40,16 +35,11 @@ const (
 	truncationMarker      = "\n\n[output truncated]"
 )
 
-// Config bounds how much skill content may enter a model's context. The limit
-// lives here rather than in the repository because the same skill set is
-// reasonable or oversized depending on the model it is fed to.
+// Config bounds model-visible content independently of repository storage limits.
 type Config struct {
 	MaxOutputBytes int64
 }
 
-// NewTools returns the listing, loading, and resource-reading tools together
-// because they are only useful as a set: a model that can load a skill but not
-// read the resources its instructions reference will follow a broken pointer.
 func NewTools(source skillsrc.ResourceSource, config Config) ([]toolcontract.Tool, error) {
 	if lo.IsNil(source) {
 		return nil, ErrNilSource

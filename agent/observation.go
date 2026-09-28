@@ -60,9 +60,6 @@ type DeltaListener interface {
 	OnDelta(ctx context.Context, delta Delta)
 }
 
-// DeltaListenerFunc adapts a plain function to the delta listener interface.
-// It returns nothing for the same reason as [EventListenerFunc], and because a
-// dropped delta must never change execution.
 type DeltaListenerFunc func(ctx context.Context, delta Delta)
 
 func (d DeltaListenerFunc) OnDelta(ctx context.Context, delta Delta) {

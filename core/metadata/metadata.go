@@ -17,18 +17,12 @@ var (
 	ErrInvalidValue = errors.New("metadata: invalid JSON value")
 )
 
-// Map is the JSON-only extension boundary shared by protocol values. Keeping
-// values encoded prevents runtime objects such as functions, readers, and SDK
-// clients from entering DTOs unnoticed. Its zero value is writable through
-// Set; Clone and Merge copy encoded bytes, and Merge validates both sides before
-// changing the receiver. Equal intentionally compares the encoded form rather
-// than performing semantic JSON normalization. JSON preserves nil as null and
-// an explicitly empty map as an object, so missing metadata remains distinct.
+// Map stores encoded JSON extension values. Its zero value is writable through
+// Set. Clone and Merge copy bytes; Merge validates both sides before mutation.
+// Equal compares encoded forms without semantic normalization. JSON preserves
+// nil as null and an explicitly empty map as an object.
 type Map map[string]json.RawMessage
 
-// FromValues is the boundary where untyped decoded JSON becomes a validated
-// Map. It exists so provider extensions and stored metadata are checked once
-// on entry rather than trusted and then found unmarshalable at the next hop.
 func FromValues(values map[string]any) (Map, error) {
 	if values == nil {
 		return nil, nil

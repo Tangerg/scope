@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestRequestRejectsEmptyHostname(t *testing.T) {
+	for _, address := range []string{"http://:80/page", "https://:443/page"} {
+		request := &Request{URL: address}
+		if err := request.Validate(); !errors.Is(err, ErrInvalidURL) {
+			t.Errorf("Validate(%q) = %v, want ErrInvalidURL", address, err)
+		}
+	}
+}
+
 func TestModelCannotOverrideHTTPAuthority(t *testing.T) {
 	for _, name := range []string{"Host", "host", "hOsT"} {
 		t.Run(name, func(t *testing.T) {

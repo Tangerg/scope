@@ -50,7 +50,7 @@ func TestLocalExecutor_Read_Whole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if out.TotalLines != 4 { // 3 newlines -> 4 split parts (last empty)
+	if out.TotalLines != 4 {
 		t.Errorf("TotalLines = %d, want 4", out.TotalLines)
 	}
 	if !strings.Contains(out.Content, "line1") || !strings.Contains(out.Content, "line3") {
@@ -63,8 +63,8 @@ func TestLocalExecutor_Read_LineRange(t *testing.T) {
 	path := writeTemp(t, dir, "a.txt", "a\nb\nc\nd\ne\n")
 	out, err := mustLocalExecutor(t, dir).Read(t.Context(), ReadInput{
 		Path:   path,
-		Offset: 1, // skip "a"
-		Limit:  2, // take "b", "c"
+		Offset: 1,
+		Limit:  2,
 	})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
@@ -229,8 +229,7 @@ func TestLocalExecutor_Write_ConcurrentSamePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	// Whichever write won, the result must be exactly the content of
-	// one of them — no torn writes from interleaving.
+
 	want := strings.Repeat("x", 1024) + "\n"
 	if string(got) != want {
 		t.Errorf("torn write detected: len=%d, want exactly %d", len(got), len(want))

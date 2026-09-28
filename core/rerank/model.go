@@ -11,9 +11,6 @@ type Model interface {
 	Call(ctx context.Context, request *Request) (*Response, error)
 }
 
-// ModelFunc lets an ordinary function satisfy [Model] without declaring a
-// named type, which is what keeps middleware and test doubles from each
-// inventing their own adapter.
 type ModelFunc func(context.Context, *Request) (*Response, error)
 
 func (m ModelFunc) Call(ctx context.Context, request *Request) (*Response, error) {

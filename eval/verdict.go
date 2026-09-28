@@ -9,10 +9,8 @@ type Verdict string
 const (
 	// VerdictUnspecified represents a valid result with no categorical decision.
 	VerdictUnspecified Verdict = ""
-	// VerdictPass records satisfaction of an evaluator's explicit rule.
-	VerdictPass Verdict = "pass"
-	// VerdictFail records failure of an evaluator's explicit rule.
-	VerdictFail Verdict = "fail"
+	VerdictPass        Verdict = "pass"
+	VerdictFail        Verdict = "fail"
 )
 
 func (v Verdict) Validate() error {

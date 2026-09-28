@@ -1,7 +1,5 @@
 package textread
 
-// These tests define the scanner's shared filesystem-adapter contract.
-
 import (
 	"context"
 	"errors"

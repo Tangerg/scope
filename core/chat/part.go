@@ -10,22 +10,15 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// PartKind identifies which payload in Part is active.
 type PartKind string
 
 const (
-	// PartText carries plain text.
-	PartText PartKind = "text"
-	// PartMedia carries an image, audio, document, or other media value.
-	PartMedia PartKind = "media"
-	// PartReasoning carries visible reasoning and optional opaque replay state.
-	PartReasoning PartKind = "reasoning"
-	// PartToolCall carries one tool invocation request.
-	PartToolCall PartKind = "tool_call"
-	// PartToolResult carries one tool execution result.
+	PartText       PartKind = "text"
+	PartMedia      PartKind = "media"
+	PartReasoning  PartKind = "reasoning"
+	PartToolCall   PartKind = "tool_call"
 	PartToolResult PartKind = "tool_result"
-	// PartRefusal carries a model refusal separately from ordinary output text.
-	PartRefusal PartKind = "refusal"
+	PartRefusal    PartKind = "refusal"
 )
 
 func (p PartKind) Valid() bool {
@@ -94,8 +87,6 @@ func NewReasoningPart(text string, state []byte) Part {
 	return Part{Kind: PartReasoning, Text: text, ReasoningState: slices.Clone(state)}
 }
 
-// NewToolCallPart preserves a model-requested invocation as typed assistant
-// output.
 func NewToolCallPart(call ToolCall) Part {
 	return Part{Kind: PartToolCall, ToolCall: new(call)}
 }

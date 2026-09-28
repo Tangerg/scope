@@ -7,18 +7,13 @@ import (
 	"strings"
 )
 
-// ContentFormat selects the representation of fetched page content.
-// Providers map this to their native format setting.
 type ContentFormat string
 
 const (
-	// FormatMarkdown returns the page rendered to Markdown. This is
-	// the default and usually the most LLM-friendly format.
+	// FormatMarkdown is the default format.
 	FormatMarkdown ContentFormat = "markdown"
-	// FormatHTML returns the page's HTML (or a cleaned variant).
-	FormatHTML ContentFormat = "html"
-	// FormatText returns plain text — no markup, no structure.
-	FormatText ContentFormat = "text"
+	FormatHTML     ContentFormat = "html"
+	FormatText     ContentFormat = "text"
 )
 
 func (c ContentFormat) Validate() error {
@@ -30,7 +25,6 @@ func (c ContentFormat) Validate() error {
 	}
 }
 
-// Normalize applies the default and rejects unsupported formats.
 func (c ContentFormat) Normalize() (ContentFormat, error) {
 	if c == "" {
 		c = FormatMarkdown
@@ -41,10 +35,7 @@ func (c ContentFormat) Normalize() (ContentFormat, error) {
 	return c, nil
 }
 
-// FetchRequest is both the provider-neutral fetch contract and the
-// LLM-facing argument shape.
 type FetchRequest struct {
-	// URL is the page to fetch. Required.
 	URL string `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL of the page to fetch."`
 
 	// Format selects the response format. "" defaults to markdown.
@@ -78,14 +69,12 @@ func (f *FetchRequest) Validate() error {
 		return ErrEmptyURL
 	}
 	parsed, err := url.Parse(trimmedURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return ErrInvalidURL
 	}
 	return f.Format.Validate()
 }
 
-// FetchResponse is the normalized scrape result. Used as both the SPI
-// return type and the LLM-facing serialization shape.
 type FetchResponse struct {
 	Content string        `json:"content"`
 	Format  ContentFormat `json:"format"`

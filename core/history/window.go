@@ -30,11 +30,6 @@ type WindowStore struct {
 	limit int
 }
 
-// NewWindowStore projects reads to a bounded suffix of complete turns rather
-// than a message count, because cutting mid-turn strands a tool result from
-// the call that produced it and breaks their protocol relationship. Writes
-// still reach the authoritative store, so windowing narrows what a model sees
-// without discarding history.
 func NewWindowStore(store Store, limit int) (WindowStore, error) {
 	if lo.IsNil(store) {
 		return WindowStore{}, ErrNilStore

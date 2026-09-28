@@ -22,11 +22,8 @@ type Capabilities struct {
 	IDDeleter      bool
 	FilterDeleter  bool
 
-	// Closer is true only for a store that created a resource of its own. A
-	// store handed its client, session or pool releases nothing, so a false
-	// flag forbids a Close method rather than permitting a no-op one: a no-op
-	// Close claims there was something to release and that calling it released
-	// it, which leaves a caller unable to tell the two kinds of store apart.
+	// Closer is true only when the store owns a resource it must release.
+	// A store using caller-owned resources must not expose a no-op Close.
 	Closer bool
 }
 
@@ -124,12 +121,8 @@ func Run(t *testing.T, store any, expected Capabilities) {
 	}
 }
 
-// CapabilitiesOf reports the capability set a store actually implements.
-//
-// [Run] compares it against the set the store declares. It is separate from
-// that comparison so the interface detection can be exercised on its own:
-// HybridSearch and MediaDocuments are absent because no interface expresses
-// them; [Run] probes unsupported semantics through the operation boundary.
+// CapabilitiesOf detects interface capabilities. Run probes HybridSearch and
+// MediaDocuments through operations because no interface expresses them.
 func CapabilitiesOf(store any) Capabilities {
 	_, indexer := store.(vectorstore.Indexer)
 	_, searcher := store.(vectorstore.Searcher)

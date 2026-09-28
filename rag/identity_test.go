@@ -42,8 +42,6 @@ func TestIdentityAugmenterObservesCancellation(t *testing.T) {
 	}
 }
 
-// TestValueKeyRejectsUnusableNames keeps the typed query envelope from
-// accepting a key that cannot be told apart in a diagnostic.
 func TestValueKeyRejectsUnusableNames(t *testing.T) {
 	for name, value := range map[string]string{
 		"empty":               "",
@@ -61,8 +59,6 @@ func TestValueKeyRejectsUnusableNames(t *testing.T) {
 	}
 }
 
-// TestZeroValueKeyIsUnusable proves a key must come from the constructor: an
-// uninitialized key would otherwise silently share identity with every other.
 func TestZeroValueKeyIsUnusable(t *testing.T) {
 	var key rag.ValueKey[string]
 	if key.Name() != "" {
@@ -78,8 +74,6 @@ func TestZeroValueKeyIsUnusable(t *testing.T) {
 	}
 }
 
-// TestWithTextKeepsValuesAndRejectsBlank is what makes a transformer safe: a
-// rewritten query must keep the per-call context it was carrying.
 func TestWithTextKeepsValuesAndRejectsBlank(t *testing.T) {
 	key, err := rag.NewValueKey[string]("tenant")
 	if err != nil {
@@ -106,8 +100,6 @@ func TestWithTextKeepsValuesAndRejectsBlank(t *testing.T) {
 	}
 }
 
-// TestWithValueRejectsNil keeps an absent value distinguishable from a stored
-// nil, which a consumer would otherwise read as present.
 func TestWithValueRejectsNil(t *testing.T) {
 	key, err := rag.NewValueKey[[]string]("domains")
 	if err != nil {

@@ -12,9 +12,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-// TestSummarizeRendersEveryAggregation keeps the development sink readable for
-// each instrument shape. A missing case falls through to the %T fallback, which
-// prints a Go type name instead of the numbers the line exists to show.
 func TestSummarizeRendersEveryAggregation(t *testing.T) {
 	exporter := NewMetricExporter(stdslog.Default())
 	cases := map[string]struct {
@@ -64,8 +61,6 @@ func TestSummarizeRendersEveryAggregation(t *testing.T) {
 	}
 }
 
-// TestSummarizeFallsBackForAnUnknownAggregation documents the escape hatch: an
-// aggregation the SDK adds later still produces a line rather than a panic.
 func TestSummarizeFallsBackForAnUnknownAggregation(t *testing.T) {
 	exporter := NewMetricExporter(stdslog.Default())
 	got := exporter.summarize(metricdata.ExponentialHistogram[int64]{})
@@ -74,9 +69,6 @@ func TestSummarizeFallsBackForAnUnknownAggregation(t *testing.T) {
 	}
 }
 
-// TestSelectorsDeferToTheSDK is the passive-sink contract: a development
-// exporter must not change accumulation semantics, or metrics read here would
-// disagree with the same metrics read through OTLP.
 func TestSelectorsDeferToTheSDK(t *testing.T) {
 	exporter := NewMetricExporter(stdslog.Default())
 	kinds := []sdkmetric.InstrumentKind{
@@ -100,8 +92,6 @@ func TestSelectorsDeferToTheSDK(t *testing.T) {
 	}
 }
 
-// TestSeverityMapsOntoTheNearestSlogLevel pins the banding. A severity that
-// lands one level too low would hide an error from a caller filtering on level.
 func TestSeverityMapsOntoTheNearestSlogLevel(t *testing.T) {
 	cases := map[otellog.Severity]stdslog.Level{
 		otellog.SeverityUndefined: stdslog.LevelDebug,
@@ -124,9 +114,6 @@ func TestSeverityMapsOntoTheNearestSlogLevel(t *testing.T) {
 	}
 }
 
-// TestLogAttributesStayTyped keeps a scalar readable as itself. Collapsing an
-// int64 or a bool into a string would make the development sink disagree with
-// the same record read through OTLP.
 func TestLogAttributesStayTyped(t *testing.T) {
 	cases := map[string]struct {
 		value attribute.KeyValue

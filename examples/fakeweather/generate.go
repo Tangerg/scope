@@ -18,10 +18,6 @@ type reportGenerator struct {
 	month    int
 }
 
-// generate is the entry point: parse the request, derive every output
-// field deterministically from (location, date), and return the
-// Response. All randomness is seeded from the input — same input,
-// same output across runs.
 func generate(req *Request) (*Response, error) {
 	generator, err := newReportGenerator(req)
 	if err != nil {
@@ -52,27 +48,19 @@ func newReportGenerator(req *Request) (*reportGenerator, error) {
 }
 
 func (r *reportGenerator) report() *Response {
-	// Daily mean for the (zone, month). For a date-only query this
-	// IS the day's representative reading — diurnal variation is deliberately
-	// NOT applied, because that would put every
-	// midnight-stamped query at the bottom of the daily curve.
+	// Date-only reports use the daily mean so midnight does not bias the result.
 	mean := r.profile.mean[r.month-1]
 
-	// Elevation correction: ~0.6°C drop per 100 m.
+	// Elevation correction: approximately 0.6 degrees Celsius per 100 meters.
 	elevDrop := int(float64(r.coords.Elevation) * 0.006)
 	mean -= elevDrop
 
-	// Day-to-day jitter (±2°C) preserves variability without
-	// breaking the seasonal floor.
 	jitter := r.rng.IntN(5) - 2
 	current := clamp(mean+jitter, r.profile.floor, r.profile.ceiling)
 
-	// Min/Max describe the whole day's swing around the mean — not
-	// random offsets from the "current" reading.
 	minTemp := min(clamp(mean-r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
 	maxTemp := max(clamp(mean+r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
 
-	// Pick a condition compatible with the temperature + zone + month.
 	candidates := r.zone.candidateConditions(current, r.month, r.seasonal)
 	condition := candidates[r.rng.IntN(len(candidates))]
 
@@ -146,17 +134,12 @@ func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) []H
 	for i := range 24 {
 		hour := time.Date(r.target.Year(), r.target.Month(), r.target.Day(), i, 0, 0, 0, time.UTC)
 
-		// Sinusoidal diurnal cycle: hottest at 14:00, coolest at 02:00.
-		amp := r.profile.dailyAmplitude
-		if r.zone == zoneDesert {
-			amp = 12
-		}
-		variation := int(math.Round(float64(amp) * math.Sin(float64(i-2)*math.Pi/12)))
+		variation := r.profile.dailyVariation(i)
 		hourTemp := clamp(dailyMean+variation+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling)
 
 		hourCondition := condition
 		if r.rng.Float64() < 0.2 {
-			alt := r.zone.candidateConditions(hourTemp, int(r.target.Month()), seasonalPattern{})
+			alt := r.zone.candidateConditions(hourTemp, r.month, r.seasonal)
 			hourCondition = alt[r.rng.IntN(len(alt))]
 		}
 
@@ -293,8 +276,6 @@ func (r *reportGenerator) wind(condition Condition) Wind {
 	}
 }
 
-// humidity follows the zone's typical humidity, lifted by
-// rainy/foggy conditions and reduced by sunny/dusty ones.
 func (r *reportGenerator) humidity(condition Condition) int {
 	base := 50
 	switch r.zone {
@@ -336,8 +317,6 @@ func (r *reportGenerator) humidity(condition Condition) int {
 	return base + r.rng.IntN(20) - 10
 }
 
-// pressure starts from the elevation-corrected MSL pressure and
-// adjusts for the weather (low for storms, high for clear).
 func (r *reportGenerator) pressure(condition Condition) int {
 	base := 1013 - r.coords.Elevation/8
 	switch condition {
@@ -453,7 +432,7 @@ func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
 	aq := &AirQuality{}
 	aqi := 50
 
-	if profile, ok := lookupCity(r.request.Location); ok && profile.Polluted {
+	if profile, ok := knownCities.lookup(r.request.Location); ok && profile.Polluted {
 		aqi = 80 + r.rng.IntN(40)
 	}
 
@@ -543,8 +522,7 @@ func (r *reportGenerator) uvIndex(condition Condition, cloudCover int) UVIndex {
 	return uv
 }
 
-// astronomy uses simplified declination math for sunrise/sunset,
-// and a 29.5-day cycle for the moon phase.
+// Sun times use approximate solar declination; moon illumination uses a 29.5-day cycle.
 func (r *reportGenerator) astronomy() Astronomy {
 	dayOfYear := r.target.YearDay()
 
@@ -577,9 +555,6 @@ func (r *reportGenerator) astronomy() Astronomy {
 	}
 }
 
-// parseTargetDate accepts an empty string (= today UTC) or
-// "YYYY-MM-DD" and returns a time.Time pinned to 00:00 UTC of the
-// target day.
 func parseTargetDate(s string) (time.Time, error) {
 	if s == "" {
 		now := time.Now().UTC()
@@ -592,7 +567,6 @@ func parseTargetDate(s string) (time.Time, error) {
 	return t, nil
 }
 
-// newRng builds a deterministic PRNG seeded from location + date.
 func newRng(location string, date time.Time) *rand.Rand {
 	seed := uint64(date.Unix())
 	for _, c := range location {
@@ -601,26 +575,17 @@ func newRng(location string, date time.Time) *rand.Rand {
 	return rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 }
 
-// monthForLookup decides which month to feed into the climate-profile
-// table. For a known city in the southern hemisphere, months are flipped
-// (so July reads as January temps). For unknown locations, the lookup uses the
-// month as-is — the previous algorithm pseudo-randomly assigned
-// southern hemispheres to unknown cities, which produced "summer is
-// freezing" reports.
 func monthForLookup(date time.Time, latitude float64, knownCity bool) int {
 	month := int(date.Month())
 	if knownCity && latitude < 0 {
-		month = ((month + 5) % 12) + 1 // 1..12 → flip 6 months
+		month = ((month + 5) % 12) + 1
 	}
 	return month
 }
 
-// coordinatesFor returns the location's coordinates plus a flag for
-// whether the lookup was a known-city hit. Unknown locations get
-// derived (deterministic, northern-hemisphere) coords so the season
-// math doesn't randomly flip; see [knownCities] for the gazetteer.
+// Unknown locations use northern latitudes to keep the input calendar season.
 func coordinatesFor(location string, rng *rand.Rand) (Coordinates, bool) {
-	if profile, ok := lookupCity(location); ok {
+	if profile, ok := knownCities.lookup(location); ok {
 		return Coordinates{
 			Latitude:  profile.Latitude,
 			Longitude: profile.Longitude,
@@ -628,8 +593,6 @@ func coordinatesFor(location string, rng *rand.Rand) (Coordinates, bool) {
 		}, true
 	}
 
-	// Derive deterministic latitude in [10, 60] (mid-northern latitudes)
-	// and longitude in [-180, 180] from the location string.
 	var latSeed, lonSeed float64
 	for _, c := range location {
 		latSeed += float64(c)

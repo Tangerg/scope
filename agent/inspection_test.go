@@ -8,12 +8,17 @@ import (
 
 func inspectProcessSnapshot(t testing.TB, process *Process) ProcessSnapshot {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	return inspectProcessSnapshotContext(ctx, t, process)
+}
+
+func inspectProcessSnapshotContext(ctx context.Context, t testing.TB, process *Process) ProcessSnapshot {
+	t.Helper()
 	runtime := process.handle.runtime.Load()
 	if runtime == nil {
 		t.Fatal("Process tree was released before inspection")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
 	inspection, err := runtime.engine.InspectTree(ctx, process.Relation().RootID())
 	if err != nil {
 		t.Fatal(err)

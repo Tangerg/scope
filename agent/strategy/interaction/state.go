@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -167,6 +168,50 @@ func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, 
 	return active, nil
 }
 
+func (e *executionState) addSteer(batch steerBatch) error {
+	if batch.empty() {
+		return nil
+	}
+	if err := batch.validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
+	if e.PendingSteer == nil {
+		cloned := batch.clone()
+		e.PendingSteer = &cloned
+		return nil
+	}
+	e.PendingSteer.Messages = append(
+		e.PendingSteer.Messages,
+		cloneMessages(batch.Messages)...,
+	)
+	e.PendingSteer.SignalIDs = append(
+		e.PendingSteer.SignalIDs,
+		batch.SignalIDs...,
+	)
+	if err := e.PendingSteer.validate(); err != nil {
+		return fmt.Errorf("%w: merged pending steer: %w", ErrInvalidExecutionState, err)
+	}
+	return nil
+}
+
+func (e *executionState) applyPendingSteer() ([]agent.SignalID, error) {
+	if e.PendingSteer == nil {
+		return nil, nil
+	}
+	if err := e.PendingSteer.validate(); err != nil {
+		return nil, fmt.Errorf("%w: pending steer: %w", ErrInvalidExecutionState, err)
+	}
+	request := e.WorkingContext.Clone()
+	request.Messages = append(request.Messages, cloneMessages(e.PendingSteer.Messages)...)
+	if err := request.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: steered model request: %w", ErrInvalidExecutionState, err)
+	}
+	appliedSignalIDs := slices.Clone(e.PendingSteer.SignalIDs)
+	e.WorkingContext = request
+	e.PendingSteer = nil
+	return appliedSignalIDs, nil
+}
+
 func (e *executionState) complete(output Output) {
 	e.Phase = phaseCompleted
 	e.ToolRound = nil
@@ -292,13 +337,14 @@ func validatedToolCalls(response *chat.Response) ([]chat.ToolCall, error) {
 		return nil, nil
 	}
 	for _, part := range response.Output.Message.Parts {
-		if part.Kind == chat.PartToolCall {
-			if _, duplicate := seenCallIDs[part.ToolCall.ID]; duplicate {
-				return nil, fmt.Errorf("interaction: duplicate tool call ID %q", part.ToolCall.ID)
-			}
-			seenCallIDs[part.ToolCall.ID] = struct{}{}
-			calls = append(calls, *part.ToolCall)
+		if part.Kind != chat.PartToolCall {
+			continue
 		}
+		if _, duplicate := seenCallIDs[part.ToolCall.ID]; duplicate {
+			return nil, fmt.Errorf("interaction: duplicate tool call ID %q", part.ToolCall.ID)
+		}
+		seenCallIDs[part.ToolCall.ID] = struct{}{}
+		calls = append(calls, *part.ToolCall)
 	}
 	return calls, nil
 }

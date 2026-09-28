@@ -45,15 +45,12 @@ var (
 	ErrInvalidAssessment = errors.New("otel/eval: invalid assessment")
 )
 
-// MiddlewareConfig supplies optional OTel providers for evaluation
-// instrumentation.
 type MiddlewareConfig struct {
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
 }
 
-// Middleware is typed by the evaluated subject so Wrap remains the single
-// composition API despite Go methods not supporting their own type parameters.
+// Middleware binds the subject type once; Wrap accepts assessments of that type.
 type Middleware[T any] struct {
 	tracer   trace.Tracer
 	duration metric.Float64Histogram

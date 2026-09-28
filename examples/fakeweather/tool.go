@@ -11,8 +11,7 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// Request is the tool input. Date is optional; when omitted the tool uses the
-// current calendar date in UTC.
+// An omitted Date uses the current calendar date in UTC.
 type Request struct {
 	Location string `json:"location" jsonschema:"minLength=1" jsonschema_description:"Geographic location, such as a city, city and country, or street address. English and local-language names are accepted."`
 
@@ -23,7 +22,6 @@ type Request struct {
 	IncludeAirQuality bool `json:"include_air_quality,omitzero" jsonschema_description:"Include AQI and pollutant concentrations. Defaults to false."`
 }
 
-// Response is the synthesized weather report.
 type Response struct {
 	Location       string           `json:"location"`
 	Coordinates    Coordinates      `json:"coordinates"`
@@ -47,16 +45,14 @@ type Response struct {
 	LastUpdated    int64            `json:"last_updated"` // Unix seconds, equal to start of target date (deterministic)
 }
 
-// Coordinates is the location's geographic anchor. Elevation in meters.
+// Elevation is in meters.
 type Coordinates struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Elevation int     `json:"elevation"`
 }
 
-// Temperature is the day's representative temperature plus its swing.
-// Value is the daily mean (not midnight, not noon) so a date-only
-// query gets the day's "typical" reading.
+// Value represents the daily mean in Celsius, not an instantaneous reading.
 type Temperature struct {
 	Value     int    `json:"value"`
 	Unit      string `json:"unit"` // always "Celsius"
@@ -74,15 +70,13 @@ type Wind struct {
 	Gust      float64 `json:"gust"`
 }
 
-// Precipitation describes liquid/solid water expected for the day.
 type Precipitation struct {
-	Type        PrecipitationType      `json:"type"`        // rain, snow, sleet
+	Type        PrecipitationType      `json:"type"`
 	Probability int                    `json:"probability"` // 0-100
 	Amount      float64                `json:"amount"`      // mm
-	Intensity   PrecipitationIntensity `json:"intensity"`   // light, moderate, heavy
+	Intensity   PrecipitationIntensity `json:"intensity"`
 }
 
-// AirQuality is the AQI + breakdown.
 type AirQuality struct {
 	AQI         int             `json:"aqi"`
 	Level       AirQualityLevel `json:"level"`
@@ -99,8 +93,7 @@ type UVIndex struct {
 	Description string  `json:"description"`
 }
 
-// Astronomy holds sun + moon data, all times in HH:MM (location's local
-// time inferred from longitude — approximate).
+// Sun and moon times are approximate solar-local HH:MM values.
 type Astronomy struct {
 	Sunrise          string `json:"sunrise"`
 	Sunset           string `json:"sunset"`
@@ -116,7 +109,6 @@ type TimeRange struct {
 	End   int64 `json:"end"`
 }
 
-// HourlyForecast is one hour of the 24-hour breakdown.
 type HourlyForecast struct {
 	Time          int64     `json:"time"`
 	Temperature   int       `json:"temperature"`
@@ -126,11 +118,9 @@ type HourlyForecast struct {
 	WindSpeed     float64   `json:"wind_speed"`
 }
 
-// Alert is a synthesized weather alert (heat, cold, wind, storm,
-// blizzard, typhoon).
 type Alert struct {
 	Type        AlertType     `json:"type"`
-	Severity    AlertSeverity `json:"severity"` // moderate, severe, extreme
+	Severity    AlertSeverity `json:"severity"`
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	StartTime   int64         `json:"start_time"`
@@ -139,17 +129,13 @@ type Alert struct {
 
 var _ toolcontract.Tool = (*Tool)(nil)
 
-// Tool is a chat.Tool that synthesizes weather reports.
-// Construct with [New].
 type Tool struct {
 	writer io.Writer
 	typed  toolcontract.Func[Request, *Response]
 }
 
-// New builds a tool whose output is derived from its arguments alone, so an
-// example that calls it produces the same report on every run. A real weather
-// API would make the surrounding examples untestable and would tie them to a
-// credential; the writer exists only to show call activity.
+// New creates an offline tool. With an explicit date, output is deterministic.
+// The optional writer receives call activity and remains owned by the caller.
 func New(writer io.Writer) *Tool {
 	if writer == nil {
 		writer = io.Discard
@@ -200,5 +186,4 @@ func (t *Tool) log(key, value string) {
 	_, _ = fmt.Fprintf(t.writer, "[fakeweather] %s: %s\n", key, value)
 }
 
-// Unwrap exposes the typed input contract through tool decorators.
 func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }

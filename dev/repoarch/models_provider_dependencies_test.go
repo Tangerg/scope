@@ -13,9 +13,6 @@ import (
 
 const modelsImportPrefix = "github.com/Tangerg/scope/models/"
 
-// TestProviderDependenciesAreOneWay prevents a concrete provider from
-// importing another concrete provider. Reusable wire implementations belong
-// under protocol, which may only depend on lower-level protocol packages.
 func TestProviderDependenciesAreOneWay(t *testing.T) {
 	t.Parallel()
 
@@ -58,10 +55,8 @@ func TestProviderDependenciesAreOneWay(t *testing.T) {
 	}
 }
 
-// TestProviderAPIsHideProtocolDetails locks the public boundary: constructors,
-// configuration, and data structures cannot expose protocol DTOs. An exact
-// shared OpenAI/Anthropic model implementation may be promoted by type alias;
-// provider-private internal implementations may not.
+// Exact shared protocols may be promoted by alias; provider-private
+// implementations must preserve their internal visibility boundary.
 func TestProviderAPIsHideProtocolDetails(t *testing.T) {
 	t.Parallel()
 

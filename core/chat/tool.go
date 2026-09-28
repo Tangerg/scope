@@ -144,7 +144,6 @@ func (t ToolCall) Validate() error {
 	return nil
 }
 
-// ToolResult is one tool execution result correlated to a ToolCall by ID.
 type ToolResult struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`

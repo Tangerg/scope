@@ -24,19 +24,17 @@ fi
 report=$(mktemp)
 trap 'rm -f "$report"' EXIT
 packages=()
+package_list=$("$root/scripts/module-packages.sh" "$module")
 while IFS= read -r package; do
   [[ -z "$package" ]] || packages+=("$package")
-done < <("$root/scripts/module-packages.sh" "$module")
+done <<< "$package_list"
 if [[ ${#packages[@]} -eq 0 ]]; then
   echo "$module: no Go packages found" >&2
   exit 2
 fi
 (cd "$root/$module" && govulncheck -json "${packages[@]}") >"$report"
 
-reachable=()
-while IFS= read -r id; do
-  reachable+=("$id")
-done < <(
+reachable_ids=$(
   jq -rs '
     [.[] | .finding?
       | select(. != null)
@@ -45,6 +43,10 @@ done < <(
     | unique[]
   ' "$report"
 )
+reachable=()
+while IFS= read -r id; do
+  [[ -z "$id" ]] || reachable+=("$id")
+done <<< "$reachable_ids"
 
 allowed=()
 case "$module" in
@@ -101,10 +103,7 @@ if [[ ${#unexpected[@]} -ne 0 ]]; then
   exit 1
 fi
 
-imported_candidates=()
-while IFS= read -r id; do
-  imported_candidates+=("$id")
-done < <(
+imported_ids=$(
   jq -rs '
     [.[] | .finding?
       | select(. != null)
@@ -113,6 +112,10 @@ done < <(
     | unique[]
   ' "$report"
 )
+imported_candidates=()
+while IFS= read -r id; do
+  [[ -z "$id" ]] || imported_candidates+=("$id")
+done <<< "$imported_ids"
 
 imported=()
 for id in "${imported_candidates[@]}"; do

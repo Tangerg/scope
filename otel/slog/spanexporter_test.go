@@ -14,7 +14,6 @@ import (
 	"github.com/Tangerg/scope/otel/slog"
 )
 
-// captureHandler records every slog.Record passed to it, for test assertions.
 type captureHandler struct {
 	mu      sync.Mutex
 	records []stdslog.Record
@@ -38,7 +37,6 @@ func (c *captureHandler) Records() []stdslog.Record {
 	return out
 }
 
-// attrMap extracts all attrs from a record into a map for easy assertion.
 func attrMap(r stdslog.Record) map[string]any {
 	m := make(map[string]any, r.NumAttrs())
 	r.Attrs(func(a stdslog.Attr) bool {
@@ -159,15 +157,13 @@ func TestExporter_ChildSpan_RecordsParent(t *testing.T) {
 		t.Errorf("child.parent_span_id=%q, want to equal parent.span_id=%q", childParentID, parentSpanID)
 	}
 
-	// root span has no parent_span_id
 	if _, has := parentAttrs["parent_span_id"]; has {
 		t.Error("root span should not have parent_span_id")
 	}
 }
 
 func TestExporter_NilLogger_UsesDefault(t *testing.T) {
-	// We don't assert on slog.Default()'s output, only that construction
-	// does not panic and export runs without error.
+
 	exp := slog.NewSpanExporter(nil)
 
 	tp := newTestProvider(exp)

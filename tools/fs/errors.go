@@ -6,31 +6,19 @@ import (
 )
 
 var (
-	// ErrNilExecutor rejects a tool without the backend capability it consumes.
-	ErrNilExecutor = errors.New("fs: executor must not be nil")
-	// ErrInvalidRoot identifies an authority root that cannot be fixed safely.
-	ErrInvalidRoot = errors.New("fs: executor root is invalid")
-	// ErrEmptyPath rejects an operation with no target identity.
-	ErrEmptyPath = errors.New("fs: path must not be empty")
-	// ErrInvalidInput identifies operation arguments rejected by the backend.
-	ErrInvalidInput = errors.New("fs: operation input is invalid")
-
-	// ErrPathOutsideRoot identifies an attempted authority escape.
-	ErrPathOutsideRoot = errors.New("fs: path is outside the executor root")
-
-	// ErrEmptyPattern rejects searches that do not define a query.
-	ErrEmptyPattern = errors.New("fs: pattern must not be empty")
-
-	// ErrRipgrepUnavailable reports that the local grep backend lacks its engine.
+	ErrNilExecutor        = errors.New("fs: executor must not be nil")
+	ErrInvalidRoot        = errors.New("fs: executor root is invalid")
+	ErrEmptyPath          = errors.New("fs: path must not be empty")
+	ErrInvalidInput       = errors.New("fs: operation input is invalid")
+	ErrPathOutsideRoot    = errors.New("fs: path is outside the executor root")
+	ErrEmptyPattern       = errors.New("fs: pattern must not be empty")
 	ErrRipgrepUnavailable = errors.New("fs: ripgrep is unavailable")
 
 	// ErrMutationRejected proves that a write, edit, or patch stopped before
 	// changing any file or directory. Backends must not return it after commit
 	// begins, even when the only acknowledged changes are partial.
 	ErrMutationRejected = errors.New("fs: mutation rejected without changes")
-
-	// ErrBinaryFile prevents text tools from silently corrupting binary content.
-	ErrBinaryFile = errors.New("fs: file appears to be binary; only text files are supported")
+	ErrBinaryFile       = errors.New("fs: file appears to be binary; only text files are supported")
 
 	// ErrFileTooLarge reports that the operation returned no partial file.
 	ErrFileTooLarge = errors.New("fs: file exceeds the operation input limit")

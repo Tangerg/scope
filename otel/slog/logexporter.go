@@ -10,27 +10,9 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
-// LogExporter writes OpenTelemetry log records to a log/slog logger — the
-// Logs leg of the dev observability triad, a sibling of [SpanExporter] and
-// [MetricExporter] so all three OTel signals share one slog stream keyed by
-// trace_id.
-//
-// Application code keeps calling slog (via the contrib otelslog bridge that
-// feeds a LoggerProvider); installing this exporter on that provider is what
-// makes logs as backend-swappable as traces/metrics — a production build
-// swaps it for an OTLP log exporter (→ Datadog / Cloud Logging / ...) with
-// zero business-code change. That swappability is the whole reason logs go
-// through OTel rather than straight to slog.
-//
-// Install it on a LoggerProvider via a processor:
-//
-//	lp := sdklog.NewLoggerProvider(
-//	    sdklog.WithProcessor(sdklog.NewSimpleProcessor(slog.NewLogExporter(logger))))
-//
-// Each OTel log record becomes one slog record: the record body is the
-// message, the severity maps to the slog level, and trace_id / span_id come
-// from the record's own trace context (the SDK fills them from the emitting
-// span — native correlation, no manual stamping).
+// LogExporter writes one slog record per OTel log record. Severity maps to
+// slog levels; trace_id and span_id come from the record's own trace context.
+// Use a logger that does not feed this LoggerProvider to avoid a feedback loop.
 type LogExporter struct {
 	logger   *stdslog.Logger
 	shutdown atomic.Bool
@@ -118,9 +100,6 @@ func severityToLevel(s otellog.Severity) stdslog.Level {
 	}
 }
 
-// logKVToSlog converts one OTel log key-value to a typed slog.Attr, keeping
-// the common scalar kinds typed and falling back to a string rendering for
-// composite kinds (bytes / slice / map).
 func logKVToSlog(kv attribute.KeyValue) stdslog.Attr {
 	key := string(kv.Key)
 	switch v := kv.Value; v.Type() {

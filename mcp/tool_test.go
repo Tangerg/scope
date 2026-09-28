@@ -15,7 +15,6 @@ import (
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
 
-// startServerWithFailing exposes one tool that always returns IsError=true.
 func startServerWithFailing(t *testing.T, ctx context.Context) (*sdkmcp.ClientSession, func()) {
 	t.Helper()
 	srvT, cliT := sdkmcp.NewInMemoryTransports()
@@ -58,7 +57,6 @@ func TestTool_IsErrorPreservesCompleteFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, out)
 
-	// errors.AsType both classifies the error and exposes the structured payload.
 	failure, ok := errors.AsType[*tool.Failure](err)
 	require.True(t, ok, "expected tool.Failure, got %v", err)
 	content := failure.Output()
@@ -69,14 +67,13 @@ func TestTool_IsErrorPreservesCompleteFailure(t *testing.T) {
 }
 
 func TestTool_RPCErrorIsNotToolFailure(t *testing.T) {
-	// Closing the session before a Call forces a transport error,
-	// which must not be classified as a known tool failure.
+
 	ctx := t.Context()
 	cs, cleanup := startServerWithFailing(t, ctx)
 	tools, err := scopemcp.DiscoverTools(ctx, []scopemcp.ToolSource{{Name: "s", Session: cs}}, scopemcp.ToolDiscoveryConfig{})
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
-	cleanup() // close immediately
+	cleanup()
 
 	_, callErr := invokeTestTool(ctx, tools[0], "{}")
 	require.Error(t, callErr)
@@ -94,8 +91,6 @@ func TestTool_EmptyArgumentsAreValidatedAsEmptyObject(t *testing.T) {
 
 	callable := tools[0]
 
-	// Blank arguments normalize to an empty object and fail the advertised
-	// required-property contract before any remote call.
 	_, err = invokeTestTool(ctx, callable, "")
 	require.Error(t, err)
 }

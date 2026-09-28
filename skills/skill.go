@@ -8,16 +8,15 @@ import (
 
 	documentfrontmatter "github.com/adrg/frontmatter"
 	"go.yaml.in/yaml/v4"
+	"golang.org/x/text/unicode/norm"
 )
 
 const frontmatterFence = "---"
 
 var yamlFrontmatterFormat = documentfrontmatter.NewFormat(frontmatterFence, frontmatterFence, yaml.Unmarshal)
 
-// Skill is a fully loaded skill: its frontmatter metadata plus the Markdown
-// instruction body. Bundled resource files (references/, assets/, scripts/)
-// are not loaded here — they are opened on demand via [ResourceSource],
-// the third level of progressive disclosure.
+// Skill contains metadata and instructions. ResourceSource opens bundled files
+// on demand; loading a skill does not read its resources.
 type Skill struct {
 	Frontmatter
 	Instructions string
@@ -69,9 +68,15 @@ func (s *Skill) Validate() error {
 	return s.Frontmatter.Validate()
 }
 
-// Summary is the metadata view — just enough for an agent to decide whether a
-// skill is relevant without loading its instructions (progressive-disclosure
-// level 1).
+func (s *Skill) bindDirectoryName(name string) error {
+	if norm.NFKC.String(s.Name) != norm.NFKC.String(name) {
+		return fmt.Errorf("%w: frontmatter %q vs directory %q", ErrNameMismatch, s.Name, name)
+	}
+	s.Name = name
+	return nil
+}
+
+// Summary supports discovery without loading a skill's instructions.
 type Summary struct {
 	Name        string
 	Description string

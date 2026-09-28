@@ -18,7 +18,6 @@ type Output struct {
 	// Request.Options.OutputFormat.
 	Audio []byte `json:"audio,omitzero"`
 
-	// Metadata carries per-chunk extras.
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
@@ -69,15 +68,11 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata holds response-level metadata for a TTS call.
 type ResponseMetadata struct {
-	// Model is the model name actually served.
 	Model string `json:"model"`
 
-	// CreatedAt is the provider-reported creation timestamp.
 	CreatedAt time.Time `json:"created_at,omitzero"`
 
-	// Extra carries JSON-safe provider-specific metadata.
 	Extra metadata.Map `json:"extra,omitzero"`
 }
 
@@ -126,11 +121,9 @@ type Response struct {
 	// Output holds the generated audio. Non-nil after [NewResponse].
 	Output *Output `json:"output,omitzero"`
 
-	// Metadata carries shared response-level fields.
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(output *Output, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Output: output, Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {

@@ -20,9 +20,6 @@ func writeSkill(t *testing.T, root, name string) string {
 	return directory
 }
 
-// TestDirResourceOpenFailsWhenTheSkillDirectoryIsGone covers the error path of
-// the confined open: a skill listed a moment ago can disappear underneath a
-// caller, and that has to surface as an error rather than a nil file.
 func TestDirResourceOpenFailsWhenTheSkillDirectoryIsGone(t *testing.T) {
 	root := t.TempDir()
 	directory := writeSkill(t, root, "vanishing-skill")
@@ -43,9 +40,6 @@ func TestDirResourceOpenFailsWhenTheSkillDirectoryIsGone(t *testing.T) {
 	}
 }
 
-// TestDirResourceRejectsADirectoryTarget keeps a directory from being served as
-// a resource: reading one would yield an empty body that looks like an empty
-// file.
 func TestDirResourceRejectsADirectoryTarget(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "folder-skill")
@@ -60,10 +54,6 @@ func TestDirResourceRejectsADirectoryTarget(t *testing.T) {
 	}
 }
 
-// TestOverlayOpensResourcesFromTheWinningSource is the precedence rule that keeps
-// a shadowed copy from contributing files: the resource must come from the same
-// source as the skill that won, even when a lower-precedence source has a file
-// the winner does not.
 func TestOverlayOpensResourcesFromTheWinningSource(t *testing.T) {
 	winner := t.TempDir()
 	loser := t.TempDir()

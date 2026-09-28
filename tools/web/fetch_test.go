@@ -104,6 +104,7 @@ func TestFetchTool_Call_EnforcesAdvertisedContract(t *testing.T) {
 		`{"url":"https://example.com","response_format":"text"}`,
 		`{"url":"https://example.com","format":"json"}`,
 		`{"url":"relative/path"}`,
+		`{"url":"http://:80/page"}`,
 	} {
 		fetcher.last = nil
 		if _, err := invokeTestTool(t.Context(), tool, arguments); err == nil {

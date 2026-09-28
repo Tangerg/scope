@@ -14,9 +14,7 @@ import (
 // dispatcher-targeted Action executors required by a Definition. Child-bound
 // Actions must not appear in ActionExecutors.
 type DispatcherConfig struct {
-	// Sensor supplies each complete WorldState observation.
-	Sensor Sensor
-	// ActionExecutors maps dispatcher-bound Action names to exact executors.
+	Sensor          Sensor
 	ActionExecutors map[string]ActionExecutor
 }
 
@@ -35,9 +33,6 @@ type Dispatcher struct {
 	executors  map[string]boundExecutor
 }
 
-// NewDispatcher binds a definition to the executors that carry out its
-// effects. It is constructed against an exact definition so an effect cannot
-// be routed to an executor the planner never planned against.
 func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
 	if !definition.valid() || lo.IsNil(config.Sensor) {
 		return nil, ErrInvalidDispatcherConfig
@@ -126,9 +121,6 @@ func (d *Dispatcher) sense(
 	input agent.Payload,
 ) (agent.Settlement, error) {
 	request := SenseRequest{EffectID: effectID, Input: input}
-	if err := validateSenseRequest(request); err != nil {
-		return planningFailureSettlement(effectID, err)
-	}
 	state, senseErr := d.sensor.Sense(ctx, request)
 	payload, err := senseSignal(state, senseErr)
 	if err != nil {
@@ -155,9 +147,6 @@ func (d *Dispatcher) execute(
 	request := ActionRequest{
 		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
 		ActionDescription: call.Description, WorldState: call.WorldState,
-	}
-	if err := validateActionRequest(request); err != nil {
-		return planningFailureSettlement(effectRequest.ID(), err)
 	}
 	result, err := bound.executor.Execute(ctx, request)
 	if err != nil {

@@ -9,14 +9,11 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
-// LiteralKind is the semantic type of a literal, independent of lexer tokens.
 type LiteralKind string
 
-// Literal kinds are closed so a value's type is decided once, at parse time,
-// rather than re-inferred by each backend compiler from the Go value it
-// happens to hold.
 const (
 	LiteralString LiteralKind = "string"
 	LiteralNumber LiteralKind = "number"
@@ -86,6 +83,9 @@ func (l *Literal) AsString() (string, error) {
 	if !l.IsString() {
 		return "", fmt.Errorf("filter: read string literal: expected string, got %s", l.kind)
 	}
+	if !utf8.ValidString(l.text) {
+		return "", errors.New("filter: read string literal: invalid UTF-8")
+	}
 	return l.text, nil
 }
 
@@ -117,20 +117,10 @@ func (l *Literal) AsBool() (bool, error) {
 	return b, nil
 }
 
-// NumberText renders a number literal as a plain decimal numeral, without an
-// exponent, for a store that pastes the value into a provider filter string.
-//
-// A literal's canonical text uses 'g' formatting, so 1000000.0 canonicalizes
-// to "1e+06". Provider filter grammars document decimal numerals — Typesense's
-// filter_by comparisons, Azure AI Search's OData constants, Vespa's YQL — and
-// none of them documents exponent notation, so the canonical form is not a
-// numeral those languages promise to read. [Literal.Text] still exposes the
-// canonical text for callers that want it.
-//
-// An integer literal keeps its exact digits, including the magnitudes past
-// int64 that no float64 could hold. Every other literal renders from the
-// float64 it denotes, which is the same float64 the canonical text was
-// produced from, so no precision appears or disappears here.
+// NumberText renders a plain decimal numeral for provider grammars that do not
+// accept exponent notation. Integral literals keep their exact digits; decimal
+// and exponent literals preserve the float64 selected during construction.
+// Text returns the canonical form, which may use an exponent.
 func (l *Literal) NumberText() (string, error) {
 	if _, err := l.numberRat(); err != nil {
 		return "", err
@@ -320,4 +310,34 @@ func (l *Literal) isIntegerIndex() bool {
 	}
 	number, ok := new(big.Rat).SetString(l.text)
 	return ok && number.Sign() >= 0 && number.IsInt() && number.Num().IsInt64()
+}
+
+func (l *Literal) validate() error {
+	if l == nil {
+		return errors.New("filter: literal is nil")
+	}
+
+	switch l.kind {
+	case LiteralString:
+		_, err := l.AsString()
+		return err
+	case LiteralNull:
+		if l.text != string(LiteralNull) {
+			return fmt.Errorf("filter: invalid NULL literal %q at %s", l.text, l.Start())
+		}
+		return nil
+	case LiteralNumber:
+		canonical, err := canonicalNumber(l.text)
+		if err != nil || canonical != l.text {
+			return fmt.Errorf("filter: invalid number literal %q at %s", l.text, l.Start())
+		}
+		return nil
+	case LiteralBool:
+		if l.text != "true" && l.text != "false" {
+			return fmt.Errorf("filter: invalid boolean literal %q at %s", l.text, l.Start())
+		}
+		return nil
+	default:
+		return fmt.Errorf("filter: invalid literal kind %q at %s", l.kind, l.Start())
+	}
 }

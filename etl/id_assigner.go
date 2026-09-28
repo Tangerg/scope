@@ -11,10 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// IDAssignerConfig binds one deterministic or random identity policy to
-// documents that do not already own an ID.
 type IDAssignerConfig struct {
-	// Generator is required.
 	Generator IDGenerator
 
 	// Overwrite replaces existing IDs instead of preserving them.
@@ -28,8 +25,6 @@ type IDAssigner struct {
 	overwrite bool
 }
 
-// NewIDAssigner rejects a missing generator rather than choosing ambient
-// identity policy.
 func NewIDAssigner(config IDAssignerConfig) (*IDAssigner, error) {
 	if lo.IsNil(config.Generator) {
 		return nil, errors.New("etl: ID generator is required")
@@ -43,6 +38,9 @@ func NewIDAssigner(config IDAssignerConfig) (*IDAssigner, error) {
 // Assign validates and clones every document before assigning IDs. It returns
 // no partial output on failure and never mutates the input slice or documents.
 func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	owned := make([]*document.Document, len(docs))
 	for index, doc := range docs {
 		if err := ctx.Err(); err != nil {

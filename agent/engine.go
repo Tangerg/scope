@@ -141,10 +141,6 @@ func (e *Engine) FlushDeltas(ctx context.Context) error {
 	return e.observation.flushDeltas(ctx)
 }
 
-// NewEngine validates the whole configuration up front because an Engine owns
-// Process lifecycle: a defect discovered after Processes exist has no safe
-// remedy, since stopping the Engine would abandon in-flight effects whose
-// settlement is still unknown.
 func NewEngine(config EngineConfig) (*Engine, error) {
 	if config.DeltaBufferCapacity < 0 {
 		return nil, fmt.Errorf("%w: DeltaBufferCapacity must not be negative", ErrInvalidEngineConfig)

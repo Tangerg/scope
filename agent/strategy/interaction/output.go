@@ -8,9 +8,6 @@ import (
 
 const invalidEnumName = "invalid"
 
-// CompletionSource identifies the semantic value that completed an
-// Interaction. It is Strategy-owned and does not add a Framework lifecycle
-// status.
 type CompletionSource string
 
 const (
@@ -39,7 +36,6 @@ func (c CompletionSource) String() string {
 // independently of best-effort stream Delta delivery, so it remains complete
 // after observer loss or snapshot restoration.
 type Output struct {
-	// Source identifies which mutually exclusive result field is authoritative.
 	Source CompletionSource `json:"source"`
 
 	// ModelResponse is the authoritative accumulated response when Source is

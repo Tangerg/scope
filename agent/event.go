@@ -14,38 +14,25 @@ import (
 const maxEventBytes = 1 << 20
 
 const (
-	// EventProcessStarted reports initial Process execution.
-	EventProcessStarted = "agent.process.started"
-	// EventProcessRestored reports execution resumed from a TreeSnapshot.
+	EventProcessStarted  = "agent.process.started"
 	EventProcessRestored = "agent.process.restored"
-	// EventProcessPaused reports a committed scheduling pause.
-	EventProcessPaused = "agent.process.paused"
-	// EventProcessResumed reports committed scheduling resumption.
-	EventProcessResumed = "agent.process.resumed"
-	// EventProcessFinished reports one immutable terminal outcome.
+	EventProcessPaused   = "agent.process.paused"
+	EventProcessResumed  = "agent.process.resumed"
 	EventProcessFinished = "agent.process.finished"
 	// EventRuntimeStopped reports loss of an active instance without a committed
 	// logical terminal result. It never changes the durable Process lifecycle.
 	EventRuntimeStopped = "agent.runtime.stopped"
-	// EventSignalAccepted reports one newly accepted Signal.
 	EventSignalAccepted = "agent.signal.accepted"
-	// EventStepStarted reports an Execution.Step call about to begin.
-	EventStepStarted = "agent.step.started"
-	// EventStepFinished reports an Execution.Step return or failure.
-	EventStepFinished = "agent.step.finished"
-	// EventStepPrepared reports validated candidate Step state and fixed Effects.
-	EventStepPrepared = "agent.step.prepared"
-	// EventStepCommitted reports authoritative Step state publication.
-	EventStepCommitted = "agent.step.committed"
-	// EventEffectStarted reports a Framework or Dispatcher Effect attempt.
-	EventEffectStarted = "agent.effect.started"
-	// EventEffectFinished reports a definite or unknown attempt settlement.
+	EventStepStarted    = "agent.step.started"
+	EventStepFinished   = "agent.step.finished"
+	EventStepPrepared   = "agent.step.prepared"
+	EventStepCommitted  = "agent.step.committed"
+	EventEffectStarted  = "agent.effect.started"
 	EventEffectFinished = "agent.effect.finished"
 	// EventEffectResolved reports an Unknown settlement replaced by a definite
 	// result, through host adjudication or an explicitly requested replay.
 	EventEffectResolved = "agent.effect.resolved"
-	// EventDeltaDropped reports best-effort increments lost to backpressure.
-	EventDeltaDropped = "agent.delta.dropped"
+	EventDeltaDropped   = "agent.delta.dropped"
 )
 
 var ErrInvalidEvent = errors.New("agent: invalid event")
@@ -57,11 +44,8 @@ var ErrInvalidEvent = errors.New("agent: invalid event")
 type EventPhase string
 
 const (
-	// EventPhaseInvalid is the invalid zero value.
-	EventPhaseInvalid EventPhase = ""
-	// EventPhaseAttempt identifies runtime work without a state commit guarantee.
-	EventPhaseAttempt EventPhase = "attempt"
-	// EventPhaseCommitted identifies a fact whose resulting state is acknowledged.
+	EventPhaseInvalid   EventPhase = ""
+	EventPhaseAttempt   EventPhase = "attempt"
 	EventPhaseCommitted EventPhase = "committed"
 )
 
@@ -206,7 +190,6 @@ func (e Event) StepSequence() (uint64, bool) {
 // fact.
 func (e Event) EffectID() (EffectID, bool) { return e.effectID, e.effectID.Valid() }
 
-// Name returns the stable Framework fact name.
 func (e Event) Name() string { return e.name }
 
 func (e Event) Phase() EventPhase { return e.phase }
@@ -224,7 +207,6 @@ func (e Event) ProcessFinished() (ProcessFinishedFact, bool) {
 	return fact, err == nil
 }
 
-// RuntimeStopped returns the typed instance failure for EventRuntimeStopped.
 func (e Event) RuntimeStopped() (RuntimeStoppedFact, bool) {
 	if e.name != EventRuntimeStopped {
 		return RuntimeStoppedFact{}, false

@@ -11,9 +11,6 @@ import (
 // ToolOutcome is the complete host-boundary outcome of one started Tool call.
 type ToolOutcome string
 
-// Tool outcomes are a closed vocabulary because a trajectory is compared
-// against a recorded baseline. An open set would let two runs describe the
-// same result with different words and register as a behavior change.
 const (
 	ToolOutcomeInvalid       ToolOutcome = ""
 	ToolOutcomeSucceeded     ToolOutcome = "succeeded"

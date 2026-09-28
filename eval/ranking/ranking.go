@@ -22,8 +22,6 @@ const (
 // deterministic relevance calculation.
 var ErrInvalidSample = errors.New("eval/ranking: invalid sample")
 
-// Metric selects a ranking-quality calculation evaluated at a configured
-// cutoff.
 type Metric string
 
 const (
@@ -279,7 +277,6 @@ func (c Config) threshold() (*eval.Score, error) {
 	return &threshold, nil
 }
 
-// Evaluator measures one standard ranking metric at a fixed cutoff.
 type Evaluator struct {
 	metric       Metric
 	cutoff       int
@@ -287,7 +284,7 @@ type Evaluator struct {
 	reportMetric eval.Metric
 }
 
-// NewEvaluator freezes the metric, cutoff, and optional decision threshold.
+// NewEvaluator copies Threshold so later caller mutation cannot change decisions.
 func NewEvaluator(config Config) (*Evaluator, error) {
 	if err := config.validate(); err != nil {
 		return nil, err

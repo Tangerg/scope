@@ -11,7 +11,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ErrNilStream reports a Streamer contract violation before any delta is consumed.
 var ErrNilStream = errors.New("history: middleware: nil stream sequence")
 
 // Middleware replays and persists history around synchronous and streaming
@@ -24,10 +23,6 @@ type Middleware struct {
 	store ReadWriter
 }
 
-// NewMiddleware requires a [ReadWriter] because history is only useful when
-// both halves cross the same boundary: it must read prior turns into the
-// request and write the new ones back. Splitting them would let a caller wire
-// a reader against a different store than the writer.
 func NewMiddleware(store ReadWriter) (Middleware, error) {
 	if lo.IsNil(store) {
 		return Middleware{}, ErrNilStore
@@ -168,7 +163,6 @@ func (m Middleware) prepare(
 	}
 
 	systems, fresh := historyMessages(prepared.Messages).split()
-	// Preserve the input exchange independently of downstream execution.
 	freshSnapshot := make([]chat.Message, len(fresh))
 	for index := range fresh {
 		freshSnapshot[index] = fresh[index].Clone()

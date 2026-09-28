@@ -10,16 +10,14 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ReadRequest is the LLM-facing argument shape for the read tool. StartLine is
-// 1-based to match editor, grep, and language-server conventions.
+// StartLine is one-based to match editors, grep, and language servers.
 type ReadRequest struct {
 	Path      string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root."`
 	StartLine int    `json:"start_line,omitzero" jsonschema:"minimum=1" jsonschema_description:"1-based line at which to start. Omit to start at line 1."`
 	MaxLines  int    `json:"max_lines,omitzero" jsonschema:"minimum=1" jsonschema_description:"Maximum lines to return. Omit to read through the end of the file."`
 }
 
-// ReadResponse is the LLM-facing return shape. StartLine / EndLine
-// are 1-based inclusive.
+// StartLine and EndLine are one-based and inclusive.
 type ReadResponse struct {
 	Content    string `json:"content"`
 	StartLine  int    `json:"start_line"`
@@ -37,7 +35,6 @@ type ReadTool struct {
 	typed    toolcontract.Func[ReadRequest, ReadResponse]
 }
 
-// NewReadTool requires read authority explicitly and derives one stable schema.
 func NewReadTool(executor Reader) (*ReadTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor
@@ -64,7 +61,6 @@ func (r *ReadTool) Definition() chat.ToolDefinition {
 	return r.typed.Definition()
 }
 
-// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
 func (r *ReadTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
@@ -74,7 +70,7 @@ func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 }
 
 func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
-	// The model-facing start line is 1-based; the executor SPI is 0-based.
+
 	spiOffset := 0
 	if req.StartLine > 0 {
 		spiOffset = req.StartLine - 1
@@ -91,8 +87,8 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 
 	return ReadResponse{
 		Content:    res.Content,
-		StartLine:  res.StartLine + 1, // 0-based exclusive start → 1-based inclusive
-		EndLine:    res.EndLine,       // 0-based exclusive end → 1-based inclusive
+		StartLine:  res.StartLine + 1,
+		EndLine:    res.EndLine,
 		TotalLines: res.TotalLines,
 		Truncated:  res.Truncated,
 	}, nil

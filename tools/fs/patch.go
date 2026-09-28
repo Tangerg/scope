@@ -73,14 +73,10 @@ func (f filePatch) path() string {
 func (f filePatch) created() bool { return f.oldPath == "" && f.newPath != "" }
 func (f filePatch) deleted() bool { return f.oldPath != "" && f.newPath == "" }
 
-// moved reports the fourth shape: both headers name a real file and they differ,
-// so the content is read at oldPath, patched, and lands at newPath while oldPath
-// goes away. It is the one shape whose two endpoints are different files.
 func (f filePatch) moved() bool {
 	return f.oldPath != "" && f.newPath != "" && f.oldPath != f.newPath
 }
 
-// touches is every path this file patch reads, writes or removes.
 func (f filePatch) touches() []string {
 	if f.moved() {
 		return []string{f.oldPath, f.newPath}

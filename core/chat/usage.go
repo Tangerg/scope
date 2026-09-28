@@ -8,7 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/internal/ptr"
 )
 
-// ErrInvalidUsage identifies impossible token totals or breakdowns.
 var ErrInvalidUsage = errors.New("chat: invalid usage")
 
 // Usage records provider-neutral token counts. Breakdown pointers distinguish

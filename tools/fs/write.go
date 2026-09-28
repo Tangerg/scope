@@ -10,26 +10,22 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// WriteRequest replaces one complete text file beneath the backend authority.
 type WriteRequest struct {
 	Path    string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root. Parent directories are created automatically."`
 	Content string `json:"content" jsonschema_description:"Complete text content for the file. Existing content is replaced. Must not contain NUL bytes."`
 }
 
-// WriteResponse makes the committed byte count observable to the model.
 type WriteResponse struct {
 	BytesWritten int `json:"bytes_written"`
 }
 
 var _ toolcontract.Tool = (*WriteTool)(nil)
 
-// WriteTool is the model-facing adapter for the narrow Writer port.
 type WriteTool struct {
 	executor Writer
 	typed    toolcontract.Func[WriteRequest, WriteResponse]
 }
 
-// NewWriteTool requires write authority explicitly and derives one stable schema.
 func NewWriteTool(executor Writer) (*WriteTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor

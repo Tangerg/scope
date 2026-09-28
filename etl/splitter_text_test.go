@@ -146,6 +146,14 @@ func TestTextSplitterRejectsInvalidUTF8Directly(t *testing.T) {
 	}
 }
 
+func TestTextSplitterRejectsInvalidUTF8Separator(t *testing.T) {
+	for _, separator := range []string{string([]byte{0xff}), string([]byte{0xa9}), "ok" + string([]byte{0xc3})} {
+		if _, err := etl.NewTextSplitter(etl.TextSplitterConfig{Separator: separator}); !errors.Is(err, etl.ErrInvalidTextEncoding) {
+			t.Errorf("NewTextSplitter(%q) error = %v, want ErrInvalidTextEncoding", separator, err)
+		}
+	}
+}
+
 func TestSplitterChecksCancellationAfterSplitFunc(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{

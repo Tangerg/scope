@@ -12,11 +12,8 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
-	"golang.org/x/text/unicode/norm"
 )
 
-// SkillFile is the required metadata file at the root of every skill
-// directory.
 const SkillFile = "SKILL.md"
 
 // Repository is a read-only Agent Skills repository backed by an [fs.FS].
@@ -159,7 +156,6 @@ func (r *Repository) summaryForEntry(ctx context.Context, entry fs.DirEntry) (Su
 	return Summary{}, false, fmt.Errorf("skills: list: %w", err)
 }
 
-// Load reads, parses, and validates one skill by directory name.
 func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -183,15 +179,9 @@ func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
 	if err != nil {
 		return nil, invalidSkill(name, err)
 	}
-	if norm.NFKC.String(skill.Name) != norm.NFKC.String(name) {
-		return nil, invalidSkill(name, fmt.Errorf(
-			"%w: frontmatter %q vs directory %q",
-			ErrNameMismatch,
-			skill.Name,
-			name,
-		))
+	if err := skill.bindDirectoryName(name); err != nil {
+		return nil, invalidSkill(name, err)
 	}
-	skill.Name = name
 	return skill, nil
 }
 
@@ -227,12 +217,9 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err != nil {
 		return Summary{}, invalidSkill(name, err)
 	}
-	if norm.NFKC.String(skill.Name) != norm.NFKC.String(name) {
-		return Summary{}, invalidSkill(name, fmt.Errorf(
-			"%w: frontmatter %q vs directory %q", ErrNameMismatch, skill.Name, name,
-		))
+	if err := skill.bindDirectoryName(name); err != nil {
+		return Summary{}, invalidSkill(name, err)
 	}
-	skill.Name = name
 	return skill.Summary(), nil
 }
 
@@ -301,6 +288,7 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 	buffered := bufio.NewReaderSize(limited, int(min(maxBytes+1, 4096)))
 
 	var document bytes.Buffer
+	var bytesRead int64
 	lineNumber := 0
 	for {
 		text, readErr := buffered.ReadString('\n')
@@ -310,15 +298,16 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, errors.Join(readErr, ctx.Err())
 		}
+		bytesRead += int64(len(text))
+		if bytesRead > maxBytes {
+			return nil, fmt.Errorf("%w: frontmatter exceeds %d bytes", ErrContentTooLarge, maxBytes)
+		}
 		line := strings.TrimSuffix(strings.TrimSuffix(text, "\n"), "\r")
 		if lineNumber == 0 {
 			line = strings.TrimPrefix(line, "\ufeff")
 			if line != frontmatterFence {
 				return nil, ErrNoFrontmatter
 			}
-		}
-		if int64(document.Len()+len(line)+1) > maxBytes {
-			return nil, fmt.Errorf("%w: frontmatter exceeds %d bytes", ErrContentTooLarge, maxBytes)
 		}
 		document.WriteString(line)
 		document.WriteByte('\n')

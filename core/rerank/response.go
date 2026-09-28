@@ -54,10 +54,6 @@ type Result struct {
 	Score Score `json:"score"`
 }
 
-// NewResult addresses a document by its index in the request rather than
-// carrying the document itself. Repeating the text would let a response
-// disagree with the request it answers, and would pay to move the corpus back
-// across the wire.
 func NewResult(index int, score Score) (*Result, error) {
 	result := &Result{Index: index, Score: score}
 	if err := result.Validate(); err != nil {
@@ -104,7 +100,6 @@ func (r *Result) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Usage records input tokens when the provider reports them.
 type Usage struct {
 	InputTokens int64 `json:"input_tokens"`
 }
@@ -141,8 +136,6 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ResponseMetadata records the served model, portable usage, and open
-// provider response metadata.
 type ResponseMetadata struct {
 	Model string       `json:"model"`
 	Usage *Usage       `json:"usage,omitzero"`
@@ -198,7 +191,6 @@ type Response struct {
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`
 }
 
-// NewResponse validates a complete provider result at the protocol boundary.
 func NewResponse(results []*Result, responseMetadata *ResponseMetadata) (*Response, error) {
 	response := &Response{Results: slices.Clone(results), Metadata: responseMetadata}
 	if err := response.Validate(); err != nil {

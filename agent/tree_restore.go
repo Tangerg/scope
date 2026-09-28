@@ -21,12 +21,7 @@ type treeRestoration struct {
 	runtime     *treeRuntime
 }
 
-// prepare owns every decision about whether this tree can be rebuilt: it
-// resolves each captured binding, restores every committed and prepared
-// Execution through its own Definition, and admits the captured snapshot
-// capacity. It works entirely in memory, so a discarded attempt leaves no
-// Engine state behind and the same pass can answer a question or begin a
-// restoration.
+// Validation and restoration share this pure pass without invoking admission policy.
 func (t *treeRestoration) prepare(ctx context.Context) (TreeIncarnationID, error) {
 	if err := t.prepareProcesses(ctx); err != nil {
 		return TreeIncarnationID{}, err

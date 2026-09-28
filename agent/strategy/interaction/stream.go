@@ -16,7 +16,6 @@ type ModelResponseDelta struct {
 	delta chat.ResponseDelta
 }
 
-// ParseModelResponseDelta strictly decodes an Interaction model Delta payload.
 func ParseModelResponseDelta(payload json.RawMessage) (ModelResponseDelta, error) {
 	wire, err := jsonwire.Decode[modelResponseDeltaWire](payload)
 	if err != nil {

@@ -38,7 +38,6 @@ func (o ObservationFailures) EventListenerPanics() uint64 { return o.eventListen
 
 func (o ObservationFailures) DeltaListenerPanics() uint64 { return o.deltaListenerPanics }
 
-// LastEventPanic reports the latest failure in the event-listener list.
 func (o ObservationFailures) LastEventPanic() (ListenerPanic, bool) {
 	if o.lastEventPanic == nil {
 		return ListenerPanic{}, false
@@ -46,7 +45,6 @@ func (o ObservationFailures) LastEventPanic() (ListenerPanic, bool) {
 	return *o.lastEventPanic, true
 }
 
-// LastDeltaPanic reports the latest failure in the delta-listener list.
 func (o ObservationFailures) LastDeltaPanic() (ListenerPanic, bool) {
 	if o.lastDeltaPanic == nil {
 		return ListenerPanic{}, false

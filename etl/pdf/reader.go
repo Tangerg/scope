@@ -15,9 +15,6 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-// These keys name the reader-derived metadata attached to every emitted
-// document, so a downstream splitter or retriever can rely on them being
-// present rather than re-deriving them from content.
 const (
 	MetadataPageIndex  = "pdf.page"
 	MetadataPagesTotal = "pdf.pages.total"
@@ -39,7 +36,6 @@ type ReaderConfig struct {
 	SourceBudget etl.SourceBudget
 }
 
-// Reader extracts documents from PDF.
 type Reader struct {
 	source        io.ReaderAt
 	size          int64

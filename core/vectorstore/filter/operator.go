@@ -2,21 +2,9 @@ package filter
 
 import "fmt"
 
-// Operator is a semantic filter operation. It is independent from lexer token
-// kinds and is safe for provider adapters to switch on.
 type Operator string
 
-// Operators are a closed set because every backend compiles the same AST into
-// its own dialect. Adding one here is a deliberate act that obliges each
-// compiler to answer for it; leaving the set open would let a filter mean
-// different things on different stores.
-//
-// Closing the set is only half of that. A compiler also has to know what each
-// operator means, and where a provider's nearest equivalent is not an exact
-// match the compiler owes the caller the documented behavior rather than the
-// convenient one. [Match] is the reference: it evaluates this AST directly, so
-// what it does is what an operator means, and a translation that disagrees
-// makes one filter behave differently depending on which store answers it.
+// Operators form a closed vocabulary. Provider translations must agree with Match.
 const (
 	OpEqual        Operator = "=="
 	OpNotEqual     Operator = "!="
@@ -30,12 +18,8 @@ const (
 	OpIn           Operator = "in"
 	OpHas          Operator = "has"
 
-	// OpLike is SQL LIKE over a string: % matches any run of characters, _
-	// matches exactly one, the pattern must match the whole value rather than
-	// a substring of it, and comparison is case-sensitive. A provider whose
-	// pattern match is case-insensitive by default — Postgres ILIKE, a MongoDB
-	// regex with the "i" option, a MySQL collation ending in _ci — is a wider
-	// match than this operator asks for, not a synonym for it.
+	// OpLike matches the whole string, case-sensitively: % matches any run and
+	// _ matches exactly one character.
 	OpLike Operator = "like"
 
 	OpIs Operator = "is"

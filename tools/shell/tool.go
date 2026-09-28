@@ -15,16 +15,13 @@ import (
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
-// Request is the LLM-facing argument shape. It is a strict subset of
-// [Input] — environment, working directory, and streaming are
-// executor-side concerns, not LLM knobs.
+// Environment, working directory, and streaming remain executor-owned.
 type Request struct {
 	Command   string `json:"command" jsonschema:"minLength=1" jsonschema_description:"Command line interpreted by the host-configured shell executor."`
 	TimeoutMS int    `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
 }
 
-// Response is the LLM-facing return shape. Captured bytes remain lossless even
-// when the command emits binary output or a capture limit splits UTF-8 text.
+// Captured bytes remain lossless for binary output and truncated UTF-8 text.
 type Response struct {
 	Stdout               content.Content `json:"stdout"`
 	Stderr               content.Content `json:"stderr"`
@@ -37,16 +34,13 @@ type Response struct {
 
 var _ toolcontract.Tool = (*Tool)(nil)
 
-// Tool exposes shell execution to a model. It holds an [Executor] rather than
-// running commands itself so the dangerous half — where a command runs, under
-// what shell, with what limits — is chosen by the host at construction and
-// cannot be influenced by the model's arguments.
+// Tool retains Host-selected execution authority; model arguments cannot
+// change the shell, working directory, or process policy.
 type Tool struct {
 	executor Executor
 	typed    toolcontract.Func[Request, Response]
 }
 
-// Config binds execution authority and the model-visible description.
 type Config struct {
 	Executor Executor
 	// Description replaces the neutral default with the host's actual shell
@@ -54,9 +48,6 @@ type Config struct {
 	Description string
 }
 
-// NewTool requires an executor because there is no safe default for running
-// arbitrary commands; a package-level fallback would let a caller obtain shell
-// access without ever stating where it should run.
 func NewTool(config Config) (*Tool, error) {
 	if lo.IsNil(config.Executor) {
 		return nil, ErrNilExecutor

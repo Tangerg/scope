@@ -10,9 +10,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 )
 
-// TestSimilarityFunctionsShareTheNormalizedContract keeps every strategy inside
-// the same [0, 1] score range providers are held to, so swapping the strategy
-// cannot change what MinScore means.
 func TestSimilarityFunctionsShareTheNormalizedContract(t *testing.T) {
 	strategies := map[string]inmemory.Similarity{
 		"cosine":      inmemory.CosineSimilarity,
@@ -38,8 +35,6 @@ func TestSimilarityFunctionsShareTheNormalizedContract(t *testing.T) {
 	}
 }
 
-// TestSimilarityIsSymmetric is part of the [inmemory.Similarity] contract: an
-// asymmetric strategy would make result ordering depend on map iteration order.
 func TestSimilarityIsSymmetric(t *testing.T) {
 	left := []float64{0.1, -0.4, 0.9}
 	right := []float64{0.7, 0.2, -0.3}
@@ -57,9 +52,6 @@ func TestSimilarityIsSymmetric(t *testing.T) {
 	}
 }
 
-// TestSimilarityRejectsMismatchedVectors keeps a dimension mismatch from
-// producing a partial score: an incomparable pair must score zero, not the
-// similarity of its shared prefix.
 func TestSimilarityRejectsMismatchedVectors(t *testing.T) {
 	strategies := map[string]inmemory.Similarity{
 		"cosine":      inmemory.CosineSimilarity,
@@ -78,9 +70,6 @@ func TestSimilarityRejectsMismatchedVectors(t *testing.T) {
 	}
 }
 
-// TestCosineSimilarityHandlesZeroMagnitude documents why a zero vector scores
-// the midpoint rather than NaN: an unscoreable pair must still sort predictably
-// instead of poisoning the comparison.
 func TestCosineSimilarityHandlesZeroMagnitude(t *testing.T) {
 	score := inmemory.CosineSimilarity([]float64{0, 0}, []float64{1, 1})
 	if err := score.Validate(); err != nil {
@@ -94,8 +83,6 @@ func TestCosineSimilarityHandlesZeroMagnitude(t *testing.T) {
 	}
 }
 
-// TestSimilarityOrdersByCloseness is the property search depends on: the more
-// similar pair must score strictly higher under every strategy.
 func TestSimilarityOrdersByCloseness(t *testing.T) {
 	query := []float64{1, 0}
 	near := []float64{0.9, 0.1}

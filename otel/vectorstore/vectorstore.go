@@ -77,8 +77,6 @@ type Middleware struct {
 	searchRows metric.Int64Histogram
 }
 
-// NewMiddleware fixes instrument identity and provider binding once so index
-// and search operations contribute to stable telemetry series.
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
@@ -120,7 +118,6 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Index instruments only the [corevectorstore.Indexer] capability.
 func (m Middleware) Index(next corevectorstore.Indexer) corevectorstore.Indexer {
 	if lo.IsNil(next) {
 		return nil
@@ -131,7 +128,6 @@ func (m Middleware) Index(next corevectorstore.Indexer) corevectorstore.Indexer 
 	return indexer{middleware: m, next: next}
 }
 
-// Search instruments only the [corevectorstore.Searcher] capability.
 func (m Middleware) Search(next corevectorstore.Searcher) corevectorstore.Searcher {
 	if lo.IsNil(next) {
 		return nil
@@ -142,7 +138,6 @@ func (m Middleware) Search(next corevectorstore.Searcher) corevectorstore.Search
 	return searcher{middleware: m, next: next}
 }
 
-// DeleteIDs instruments only the [corevectorstore.IDDeleter] capability.
 func (m Middleware) DeleteIDs(next corevectorstore.IDDeleter) corevectorstore.IDDeleter {
 	if lo.IsNil(next) {
 		return nil
@@ -153,7 +148,6 @@ func (m Middleware) DeleteIDs(next corevectorstore.IDDeleter) corevectorstore.ID
 	return idDeleter{middleware: m, next: next}
 }
 
-// DeleteWhere instruments only the [corevectorstore.FilterDeleter] capability.
 func (m Middleware) DeleteWhere(next corevectorstore.FilterDeleter) corevectorstore.FilterDeleter {
 	if lo.IsNil(next) {
 		return nil

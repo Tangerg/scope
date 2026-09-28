@@ -61,12 +61,9 @@ func (a AttemptStatus) String() string {
 // Attempt is one final, portable Action-attempt fact. Diagnostic is empty only
 // for a succeeded attempt.
 type Attempt struct {
-	// ActionName is the exact Action identity selected for this attempt.
-	ActionName string `json:"action_name" jsonschema:"pattern=^[a-z][a-z0-9._-]{0\\,127}$"`
-	// Status is the observed semantic outcome of this attempt.
-	Status AttemptStatus `json:"status" jsonschema:"enum=succeeded,enum=failed,enum=unconfirmed"`
-	// Diagnostic explains failed or unconfirmed attempts and is empty on success.
-	Diagnostic string `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
+	ActionName string        `json:"action_name" jsonschema:"pattern=^[a-z][a-z0-9._-]{0\\,127}$"`
+	Status     AttemptStatus `json:"status" jsonschema:"enum=succeeded,enum=failed,enum=unconfirmed"`
+	Diagnostic string        `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
 }
 
 func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
@@ -91,14 +88,10 @@ func (a Attempt) Validate() error {
 // observation, Attempts preserve selection order, and PlanningPasses counts
 // calls to Planner. No field is derived from Event or Delta history.
 type Output struct {
-	// Outcome is the Planning-owned semantic completion reason.
-	Outcome Outcome `json:"outcome" jsonschema:"enum=achieved,enum=unreachable,enum=stuck"`
-	// WorldState is the final complete observation.
-	WorldState WorldState `json:"world_state"`
-	// Attempts preserves Action-attempt order.
-	Attempts []Attempt `json:"attempts"`
-	// PlanningPasses counts calls to Planner.
-	PlanningPasses uint64 `json:"planning_passes"`
+	Outcome        Outcome    `json:"outcome" jsonschema:"enum=achieved,enum=unreachable,enum=stuck"`
+	WorldState     WorldState `json:"world_state"`
+	Attempts       []Attempt  `json:"attempts"`
+	PlanningPasses uint64     `json:"planning_passes"`
 }
 
 // Validate checks completed planning counters and ordered attempt facts. Goal

@@ -89,13 +89,10 @@ func (t TreeSnapshot) JSON() json.RawMessage { return bytes.Clone(t.data) }
 // snapshot. The zero value has size zero.
 func (t TreeSnapshot) EncodedSize() int { return len(t.data) }
 
-// RootID returns the identity of the tree's root Process.
 func (t TreeSnapshot) RootID() ProcessID { return t.state.RootID }
 
-// Digest returns the canonical content identity of this complete tree state.
 func (t TreeSnapshot) Digest() Digest { return t.digest }
 
-// IncarnationID returns the writer identity carried by this snapshot.
 func (t TreeSnapshot) IncarnationID() TreeIncarnationID {
 	return t.state.IncarnationID
 }
@@ -323,10 +320,11 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 			continue
 		}
 		for _, signal := range mailbox.Signals {
-			if signal.WaitID != nil {
-				if facts := waits[*signal.WaitID]; facts != nil {
-					facts.signals = append(facts.signals, signal)
-				}
+			if signal.WaitID == nil {
+				continue
+			}
+			if facts := waits[*signal.WaitID]; facts != nil {
+				facts.signals = append(facts.signals, signal)
 			}
 		}
 		mailboxes[snapshot.ProcessID()] = waits
@@ -356,10 +354,11 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		processWire := snapshot.state
 		for _, wait := range processWire.Mailbox.Waits {
-			if wait.Kind == WaitKindChildren && !wait.Closed {
-				if waitOwners[wait.WaitID] != processWire.ProcessID {
-					return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
-				}
+			if wait.Kind != WaitKindChildren || wait.Closed {
+				continue
+			}
+			if waitOwners[wait.WaitID] != processWire.ProcessID {
+				return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
 			}
 		}
 	}
@@ -380,18 +379,7 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 			continue
 		}
 		for _, record := range parent.Prepared.Effects {
-			if !parent.Status.Terminal() && record.Effect.Target() == EffectTargetFramework {
-				operation, err := decodeFrameworkOperation(record.Effect.Payload())
-				if err != nil {
-					return err
-				}
-				if wait, ok := operation.(childWaitOperation); ok {
-					if err := wait.spec.validateRelations(parent.ProcessID, t.processRelation); err != nil {
-						return fmt.Errorf("%w: prepared child wait: %w", ErrInvalidTreeSnapshot, err)
-					}
-				}
-			}
-			if record.Effect.Target() != EffectTargetFramework || !record.definitelySettled() {
+			if record.Effect.Target() != EffectTargetFramework {
 				continue
 			}
 			operation, err := decodeFrameworkOperation(record.Effect.Payload())
@@ -399,88 +387,11 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 				return err
 			}
 			if err := operation.validateTree(t, parent.ProcessID, record); err != nil {
-				return fmt.Errorf("%w: framework settlement: %w", ErrInvalidTreeSnapshot, err)
+				return fmt.Errorf("%w: framework operation: %w", ErrInvalidTreeSnapshot, err)
 			}
-
 		}
 	}
 	return nil
-}
-
-func (t *treeSnapshotValidation) validateChildStart(parentID ProcessID, record preparedEffect) error {
-	result, err := decodeChildStartResult(record.Settlement.Payload())
-	if err != nil {
-		return err
-	}
-	childID, started := result.ProcessID()
-	if !started {
-		return nil
-	}
-	spec, err := decodeChildStartEffect(record.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	digest, err := spec.digest()
-	if err != nil {
-		return err
-	}
-	child, exists := t.processes[childID]
-	if !exists {
-		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
-	}
-	if child.Relation.ParentID == nil || *child.Relation.ParentID != parentID {
-		return fmt.Errorf("%w: child parent identity disagrees with start", ErrInvalidChildStart)
-	}
-	if child.Relation.ChildKey == nil || *child.Relation.ChildKey != spec.Key {
-		return fmt.Errorf("%w: child key disagrees with start", ErrInvalidChildStart)
-	}
-	if child.DeploymentRef != spec.DeploymentRef {
-		return fmt.Errorf("%w: child Deployment disagrees with start", ErrInvalidChildStart)
-	}
-	if child.Limits.Budget != spec.Budget {
-		return fmt.Errorf("%w: child budget disagrees with start", ErrInvalidChildStart)
-	}
-	if !slices.Equal(child.Capabilities.Values(), spec.Capabilities.Values()) {
-		return fmt.Errorf("%w: child capabilities disagree with start", ErrInvalidChildStart)
-	}
-	if child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
-		return fmt.Errorf("%w: child request digest disagrees with start", ErrInvalidChildStart)
-	}
-	return nil
-}
-
-func (t *treeSnapshotValidation) validateChildControl(parentID ProcessID, record preparedEffect) error {
-	if err := record.validateFramework(); err != nil {
-		return err
-	}
-	result, err := decodeChildControlResult(record.Settlement.Payload())
-	if err != nil || result.failure.Valid() {
-		return err
-	}
-	child, present := t.processes[result.childID]
-	if !present || child.Relation.ParentID == nil || *child.Relation.ParentID != parentID {
-		return ErrInvalidChildControl
-	}
-	if result.operation == frameworkEffectCancelChild {
-		if !child.Status.Terminal() && !child.PendingControl.CancellationOwner.valid() {
-			return ErrInvalidChildControl
-		}
-		return nil
-	}
-	request, err := decodeChildControlEffect(record.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	for _, receipt := range child.Mailbox.receipts() {
-		if receipt.ID() != result.signalID {
-			continue
-		}
-		if !receipt.Matches(*request.Signal) {
-			return ErrInvalidChildControl
-		}
-		return nil
-	}
-	return ErrInvalidChildControl
 }
 
 func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecordWire, waitID WaitID, spec ChildWaitSpec) error {

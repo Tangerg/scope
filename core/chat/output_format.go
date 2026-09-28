@@ -12,31 +12,22 @@ import (
 )
 
 var (
-	// ErrInvalidOutputFormat identifies an internally inconsistent format
-	// contract.
 	ErrInvalidOutputFormat = errors.New("chat: invalid output format")
 	// ErrUnsupportedOutputFormat lets a provider reject a valid portable format
 	// that its native endpoint cannot enforce.
 	ErrUnsupportedOutputFormat = errors.New("chat: unsupported output format")
 )
 
-// OutputFormatType identifies the representation requested for a chat result.
-// Provider adapters map the format to an equivalent native control or reject it.
 type OutputFormatType string
 
 const (
-	// OutputFormatText requests ordinary text.
-	OutputFormatText OutputFormatType = "text"
-	// OutputFormatJSON requests provider-enforced JSON without a schema.
-	OutputFormatJSON OutputFormatType = "json"
-	// OutputFormatJSONSchema requests provider-enforced conformance to Schema.
+	OutputFormatText       OutputFormatType = "text"
+	OutputFormatJSON       OutputFormatType = "json"
 	OutputFormatJSONSchema OutputFormatType = "json_schema"
 )
 
-// OutputFormat is the provider-neutral representation contract for one model
-// result. Name, Description, and Schema belong only to OutputFormatJSONSchema.
-// Provider adapters decode Schema into their native SDK shape when supported.
-// Schema bytes are always snapshotted at construction and cloning boundaries.
+// OutputFormat is the requested representation. Name, Description, and Schema
+// belong only to OutputFormatJSONSchema. Construction and cloning snapshot Schema.
 type OutputFormat struct {
 	Type        OutputFormatType `json:"type"`
 	Name        string           `json:"name,omitempty"`
@@ -44,8 +35,6 @@ type OutputFormat struct {
 	Schema      json.RawMessage  `json:"schema,omitzero"`
 }
 
-// NewOutputFormat constructs the schema-free text or JSON contract. JSON
-// Schema uses NewJSONSchemaOutputFormat because its identity is required.
 func NewOutputFormat(formatType OutputFormatType) (OutputFormat, error) {
 	format := OutputFormat{Type: formatType}
 	if err := format.Validate(); err != nil {
@@ -54,15 +43,12 @@ func NewOutputFormat(formatType OutputFormatType) (OutputFormat, error) {
 	return format, nil
 }
 
-// JSONSchemaConfig names a provider-enforced structured-output contract.
 type JSONSchemaConfig struct {
 	Name        string
 	Description string
 	Schema      json.RawMessage
 }
 
-// NewJSONSchemaOutputFormat snapshots and validates an object JSON Schema so
-// adapters receive one immutable portable contract.
 func NewJSONSchemaOutputFormat(config JSONSchemaConfig) (OutputFormat, error) {
 	format := OutputFormat{
 		Type:        OutputFormatJSONSchema,
@@ -85,8 +71,6 @@ func (o *OutputFormat) Clone() *OutputFormat {
 	return &clone
 }
 
-// SchemaAs decodes the preserved JSON Schema into an adapter's native schema
-// shape without introducing a second source of truth.
 func (o *OutputFormat) SchemaAs[T any]() (T, error) {
 	var zero T
 	if o == nil {

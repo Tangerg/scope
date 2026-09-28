@@ -9,12 +9,8 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ToolSource binds an initialized MCP client session to a logical name used to
-// deconflict tools across multiple servers.
 type ToolSource struct {
-	// Name identifies the upstream server in tool prefixes and error
-	// messages. Empty is allowed but discouraged when more than one
-	// source is in play.
+	// Name prefixes tool names and errors. Empty is allowed.
 	Name string
 
 	// Session is a live, initialized client session. The wrapper does not own
@@ -40,16 +36,12 @@ type ToolConcurrencyPolicy func(
 	invocation toolcontract.Invocation,
 ) (key string, concurrent bool)
 
-// PublicToolNameFunc maps a remote tool identity to the name a model sees.
-// Remote servers choose names independently, so two sources can collide or emit
-// characters providers reject; projecting the name here keeps that negotiation
-// out of the tool contract and lets a host resolve collisions its own way.
+// PublicToolNameFunc projects remote identities into model-compatible names.
+// The Host owns collision resolution across independent server catalogs.
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
 const maxPublicToolNameLength = 64
 
-// ToolDiscoveryConfig controls the boundary projection performed by
-// [DiscoverTools].
 type ToolDiscoveryConfig struct {
 	// PublicName maps each remote tool identity to its public name. Nil
 	// uses the package default, "<sourceName>_<remoteName>" sanitized to the
@@ -69,9 +61,6 @@ type ToolDiscoveryConfig struct {
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 
-// publicName returns the configured public name or a provider-safe default.
-// MCP itself permits names that model providers reject, while calls still need
-// to route by the unchanged raw MCP name.
 func (t ToolDiscoveryConfig) publicName(sourceName, remoteName string) string {
 	if t.PublicName != nil {
 		return t.PublicName(sourceName, remoteName)

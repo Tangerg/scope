@@ -41,7 +41,6 @@ func (p ProcessRelation) ParentID() (ProcessID, bool) {
 	return p.parentID, p.parentID.Valid()
 }
 
-// RootID returns the stable root identity shared by the complete Process tree.
 func (p ProcessRelation) RootID() ProcessID { return p.rootID }
 
 // ChildKey returns the parent-scoped logical child identity and true for a

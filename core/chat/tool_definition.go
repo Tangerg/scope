@@ -10,8 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// ErrInvalidToolDefinition identifies a model-facing tool schema that cannot be
-// transported safely.
 var ErrInvalidToolDefinition = errors.New("chat: invalid tool definition")
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)

@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// Receiver behavior stays with its type so reading one owner does not require
-// tracing method fragments across the package. Test helpers follow the same rule.
 func TestReceiverMethodsStayWithTheirType(t *testing.T) {
 	type receiverKey struct {
 		directory   string

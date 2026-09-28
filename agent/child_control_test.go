@@ -276,37 +276,37 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			altered.Mailbox.Signals = []signalRecordWire{receipt}
 			mutate(&altered)
 			validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: altered}}
-			if err := validation.validateChildControl(parentID, record); err == nil {
+			if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 				t.Fatal("one-sided control accepted")
 			}
 		})
 	}
 	validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: child}}
-	if err := validation.validateChildControl(parentID, record); err != nil {
+	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
 	child.Mailbox.Signals[0].Payload = nil
 	child.Mailbox.SignalCursor = 1
 	validation.processes[childID] = child
-	if err := validation.validateChildControl(parentID, record); err != nil {
+	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("consumed receipt lost proof", err)
 	}
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
 	canceled := ChildControlResult{childID: childID, operation: frameworkEffectCancelChild}
 	record.Effect = cancel
 	record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
-	if err := validation.validateChildControl(parentID, record); err == nil {
+	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 		t.Fatal("cancellation without intent accepted")
 	}
 	child.PendingControl.CancellationOwner = cancellationOwnerParent
 	validation.processes[childID] = child
-	if err := validation.validateChildControl(parentID, record); err != nil {
+	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
 	child.PendingControl.CancellationOwner = ""
 	child.Status = StatusCompleted
 	validation.processes[childID] = child
-	if err := validation.validateChildControl(parentID, record); err != nil {
+	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("terminal cancellation rejected", err)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTimeout          = 30 * time.Second
 	DefaultMaxResponseBytes = int64(256 * 1024)
@@ -17,9 +16,7 @@ const (
 
 const maxSupportedResponseBytes = int64(math.MaxInt64 - 1)
 
-// ClientConfig defines the network authority and resource bounds frozen into
-// a Client. AllowedHosts is mandatory because the zero policy denies network
-// access rather than silently opening it.
+// AllowedHosts is mandatory; the zero policy denies network access.
 type ClientConfig struct {
 	// AllowedHosts accepts exact hosts and one leading wildcard, such as
 	// "api.example.com" or "*.example.com". A wildcard does not match its root.

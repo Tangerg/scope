@@ -31,7 +31,7 @@ func TestPendingSteerSurvivesExecutionStateRestoreWithExactSignalOrder(t *testin
 	}
 
 	wantSignalIDs := state.PendingSteer.SignalIDs
-	appliedSignalIDs, err := restoredExecution.applyPendingSteer()
+	appliedSignalIDs, err := restoredExecution.state.applyPendingSteer()
 	if err != nil {
 		t.Fatal(err)
 	}

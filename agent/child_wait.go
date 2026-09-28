@@ -30,13 +30,10 @@ const (
 	childWaitQuorum childWaitKind = "quorum"
 )
 
-// AllChildren waits until every named child reaches the requested boundary.
 func AllChildren() ChildWaitCondition { return ChildWaitCondition{kind: childWaitAll} }
 
-// AnyChild waits until at least one named child reaches the requested boundary.
 func AnyChild() ChildWaitCondition { return ChildWaitCondition{kind: childWaitAny} }
 
-// ChildQuorum waits until count named children reach the requested boundary.
 func ChildQuorum(count uint32) (ChildWaitCondition, error) {
 	condition := ChildWaitCondition{kind: childWaitQuorum, quorum: count}
 	if count == 0 {
@@ -76,8 +73,6 @@ func (c ChildWaitBoundary) String() string {
 	return string(c)
 }
 
-// ChildWaitSpec names one stable logical wait, its direct children in result
-// order, lifecycle boundary, and count predicate.
 type ChildWaitSpec struct {
 	// Key is the Execution-owned logical identity of this wait request.
 	Key WaitKey
@@ -86,8 +81,7 @@ type ChildWaitSpec struct {
 	// Boundary explicitly selects terminal results or joined subtrees. A joined
 	// subtree has completed its owned local work and required acknowledgments in
 	// this runtime, as defined by Process.Join; remote uncertainty may remain.
-	Boundary ChildWaitBoundary
-	// Condition declares how many listed children must reach Boundary.
+	Boundary  ChildWaitBoundary
 	Condition ChildWaitCondition
 }
 
@@ -232,7 +226,6 @@ type ChildOutcome struct {
 
 func (c ChildOutcome) Key() ChildKey { return c.key }
 
-// Result returns the child's immutable terminal result.
 func (c ChildOutcome) Result() Result { return c.result }
 
 func (c ChildOutcome) Boundary() ChildWaitBoundary { return c.boundary }
@@ -258,15 +251,16 @@ func (c ChildOutcome) Valid() bool {
 			own = append(own, effect.EffectID)
 		}
 	}
-	if c.boundary == ChildWaitBoundaryDrained {
-		expected := c.result.Termination().UnresolvedEffectIDs()
-		if len(own) != len(expected) {
+	if c.boundary != ChildWaitBoundaryDrained {
+		return true
+	}
+	expected := c.result.Termination().UnresolvedEffectIDs()
+	if len(own) != len(expected) {
+		return false
+	}
+	for _, id := range own {
+		if !slices.Contains(expected, id) {
 			return false
-		}
-		for _, id := range own {
-			if !slices.Contains(expected, id) {
-				return false
-			}
 		}
 	}
 	return true

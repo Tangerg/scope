@@ -31,9 +31,8 @@ var errNilAgentSequence = errors.New("a2a: agent returned a nil output sequence"
 // transport or protocol failures: the remote was reached and answered, but the
 // work failed, was canceled or rejected, or requires unsupported continuation.
 type RemoteAgentError struct {
-	// State is the task state the remote reported.
 	State sdka2a.TaskState
-	// Detail is any human-readable message the remote attached, or "".
+
 	Detail string
 }
 

@@ -13,15 +13,12 @@ import (
 // controls belong in Extensions. Resolve overlays only explicitly supplied
 // values and snapshots extension data, leaving both inputs unchanged.
 type Options struct {
-	// Model is the provider model identifier (e.g. "whisper-1").
 	Model string `json:"model"`
 
 	// Language is an ISO-639-1 language code (e.g. "en", "zh") hinting
 	// the spoken language. Empty leaves detection to the provider.
 	Language string `json:"language"`
 
-	// Extensions carries JSON-safe provider-specific options unknown to this
-	// struct.
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
 
@@ -97,16 +94,12 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Request is one transcription call: the audio payload and explicit options.
 type Request struct {
-	// Audio carries the audio bytes (or URL) to transcribe.
 	Audio *media.Media `json:"audio,omitzero"`
 
 	Options Options `json:"options,omitzero"`
 }
 
-// NewRequest validates the required input while leaving per-call options at
-// their portable zero defaults.
 func NewRequest(audio *media.Media) (*Request, error) {
 	r := &Request{Audio: audio}
 	if err := r.Validate(); err != nil {

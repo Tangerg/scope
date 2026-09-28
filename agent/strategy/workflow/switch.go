@@ -13,27 +13,22 @@ import (
 // for the current value. Context is not a source of domain input.
 type SwitchSelector[I any] func(ctx context.Context, input I) (caseID string, err error)
 
-// SwitchCase declares one exact child Deployment for a selected case.
 type SwitchCase struct {
 	// ID is unique within this Switch Stage and stable across restoration.
 	ID string
 
-	// Deployment is the exact child behavior binding for this case.
 	Deployment agent.Deployment
 
 	// Budget is permanently allocated from the parent when selected.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to the child.
 	Capabilities agent.CapabilitySet
 }
 
-// SwitchConfig declares one pure selection function and a closed case set.
 type SwitchConfig[I any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	// Select chooses one case without performing external work.
 	Select SwitchSelector[I]
 
 	// Cases is a non-empty list in stable declaration order.

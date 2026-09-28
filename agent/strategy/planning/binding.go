@@ -22,9 +22,7 @@ type ChildInputFunc func(processInput agent.Payload, worldState WorldState) (age
 // DispatcherBindingConfig binds a predictive Action to the Planning
 // Dispatcher. RequiredCapabilities are enforced by Engine before dispatch.
 type DispatcherBindingConfig struct {
-	// Action is the immutable predictive behavior bound to a dispatcher target.
-	Action Action
-	// RequiredCapabilities is the authority required before dispatch.
+	Action               Action
 	RequiredCapabilities []agent.Capability
 }
 
@@ -32,15 +30,12 @@ type DispatcherBindingConfig struct {
 // Every attempt starts a new child Process with a stable Engine-derived
 // identity, explicit budget, and attenuated capabilities.
 type ChildBindingConfig struct {
-	// Action is the immutable predictive behavior delegated to a child Process.
-	Action Action
-	// DeploymentRef identifies the exact child behavior binding.
+	Action        Action
 	DeploymentRef agent.DeploymentRef
 	// Input deterministically derives child input; nil reuses Process input.
 	Input ChildInputFunc
 	// Budget is permanently allocated to each child attempt.
-	Budget agent.Budget
-	// Capabilities is the attenuated authority granted to each child attempt.
+	Budget       agent.Budget
 	Capabilities agent.CapabilitySet
 }
 
@@ -54,9 +49,6 @@ type ActionBinding struct {
 	childInput ChildInputFunc
 }
 
-// NewDispatcherBinding attaches an action to an external executor. Binding is
-// separate from the action itself so the same predictive model can be planned
-// against in tests without an executor present.
 func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error) {
 	if !config.Action.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: dispatcher binding Action", ErrInvalidAction)
@@ -68,9 +60,6 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 	return ActionBinding{action: config.Action, target: bindingTargetDispatcher, required: required}, nil
 }
 
-// NewChildBinding attaches an action to a child Deployment, so a plan step
-// becomes a real Process with its own identity, budget, and recovery instead
-// of an opaque call inside the parent.
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 	if !config.Action.Valid() || !config.DeploymentRef.Valid() || !config.Capabilities.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
@@ -85,7 +74,6 @@ func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 	}, nil
 }
 
-// Action returns the immutable predictive Action owned by the binding.
 func (a ActionBinding) Action() Action { return a.action }
 
 func (a ActionBinding) Valid() bool {

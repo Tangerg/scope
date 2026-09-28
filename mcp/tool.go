@@ -66,13 +66,8 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	}
 }
 
-// A remote IsError result becomes [tool.Failure], preserving its complete
-// content separately from transport and protocol errors.
-//
-// One `mcp.tool.call <name>` span per call (kind=Client), carrying
-// `gen_ai.tool.name`; a failed call records the error and sets the span
-// status to Error (no separate bool attribute). No-op overhead when no
-// TracerProvider is configured.
+// Remote IsError preserves complete content in tool.Failure, separate from
+// transport and protocol errors.
 func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
 	remoteName := r.descriptor.remoteName
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.call "+remoteName,

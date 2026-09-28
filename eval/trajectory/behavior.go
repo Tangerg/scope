@@ -160,7 +160,6 @@ func canonicalArguments(arguments string) (json.RawMessage, error) {
 	return json.RawMessage(value), nil
 }
 
-// behaviorChild addresses an actual child in the owning Strategy's namespace.
 type behaviorChild struct {
 	parent agent.ProcessID
 	key    agent.ChildKey

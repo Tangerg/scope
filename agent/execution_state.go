@@ -20,11 +20,7 @@ type ExecutionState struct {
 	payload json.RawMessage
 }
 
-// ParseExecutionState pairs a strategy kind with an opaque payload, validating
-// both the way every other Parse in this package validates a wire value. The
-// kind exists so a snapshot can be rejected when restored into the wrong
-// strategy; the payload stays opaque so adding a strategy never widens the
-// kernel.
+// ParseExecutionState freezes an opaque payload under its owning Strategy kind.
 func ParseExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
 	if !ValidQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
@@ -46,7 +42,6 @@ func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
 	return ParseExecutionState(kind, payload)
 }
 
-// Kind returns the Strategy that exclusively interprets Payload.
 func (e ExecutionState) Kind() string { return e.kind }
 
 // Payload returns an independently owned copy of the opaque Strategy state.

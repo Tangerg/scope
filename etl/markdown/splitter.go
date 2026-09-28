@@ -58,7 +58,6 @@ type Splitter struct {
 	base              *etl.Splitter
 }
 
-// NewSplitter validates semantic and output bounds before retaining policy.
 func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	if lo.IsNil(config.Tokenizer) {
 		return nil, errors.New("markdown splitter: tokenizer is required")
@@ -213,9 +212,7 @@ func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdown
 		active.blocks = append(active.blocks, classifyBlock(source, node, end, raw))
 	}
 
-	if len(active.blocks) > 0 {
-		sections = append(sections, active)
-	} else if len(active.headings) > 0 {
+	if len(active.blocks) > 0 || len(active.headings) > 0 {
 		sections = append(sections, active)
 	}
 	return sections, nil
@@ -450,9 +447,11 @@ func (s *Splitter) groupSemanticUnits(
 		groups = append(groups, render(current))
 		current = []string{unit}
 		body = render(current)
-		if fits, _, err := s.fits(ctx, renderChunk(prefix, body)); err != nil {
+		fits, _, err = s.fits(ctx, renderChunk(prefix, body))
+		if err != nil {
 			return nil, err
-		} else if !fits {
+		}
+		if !fits {
 			return nil, s.semanticUnitError(ctx, kind, renderChunk(prefix, body))
 		}
 	}

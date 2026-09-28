@@ -48,8 +48,6 @@ var (
 	ErrInvalidConfig = errors.New("otel/history: invalid config")
 )
 
-// MiddlewareConfig identifies the storage system observed by history
-// instrumentation.
 type MiddlewareConfig struct {
 	System         string
 	TracerProvider trace.TracerProvider
@@ -71,8 +69,6 @@ type Middleware struct {
 	duration metric.Float64Histogram
 }
 
-// NewMiddleware fixes instrument identity and provider binding once so every
-// history operation contributes to the same telemetry series.
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
@@ -104,7 +100,6 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Store instruments the ordinary read, write, and clear capabilities.
 func (m Middleware) Store(next corehistory.Store) corehistory.Store {
 	if lo.IsNil(next) {
 		return nil

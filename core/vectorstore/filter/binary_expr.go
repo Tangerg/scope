@@ -18,8 +18,6 @@ type BinaryHandlers struct {
 	NullTest   func(*BinaryExpr) error
 }
 
-// BinaryExpr combines two expressions with a comparison, logical, matching,
-// or null-test operator.
 type BinaryExpr struct {
 	left     Expr
 	operator Operator
@@ -64,15 +62,9 @@ func (b *BinaryExpr) Selector() (Selector, error) {
 	return selector, nil
 }
 
-// Path returns the complete key path selected by the left operand.
-//
-// The segments are whatever the filter selected: a bare identifier is
-// constrained by the grammar, but an indexed key is a string literal, so a
-// segment can hold anything a string can. A compiler that binds the segment as
-// a value — a SQL map subscript, a BSON field name, a JSON path argument — can
-// use it as it is, because a bound value cannot leave the position it was bound
-// to. A compiler that pastes it into query text must use [BinaryExpr.IdentifierPath]
-// instead.
+// Path returns the selected metadata keys. Indexed keys may contain arbitrary
+// valid UTF-8, so compilers may bind them as values but must use IdentifierPath
+// before interpolating them as query syntax.
 func (b *BinaryExpr) Path() ([]string, error) {
 	selector, err := b.Selector()
 	if err != nil {
@@ -81,24 +73,10 @@ func (b *BinaryExpr) Path() ([]string, error) {
 	return selector.Path()
 }
 
-// IdentifierPath returns the key path when every segment is a plain
-// identifier, and reports the first segment that is not.
-//
-// It exists because a compiler that pastes a path into query text cannot use
-// [BinaryExpr.Path]: an indexed key is a string literal, so the caller chooses
-// the bytes, and the target language reads them as syntax.
-// metadata['a:1 OR b'] == 'x' compiled to Lucene as metadata.a:1 OR b:"x",
-// where a key turned into a term boundary and a boolean operator; the same
-// shape reaches Typesense's filter_by, Vespa's YQL, an OData filter and a
-// RediSearch tag clause. None of those languages can quote or escape a field
-// name, so a segment they cannot express has to be refused rather than
-// approximated.
-//
-// A plain identifier is a letter or underscore followed by letters, digits or
-// underscores — the same shape the stores that interpolate configured column
-// names already require of them. A store can still hold a document whose
-// metadata key is anything at all; this is only about which keys that store
-// can name in a filter.
+// IdentifierPath rejects segments outside [A-Za-z_][A-Za-z0-9_]*. Use it when
+// a filter language cannot quote field names: interpolating an arbitrary indexed
+// key would let metadata bytes become query syntax. Path remains available for
+// compilers that bind keys as values.
 func (b *BinaryExpr) IdentifierPath() ([]string, error) {
 	keys, err := b.Path()
 	if err != nil {
@@ -202,7 +180,44 @@ func (b *BinaryExpr) Equal(other Expr) bool {
 	return ok && b != nil && o != nil && b.operator == o.operator && equalExpr(b.left, o.left) && equalExpr(b.right, o.right)
 }
 
-func (b *BinaryExpr) Validate() error              { return validatePredicate(b) }
+func (b *BinaryExpr) Validate() error {
+	if b == nil {
+		return errors.New("filter: binary expression is nil")
+	}
+	if !b.operator.IsBinaryOperator() {
+		return fmt.Errorf("filter: invalid binary operator %q at %s", b.operator, b.Start())
+	}
+	if lo.IsNil(b.left) {
+		return fmt.Errorf("filter: %s left operand is nil at %s", b.operator.Name(), b.Start())
+	}
+	if lo.IsNil(b.right) {
+		return fmt.Errorf("filter: %s right operand is nil at %s", b.operator.Name(), b.Start())
+	}
+	if b.operator.IsLogicalOperator() {
+		return b.validateLogical()
+	}
+	if err := validateSelector(b.left); err != nil {
+		return fmt.Errorf("filter: %s left operand: %w", b.operator.Name(), err)
+	}
+
+	switch {
+	case b.operator.IsEqualityOperator():
+		return b.validateComparison(false)
+	case b.operator.IsOrderingOperator():
+		return b.validateComparison(true)
+	case b.operator == OpIn:
+		return b.validateMembership()
+	case b.operator == OpHas:
+		return b.validateCollectionMembership()
+	case b.operator == OpLike:
+		return b.validateLike()
+	case b.operator == OpIs:
+		return b.validateNullTest()
+	default:
+		return fmt.Errorf("filter: unsupported binary operator %q at %s", b.operator, b.Start())
+	}
+}
+
 func (b *BinaryExpr) Accept(visitor Visitor) error { return accept(b, visitor) }
 func (b *BinaryExpr) String() string               { return formatPredicate(b) }
 
@@ -249,4 +264,68 @@ func (b *BinaryExpr) Dispatch(handlers BinaryHandlers) error {
 		return fmt.Errorf("filter: binary operator %s is not supported at %s", b.operator.Name(), b.Start())
 	}
 	return handler(b)
+}
+
+func (b *BinaryExpr) validateLogical() error {
+	left, ok := b.left.(Predicate)
+	if !ok {
+		return fmt.Errorf("filter: %s left operand must be a predicate, got %T at %s", b.operator.Name(), b.left, b.Start())
+	}
+	right, ok := b.right.(Predicate)
+	if !ok {
+		return fmt.Errorf("filter: %s right operand must be a predicate, got %T at %s", b.operator.Name(), b.right, b.Start())
+	}
+	if err := left.Validate(); err != nil {
+		return err
+	}
+	return right.Validate()
+}
+
+func (b *BinaryExpr) validateComparison(numeric bool) error {
+	literal, ok := b.right.(*Literal)
+	if !ok || literal == nil {
+		return fmt.Errorf("filter: %s right operand must be a literal, got %T at %s", b.operator.Name(), b.right, b.Start())
+	}
+	if literal.IsNull() {
+		return fmt.Errorf("filter: %s cannot compare NULL; use IS NULL at %s", b.operator.Name(), b.Start())
+	}
+	if numeric && !literal.IsNumber() {
+		return fmt.Errorf("filter: %s right operand must be numeric, got %s at %s", b.operator.Name(), literal.kind, literal.Start())
+	}
+	return literal.validate()
+}
+
+func (b *BinaryExpr) validateMembership() error {
+	list, ok := b.right.(*ListLiteral)
+	if !ok || list == nil {
+		return fmt.Errorf("filter: IN right operand must be a list, got %T at %s", b.right, b.Start())
+	}
+	return list.validate()
+}
+
+func (b *BinaryExpr) validateCollectionMembership() error {
+	literal, ok := b.right.(*Literal)
+	if !ok || literal == nil {
+		return fmt.Errorf("filter: HAS right operand must be a literal, got %T at %s", b.right, b.Start())
+	}
+	if literal.IsNull() {
+		return fmt.Errorf("filter: HAS cannot test NULL at %s", b.Start())
+	}
+	return literal.validate()
+}
+
+func (b *BinaryExpr) validateLike() error {
+	literal, ok := b.right.(*Literal)
+	if !ok || literal == nil || !literal.IsString() {
+		return fmt.Errorf("filter: LIKE right operand must be a string literal, got %T at %s", b.right, b.Start())
+	}
+	return literal.validate()
+}
+
+func (b *BinaryExpr) validateNullTest() error {
+	literal, ok := b.right.(*Literal)
+	if !ok || literal == nil || !literal.IsNull() {
+		return fmt.Errorf("filter: IS right operand must be NULL, got %T at %s", b.right, b.Start())
+	}
+	return literal.validate()
 }

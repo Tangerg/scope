@@ -8,8 +8,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// formatter owns one complete DSL rendering operation. Its builder never
-// escapes, so formatting has no reusable mutable lifecycle.
 type formatter struct {
 	output strings.Builder
 }

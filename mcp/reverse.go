@@ -36,27 +36,9 @@ func serverCallFromContext(ctx context.Context) serverCall {
 	return call
 }
 
-// ReportProgress sends a progress notification back to the client.
-// progress should increase monotonically; total is optional and may
-// be left nil when the work size is unknown. message is a free-form
-// human-readable status string.
-//
-// The originating client must have included a progressToken in its
-// tools/call request — otherwise this helper returns nil without
-// sending a notification (the spec mandates that servers only emit
-// progress when explicitly opted in). Errors propagate from the
-// underlying [*sdkmcp.ServerSession.NotifyProgress].
-//
-// Example:
-//
-//	func (t *longTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
-//	    for i := range 100 {
-//	        // ... work ...
-//	        _ = mcp.ReportProgress(ctx, float64(i+1), new(100.0),
-//	            fmt.Sprintf("processed %d/100", i+1))
-//	    }
-//	    return chat.NewTextToolOutput("done"), nil
-//	}
+// ReportProgress requires a client-supplied progressToken; otherwise it returns
+// nil without sending a notification. Progress should increase monotonically.
+// A nil total means the work size is unknown. Session errors propagate unchanged.
 func ReportProgress(ctx context.Context, progress float64, total *float64, message string) error {
 	return serverCallFromContext(ctx).reportProgress(ctx, progress, total, message)
 }
@@ -66,7 +48,7 @@ func (s serverCall) reportProgress(ctx context.Context, progress float64, total 
 		return ErrNoServerSession
 	}
 	if s.progressToken == nil {
-		// Client did not opt in; per spec the handler stays silent.
+
 		return nil
 	}
 
@@ -81,32 +63,8 @@ func (s serverCall) reportProgress(ctx context.Context, progress float64, total 
 	return s.session.NotifyProgress(ctx, params)
 }
 
-// Elicit asks the connected client to surface a structured
-// prompt to the end user and returns their response. Useful when a
-// tool needs runtime clarification it could not have asked for at
-// schema-design time (auth confirmation, ambiguous filename, ...).
-//
-// Returns [ErrNoServerSession] when called outside an MCP dispatch.
-// Underlying RPC errors propagate as-is.
-//
-// Example — structured response:
-//
-//	res, err := mcp.Elicit(ctx, sdkmcp.ElicitParams{
-//	    Message: "Choose a deployment target",
-//	    RequestedSchema: map[string]any{
-//	        "type": "object",
-//	        "properties": map[string]any{
-//	            "env": map[string]any{
-//	                "type": "string",
-//	                "enum": []string{"staging", "prod"},
-//	            },
-//	        },
-//	        "required": []string{"env"},
-//	    },
-//	})
-//	if err != nil { return "", err }
-//	if res.Action != "accept" { return "user canceled", nil }
-//	env, _ := res.Content["env"].(string)
+// Elicit asks the connected client for structured user input. It returns
+// ErrNoServerSession outside MCP dispatch and preserves RPC error causes.
 func Elicit(ctx context.Context, params sdkmcp.ElicitParams) (*sdkmcp.ElicitResult, error) {
 	return serverCallFromContext(ctx).elicit(ctx, params)
 }

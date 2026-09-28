@@ -21,51 +21,35 @@ var (
 	errConformanceExecutionsShareState = errors.New("agenttest: executions share mutable state")
 )
 
-// DefinitionConformanceConfig describes representative public boundary cases
-// for one Definition. Conformance is evidence for these cases, not a proof that
-// arbitrary implementation code never reads hidden input or performs I/O.
+// DefinitionConformanceConfig supplies representative cases, not a proof that
+// arbitrary Definition code never reads hidden input or performs I/O.
 type DefinitionConformanceConfig struct {
-	// Definition is the immutable behavior under test.
-	Definition agent.Definition
-	// Input is one valid value accepted by Definition.Start.
-	Input agent.Payload
-	// InitialSignals are delivered to each fresh Execution created from Input.
+	Definition     agent.Definition
+	Input          agent.Payload
 	InitialSignals []agent.Signal
 	// FollowingSignals exercises the original instance and each restored copy
 	// through a representative multi-Step suffix.
 	FollowingSignals [][]agent.Signal
-	// RestoredCases exercise additional previously captured states.
-	RestoredCases []ExecutionConformanceCase
-	// RejectedCases exercise domain violations the Definition must classify.
-	RejectedCases []RejectedStepConformanceCase
+	RestoredCases    []ExecutionConformanceCase
+	RejectedCases    []RejectedStepConformanceCase
 }
 
-// ExecutionConformanceCase describes one successful Restore and Step sample.
 type ExecutionConformanceCase struct {
-	// Name identifies the sample in test output.
 	Name string
 	// State is an exact state previously produced by the Definition.
-	State agent.ExecutionState
-	// Signals are the ordered Signal prefix delivered to Step.
+	State            agent.ExecutionState
 	Signals          []agent.Signal
 	FollowingSignals [][]agent.Signal
 }
 
-// RejectedStepConformanceCase describes one domain violation that Step must
-// reject with a stable classification. Without this evidence a violation can
-// reach the Engine as an ordinary error and be recorded as the generic
-// execution.step.failed, which no Host can distinguish from an execution
-// defect.
+// RejectedStepConformanceCase requires a stable domain classification instead
+// of the generic execution.step.failed fallback.
 type RejectedStepConformanceCase struct {
-	// Name identifies the sample in test output.
 	Name string
 	// State is an exact state previously produced by the Definition.
-	State agent.ExecutionState
-	// Signals are the ordered Signal prefix Step must reject.
+	State   agent.ExecutionState
 	Signals []agent.Signal
-	// FailureKind and FailureCode are the exact classification persisted for
-	// this violation. Asserting both keeps the reason stable across wording
-	// changes and proves the Definition, not the Engine fallback, classified it.
+	// FailureKind and FailureCode are the exact persisted classification.
 	FailureKind agent.FailureKind
 	FailureCode string
 }
@@ -187,7 +171,7 @@ func verifyRejectedStep(
 				sample.Name, attempt, stepErr,
 			)
 		}
-		if !sealed.Failure.Valid() {
+		if lo.IsNil(sealed) || !sealed.Failure.Valid() {
 			return fmt.Errorf(
 				"agenttest: rejected case %q attempt %d carries an invalid Failure",
 				sample.Name, attempt,

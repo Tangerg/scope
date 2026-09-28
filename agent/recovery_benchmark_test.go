@@ -124,6 +124,8 @@ func benchmarkRecoverableProcess(
 	sample treeRecoveryBenchmarkCase,
 ) (*Engine, Deployment, *Process) {
 	b.Helper()
+	setupCtx, cancelSetup := context.WithTimeout(b.Context(), benchmarkSetupTimeout)
+	defer cancelSetup()
 	schema, err := SchemaFor[executionReplayBenchmarkState]()
 	if err != nil {
 		b.Fatal(err)
@@ -170,7 +172,7 @@ func benchmarkRecoverableProcess(
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { stopRecoveryBenchmarkProcess(b, process) })
-	waitForPausedStep(b, process, 1)
+	waitForPausedStepContext(setupCtx, b, process, 1)
 	requests := make([]SignalRequest, sample.historyCount)
 	for index := range requests {
 		id, parseErr := ParseSignalID(fmt.Sprintf("signal:benchmark-history-%d", index))
@@ -183,49 +185,45 @@ func benchmarkRecoverableProcess(
 		}
 	}
 	if len(requests) > 0 {
-		if accepted, err := process.DeliverSignals(b.Context(), requests...); err != nil || !accepted {
+		if accepted, err := process.DeliverSignals(setupCtx, requests...); err != nil || !accepted {
 			b.Fatalf("history accepted=%t error=%v", accepted, err)
 		}
 	}
-	if err := process.Resume(b.Context()); err != nil {
+	if err := process.Resume(setupCtx); err != nil {
 		b.Fatal(err)
 	}
-	waitForPausedStep(b, process, 2)
+	waitForPausedStepContext(setupCtx, b, process, 2)
 	if sample.effectCount > 0 {
-		if err := process.Resume(b.Context()); err != nil {
+		if err := process.Resume(setupCtx); err != nil {
 			b.Fatal(err)
 		}
-		waitForUnknownSettlement(b, process)
+		waitForUnknownSettlementContext(setupCtx, b, process)
 	}
 	wantUsage := Usage{
 		CommittedSteps: 2, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
 	}
-	if inspectProcessSnapshot(b, process).Usage() != wantUsage {
-		b.Fatalf("benchmark fixture usage=%+v, want %+v", inspectProcessSnapshot(b, process).Usage(), wantUsage)
+	if usage := inspectProcessSnapshotContext(setupCtx, b, process).Usage(); usage != wantUsage {
+		b.Fatalf("benchmark fixture usage=%+v, want %+v", usage, wantUsage)
 	}
 	if len(requests) > 0 {
-		if accepted, err := process.DeliverSignals(b.Context(), requests[0]); err != nil || accepted {
+		if accepted, err := process.DeliverSignals(setupCtx, requests[0]); err != nil || accepted {
 			b.Fatalf("consumed history replay accepted=%t error=%v", accepted, err)
 		}
 	}
 	return engine, deployment, process
 }
 
-// benchmarkCleanupTimeout only prevents a hung teardown from blocking the test
-// binary. It is deliberately far above any plausible termination time: the
-// heaviest cases here allocate tens of megabytes per iteration, so a budget
-// tuned for an idle machine expires under their own GC pressure and reports a
-// slow teardown as "status=invalid" — a failure signature that reads like a
-// kernel defect and makes the measurement unusable as evidence.
-const benchmarkCleanupTimeout = 2 * time.Minute
+// Large fixtures measure recovery cost without imposing the unit tests' latency
+// budget on setup. Each setup and cleanup still has one bounded lifetime.
+const (
+	benchmarkSetupTimeout   = 2 * time.Minute
+	benchmarkCleanupTimeout = 2 * time.Minute
+)
 
-// stopRecoveryBenchmarkProcess runs from b.Cleanup. It reports instead of
-// calling Fatal, because Fatal would Goexit inside cleanup and skip the
-// remaining teardown. It cannot use b.Context, which is already canceled by the
-// time cleanup functions run.
+// b.Context is canceled before cleanup; teardown must still join owned work.
 func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 	b.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), benchmarkCleanupTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(b.Context()), benchmarkCleanupTimeout)
 	defer cancel()
 	if err := process.Kill(ctx, "benchmark cleanup"); err != nil {
 		b.Errorf("benchmark cleanup kill: %v", err)
@@ -321,10 +319,15 @@ func waitForPausedStep(t testing.TB, process *Process, steps uint64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
+	waitForPausedStepContext(ctx, t, process, steps)
+}
+
+func waitForPausedStepContext(ctx context.Context, t testing.TB, process *Process, steps uint64) {
+	t.Helper()
 	poll := time.NewTicker(time.Millisecond)
 	defer poll.Stop()
 	for {
-		snapshot := inspectProcessSnapshot(t, process)
+		snapshot := inspectProcessSnapshotContext(ctx, t, process)
 		if snapshot.Status() == StatusPaused && snapshot.Usage().CommittedSteps == steps {
 			return
 		}

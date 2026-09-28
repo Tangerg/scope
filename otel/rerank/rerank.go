@@ -37,11 +37,7 @@ var (
 	ErrInvalidModel  = errors.New("otel/rerank: invalid model")
 )
 
-// MiddlewareConfig takes providers rather than a tracer and meter so the
-// choice of telemetry destination stays with the composition root. A nil
-// provider falls back to the OpenTelemetry global, which is the convenient
-// default for an application and the wrong one for a test that must observe
-// only its own instruments.
+// Nil providers use the corresponding OpenTelemetry globals.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
@@ -66,8 +62,6 @@ type Middleware struct {
 	tokens   genaiconv.ClientTokenUsage
 }
 
-// NewMiddleware fixes instrument identity and provider binding once so every
-// rerank contributes to the same telemetry series.
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
@@ -106,7 +100,6 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Wrap decorates one reranking Model without observing the query or documents.
 func (m Middleware) Wrap(next corererank.Model) (corererank.Model, error) {
 	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
 		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)

@@ -15,7 +15,6 @@ var ErrExpansionLimitReached = errors.New("goap: expansion limit reached")
 // ErrGenerationLimitReached means the search exhausted its node budget.
 var ErrGenerationLimitReached = errors.New("goap: generated node limit reached")
 
-// Config contains optional cumulative search quotas for a GOAP Planner.
 type Config struct {
 	// MaxExpansions bounds non-stale nodes removed from the frontier.
 	// Its zero value is unlimited. A finite zero permits an already satisfied
@@ -36,8 +35,6 @@ type Planner struct {
 	maxGeneratedNodes agent.Quota
 }
 
-// New returns a planner with Host-selected search quotas. Unlimited searches
-// still cooperate with context cancellation.
 func New(config Config) *Planner {
 	return &Planner{maxExpansions: config.MaxExpansions, maxGeneratedNodes: config.MaxGeneratedNodes}
 }

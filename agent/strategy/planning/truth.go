@@ -15,12 +15,9 @@ const invalidEnumName = "invalid"
 type Truth string
 
 const (
-	// Unknown means the current observation does not establish the condition.
 	Unknown Truth = "unknown"
-	// False means the current observation establishes that the condition is false.
-	False Truth = "false"
-	// True means the current observation establishes that the condition is true.
-	True Truth = "true"
+	False   Truth = "false"
+	True    Truth = "true"
 )
 
 func (t Truth) Valid() bool { return t == Unknown || t == False || t == True }

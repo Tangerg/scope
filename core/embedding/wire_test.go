@@ -34,9 +34,6 @@ func TestOptionsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAbsentDimensionsStayAbsent proves the pointer field carries presence
-// rather than a zero-value default: dimensions the caller never set must not
-// reappear as an explicit 0 on the wire.
 func TestAbsentDimensionsStayAbsent(t *testing.T) {
 	encoded, err := jsonv2.Marshal(embedding.Options{Model: "text-embedding-3-small"})
 	if err != nil {
@@ -104,9 +101,6 @@ func TestOutputAndUsageRoundTrip(t *testing.T) {
 	}
 }
 
-// TestMalformedJSONIsRejectedPerType keeps every protocol decoder reporting its
-// own package sentinel, so a transport-level syntax error stays classifiable by
-// the value it was decoding into.
 func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	malformed := []byte(`{`)
 	cases := map[string]struct {
@@ -129,8 +123,6 @@ func TestMalformedJSONIsRejectedPerType(t *testing.T) {
 	}
 }
 
-// TestNilReceiversAreRejected proves the decoders refuse to write through a nil
-// receiver instead of panicking inside encoding/json.
 func TestNilReceiversAreRejected(t *testing.T) {
 	cases := map[string]struct {
 		target json.Unmarshaler
@@ -152,9 +144,6 @@ func TestNilReceiversAreRejected(t *testing.T) {
 	}
 }
 
-// TestDecodedValuesAreValidatedBeforeAssignment covers the branch where the
-// payload is syntactically valid JSON but violates the protocol: the receiver
-// must keep its previous value.
 func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	options := embedding.Options{Model: "keep"}
 	if err := jsonv2.Unmarshal([]byte(`{"dimensions":0}`), &options); !errors.Is(err, embedding.ErrInvalidOptions) {
@@ -229,9 +218,6 @@ func TestOutputRejectsNonFiniteComponents(t *testing.T) {
 	}
 }
 
-// TestResponseRequiresUniformDimensions is the invariant a caller relies on to
-// treat the outputs as one matrix: a provider must not mix vector widths inside
-// a single response.
 func TestResponseRequiresUniformDimensions(t *testing.T) {
 	wide, err := embedding.NewOutput([]float64{1, 2, 3}, nil)
 	if err != nil {
@@ -286,9 +272,6 @@ func TestOptionsResolveRejectsInvalidOverride(t *testing.T) {
 	}
 }
 
-// TestOptionsResolveClonesPointerFields keeps Resolve from handing the caller a
-// pointer that still aliases the override, which would let a later mutation
-// change an already-resolved request.
 func TestOptionsResolveClonesPointerFields(t *testing.T) {
 	override := embedding.Options{Dimensions: int64Pointer(256)}
 	resolved, err := (embedding.Options{}).Resolve(override)

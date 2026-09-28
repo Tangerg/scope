@@ -11,25 +11,17 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Relevance-score range for [SearchOptions.MinScore] and search defaults.
 const (
-	// DefaultTopK is used when [SearchOptions.TopK] is zero.
 	DefaultTopK = 5
 
-	// MinRelevanceScore is the lowest valid score.
 	MinRelevanceScore = 0.0
 
-	// MaxRelevanceScore is the highest valid score.
 	MaxRelevanceScore = 1.0
 )
 
-// SearchMode selects the retrieval evidence used by a search operation.
 type SearchMode string
 
-// Search modes are explicit so a caller can require one and be refused by a
-// store that cannot honor it. Silently downgrading a hybrid request to
-// semantic would return plausible results that answer a different query than
-// the one asked.
+// Stores must reject unsupported search modes rather than silently substitute another.
 const (
 	SearchModeSemantic SearchMode = "semantic"
 	SearchModeHybrid   SearchMode = "hybrid"
@@ -91,7 +83,6 @@ func (s SearchOptions) Validate() error {
 	return nil
 }
 
-// EffectiveMode returns semantic for the zero-value mode.
 func (s SearchOptions) EffectiveMode() SearchMode {
 	if s.Mode == "" {
 		return SearchModeSemantic
@@ -112,7 +103,6 @@ func (s SearchOptions) RequireMode(supported ...SearchMode) error {
 	return fmt.Errorf("%w: %s", ErrUnsupportedSearchMode, mode)
 }
 
-// ResultLimit returns the explicit TopK or DefaultTopK when it is omitted.
 func (s SearchOptions) ResultLimit() int {
 	if s.TopK == 0 {
 		return DefaultTopK
@@ -154,15 +144,11 @@ func (s *SearchOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SearchRequest describes one relevance search and owns its input validation.
 type SearchRequest struct {
 	Query   string        `json:"query,omitempty"`
 	Options SearchOptions `json:"options"`
 }
 
-// NewSearchRequest starts from the query alone because everything else — top-k,
-// filters, mode — has a defined default. Requiring them would push the same
-// boilerplate into every call site.
 func NewSearchRequest(query string) (*SearchRequest, error) {
 	request := &SearchRequest{Query: query}
 	if err := request.Validate(); err != nil {
@@ -209,17 +195,12 @@ func (s *SearchRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SearchResult relates a document to one search operation. Score is deliberately
-// kept outside document.Document: relevance belongs to a query/result pair,
-// not to the indexed content itself.
+// SearchResult keeps query-relative relevance separate from the indexed document.
 type SearchResult struct {
 	Document *document.Document `json:"document"`
 	Score    Score              `json:"score"`
 }
 
-// NewSearchResult pairs a document with a validated [Score], so a backend
-// cannot emit a NaN or out-of-range relevance that would silently corrupt
-// ranking and fusion downstream.
 func NewSearchResult(matched *document.Document, score Score) (*SearchResult, error) {
 	result := &SearchResult{Document: matched, Score: score}
 	if err := result.Validate(); err != nil {
@@ -272,14 +253,10 @@ func (s *SearchResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SearchResponse owns a complete ranked result set.
 type SearchResponse struct {
 	Results []*SearchResult `json:"results"`
 }
 
-// NewSearchResponse validates the result set as a whole, which is where an
-// adapter's ordering or scoring mistakes become visible; an individually valid
-// result says nothing about the ranking it sits in.
 func NewSearchResponse(results []*SearchResult) (*SearchResponse, error) {
 	response := &SearchResponse{Results: slices.Clone(results)}
 	if err := response.Validate(); err != nil {

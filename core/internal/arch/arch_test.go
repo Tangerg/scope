@@ -149,10 +149,8 @@ func TestChatRequestKeepsProtocolConcernsAtTheirOwner(t *testing.T) {
 	}
 }
 
-// modalitySPIs anchors every modality SPI at compile time so a removed or
-// renamed Model stops the build instead of silently dropping its package out of
-// the family rules. assertModalityInventoryIsComplete guards the other
-// direction: a newly added modality must appear here before it can be ignored.
+// Compile-time anchors detect removed SPIs; the derived inventory detects
+// additions that have not joined the family rules.
 var modalitySPIs = map[string]map[reflect.Type]string{
 	"chat": {
 		reflect.TypeFor[chat.Model]():    "Call",
@@ -228,9 +226,6 @@ func TestModalityCreationTimestampsUseOneRepresentation(t *testing.T) {
 	}
 }
 
-// assertModalityInventoryIsComplete cross-checks the anchored inventory against
-// the packages that actually publish a Model SPI, so a new modality joins every
-// family rule by existing rather than by being remembered.
 func assertModalityInventoryIsComplete(t *testing.T) {
 	t.Helper()
 	anchored := slices.Sorted(maps.Keys(modalitySPIs))
@@ -243,7 +238,6 @@ func assertModalityInventoryIsComplete(t *testing.T) {
 	}
 }
 
-// modalityPackages returns every Core package that publishes a Model SPI.
 func modalityPackages(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(coreRoot(t))

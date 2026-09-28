@@ -14,25 +14,17 @@ var ErrInvalidStatus = errors.New("agent: invalid status")
 type Status string
 
 const (
-	// StatusInvalid is the invalid zero value.
 	StatusInvalid Status = ""
-	// StatusRunning identifies a Process eligible to advance.
 	StatusRunning Status = "running"
 	// StatusWaiting identifies a Process awaiting a WaitID-addressed Signal
 	// without an explicit pause. StatusPaused may retain the same unanswered wait.
-	StatusWaiting Status = "waiting"
-	// StatusPaused identifies an explicitly suspended Process.
-	StatusPaused Status = "paused"
-	// StatusCompleted identifies successful semantic completion.
+	StatusWaiting   Status = "waiting"
+	StatusPaused    Status = "paused"
 	StatusCompleted Status = "completed"
-	// StatusFailed identifies terminal execution failure.
-	StatusFailed Status = "failed"
-	// StatusCanceled identifies cooperative cancellation.
-	StatusCanceled Status = "canceled"
-	// StatusTimedOut identifies deadline termination.
-	StatusTimedOut Status = "timed_out"
-	// StatusKilled identifies an explicit Engine kill.
-	StatusKilled Status = "killed"
+	StatusFailed    Status = "failed"
+	StatusCanceled  Status = "canceled"
+	StatusTimedOut  Status = "timed_out"
+	StatusKilled    Status = "killed"
 )
 
 func (s Status) String() string {

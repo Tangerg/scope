@@ -39,17 +39,12 @@ type Authorizer interface {
 	Authorize(ctx context.Context, authorization Authorization) (bool, error)
 }
 
-// AuthorizerFunc adapts a plain function to [Authorizer], so a one-off policy
-// does not require a named type.
 type AuthorizerFunc func(context.Context, Authorization) (bool, error)
 
 func (a AuthorizerFunc) Authorize(ctx context.Context, authorization Authorization) (bool, error) {
 	return a(ctx, authorization)
 }
 
-// GuardConfig names both collaborators explicitly so neither can be defaulted.
-// A guard silently constructed without an authorizer would report as protected
-// while permitting everything.
 type GuardConfig struct {
 	Tool       Tool
 	Authorizer Authorizer
@@ -65,11 +60,9 @@ type Guard struct {
 	authorizer Authorizer
 }
 
-// NewGuard snapshots the wrapped tool's definition at construction, so the
-// contract policy evaluates is the contract the model was shown. Resolving it
-// per call would let a mutable inner tool widen its own arguments after
-// approval. [Bind] compiles the frozen schema and [Contract.Prepare] validates
-// invocations; construction validates only the definition's protocol shape.
+// NewGuard snapshots the tool definition so later changes cannot widen an approved
+// contract. It validates the protocol shape; Bind compiles the schema and
+// Contract.Prepare validates invocations.
 func NewGuard(config GuardConfig) (Guard, error) {
 	if lo.IsNil(config.Authorizer) {
 		return Guard{}, fmt.Errorf("%w: authorizer is nil", ErrInvalidTool)

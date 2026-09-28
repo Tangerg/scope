@@ -28,12 +28,8 @@ func (o *OutputCompletionError) Error() string {
 func (*OutputCompletionError) Unwrap() error { return ErrInvalidOutput }
 
 var (
-	// ErrInvalidOutputFormat identifies a format that cannot define one request
-	// contract and terminal decoder.
 	ErrInvalidOutputFormat = errors.New("chatclient: invalid output format")
 
-	// ErrInvalidOutput identifies a response that cannot be decoded under the
-	// requested contract.
 	ErrInvalidOutput = errors.New("chatclient: invalid output")
 )
 
@@ -61,14 +57,11 @@ func JSON[T any]() OutputFormat[T] {
 	}
 }
 
-// JSONSchemaConfig supplies the stable identity of a schema derived from T.
 type JSONSchemaConfig struct {
 	Name        string
 	Description string
 }
 
-// JSONSchema returns a result format coupled to the named contract derived
-// from T.
 func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
 	schema, err := corejsonschema.For[T]()
 	if err != nil {

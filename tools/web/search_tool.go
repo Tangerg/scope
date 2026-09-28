@@ -2,53 +2,51 @@ package web
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 var _ toolcontract.Tool = (*SearchTool)(nil)
 
-// SearchTool is the LLM-facing adapter for a [Searcher]. Construct
-// with [NewSearchTool] — there is no nil-default fallback because web search
-// inherently requires an upstream API.
 type SearchTool struct {
 	readOnlyTool
+	searcher Searcher
 }
 
-// NewSearchTool requires a searcher so the provider, credential, and quota are
-// the caller's explicit choice rather than an implicit dependency on whichever
-// backend happened to be compiled in.
 func NewSearchTool(searcher Searcher) (*SearchTool, error) {
-	inner, err := newProviderReadOnlyTool(
-		"search",
+	if lo.IsNil(searcher) {
+		return nil, ErrMissingSearcher
+	}
+	s := &SearchTool{searcher: searcher}
+	inner, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{Name: "web_search", Description: webSearchDescription},
-		searcher,
-		ErrMissingSearcher,
-		func(request SearchRequest) (*SearchRequest, error) { return request.Prepare() },
-		func(ctx context.Context, request *SearchRequest) (*SearchResponse, error) {
-			return searcher.Search(ctx, request)
-		},
-		func(response *SearchResponse) error { return response.Validate() },
+		s.search,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("web: build search tool: %w", err)
 	}
-	return &SearchTool{readOnlyTool: inner}, nil
+	s.inner = inner
+	return s, nil
 }
 
-const webSearchDescription = `Search the web for current information.
-- Returns a ranked list of result items, each with title, URL, and snippet
-- Use this for events, products, prices, releases, people, docs — anything time-sensitive or beyond training data
-- A single call is one search request; pass max_results to cap the size (configured default is typically 5-10)
-- Domain filtering: allowed_domains restricts to those sites, blocked_domains excludes them. They are mutually exclusive
-- Recency filter: pass "hour" / "day" / "week" / "month" / "year" when you need fresh results
+func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*SearchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("web: prepare search request: %w", err)
+	}
+	response, err := s.searcher.Search(ctx, prepared)
+	if err != nil {
+		return nil, fmt.Errorf("web: execute search: %w", err)
+	}
+	if validationErr := response.Validate(); validationErr != nil {
+		return nil, fmt.Errorf("web: validate search response: %w", validationErr)
+	}
+	return response, nil
+}
 
-CRITICAL — When you use this tool you MUST cite sources:
-- After your answer, include a "Sources:" section
-- List the URLs you used as markdown links: [Title](URL)
-- Cite only URLs that actually appeared in the results — never fabricate
-
-Search hygiene:
-- For "latest X" queries, include the current year explicitly in the query string
-- For official docs, restrict with allowed_domains (e.g. ["nodejs.org"]) — far less noise than open web
-- If the first query returns weak hits, refine keywords and search again rather than guessing`
+const webSearchDescription = `Search the web for current information. Results include titles, URLs, and snippets.
+Use max_results to bound the response. allowed_domains and blocked_domains are mutually exclusive.
+Use recency for a relative freshness window. Cite the returned source URLs when using their content.`

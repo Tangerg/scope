@@ -17,16 +17,13 @@ type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
 // when MaxIterations was exhausted; that outcome is still a valid completion.
 type LoopResult[T any] struct {
 	// Value is the output of the last completed body iteration.
-	Value T `json:"value"`
-	// Iterations is the number of completed body child Processes.
+	Value      T      `json:"value"`
 	Iterations uint64 `json:"iterations"`
-	// Satisfied reports whether Predicate accepted Value.
-	Satisfied bool `json:"satisfied"`
+	Satisfied  bool   `json:"satisfied"`
 }
 
 func (l LoopResult[T]) Valid() bool { return l.Iterations > 0 }
 
-// LoopConfig declares one at-least-once managed body iteration.
 type LoopConfig[T any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
@@ -37,14 +34,12 @@ type LoopConfig[T any] struct {
 	// Budget is permanently allocated from the parent for each iteration.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to each child.
 	Capabilities agent.CapabilitySet
 
 	// MaxIterations bounds body child Processes. Its zero value is unlimited;
 	// a finite zero is rejected because a Loop runs its body at least once.
 	MaxIterations agent.Quota
 
-	// Predicate decides whether the latest body output satisfies the Loop.
 	Predicate LoopPredicate[T]
 }
 

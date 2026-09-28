@@ -68,14 +68,10 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 		if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
 			return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 		}
-	} else {
-		output, err := agent.ParsePayload(e.CurrentValue)
-		if err != nil {
-			return fmt.Errorf("%w: final value: %w", ErrInvalidExecutionState, err)
-		}
-		if err := definition.descriptor.ValidateOutput(output); err != nil {
-			return fmt.Errorf("%w: final value schema: %w", ErrInvalidExecutionState, err)
-		}
+		return e.validatePhaseState(ctx, definition)
+	}
+	if err := definition.descriptor.ValidateOutput(input); err != nil {
+		return fmt.Errorf("%w: final value schema: %w", ErrInvalidExecutionState, err)
 	}
 	return e.validatePhaseState(ctx, definition)
 }
@@ -200,12 +196,13 @@ func (e executionState) validateFanoutChildren(ctx context.Context) (int, int, e
 		if hasProcess || hasFailure {
 			resolved++
 		}
-		if hasProcess {
-			if _, duplicate := started[*child.ChildProcessID]; duplicate {
-				return 0, 0, fmt.Errorf("%w: fan-out child %d reuses process %q", ErrInvalidExecutionState, index, *child.ChildProcessID)
-			}
-			started[*child.ChildProcessID] = struct{}{}
+		if !hasProcess {
+			continue
 		}
+		if _, duplicate := started[*child.ChildProcessID]; duplicate {
+			return 0, 0, fmt.Errorf("%w: fan-out child %d reuses process %q", ErrInvalidExecutionState, index, *child.ChildProcessID)
+		}
+		started[*child.ChildProcessID] = struct{}{}
 	}
 	if resolved != 0 && resolved != len(e.ActiveFanoutWindow) {
 		return 0, 0, fmt.Errorf("%w: fan-out window retains partially applied starts", ErrInvalidExecutionState)
@@ -261,6 +258,41 @@ func (e executionState) validateFanoutPhase(ctx context.Context, resolved, start
 		return fmt.Errorf("%w: phase %q cannot carry fan-out progress", ErrInvalidExecutionState, e.Phase)
 	}
 	return ctx.Err()
+}
+
+func (e *executionState) clearSingleChild() {
+	e.SelectedCaseID = ""
+	e.Child = nil
+}
+
+func (e executionState) firstFanoutFailure() agent.Failure {
+	for _, child := range e.ActiveFanoutWindow {
+		if child.Failure != nil && child.Failure.Valid() {
+			return *child.Failure
+		}
+	}
+	return agent.Failure{}
+}
+
+func (e executionState) fanoutHasStartedChildren() bool {
+	for _, child := range e.ActiveFanoutWindow {
+		if child.ChildProcessID != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *executionState) finishStage(stageCount uint32) {
+	e.clearSingleChild()
+	e.ActiveFanoutWindow = nil
+	e.CompletedFanoutOutputs = nil
+	e.LoopIteration = 0
+	e.StageIndex++
+	e.Phase = phaseReady
+	if e.StageIndex == stageCount {
+		e.Phase = phaseCompleted
+	}
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

@@ -19,22 +19,18 @@ type EditRequest struct {
 	ReplaceAll bool   `json:"replace_all,omitzero" jsonschema_description:"Replace every occurrence. Default false. Use this for renaming a symbol across the file."`
 }
 
-// EditResponse makes replacement cardinality observable to the model.
 type EditResponse struct {
 	Replacements int `json:"replacements"`
 }
 
 var _ toolcontract.Tool = (*EditTool)(nil)
 
-// EditTool is the thin LLM-facing adapter for [Editor.Edit]. The
-// executor owns validation and atomic replacement under the same contract.
+// EditTool delegates validation and atomic replacement to its Editor.
 type EditTool struct {
 	executor Editor
 	typed    toolcontract.Func[EditRequest, EditResponse]
 }
 
-// NewEditTool retains only the atomic edit capability, not a full filesystem
-// backend.
 func NewEditTool(executor Editor) (*EditTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor

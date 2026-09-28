@@ -1,10 +1,7 @@
 package fakeweather
 
-// Condition is the closed weather-condition vocabulary shared by generation
-// and the public response.
 type Condition string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	ConditionBlizzard     Condition = "Blizzard"
 	ConditionClear        Condition = "Clear"
@@ -35,40 +32,32 @@ func (c Condition) hasPrecipitation() bool {
 	return false
 }
 
-// PrecipitationType is the synthesized precipitation phase.
 type PrecipitationType string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	PrecipitationRain  PrecipitationType = "rain"
 	PrecipitationSleet PrecipitationType = "sleet"
 	PrecipitationSnow  PrecipitationType = "snow"
 )
 
-// PrecipitationIntensity is the closed amount classification.
 type PrecipitationIntensity string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	PrecipitationLight    PrecipitationIntensity = "light"
 	PrecipitationModerate PrecipitationIntensity = "moderate"
 	PrecipitationHeavy    PrecipitationIntensity = "heavy"
 )
 
-// AlertSeverity is the closed synthesized warning scale.
 type AlertSeverity string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	AlertSeverityModerate AlertSeverity = "moderate"
 	AlertSeveritySevere   AlertSeverity = "severe"
 	AlertSeverityExtreme  AlertSeverity = "extreme"
 )
 
-// AlertType identifies a synthesized warning category.
 type AlertType string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	AlertCold    AlertType = "cold"
 	AlertHeat    AlertType = "heat"
@@ -81,7 +70,6 @@ const (
 // AirQualityLevel is the US AQI qualitative scale.
 type AirQualityLevel string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	AirQualityGood                        AirQualityLevel = "Good"
 	AirQualityModerate                    AirQualityLevel = "Moderate"
@@ -94,7 +82,6 @@ const (
 // UVLevel is the WHO UV-index qualitative scale.
 type UVLevel string
 
-// These values keep generated fixtures inside the public vocabulary.
 const (
 	UVLow      UVLevel = "Low"
 	UVModerate UVLevel = "Moderate"

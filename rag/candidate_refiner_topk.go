@@ -7,7 +7,6 @@ import (
 
 var _ Refiner = topKRefiner{}
 
-// topKRefiner selects the highest-scoring candidates.
 type topKRefiner struct {
 	topK int
 }
@@ -22,8 +21,6 @@ func TopK(topK int) (Refiner, error) {
 	return topKRefiner{topK: topK}, nil
 }
 
-// Refine returns at most topK candidates ordered by descending score.
-// The input slice is not mutated. Honors ctx cancellation.
 func (t topKRefiner) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

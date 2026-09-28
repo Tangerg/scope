@@ -152,12 +152,10 @@ type ToolInputContinuation struct {
 	response json.RawMessage
 }
 
-// State returns the Tool-owned continuation state captured at suspension.
 func (t ToolInputContinuation) State() json.RawMessage {
 	return bytes.Clone(t.state)
 }
 
-// Response returns the schema-validated external input.
 func (t ToolInputContinuation) Response() json.RawMessage {
 	return bytes.Clone(t.response)
 }
@@ -181,12 +179,9 @@ func ToolInputContinuationFromContext(ctx context.Context) (ToolInputContinuatio
 	return continuation, true
 }
 
-// NewToolInputResponseSignal addresses an answer to the exact wait that asked
-// for it. Requiring the wait identity is what prevents a late or duplicated
-// response from satisfying a different pause than the one it was written for.
-// It validates JSON only; the Execution checks the authoritative response
-// schema. PendingToolInput.ResponseSignal composes local schema validation
-// with this constructor.
+// NewToolInputResponseSignal validates JSON and addresses the exact wait.
+// Execution checks the authoritative response schema; PendingToolInput.ResponseSignal
+// also validates that schema locally.
 func NewToolInputResponseSignal(
 	id agent.SignalID,
 	waitID agent.WaitID,

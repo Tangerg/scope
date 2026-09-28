@@ -101,7 +101,6 @@ func TestOverlayPrecedence(t *testing.T) {
 		t.Fatalf("List = %v, want %v", list, want)
 	}
 
-	// The shared name must resolve to the project copy, not the global one.
 	sk, err := src.Load(context.Background(), "shared")
 	if err != nil {
 		t.Fatalf("Load shared: %v", err)
@@ -110,7 +109,6 @@ func TestOverlayPrecedence(t *testing.T) {
 		t.Errorf("shared description = %q, want the project copy (precedence)", sk.Description)
 	}
 
-	// A global-only skill is still reachable through the overlay.
 	if _, err := src.Load(context.Background(), "only-glob"); err != nil {
 		t.Errorf("Load only-glob via overlay: %v", err)
 	}
@@ -228,9 +226,6 @@ func TestOverlayRejectsInvalidSourceModels(t *testing.T) {
 	})
 }
 
-// TestListMissingDir proves a source pointed at a non-existent directory lists
-// empty rather than failing — the case behind a project/global skills dir that
-// the user hasn't created.
 func TestListMissingDir(t *testing.T) {
 	repository, err := NewDirectoryRepository("/no/such/skills/dir", RepositoryConfig{})
 	if err != nil {
@@ -245,9 +240,6 @@ func TestListMissingDir(t *testing.T) {
 	}
 }
 
-// TestOverlayReadResource proves resources are served from the first source
-// that can satisfy it: the project copy of a shared skill wins, and a
-// global-only skill's resource is still reachable through the overlay.
 func TestOverlayReadResource(t *testing.T) {
 	project := mustNewFS(fstest.MapFS{
 		"shared/SKILL.md":           skillFile("shared", "project shared", "x"),
@@ -398,9 +390,6 @@ func TestOverlayObservesCancellationAfterSourceCalls(t *testing.T) {
 	}
 }
 
-// TestOverlayNoSources proves the degenerate empty overlay is well-behaved: List
-// is empty, and Load reports the standard not-exist category rather than a
-// nil/nil result or a string-only private error.
 func TestOverlayNoSources(t *testing.T) {
 	src := Overlay() // no sources
 

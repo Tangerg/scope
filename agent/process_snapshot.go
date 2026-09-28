@@ -101,18 +101,14 @@ func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
 	return p.state.Mailbox.receipts()
 }
 
-// ProcessID returns the captured Process identity.
 func (p ProcessSnapshot) ProcessID() ProcessID {
 	return p.state.ProcessID
 }
 
-// DeploymentRef returns the exact execution binding required for restoration.
 func (p ProcessSnapshot) DeploymentRef() DeploymentRef {
 	return p.state.DeploymentRef
 }
 
-// Relation returns the immutable parent/root/depth location captured with the
-// Process.
 func (p ProcessSnapshot) Relation() ProcessRelation {
 	if !p.Valid() {
 		return ProcessRelation{}
@@ -120,22 +116,18 @@ func (p ProcessSnapshot) Relation() ProcessRelation {
 	return mustProcessRelation(p.state.ProcessID, p.state.Relation)
 }
 
-// Budget returns the Process work allocation captured by this snapshot.
 func (p ProcessSnapshot) Budget() Budget {
 	return p.state.Limits.Budget
 }
 
-// Capabilities returns the Process authority set captured by this snapshot.
 func (p ProcessSnapshot) Capabilities() CapabilitySet {
 	return p.state.Capabilities
 }
 
-// Status returns the captured common lifecycle state.
 func (p ProcessSnapshot) Status() Status {
 	return p.state.Status
 }
 
-// Usage returns the Framework counters recorded in this capture.
 func (p ProcessSnapshot) Usage() Usage {
 	return p.state.usage()
 }
@@ -554,17 +546,18 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	} else if p.PauseReason != "" {
 		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
 	}
-	if terminal {
-		if p.PendingControl != (pendingControlWire{}) {
-			return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
-		}
-		var unresolved []EffectID
-		if p.Prepared != nil {
-			unresolved = p.Prepared.Effects.unknownEffectIDs()
-		}
-		if !slices.Equal(p.Termination.UnresolvedEffectIDs(), unresolved) {
-			return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
-		}
+	if !terminal {
+		return nil
+	}
+	if p.PendingControl != (pendingControlWire{}) {
+		return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
+	}
+	var unresolved []EffectID
+	if p.Prepared != nil {
+		unresolved = p.Prepared.Effects.unknownEffectIDs()
+	}
+	if !slices.Equal(p.Termination.UnresolvedEffectIDs(), unresolved) {
+		return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
 	}
 	return nil
 }

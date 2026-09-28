@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// ErrInvalidWriteOutcome identifies a Writer that returned contradictory facts.
 var ErrInvalidWriteOutcome = errors.New("history: invalid write outcome")
 
 // WriteOutcome describes the acknowledged facts of one Write attempt. It never

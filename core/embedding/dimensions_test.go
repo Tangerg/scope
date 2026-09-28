@@ -40,13 +40,6 @@ func dimensionResponse(t *testing.T, width int) *embedding.Response {
 	return response
 }
 
-// A requested size is a promise about the vectors. OpenAI documents its
-// dimensions parameter as "the number of dimensions the resulting output
-// embeddings should have" and Google documents outputDimensionality as a
-// reduced dimension where "excessive values in the output embedding are
-// truncated from the end". A model that ignores the parameter returns its
-// full-width vectors, and without this the caller would learn that from
-// whatever it fed them to, if at all.
 func TestValidateForRequiresTheRequestedDimensions(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +59,6 @@ func TestValidateForRequiresTheRequestedDimensions(t *testing.T) {
 		}
 	})
 
-	// An unset size leaves the width to the model, so any uniform width passes.
 	t.Run("unset", func(t *testing.T) {
 		request, err := embedding.NewRequest([]string{"one", "two"})
 		if err != nil {

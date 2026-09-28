@@ -16,7 +16,6 @@ type Formatter interface {
 	Format(document *document.Document) (string, error)
 }
 
-// FormatterFunc adapts a pure document projection to Formatter.
 type FormatterFunc func(*document.Document) (string, error)
 
 func (f FormatterFunc) Format(doc *document.Document) (string, error) {

@@ -19,7 +19,6 @@ type GlobRequest struct {
 	MaxResults int    `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum paths to return. Defaults to 100 and cannot exceed 1000."`
 }
 
-// GlobResponse distinguishes a complete match set from a bounded prefix.
 type GlobResponse struct {
 	Paths     []string `json:"paths"`
 	Truncated bool     `json:"truncated,omitzero"`
@@ -27,13 +26,11 @@ type GlobResponse struct {
 
 var _ toolcontract.Tool = (*GlobTool)(nil)
 
-// GlobTool is the model-facing adapter for the narrow Globber port.
 type GlobTool struct {
 	executor Globber
 	typed    toolcontract.Func[GlobRequest, GlobResponse]
 }
 
-// NewGlobTool requires path-search authority explicitly.
 func NewGlobTool(executor Globber) (*GlobTool, error) {
 	if lo.IsNil(executor) {
 		return nil, ErrNilExecutor
@@ -58,7 +55,6 @@ func (g *GlobTool) Definition() chat.ToolDefinition {
 	return g.typed.Definition()
 }
 
-// ConcurrencyPolicy declares independent calls to the concurrent-safe backend.
 func (g *GlobTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }

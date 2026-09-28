@@ -4,15 +4,7 @@ import (
 	"testing"
 )
 
-// TestSummerNotFreezing exercises the historical bug where unknown
-// locations with pseudo-random southern-hemisphere latitudes plus the
-// midnight-skewed daily variation could produce sub-zero readings in
-// July. The fix biases unknown coords to the northern hemisphere and
-// drops the diurnal-cycle adjustment for date-only queries.
 func TestSummerNotFreezing(t *testing.T) {
-	// 12 sample locations covering a mix of known and unknown
-	// strings; "atlantis" / "vegapunk" / etc. used to trigger the
-	// random-latitude path that contained the bug.
 	locations := []string{
 		"Beijing", "London", "Tokyo", "New York", "Paris",
 		"atlantis", "vegapunk", "shangri-la", "the moon", "valhalla",
@@ -38,12 +30,7 @@ func TestSummerNotFreezing(t *testing.T) {
 	}
 }
 
-// TestKnownSouthernCityFlipsSeasons verifies that the southern-hemisphere
-// month flip still works for known cities — Sao Paulo in July should
-// be the cool side of the year.
 func TestKnownSouthernCityFlipsSeasons(t *testing.T) {
-	// Sao Paulo subtropical: NH-July (month=7) flips to month 1
-	// (~10°C subtropical mean). Should not be 30°C.
 	resp, err := generate(&Request{Location: "Sao Paulo", Date: "2024-07-15"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -52,7 +39,6 @@ func TestKnownSouthernCityFlipsSeasons(t *testing.T) {
 		t.Errorf("Sao Paulo in July (southern winter) produced Temperature.Value=%d, expected < 25°C", resp.Temperature.Value)
 	}
 
-	// And January should be the hot side.
 	resp, err = generate(&Request{Location: "Sao Paulo", Date: "2024-01-15"})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -62,7 +48,6 @@ func TestKnownSouthernCityFlipsSeasons(t *testing.T) {
 	}
 }
 
-// TestDeterministic verifies same input → same output across calls.
 func TestDeterministic(t *testing.T) {
 	req := &Request{Location: "Beijing", Date: "2024-07-15", IncludeAirQuality: true, IncludeHourly: true}
 	a, err := generate(req)
@@ -92,9 +77,6 @@ func TestDeterministic(t *testing.T) {
 	}
 }
 
-// TestTemperatureBounds verifies the per-zone floor/ceiling clamps
-// hold across a wide swath of inputs. Without the clamps, a
-// continental winter at high elevation could run to -50°C.
 func TestTemperatureBounds(t *testing.T) {
 	cases := []struct {
 		location string
@@ -130,7 +112,6 @@ func TestTemperatureBounds(t *testing.T) {
 	}
 }
 
-// TestEmptyDateUsesToday checks the default-date branch.
 func TestEmptyDateUsesToday(t *testing.T) {
 	resp, err := generate(&Request{Location: "Beijing", Date: ""})
 	if err != nil {
@@ -144,7 +125,6 @@ func TestEmptyDateUsesToday(t *testing.T) {
 	}
 }
 
-// TestInvalidDateRejected ensures malformed dates surface a helpful error.
 func TestInvalidDateRejected(t *testing.T) {
 	_, err := generate(&Request{Location: "Beijing", Date: "yesterday"})
 	if err == nil {
@@ -152,9 +132,6 @@ func TestInvalidDateRejected(t *testing.T) {
 	}
 }
 
-// TestKnownCitiesAllResolve walks every entry in [knownCities] and
-// verifies the lookup wires through to the right zone profile (no
-// drift between cities.go and the climateProfiles table).
 func TestKnownCitiesAllResolve(t *testing.T) {
 	for name, profile := range knownCities {
 		zone := identifyClimateZone(name)
@@ -167,7 +144,6 @@ func TestKnownCitiesAllResolve(t *testing.T) {
 	}
 }
 
-// TestRegionalAliases verifies the regional pattern hints work.
 func TestRegionalAliases(t *testing.T) {
 	cases := []struct {
 		query string

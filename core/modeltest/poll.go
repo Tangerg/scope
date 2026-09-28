@@ -7,21 +7,16 @@ import (
 	"sync/atomic"
 )
 
-// Route names an HTTP method + path-substring pair plus its handler.
-// The Contains field is matched against r.URL.Path with
-// strings.Contains, so "/transcript" matches both "/v2/transcript"
-// (the POST) and "/v2/transcript/job-1" (the GET poll). When Contains
-// is empty the route matches every path — useful as a fallback.
+// Contains matches a URL-path substring. Empty Method or Contains matches any
+// method or path, respectively.
 type Route struct {
 	Method   string
 	Contains string
 	Handle   http.HandlerFunc
 }
 
-// MuxServer exists because the asynchronous modalities submit work on one path
-// and poll for it on another, so their adapters cannot be exercised by a
-// single-handler fixture. Routes are matched in order, which lets a caller put
-// specific paths first and keep a catch-all last.
+// MuxServer matches routes in order; place a catch-all last.
+// The caller owns server cleanup.
 func MuxServer(routes ...Route) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, route := range routes {
@@ -38,9 +33,7 @@ func MuxServer(routes ...Route) *httptest.Server {
 	}))
 }
 
-// PollCounter holds a goroutine-safe attempt counter. Polling vendors
-// typically need to return "in-progress" for the first N polls then
-// "completed" — bind a PollCounter to the GET handler to drive that.
+// PollCounter is safe for concurrent handlers.
 type PollCounter struct {
 	n atomic.Int32
 }

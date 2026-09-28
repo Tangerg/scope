@@ -116,12 +116,7 @@ func (l *LocalExecutor) openRoot() (*os.Root, error) {
 	return root, nil
 }
 
-// expandHome expands a leading ~ — the shell convention an LLM routinely emits
-// — to the current user's home dir: "~" or "~/" → home, "~/x" → home/x. Any
-// other form (a plain relative path, an absolute path, or "~user") is returned
-// unchanged. Best-effort: if the home dir can't be resolved the path is left
-// as-is. Without this, "~/x" anchors literally under Root as ".../~/x" and the
-// open fails with "no such file or directory".
+// Only ~ and ~/ expand. If home lookup fails, preserve the original path.
 func expandHome(path string) string {
 	if path != "~" && !strings.HasPrefix(path, "~/") {
 		return path
@@ -227,8 +222,6 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 		return WriteResponse{}, cause
 	}
 
-	// Detect existing format + permissions so an overwrite preserves
-	// CRLF / BOM / mode instead of silently flipping them.
 	var mode *os.FileMode
 	hadBOM, hadCRLF := false, false
 	if info, statErr := root.Stat(path); statErr == nil {
@@ -598,8 +591,7 @@ func (l *LocalExecutor) preparePatch(
 		mode:   mode,
 	}
 	if file.moved() {
-		// The origin is reported, not just the destination: "moved" without saying
-		// from where leaves the model to infer which file stopped existing.
+
 		prepared.source = targets[file.oldPath]
 		result.MovedFrom = file.oldPath
 	}

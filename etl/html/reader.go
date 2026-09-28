@@ -18,9 +18,6 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-// These keys name the reader-derived metadata attached to every emitted
-// document, so a downstream splitter or retriever can rely on them being
-// present rather than re-deriving them from content.
 const (
 	MetadataTitle       = "html.title"
 	MetadataDescription = "html.description"
@@ -41,7 +38,6 @@ type ReaderConfig struct {
 	SourceBudget       etl.SourceBudget
 }
 
-// Reader extracts documents from HTML.
 type Reader struct {
 	source          io.Reader
 	selector        string
@@ -52,10 +48,8 @@ type Reader struct {
 	sourceBudget    etl.SourceBudget
 }
 
-// NewReader compiles the selector at construction so an invalid one fails
-// where it is configured rather than on every document. Unlike PDF, the budget
-// is enforced while reading because an [io.Reader] cannot report its length in
-// advance.
+// NewReader validates the selector without consuming source. The byte budget is
+// enforced by Read because io.Reader does not provide a source length.
 func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("html reader: source must not be nil")
@@ -266,10 +260,11 @@ func (p pageInfo) applyTo(metadata *coremetadata.Map) error {
 		{MetadataDescription, p.description},
 		{MetadataCanonical, p.canonical},
 	} {
-		if field.value != "" {
-			if err := metadata.Set(field.key, field.value); err != nil {
-				return err
-			}
+		if field.value == "" {
+			continue
+		}
+		if err := metadata.Set(field.key, field.value); err != nil {
+			return err
 		}
 	}
 	return nil

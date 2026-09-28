@@ -125,8 +125,11 @@ func (c childWaitOperation) apply(p *preparedStepFinalization, record preparedEf
 	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: c.spec})
 	return nil
 }
-func (c childWaitOperation) validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error {
-	return nil
+func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, _ preparedEffect) error {
+	if t.processes[parent].Status.Terminal() {
+		return nil
+	}
+	return c.spec.validateRelations(parent, t.processRelation)
 }
 func (c childWaitOperation) dispatch(t *treeRuntime, p *processState, _ uint32, record *preparedEffect, observation effectAttempt) {
 	t.settleFramework(p, record, observation)
@@ -178,7 +181,44 @@ func (c childStartOperation) apply(p *preparedStepFinalization, record preparedE
 	return p.enqueueSettlement(signal)
 }
 func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
-	return t.validateChildStart(parent, record)
+	if !record.definitelySettled() {
+		return nil
+	}
+	result, err := decodeChildStartResult(record.Settlement.Payload())
+	if err != nil {
+		return err
+	}
+	childID, started := result.ProcessID()
+	if !started {
+		return nil
+	}
+	digest, err := c.spec.digest()
+	if err != nil {
+		return err
+	}
+	child, exists := t.processes[childID]
+	if !exists {
+		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
+	}
+	if child.Relation.ParentID == nil || *child.Relation.ParentID != parent {
+		return fmt.Errorf("%w: child parent identity disagrees with start", ErrInvalidChildStart)
+	}
+	if child.Relation.ChildKey == nil || *child.Relation.ChildKey != c.spec.Key {
+		return fmt.Errorf("%w: child key disagrees with start", ErrInvalidChildStart)
+	}
+	if child.DeploymentRef != c.spec.DeploymentRef {
+		return fmt.Errorf("%w: child Deployment disagrees with start", ErrInvalidChildStart)
+	}
+	if child.Limits.Budget != c.spec.Budget {
+		return fmt.Errorf("%w: child budget disagrees with start", ErrInvalidChildStart)
+	}
+	if !slices.Equal(child.Capabilities.Values(), c.spec.Capabilities.Values()) {
+		return fmt.Errorf("%w: child capabilities disagree with start", ErrInvalidChildStart)
+	}
+	if child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
+		return fmt.Errorf("%w: child request digest disagrees with start", ErrInvalidChildStart)
+	}
+	return nil
 }
 func (c childStartOperation) dispatch(t *treeRuntime, p *processState, _ uint32, record *preparedEffect, observation effectAttempt) {
 	t.startChild(p, record, observation)
@@ -193,16 +233,15 @@ func (c childControlOperation) validate(p *preparedEffect) error {
 	if p.Settlement == nil {
 		return nil
 	}
-	request := c.request
 	result, err := decodeChildControlResult(p.Settlement.Payload())
-	if err != nil || result.childID != request.ChildID || result.operation != request.Operation {
+	if err != nil || !result.matches(c.request) {
 		return ErrInvalidChildControl
 	}
 	wantStatus := SettlementStatusSucceeded
 	if result.failure.Valid() {
 		wantStatus = SettlementStatusFailed
 	}
-	if p.Settlement.Status() != wantStatus || !result.Matches(p.Effect) {
+	if p.Settlement.Status() != wantStatus {
 		return ErrInvalidChildControl
 	}
 	return nil
@@ -226,7 +265,33 @@ func (c childControlOperation) apply(p *preparedStepFinalization, record prepare
 	return p.enqueueSettlement(signal)
 }
 func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
-	return t.validateChildControl(parent, record)
+	if !record.definitelySettled() {
+		return nil
+	}
+	result, err := decodeChildControlResult(record.Settlement.Payload())
+	if err != nil || result.failure.Valid() {
+		return err
+	}
+	child, present := t.processes[result.childID]
+	if !present || child.Relation.ParentID == nil || *child.Relation.ParentID != parent {
+		return ErrInvalidChildControl
+	}
+	if result.operation == frameworkEffectCancelChild {
+		if !child.Status.Terminal() && !child.PendingControl.CancellationOwner.valid() {
+			return ErrInvalidChildControl
+		}
+		return nil
+	}
+	for _, receipt := range child.Mailbox.receipts() {
+		if receipt.ID() != result.signalID {
+			continue
+		}
+		if !receipt.Matches(*c.request.Signal) {
+			return ErrInvalidChildControl
+		}
+		return nil
+	}
+	return ErrInvalidChildControl
 }
 func (c childControlOperation) dispatch(t *treeRuntime, p *processState, index uint32, record *preparedEffect, observation effectAttempt) {
 	t.controlChild(p, index, record, observation)

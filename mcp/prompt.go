@@ -21,6 +21,15 @@ func PromptMessagesToChat(messages []*sdkmcp.PromptMessage) ([]chat.Message, err
 		if message == nil {
 			return nil, fmt.Errorf("mcp: prompt message %d is nil", index)
 		}
+		var converted chat.Message
+		switch message.Role {
+		case "user":
+			converted = chat.NewUserMessage()
+		case "assistant":
+			converted = chat.NewAssistantMessage()
+		default:
+			return nil, fmt.Errorf("mcp: prompt message %d has unsupported role %q", index, message.Role)
+		}
 
 		part, present, err := promptContentToPart(message.Content)
 		if err != nil {
@@ -30,15 +39,7 @@ func PromptMessagesToChat(messages []*sdkmcp.PromptMessage) ([]chat.Message, err
 			continue
 		}
 
-		var converted chat.Message
-		switch message.Role {
-		case "user":
-			converted = chat.NewUserMessage(part)
-		case "assistant":
-			converted = chat.NewAssistantMessage(part)
-		default:
-			return nil, fmt.Errorf("mcp: prompt message %d has unsupported role %q", index, message.Role)
-		}
+		converted.Parts = append(converted.Parts, part)
 		if err := converted.Validate(); err != nil {
 			return nil, fmt.Errorf("mcp: prompt message %d: %w", index, err)
 		}

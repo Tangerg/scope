@@ -6,20 +6,8 @@ import (
 	"net/http/httptest"
 )
 
-// OpenAISSEServer returns an httptest.Server that streams `chunks` as
-// OpenAI-shaped Server-Sent Events:
-//
-//	data: <chunk-1>\n\n
-//	data: <chunk-2>\n\n
-//	...
-//	data: [DONE]\n\n
-//
-// Each chunk should be a JSON-encoded `ChatCompletionChunk` body.
+// OpenAISSEServer frames JSON chunks as data events followed by [DONE].
 // The caller owns the server and must close it after use.
-//
-// Used by every OpenAI-compatible vendor (openai / azureopenai /
-// deepseek / moonshot / openrouter / xai / groq / together / fireworks /
-// perplexity / alibaba / zhipu / minimax / ...).
 func OpenAISSEServer(chunks []string) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -39,23 +27,13 @@ func OpenAISSEServer(chunks []string) *httptest.Server {
 	return srv
 }
 
-// AnthropicEvent is a single named SSE event for Anthropic's
-// multi-event-type streaming protocol.
 type AnthropicEvent struct {
 	Event string
 	Data  string
 }
 
-// AnthropicSSEServer returns an httptest.Server that streams `events`
-// as Anthropic-shaped SSE:
-//
-//	event: message_start\ndata: {...}\n\n
-//	event: content_block_delta\ndata: {...}\n\n
-//	...
-//	event: message_stop\ndata: {...}\n\n
-//
-// Anthropic uses named events rather than a single sentinel; the
-// caller is responsible for providing the right sequence.
+// AnthropicSSEServer emits named events in the supplied order.
+// The caller supplies the complete event sequence and owns server cleanup.
 func AnthropicSSEServer(events []AnthropicEvent) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -73,10 +51,8 @@ func AnthropicSSEServer(events []AnthropicEvent) *httptest.Server {
 	return srv
 }
 
-// JSONServer runs every inspection before writing the response so a test can
-// assert on the request the adapter actually sent without racing the client's
-// return. Inspections receive the live request, so a body must be read there
-// or not at all.
+// Inspections run before the response is written and receive the live request.
+// Read the body during inspection; it is unavailable after the handler returns.
 func JSONServer(status int, body string, inspections ...func(request *http.Request)) *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		for _, inspect := range inspections {
@@ -89,9 +65,6 @@ func JSONServer(status int, body string, inspections ...func(request *http.Reque
 	return server
 }
 
-// BinaryServer serves the modalities whose success path is bytes rather than
-// JSON — synthesized speech and generated images — where forcing the payload
-// through a string fixture would corrupt it.
 func BinaryServer(status int, contentType string, body []byte, inspections ...func(request *http.Request)) *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		for _, inspect := range inspections {

@@ -64,13 +64,10 @@ func (l *ListLiteral) Equal(other Expr) bool {
 }
 
 func (l *ListLiteral) Values() (any, error) {
-	if l == nil || len(l.values) == 0 {
-		return nil, errors.New("filter: decode list literal values: list is empty")
+	if err := l.validate(); err != nil {
+		return nil, err
 	}
 	first := l.values[0]
-	if first == nil {
-		return nil, errors.New("filter: decode list literal values: element 0 is nil")
-	}
 	switch {
 	case first.IsString():
 		out := make([]string, 0, len(l.values))
@@ -177,4 +174,40 @@ func signedListValues(values []any) []int64 {
 		out = append(out, value.(int64))
 	}
 	return out
+}
+
+func (l *ListLiteral) validate() error {
+	if l == nil {
+		return errors.New("filter: list literal is nil")
+	}
+	if len(l.values) == 0 {
+		return fmt.Errorf("filter: list literal cannot be empty at %s", l.Start())
+	}
+
+	first := l.values[0]
+	if first == nil {
+		return fmt.Errorf("filter: list element 0 is nil at %s", l.Start())
+	}
+	if first.IsNull() {
+		return fmt.Errorf("filter: list elements cannot be NULL at %s", first.Start())
+	}
+	if err := first.validate(); err != nil {
+		return err
+	}
+
+	for index, value := range l.values[1:] {
+		if value == nil {
+			return fmt.Errorf("filter: list element %d is nil at %s", index+1, l.Start())
+		}
+		if value.kind != first.kind {
+			return fmt.Errorf(
+				"filter: list element %d has kind %s, expected %s at %s",
+				index+1, value.kind, first.kind, value.Start(),
+			)
+		}
+		if err := value.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

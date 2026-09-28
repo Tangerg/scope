@@ -57,7 +57,6 @@ func (c cancellationOwner) String() string {
 	return string(c)
 }
 
-// killIntent records an explicit Engine kill request.
 type killIntent struct{ reason string }
 
 func newKillIntent(reason string) (killIntent, error) {
@@ -143,7 +142,6 @@ const (
 	stepOutcomeFailed
 )
 
-// stepOutcome carries either legal completion or a classified failure.
 type stepOutcome struct {
 	kind    stepOutcomeKind
 	failure Failure
@@ -199,32 +197,20 @@ func (t terminationFacts) resolve() (Termination, error) {
 	}
 }
 
-// TerminationCause is the stable reason category of a terminal Process.
 type TerminationCause string
 
 const (
-	// TerminationCauseInvalid is the invalid zero value.
-	TerminationCauseInvalid TerminationCause = ""
-	// TerminationCauseCompletion identifies successful semantic completion.
-	TerminationCauseCompletion TerminationCause = "completion"
-	// TerminationCauseEngineKill identifies an explicit Engine kill.
-	TerminationCauseEngineKill TerminationCause = "engine_kill"
-	// TerminationCauseParentDeadline identifies deadline propagation from a parent.
-	TerminationCauseParentDeadline TerminationCause = "parent_deadline"
-	// TerminationCauseHostDeadline identifies expiry of the Host context.
-	TerminationCauseHostDeadline TerminationCause = "host_deadline"
-	// TerminationCauseParentCancellation identifies cancellation by a parent Process.
+	TerminationCauseInvalid            TerminationCause = ""
+	TerminationCauseCompletion         TerminationCause = "completion"
+	TerminationCauseEngineKill         TerminationCause = "engine_kill"
+	TerminationCauseParentDeadline     TerminationCause = "parent_deadline"
+	TerminationCauseHostDeadline       TerminationCause = "host_deadline"
 	TerminationCauseParentCancellation TerminationCause = "parent_cancellation"
-	// TerminationCauseHostCancellation identifies cancellation by the Host context.
-	TerminationCauseHostCancellation TerminationCause = "host_cancellation"
-	// TerminationCauseExecutionFailure identifies an ordinary Strategy failure.
-	TerminationCauseExecutionFailure TerminationCause = "execution_failure"
-	// TerminationCauseContractFailure identifies a contract violation.
-	TerminationCauseContractFailure TerminationCause = "contract_failure"
-	// TerminationCauseExternalFailure identifies failed external infrastructure.
-	TerminationCauseExternalFailure TerminationCause = "external_failure"
-	// TerminationCausePanic identifies a recovered execution-boundary panic.
-	TerminationCausePanic TerminationCause = "panic"
+	TerminationCauseHostCancellation   TerminationCause = "host_cancellation"
+	TerminationCauseExecutionFailure   TerminationCause = "execution_failure"
+	TerminationCauseContractFailure    TerminationCause = "contract_failure"
+	TerminationCauseExternalFailure    TerminationCause = "external_failure"
+	TerminationCausePanic              TerminationCause = "panic"
 )
 
 func (t TerminationCause) Valid() bool {
@@ -268,7 +254,6 @@ func validateTerminationReason(reason string) error {
 
 func (t Termination) Status() Status { return t.status }
 
-// Cause returns the stable machine-readable terminal category.
 func (t Termination) Cause() TerminationCause { return t.cause }
 
 // Reason returns a bounded diagnostic reason. Completion has an empty reason.

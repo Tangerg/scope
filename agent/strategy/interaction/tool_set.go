@@ -35,8 +35,6 @@ type ToolSet struct {
 	dispatcher *toolDispatcher
 }
 
-// NewToolSet freezes Tools and composes the canonical Definition,
-// Dispatcher, and Deployment contracts into a callable Tool collection.
 func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if len(config.Tools)+len(config.DeferredTools) == 0 {
 		return ToolSet{}, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)

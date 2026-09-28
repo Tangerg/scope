@@ -7,7 +7,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Compiler exposes the lifecycle surface shared by provider filter compilers.
 // Snapshot must return a value suitable for reflect.DeepEqual.
 type Compiler struct {
 	Visit    func(filter.Predicate) error

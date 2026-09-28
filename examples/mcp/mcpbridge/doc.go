@@ -1,13 +1,8 @@
-// Command mcpbridge shows the reverse direction: scope exposes a
-// chat.Tool as an MCP server so external hosts (Claude Desktop,
-// Cursor, ...) can drive a scope agent's tools.
+// Command mcpbridge exposes a Scope tool through MCP using in-memory transports.
 //
-// Run as a stdio MCP server (the host spawns the binary and talks
-// over stdin/stdout):
+// Run from the repository root:
 //
 //	go run ./examples/mcp/mcpbridge
 //
-// The example uses an in-memory transport pair so it runs offline;
-// for real deployments swap to sdkmcp.StdioTransport{} (or the SDK's
-// Streamable HTTP handler).
+// A deployed server can use sdkmcp.StdioTransport or a Streamable HTTP handler.
 package main

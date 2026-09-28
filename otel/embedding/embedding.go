@@ -37,8 +37,6 @@ var (
 	ErrInvalidModel  = errors.New("otel/embedding: invalid model")
 )
 
-// MiddlewareConfig identifies the provider and optional OTel providers used by
-// embedding instrumentation.
 type MiddlewareConfig struct {
 	Provider       string
 	TracerProvider trace.TracerProvider
@@ -47,7 +45,6 @@ type MiddlewareConfig struct {
 	LoggerProvider log.LoggerProvider
 }
 
-// Validate checks construction inputs without resolving global providers.
 func (m MiddlewareConfig) Validate() error {
 	if strings.TrimSpace(m.Provider) == "" {
 		return fmt.Errorf("%w: provider is required", ErrInvalidConfig)
@@ -104,8 +101,6 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Wrap decorates one embedding Model without changing its request, response,
-// or error semantics.
 func (m Middleware) Wrap(next coreembedding.Model) (coreembedding.Model, error) {
 	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
 		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)

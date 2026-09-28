@@ -12,15 +12,7 @@ import (
 	"testing"
 )
 
-// The catalog states the rule its rows depend on: "provider equals the
-// adapter's Provider constant, lowercased". Nothing enforced it. A key that
-// drifts from its adapter's constant does not fail anywhere — Lookup simply
-// answers not-found for every caller that passes the constant, and a cost
-// attribution silently becomes zero.
-//
-// The check lives here rather than in the catalog because the catalog holds no
-// provider module and must not start importing twenty of them to learn their
-// names. Reading the constants is what this module already does.
+// Read adapter constants without importing provider dependencies into the catalog.
 func TestCatalogProviderKeysMatchTheirAdapterConstants(t *testing.T) {
 	t.Parallel()
 
@@ -35,17 +27,8 @@ func TestCatalogProviderKeysMatchTheirAdapterConstants(t *testing.T) {
 	}
 }
 
-// The catalog owns which models exist. A provider's Model constants are a
-// curated selection from it, never a second source for it: taking a constant
-// and asking the catalog about it is the intended use, so a constant the
-// catalog cannot answer for is a contradiction a caller meets at runtime.
-//
-// Without this check the two drift silently, because upstream retiring a model
-// updates the generated catalog and leaves the hand-kept constant behind.
-//
-// A deprecated row stays in the catalog only so cost still attributes for
-// callers already on that id, which is the opposite of a recommendation, so a
-// constant must not name one either.
+// Model constants recommend catalog entries; retired rows remain only for
+// historical attribution and must not be recommended.
 func TestModelConstantsNameCatalogedModels(t *testing.T) {
 	t.Parallel()
 
@@ -56,8 +39,7 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 	for _, constant := range adapterModelConstants(t, root) {
 		models, covered := catalogs[constant.provider]
 		if !covered {
-			// The provider has no catalog config at all: an audio, image, or
-			// embedding-only backend the chat catalog does not describe.
+			// Audio, image, and embedding-only backends may have no chat catalog.
 			continue
 		}
 		if nonChatModelConstants[constant.qualifiedName()] {
@@ -75,8 +57,6 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 		}
 	}
 
-	// An exemption whose constant is gone is indistinguishable from a typo, and
-	// it silently widens the next one that happens to be named the same.
 	for name := range nonChatModelConstants {
 		if !claimed[name] {
 			t.Errorf("nonChatModelConstants exempts %s, which no adapter declares", name)
@@ -84,13 +64,8 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 	}
 }
 
-// nonChatModelConstants are the constants that name a model the catalog does
-// not carry by design: it is a chat catalog, and an embedding or moderation
-// model is filtered out of it at generation.
-//
-// The exemption is a list rather than a naming convention so that adding one
-// is a decision someone writes down. Anything not listed has to be in the
-// catalog.
+// The chat catalog excludes these models. Exemptions are explicit so a new
+// model constant cannot bypass the catalog through a naming convention.
 var nonChatModelConstants = map[string]bool{
 	"alibaba.ModelEmbeddingV4":    true,
 	"mistral.ModelEmbed":          true,
@@ -99,8 +74,6 @@ var nonChatModelConstants = map[string]bool{
 	"zhipu.ModelEmbedding3":       true,
 }
 
-// modelConstant is one exported model id constant, tied to the provider its
-// package declares.
 type modelConstant struct {
 	provider string
 	pkg      string
@@ -114,8 +87,6 @@ func (m modelConstant) qualifiedName() string {
 	return m.pkg + "." + m.name
 }
 
-// catalogModelIDs reads every embedded config, returning
-// provider key -> model id -> deprecated.
 func catalogModelIDs(t *testing.T, root string) map[string]map[string]bool {
 	t.Helper()
 
@@ -155,8 +126,6 @@ func catalogModelIDs(t *testing.T, root string) map[string]map[string]bool {
 	return catalogs
 }
 
-// adapterModelConstants collects every exported Model* constant, tied to the
-// Provider constant its own package declares.
 func adapterModelConstants(t *testing.T, root string) []modelConstant {
 	t.Helper()
 
@@ -225,7 +194,6 @@ func collectModelConstants(t *testing.T, directory string, into *[]modelConstant
 	}
 }
 
-// stringConstants yields every `Name = "literal"` declared at the top level.
 func stringConstants(file *ast.File) func(func(*ast.Ident, string) bool) {
 	return func(yield func(*ast.Ident, string) bool) {
 		for _, declaration := range file.Decls {
@@ -259,8 +227,6 @@ func stringConstants(file *ast.File) func(func(*ast.Ident, string) bool) {
 	}
 }
 
-// catalogProviderKeys reads the provider key out of every embedded config,
-// returning key -> file name.
 func catalogProviderKeys(t *testing.T, root string) map[string]string {
 	t.Helper()
 
@@ -296,8 +262,6 @@ func catalogProviderKeys(t *testing.T, root string) map[string]string {
 	return keys
 }
 
-// adapterProviderConstants collects every `Provider = "..."` an adapter
-// declares, lowercased, which is the form the catalog keys by.
 func adapterProviderConstants(t *testing.T, root string) map[string]string {
 	t.Helper()
 
@@ -311,8 +275,7 @@ func adapterProviderConstants(t *testing.T, root string) map[string]string {
 		if !entry.IsDir() {
 			continue
 		}
-		// A provider may declare its constant in a nested package, as vertexai
-		// does under google, so the whole subtree is read.
+		// Provider constants may live in nested packages, such as google/vertexai.
 		root := filepath.Join(modelsDirectory, entry.Name())
 		collectProviderConstants(t, root, constants)
 	}

@@ -38,9 +38,6 @@ func responseDelta(id string) *chat.ResponseDelta {
 	return &chat.ResponseDelta{Metadata: &chat.ResponseMetadata{ID: id}, FinishReason: chat.FinishReasonStop}
 }
 
-// blockingChat is the minimal provider shape the behavior suite is written
-// against: it holds an HTTP request open until the caller's context is
-// released, which is exactly how a real SDK surfaces cancellation.
 type blockingChat struct {
 	url string
 }
@@ -80,8 +77,6 @@ func (b blockingChat) wait(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// streamingChat yields one response, then blocks until the caller stops
-// iterating or the context is released.
 type streamingChat struct {
 	url string
 }
@@ -111,8 +106,6 @@ func (s streamingChat) Stream(ctx context.Context, _ *chat.Request) iter.Seq2[*c
 	}
 }
 
-// failingChat yields one good response and then a terminal error, which is the
-// shape "first error terminates" is written against.
 type failingChat struct{}
 
 func (failingChat) Stream(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
@@ -131,10 +124,6 @@ func writeInitialLine(writer http.ResponseWriter) {
 	writer.(http.Flusher).Flush()
 }
 
-// TestChatBehaviorContract runs the shared behavior contract against fakes that
-// honor it. The suite is the harness every provider module is held to, so a
-// regression in the harness itself has to fail here rather than silently stop
-// checking providers.
 func TestChatBehaviorContract(t *testing.T) {
 	modeltest.RunChatBehaviorContract(t, modeltest.ChatBehaviorContract{
 		Request: helloRequest,
@@ -163,9 +152,6 @@ func TestChatBehaviorContract(t *testing.T) {
 	})
 }
 
-// TestNewBlockingServerUsesADefaultInitialWrite covers the branch where a
-// caller does not supply an initial write, which providers that stream nothing
-// before their first chunk rely on.
 func TestNewBlockingServerUsesADefaultInitialWrite(t *testing.T) {
 	server, lifecycle := modeltest.NewBlockingServer(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -217,8 +203,6 @@ func (fakeEmbedding) Call(_ context.Context, request *embedding.Request) (*embed
 	return embedding.NewResponse(outputs, nil)
 }
 
-// TestRunEmbeddingContract exercises the embedding harness the same way a
-// provider module does, including the URL-path assertion.
 func TestRunEmbeddingContract(t *testing.T) {
 	built := false
 	modeltest.RunEmbeddingContract(t, modeltest.EmbeddingContract{
@@ -298,8 +282,6 @@ func TestRunRerankContract(t *testing.T) {
 	}
 }
 
-// probeEmbedding hits the contract's mock server so the path assertion has
-// something to observe, then answers from the request itself.
 type probeEmbedding struct{ baseURL string }
 
 func (p probeEmbedding) Call(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
@@ -355,8 +337,6 @@ func TestMuxServerRoutesByMethodAndPath(t *testing.T) {
 	}
 }
 
-// TestMuxServerReportsAnUnroutedRequest keeps a missing route loud instead of
-// letting a provider test read an empty 200 as a valid answer.
 func TestMuxServerReportsAnUnroutedRequest(t *testing.T) {
 	server := modeltest.MuxServer(modeltest.Route{Method: http.MethodPost, Contains: "/only-post"})
 	t.Cleanup(server.Close)
@@ -520,6 +500,20 @@ func TestCollectNStopsEarlyAndPropagatesErrors(t *testing.T) {
 	}
 }
 
+func TestCollectNDoesNotStartWithoutCapacity(t *testing.T) {
+	for _, count := range []int{-1, 0} {
+		started := false
+		sequence := func(yield func(int, error) bool) {
+			started = true
+			yield(1, nil)
+		}
+		values, err := modeltest.CollectN(iter.Seq2[int, error](sequence), count)
+		if started || len(values) != 0 || err != nil {
+			t.Fatalf("CollectN(count=%d): started=%t, values=%v, error=%v; want no iteration", count, started, values, err)
+		}
+	}
+}
+
 func TestEnvironmentHelpersReadPresentValues(t *testing.T) {
 	t.Setenv("SCOPE_TEST_PROBE_KEY", "secret")
 	if got := modeltest.RequireKey(t, "probe"); got != "secret" {
@@ -544,8 +538,6 @@ func TestEnvironmentHelpersReadPresentValues(t *testing.T) {
 	}
 }
 
-// TestRunIntegrationEmbeddingSkipsWithoutAKey documents the guard every
-// integration probe relies on: no key means skip, never fail.
 func TestRunIntegrationEmbeddingSkipsWithoutAKey(t *testing.T) {
 	t.Setenv("SCOPE_TEST_ABSENTPROVIDER_KEY", "")
 	built := false

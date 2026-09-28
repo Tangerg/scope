@@ -14,22 +14,18 @@ import (
 // retain the slice. Context is not a source of domain input.
 type ForkReducer[B, O any] func(ctx context.Context, branchOutputs []B) (O, error)
 
-// ForkBranch declares one exact managed child Deployment.
 type ForkBranch struct {
 	// ID is unique within this Fork Stage and stable across restoration.
 	ID string
 
-	// Deployment is the exact child behavior binding for this branch.
 	Deployment agent.Deployment
 
 	// Budget is permanently allocated from the parent when the branch starts.
 	Budget agent.Budget
 
-	// Capabilities is the attenuated authority set granted to the child.
 	Capabilities agent.CapabilitySet
 }
 
-// ForkConfig declares a homogeneous fan-out and deterministic reduction.
 type ForkConfig[I, B, O any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
@@ -42,7 +38,6 @@ type ForkConfig[I, B, O any] struct {
 	// execution window before the next window begins.
 	WindowSize uint32
 
-	// Reduce combines all B values after every branch succeeds.
 	Reduce ForkReducer[B, O]
 }
 

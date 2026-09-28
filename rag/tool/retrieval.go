@@ -24,12 +24,10 @@ type RetrievalConfig struct {
 	Retriever   rag.Retriever
 }
 
-// RetrievalRequest is the strict model-generated tool input.
 type RetrievalRequest struct {
 	Query string `json:"query" jsonschema:"minLength=1" jsonschema_description:"Natural-language query to retrieve evidence for."`
 }
 
-// RetrievalOutput is the model-visible retrieval result.
 type RetrievalOutput struct {
 	Candidates rag.Candidates `json:"candidates"`
 }
@@ -42,8 +40,6 @@ type Retrieval struct {
 
 var _ coretool.Tool = Retrieval{}
 
-// NewRetrieval exposes a composed Retriever through the ordinary core tool
-// contract without adding Agent-specific retrieval semantics.
 func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 	if lo.IsNil(config.Retriever) {
 		return Retrieval{}, rag.ErrNilRetriever

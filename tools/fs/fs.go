@@ -60,8 +60,6 @@ type Grepper interface {
 	Grep(ctx context.Context, in GrepInput) (GrepResponse, error)
 }
 
-// ReadInput is line-based. The executor handles binary detection and
-// line windowing — the tool only forwards what the LLM asked for.
 type ReadInput struct {
 	Path           string
 	Offset         int   // 0-based line offset; negative is clamped to 0
@@ -80,8 +78,6 @@ func (r ReadInput) resolvedLimits() readLimits {
 	}
 }
 
-// ReadOutput reports the admitted line window and whole-file size without
-// leaking backend implementation details.
 type ReadOutput struct {
 	Content    string
 	StartLine  int
@@ -107,37 +103,24 @@ func (e editOperation) apply(content, path string) (string, int, error) {
 		return "", 0, ErrBinaryFile
 	}
 	occurrences := strings.Count(content, e.OldString)
-	switch {
-	case occurrences == 0:
+	if occurrences == 0 {
 		return "", 0, fmt.Errorf("old_string not found in %s", path)
-	case occurrences > 1 && !e.ReplaceAll:
-		return "", 0, fmt.Errorf("old_string matches %d times in %s — set replace_all=true to confirm", occurrences, path)
-	default:
-		n := 1
-		if e.ReplaceAll {
-			n = -1
-		}
-		replacements := occurrences
-		if !e.ReplaceAll {
-			replacements = 1
-		}
-		return strings.Replace(content, e.OldString, e.NewString, n), replacements, nil
 	}
+	if occurrences > 1 && !e.ReplaceAll {
+		return "", 0, fmt.Errorf("old_string matches %d times in %s — set replace_all=true to confirm", occurrences, path)
+	}
+	return strings.ReplaceAll(content, e.OldString, e.NewString), occurrences, nil
 }
 
-// GrepOutputMode controls what GrepResponse populates.
 type GrepOutputMode string
 
 const (
 	// GrepOutputContent returns structured matching and context lines.
-	GrepOutputContent GrepOutputMode = "content"
-	// GrepOutputFilesWithMatches returns only paths containing a match.
+	GrepOutputContent          GrepOutputMode = "content"
 	GrepOutputFilesWithMatches GrepOutputMode = "files_with_matches"
-	// GrepOutputCount returns per-file match counts.
-	GrepOutputCount GrepOutputMode = "count"
+	GrepOutputCount            GrepOutputMode = "count"
 )
 
-// Normalize applies the default and rejects unsupported output modes.
 func (g GrepOutputMode) Normalize() (GrepOutputMode, error) {
 	if g == "" {
 		g = GrepOutputContent
@@ -157,8 +140,6 @@ func (g GrepOutputMode) Valid() bool {
 	}
 }
 
-// GrepInput is the backend search contract after model-facing fields have been
-// normalized.
 type GrepInput struct {
 	Pattern    string // regex
 	Path       string // file or directory below the executor's authority root
@@ -204,15 +185,10 @@ func (g GrepInput) ripgrepArguments(mode GrepOutputMode) []string {
 	return append(args, "--regexp", g.Pattern, "--", "-")
 }
 
-// GrepLineKind distinguishes a matching line from requested surrounding
-// context.
 type GrepLineKind string
 
 const (
-	// GrepLineMatch identifies content matched by the regular expression.
-	GrepLineMatch GrepLineKind = "match"
-
-	// GrepLineContext identifies surrounding content requested for a match.
+	GrepLineMatch   GrepLineKind = "match"
 	GrepLineContext GrepLineKind = "context"
 )
 
@@ -222,7 +198,6 @@ func (g GrepLineKind) Valid() bool {
 
 func (g GrepLineKind) String() string { return string(g) }
 
-// GrepLine is one structured ripgrep line event.
 type GrepLine struct {
 	Path string       `json:"path"`
 	Line int          `json:"line"` // 1-based
@@ -230,7 +205,6 @@ type GrepLine struct {
 	Kind GrepLineKind `json:"kind"`
 }
 
-// GrepFileCount is one entry of the "count" output mode.
 type GrepFileCount struct {
 	Path  string `json:"path"`
 	Count int    `json:"count"`

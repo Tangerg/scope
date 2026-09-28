@@ -17,14 +17,10 @@ var ErrInvalidSettlement = errors.New("agent: invalid effect settlement")
 type SettlementStatus string
 
 const (
-	// SettlementStatusInvalid is the invalid zero value.
-	SettlementStatusInvalid SettlementStatus = ""
-	// SettlementStatusSucceeded records a definite successful outcome.
+	SettlementStatusInvalid   SettlementStatus = ""
 	SettlementStatusSucceeded SettlementStatus = "succeeded"
-	// SettlementStatusFailed records a definite failed outcome.
-	SettlementStatusFailed SettlementStatus = "failed"
-	// SettlementStatusUnknown records an externally indeterminate outcome.
-	SettlementStatusUnknown SettlementStatus = "unknown"
+	SettlementStatusFailed    SettlementStatus = "failed"
+	SettlementStatusUnknown   SettlementStatus = "unknown"
 )
 
 func (s SettlementStatus) Valid() bool {
@@ -57,10 +53,6 @@ func (s Settlement) clone() Settlement {
 	return s
 }
 
-// NewSettlement binds a result to the exact effect identity it settles, so a
-// dispatcher cannot close an effect other than the one it was given. Ordering
-// by completion time instead would let a slow settlement overwrite a newer
-// one.
 func NewSettlement(effectID EffectID, status SettlementStatus, payload json.RawMessage) (Settlement, error) {
 	if !effectID.Valid() {
 		return Settlement{}, fmt.Errorf("%w: effect ID: %w", ErrInvalidSettlement, ErrInvalidIdentity)
@@ -77,7 +69,6 @@ func NewSettlement(effectID EffectID, status SettlementStatus, payload json.RawM
 
 func (s Settlement) EffectID() EffectID { return s.effectID }
 
-// Status returns whether the external result is definite or unknown.
 func (s Settlement) Status() SettlementStatus { return s.status }
 
 // Payload returns an independently owned owner-defined result.

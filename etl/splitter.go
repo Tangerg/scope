@@ -14,8 +14,6 @@ import (
 )
 
 var (
-	// ErrInvalidTextEncoding identifies document text that cannot be split as
-	// valid UTF-8.
 	ErrInvalidTextEncoding = errors.New("etl: invalid text encoding")
 	// ErrUnsupportedDocumentMedia rejects media whose relationship to text
 	// chunks cannot be represented by a text splitting policy.
@@ -35,7 +33,6 @@ const (
 	MetadataKeyChunkTotal = "chunk_total"
 )
 
-// SplitterConfig separates chunking policy from optional identity assignment.
 type SplitterConfig struct {
 	// SplitFunc is required and owns the text splitting policy.
 	SplitFunc func(context.Context, string) ([]string, error)
@@ -52,7 +49,6 @@ type Splitter struct {
 	idGenerator IDGenerator
 }
 
-// NewSplitter rejects missing policy and snapshots the optional ID boundary.
 func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	if config.SplitFunc == nil {
 		return nil, errors.New("etl: split function is required")
@@ -93,6 +89,9 @@ func validateTextEncoding(text string) error {
 // Split emits chunks for every input document. Input order and per-document
 // chunk order are preserved.
 func (s *Splitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	out := make([]*document.Document, 0, len(docs))
 	for index, doc := range docs {
 		if err := ctx.Err(); err != nil {

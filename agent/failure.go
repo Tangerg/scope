@@ -17,7 +17,6 @@ var ErrInvalidFailure = errors.New("agent: invalid failure")
 type FailureKind string
 
 const (
-	// FailureKindInvalid is the absent, unusable classification.
 	FailureKindInvalid FailureKind = ""
 	// FailureKindExecution reports a Strategy error or an exhausted execution bound.
 	FailureKindExecution FailureKind = "execution"
@@ -57,11 +56,7 @@ type Failure struct {
 	message string
 }
 
-// NewFailure requires a kind and code alongside the message so callers
-// classify failures programmatically. Matching on message text is what makes
-// error handling break on wording changes, and it does not survive the
-// snapshot round trip. Message must be trimmed, valid UTF-8 and contain at
-// most 4096 bytes.
+// NewFailure requires a trimmed UTF-8 message within MaxDiagnosticBytes.
 func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !kind.Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)

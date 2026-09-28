@@ -8,9 +8,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// fanoutSource supplies members and their inputs; window settlement and output
-// handling belong to fanoutStage for both fixed branches and repeated items.
-// Its unexported methods keep the Workflow operation set closed.
 type fanoutSource interface {
 	count(ctx context.Context, raw json.RawMessage) (uint32, error)
 	// windowInputs rejects start beyond the source count and returns the

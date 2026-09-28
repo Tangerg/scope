@@ -33,15 +33,12 @@ func (m ModelInvocation) TreeIncarnationID() (agent.TreeIncarnationID, bool) {
 	return m.incarnationID, m.incarnationID.Valid()
 }
 
-// Relation returns the Process tree location that owns the model call.
 func (m ModelInvocation) Relation() agent.ProcessRelation { return m.relation }
 
-// DeploymentRef returns the exact Interaction binding that owns the model call.
 func (m ModelInvocation) DeploymentRef() agent.DeploymentRef {
 	return m.deploymentRef
 }
 
-// EffectID returns the stable model Effect identity.
 func (m ModelInvocation) EffectID() agent.EffectID { return m.effectID }
 
 // AttemptID identifies this physical invocation. Logical requests retained in
@@ -102,15 +99,12 @@ func (t ToolInvocation) TreeIncarnationID() (agent.TreeIncarnationID, bool) {
 	return t.incarnationID, t.incarnationID.Valid()
 }
 
-// Relation returns the Process tree location that owns the Tool call.
 func (t ToolInvocation) Relation() agent.ProcessRelation { return t.relation }
 
-// DeploymentRef returns the exact ToolSet binding that owns the Tool call.
 func (t ToolInvocation) DeploymentRef() agent.DeploymentRef {
 	return t.deploymentRef
 }
 
-// EffectID returns the stable identity of this individual Tool Effect.
 func (t ToolInvocation) EffectID() agent.EffectID { return t.effectID }
 
 // AttemptID identifies this physical invocation, when dispatched by the Engine.

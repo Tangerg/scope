@@ -11,13 +11,8 @@ import (
 	"strings"
 )
 
-// utf8BOM is the UTF-8 byte-order-mark. Some editors / Windows tools
-// write it; the LLM shouldn't see it and shouldn't need to type it.
 const utf8BOM = "\ufeff"
 
-// normalizeText strips UTF-8 BOM and converts CRLF to LF. Returns the
-// normalized content as a string plus flags so a downstream Write can
-// restore the original format.
 func normalizeText(data []byte) (text string, hadBOM, hadCRLF bool) {
 	if bytes.HasPrefix(data, []byte(utf8BOM)) {
 		data = data[3:]
@@ -30,8 +25,6 @@ func normalizeText(data []byte) (text string, hadBOM, hadCRLF bool) {
 	return string(data), hadBOM, hadCRLF
 }
 
-// restoreFormat preserves the original file's CRLF and BOM without duplicating
-// formatting already present in replacement text.
 func restoreFormat(text string, hadBOM, hadCRLF bool) []byte {
 	if hadCRLF {
 		text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -48,11 +41,8 @@ const (
 	temporaryWriteEntropyBytes = 16
 )
 
-// atomicWriteRootFile writes data to path through a sibling temp file +
-// rename. On POSIX the rename is atomic as long as both paths are on
-// the same filesystem — so partial writes never leave a half-written
-// file visible to readers. A nil preservedMode creates with defaultFileMode
-// subject to umask; an existing file supplies its exact permissions.
+// A sibling temporary file keeps POSIX rename atomic. Nil preservedMode uses
+// defaultFileMode subject to umask; existing files retain exact permissions.
 func atomicWriteRootFile(root *os.Root, path string, data []byte, preservedMode *os.FileMode) (err error) {
 	dir := filepath.Dir(path)
 	mode := defaultFileMode

@@ -1,8 +1,7 @@
 package filter
 
-// optimizer owns boolean-algebra normalization for trees already accepted by
-// Validate. It is private: Parse exposes the normalized result, while public
-// visitors receive programmatically built predicates unchanged.
+// optimizer normalizes validated trees returned by Parse. Programmatically
+// constructed predicates reach visitors unchanged.
 type optimizer struct{}
 
 func optimize(predicate Predicate) Predicate {

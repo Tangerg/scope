@@ -19,20 +19,17 @@ type Lifecycle struct {
 	Stopped <-chan struct{}
 }
 
-// CallBehaviorCase supplies an in-flight Call and its provider lifecycle.
 type CallBehaviorCase struct {
 	Model     chat.Model
 	Lifecycle Lifecycle
 }
 
-// StreamBehaviorCase supplies an in-flight Stream and its provider lifecycle.
 type StreamBehaviorCase struct {
 	Streamer  chat.Streamer
 	Lifecycle Lifecycle
 }
 
-// ChatBehaviorContract exercises lifecycle and terminal-error behavior against
-// a provider's real SDK transport. Each factory must return fresh state.
+// Each factory must return fresh state backed by the provider transport.
 type ChatBehaviorContract struct {
 	Request            func(t *testing.T) *chat.Request
 	CallCancellation   func(t *testing.T) CallBehaviorCase
@@ -41,8 +38,6 @@ type ChatBehaviorContract struct {
 	FirstError         func(t *testing.T) chat.Streamer
 }
 
-// RunChatBehaviorContract checks the shared Call and Stream lifecycle through
-// the provider transport boundary.
 func RunChatBehaviorContract(t *testing.T, contract ChatBehaviorContract) {
 	t.Helper()
 	if contract.Request == nil || contract.CallCancellation == nil || contract.StreamCancellation == nil || contract.EarlyStop == nil || contract.FirstError == nil {

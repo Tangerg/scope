@@ -7,10 +7,6 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
-// TestTextProjectionRendersEveryContentKind pins the lossy-but-faithful
-// projection A2A content goes through. The tool and chat loops are text-first,
-// so a content kind that renders to nothing would silently drop what the remote
-// agent sent.
 func TestTextProjectionRendersEveryContentKind(t *testing.T) {
 	cases := map[string]struct {
 		parts    sdka2a.ContentParts
@@ -46,9 +42,6 @@ func TestTextProjectionRendersEveryContentKind(t *testing.T) {
 	}
 }
 
-// TestTextProjectionSkipsNothingSilently is the other half of the contract: an
-// empty list renders empty, a nil part is skipped, and an unrenderable payload
-// still leaves a marker so the reader knows something was there.
 func TestTextProjectionSkipsNothingSilently(t *testing.T) {
 	if rendered := (textProjection{}).parts(nil); rendered != "" {
 		t.Fatalf("empty parts rendered %q", rendered)
@@ -66,9 +59,6 @@ func TestTextProjectionSkipsNothingSilently(t *testing.T) {
 	}
 }
 
-// TestRemoteAgentErrorDistinguishesRemoteFailureFromTransport is why this type
-// exists: the remote was reached and answered, and the caller has to be able to
-// tell that apart from a protocol or transport failure.
 func TestRemoteAgentErrorDistinguishesRemoteFailureFromTransport(t *testing.T) {
 	withDetail := &RemoteAgentError{State: sdka2a.TaskStateFailed, Detail: "model refused"}
 	message := withDetail.Error()

@@ -157,44 +157,22 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 		return nil, err
 	}
 	reports := make([]eval.Report, 0, 6)
-	if l.CommittedSteps != nil {
-		report, err := measurementReport(
-			MetricCommittedSteps, metricUnitCount,
-			float64(usage.CommittedSteps), usage.CommittedSteps <= *l.CommittedSteps,
-			*l.CommittedSteps,
-		)
-		if err != nil {
-			return nil, err
+	for _, bound := range [...]struct {
+		metric eval.MetricName
+		value  uint64
+		limit  *uint64
+	}{
+		{MetricCommittedSteps, usage.CommittedSteps, l.CommittedSteps},
+		{MetricPreparedEffects, usage.PreparedEffects, l.PreparedEffects},
+		{MetricAcceptedSignals, usage.AcceptedSignals, l.AcceptedSignals},
+		{MetricDroppedDeltas, usage.DroppedDeltas, l.DroppedDeltas},
+	} {
+		if bound.limit == nil {
+			continue
 		}
-		reports = append(reports, report)
-	}
-	if l.PreparedEffects != nil {
 		report, err := measurementReport(
-			MetricPreparedEffects, metricUnitCount,
-			float64(usage.PreparedEffects), usage.PreparedEffects <= *l.PreparedEffects,
-			*l.PreparedEffects,
-		)
-		if err != nil {
-			return nil, err
-		}
-		reports = append(reports, report)
-	}
-	if l.AcceptedSignals != nil {
-		report, err := measurementReport(
-			MetricAcceptedSignals, metricUnitCount,
-			float64(usage.AcceptedSignals), usage.AcceptedSignals <= *l.AcceptedSignals,
-			*l.AcceptedSignals,
-		)
-		if err != nil {
-			return nil, err
-		}
-		reports = append(reports, report)
-	}
-	if l.DroppedDeltas != nil {
-		report, err := measurementReport(
-			MetricDroppedDeltas, metricUnitCount,
-			float64(usage.DroppedDeltas), usage.DroppedDeltas <= *l.DroppedDeltas,
-			*l.DroppedDeltas,
+			bound.metric, metricUnitCount,
+			float64(bound.value), bound.value <= *bound.limit, *bound.limit,
 		)
 		if err != nil {
 			return nil, err
@@ -265,7 +243,6 @@ func (e Expectation) Validate() error {
 	return e.Limits.Validate()
 }
 
-// Sample is the typed subject consumed by Evaluator.
 type Sample struct {
 	Actual   Trajectory  `json:"actual"`
 	Expected Expectation `json:"expected"`
