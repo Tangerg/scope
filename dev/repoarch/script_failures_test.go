@@ -177,6 +177,14 @@ func (s scriptFailureFixture) calls(t *testing.T) string {
 func (s *scriptFailureFixture) prepareRelease(t *testing.T, boundary string) {
 	t.Helper()
 	s.env = append(s.env, "SCRIPT_FAILURE="+boundary)
+	s.write(t, "bin/gh", `#!/usr/bin/env bash
+if [[ "$*" == 'repo view https://github.com/tangerg/scope --json nameWithOwner' ]]; then
+  echo '{"nameWithOwner":"Tangerg/scope"}'
+  exit 0
+fi
+echo "unexpected-gh:$*" >&2
+exit 42
+`)
 	s.write(t, "scripts/check.sh", `#!/usr/bin/env bash
 echo repository-gates >> "$SCRIPT_CALLS"
 case "$SCRIPT_FAILURE" in
@@ -214,6 +222,7 @@ esac
 printf 'git %s\n' "$*" >> "$SCRIPT_CALLS"
 case "$*" in
   'branch --show-current') echo main ;;
+  'remote get-url --all origin'|'remote get-url --push --all origin') echo https://github.com/Tangerg/scope.git ;;
   'status --porcelain')
     count=0
     if [[ -f "$SCRIPT_ROOT/status-count" ]]; then read -r count < "$SCRIPT_ROOT/status-count"; fi
