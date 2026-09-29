@@ -129,7 +129,7 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 		seenIDs[call.ID] = struct{}{}
 		binding, exists := t.bindings[call.Name]
 		if !exists {
-			return nil, fmt.Errorf("chatclient: execute tool call[%d]: tool %q is not bound", index, call.Name)
+			return nil, fmt.Errorf("%w: tool call[%d] names unbound tool %q", ErrInvalidToolBatch, index, call.Name)
 		}
 		invocation, err := binding.Contract().Prepare(call)
 		if err != nil {

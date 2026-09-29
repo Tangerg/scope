@@ -41,21 +41,23 @@ func (r *Registry) Register(values ...Tool) error {
 	}
 
 	pending := make(map[string]Binding, len(values))
+	names := make([]string, 0, len(values))
 	for index, value := range values {
 		binding, err := Bind(value)
 		if err != nil {
 			return fmt.Errorf("tools[%d]: %w", index, err)
 		}
-		definition := binding.Contract().Definition()
-		if _, duplicate := pending[definition.Name]; duplicate {
-			return fmt.Errorf("%w: %q appears more than once in batch", ErrDuplicateTool, definition.Name)
+		name := binding.Contract().Definition().Name
+		if _, duplicate := pending[name]; duplicate {
+			return fmt.Errorf("%w: %q appears more than once in batch", ErrDuplicateTool, name)
 		}
-		pending[definition.Name] = binding
+		pending[name] = binding
+		names = append(names, name)
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for name := range pending {
+	for _, name := range names {
 		if _, duplicate := r.entries[name]; duplicate {
 			return fmt.Errorf("%w: %q is already registered", ErrDuplicateTool, name)
 		}

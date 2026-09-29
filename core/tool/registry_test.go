@@ -83,6 +83,28 @@ func TestRegistryRegisterIsAtomic(t *testing.T) {
 	}
 }
 
+func TestRegistryReportsFirstRegisteredConflictInBatchOrder(t *testing.T) {
+	names := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	existing := make([]tool.Tool, len(names))
+	for index, name := range names {
+		existing[index] = newStubTool(name)
+	}
+	registry, err := tool.NewRegistry(existing...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 32 {
+		batch := []tool.Tool{newStubTool("fresh")}
+		for index := len(names) - 1; index >= 0; index-- {
+			batch = append(batch, newStubTool(names[index]))
+		}
+		err := registry.Register(batch...)
+		if want := `tool: duplicate tool: "h" is already registered`; err == nil || err.Error() != want {
+			t.Fatalf("Register error = %v, want %s", err, want)
+		}
+	}
+}
+
 func TestRegistryRejectsInvalidTools(t *testing.T) {
 	var typedNil *stubTool
 	invalidDefinition := newStubTool("bad")

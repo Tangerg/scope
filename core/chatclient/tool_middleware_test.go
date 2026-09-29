@@ -151,6 +151,9 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 			if err == nil || response != nil || executions != 0 || modelCalls != 1 {
 				t.Fatalf("response=%v error=%v executions=%d model calls=%d", response, err, executions, modelCalls)
 			}
+			if second.Name == "missing" && !errors.Is(err, ErrInvalidToolBatch) {
+				t.Fatalf("unbound tool error = %v, want ErrInvalidToolBatch", err)
+			}
 		})
 	}
 }
