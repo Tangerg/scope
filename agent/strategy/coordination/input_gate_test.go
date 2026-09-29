@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -203,6 +204,9 @@ func TestInputGateDoesNotCommitAnInvalidOrCanceledAnswer(t *testing.T) {
 					failure, failed := final.Termination().Failure()
 					if !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
 						t.Fatalf("answer schema failure = %+v", failure)
+					}
+					if count := strings.Count(failure.Message(), coordination.ErrInvalidProtocol.Error()); count != 1 {
+						t.Fatalf("answer schema diagnostic repeats its classification %d times: %q", count, failure.Message())
 					}
 				}
 				closeEngine(t, engine)

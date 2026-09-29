@@ -3,12 +3,16 @@ package coordination
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
 )
 
-const inputGateStateKind = "coordination.input_gate"
+const (
+	inputGateStateKind = "coordination.input_gate"
+	inputGateWaitKey   = "coordination.input"
+)
 
 // InputGateConfig separates the opening request from the addressed answer.
 // The gate returns the original agent.Signal so its identity survives composition.
@@ -120,14 +124,14 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 			return fmt.Errorf("%w: unopened gate retains a wait or answer", ErrInvalidExecutionState)
 		}
 	case gateWaiting:
-		if i.WaitID == nil || !i.WaitID.Valid() {
-			return fmt.Errorf("%w: waiting gate requires a valid WaitID", ErrInvalidExecutionState)
+		if i.WaitID == nil {
+			return fmt.Errorf("%w: waiting gate requires a WaitID", ErrInvalidExecutionState)
 		}
 		if i.Answer != nil {
 			return fmt.Errorf("%w: waiting gate already has an answer", ErrInvalidExecutionState)
 		}
 	case gateCompleted:
-		if i.WaitID == nil || !i.WaitID.Valid() || i.Answer == nil {
+		if i.WaitID == nil || i.Answer == nil {
 			return fmt.Errorf("%w: completed gate requires a wait and answer", ErrInvalidExecutionState)
 		}
 		if err := i.acceptsAnswer(definition, *i.Answer); err != nil {
@@ -139,17 +143,19 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 	return ctx.Err()
 }
 
+// acceptsAnswer leaves classification to its caller: the same answer is a
+// protocol violation during Step and invalid state during Restore.
 func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal) error {
 	waitID, addressed := signal.WaitID()
 	if !signal.Valid() || signal.EngineOwned() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
-		return fmt.Errorf("%w: answer does not address the input gate", ErrInvalidProtocol)
+		return errors.New("answer does not address the input gate")
 	}
 	payload, err := agent.ParsePayload(signal.Payload())
 	if err != nil {
 		return err
 	}
 	if err := definition.answerSchema.Validate(payload.JSON()); err != nil {
-		return fmt.Errorf("%w: answer schema: %w", ErrInvalidProtocol, err)
+		return fmt.Errorf("answer schema: %w", err)
 	}
 	return nil
 }
@@ -173,48 +179,60 @@ func (i *inputGateExecution) step(ctx context.Context, signals []agent.Signal) (
 	}
 	switch i.state.Phase {
 	case gateReady:
-		if len(signals) != 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol)
-		}
-		key, err := agent.ParseWaitKey("coordination.input")
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewWaitEffect(key, i.state.Request.JSON())
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		i.state.Phase = gateAwaitingOpen
-		return agent.Continue(0, effect)
+		return i.open(signals)
 	case gateAwaitingOpen:
-		if len(signals) == 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
-		}
-		waitID, addressed := signals[0].WaitID()
-		if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
-			return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
-		}
-		i.state.WaitID = &waitID
-		i.state.Phase = gateWaiting
-		return agent.Wait(1, waitID)
+		return i.acceptOpening(signals)
 	case gateWaiting:
-		if len(signals) == 0 {
-			return agent.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
-		}
-		answer := signals[0]
-		if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
-		}
-		i.state.Answer = &answer
-		i.state.Phase = gateCompleted
-		output, err := agent.EncodePayload(answer)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return agent.Complete(1, output)
+		return i.acceptAnswer(signals)
 	default:
 		return agent.Transition{}, fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol)
 	}
+}
+
+func (i *inputGateExecution) open(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) != 0 {
+		return agent.Transition{}, fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol)
+	}
+	key, err := agent.ParseWaitKey(inputGateWaitKey)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(key, i.state.Request.JSON())
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	i.state.Phase = gateAwaitingOpen
+	return agent.Continue(0, effect)
+}
+
+func (i *inputGateExecution) acceptOpening(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) == 0 {
+		return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
+	}
+	waitID, addressed := signals[0].WaitID()
+	if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
+		return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
+	}
+	i.state.WaitID = &waitID
+	i.state.Phase = gateWaiting
+	return agent.Wait(1, waitID)
+}
+
+func (i *inputGateExecution) acceptAnswer(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) == 0 {
+		return agent.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
+	}
+	answer := signals[0]
+	if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
+	}
+	i.state.Answer = &answer
+	i.state.Phase = gateCompleted
+	output, err := agent.EncodePayload(answer)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Complete(1, output)
 }
 
 func (i *inputGateExecution) Snapshot() (agent.ExecutionState, error) {
