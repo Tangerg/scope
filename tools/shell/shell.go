@@ -9,37 +9,30 @@ import (
 // concrete implementation owns process creation, working-directory policy,
 // environment exposure, output capture, termination, and platform semantics.
 type Executor interface {
-	// Run executes exactly one command within the executor's frozen authority.
-	// It honors ctx and Input.Timeout, returns non-zero exit status as Output
-	// rather than error, and reserves error for spawn, I/O, or collection failure.
-	// On error, Output retains all available execution facts. Neither an error
-	// nor missing output proves that the command had no side effects.
-	// A backend may return core/tool.Failure only when it can establish a
-	// complete unsuccessful outcome; that failure owns its model-visible output.
-	// Other errors retain uncertainty, with observed Output carried by the Tool
-	// as core/tool.CallError evidence. They are not automatic retry instructions.
+	// Run executes one command, honoring ctx and Input.Timeout. A non-zero exit
+	// status is Output, not an error. An error reports spawn, I/O, or
+	// collection failure and leaves side effects uncertain; Output still
+	// carries every available observation. Return core/tool.Failure only for an
+	// established unsuccessful outcome, since it owns its model-visible output.
 	Run(ctx context.Context, in Input) (Output, error)
 }
 
 type Input struct {
 	Cmd string
 
-	// Timeout bounds the run. 0 = no timeout; ctx cancellation still
-	// applies.
+	// Timeout zero means no timeout beyond ctx.
 	Timeout time.Duration
 }
 
-// Output retains the executor's observations. A non-zero ExitCode is not an
-// error. When Run returns an error, an unobserved exit code must not be reported
-// as zero; ExitCode is -1 when no exit status was obtained. Available output
-// remains evidence and does not establish a complete command result.
+// Output retains the executor's observations. ExitCode is -1 when no exit
+// status was obtained, so an unobserved exit is never reported as success.
 type Output struct {
 	Stdout   []byte
 	Stderr   []byte
 	ExitCode int
 	Duration time.Duration
-	// Truncation is an observation, independent of markers in command output.
-	// A false value does not prove complete collection when Run returns an error.
+	// Truncation is observed by the executor, independent of markers in the
+	// output. False does not prove complete collection when Run returns an error.
 	StdoutTruncated bool
 	StderrTruncated bool
 

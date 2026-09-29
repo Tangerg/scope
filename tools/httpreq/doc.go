@@ -2,8 +2,7 @@
 // go-resty as the transport and enforces host, method, redirect, timeout, and
 // response-size policy at one client boundary.
 //
-// The allowlist is mandatory — there is no "allow all" mode. Callers
-// MUST enumerate the hosts the LLM is permitted to reach.
+// The host allowlist is mandatory; there is no "allow all" mode.
 // An interrupted response remains an error. Received status, headers, and body
 // bytes are preserved as core/tool.CallError evidence, not a complete tool result.
 // Body and header values use content.Content; UTF-8 text is readable and binary
