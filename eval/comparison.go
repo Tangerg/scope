@@ -214,35 +214,11 @@ func (n numericSignal) compare(cases []CaseResult, baseline, candidate map[CaseI
 func compareDecisions(cases []CaseResult, baseline, candidate map[CaseID]*Report) (DecisionDelta, error) {
 	result := DecisionDelta{}
 	for _, caseValue := range cases {
-		var left, right *Decision
-		if report := baseline[caseValue.ID]; report != nil {
-			left = report.Decision
-		}
-		if report := candidate[caseValue.ID]; report != nil {
-			right = report.Decision
-		}
+		left, right := reportDecision(baseline[caseValue.ID]), reportDecision(candidate[caseValue.ID])
 		switch {
 		case left != nil && right != nil:
-			leftIdentity, err := left.identity()
-			if err != nil {
+			if err := result.pair(*left, *right); err != nil {
 				return DecisionDelta{}, err
-			}
-			rightIdentity, err := right.identity()
-			if err != nil {
-				return DecisionDelta{}, err
-			}
-			if leftIdentity != rightIdentity {
-				result.Incompatible++
-				continue
-			}
-			result.Matched++
-			if left.Verdict == VerdictPass {
-				result.PassedDelta--
-				result.FailedDelta++
-			}
-			if right.Verdict == VerdictPass {
-				result.PassedDelta++
-				result.FailedDelta--
 			}
 		case left != nil:
 			result.BaselineOnly++
@@ -251,4 +227,38 @@ func compareDecisions(cases []CaseResult, baseline, candidate map[CaseID]*Report
 		}
 	}
 	return result, nil
+}
+
+func reportDecision(report *Report) *Decision {
+	if report == nil {
+		return nil
+	}
+	return report.Decision
+}
+
+// pair relies on a Decision verdict being exactly pass or fail, so one pass
+// verdict moving between runs shifts both counts.
+func (d *DecisionDelta) pair(baseline, candidate Decision) error {
+	baselineIdentity, err := baseline.identity()
+	if err != nil {
+		return err
+	}
+	candidateIdentity, err := candidate.identity()
+	if err != nil {
+		return err
+	}
+	if baselineIdentity != candidateIdentity {
+		d.Incompatible++
+		return nil
+	}
+	d.Matched++
+	if baseline.Verdict == VerdictPass {
+		d.PassedDelta--
+		d.FailedDelta++
+	}
+	if candidate.Verdict == VerdictPass {
+		d.PassedDelta++
+		d.FailedDelta--
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -70,6 +71,22 @@ type Component[T any] struct {
 	Required  bool
 }
 
+func (c Component[T]) normalize(index int, policy PassPolicy) (Component[T], error) {
+	if lo.IsNil(c.Evaluator) {
+		return Component[T]{}, fmt.Errorf("%w: components[%d] evaluator is nil", ErrInvalidEvaluatorConfig, index)
+	}
+	if math.IsNaN(c.Weight) || math.IsInf(c.Weight, 0) || c.Weight < 0 {
+		return Component[T]{}, fmt.Errorf("%w: components[%d] weight must be finite and non-negative", ErrInvalidEvaluatorConfig, index)
+	}
+	if c.Required && policy == PassNone {
+		return Component[T]{}, fmt.Errorf("%w: required components need an explicit pass policy", ErrInvalidEvaluatorConfig)
+	}
+	if c.Weight == 0 {
+		c.Weight = 1
+	}
+	return c, nil
+}
+
 // CompositeConfig defines score aggregation and an optional categorical policy.
 // A zero PassPolicy produces only a score and accepts score-only components.
 // A zero MaxConcurrency selects DefaultMaxConcurrency.
@@ -100,21 +117,12 @@ func NewCompositeEvaluator[T any](config CompositeConfig[T]) (*CompositeEvaluato
 
 	components := make([]Component[T], len(config.Components))
 	for index, component := range config.Components {
-		if lo.IsNil(component.Evaluator) {
-			return nil, fmt.Errorf("%w: components[%d] evaluator is nil", ErrInvalidEvaluatorConfig, index)
+		normalized, err := component.normalize(index, config.PassPolicy)
+		if err != nil {
+			return nil, err
 		}
-		if math.IsNaN(component.Weight) || math.IsInf(component.Weight, 0) || component.Weight < 0 {
-			return nil, fmt.Errorf("%w: components[%d] weight must be finite and non-negative", ErrInvalidEvaluatorConfig, index)
-		}
-		if component.Weight == 0 {
-			component.Weight = 1
-		}
-		if component.Required && config.PassPolicy == PassNone {
-			return nil, fmt.Errorf("%w: required components need an explicit pass policy", ErrInvalidEvaluatorConfig)
-		}
-		components[index] = component
+		components[index] = normalized
 	}
-
 	policy, err := config.PassPolicy.normalize()
 	if err != nil {
 		return nil, err
@@ -123,17 +131,9 @@ func NewCompositeEvaluator[T any](config CompositeConfig[T]) (*CompositeEvaluato
 	if err != nil {
 		return nil, err
 	}
-
-	maxConcurrency := config.MaxConcurrency
-	if maxConcurrency == 0 {
-		maxConcurrency = DefaultMaxConcurrency
-	}
-	if maxConcurrency > len(components) {
-		maxConcurrency = len(components)
-	}
 	return &CompositeEvaluator[T]{
 		components: components, passPolicy: policy, minimumPassed: minimumPassed,
-		maxConcurrency: maxConcurrency,
+		maxConcurrency: min(cmp.Or(config.MaxConcurrency, DefaultMaxConcurrency), len(components)),
 	}, nil
 }
 

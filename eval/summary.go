@@ -133,11 +133,8 @@ func (e ExperimentReport) Summary() ExperimentSummary {
 	return summary
 }
 
-// Compare requires the same fixed-input fixture and set of Case IDs, independent
-// of declaration order. Numeric deltas pair observations by case, assessment,
-// and calculation identity. Missing observations remain explicit. Decision
-// deltas additionally require the same policy identity, so changing a threshold
-// does not erase comparable scores or invent comparable verdicts.
+// Compare requires the same fixture and set of Case IDs, in any order. A
+// changed threshold keeps scores comparable but makes decisions incompatible.
 func (e ExperimentReport) Compare(candidate ExperimentReport) (Comparison, error) {
 	if e.fixtureID == "" || e.fixtureID != candidate.fixtureID {
 		return Comparison{}, fmt.Errorf("%w: fixture identities are absent or differ", ErrInvalidComparison)
@@ -172,91 +169,126 @@ type observationKey struct {
 }
 
 func summarize(results []CaseResult) (ExperimentSummary, error) {
-	summary := ExperimentSummary{Total: len(results)}
-	type accumulator struct {
-		index        int
-		scores       []float64
-		measurements []float64
+	builder := summaryBuilder{
+		summary:     ExperimentSummary{Total: len(results)},
+		assessments: make(map[AssessmentID]int),
+		metrics:     make(map[observationKey]*metricSamples),
 	}
-	metrics := make(map[observationKey]*accumulator)
-	assessments := make(map[AssessmentID]int)
 	for _, result := range results {
-		if result.Result.Complete() {
-			summary.Evaluated++
-			switch result.Result.Verdict() {
-			case VerdictPass:
-				summary.Passed++
-			case VerdictFail:
-				summary.Failed++
-			default:
-				summary.Unjudged++
-			}
-		} else {
-			summary.Errors++
-			for _, assessment := range result.Result.Results {
-				if assessment.Status == AssessmentCompleted {
-					summary.Partial++
-					break
-				}
-			}
-		}
-		for _, assessment := range result.Result.Results {
-			index, exists := assessments[assessment.ID]
-			if !exists {
-				index = len(summary.Assessments)
-				assessments[assessment.ID] = index
-				summary.Assessments = append(summary.Assessments, AssessmentSummary{ID: assessment.ID})
-			}
-			counts := &summary.Assessments[index]
-			switch assessment.Status {
-			case AssessmentFailed:
-				counts.Failed++
-				continue
-			case AssessmentCanceled:
-				counts.Canceled++
-				continue
-			case AssessmentNotEvaluated:
-				counts.NotEvaluated++
-				continue
-			case AssessmentCompleted:
-				counts.Completed++
-			}
-			report := assessment.Report
-			identity, err := report.Metric.identity()
-			if err != nil {
-				return ExperimentSummary{}, fmt.Errorf("eval: summarize case %q assessment %q: %w", result.ID, assessment.ID, err)
-			}
-			key := observationKey{assessment: assessment.ID, metric: identity}
-			current := metrics[key]
-			if current == nil {
-				current = &accumulator{index: len(summary.Metrics)}
-				metrics[key] = current
-				summary.Metrics = append(summary.Metrics, MetricSummary{AssessmentID: assessment.ID, Metric: report.Metric})
-			}
-			metricSummary := &summary.Metrics[current.index]
-			metricSummary.Evaluated++
-			switch report.Verdict() {
-			case VerdictPass:
-				metricSummary.Passed++
-			case VerdictFail:
-				metricSummary.Failed++
-			default:
-				metricSummary.Unjudged++
-			}
-			if report.Score != nil {
-				current.scores = append(current.scores, report.Score.Float64())
-			}
-			if report.Measurement != nil {
-				current.measurements = append(current.measurements, *report.Measurement)
-			}
+		if err := builder.add(result); err != nil {
+			return ExperimentSummary{}, err
 		}
 	}
-	for _, current := range metrics {
-		metricSummary := &summary.Metrics[current.index]
-		metricSummary.Scores = distribution(current.scores)
-		metricSummary.Measurements = distribution(current.measurements)
+	return builder.build(), nil
+}
+
+// summaryBuilder keeps first-seen order for assessments and metrics while
+// indexing them by identity.
+type summaryBuilder struct {
+	summary     ExperimentSummary
+	assessments map[AssessmentID]int
+	metrics     map[observationKey]*metricSamples
+}
+
+type metricSamples struct {
+	index        int
+	scores       []float64
+	measurements []float64
+}
+
+func (s *summaryBuilder) add(result CaseResult) error {
+	s.countCase(result.Result)
+	for _, assessment := range result.Result.Results {
+		s.assessment(assessment.ID).count(assessment.Status)
+		if assessment.Status != AssessmentCompleted {
+			continue
+		}
+		if err := s.observe(assessment.ID, *assessment.Report); err != nil {
+			return fmt.Errorf("eval: summarize case %q assessment %q: %w", result.ID, assessment.ID, err)
+		}
 	}
-	return summary, nil
+	return nil
+}
+
+func (s *summaryBuilder) countCase(result SuiteResult) {
+	if !result.Complete() {
+		s.summary.Errors++
+		if slices.ContainsFunc(result.Results, func(assessment AssessmentResult) bool {
+			return assessment.Status == AssessmentCompleted
+		}) {
+			s.summary.Partial++
+		}
+		return
+	}
+	s.summary.Evaluated++
+	tallyVerdict(result.Verdict(), &s.summary.Passed, &s.summary.Failed, &s.summary.Unjudged)
+}
+
+func (s *summaryBuilder) assessment(id AssessmentID) *AssessmentSummary {
+	index, exists := s.assessments[id]
+	if !exists {
+		index = len(s.summary.Assessments)
+		s.assessments[id] = index
+		s.summary.Assessments = append(s.summary.Assessments, AssessmentSummary{ID: id})
+	}
+	return &s.summary.Assessments[index]
+}
+
+func (s *summaryBuilder) observe(id AssessmentID, report Report) error {
+	identity, err := report.Metric.identity()
+	if err != nil {
+		return err
+	}
+	key := observationKey{assessment: id, metric: identity}
+	samples := s.metrics[key]
+	if samples == nil {
+		samples = &metricSamples{index: len(s.summary.Metrics)}
+		s.metrics[key] = samples
+		s.summary.Metrics = append(s.summary.Metrics, MetricSummary{AssessmentID: id, Metric: report.Metric})
+	}
+	metric := &s.summary.Metrics[samples.index]
+	metric.Evaluated++
+	tallyVerdict(report.Verdict(), &metric.Passed, &metric.Failed, &metric.Unjudged)
+	if report.Score != nil {
+		samples.scores = append(samples.scores, report.Score.Float64())
+	}
+	if report.Measurement != nil {
+		samples.measurements = append(samples.measurements, *report.Measurement)
+	}
+	return nil
+}
+
+func (s *summaryBuilder) build() ExperimentSummary {
+	for _, samples := range s.metrics {
+		metric := &s.summary.Metrics[samples.index]
+		metric.Scores = distribution(samples.scores)
+		metric.Measurements = distribution(samples.measurements)
+	}
+	return s.summary
+}
+
+func (a *AssessmentSummary) count(status AssessmentStatus) {
+	switch status {
+	case AssessmentCompleted:
+		a.Completed++
+	case AssessmentFailed:
+		a.Failed++
+	case AssessmentCanceled:
+		a.Canceled++
+	case AssessmentNotEvaluated:
+		a.NotEvaluated++
+	}
+}
+
+func tallyVerdict(verdict Verdict, passed, failed, unjudged *int) {
+	switch verdict {
+	case VerdictPass:
+		*passed++
+	case VerdictFail:
+		*failed++
+	default:
+		*unjudged++
+	}
 }
 
 func distribution(values []float64) Distribution {

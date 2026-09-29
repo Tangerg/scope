@@ -75,6 +75,24 @@ func (r Report) validate(depth int) error {
 	if err := r.Metric.Validate(); err != nil {
 		return fmt.Errorf("%w: metric: %w", ErrInvalidReport, err)
 	}
+	if err := r.validateOutcomes(); err != nil {
+		return err
+	}
+	if err := r.Metadata.Validate(); err != nil {
+		return fmt.Errorf("%w: metadata: %w", ErrInvalidReport, err)
+	}
+	if !r.hasOutcome() {
+		return fmt.Errorf("%w: at least one decision, score, measurement, feedback, or detail is required", ErrInvalidReport)
+	}
+	for index, detail := range r.Details {
+		if err := detail.validate(depth + 1); err != nil {
+			return fmt.Errorf("%w: details[%d]: %w", ErrInvalidReport, index, err)
+		}
+	}
+	return nil
+}
+
+func (r Report) validateOutcomes() error {
 	if r.Decision != nil {
 		if err := r.Decision.Validate(); err != nil {
 			return err
@@ -89,17 +107,6 @@ func (r Report) validate(depth int) error {
 		value := *r.Measurement
 		if math.IsNaN(value) || math.IsInf(value, 0) {
 			return fmt.Errorf("%w: measurement must be finite", ErrInvalidReport)
-		}
-	}
-	if err := r.Metadata.Validate(); err != nil {
-		return fmt.Errorf("%w: metadata: %w", ErrInvalidReport, err)
-	}
-	if !r.hasOutcome() {
-		return fmt.Errorf("%w: at least one decision, score, measurement, feedback, or detail is required", ErrInvalidReport)
-	}
-	for index, detail := range r.Details {
-		if err := detail.validate(depth + 1); err != nil {
-			return fmt.Errorf("%w: details[%d]: %w", ErrInvalidReport, index, err)
 		}
 	}
 	return nil
