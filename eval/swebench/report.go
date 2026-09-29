@@ -22,6 +22,11 @@ const (
 	StatusUnresolved        Status = "unresolved"
 )
 
+// classifiable reports whether the run summary may attach failure advice.
+func (s Status) classifiable() bool {
+	return s == StatusError || s == StatusUnresolved
+}
+
 type FailureKind string
 
 const (
@@ -64,6 +69,16 @@ func (t TestsStatus) clone() TestsStatus {
 	}
 }
 
+// complete requires every group's arrays, which the harness always writes.
+func (t TestsStatus) complete() bool {
+	for _, tests := range [...]TestResults{t.FailToPass, t.PassToPass, t.FailToFail, t.PassToFail} {
+		if tests.Success == nil || tests.Failure == nil {
+			return false
+		}
+	}
+	return true
+}
+
 // OfficialReport is a detached view of one imported harness report. In the
 // pinned harness, PatchSuccessfullyApplied is set after test logs are accepted;
 // it is not merely the patch command's exit status. InfraFailure and its reason
@@ -77,6 +92,17 @@ type OfficialReport struct {
 	InfraFailure             bool
 	InfraFailureReason       string
 	TestsStatus              *TestsStatus
+}
+
+// consistent rejects field combinations the pinned harness never writes.
+func (o OfficialReport) consistent() bool {
+	if o.Resolved && (!o.PatchSuccessfullyApplied || o.InfraFailure) {
+		return false
+	}
+	if o.InfraFailure && o.InfraFailureReason == "" {
+		return false
+	}
+	return o.PatchSuccessfullyApplied == (o.TestsStatus != nil)
 }
 
 func (o OfficialReport) clone() OfficialReport {
@@ -197,28 +223,27 @@ func importReport(data []byte, instanceID string) (OfficialReport, error) {
 	if !found || len(wire) != 1 {
 		return OfficialReport{}, fmt.Errorf("%w: report must contain only instance %q", ErrArtifactMismatch, instanceID)
 	}
-	if report.PatchIsNone == nil || report.PatchExists == nil || report.PatchSuccessfullyApplied == nil || report.Resolved == nil || report.InfraFailure == nil {
+	return report.official(instanceID)
+}
+
+func (o officialReportWire) official(instanceID string) (OfficialReport, error) {
+	if o.PatchIsNone == nil || o.PatchExists == nil || o.PatchSuccessfullyApplied == nil || o.Resolved == nil || o.InfraFailure == nil {
 		return OfficialReport{}, fmt.Errorf("%w: report %q omits a required boolean", ErrInvalidArtifacts, instanceID)
 	}
-	if *report.PatchIsNone || !*report.PatchExists {
+	report := OfficialReport{
+		PatchIsNone: *o.PatchIsNone, PatchExists: *o.PatchExists,
+		PatchSuccessfullyApplied: *o.PatchSuccessfullyApplied, Resolved: *o.Resolved,
+		InfraFailure: *o.InfraFailure, InfraFailureReason: o.InfraFailureReason,
+		TestsStatus: o.TestsStatus,
+	}
+	if report.PatchIsNone || !report.PatchExists {
 		return OfficialReport{}, fmt.Errorf("%w: report %q does not describe its non-empty prediction", ErrArtifactMismatch, instanceID)
 	}
-	if *report.Resolved && (!*report.PatchSuccessfullyApplied || *report.InfraFailure) ||
-		*report.InfraFailure && report.InfraFailureReason == "" ||
-		*report.PatchSuccessfullyApplied != (report.TestsStatus != nil) {
+	if !report.consistent() {
 		return OfficialReport{}, fmt.Errorf("%w: contradictory report fields for %q", ErrInvalidArtifacts, instanceID)
 	}
-	if report.TestsStatus != nil {
-		for _, tests := range []TestResults{report.TestsStatus.FailToPass, report.TestsStatus.PassToPass, report.TestsStatus.FailToFail, report.TestsStatus.PassToFail} {
-			if tests.Success == nil || tests.Failure == nil {
-				return OfficialReport{}, fmt.Errorf("%w: report %q omits required test status arrays", ErrInvalidArtifacts, instanceID)
-			}
-		}
+	if report.TestsStatus != nil && !report.TestsStatus.complete() {
+		return OfficialReport{}, fmt.Errorf("%w: report %q omits required test status arrays", ErrInvalidArtifacts, instanceID)
 	}
-	return OfficialReport{
-		PatchIsNone: *report.PatchIsNone, PatchExists: *report.PatchExists,
-		PatchSuccessfullyApplied: *report.PatchSuccessfullyApplied, Resolved: *report.Resolved,
-		InfraFailure: *report.InfraFailure, InfraFailureReason: report.InfraFailureReason,
-		TestsStatus: report.TestsStatus,
-	}, nil
+	return report, nil
 }

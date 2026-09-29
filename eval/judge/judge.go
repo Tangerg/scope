@@ -3,6 +3,7 @@
 package judge
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -53,6 +54,43 @@ type Config[T any] struct {
 	Samples   int
 }
 
+func (c Config[T]) validate() error {
+	if lo.IsNil(c.Model) {
+		return fmt.Errorf("%w: model is nil", eval.ErrInvalidEvaluatorConfig)
+	}
+	if err := c.Metric.Validate(); err != nil {
+		return fmt.Errorf("%w: metric: %w", eval.ErrInvalidEvaluatorConfig, err)
+	}
+	if c.Prompt == nil {
+		return fmt.Errorf("%w: prompt is nil", eval.ErrInvalidEvaluatorConfig)
+	}
+	if !trimmedIdentity(c.ModelID) || !trimmedIdentity(c.RubricID) {
+		return fmt.Errorf("%w: model ID and rubric ID must be non-empty without surrounding whitespace", eval.ErrInvalidEvaluatorConfig)
+	}
+	if err := c.Options.Validate(); err != nil {
+		return fmt.Errorf("%w: options: %w", eval.ErrInvalidEvaluatorConfig, err)
+	}
+	if c.Options.OutputFormat != nil {
+		return fmt.Errorf("%w: judge owns the structured output format", eval.ErrInvalidEvaluatorConfig)
+	}
+	if _, exists := c.Metric.Parameters()[metricJudgeConfigurationKey]; exists {
+		return fmt.Errorf("%w: metric parameter %q is reserved for judge identity", eval.ErrInvalidEvaluatorConfig, metricJudgeConfigurationKey)
+	}
+	if c.Threshold != nil {
+		if err := c.Threshold.Validate(); err != nil {
+			return fmt.Errorf("%w: threshold: %w", eval.ErrInvalidEvaluatorConfig, err)
+		}
+	}
+	if c.Samples < 0 {
+		return fmt.Errorf("%w: samples must not be negative", eval.ErrInvalidEvaluatorConfig)
+	}
+	return nil
+}
+
+func trimmedIdentity(value string) bool {
+	return value != "" && value == strings.TrimSpace(value)
+}
+
 type modelReport struct {
 	Score    eval.Score `json:"score" jsonschema:"minimum=0,maximum=1"`
 	Feedback string     `json:"feedback,omitzero"`
@@ -78,43 +116,14 @@ type Evaluator[T any] struct {
 
 // NewEvaluator copies Options and Threshold; Model and Prompt remain shared.
 func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
-	if lo.IsNil(config.Model) {
-		return nil, fmt.Errorf("%w: model is nil", eval.ErrInvalidEvaluatorConfig)
-	}
-	if err := config.Metric.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: metric: %w", eval.ErrInvalidEvaluatorConfig, err)
-	}
-	if config.Prompt == nil {
-		return nil, fmt.Errorf("%w: prompt is nil", eval.ErrInvalidEvaluatorConfig)
-	}
-	if config.ModelID == "" || config.ModelID != strings.TrimSpace(config.ModelID) ||
-		config.RubricID == "" || config.RubricID != strings.TrimSpace(config.RubricID) {
-		return nil, fmt.Errorf("%w: model ID and rubric ID must be non-empty without surrounding whitespace", eval.ErrInvalidEvaluatorConfig)
-	}
-	if err := config.Options.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: options: %w", eval.ErrInvalidEvaluatorConfig, err)
-	}
-	if config.Options.OutputFormat != nil {
-		return nil, fmt.Errorf("%w: judge owns the structured output format", eval.ErrInvalidEvaluatorConfig)
-	}
-	if _, exists := config.Metric.Parameters()[metricJudgeConfigurationKey]; exists {
-		return nil, fmt.Errorf("%w: metric parameter %q is reserved for judge identity", eval.ErrInvalidEvaluatorConfig, metricJudgeConfigurationKey)
+	if err := config.validate(); err != nil {
+		return nil, err
 	}
 	var threshold *eval.Score
 	if config.Threshold != nil {
-		value := *config.Threshold
-		if err := value.Validate(); err != nil {
-			return nil, fmt.Errorf("%w: threshold: %w", eval.ErrInvalidEvaluatorConfig, err)
-		}
-		threshold = &value
+		threshold = new(*config.Threshold)
 	}
-	if config.Samples < 0 {
-		return nil, fmt.Errorf("%w: samples must not be negative", eval.ErrInvalidEvaluatorConfig)
-	}
-	samples := config.Samples
-	if samples == 0 {
-		samples = 1
-	}
+	samples := cmp.Or(config.Samples, 1)
 	metric, err := (metricConfiguration{
 		ModelID: config.ModelID, RubricID: config.RubricID, Options: config.Options.Clone(),
 		Aggregation: aggregationMedian, Samples: samples,
@@ -182,15 +191,7 @@ func (e *Evaluator[T]) Evaluate(ctx context.Context, subject T) (eval.Report, er
 }
 
 func (e *Evaluator[T]) aggregate(outputs []modelReport) (eval.Report, error) {
-	slices.SortFunc(outputs, func(a, b modelReport) int {
-		if a.Score < b.Score {
-			return -1
-		}
-		if a.Score > b.Score {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(outputs, func(left, right modelReport) int { return cmp.Compare(left.Score, right.Score) })
 	middle := len(outputs) / 2
 	score := outputs[middle].Score
 	feedback := strings.TrimSpace(outputs[middle].Feedback)

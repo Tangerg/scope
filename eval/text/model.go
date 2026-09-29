@@ -10,6 +10,8 @@ import (
 	"github.com/Tangerg/scope/eval/judge"
 )
 
+const metricNamespace = "text"
+
 const (
 	templateInputName     = "Input"
 	templateOutputName    = "Output"

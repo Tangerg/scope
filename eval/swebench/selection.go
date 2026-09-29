@@ -119,17 +119,13 @@ func (s Selection) task(instanceID string) (Task, bool) {
 func nonempty(value string) bool { return value != "" && value == strings.TrimSpace(value) }
 
 func pathComponent(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	for _, character := range value {
-		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
-			character >= '0' && character <= '9' || character == '_' || character == '-' || character == '.' {
-			continue
-		}
-		return false
-	}
-	return true
+	return value != "" && value != "." && value != ".." &&
+		!strings.ContainsFunc(value, func(character rune) bool { return !safePathRune(character) })
+}
+
+func safePathRune(character rune) bool {
+	return 'a' <= character && character <= 'z' || 'A' <= character && character <= 'Z' ||
+		'0' <= character && character <= '9' || character == '_' || character == '-' || character == '.'
 }
 
 func hexadecimal(value string, size int) bool {

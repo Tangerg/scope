@@ -2,6 +2,7 @@
 package ranking
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -208,15 +209,7 @@ func (r relevanceSet) ndcgAt(ranking []string, cutoff int) float64 {
 			ideal = append(ideal, grade)
 		}
 	}
-	slices.SortFunc(ideal, func(left, right float64) int {
-		if left > right {
-			return -1
-		}
-		if left < right {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(ideal, func(left, right float64) int { return cmp.Compare(right, left) })
 	// NDCG is scale invariant. Normalize before discounting or summing so
 	// finite grades cannot overflow or lose their ratio through underflow.
 	scale := ideal[0]
