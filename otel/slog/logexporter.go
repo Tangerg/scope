@@ -18,9 +18,6 @@ type LogExporter struct {
 	shutdown atomic.Bool
 }
 
-// NewLogExporter writes records through [log/slog] so telemetry is readable in
-// development without running a collector. The exporter adds no delivery
-// guarantees of its own and is intended for local diagnostics.
 func NewLogExporter(logger *stdslog.Logger) *LogExporter {
 	if logger == nil {
 		logger = stdslog.Default()
@@ -28,8 +25,8 @@ func NewLogExporter(logger *stdslog.Logger) *LogExporter {
 	return &LogExporter{logger: logger}
 }
 
-// Export writes one slog record per OTel log record. It returns only context
-// cancellation/deadline errors and [sdklog.ErrExporterShutdown] when closed.
+// Export returns only context errors and [sdklog.ErrExporterShutdown] after
+// Shutdown.
 func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	if l.shutdown.Load() {
 		return sdklog.ErrExporterShutdown
@@ -84,9 +81,6 @@ func (l *LogExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// severityToLevel maps an OTel log severity (Trace..Fatal, 1-24) onto the
-// nearest slog level: Error and above → Error, Warn band → Warn, Info band →
-// Info, everything lower (Debug / Trace / Undefined) → Debug.
 func severityToLevel(s otellog.Severity) stdslog.Level {
 	switch {
 	case s >= otellog.SeverityError:

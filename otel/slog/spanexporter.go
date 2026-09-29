@@ -24,9 +24,8 @@ func NewSpanExporter(logger *stdslog.Logger) *SpanExporter {
 	return &SpanExporter{logger: logger}
 }
 
-// ExportSpans writes each provided span as a single slog record. It returns
-// context cancellation/deadline errors; slog handler failures are not exposed
-// by log/slog. After Shutdown it performs no work.
+// ExportSpans returns only context errors, because log/slog does not expose
+// handler failures. After Shutdown it performs no work.
 func (s *SpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
 	if s.shutdown.Load() {
 		return nil

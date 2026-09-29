@@ -1,43 +1,17 @@
-// Package slog sinks all three OpenTelemetry signals — Traces, Metrics,
-// and Logs — into a log/slog logger, so every span, metric, and log line
-// from any Scope module lands in one structured stream correlated by
-// trace_id / span_id.
+// Package slog writes all three OpenTelemetry signals to a log/slog logger for
+// local development, correlated by trace_id and span_id. Production builds
+// replace these exporters with OTLP exporters without changing business code.
 //
-// Three exporters, one per signal:
+//   - [SpanExporter] implements sdktrace.SpanExporter; install it with WithSyncer or WithBatcher.
+//   - [MetricExporter] implements sdkmetric.Exporter; install it with a PeriodicReader.
+//   - [LogExporter] implements sdklog.Exporter; install it with a LoggerProvider processor.
 //
-//   - [SpanExporter]   (sdktrace.SpanExporter)  — install via WithSyncer / WithBatcher
-//   - [MetricExporter] (sdkmetric.Exporter)     — install via a PeriodicReader
-//   - [LogExporter]    (sdklog.Exporter)         — install via a LoggerProvider processor
-//
-// This is for local development and debugging, where forwarding to a full
-// backend (Jaeger, Tempo, Datadog, ...) would be overkill. Routing logs
-// through OTel (rather than writing slog directly) is deliberate: it makes
-// logs as backend-swappable as traces/metrics — a production build swaps
-// each exporter to OTLP with zero business-code change.
-//
-// # Usage
-//
-//	import (
-//	    stdslog "log/slog"
-//	    "go.opentelemetry.io/otel"
-//	    sdktrace "go.opentelemetry.io/otel/sdk/trace"
-//	    "github.com/Tangerg/scope/otel/slog"
-//	)
+// Callers that also import the standard library log/slog must alias one of
+// the two packages:
 //
 //	tp := sdktrace.NewTracerProvider(
 //	    sdktrace.WithSyncer(slog.NewSpanExporter(stdslog.Default())),
 //	)
 //	otel.SetTracerProvider(tp)
 //	defer tp.Shutdown(context.Background())
-//
-// The log path goes through the contrib otelslog bridge to a LoggerProvider
-// configured with [LogExporter].
-//
-// Note: this package is named `slog` to match the otel/<backend>
-// convention. Callers that also import the standard library's `log/slog`
-// must alias one of them (commonly `stdslog "log/slog"`) to avoid the
-// name collision.
-//
-// For production use, prefer OTLP exporters to a real backend; these
-// exporters are intended for local visibility, not long-term storage.
 package slog

@@ -36,9 +36,8 @@ func (m *MetricExporter) Aggregation(k sdkmetric.InstrumentKind) sdkmetric.Aggre
 	return sdkmetric.DefaultAggregationSelector(k)
 }
 
-// Export writes one slog record per metric. It reports cancellation, nil
-// input, and the SDK's shutdown state; slog handler failures are not exposed by
-// log/slog and therefore cannot become collection errors.
+// Export reports cancellation, nil input, and shutdown. log/slog does not
+// expose handler failures, so they cannot become collection errors.
 func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
 	if m.shutdown.Load() {
 		return sdkmetric.ErrExporterShutdown
