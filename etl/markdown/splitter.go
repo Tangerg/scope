@@ -167,9 +167,31 @@ type markdownSection struct {
 	blocks   []markdownBlock
 }
 
-type headingRef struct {
-	level int
-	text  string
+type sectionBuilder struct {
+	sections []markdownSection
+	active   markdownSection
+	path     headingPath
+}
+
+// openHeading emits a heading-only section only when the new heading closes
+// it; a deeper heading repeats the active path, so emitting it would duplicate.
+func (s *sectionBuilder) openHeading(level int, title string) {
+	if len(s.active.blocks) > 0 || s.path.closes(level) {
+		s.sections = append(s.sections, s.active)
+	}
+	s.path.push(level, title)
+	s.active = markdownSection{headings: s.path.titles()}
+}
+
+func (s *sectionBuilder) addBlock(block markdownBlock) {
+	s.active.blocks = append(s.active.blocks, block)
+}
+
+func (s *sectionBuilder) finish() []markdownSection {
+	if len(s.active.blocks) > 0 || len(s.active.headings) > 0 {
+		s.sections = append(s.sections, s.active)
+	}
+	return s.sections
 }
 
 func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
@@ -177,12 +199,7 @@ func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdown
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sections := make([]markdownSection, 0, root.ChildCount())
-	var (
-		active markdownSection
-		stack  []headingRef
-	)
-
+	var builder sectionBuilder
 	for node := root.FirstChild(); node != nil; node = node.NextSibling() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -195,35 +212,13 @@ func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdown
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-
 		if heading, ok := node.(*ast.Heading); ok {
-			replacesActivePath := len(stack) > 0 && heading.Level <= stack[len(stack)-1].level
-			if len(active.blocks) > 0 || (len(active.headings) > 0 && replacesActivePath) {
-				sections = append(sections, active)
-			}
-			for len(stack) > 0 && stack[len(stack)-1].level >= heading.Level {
-				stack = stack[:len(stack)-1]
-			}
-			stack = append(stack, headingRef{level: heading.Level, text: raw})
-			active = markdownSection{headings: headingTexts(stack)}
+			builder.openHeading(heading.Level, raw)
 			continue
 		}
-
-		active.blocks = append(active.blocks, classifyBlock(source, node, end, raw))
+		builder.addBlock(classifyBlock(source, node, end, raw))
 	}
-
-	if len(active.blocks) > 0 || len(active.headings) > 0 {
-		sections = append(sections, active)
-	}
-	return sections, nil
-}
-
-func headingTexts(stack []headingRef) []string {
-	headings := make([]string, len(stack))
-	for index, heading := range stack {
-		headings[index] = heading.text
-	}
-	return headings
+	return builder.finish(), nil
 }
 
 func nodeBounds(node ast.Node, source []byte) (int, int) {
@@ -310,7 +305,7 @@ func (s *Splitter) splitSection(ctx context.Context, section markdownSection) ([
 		}
 		for _, part := range parts {
 			candidate := slices.Concat(current, []string{part})
-			fits, _, err := s.fits(ctx, renderChunk(prefix, strings.Join(candidate, "\n\n")))
+			fits, err := s.fits(ctx, renderChunk(prefix, strings.Join(candidate, "\n\n")))
 			if err != nil {
 				return nil, err
 			}
@@ -331,7 +326,7 @@ func (s *Splitter) splitSection(ctx context.Context, section markdownSection) ([
 }
 
 func (s *Splitter) splitBlock(ctx context.Context, prefix string, block markdownBlock) ([]string, error) {
-	fits, _, err := s.fits(ctx, renderChunk(prefix, block.text))
+	fits, err := s.fits(ctx, renderChunk(prefix, block.text))
 	if err != nil {
 		return nil, err
 	}
@@ -397,10 +392,6 @@ func (s *Splitter) splitTable(ctx context.Context, prefix, table string) ([]stri
 
 func (s *Splitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
 	lines := strings.Split(code, "\n")
-	if len(lines) == 0 {
-		return nil, s.semanticUnitError(ctx, blockFencedCode, renderChunk(prefix, code))
-	}
-
 	opening := lines[0]
 	closing := closingFence(opening)
 	content := lines[1:]
@@ -430,7 +421,7 @@ func (s *Splitter) groupSemanticUnits(
 	for _, unit := range units {
 		candidate := slices.Concat(current, []string{unit})
 		body := render(candidate)
-		fits, _, err := s.fits(ctx, renderChunk(prefix, body))
+		fits, err := s.fits(ctx, renderChunk(prefix, body))
 		if err != nil {
 			return nil, err
 		}
@@ -447,7 +438,7 @@ func (s *Splitter) groupSemanticUnits(
 		groups = append(groups, render(current))
 		current = []string{unit}
 		body = render(current)
-		fits, _, err = s.fits(ctx, renderChunk(prefix, body))
+		fits, err = s.fits(ctx, renderChunk(prefix, body))
 		if err != nil {
 			return nil, err
 		}
@@ -465,7 +456,7 @@ func (s *Splitter) groupSemanticUnits(
 }
 
 func (s *Splitter) requireFits(ctx context.Context, kind blockKind, value string) error {
-	fits, _, err := s.fits(ctx, value)
+	fits, err := s.fits(ctx, value)
 	if err != nil {
 		return err
 	}
@@ -489,9 +480,12 @@ func (s *Splitter) semanticUnitError(ctx context.Context, kind blockKind, value 
 	)
 }
 
-func (s *Splitter) fits(ctx context.Context, value string) (bool, int, error) {
+func (s *Splitter) fits(ctx context.Context, value string) (bool, error) {
 	count, err := s.tokenCount(ctx, value)
-	return count <= s.maxTokensPerChunk, count, err
+	if err != nil {
+		return false, err
+	}
+	return count <= s.maxTokensPerChunk, nil
 }
 
 func (s *Splitter) tokenCount(ctx context.Context, value string) (int, error) {
@@ -532,11 +526,7 @@ func closingFence(opening string) string {
 	if trimmed == "" || (trimmed[0] != '`' && trimmed[0] != '~') {
 		return "```"
 	}
-	count := 0
-	for count < len(trimmed) && trimmed[count] == trimmed[0] {
-		count++
-	}
-	return indent + strings.Repeat(string(trimmed[0]), max(minimumCodeFenceLength, count))
+	return indent + strings.Repeat(string(trimmed[0]), max(minimumCodeFenceLength, fenceRun(trimmed)))
 }
 
 func isClosingFence(line, opening string) bool {
@@ -545,13 +535,15 @@ func isClosingFence(line, opening string) bool {
 	if open == "" || candidate == "" || candidate[0] != open[0] {
 		return false
 	}
-	required := 0
-	for required < len(open) && open[required] == open[0] {
-		required++
-	}
+	count := fenceRun(candidate)
+	return count >= fenceRun(open) && strings.TrimSpace(candidate[count:]) == ""
+}
+
+// fenceRun counts the repeated fence character that begins a nonempty line.
+func fenceRun(line string) int {
 	count := 0
-	for count < len(candidate) && candidate[count] == candidate[0] {
+	for count < len(line) && line[count] == line[0] {
 		count++
 	}
-	return count >= required && strings.TrimSpace(candidate[count:]) == ""
+	return count
 }

@@ -171,9 +171,11 @@ func (t *TokenSplitter) clean(text string) string {
 	return strings.TrimSpace(text)
 }
 
+var sentenceTerminators = []string{".", "?", "!", "\n", "。", "？", "！"}
+
 func (*TokenSplitter) lastSentenceBoundary(text string) int {
 	boundary := -1
-	for _, punctuation := range []string{".", "?", "!", "\n", "。", "？", "！"} {
+	for _, punctuation := range sentenceTerminators {
 		if index := strings.LastIndex(text, punctuation); index >= 0 {
 			boundary = max(boundary, index+len(punctuation))
 		}

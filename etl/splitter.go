@@ -131,32 +131,39 @@ func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([
 	total := len(nonEmpty)
 	out := make([]*document.Document, 0, total)
 	for index, text := range nonEmpty {
-		chunk, err := document.NewDocument(text, nil)
+		chunk, err := s.newChunk(ctx, doc, text, index, total)
 		if err != nil {
-			return nil, err
-		}
-
-		chunk.Metadata = doc.Metadata.Clone()
-		if chunk.Metadata == nil {
-			chunk.Metadata = metadata.Map{}
-		}
-		// Inherited lineage describes an earlier split, not this source.
-		delete(chunk.Metadata, MetadataKeyParentID)
-		if err := chunk.Metadata.Set(MetadataKeyChunkIndex, index); err != nil {
-			return nil, err
-		}
-		if err := chunk.Metadata.Set(MetadataKeyChunkTotal, total); err != nil {
-			return nil, err
-		}
-		if doc.ID != "" {
-			if err := chunk.Metadata.Set(MetadataKeyParentID, doc.ID); err != nil {
-				return nil, err
-			}
-		}
-		if err := assignID(ctx, chunk, s.idGenerator); err != nil {
 			return nil, err
 		}
 		out = append(out, chunk)
 	}
 	return out, nil
+}
+
+func (s *Splitter) newChunk(ctx context.Context, source *document.Document, text string, index, total int) (*document.Document, error) {
+	chunk, err := document.NewDocument(text, nil)
+	if err != nil {
+		return nil, err
+	}
+	chunk.Metadata = source.Metadata.Clone()
+	if chunk.Metadata == nil {
+		chunk.Metadata = metadata.Map{}
+	}
+	// Inherited lineage describes an earlier split, not this source.
+	delete(chunk.Metadata, MetadataKeyParentID)
+	if err := chunk.Metadata.Set(MetadataKeyChunkIndex, index); err != nil {
+		return nil, err
+	}
+	if err := chunk.Metadata.Set(MetadataKeyChunkTotal, total); err != nil {
+		return nil, err
+	}
+	if source.ID != "" {
+		if err := chunk.Metadata.Set(MetadataKeyParentID, source.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := assignID(ctx, chunk, s.idGenerator); err != nil {
+		return nil, err
+	}
+	return chunk, nil
 }

@@ -218,19 +218,28 @@ type sectionRef struct {
 
 type headingPath []sectionRef
 
+// closes reports whether a heading at level ends the innermost open heading.
+func (h headingPath) closes(level int) bool {
+	return len(h) > 0 && h[len(h)-1].level >= level
+}
+
 func (h *headingPath) push(level int, title string) {
-	for len(*h) > 0 && (*h)[len(*h)-1].level >= level {
+	for h.closes(level) {
 		*h = (*h)[:len(*h)-1]
 	}
 	*h = append(*h, sectionRef{level: level, title: title})
 }
 
-func (h headingPath) String() string {
+func (h headingPath) titles() []string {
 	titles := make([]string, len(h))
 	for i, ref := range h {
 		titles[i] = ref.title
 	}
-	return strings.Join(titles, " > ")
+	return titles
+}
+
+func (h headingPath) String() string {
+	return strings.Join(h.titles(), " > ")
 }
 
 func (s *section) document(metadata coremetadata.Map) (*document.Document, error) {
