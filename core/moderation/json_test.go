@@ -8,6 +8,20 @@ import (
 	"github.com/Tangerg/scope/core/moderation"
 )
 
+func TestCategoriesMarshalDeterministically(t *testing.T) {
+	categories := moderation.Categories{}
+	for _, name := range []string{"violence", "hate", "self_harm", "sexual", "harassment", "spam", "fraud", "weapons"} {
+		categories[name] = moderation.Verdict{}
+	}
+	const want = `{"fraud":{"flagged":false,"score":0},"harassment":{"flagged":false,"score":0},"hate":{"flagged":false,"score":0},"self_harm":{"flagged":false,"score":0},"sexual":{"flagged":false,"score":0},"spam":{"flagged":false,"score":0},"violence":{"flagged":false,"score":0},"weapons":{"flagged":false,"score":0}}`
+	for range 32 {
+		encoded, err := jsonv2.Marshal(categories)
+		if err != nil || string(encoded) != want {
+			t.Fatalf("Marshal(Categories) = %s, %v; want %s", encoded, err, want)
+		}
+	}
+}
+
 func TestJSONBoundaries(t *testing.T) {
 	if err := (moderation.Options{Model: " model "}).Validate(); !errors.Is(err, moderation.ErrInvalidOptions) {
 		t.Fatalf("NewOptions error = %v", err)

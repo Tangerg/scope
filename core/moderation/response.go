@@ -87,7 +87,7 @@ func (c Categories) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	type wireCategories Categories
-	return jsonv2.Marshal(wireCategories(c))
+	return jsonv2.Marshal(wireCategories(c), jsonv2.Deterministic(true))
 }
 
 func (c *Categories) UnmarshalJSON(data []byte) error {
