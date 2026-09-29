@@ -1,6 +1,7 @@
 package httpreq
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"net/http"
@@ -16,7 +17,7 @@ const (
 
 const maxSupportedResponseBytes = int64(math.MaxInt64 - 1)
 
-// AllowedHosts is mandatory; the zero policy denies network access.
+// ClientConfig requires AllowedHosts; there is no default network access.
 type ClientConfig struct {
 	// AllowedHosts accepts exact hosts and one leading wildcard, such as
 	// "api.example.com" or "*.example.com". A wildcard does not match its root.
@@ -46,6 +47,11 @@ type clientPolicy struct {
 	defaultTimeout   time.Duration
 }
 
+func (c clientPolicy) allowsMethod(method Method) bool {
+	_, allowed := c.allowedMethods[method]
+	return allowed
+}
+
 func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) error {
 	if len(via) >= defaultRedirectLimit {
 		return fmt.Errorf("%w: limit %d", ErrRedirectLimitReached, defaultRedirectLimit)
@@ -64,7 +70,7 @@ func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) 
 	if err != nil {
 		return fmt.Errorf("%w: redirect method %q: %w", ErrMethodNotAllowed, request.Method, err)
 	}
-	if _, allowed := c.allowedMethods[method]; !allowed {
+	if !c.allowsMethod(method) {
 		return fmt.Errorf("%w: redirect method %s", ErrMethodNotAllowed, method)
 	}
 	return nil
@@ -79,51 +85,44 @@ func (c ClientConfig) compilePolicy() (clientPolicy, error) {
 	if len(c.AllowedHosts) == 0 {
 		return clientPolicy{}, fmt.Errorf("%w: %w", ErrInvalidClientConfig, ErrMissingAllowedHosts)
 	}
-	allowedHosts, err := NewAllowlist(c.AllowedHosts)
-	if err != nil {
-		return clientPolicy{}, fmt.Errorf("%w: allowed hosts: %w", ErrInvalidClientConfig, err)
-	}
-
-	methods := c.AllowedMethods
-	if len(methods) == 0 {
-		methods = []Method{MethodGET, MethodHEAD}
-	}
-	allowedMethods := make(map[Method]struct{}, len(methods))
-	for index, method := range methods {
-		if strings.TrimSpace(string(method)) == "" {
-			return clientPolicy{}, fmt.Errorf("%w: allowed method %d is blank", ErrInvalidClientConfig, index)
-		}
-		normalized, err := method.Normalize()
-		if err != nil {
-			return clientPolicy{}, fmt.Errorf(
-				"%w: allowed method %d %q: %w",
-				ErrInvalidClientConfig,
-				index,
-				method,
-				err,
-			)
-		}
-		allowedMethods[normalized] = struct{}{}
-	}
 	if c.DefaultTimeout < 0 || c.DefaultTimeout > MaxRequestTimeout {
 		return clientPolicy{}, fmt.Errorf("%w: default timeout must be between 0 and %s", ErrInvalidClientConfig, MaxRequestTimeout)
 	}
 	if c.MaxResponseBytes < 0 || c.MaxResponseBytes > maxSupportedResponseBytes {
 		return clientPolicy{}, fmt.Errorf("%w: maximum response bytes must be between 0 and %d", ErrInvalidClientConfig, maxSupportedResponseBytes)
 	}
-
-	maxResponseBytes := c.MaxResponseBytes
-	if maxResponseBytes == 0 {
-		maxResponseBytes = DefaultMaxResponseBytes
+	allowedHosts, err := NewAllowlist(c.AllowedHosts)
+	if err != nil {
+		return clientPolicy{}, fmt.Errorf("%w: allowed hosts: %w", ErrInvalidClientConfig, err)
 	}
-	defaultTimeout := c.DefaultTimeout
-	if defaultTimeout == 0 {
-		defaultTimeout = DefaultTimeout
+	allowedMethods, err := c.compileAllowedMethods()
+	if err != nil {
+		return clientPolicy{}, err
 	}
 	return clientPolicy{
 		allowedHosts:     allowedHosts,
 		allowedMethods:   allowedMethods,
-		maxResponseBytes: maxResponseBytes,
-		defaultTimeout:   defaultTimeout,
+		maxResponseBytes: cmp.Or(c.MaxResponseBytes, DefaultMaxResponseBytes),
+		defaultTimeout:   cmp.Or(c.DefaultTimeout, DefaultTimeout),
 	}, nil
+}
+
+func (c ClientConfig) compileAllowedMethods() (map[Method]struct{}, error) {
+	methods := c.AllowedMethods
+	if len(methods) == 0 {
+		methods = []Method{MethodGET, MethodHEAD}
+	}
+	allowedMethods := make(map[Method]struct{}, len(methods))
+	for index, method := range methods {
+		// A blank method would otherwise normalize to the GET wire default.
+		if strings.TrimSpace(string(method)) == "" {
+			return nil, fmt.Errorf("%w: allowed method %d is blank", ErrInvalidClientConfig, index)
+		}
+		normalized, err := method.Normalize()
+		if err != nil {
+			return nil, fmt.Errorf("%w: allowed method %d %q: %w", ErrInvalidClientConfig, index, method, err)
+		}
+		allowedMethods[normalized] = struct{}{}
+	}
+	return allowedMethods, nil
 }

@@ -35,6 +35,13 @@ func (r *Request) prepare() (*Request, error) {
 	return &prepared, nil
 }
 
+func (r *Request) timeout(fallback time.Duration) time.Duration {
+	if r.TimeoutMS > 0 {
+		return time.Duration(r.TimeoutMS) * time.Millisecond
+	}
+	return fallback
+}
+
 func (r *Request) Validate() error {
 	if r == nil {
 		return ErrNilRequest

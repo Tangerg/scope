@@ -2,6 +2,7 @@ package httpreq
 
 import (
 	"io"
+	"net/http"
 
 	"github.com/Tangerg/scope/tools/content"
 )
@@ -17,6 +18,16 @@ type Response struct {
 	Truncated bool                         `json:"truncated,omitzero"`
 	// Duration includes transport execution, body reading, and body closure.
 	Duration string `json:"duration"`
+}
+
+func newResponseHeaders(header http.Header) map[string][]content.Content {
+	headers := make(map[string][]content.Content, len(header))
+	for name, values := range header {
+		for _, value := range values {
+			headers[name] = append(headers[name], content.New([]byte(value)))
+		}
+	}
+	return headers
 }
 
 func readCapped(reader io.Reader, maxBytes int64) ([]byte, bool, error) {
