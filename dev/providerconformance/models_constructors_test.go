@@ -1,4 +1,3 @@
-// Package providerconformance_test locks cross-provider constructor contracts.
 package providerconformance_test
 
 import (
@@ -8,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,7 +21,7 @@ func TestProviderConstructorsAreSelfCovering(t *testing.T) {
 	for _, provider := range providers {
 		declarations, validateReceivers := parseProviderDeclarations(t, provider)
 		for _, function := range declarations {
-			if validateProviderConstructor(t, function, validateReceivers) {
+			if validateProviderConstructor(t, provider, function, validateReceivers) {
 				constructors++
 			}
 		}
@@ -33,11 +33,7 @@ func TestProviderConstructorsAreSelfCovering(t *testing.T) {
 
 func modelProviderDirectories(t *testing.T) []string {
 	t.Helper()
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve provider conformance source path")
-	}
-	modelsRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "models"))
+	modelsRoot := filepath.Join(repositoryRoot(t), "models")
 	var directories []string
 	err := filepath.WalkDir(modelsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -62,6 +58,15 @@ func modelProviderDirectories(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	return directories
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve provider conformance source path")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
 }
 
 func parseProviderDeclarations(t *testing.T, provider string) ([]*ast.FuncDecl, map[string]struct{}) {
@@ -104,10 +109,12 @@ func addValidateReceiver(receivers map[string]struct{}, function *ast.FuncDecl) 
 
 func validateProviderConstructor(
 	t *testing.T,
+	provider string,
 	function *ast.FuncDecl,
 	validateReceivers map[string]struct{},
 ) bool {
 	t.Helper()
+	name := filepath.Base(provider) + "." + function.Name.Name
 	if function.Recv != nil || !strings.HasPrefix(function.Name.Name, "New") || !function.Name.IsExported() {
 		return false
 	}
@@ -116,16 +123,16 @@ func validateProviderConstructor(
 		return false
 	}
 	if parameterCount != 2 && (parameterCount != 3 || namedType(function.Type.Params.List[len(function.Type.Params.List)-1].Type) != "Dialect") {
-		t.Errorf("%s: constructor with config has %d parameters", function.Name.Name, parameterCount)
+		t.Errorf("%s: constructor with config has %d parameters", name, parameterCount)
 	}
 	if !startsWithContext(function.Type.Params) {
-		t.Errorf("%s: only context.Context may precede config", function.Name.Name)
+		t.Errorf("%s: only context.Context may precede config", name)
 	}
 	if _, ok := validateReceivers[configType]; !ok {
-		t.Errorf("%s: %s does not own Validate", function.Name.Name, configType)
+		t.Errorf("%s: %s does not own Validate", name, configType)
 	}
 	if !returnsValueAndError(function.Type.Results) {
-		t.Errorf("%s: constructor must return value and error", function.Name.Name)
+		t.Errorf("%s: constructor must return value and error", name)
 	}
 	return true
 }
@@ -180,12 +187,9 @@ func returnsValueAndError(results *ast.FieldList) bool {
 func TestProviderDiscoveryIncludesNestedPublicProtocols(t *testing.T) {
 	directories := modelProviderDirectories(t)
 	for _, suffix := range []string{"google/vertexai", "protocol/openai", "protocol/anthropic"} {
-		found := false
-		for _, directory := range directories {
-			if strings.HasSuffix(filepath.ToSlash(directory), "/"+suffix) {
-				found = true
-			}
-		}
+		found := slices.ContainsFunc(directories, func(directory string) bool {
+			return strings.HasSuffix(filepath.ToSlash(directory), "/"+suffix)
+		})
 		if !found {
 			t.Errorf("provider discovery omitted %s", suffix)
 		}
