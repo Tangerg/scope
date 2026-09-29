@@ -6,11 +6,8 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// Invalid-value sentinels identify the boundary that rejected caller data.
-// ErrInvalidResult covers public result validators; protocol and restored-state
-// errors remain distinct because their recovery responsibilities differ.
-// These reject construction and domain values before execution, so they carry
-// no Failure classification.
+// Invalid-value sentinels reject construction and domain values before
+// execution, so they carry no Failure classification.
 var (
 	ErrInvalidResult           = errors.New("planning: invalid result")
 	ErrInvalidCondition        = errors.New("planning: invalid condition")
@@ -25,7 +22,9 @@ var (
 )
 
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping
-// one is the only way a Step error acquires its classification.
+// one is the only way a Step error acquires its classification. Protocol and
+// restored-state errors stay distinct because their recovery responsibilities
+// differ.
 var (
 	ErrInvalidExecutionState = agent.NewClassifiedError(
 		agent.FailureKindContract,

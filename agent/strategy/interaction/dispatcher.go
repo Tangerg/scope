@@ -30,20 +30,16 @@ type DispatcherConfig struct {
 	MaxResponseBytes int
 
 	// Observer receives exact model response facts. Nil disables observation.
-	// It is separate from Engine Events/Deltas, which describe execution mechanics.
 	Observer ModelObserver
 
-	// ModelContextReducer optionally replaces only the provider-neutral message
-	// context at the last safe boundary before each model call. The Dispatcher
-	// installs the effective messages back into Interaction recovery state when
-	// the call settles, so later calls and checkpoints cannot regrow a reduced
-	// context from the pre-reduction Effect payload.
+	// ModelContextReducer optionally replaces the message context immediately
+	// before each model call. Nil sends WorkingContext unchanged.
 	ModelContextReducer ModelContextReducer
 }
 
-// Dispatcher executes model calls emitted by an Interaction Execution. Its configuration is immutable after construction;
-// internal observation health counters are concurrency-safe. It may serve
-// Processes concurrently when the supplied model capability supports concurrent use.
+// Dispatcher executes model calls emitted by an Interaction Execution. It is
+// immutable after construction and may serve Processes concurrently when the
+// supplied model capability supports concurrent use.
 type Dispatcher struct {
 	model               chat.Model
 	streamer            chat.Streamer
@@ -123,8 +119,7 @@ func (d *Dispatcher) Dispatch(
 	}
 }
 
-// ReplayPolicy forbids model replay. Result persistence belongs exclusively to
-// TreeCommitter and does not dispatch an external operation.
+// ReplayPolicy forbids model replay.
 func (*Dispatcher) ReplayPolicy(_ agent.Effect) agent.ReplayPolicy {
 	return agent.ReplayPolicyNever
 }

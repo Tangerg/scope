@@ -85,13 +85,12 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 
 // SettleToolResult converts an investigated external outcome into the same
-// completion protocol used by live dispatch. It performs no Tool call or replay.
-// request must be the original Engine-minted request for this exact Deployment;
-// result must match its call. TreeSnapshot.EffectRequest supplies retained
-// requests after a restart. Direct-return policy comes only from the binding.
-// disposition must agree with result.IsError; rejected and failed results cannot
-// advertise Tools. The Host submits the returned settlement
-// through Process.ResolveUnknownEffect, which owns unknown-effect resolution.
+// completion protocol used by live dispatch, without calling or replaying the
+// Tool. request must be the original Engine-minted request for this exact
+// Deployment and result must match its call. Direct-return policy comes only
+// from the binding. disposition must agree with result.IsError; rejected and
+// failed results cannot advertise Tools. The Host submits the returned
+// settlement through Process.ResolveUnknownEffect.
 func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, disposition ResultDisposition, advertisedToolNames []string) (agent.Settlement, error) {
 	if !t.Configured() || !request.Valid() || request.DeploymentRef() != t.deployment.DeploymentRef() {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)

@@ -33,9 +33,8 @@ func (a Artifact) DelegateName() string { return a.delegateName }
 
 func (a Artifact) Output() agent.Payload { return a.output }
 
-// Decode strictly decodes a's output into T. The output was already
-// validated against the exact Delegate Descriptor before the Artifact was
-// admitted to Interaction state; T is only an edge convenience.
+// Decode strictly decodes the output into T. Schema validation against the
+// exact Delegate Descriptor already happened when the Artifact was admitted.
 func (a Artifact) Decode[T any]() (T, error) {
 	var zero T
 	if !a.valid() {
@@ -107,8 +106,8 @@ func (c CompletionDecision) Valid() bool {
 // CompletionValidator decides whether a model or direct-Tool candidate is a
 // valid semantic completion. It must be bounded, deterministic and
 // side-effect-free: no I/O, clock, randomness, shared mutation or goroutines.
-// A rejected candidate must return actionable Feedback; A finite MaxModelCalls remains
-// the hard bound on retry rounds. Evaluation requiring external work belongs
-// in a managed child Process, not this callback.
-// Computation must honor cancellation of the current Step context.
+// A rejected candidate must return actionable Feedback; a finite MaxModelCalls
+// remains the hard bound on retry rounds. Evaluation requiring external work
+// belongs in a managed child Process, not this callback. Computation must honor
+// cancellation of the current Step context.
 type CompletionValidator func(ctx context.Context, candidate CompletionCandidate) (CompletionDecision, error)

@@ -80,12 +80,11 @@ func validateSteerSignalIDs(ids []agent.SignalID) error {
 	return nil
 }
 
-// NewSteerSignal wraps caller messages as a signal instead of mutating the
-// running conversation. Going through the mailbox is what makes steering
-// deduplicated, ordered, and snapshot-visible, so a resumed Process sees the
-// same guidance the original one did.
-// Steering admitted before a Tool input wait remains pending until the Tool
-// batch settles, including admission during the Step that enters Waiting.
+// NewSteerSignal wraps user messages as an unaddressed Signal. The mailbox
+// makes steering deduplicated, ordered, and snapshot-visible, so a resumed
+// Process sees the same guidance. Steering admitted before a Tool input wait
+// remains pending until the Tool batch settles, including admission during the
+// Step that enters Waiting.
 func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRequest, error) {
 	if err := validateSteeringMessages(messages); err != nil {
 		return agent.SignalRequest{}, err

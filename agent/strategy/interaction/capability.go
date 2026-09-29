@@ -7,10 +7,8 @@ import "github.com/Tangerg/scope/core/tool"
 // directly instead of making another model call. The declaration is frozen by
 // NewToolSet; a panic or capability-resolution error rejects construction.
 type DirectResultTool interface {
-	// ReturnsDirectResult declares whether a successful invocation can terminate
-	// Interaction with the ToolResult itself. The answer is read and frozen at
-	// ToolSet construction and therefore must not depend on mutable state or
-	// perform I/O.
+	// ReturnsDirectResult is read once by NewToolSet; it must not depend on
+	// mutable state or perform I/O.
 	ReturnsDirectResult() bool
 }
 

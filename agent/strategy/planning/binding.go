@@ -15,8 +15,7 @@ const (
 )
 
 // ChildInputFunc derives a child Process input from the parent input and the
-// current world state, so a plan step can be parameterized by facts discovered
-// during execution rather than only by what the plan was started with.
+// WorldState observed when the Action is selected.
 type ChildInputFunc func(processInput agent.Payload, worldState WorldState) (agent.Payload, error)
 
 // DispatcherBindingConfig binds a predictive Action to the Planning

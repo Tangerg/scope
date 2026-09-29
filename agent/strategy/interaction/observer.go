@@ -38,10 +38,8 @@ type ModelSettlement struct {
 
 // ToolObserver receives exact Tool-call facts. Callbacks are observational,
 // must return in bounded time, and have their panics isolated. Tool children
-// may invoke them concurrently when their calls may overlap.
-// This Strategy hook exposes Tool attempts; agent.EventListener observes kernel
-// lifecycle facts and agent.DeltaListener receives ephemeral stream data.
-// Strategy observation callbacks do not acknowledge durable Effect settlement.
+// may invoke them concurrently when their calls may overlap. Callbacks do not
+// acknowledge durable Effect settlement.
 type ToolObserver interface {
 	// OnToolStarted marks the actual external Tool-call boundary; it is not
 	// emitted for calls rejected before execution. Concurrently authorized Tool

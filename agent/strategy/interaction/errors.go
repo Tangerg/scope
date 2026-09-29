@@ -6,10 +6,8 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// Invalid-value sentinels identify the boundary that rejected caller data.
-// ErrInvalidResult covers public result validators. These reject construction,
-// domain values, and Dispatcher operations rather than Steps, so they carry no
-// Failure classification.
+// Invalid-value sentinels reject construction, domain values, and Dispatcher
+// operations rather than Steps, so they carry no Failure classification.
 var (
 	ErrInvalidResult                = errors.New("interaction: invalid result")
 	ErrInvalidToolInputRequest      = errors.New("interaction: invalid tool input request")

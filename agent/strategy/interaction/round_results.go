@@ -94,15 +94,11 @@ type ResultEntry struct {
 // Tool or parent Step from consuming them. Delegate projection requires a fully
 // terminal subtree without unresolved Effects.
 //
-// This is a read-only projection of current recovery facts, not a historical
-// transcript or a required committer adapter. Later cuts may retire an admitted
-// round. TreeCommitter preserves recovery facts whether or not this view is read.
-//
-// Hosts that need a separate result history can derive it within each
-// TreeCommitter transaction, atomically with the proposed head and writer fence.
-// Overlapping cuts repeat facts: RoundResults.Reference identifies one logical
-// call across projections and attempts. The host owns history storage, retention, and
-// delivery; reading or storing this projection never authorizes tool reexecution.
+// This is a read-only projection of current recovery facts, not a transcript:
+// later cuts may retire an admitted round, and overlapping cuts repeat facts
+// that RoundResults.Reference identifies. A Host that keeps result history
+// derives it inside its TreeCommitter transactions. Reading or storing this
+// projection never authorizes tool reexecution.
 func SettledResults(snapshot agent.TreeSnapshot) ([]RoundResults, error) {
 	if !snapshot.Valid() {
 		return nil, fmt.Errorf("%w: invalid tree", ErrInvalidResult)

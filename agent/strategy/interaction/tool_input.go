@@ -119,7 +119,6 @@ type toolInputRequiredError struct {
 // ToolInputContinuationFromContext. The request freezes all three values and
 // holds no Process or wait identity. JSON numbers retain their precision; prompt
 // and continuationState must each fit within one MiB before and after normalization.
-// Use errors.Is with ErrToolInputRequired to classify this control outcome.
 func RequireToolInput(
 	prompt json.RawMessage,
 	responseSchema json.RawMessage,
