@@ -20,15 +20,15 @@ func (m ModelFunc) Call(ctx context.Context, request *Request) (*Response, error
 	return m(ctx, request)
 }
 
-// Streamer yields independently owned deltas with cumulative usage snapshots.
-// On failure it yields (nil, err) once, preserving context error identity.
-// Stopping iteration must synchronously release provider resources without a
-// cancellation yield or detached goroutine. [ResponseAccumulator] owns aggregation.
+// Streamer is the optional streaming capability; [ResponseAccumulator] owns
+// aggregation of its deltas.
 type Streamer interface {
 	// Stream starts provider work lazily when the sequence is iterated. Each
-	// yielded response is an independently owned delta accepted by
-	// ResponseAccumulator. Stopping iteration releases provider resources before
-	// the iterator returns; a terminal error is yielded at most once.
+	// yielded delta is independently owned, carries a cumulative usage snapshot,
+	// and is accepted by ResponseAccumulator. A failure yields (nil, err) at most
+	// once, preserving context error identity. Stopping iteration releases
+	// provider resources before the iterator returns, without a cancellation
+	// yield or detached goroutine.
 	Stream(ctx context.Context, request *Request) iter.Seq2[*ResponseDelta, error]
 }
 

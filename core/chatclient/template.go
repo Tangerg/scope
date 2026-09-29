@@ -16,11 +16,9 @@ import (
 var ErrInvalidTemplate = errors.New("chatclient: invalid template")
 
 // Template is an immutable, parsed prompt template safe for concurrent use.
-// Parsing fails on missing map keys instead of emitting placeholder text;
-// Require inspects the complete parse tree, including pipelines and branches.
-// Root field references such as $.Query are recognized alongside .Query.
-// Message projections validate the rendered protocol value and preserve media
-// order without retaining per-render variables in Template.
+// Rendering fails on missing map keys instead of emitting placeholder text.
+// Require inspects the complete parse tree, including pipelines, branches, and
+// root references such as $.Query.
 type Template struct {
 	source   string
 	compiled *template.Template

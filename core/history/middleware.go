@@ -14,11 +14,8 @@ import (
 var ErrNilStream = errors.New("history: middleware: nil stream sequence")
 
 // Middleware replays and persists history around synchronous and streaming
-// chat capabilities. It is immutable after construction and safe for
-// concurrent use when its Store is safe for concurrent use. This does not
-// serialize complete Read/model/Write turns for the same conversation. The Host
-// must serialize those turns across all instances if ordering is required;
-// different conversations may proceed concurrently.
+// chat capabilities. It is immutable and as safe for concurrent use as its
+// Store, but it does not serialize Read/model/Write turns of one conversation.
 type Middleware struct {
 	store ReadWriter
 }

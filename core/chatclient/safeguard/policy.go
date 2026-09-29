@@ -43,8 +43,7 @@ type Match struct {
 	Found bool
 }
 
-// Matcher screens a text projection. Implementations may call remote policy
-// services and must preserve context cancellation errors.
+// Matcher screens a text projection, possibly through a remote policy service.
 type Matcher interface {
 	// Match evaluates one provider-neutral text projection. Found=false means the
 	// text passed; a returned error means no policy decision was reached. Remote

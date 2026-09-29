@@ -17,8 +17,6 @@ import (
 type Options struct {
 	Model string `json:"model"`
 
-	// Dimensions requests an explicit output vector size. nil leaves it
-	// up to the provider's default.
 	Dimensions *int64 `json:"dimensions,omitzero"`
 
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
@@ -97,7 +95,6 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 }
 
 type Request struct {
-	// Texts is the input list. Each entry produces one embedding.
 	Texts []string `json:"texts,omitzero"`
 
 	Options Options `json:"options,omitzero"`

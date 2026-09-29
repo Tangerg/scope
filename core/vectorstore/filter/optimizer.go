@@ -1,7 +1,7 @@
 package filter
 
-// optimizer normalizes validated trees returned by Parse. Programmatically
-// constructed predicates reach visitors unchanged.
+// Only trees returned by Parse are normalized; programmatically constructed
+// predicates reach visitors unchanged.
 type optimizer struct{}
 
 func optimize(predicate Predicate) Predicate {

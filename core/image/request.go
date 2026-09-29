@@ -19,14 +19,13 @@ type Options struct {
 
 	NegativePrompt string `json:"negative_prompt"`
 
-	// Width / Height set the output dimensions in pixels.
+	// Width and Height are in pixels.
 	Width  *int64 `json:"width,omitzero"`
 	Height *int64 `json:"height,omitzero"`
 
 	Seed *int64 `json:"seed,omitzero"`
 
-	// OutputFormat picks the image MIME type of the rendered bytes.
-	// Empty leaves the format to the provider.
+	// OutputFormat is a canonical image MIME type; empty leaves it to the provider.
 	OutputFormat string `json:"output_format,omitempty"`
 
 	Extensions metadata.Extensions `json:"extensions,omitzero"`

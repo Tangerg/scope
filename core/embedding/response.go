@@ -109,8 +109,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 type ResponseMetadata struct {
 	Model string `json:"model"`
 
-	// Usage breaks down token consumption. nil means the provider did not
-	// report usage.
+	// Usage is nil when the provider did not report usage.
 	Usage *Usage `json:"usage,omitzero"`
 
 	CreatedAt time.Time `json:"created_at,omitzero"`

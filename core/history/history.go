@@ -16,8 +16,8 @@ type Reader interface {
 	Read(ctx context.Context, conversationID ConversationID) ([]chat.Message, error)
 }
 
-// Writer preserves argument order and snapshots each batch. The relative order
-// of concurrent calls or writes through separate Store instances is implementation-defined.
+// Writer leaves the relative order of concurrent calls, or of writes through
+// separate Store instances, implementation-defined.
 type Writer interface {
 	// Write validates and snapshots the full argument batch before appending it
 	// in argument order. The outcome must account for every acknowledged or

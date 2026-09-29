@@ -10,8 +10,7 @@ import (
 )
 
 type Output struct {
-	// Text is the transcribed text. Empty is allowed for partial /
-	// silence segments.
+	// Text may be empty for partial or silent segments.
 	Text string `json:"text"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
@@ -111,7 +110,6 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 // Providers may store per-segment timing in Output.Metadata while Output.Text
 // holds the merged transcript.
 type Response struct {
-	// Output holds the transcribed text. Non-nil after [NewResponse].
 	Output *Output `json:"output,omitzero"`
 
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`

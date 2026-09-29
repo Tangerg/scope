@@ -84,7 +84,6 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 }
 
 type Request struct {
-	// Texts is the input list. Each entry is moderated independently.
 	Texts []string `json:"texts,omitzero"`
 
 	Options Options `json:"options,omitzero"`

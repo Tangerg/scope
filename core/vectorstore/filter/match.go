@@ -78,9 +78,8 @@ func (e *evaluator) listValue(list *ListLiteral) (any, error) {
 	return out, nil
 }
 
-// evalIndex resolves an `a["b"][0]`-style chain. Missing keys / OOB
-// indices return nil (matching SQL NULL semantics); only structural
-// type errors are reported.
+// Missing keys and out-of-range indices resolve to nil, matching SQL NULL
+// semantics; only structural type errors are reported.
 func (e *evaluator) evalIndex(idx *IndexExpr) (any, error) {
 	keys, err := e.indexKeys(idx)
 	if err != nil {
@@ -402,7 +401,6 @@ func (e *evaluator) evalLike(b *BinaryExpr) (any, error) {
 	return likeMatch(s, pattern), nil
 }
 
-// likeMatch implements case-sensitive SQL LIKE: % matches any run, _ one rune, and the whole input must match.
 func likeMatch(s, pattern string) bool {
 	return likeMatchRunes([]rune(s), []rune(pattern))
 }

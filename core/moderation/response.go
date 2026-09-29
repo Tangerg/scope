@@ -17,7 +17,6 @@ import (
 type Verdict struct {
 	Flagged bool `json:"flagged"`
 
-	// Score is the provider's confidence in the violation, 0–1.
 	Score float64 `json:"score"`
 }
 

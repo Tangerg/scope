@@ -24,8 +24,7 @@ const (
 )
 
 // Options contains per-request overrides; zero values use provider defaults.
-// Resolve overlays populated fields and snapshots mutable values without changing
-// either input. Adapters must report unsupported populated fields, never drop them.
+// Adapters must report unsupported populated fields, never drop them.
 type Options struct {
 	Model            string              `json:"model,omitempty"`
 	OutputFormat     *OutputFormat       `json:"output_format,omitzero"`

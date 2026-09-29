@@ -15,13 +15,14 @@ import (
 type Options struct {
 	Model string `json:"model"`
 
-	// Voice selects the speaker profile. Provider-specific values.
+	// Voice is a provider-specific speaker profile.
 	Voice string `json:"voice"`
 
 	// OutputFormat selects the audio container ("mp3", "wav", ...).
 	OutputFormat string `json:"output_format"`
 
-	// Speed scales the playback rate. 1.0 is normal speed.
+	// Speed scales the playback rate: 1.0 is normal and zero leaves the
+	// provider default.
 	Speed float64 `json:"speed"`
 
 	Extensions metadata.Extensions `json:"extensions,omitzero"`

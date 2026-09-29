@@ -15,13 +15,9 @@ var (
 	ErrInvalidClient = errors.New("chatclient: uninitialized client")
 )
 
-// Client is an immutable, concurrency-safe composition of chat capabilities
-// and middleware. It does not make an underlying model concurrency
-// safe; callers must still follow the model's concurrency contract.
-//
-// Call accepts ordinary [chat.Request] values and snapshots requests before
-// middleware or provider execution. Streaming has its own required capability
-// and construction boundary in [StreamClient].
+// Client is an immutable composition of a chat model and its middleware. It is
+// as safe for concurrent use as the underlying model. Streaming has its own
+// construction boundary in [StreamClient].
 type Client struct {
 	model chat.Model
 }

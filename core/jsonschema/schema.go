@@ -25,10 +25,9 @@ const (
 
 var ErrInvalid = errors.New("jsonschema: invalid schema")
 
-// Modeler is implemented by rich values whose encoding/json/v2 representation is
-// described by a separate typed model. Implementations must return the same
-// non-nil model type on every call and use a value receiver. The native reflector
-// keeps nested and recursive model references in the same schema definition set.
+// Modeler is implemented by values whose encoding/json/v2 representation is
+// described by a separate typed model. Implementations must use a value
+// receiver; nested and recursive models share one schema definition set.
 type Modeler interface {
 	// JSONSchemaAlias returns a non-nil typed value whose encoding/json/v2 wire shape
 	// exactly matches the receiver's custom encoding. The concrete model type is

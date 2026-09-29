@@ -7,9 +7,9 @@ import (
 )
 
 // ToolBatchError preserves the original request, complete model proposal,
-// successful prefix, and failed position of a serial tool batch. Completed
-// effects have not been rolled back. The failure cause may itself be a tool.Failure with acknowledged partial effects;
-// later calls were not executed. This fact assigns no retry policy.
+// successful prefix, and failed call of a serial tool batch. Completed effects
+// have not been rolled back and later calls were not executed. The cause may be
+// a tool.Failure with acknowledged partial effects. It assigns no retry policy.
 type ToolBatchError struct {
 	completed []chat.ToolResult
 	failed    chat.ToolCall

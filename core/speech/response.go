@@ -118,7 +118,6 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 // synchronous calls Output holds the entire audio; for streaming calls
 // each chunk yields a Response with the just-produced segment in Output.
 type Response struct {
-	// Output holds the generated audio. Non-nil after [NewResponse].
 	Output *Output `json:"output,omitzero"`
 
 	Metadata *ResponseMetadata `json:"metadata,omitzero"`

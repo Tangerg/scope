@@ -74,8 +74,8 @@ func ScoreFromCosineDistance(distance float64) Score {
 }
 
 // ScoreFromDistance maps a non-negative, unbounded distance to (0, 1], where
-// zero is an exact match. Tiny negative values caused by floating-point error
-// are treated as zero.
+// zero is an exact match. Negative values, which only floating-point error
+// produces, are treated as zero.
 func ScoreFromDistance(distance float64) Score {
 	if math.IsNaN(distance) || math.IsInf(distance, 0) {
 		return Score(math.NaN())

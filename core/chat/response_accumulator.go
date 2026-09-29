@@ -41,7 +41,7 @@ func (a accumulatedPart) snapshot() Part {
 }
 
 // Add validates and applies one delta atomically; a failed merge leaves the
-// accumulated stream unchanged. Atomicity does not imply concurrency safety.
+// accumulated stream unchanged.
 func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 	if r == nil {
 		return errors.New("chat: nil response accumulator")

@@ -42,8 +42,6 @@ func (t ToolCallDelta) Validate() error {
 // model-visible ordered text/media representation. Details is optional JSON
 // for structured consumers; providers use its encoded JSON as the model-visible
 // fallback only when Content is empty.
-//
-// Content cannot contain chat control payloads or recursively contain results.
 type ToolOutput struct {
 	Content []ToolContent   `json:"content,omitempty"`
 	Details json.RawMessage `json:"details,omitzero"`

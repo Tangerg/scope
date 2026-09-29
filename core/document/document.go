@@ -19,7 +19,6 @@ var ErrInvalidDocument = errors.New("document: invalid document")
 type Document struct {
 	ID string `json:"id,omitempty"`
 
-	// Text is the textual content. May be empty if Media is set.
 	Text string `json:"text,omitempty"`
 
 	Media *media.Media `json:"media,omitzero"`

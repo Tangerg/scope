@@ -8,10 +8,8 @@ import (
 
 var ErrInvalidRequest = errors.New("chat: invalid request")
 
-// Request is the complete provider-neutral input to a chat model. It contains
-// only serializable protocol values; executable tools and invocation state are
-// supplied separately by higher-level runtimes. Construction and cloning
-// snapshot every mutable nested protocol value before middleware or providers
+// Request is the complete provider-neutral input to a chat model. NewRequest
+// and Clone snapshot every mutable nested value before middleware or providers
 // receive it.
 type Request struct {
 	Messages   []Message        `json:"messages"`

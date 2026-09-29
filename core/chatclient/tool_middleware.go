@@ -18,21 +18,16 @@ type toolMiddleware struct {
 	definitions []chat.ToolDefinition
 }
 
-// NewSingleBatchToolMiddleware keeps direct Client usage useful for one model-requested
-// Tool batch. It advertises a frozen Tool set and validates every invocation
-// before executing any Tool. The accepted batch executes serially, followed by
-// one model call. Runtime failures do not roll back completed Tools. Further
-// rounds and execution policy remain outside this boundary.
-// A runtime failure returns [ToolBatchError] with the successful prefix and
-// failed call and complete original proposal, preserving the original cause
-// through errors.Is and errors.As. Tools and ToolChoice are owned exclusively;
-// combine tools in this constructor and never stack this middleware.
-// Place history.Middleware.Call outside it to persist only fresh user input and
-// the final assistant answer. Inside it, history sees the continuation exchange
-// and records the assistant tool proposals and tool results as well.
-// A failed follow-up model call returns [ToolContinuationError] with the full
-// continuation request, including every completed tool result.
-// Only FinishReasonToolCalls authorizes execution; other outcomes pass through.
+// NewSingleBatchToolMiddleware advertises a frozen Tool set and executes at
+// most one model-requested batch. Only FinishReasonToolCalls authorizes
+// execution; other outcomes pass through. Every invocation is validated before
+// any Tool runs, then the batch executes serially followed by one model call.
+// Completed Tools are never rolled back: an execution failure returns
+// [ToolBatchError] and a failed follow-up call returns [ToolContinuationError],
+// both preserving the cause for errors.Is and errors.As. The middleware owns
+// Tools and ToolChoice exclusively, so it cannot be stacked. Placed inside
+// history.Middleware.Call, history persists only fresh input and the final
+// answer; placed outside, it also records tool proposals and results.
 func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolBatch)
