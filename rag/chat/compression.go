@@ -97,37 +97,41 @@ func (c *CompressionTransformer) formatHistory(ctx context.Context, messages []c
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		if err := messages[messageIndex].Validate(); err != nil {
+		message := &messages[messageIndex]
+		if err := message.Validate(); err != nil {
 			return "", fmt.Errorf("rag: format chat history message %d: %w", messageIndex, err)
 		}
 		if output.Len() != 0 {
 			output.WriteString("\n\n")
 		}
-		fmt.Fprintf(&output, "%s: ", messages[messageIndex].Role)
-		for partIndex := range messages[messageIndex].Parts {
+		fmt.Fprintf(&output, "%s: ", message.Role)
+		for partIndex := range message.Parts {
 			if partIndex != 0 {
 				output.WriteString(" ")
 			}
-			part := messages[messageIndex].Parts[partIndex]
-			switch part.Kind {
-			case corechat.PartText:
-				output.WriteString(part.Text)
-			case corechat.PartMedia:
-				fmt.Fprintf(&output, "[media %s]", part.Media.MIME)
-			case corechat.PartReasoning:
-				output.WriteString("[reasoning omitted]")
-			case corechat.PartToolCall:
-				fmt.Fprintf(&output, "[tool call %s %s]", part.ToolCall.Name, part.ToolCall.Arguments)
-			case corechat.PartToolResult:
-				if text, ok := part.ToolResult.Output.Text(); ok {
-					fmt.Fprintf(&output, "[tool result %s %s]", part.ToolResult.Name, text)
-				} else {
-					fmt.Fprintf(&output, "[tool result %s contains media]", part.ToolResult.Name)
-				}
-			case corechat.PartRefusal:
-				output.WriteString(part.Text)
-			}
+			writeHistoryPart(&output, &message.Parts[partIndex])
 		}
 	}
 	return output.String(), nil
+}
+
+// writeHistoryPart summarizes non-text parts because the compression prompt
+// is text-only and reasoning must not leak into the standalone query.
+func writeHistoryPart(output *strings.Builder, part *corechat.Part) {
+	switch part.Kind {
+	case corechat.PartText, corechat.PartRefusal:
+		output.WriteString(part.Text)
+	case corechat.PartMedia:
+		fmt.Fprintf(output, "[media %s]", part.Media.MIME)
+	case corechat.PartReasoning:
+		output.WriteString("[reasoning omitted]")
+	case corechat.PartToolCall:
+		fmt.Fprintf(output, "[tool call %s %s]", part.ToolCall.Name, part.ToolCall.Arguments)
+	case corechat.PartToolResult:
+		if text, ok := part.ToolResult.Output.Text(); ok {
+			fmt.Fprintf(output, "[tool result %s %s]", part.ToolResult.Name, text)
+		} else {
+			fmt.Fprintf(output, "[tool result %s contains media]", part.ToolResult.Name)
+		}
+	}
 }

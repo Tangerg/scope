@@ -136,24 +136,13 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 		return nil, nil
 	}
 
-	input := make([]chatRerankingInput, len(candidates))
-	for index, candidate := range candidates {
-		content, err := r.formatter.Format(candidate.Document)
-		if err != nil {
-			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
-		}
-		if strings.TrimSpace(content) == "" {
-			return nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidReranking, index)
-		}
-		input[index] = chatRerankingInput{Index: index, Content: content}
-	}
-	encoded, err := jsonv2.Marshal(input)
+	encoded, err := r.encodeCandidates(candidates)
 	if err != nil {
-		return nil, fmt.Errorf("%w: encode candidates: %w", rag.ErrInvalidReranking, err)
+		return nil, err
 	}
 	output, err := r.prompt.call(ctx, chatRerankerPromptVariables{
 		Query:      query.Text(),
-		Candidates: string(encoded),
+		Candidates: encoded,
 	})
 	if err != nil {
 		if errors.Is(err, chatclient.ErrInvalidOutput) {
@@ -170,4 +159,23 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 		return nil, err
 	}
 	return ordering.Refine(ctx, query, scored)
+}
+
+func (r *Reranker) encodeCandidates(candidates rag.Candidates) (string, error) {
+	input := make([]chatRerankingInput, len(candidates))
+	for index, candidate := range candidates {
+		content, err := r.formatter.Format(candidate.Document)
+		if err != nil {
+			return "", fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
+		}
+		if strings.TrimSpace(content) == "" {
+			return "", fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidReranking, index)
+		}
+		input[index] = chatRerankingInput{Index: index, Content: content}
+	}
+	encoded, err := jsonv2.Marshal(input)
+	if err != nil {
+		return "", fmt.Errorf("%w: encode candidates: %w", rag.ErrInvalidReranking, err)
+	}
+	return string(encoded), nil
 }

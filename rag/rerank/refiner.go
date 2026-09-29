@@ -73,16 +73,9 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 		return nil, nil
 	}
 
-	documents := make([]string, len(candidates))
-	for index, candidate := range candidates {
-		content, err := r.formatter.Format(candidate.Document)
-		if err != nil {
-			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
-		}
-		if strings.TrimSpace(content) == "" {
-			return nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidReranking, index)
-		}
-		documents[index] = content
+	documents, err := r.formatDocuments(candidates)
+	if err != nil {
+		return nil, err
 	}
 	request, requestErr := corererank.NewRequest(query.Text(), documents)
 	if requestErr != nil {
@@ -108,4 +101,19 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 		ranked[position].Score = rag.Score(result.Score.Float64())
 	}
 	return ranked, nil
+}
+
+func (r *Refiner) formatDocuments(candidates rag.Candidates) ([]string, error) {
+	documents := make([]string, len(candidates))
+	for index, candidate := range candidates {
+		content, err := r.formatter.Format(candidate.Document)
+		if err != nil {
+			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
+		}
+		if strings.TrimSpace(content) == "" {
+			return nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidReranking, index)
+		}
+		documents[index] = content
+	}
+	return documents, nil
 }

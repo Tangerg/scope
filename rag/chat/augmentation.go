@@ -91,18 +91,22 @@ func newContextBudget(maxTokens int, counter tokenizer.TextCounter) (contextBudg
 
 func (c contextBudget) limited() bool { return c.maxTokens > 0 }
 
-func (c contextBudget) accepts(ctx context.Context, encoded []byte) (bool, error) {
-	if !c.limited() {
-		return true, nil
+// admit measures the complete encoded evidence block rather than summing
+// per-candidate counts, because JSON framing and vocabulary merges across
+// entries make those sums inexact.
+func (c contextBudget) admit(ctx context.Context, evidence []contextualEvidence) ([]byte, bool, error) {
+	encoded, err := jsonv2.Marshal(evidence)
+	if err != nil {
+		return nil, false, fmt.Errorf("rag: encode contextual evidence: %w", err)
 	}
 	tokens, err := c.counter.CountText(ctx, string(encoded))
 	if err != nil {
-		return false, fmt.Errorf("rag: count context tokens: %w", err)
+		return nil, false, fmt.Errorf("rag: count context tokens: %w", err)
 	}
 	if tokens < 0 {
-		return false, fmt.Errorf("%w: token counter returned %d", ErrInvalidContextBudget, tokens)
+		return nil, false, fmt.Errorf("%w: token counter returned %d", ErrInvalidContextBudget, tokens)
 	}
-	return tokens <= c.maxTokens, nil
+	return encoded, tokens <= c.maxTokens, nil
 }
 
 var _ rag.Augmenter = (*ContextualAugmenter)(nil)
@@ -207,25 +211,14 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 		if err := ctx.Err(); err != nil {
 			return "", nil, err
 		}
-		content, err := c.formatter.Format(candidate.Document)
-		if err != nil {
-			return "", nil, fmt.Errorf("rag: format context candidate %d: %w", index, err)
-		}
-		if strings.TrimSpace(content) == "" {
-			return "", nil, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidAugmentation, index)
-		}
 		citation := rag.Citation{Number: len(citations) + 1, Candidate: candidate}
-		evidence = append(evidence, contextualEvidence{
-			Citation: citation.Marker(),
-			ID:       candidate.Document.ID,
-			Content:  content,
-		})
+		entry, err := c.evidence(index, citation)
+		if err != nil {
+			return "", nil, err
+		}
+		evidence = append(evidence, entry)
 		if c.budget.limited() {
-			candidateEncoding, err := jsonv2.Marshal(evidence)
-			if err != nil {
-				return "", nil, fmt.Errorf("rag: encode contextual evidence: %w", err)
-			}
-			accepted, err := c.budget.accepts(ctx, candidateEncoding)
+			admitted, accepted, err := c.budget.admit(ctx, evidence)
 			if err != nil {
 				return "", nil, err
 			}
@@ -233,7 +226,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 				evidence = evidence[:len(evidence)-1]
 				continue
 			}
-			encoded = candidateEncoding
+			encoded = admitted
 		}
 		citations = append(citations, citation)
 	}
@@ -249,6 +242,21 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 		encoded = contextEncoding
 	}
 	return string(encoded), citations, nil
+}
+
+func (c *ContextualAugmenter) evidence(index int, citation rag.Citation) (contextualEvidence, error) {
+	content, err := c.formatter.Format(citation.Candidate.Document)
+	if err != nil {
+		return contextualEvidence{}, fmt.Errorf("rag: format context candidate %d: %w", index, err)
+	}
+	if strings.TrimSpace(content) == "" {
+		return contextualEvidence{}, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidAugmentation, index)
+	}
+	return contextualEvidence{
+		Citation: citation.Marker(),
+		ID:       citation.Candidate.Document.ID,
+		Content:  content,
+	}, nil
 }
 
 func (c *ContextualAugmenter) handleEmptyContext(query rag.Query) (rag.Augmentation, error) {

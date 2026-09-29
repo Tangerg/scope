@@ -73,9 +73,9 @@ type reciprocalRankFusion struct {
 	retrievers              []Retriever
 }
 
-func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (candidates Candidates, err error) {
-	if validateErr := query.Validate(); validateErr != nil {
-		return nil, validateErr
+func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+	if err := query.Validate(); err != nil {
+		return nil, err
 	}
 	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever", r.maxConcurrentRetrievals,
 		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {

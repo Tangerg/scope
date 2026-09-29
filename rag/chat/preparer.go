@@ -112,6 +112,22 @@ func (p *PreparedRequest) replaceFinalUserText(text string) error {
 	return nil
 }
 
+func (p PreparedRequest) retrievalQuery() (rag.Query, error) {
+	text, err := p.finalUserText()
+	if err != nil {
+		return rag.Query{}, err
+	}
+	query, err := rag.NewQuery(text)
+	if err != nil {
+		return rag.Query{}, fmt.Errorf("rag: build query from final user message: %w", err)
+	}
+	query, err = query.WithValue(historyValueKey, p.history())
+	if err != nil {
+		return rag.Query{}, fmt.Errorf("rag: attach chat history: %w", err)
+	}
+	return query, nil
+}
+
 func (p PreparedRequest) history() []corechat.Message {
 	history := make([]corechat.Message, len(p.request.Messages)-1)
 	for index := range history {
@@ -147,20 +163,10 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 	if err != nil {
 		return PreparedRequest{}, err
 	}
-	text, err := prepared.finalUserText()
+	query, err := prepared.retrievalQuery()
 	if err != nil {
 		return PreparedRequest{}, err
 	}
-	query, err := rag.NewQuery(text)
-	if err != nil {
-		return PreparedRequest{}, fmt.Errorf("rag: build query from final user message: %w", err)
-	}
-
-	query, err = query.WithValue(historyValueKey, prepared.history())
-	if err != nil {
-		return PreparedRequest{}, fmt.Errorf("rag: attach chat history: %w", err)
-	}
-
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return PreparedRequest{}, ctxErr
 	}
