@@ -212,10 +212,15 @@ func (r *Recorder) OnToolSettled(_ context.Context, invocation interaction.ToolI
 		incrementGap(&entry.gaps.DroppedCallObservations)
 		return
 	}
+	outcome, result, failure := recordedOutcome(settlement)
+	if outcome == ToolOutcomeInvalid {
+		incrementGap(&entry.gaps.DroppedCallObservations)
+		return
+	}
 	if !observation.started {
 		observation.call = call
 	}
-	observation.call.Outcome, observation.call.Result, observation.call.Failure = recordedOutcome(settlement)
+	observation.call.Outcome, observation.call.Result, observation.call.Failure = outcome, result, failure
 	if settlement.Evidence != nil {
 		observation.call.Evidence = new(settlement.Evidence.Clone())
 	}
@@ -283,11 +288,8 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 			incrementGap(&gaps.DroppedCallObservations)
 			continue
 		}
-		if !observation.started || !observation.settled || !observation.call.Outcome.Valid() {
+		if !observation.started || !observation.settled {
 			incrementGap(&gaps.UnpairedCalls)
-			if !observation.call.Outcome.Valid() {
-				observation.call.Outcome = ToolOutcomeUnobserved
-			}
 		}
 		calls = append(calls, observation.call)
 	}
@@ -347,7 +349,7 @@ func recordedOutcome(
 	if settlement.Unknown {
 		modes++
 	}
-	if modes != 1 {
+	if modes != 1 || settlement.Evidence != nil && !settlement.Unknown {
 		return ToolOutcomeInvalid, nil, ""
 	}
 	if settlement.Result != nil {

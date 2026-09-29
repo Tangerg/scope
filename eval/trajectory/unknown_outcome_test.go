@@ -144,3 +144,26 @@ func TestIncompleteTakeConsumesSessionAndLateCallbacksDoNotReopenIt(t *testing.T
 		t.Fatalf("late callback reopened recording: %v", err)
 	}
 }
+
+func TestMalformedToolSettlementBecomesObservationGap(t *testing.T) {
+	recorder := &trajectory.Recorder{}
+	observer := &delayedToolObserver{Recorder: recorder}
+	process := runRecordedInteraction(t, recorder, observer, fixtureWeatherTool{})
+	if observer.settlement.Result == nil {
+		t.Fatal("fixture Tool did not settle with a result")
+	}
+	recorder.OnToolSettled(t.Context(), observer.invocation, interaction.ToolSettlement{
+		Result: observer.settlement.Result, Evidence: new(chat.NewTextToolOutput("non-final output")),
+	})
+	recorded, err := recorder.Take(t.Context(), process, nil)
+	if err != nil {
+		t.Fatalf("malformed settlement discarded the recording: %v", err)
+	}
+	if gaps := recorded.Gaps(); gaps.DroppedCallObservations != 1 || gaps.UnpairedCalls != 1 {
+		t.Fatalf("malformed settlement was not an explicit gap: %+v", gaps)
+	}
+	calls := recorded.ToolCalls()
+	if len(calls) != 1 || calls[0].Outcome != trajectory.ToolOutcomeUnobserved || calls[0].Result != nil || calls[0].Evidence != nil {
+		t.Fatalf("malformed settlement became evidence: %+v", calls)
+	}
+}
