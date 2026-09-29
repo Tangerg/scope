@@ -23,13 +23,12 @@ func (e EffectReference) Valid() bool {
 }
 
 // Coverage is the Host's exhaustive classification of dispatcher Effects in
-// this recording. One Deployment may perform several kinds of operation.
-// Models and Tools require exactly one semantic call for each physical
-// EffectStarted attempt, including Unknown calls;
-// Other asserts that an Effect performs neither kind of call. The Host must
-// classify requests independently of the observations being checked. Deriving
-// coverage from recorded responses would conceal missing observations.
-// Nil coverage leaves completeness unknown; an empty value asserts no dispatch.
+// this recording. Models and Tools require exactly one semantic call for each
+// physical EffectStarted attempt, including Unknown calls; Other asserts that
+// an Effect performs neither kind of call. The Host must classify requests
+// independently of the observations being checked: coverage derived from
+// recorded responses would conceal missing observations. Nil coverage leaves
+// completeness unknown; an empty value asserts no dispatch.
 type Coverage struct {
 	Models []EffectReference `json:"models,omitempty"`
 	Tools  []EffectReference `json:"tools,omitempty"`
@@ -56,6 +55,19 @@ const (
 	effectRoleTool
 	effectRoleOther
 )
+
+func (e effectRole) String() string {
+	switch e {
+	case effectRoleModel:
+		return "model"
+	case effectRoleTool:
+		return "tool"
+	case effectRoleOther:
+		return "other"
+	default:
+		return "invalid"
+	}
+}
 
 func (c Coverage) classifications() (map[EffectReference]effectRole, error) {
 	seen := make(map[EffectReference]effectRole, len(c.Models)+len(c.Tools)+len(c.Other))

@@ -8,6 +8,7 @@ import (
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -87,14 +88,13 @@ func (t Trajectory) Clone() (Trajectory, error) {
 
 func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
 
-// Termination returns the committed root termination. The zero value means no
-// root Result was established; RuntimeStopped is not logical termination.
+// Termination is zero when no root Result was committed; RuntimeStopped is not
+// logical termination.
 func (t Trajectory) Termination() agent.Termination { return t.termination }
 
 func (t Trajectory) Gaps() EvidenceGaps { return t.gaps }
 
-// Output returns the root output; a zero Payload means absent, while JSON null
-// is a present output.
+// Output is a zero Payload when absent; JSON null is a present output.
 func (t Trajectory) Output() agent.Payload { return t.output }
 
 func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
@@ -155,11 +155,15 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTrajectory, err)
 	}
-	var termination agent.Termination
-	if decoded.Termination != nil {
-		termination = *decoded.Termination
+	config := Config{
+		RootProcessID: decoded.RootProcessID, Output: decoded.Output, RootUsage: decoded.RootUsage,
+		Coverage: decoded.Coverage, Gaps: decoded.Gaps, Elapsed: (*time.Duration)(decoded.Elapsed),
+		Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls,
 	}
-	canonical, err := New(Config{RootProcessID: decoded.RootProcessID, Termination: termination, Output: decoded.Output, RootUsage: decoded.RootUsage, Coverage: decoded.Coverage, Gaps: decoded.Gaps, Elapsed: (*time.Duration)(decoded.Elapsed), Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls})
+	if decoded.Termination != nil {
+		config.Termination = *decoded.Termination
+	}
+	canonical, err := New(config)
 	if err != nil {
 		return err
 	}
@@ -168,15 +172,8 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 }
 
 func (t Trajectory) Validate() error {
-	if !t.rootProcessID.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
-		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
-	}
-	if t.termination.Status() == agent.StatusCompleted {
-		if !t.output.Valid() {
-			return fmt.Errorf("%w: completed trajectory requires output", ErrInvalidTrajectory)
-		}
-	} else if !t.output.IsZero() {
-		return fmt.Errorf("%w: non-completed trajectory cannot carry output", ErrInvalidTrajectory)
+	if err := t.validateRootOutcome(); err != nil {
+		return err
 	}
 	if len(t.events) == 0 {
 		return fmt.Errorf("%w: at least one agent event is required", ErrInvalidTrajectory)
@@ -190,54 +187,120 @@ func (t Trajectory) Validate() error {
 	}) {
 		return fmt.Errorf("%w: events are not in canonical process order", ErrInvalidTrajectory)
 	}
-	finished := 0
-	terminals := make(map[agent.ProcessID]bool)
-	stopped := make(map[agent.ProcessID]bool)
+	history, err := t.eventHistory()
+	if err != nil {
+		return err
+	}
+	if err := t.validateTerminalEvidence(paths, history); err != nil {
+		return err
+	}
+	if err := t.validateModelCalls(paths); err != nil {
+		return err
+	}
+	if err := t.validateToolCalls(paths); err != nil {
+		return err
+	}
+	if t.coverage != nil {
+		if err := t.coverage.Validate(); err != nil {
+			return err
+		}
+	}
+	return t.validateObservedAttempts()
+}
+
+func (t Trajectory) validateRootOutcome() error {
+	if !t.rootProcessID.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
+		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
+	}
+	completed := t.termination.Status() == agent.StatusCompleted
+	if completed && !t.output.Valid() {
+		return fmt.Errorf("%w: completed trajectory requires output", ErrInvalidTrajectory)
+	}
+	if !completed && !t.output.IsZero() {
+		return fmt.Errorf("%w: non-completed trajectory cannot carry output", ErrInvalidTrajectory)
+	}
+	return nil
+}
+
+type eventHistory struct {
+	rootFinished int
+	finished     map[agent.ProcessID]bool
+	stopped      map[agent.ProcessID]bool
+}
+
+// eventHistory requires every sequence number an activation skips to be
+// covered by declared event loss.
+func (t Trajectory) eventHistory() (eventHistory, error) {
+	history := eventHistory{finished: make(map[agent.ProcessID]bool), stopped: make(map[agent.ProcessID]bool)}
 	sequences := make(map[activationProcess]uint64)
 	var missingEvents uint64
 	for index, event := range t.events {
 		if !event.Valid() || event.Relation().RootID() != t.rootProcessID {
-			return fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
+			return eventHistory{}, fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
 		}
-		previous := sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}]
+		activation := activationProcess{event.ProcessID(), eventIncarnation(event)}
+		previous := sequences[activation]
 		if event.ProcessSequence() <= previous {
-			return fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
+			return eventHistory{}, fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
 		}
 		missing := event.ProcessSequence() - previous - 1
 		if missing > t.gaps.DroppedEvents-missingEvents {
-			return fmt.Errorf("%w: events[%d] exceeds declared observation loss", ErrInvalidTrajectory, index)
+			return eventHistory{}, fmt.Errorf("%w: events[%d] exceeds declared observation loss", ErrInvalidTrajectory, index)
 		}
 		missingEvents += missing
-		sequences[activationProcess{event.ProcessID(), eventIncarnation(event)}] = event.ProcessSequence()
-		if event.Name() == agent.EventRuntimeStopped {
-			stopped[event.ProcessID()] = true
-		}
-		if event.Name() == agent.EventProcessFinished {
-			if terminals[event.ProcessID()] {
-				return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
-			}
-			terminals[event.ProcessID()] = true
-		}
-		if event.ProcessID() == t.rootProcessID && event.Name() == agent.EventProcessFinished {
-			fact, present := event.ProcessFinished()
-			if !present || !t.matchesRootOutcome(fact) {
-				return fmt.Errorf("%w: root finished event disagrees with outcome", ErrInvalidTrajectory)
-			}
-			finished++
+		sequences[activation] = event.ProcessSequence()
+		if err := t.recordTerminal(&history, event); err != nil {
+			return eventHistory{}, err
 		}
 	}
-	for process := range paths {
-		if !terminals[process] && !stopped[process] && t.gaps.DroppedEvents == 0 {
-			return fmt.Errorf("%w: process %s has no terminal evidence", ErrIncompleteRecording, process)
+	return history, nil
+}
+
+func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) error {
+	switch event.Name() {
+	case agent.EventRuntimeStopped:
+		history.stopped[event.ProcessID()] = true
+	case agent.EventProcessFinished:
+		if history.finished[event.ProcessID()] {
+			return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
+		}
+		history.finished[event.ProcessID()] = true
+		if event.ProcessID() != t.rootProcessID {
+			return nil
+		}
+		fact, present := event.ProcessFinished()
+		if !present || !t.matchesRootOutcome(fact) {
+			return fmt.Errorf("%w: root finished event disagrees with outcome", ErrInvalidTrajectory)
+		}
+		history.rootFinished++
+	}
+	return nil
+}
+
+// validateTerminalEvidence excuses a missing terminal event only when declared
+// event loss can explain it.
+func (t Trajectory) validateTerminalEvidence(paths map[agent.ProcessID]string, history eventHistory) error {
+	complete := t.gaps.DroppedEvents == 0
+	if complete {
+		for process := range paths {
+			if !history.finished[process] && !history.stopped[process] {
+				return fmt.Errorf("%w: process %s has no terminal evidence", ErrIncompleteRecording, process)
+			}
 		}
 	}
 	if t.termination.Valid() {
-		if finished != 1 && t.gaps.DroppedEvents == 0 {
+		if history.rootFinished != 1 && complete {
 			return fmt.Errorf("%w: root must have exactly one finished event", ErrInvalidTrajectory)
 		}
-	} else if finished != 0 || !stopped[t.rootProcessID] && t.gaps.DroppedEvents == 0 || t.rootUsage != (agent.Usage{}) {
+		return nil
+	}
+	if history.rootFinished != 0 || !history.stopped[t.rootProcessID] && complete || t.rootUsage != (agent.Usage{}) {
 		return fmt.Errorf("%w: absent root result requires runtime-stop or lost event evidence and no root usage", ErrInvalidTrajectory)
 	}
+	return nil
+}
+
+func (t Trajectory) validateModelCalls(paths map[agent.ProcessID]string) error {
 	for index, call := range t.modelCalls {
 		if err := call.Validate(); err != nil {
 			return fmt.Errorf("%w: model_calls[%d]: %w", ErrInvalidTrajectory, index, err)
@@ -249,6 +312,10 @@ func (t Trajectory) Validate() error {
 			return fmt.Errorf("%w: model_calls must have unique canonical attribution", ErrInvalidTrajectory)
 		}
 	}
+	return nil
+}
+
+func (t Trajectory) validateToolCalls(paths map[agent.ProcessID]string) error {
 	for index, call := range t.toolCalls {
 		if err := call.Validate(); err != nil {
 			return fmt.Errorf("%w: tool_calls[%d]: %w", ErrInvalidTrajectory, index, err)
@@ -259,14 +326,6 @@ func (t Trajectory) Validate() error {
 		if index > 0 && compareToolCall(t.toolCalls[index-1], call, paths) >= 0 {
 			return fmt.Errorf("%w: tool_calls must have unique canonical attribution", ErrInvalidTrajectory)
 		}
-	}
-	if t.coverage != nil {
-		if err := t.coverage.Validate(); err != nil {
-			return err
-		}
-	}
-	if err := t.validateObservedAttempts(); err != nil {
-		return err
 	}
 	return nil
 }
@@ -299,7 +358,7 @@ func (t Trajectory) TotalTokens() (int64, error) {
 			return 0, fmt.Errorf("%w: model token accounting is absent", ErrIncompleteRecording)
 		}
 		value := call.Response.Metadata.Usage.TotalTokens()
-		if value > (1<<63-1)-total {
+		if value > math.MaxInt64-total {
 			return 0, fmt.Errorf("%w: total model tokens overflow int64", ErrInvalidTrajectory)
 		}
 		total += value
@@ -377,10 +436,30 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 		}
 		projection.Output = json.RawMessage(output)
 	}
-	// Acknowledgments may interleave with later candidate attempts. Each phase
-	// retains its order; their publication interleaving is storage scheduling.
+	projection.Events = t.behaviorEvents(paths)
+	projection.Models = make([]behaviorModel, len(ordered.models))
+	for index, call := range ordered.models {
+		projection.Models[index], err = behaviorModelOf(call, paths[call.ProcessID])
+		if err != nil {
+			return behaviorProjection{}, err
+		}
+	}
+	projection.Tools = make([]behaviorTool, len(ordered.tools))
+	for index, call := range ordered.tools {
+		projection.Tools[index], err = behaviorToolOf(call, paths[call.ProcessID])
+		if err != nil {
+			return behaviorProjection{}, err
+		}
+	}
+	return projection, nil
+}
+
+// behaviorEvents numbers events per Process phase. Acknowledgments may
+// interleave with later candidate attempts; that publication order is storage
+// scheduling, not behavior.
+func (t Trajectory) behaviorEvents(paths map[agent.ProcessID]string) []behaviorEvent {
 	sequences := make(map[behaviorEventStream]uint64)
-	projection.Events = make([]behaviorEvent, 0, len(t.events))
+	events := make([]behaviorEvent, 0, len(t.events))
 	for _, event := range t.events {
 		if event.Name() == agent.EventDeltaDropped || event.Name() == agent.EventSignalAccepted {
 			continue
@@ -393,36 +472,24 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 			StepSequence: step, Name: event.Name(), Phase: event.Phase(),
 		}
 		fact.apply(event)
-		projection.Events = append(projection.Events, fact)
+		events = append(events, fact)
 	}
-	slices.SortFunc(projection.Events, behaviorEvent.compare)
-	models := ordered.models
-	projection.Models = make([]behaviorModel, len(models))
-	for index, call := range models {
-		projection.Models[index], err = behaviorModelOf(call, paths[call.ProcessID])
-		if err != nil {
-			return behaviorProjection{}, err
-		}
+	slices.SortFunc(events, behaviorEvent.compare)
+	return events
+}
+
+func (t Trajectory) semanticToolCalls() ([]ToolCall, error) {
+	if !t.HistoryComplete() {
+		return nil, fmt.Errorf("%w: Tool history is incomplete", ErrIncompleteRecording)
 	}
-	tools := ordered.tools
-	projection.Tools = make([]behaviorTool, len(tools))
-	for index, call := range tools {
-		arguments, err := canonicalArguments(call.Call.Arguments)
-		if err != nil {
-			return behaviorProjection{}, err
-		}
-		var result *behaviorToolResult
-		if call.Result != nil {
-			cloned := call.Result.Clone()
-			result = &behaviorToolResult{Name: cloned.Name, Output: cloned.Output, IsError: cloned.IsError}
-		}
-		projection.Tools[index] = behaviorTool{
-			ProcessPath: paths[call.ProcessID], Step: call.StepSequence,
-			ModelCall: call.ModelCall, Index: call.Index, Name: call.Call.Name,
-			Arguments: arguments, Outcome: call.Outcome, Result: result,
-		}
+	if err := t.validateCoverage(); err != nil {
+		return nil, err
 	}
-	return projection, nil
+	ordered, err := orderSemanticCalls(t.rootProcessID, t.events, t.modelCalls, t.toolCalls)
+	if err != nil {
+		return nil, err
+	}
+	return ordered.tools, nil
 }
 
 func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[agent.Payload, json.RawMessage]) (eval.Report, error) {
@@ -492,10 +559,20 @@ func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int
 }
 
 func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.ProcessID]string, error) {
+	relations, err := processRelationsOf(root, events)
+	if err != nil {
+		return nil, err
+	}
+	return relations.paths(root, func(_ agent.ProcessID, key agent.ChildKey) string { return key.String() })
+}
+
+type processRelations map[agent.ProcessID]agent.ProcessRelation
+
+func processRelationsOf(root agent.ProcessID, events []agent.Event) (processRelations, error) {
 	if !root.Valid() || len(events) == 0 {
 		return nil, fmt.Errorf("%w: process relations are incomplete", ErrInvalidTrajectory)
 	}
-	relations := make(map[agent.ProcessID]agent.ProcessRelation)
+	relations := make(processRelations)
 	for _, event := range events {
 		if !event.Valid() || event.Relation().RootID() != root {
 			return nil, fmt.Errorf("%w: event process relation is invalid", ErrInvalidTrajectory)
@@ -505,30 +582,34 @@ func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.Process
 		}
 		relations[event.ProcessID()] = event.Relation()
 	}
-	rootRelation, present := relations[root]
-	if !present || !rootRelation.IsRoot() {
+	if relation, present := relations[root]; !present || !relation.IsRoot() {
 		return nil, fmt.Errorf("%w: root process relation is missing", ErrInvalidTrajectory)
 	}
+	return relations, nil
+}
+
+// paths resolves parents before children independently of event order, so it
+// rejects relations that leave a Process unreachable or share one path.
+func (p processRelations) paths(root agent.ProcessID, segment func(parent agent.ProcessID, key agent.ChildKey) string) (map[agent.ProcessID]string, error) {
 	paths := map[agent.ProcessID]string{root: rootProcessPath}
-	pathOwners := map[string]agent.ProcessID{rootProcessPath: root}
-	for len(paths) < len(relations) {
+	owners := map[string]agent.ProcessID{rootProcessPath: root}
+	for len(paths) < len(p) {
 		progress := false
-		for processID, relation := range relations {
-			if _, resolved := paths[processID]; resolved {
+		for process, relation := range p {
+			if _, resolved := paths[process]; resolved {
 				continue
 			}
-			parentID, hasParent := relation.ParentID()
-			parentPath, parentResolved := paths[parentID]
-			childKey, hasChildKey := relation.ChildKey()
-			if !hasParent || !hasChildKey || !parentResolved {
+			parent, hasParent := relation.ParentID()
+			prefix, parentResolved := paths[parent]
+			key, hasKey := relation.ChildKey()
+			if !hasParent || !hasKey || !parentResolved {
 				continue
 			}
-			path := parentPath + processPathSeparator + childKey.String()
-			if owner, duplicate := pathOwners[path]; duplicate && owner != processID {
+			path := prefix + processPathSeparator + segment(parent, key)
+			if _, duplicate := owners[path]; duplicate {
 				return nil, fmt.Errorf("%w: process relation path %q is duplicated", ErrInvalidTrajectory, path)
 			}
-			paths[processID] = path
-			pathOwners[path] = processID
+			paths[process], owners[path] = path, process
 			progress = true
 		}
 		if !progress {
@@ -612,7 +693,7 @@ func (t Trajectory) TreeUsage() (agent.Usage, error) {
 			{&total.CommittedSteps, usage.CommittedSteps}, {&total.PreparedEffects, usage.PreparedEffects},
 			{&total.AcceptedSignals, usage.AcceptedSignals}, {&total.DroppedDeltas, usage.DroppedDeltas},
 		} {
-			if pair.value > ^uint64(0)-*pair.sum {
+			if pair.value > math.MaxUint64-*pair.sum {
 				return agent.Usage{}, fmt.Errorf("%w: tree usage overflows uint64", ErrInvalidTrajectory)
 			}
 			*pair.sum += pair.value
@@ -632,108 +713,87 @@ func (t Trajectory) validateCoverage() error {
 	if err != nil {
 		return err
 	}
-	models := make(map[attemptIdentity]int)
-	tools := make(map[attemptIdentity]int)
-	for _, call := range t.modelCalls {
-		if call.Outcome == ModelOutcomeUnobserved {
-			return fmt.Errorf("%w: model settlement was not observed", ErrIncompleteRecording)
+	calls := make(map[classifiedAttempt]int)
+	for _, call := range t.semanticCalls() {
+		if call.unobserved {
+			return fmt.Errorf("%w: %s settlement was not observed", ErrIncompleteRecording, call.role)
 		}
-		models[attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}]++
-	}
-	for _, call := range t.toolCalls {
-		if call.Outcome == ToolOutcomeUnobserved {
-			return fmt.Errorf("%w: tool settlement was not observed", ErrIncompleteRecording)
-		}
-		tools[attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}]++
+		calls[classifiedAttempt{call.role, call.attempt}]++
 	}
 	seen := make(map[EffectReference]bool, len(classifications))
 	for _, event := range t.events {
-		fact, ok := event.EffectStarted()
-		if !ok || fact.Target() != agent.EffectTargetDispatcher {
+		attempt, ok := dispatcherAttempt(event)
+		if !ok {
 			continue
 		}
-		effect, _ := event.EffectID()
-		key := EffectReference{event.ProcessID(), eventIncarnation(event), effect}
-		attempt := attemptIdentity{key.ProcessID, key.TreeIncarnationID, key.EffectID, fact.AttemptID()}
-		switch classifications[key] {
-		case effectRoleModel:
-			if models[attempt] != 1 {
-				return fmt.Errorf("%w: model attempt %s lacks exactly one call", ErrIncompleteRecording, fact.AttemptID())
+		effect := attempt.effect()
+		switch role := classifications[effect]; role {
+		case effectRoleModel, effectRoleTool:
+			key := classifiedAttempt{role, attempt}
+			if calls[key] != 1 {
+				return fmt.Errorf("%w: %s attempt %s lacks exactly one call", ErrIncompleteRecording, role, attempt.attemptID)
 			}
-			delete(models, attempt)
-		case effectRoleTool:
-			if tools[attempt] != 1 {
-				return fmt.Errorf("%w: tool attempt %s lacks exactly one call", ErrIncompleteRecording, fact.AttemptID())
-			}
-			delete(tools, attempt)
+			delete(calls, key)
 		case effectRoleOther:
 		default:
-			return fmt.Errorf("%w: dispatcher Effect %s is unclassified", ErrIncompleteRecording, effect)
+			return fmt.Errorf("%w: dispatcher Effect %s is unclassified", ErrIncompleteRecording, effect.EffectID)
 		}
-		seen[key] = true
+		seen[effect] = true
 	}
 	if len(seen) != len(classifications) {
 		return fmt.Errorf("%w: coverage names an unobserved dispatcher Effect", ErrIncompleteRecording)
 	}
-	if len(models) != 0 || len(tools) != 0 {
+	if len(calls) != 0 {
 		return fmt.Errorf("%w: semantic observations have no matching dispatcher attempt", ErrIncompleteRecording)
 	}
 	return nil
 }
 
+type semanticCall struct {
+	role       effectRole
+	attempt    attemptIdentity
+	step       uint64
+	unobserved bool
+}
+
+type classifiedAttempt struct {
+	role    effectRole
+	attempt attemptIdentity
+}
+
+func (t Trajectory) semanticCalls() []semanticCall {
+	calls := make([]semanticCall, 0, len(t.modelCalls)+len(t.toolCalls))
+	for _, call := range t.modelCalls {
+		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome == ModelOutcomeUnobserved})
+	}
+	for _, call := range t.toolCalls {
+		calls = append(calls, semanticCall{effectRoleTool, call.attempt(), call.StepSequence, call.Outcome == ToolOutcomeUnobserved})
+	}
+	return calls
+}
+
 // validateObservedAttempts rejects fabricated or ambiguous attribution without
 // demanding that the retained evidence be sufficient for any particular rule.
 func (t Trajectory) validateObservedAttempts() error {
-	attempts := make(map[attemptIdentity]uint64)
-	physicalOwners := make(map[agent.EffectAttemptID]attemptIdentity)
-	for _, event := range t.events {
-		fact, ok := event.EffectStarted()
-		if !ok || fact.Target() != agent.EffectTargetDispatcher {
-			continue
-		}
-		effect, _ := event.EffectID()
-		key := attemptIdentity{event.ProcessID(), eventIncarnation(event), effect, fact.AttemptID()}
-		if attempts[key] != 0 {
-			return fmt.Errorf("%w: duplicate physical dispatcher attempt", ErrInvalidTrajectory)
-		}
-		if previous, reused := physicalOwners[key.attemptID]; reused && previous != key {
-			return fmt.Errorf("%w: physical attempt identity has multiple owners", ErrInvalidTrajectory)
-		}
-		physicalOwners[key.attemptID] = key
-		step, _ := event.StepSequence()
-		attempts[key] = step
+	steps, err := t.dispatcherSteps()
+	if err != nil {
+		return err
 	}
 	observed := make(map[attemptIdentity]bool)
 	var unpaired uint64
-	for _, call := range t.modelCalls {
-		key := attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}
-		if attempts[key] == 0 && t.gaps.DroppedEvents == 0 {
-			return fmt.Errorf("%w: model call has no physical dispatcher attempt", ErrInvalidTrajectory)
+	for _, call := range t.semanticCalls() {
+		step := steps[call.attempt]
+		if step == 0 && t.gaps.DroppedEvents == 0 {
+			return fmt.Errorf("%w: %s call has no physical dispatcher attempt", ErrInvalidTrajectory, call.role)
 		}
-		if step := attempts[key]; step != 0 && step != call.StepSequence {
+		if step != 0 && step != call.step {
 			return fmt.Errorf("%w: call Step disagrees with physical dispatcher attempt", ErrInvalidTrajectory)
 		}
-		if observed[key] {
+		if observed[call.attempt] {
 			return fmt.Errorf("%w: duplicate call for physical dispatcher attempt", ErrInvalidTrajectory)
 		}
-		observed[key] = true
-		if call.Outcome == ModelOutcomeUnobserved {
-			unpaired++
-		}
-	}
-	for _, call := range t.toolCalls {
-		key := attemptIdentity{call.ProcessID, call.TreeIncarnationID, call.EffectID, call.AttemptID}
-		if attempts[key] == 0 && t.gaps.DroppedEvents == 0 {
-			return fmt.Errorf("%w: tool call has no physical dispatcher attempt", ErrInvalidTrajectory)
-		}
-		if step := attempts[key]; step != 0 && step != call.StepSequence {
-			return fmt.Errorf("%w: call Step disagrees with physical dispatcher attempt", ErrInvalidTrajectory)
-		}
-		if observed[key] {
-			return fmt.Errorf("%w: duplicate call for physical dispatcher attempt", ErrInvalidTrajectory)
-		}
-		observed[key] = true
-		if call.Outcome == ToolOutcomeUnobserved {
+		observed[call.attempt] = true
+		if call.unobserved {
 			unpaired++
 		}
 	}
@@ -741,4 +801,24 @@ func (t Trajectory) validateObservedAttempts() error {
 		return fmt.Errorf("%w: missing settlements exceed declared observation loss", ErrInvalidTrajectory)
 	}
 	return nil
+}
+
+func (t Trajectory) dispatcherSteps() (map[attemptIdentity]uint64, error) {
+	steps := make(map[attemptIdentity]uint64)
+	owners := make(map[agent.EffectAttemptID]attemptIdentity)
+	for _, event := range t.events {
+		attempt, ok := dispatcherAttempt(event)
+		if !ok {
+			continue
+		}
+		if steps[attempt] != 0 {
+			return nil, fmt.Errorf("%w: duplicate physical dispatcher attempt", ErrInvalidTrajectory)
+		}
+		if previous, reused := owners[attempt.attemptID]; reused && previous != attempt {
+			return nil, fmt.Errorf("%w: physical attempt identity has multiple owners", ErrInvalidTrajectory)
+		}
+		owners[attempt.attemptID] = attempt
+		steps[attempt], _ = event.StepSequence()
+	}
+	return steps, nil
 }

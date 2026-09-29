@@ -74,18 +74,12 @@ type behaviorToolDecision struct {
 
 func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
 	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome}
-	if call.Response == nil || call.Response.Output.Message == nil {
-		return model, nil
-	}
-	for _, part := range call.Response.Output.Message.Parts {
-		if part.Kind != chat.PartToolCall {
-			continue
-		}
-		arguments, err := canonicalArguments(part.ToolCall.Arguments)
+	for _, decision := range call.toolDecisions() {
+		arguments, err := canonicalArguments(decision.Arguments)
 		if err != nil {
 			return behaviorModel{}, err
 		}
-		model.ToolCalls = append(model.ToolCalls, behaviorToolDecision{Name: part.ToolCall.Name, Arguments: arguments})
+		model.ToolCalls = append(model.ToolCalls, behaviorToolDecision{Name: decision.Name, Arguments: arguments})
 	}
 	return model, nil
 }
@@ -105,6 +99,23 @@ type behaviorToolResult struct {
 	Name    string          `json:"name"`
 	Output  chat.ToolOutput `json:"output"`
 	IsError bool            `json:"is_error,omitzero"`
+}
+
+func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
+	arguments, err := canonicalArguments(call.Call.Arguments)
+	if err != nil {
+		return behaviorTool{}, err
+	}
+	tool := behaviorTool{
+		ProcessPath: path, Step: call.StepSequence,
+		ModelCall: call.ModelCall, Index: call.Index, Name: call.Call.Name,
+		Arguments: arguments, Outcome: call.Outcome,
+	}
+	if call.Result != nil {
+		result := call.Result.Clone()
+		tool.Result = &behaviorToolResult{Name: result.Name, Output: result.Output, IsError: result.IsError}
+	}
+	return tool, nil
 }
 
 func behaviorTerminationOf(termination agent.Termination) behaviorTermination {
@@ -170,74 +181,49 @@ type behaviorChild struct {
 // remain semantic. Provider-generated ToolCall IDs are retained in the record
 // but cannot perturb this projection's process identity.
 func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []ModelCall) (map[agent.ProcessID]string, error) {
-	if _, err := processPaths(root, events); err != nil {
+	relations, err := processRelationsOf(root, events)
+	if err != nil {
 		return nil, err
 	}
+	segments, err := interactionSegments(models)
+	if err != nil {
+		return nil, err
+	}
+	return relations.paths(root, func(parent agent.ProcessID, key agent.ChildKey) string {
+		if segment, mapped := segments[behaviorChild{parent, key}]; mapped {
+			return segment
+		}
+		return key.String()
+	})
+}
+
+var interactionChildRoles = [...]struct {
+	name string
+	key  func(uint64, chat.ToolCall) (agent.ChildKey, error)
+}{
+	{"tool", interaction.ToolChildKey},
+	{"delegate", interaction.DelegateChildKey},
+}
+
+func interactionSegments(models []ModelCall) (map[behaviorChild]string, error) {
 	segments := make(map[behaviorChild]string)
 	for _, model := range models {
-		if model.Response == nil || model.Response.Output.Message == nil {
-			continue
-		}
-		index := 0
-		for _, part := range model.Response.Output.Message.Parts {
-			if part.Kind != chat.PartToolCall {
-				continue
-			}
-			for _, role := range []string{"tool", "delegate"} {
-				var key agent.ChildKey
-				var err error
-				if role == "tool" {
-					key, err = interaction.ToolChildKey(model.CallSequence, *part.ToolCall)
-				} else {
-					key, err = interaction.DelegateChildKey(model.CallSequence, *part.ToolCall)
-				}
+		for index, decision := range model.toolDecisions() {
+			for _, role := range interactionChildRoles {
+				key, err := role.key(model.CallSequence, decision)
 				if err != nil {
 					return nil, err
 				}
 				identity := behaviorChild{model.ProcessID, key}
-				segment := fmt.Sprintf("@interaction/%s/%020d/%010d", role, model.CallSequence, index)
+				segment := fmt.Sprintf("@interaction/%s/%020d/%010d", role.name, model.CallSequence, index)
 				if previous, exists := segments[identity]; exists && previous != segment {
 					return nil, fmt.Errorf("%w: ambiguous Interaction child attribution", ErrInvalidTrajectory)
 				}
 				segments[identity] = segment
 			}
-			index++
 		}
 	}
-	relations := make(map[agent.ProcessID]agent.ProcessRelation)
-	for _, event := range events {
-		relations[event.ProcessID()] = event.Relation()
-	}
-	paths := map[agent.ProcessID]string{root: rootProcessPath}
-	owners := map[string]agent.ProcessID{rootProcessPath: root}
-	for len(paths) < len(relations) {
-		progress := false
-		for process, relation := range relations {
-			if _, known := paths[process]; known {
-				continue
-			}
-			parent, _ := relation.ParentID()
-			prefix, ready := paths[parent]
-			if !ready {
-				continue
-			}
-			key, _ := relation.ChildKey()
-			segment, mapped := segments[behaviorChild{parent, key}]
-			if !mapped {
-				segment = key.String()
-			}
-			path := prefix + processPathSeparator + segment
-			if previous, collision := owners[path]; collision && previous != process {
-				return nil, fmt.Errorf("%w: semantic child path is ambiguous", ErrInvalidTrajectory)
-			}
-			paths[process], owners[path] = path, process
-			progress = true
-		}
-		if !progress {
-			return nil, fmt.Errorf("%w: semantic process relations are incomplete", ErrInvalidTrajectory)
-		}
-	}
-	return paths, nil
+	return segments, nil
 }
 
 // semanticCallOrder is the one structural order used by deterministic behavior

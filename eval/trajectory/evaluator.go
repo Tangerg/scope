@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/metadata"
@@ -42,57 +43,27 @@ type decisionRule struct {
 }
 
 func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {
-	if checkErr := ctx.Err(); checkErr != nil {
-		return eval.Report{}, checkErr
+	if err := ctx.Err(); err != nil {
+		return eval.Report{}, err
 	}
-	if checkErr := sample.Validate(); checkErr != nil {
-		return eval.Report{}, checkErr
+	if err := sample.Validate(); err != nil {
+		return eval.Report{}, err
 	}
-	details := make([]eval.Report, 0, 9)
-	task, err := sample.outcomeReport()
+	details, err := sample.reports(e.OutputProjection)
 	if err != nil {
 		return eval.Report{}, err
 	}
-	details = append(details, task)
-	if sample.Expected.Tools != nil {
-		if !sample.Actual.HistoryComplete() {
-			return eval.Report{}, fmt.Errorf("%w: Tool history is incomplete", ErrIncompleteRecording)
-		}
-		if checkErr := sample.Actual.validateCoverage(); checkErr != nil {
-			return eval.Report{}, checkErr
-		}
-		ordered, orderErr := orderSemanticCalls(sample.Actual.rootProcessID, sample.Actual.events, sample.Actual.modelCalls, sample.Actual.toolCalls)
-		if orderErr != nil {
-			return eval.Report{}, orderErr
-		}
-		tools, toolErr := sample.Expected.Tools.report(ordered.tools)
-		if toolErr != nil {
-			return eval.Report{}, toolErr
-		}
-		details = append(details, tools)
-	}
-	if sample.Expected.Baseline != nil {
-		consistency, consistencyErr := sample.Actual.consistencyReport(*sample.Expected.Baseline, e.OutputProjection)
-		if consistencyErr != nil {
-			return eval.Report{}, consistencyErr
-		}
-		details = append(details, consistency)
-	}
-	resourceReports, err := sample.Expected.Limits.reports(sample.Actual)
-	if err != nil {
-		return eval.Report{}, err
-	}
-	details = append(details, resourceReports...)
+	return allExpectationsReport(details)
+}
+
+func allExpectationsReport(details []eval.Report) (eval.Report, error) {
 	metric, err := eval.NewMetric(eval.MetricConfig{Namespace: metricNamespace, Name: MetricTrajectory})
 	if err != nil {
 		return eval.Report{}, err
 	}
 	verdict := eval.VerdictPass
-	for _, detail := range details {
-		if detail.Verdict() == eval.VerdictFail {
-			verdict = eval.VerdictFail
-			break
-		}
+	if slices.ContainsFunc(details, func(detail eval.Report) bool { return detail.Verdict() == eval.VerdictFail }) {
+		verdict = eval.VerdictFail
 	}
 	parameters := metadata.Map{}
 	rules := make([]decisionRule, len(details))

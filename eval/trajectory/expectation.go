@@ -2,6 +2,7 @@ package trajectory
 
 import (
 	"bytes"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -57,13 +58,10 @@ func (t ToolArguments) Validate() error {
 	return nil
 }
 
-// ToolExpectation asserts that a tool was called, and optionally how. Arguments
-// and Outcome are omissible so a sample can pin the part of the behavior it
-// cares about without freezing the rest; an expectation that had to state every
-// field would break on unrelated prompt or model changes and stop being run.
-// An unknown actual outcome cannot decide an assertion requiring a definite
-// outcome and returns ErrIncompleteRecording. Explicitly expecting Unknown is
-// supported; a known name or argument mismatch remains a definite mismatch.
+// ToolExpectation asserts one Tool call. Omitted Arguments or Outcome leave that
+// part unasserted, so unrelated prompt or model changes do not break the sample.
+// An unknown actual outcome cannot decide an expected definite outcome and
+// returns ErrIncompleteRecording; a name or argument mismatch still fails.
 type ToolExpectation struct {
 	Name      string         `json:"name"`
 	Arguments *ToolArguments `json:"arguments,omitzero"`
@@ -152,11 +150,37 @@ func (l Limits) Validate() error {
 }
 
 func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
-	usage, err := actual.TreeUsage()
-	if err != nil && (l.CommittedSteps != nil || l.PreparedEffects != nil || l.AcceptedSignals != nil || l.DroppedDeltas != nil) {
+	reports, err := l.usageReports(actual)
+	if err != nil {
 		return nil, err
 	}
-	reports := make([]eval.Report, 0, 6)
+	if l.TotalTokens != nil {
+		report, err := l.tokenReport(actual)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if l.Elapsed != nil {
+		report, err := l.elapsedReport(actual)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	return reports, nil
+}
+
+// usageReports ignores unknown tree usage when no usage bound needs it.
+func (l Limits) usageReports(actual Trajectory) ([]eval.Report, error) {
+	if l.CommittedSteps == nil && l.PreparedEffects == nil && l.AcceptedSignals == nil && l.DroppedDeltas == nil {
+		return nil, nil
+	}
+	usage, err := actual.TreeUsage()
+	if err != nil {
+		return nil, err
+	}
+	var reports []eval.Report
 	for _, bound := range [...]struct {
 		metric eval.MetricName
 		value  uint64
@@ -179,35 +203,29 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 		}
 		reports = append(reports, report)
 	}
-	if l.TotalTokens != nil {
-		tokens, err := actual.TotalTokens()
-		if err != nil {
-			return nil, err
-		}
-		report, err := measurementReport(
-			MetricTotalTokens, metricUnitToken,
-			float64(tokens), tokens <= *l.TotalTokens, *l.TotalTokens,
-		)
-		if err != nil {
-			return nil, err
-		}
-		reports = append(reports, report)
-	}
-	if l.Elapsed != nil {
-		if actual.elapsed == nil {
-			return nil, fmt.Errorf("%w: recording elapsed time is unknown", ErrIncompleteRecording)
-		}
-		report, err := measurementReport(
-			MetricElapsed, metricUnitSecond,
-			actual.elapsed.Seconds(), *actual.elapsed <= *l.Elapsed,
-			l.Elapsed.Seconds(),
-		)
-		if err != nil {
-			return nil, err
-		}
-		reports = append(reports, report)
-	}
 	return reports, nil
+}
+
+func (l Limits) tokenReport(actual Trajectory) (eval.Report, error) {
+	tokens, err := actual.TotalTokens()
+	if err != nil {
+		return eval.Report{}, err
+	}
+	return measurementReport(
+		MetricTotalTokens, metricUnitToken,
+		float64(tokens), tokens <= *l.TotalTokens, *l.TotalTokens,
+	)
+}
+
+func (l Limits) elapsedReport(actual Trajectory) (eval.Report, error) {
+	if actual.elapsed == nil {
+		return eval.Report{}, fmt.Errorf("%w: recording elapsed time is unknown", ErrIncompleteRecording)
+	}
+	return measurementReport(
+		MetricElapsed, metricUnitSecond,
+		actual.elapsed.Seconds(), *actual.elapsed <= *l.Elapsed,
+		l.Elapsed.Seconds(),
+	)
 }
 
 // Expectation describes case-specific success without contaminating Metric
@@ -256,6 +274,41 @@ func (s Sample) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (s Sample) reports(project eval.Projection[agent.Payload, json.RawMessage]) ([]eval.Report, error) {
+	outcome, err := s.outcomeReport()
+	if err != nil {
+		return nil, err
+	}
+	reports := []eval.Report{outcome}
+	if s.Expected.Tools != nil {
+		tools, toolErr := s.toolReport()
+		if toolErr != nil {
+			return nil, toolErr
+		}
+		reports = append(reports, tools)
+	}
+	if s.Expected.Baseline != nil {
+		consistency, consistencyErr := s.Actual.consistencyReport(*s.Expected.Baseline, project)
+		if consistencyErr != nil {
+			return nil, consistencyErr
+		}
+		reports = append(reports, consistency)
+	}
+	limits, err := s.Expected.Limits.reports(s.Actual)
+	if err != nil {
+		return nil, err
+	}
+	return append(reports, limits...), nil
+}
+
+func (s Sample) toolReport() (eval.Report, error) {
+	calls, err := s.Actual.semanticToolCalls()
+	if err != nil {
+		return eval.Report{}, err
+	}
+	return s.Expected.Tools.report(calls)
 }
 
 func (s Sample) outcomeReport() (eval.Report, error) {

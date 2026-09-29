@@ -69,26 +69,49 @@ func (m ModelCall) Clone() ModelCall {
 }
 
 func (m ModelCall) Validate() error {
-	if !m.EffectID.Valid() || !m.AttemptID.Valid() || !m.TreeIncarnationID.Valid() || !m.ProcessID.Valid() || m.StepSequence == 0 || m.CallSequence == 0 || m.Request == nil {
+	if !m.attempt().valid() || m.StepSequence == 0 || m.CallSequence == 0 || m.Request == nil {
 		return fmt.Errorf("%w: model call attribution is incomplete", ErrInvalidTrajectory)
 	}
 	if err := m.Request.Validate(); err != nil {
 		return fmt.Errorf("%w: model request: %w", ErrInvalidTrajectory, err)
 	}
+	return m.validateSettlement()
+}
+
+func (m ModelCall) validateSettlement() error {
 	if !m.Outcome.Valid() || m.Failure != strings.TrimSpace(m.Failure) {
 		return fmt.Errorf("%w: invalid model outcome", ErrInvalidTrajectory)
 	}
-	if m.Outcome == ModelOutcomeSucceeded {
-		if m.Response == nil || m.Failure != "" {
-			return fmt.Errorf("%w: successful model call requires one response", ErrInvalidTrajectory)
+	if m.Outcome != ModelOutcomeSucceeded {
+		if m.Response != nil || m.Outcome == ModelOutcomeUnobserved && m.Failure != "" {
+			return fmt.Errorf("%w: unresolved model call cannot carry a response", ErrInvalidTrajectory)
 		}
-		if err := m.Response.Validate(); err != nil {
-			return fmt.Errorf("%w: model response: %w", ErrInvalidTrajectory, err)
-		}
-	} else if m.Response != nil || m.Outcome == ModelOutcomeUnobserved && m.Failure != "" {
-		return fmt.Errorf("%w: unresolved model call cannot carry a response", ErrInvalidTrajectory)
+		return nil
+	}
+	if m.Response == nil || m.Failure != "" {
+		return fmt.Errorf("%w: successful model call requires one response", ErrInvalidTrajectory)
+	}
+	if err := m.Response.Validate(); err != nil {
+		return fmt.Errorf("%w: model response: %w", ErrInvalidTrajectory, err)
 	}
 	return nil
+}
+
+func (m ModelCall) attempt() attemptIdentity {
+	return attemptIdentity{m.ProcessID, m.TreeIncarnationID, m.EffectID, m.AttemptID}
+}
+
+func (m ModelCall) toolDecisions() []chat.ToolCall {
+	if m.Response == nil || m.Response.Output.Message == nil {
+		return nil
+	}
+	var decisions []chat.ToolCall
+	for _, part := range m.Response.Output.Message.Parts {
+		if part.Kind == chat.PartToolCall {
+			decisions = append(decisions, *part.ToolCall)
+		}
+	}
+	return decisions
 }
 
 // ToolCall is one settled Tool boundary attributed to an Agent Process Step.
@@ -122,7 +145,7 @@ func (t ToolCall) Clone() ToolCall {
 }
 
 func (t ToolCall) Validate() error {
-	if !t.EffectID.Valid() || !t.AttemptID.Valid() || !t.TreeIncarnationID.Valid() || !t.ProcessID.Valid() || t.StepSequence == 0 || t.ModelCall == 0 {
+	if !t.attempt().valid() || t.StepSequence == 0 || t.ModelCall == 0 {
 		return fmt.Errorf("%w: tool call attribution is incomplete", ErrInvalidTrajectory)
 	}
 	if err := t.Call.Validate(); err != nil {
@@ -134,14 +157,29 @@ func (t ToolCall) Validate() error {
 	if !t.Outcome.Valid() {
 		return fmt.Errorf("%w: tool outcome is invalid", ErrInvalidTrajectory)
 	}
-	if t.Evidence != nil {
-		if t.Outcome != ToolOutcomeUnknown {
-			return fmt.Errorf("%w: only unknown tool calls may retain non-final evidence", ErrInvalidTrajectory)
-		}
-		if err := t.Evidence.Validate(); err != nil {
-			return fmt.Errorf("%w: tool evidence: %w", ErrInvalidTrajectory, err)
-		}
+	if err := t.validateEvidence(); err != nil {
+		return err
 	}
+	if err := t.validateSettlement(); err != nil {
+		return err
+	}
+	return t.validateResult()
+}
+
+func (t ToolCall) validateEvidence() error {
+	if t.Evidence == nil {
+		return nil
+	}
+	if t.Outcome != ToolOutcomeUnknown {
+		return fmt.Errorf("%w: only unknown tool calls may retain non-final evidence", ErrInvalidTrajectory)
+	}
+	if err := t.Evidence.Validate(); err != nil {
+		return fmt.Errorf("%w: tool evidence: %w", ErrInvalidTrajectory, err)
+	}
+	return nil
+}
+
+func (t ToolCall) validateSettlement() error {
 	switch t.Outcome {
 	case ToolOutcomeSucceeded:
 		if t.Result == nil || t.Result.IsError || t.Failure != "" {
@@ -165,13 +203,48 @@ func (t ToolCall) Validate() error {
 			return fmt.Errorf("%w: unknown tool call permits only an optional failure diagnostic", ErrInvalidTrajectory)
 		}
 	}
-	if t.Result != nil {
-		if err := t.Result.Validate(); err != nil {
-			return fmt.Errorf("%w: tool result: %w", ErrInvalidTrajectory, err)
-		}
-		if t.Result.ID != t.Call.ID || t.Result.Name != t.Call.Name {
-			return fmt.Errorf("%w: tool result does not address its call", ErrInvalidTrajectory)
-		}
+	return nil
+}
+
+func (t ToolCall) validateResult() error {
+	if t.Result == nil {
+		return nil
+	}
+	if err := t.Result.Validate(); err != nil {
+		return fmt.Errorf("%w: tool result: %w", ErrInvalidTrajectory, err)
+	}
+	if t.Result.ID != t.Call.ID || t.Result.Name != t.Call.Name {
+		return fmt.Errorf("%w: tool result does not address its call", ErrInvalidTrajectory)
 	}
 	return nil
+}
+
+func (t ToolCall) attempt() attemptIdentity {
+	return attemptIdentity{t.ProcessID, t.TreeIncarnationID, t.EffectID, t.AttemptID}
+}
+
+// attemptIdentity names one physical dispatcher attempt. EffectAttemptID alone
+// is not trusted as a key: validation must detect one ID claimed by two owners.
+type attemptIdentity struct {
+	processID   agent.ProcessID
+	incarnation agent.TreeIncarnationID
+	effectID    agent.EffectID
+	attemptID   agent.EffectAttemptID
+}
+
+func dispatcherAttempt(event agent.Event) (attemptIdentity, bool) {
+	fact, ok := event.EffectStarted()
+	if !ok || fact.Target() != agent.EffectTargetDispatcher {
+		return attemptIdentity{}, false
+	}
+	effect, _ := event.EffectID()
+	return attemptIdentity{event.ProcessID(), eventIncarnation(event), effect, fact.AttemptID()}, true
+}
+
+func (a attemptIdentity) valid() bool {
+	return a.processID.Valid() && a.incarnation.Valid() && a.effectID.Valid() && a.attemptID.Valid()
+}
+
+func (a attemptIdentity) effect() EffectReference {
+	return EffectReference{ProcessID: a.processID, TreeIncarnationID: a.incarnation, EffectID: a.effectID}
 }

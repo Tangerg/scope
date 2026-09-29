@@ -1,5 +1,7 @@
 package trajectory
 
+import "math"
+
 // EvidenceGaps records known losses in observation, independently of runtime
 // outcomes. A lost callback cannot establish success, failure, or Unknown.
 // Restored history and RuntimeStopped are retained as Agent events and do not
@@ -15,7 +17,7 @@ func (e EvidenceGaps) IsZero() bool {
 }
 
 func incrementGap(count *uint64) {
-	if *count < ^uint64(0) {
+	if *count < math.MaxUint64 {
 		*count++
 	}
 }
