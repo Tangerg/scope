@@ -1,5 +1,7 @@
 package fakeweather
 
+import "fmt"
+
 type Condition string
 
 const (
@@ -30,6 +32,30 @@ func (c Condition) hasPrecipitation() bool {
 		return true
 	}
 	return false
+}
+
+func (c Condition) summary(precip *Precipitation) string {
+	switch c {
+	case ConditionSunny:
+		return "Clear skies with abundant sunshine throughout the day."
+	case ConditionPartlyCloudy:
+		return "Mix of sun and clouds with pleasant weather conditions."
+	case ConditionCloudy:
+		return "Overcast skies with cloud cover throughout the day."
+	case ConditionRainy:
+		return "Rainy conditions expected." + precip.amountSentence("Rainfall")
+	case ConditionStormy:
+		return "Severe thunderstorms with heavy rain and strong winds. Lightning activity expected."
+	case ConditionSnowy:
+		return "Snow is expected." + precip.amountSentence("Snowfall")
+	case ConditionBlizzard:
+		return "Blizzard conditions with heavy snow and very strong winds. Visibility severely reduced."
+	case ConditionFoggy:
+		return "Dense fog reducing visibility significantly. Drive with caution."
+	case ConditionHot:
+		return "Hot and sunny conditions. Take precautions against heat."
+	}
+	return fmt.Sprintf("%s weather conditions expected.", c)
 }
 
 type PrecipitationType string

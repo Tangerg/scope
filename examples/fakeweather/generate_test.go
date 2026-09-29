@@ -2,6 +2,7 @@ package fakeweather
 
 import (
 	"testing"
+	"time"
 )
 
 func TestSummerNotFreezing(t *testing.T) {
@@ -45,6 +46,23 @@ func TestKnownSouthernCityFlipsSeasons(t *testing.T) {
 	}
 	if resp.Temperature.Value < 18 {
 		t.Errorf("Sao Paulo in January (southern summer) produced Temperature.Value=%d, expected ≥ 18°C", resp.Temperature.Value)
+	}
+}
+
+func TestTyphoonAlertsFollowTheLocalSeason(t *testing.T) {
+	southernWinter := time.Date(2024, time.June, 1, 0, 0, 0, 0, time.UTC)
+	for _, location := range []string{"Jakarta", "Sydney", "Brisbane", "Sao Paulo", "Rio de Janeiro", "Buenos Aires"} {
+		for day := southernWinter; day.Month() <= time.October; day = day.AddDate(0, 0, 1) {
+			resp, err := generate(&Request{Location: location, Date: day.Format(time.DateOnly)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, alert := range resp.Alerts {
+				if alert.Type == AlertTyphoon {
+					t.Fatalf("%s on %s reported a typhoon outside its local typhoon season", location, day.Format(time.DateOnly))
+				}
+			}
+		}
 	}
 }
 
@@ -140,6 +158,18 @@ func TestKnownCitiesAllResolve(t *testing.T) {
 		}
 		if _, ok := climateProfiles[zone]; !ok {
 			t.Errorf("city %q maps to zone %d which has no climateProfile", name, zone)
+		}
+	}
+}
+
+func TestEveryClimateZoneHasConditions(t *testing.T) {
+	for zone := zoneTemperate; zone <= zoneAlpine; zone++ {
+		for month := 1; month <= 12; month++ {
+			for temp := -60; temp <= 55; temp++ {
+				if len(zone.candidateConditions(temp, month)) == 0 {
+					t.Fatalf("zone %d has no conditions for %d°C in month %d", zone, temp, month)
+				}
+			}
 		}
 	}
 }

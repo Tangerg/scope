@@ -8,20 +8,19 @@ import (
 )
 
 type reportGenerator struct {
-	request  Request
-	target   time.Time
-	rng      *rand.Rand
-	zone     climateZone
-	coords   Coordinates
-	seasonal seasonalPattern
-	profile  climateProfile
-	month    int
+	request Request
+	target  time.Time
+	rng     *rand.Rand
+	zone    climateZone
+	coords  Coordinates
+	profile climateProfile
+	month   int
 }
 
 func generate(req *Request) (*Response, error) {
 	generator, err := newReportGenerator(req)
 	if err != nil {
-		return nil, fmt.Errorf("fakeweather.generate: %w", err)
+		return nil, err
 	}
 	return generator.report(), nil
 }
@@ -36,14 +35,13 @@ func newReportGenerator(req *Request) (*reportGenerator, error) {
 	zone := identifyClimateZone(req.Location)
 	coords, knownCity := coordinatesFor(req.Location, rng)
 	return &reportGenerator{
-		request:  *req,
-		target:   target,
-		rng:      rng,
-		zone:     zone,
-		coords:   coords,
-		seasonal: seasonalPatterns[zone],
-		profile:  climateProfiles[zone],
-		month:    monthForLookup(target, coords.Latitude, knownCity),
+		request: *req,
+		target:  target,
+		rng:     rng,
+		zone:    zone,
+		coords:  coords,
+		profile: climateProfiles[zone],
+		month:   monthForLookup(target, coords.Latitude, knownCity),
 	}, nil
 }
 
@@ -61,7 +59,7 @@ func (r *reportGenerator) report() *Response {
 	minTemp := min(clamp(mean-r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
 	maxTemp := max(clamp(mean+r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
 
-	candidates := r.zone.candidateConditions(current, r.month, r.seasonal)
+	candidates := r.zone.candidateConditions(current, r.month)
 	condition := candidates[r.rng.IntN(len(candidates))]
 
 	wind := r.wind(condition)
@@ -139,7 +137,7 @@ func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) []H
 
 		hourCondition := condition
 		if r.rng.Float64() < 0.2 {
-			alt := r.zone.candidateConditions(hourTemp, r.month, r.seasonal)
+			alt := r.zone.candidateConditions(hourTemp, r.month)
 			hourCondition = alt[r.rng.IntN(len(alt))]
 		}
 
@@ -231,8 +229,7 @@ func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float6
 			EndTime:     r.target.Add(12 * time.Hour).Unix(),
 		})
 	}
-	month := int(r.target.Month())
-	if (r.zone == zoneTropical || r.zone == zoneSubtropical) && month >= 6 && month <= 10 && r.rng.Float64() < 0.05 {
+	if r.zone.typhoonSeason(r.month) && r.rng.Float64() < 0.05 {
 		alerts = append(alerts, Alert{
 			Type:        AlertTyphoon,
 			Severity:    AlertSeverityExtreme,
@@ -277,31 +274,7 @@ func (r *reportGenerator) wind(condition Condition) Wind {
 }
 
 func (r *reportGenerator) humidity(condition Condition) int {
-	base := 50
-	switch r.zone {
-	case zoneTropical:
-		base = 75
-		if r.seasonal.monsoonInfluence && monthInRange(r.month, r.seasonal.rainyStart, r.seasonal.rainyEnd) {
-			base = 85
-		}
-	case zoneDesert:
-		base = 20
-	case zoneMediterranean:
-		if r.month >= 6 && r.month <= 9 {
-			base = 45
-		} else {
-			base = 65
-		}
-	case zonePolar:
-		base = 70
-	case zoneOceanic:
-		base = 75
-	case zoneAlpine:
-		base = 60
-	case zoneContinental:
-		base = 55
-	}
-
+	base := r.zone.baseHumidity(r.month)
 	switch condition {
 	case ConditionRainy, ConditionStormy, ConditionFoggy, ConditionHumid, ConditionDrizzle:
 		return min(base+20+r.rng.IntN(20), 100)
@@ -371,61 +344,61 @@ func (r *reportGenerator) cloudCover(condition Condition) int {
 }
 
 func (r *reportGenerator) precipitation(condition Condition, temp int) *Precipitation {
-	p := &Precipitation{}
-	switch {
-	case temp < 0:
-		p.Type = PrecipitationSnow
-	case temp < 3:
-		if r.rng.Float64() < 0.3 {
-			p.Type = PrecipitationSleet
-		} else {
-			p.Type = PrecipitationSnow
-		}
-	default:
-		p.Type = PrecipitationRain
-	}
-
-	switch condition {
-	case ConditionStormy, ConditionBlizzard:
-		p.Probability = 85 + r.rng.IntN(15)
-	case ConditionRainy, ConditionSnowy:
-		p.Probability = 60 + r.rng.IntN(30)
-	case ConditionDrizzle:
-		p.Probability = 40 + r.rng.IntN(30)
-	default:
-		p.Probability = 30 + r.rng.IntN(40)
-	}
-	if r.seasonal.monsoonInfluence && monthInRange(r.month, r.seasonal.rainyStart, r.seasonal.rainyEnd) {
-		p.Probability = min(100, p.Probability+15)
-	}
-
-	switch condition {
-	case ConditionStormy:
-		p.Amount = 20.0 + r.rng.Float64()*40.0
-		p.Intensity = PrecipitationHeavy
-	case ConditionRainy:
-		p.Amount = 5.0 + r.rng.Float64()*20.0
-		if p.Amount > 15 {
-			p.Intensity = PrecipitationModerate
-		} else {
-			p.Intensity = PrecipitationLight
-		}
-	case ConditionDrizzle:
-		p.Amount = 0.5 + r.rng.Float64()*3.0
-		p.Intensity = PrecipitationLight
-	case ConditionSnowy, ConditionBlizzard:
-		p.Amount = 1.0 + r.rng.Float64()*10.0
-		if condition == ConditionBlizzard {
-			p.Intensity = PrecipitationHeavy
-		} else {
-			p.Intensity = PrecipitationModerate
-		}
-	default:
-		p.Amount = r.rng.Float64() * 5.0
-		p.Intensity = PrecipitationLight
-	}
+	p := &Precipitation{Type: r.precipitationType(temp), Probability: r.precipitationProbability(condition)}
+	p.Amount, p.Intensity = r.precipitationAmount(condition)
 	p.Amount = math.Round(p.Amount*10) / 10
 	return p
+}
+
+func (r *reportGenerator) precipitationType(temp int) PrecipitationType {
+	switch {
+	case temp < 0:
+		return PrecipitationSnow
+	case temp < 3:
+		if r.rng.Float64() < 0.3 {
+			return PrecipitationSleet
+		}
+		return PrecipitationSnow
+	}
+	return PrecipitationRain
+}
+
+func (r *reportGenerator) precipitationProbability(condition Condition) int {
+	var probability int
+	switch condition {
+	case ConditionStormy, ConditionBlizzard:
+		probability = 85 + r.rng.IntN(15)
+	case ConditionRainy, ConditionSnowy:
+		probability = 60 + r.rng.IntN(30)
+	case ConditionDrizzle:
+		probability = 40 + r.rng.IntN(30)
+	default:
+		probability = 30 + r.rng.IntN(40)
+	}
+	if r.zone.monsoon().covers(r.month) {
+		probability = min(100, probability+15)
+	}
+	return probability
+}
+
+func (r *reportGenerator) precipitationAmount(condition Condition) (float64, PrecipitationIntensity) {
+	switch condition {
+	case ConditionStormy:
+		return 20.0 + r.rng.Float64()*40.0, PrecipitationHeavy
+	case ConditionRainy:
+		amount := 5.0 + r.rng.Float64()*20.0
+		if amount > 15 {
+			return amount, PrecipitationModerate
+		}
+		return amount, PrecipitationLight
+	case ConditionDrizzle:
+		return 0.5 + r.rng.Float64()*3.0, PrecipitationLight
+	case ConditionSnowy:
+		return 1.0 + r.rng.Float64()*10.0, PrecipitationModerate
+	case ConditionBlizzard:
+		return 1.0 + r.rng.Float64()*10.0, PrecipitationHeavy
+	}
+	return r.rng.Float64() * 5.0, PrecipitationLight
 }
 
 func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
@@ -560,9 +533,9 @@ func parseTargetDate(s string) (time.Time, error) {
 		now := time.Now().UTC()
 		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC), nil
 	}
-	t, err := time.Parse("2006-01-02", s)
+	t, err := time.Parse(time.DateOnly, s)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("fakeweather.parseDate: invalid date %q (want YYYY-MM-DD): %w", s, err)
+		return time.Time{}, fmt.Errorf("fakeweather: invalid date %q, want YYYY-MM-DD: %w", s, err)
 	}
 	return t, nil
 }

@@ -11,7 +11,6 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// An omitted Date uses the current calendar date in UTC.
 type Request struct {
 	Location string `json:"location" jsonschema:"minLength=1" jsonschema_description:"Geographic location, such as a city, city and country, or street address. English and local-language names are accepted."`
 
@@ -42,26 +41,23 @@ type Response struct {
 	HourlyForecast []HourlyForecast `json:"hourly_forecast,omitempty"`
 	Alerts         []Alert          `json:"alerts,omitempty"`
 	Source         string           `json:"source"`
-	LastUpdated    int64            `json:"last_updated"` // Unix seconds, equal to start of target date (deterministic)
+	LastUpdated    int64            `json:"last_updated"` // Unix seconds at the start of the target date
 }
 
-// Elevation is in meters.
 type Coordinates struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
-	Elevation int     `json:"elevation"`
+	Elevation int     `json:"elevation"` // meters
 }
 
-// Value represents the daily mean in Celsius, not an instantaneous reading.
 type Temperature struct {
-	Value     int    `json:"value"`
-	Unit      string `json:"unit"` // always "Celsius"
+	Value     int    `json:"value"` // daily mean, not an instantaneous reading
+	Unit      string `json:"unit"`  // always "Celsius"
 	FeelsLike int    `json:"feels_like"`
 	Min       int    `json:"min"`
 	Max       int    `json:"max"`
 }
 
-// Wind in km/h.
 type Wind struct {
 	Speed     float64 `json:"speed"`
 	Unit      string  `json:"unit"` // always "km/h"
@@ -75,6 +71,14 @@ type Precipitation struct {
 	Probability int                    `json:"probability"` // 0-100
 	Amount      float64                `json:"amount"`      // mm
 	Intensity   PrecipitationIntensity `json:"intensity"`
+}
+
+// A nil Precipitation describes a dry day and contributes no sentence.
+func (p *Precipitation) amountSentence(kind string) string {
+	if p == nil {
+		return ""
+	}
+	return fmt.Sprintf(" %s amount: %.1f mm. %s intensity.", kind, p.Amount, p.Intensity)
 }
 
 type AirQuality struct {
@@ -176,7 +180,7 @@ func (t *Tool) generate(_ context.Context, req Request) (*Response, error) {
 
 	resp, err := generate(&req)
 	if err != nil {
-		return nil, fmt.Errorf("fakeweather.Tool.Call: %w", err)
+		return nil, err
 	}
 	t.log("generated_response", fmt.Sprintf("%#v", resp))
 	return resp, nil

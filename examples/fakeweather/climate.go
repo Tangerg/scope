@@ -16,88 +16,175 @@ const (
 	zoneAlpine
 )
 
-func (c climateZone) candidateConditions(temp int, month int, seasonal seasonalPattern) []Condition {
-	isSummer := month >= 6 && month <= 8
-	isWinter := month == 12 || month <= 2
-	isRainy := seasonal.monsoonInfluence && monthInRange(month, seasonal.rainyStart, seasonal.rainyEnd)
-
-	switch c {
-	case zoneTropical:
-		if isRainy {
-			return []Condition{ConditionRainy, ConditionStormy, ConditionPartlyCloudy, ConditionHumid, ConditionDrizzle}
-		}
-		return []Condition{ConditionPartlyCloudy, ConditionHumid, ConditionSunny, ConditionRainy}
-
-	case zoneDesert:
-		if temp > 38 {
-			return []Condition{ConditionSunny, ConditionHot, ConditionClear, ConditionDusty, ConditionHazy}
-		}
-		return []Condition{ConditionSunny, ConditionClear, ConditionPartlyCloudy, ConditionDusty}
-
-	case zoneMediterranean:
-		if isSummer {
-			return []Condition{ConditionSunny, ConditionClear, ConditionHot, ConditionPartlyCloudy}
-		}
-		return []Condition{ConditionRainy, ConditionCloudy, ConditionPartlyCloudy, ConditionClear, ConditionDrizzle}
-
-	case zonePolar:
-		if temp < -15 {
-			return []Condition{ConditionSnowy, ConditionBlizzard, ConditionCloudy, ConditionFreezing, ConditionClear}
-		}
-		return []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionOvercast}
-
-	case zoneContinental:
-		switch {
-		case temp < -5:
-			return []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionBlizzard}
-		case temp > 28 && isSummer:
-			return []Condition{ConditionSunny, ConditionHot, ConditionStormy, ConditionPartlyCloudy, ConditionClear}
-		}
-		return []Condition{ConditionSunny, ConditionPartlyCloudy, ConditionCloudy, ConditionClear, ConditionRainy}
-
-	case zoneOceanic:
-		if isWinter {
-			return []Condition{ConditionRainy, ConditionCloudy, ConditionDrizzle, ConditionOvercast, ConditionFoggy}
-		}
-		return []Condition{ConditionPartlyCloudy, ConditionCloudy, ConditionSunny, ConditionRainy, ConditionClear}
-
-	case zoneAlpine:
-		if temp < 5 {
-			return []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionWindy}
-		}
-		return []Condition{ConditionPartlyCloudy, ConditionSunny, ConditionClear, ConditionCloudy, ConditionRainy}
-	}
-
-	switch {
-	case temp < 0:
-		return []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionFreezing}
-	case temp < 10:
-		return []Condition{ConditionCloudy, ConditionClear, ConditionRainy, ConditionFoggy, ConditionDrizzle}
-	case temp < 25:
-		return []Condition{ConditionSunny, ConditionPartlyCloudy, ConditionCloudy, ConditionClear, ConditionMild}
-	}
-	if isSummer {
-		return []Condition{ConditionSunny, ConditionPartlyCloudy, ConditionRainy, ConditionStormy, ConditionHot}
-	}
-	return []Condition{ConditionSunny, ConditionHot, ConditionPartlyCloudy, ConditionClear}
-}
-
 // Months use the northern hemisphere calendar; monthForLookup shifts known
 // southern locations by six months.
-type seasonalPattern struct {
-	rainyStart       int // inclusive (1..12), 0 = no rainy season
-	rainyEnd         int // inclusive
-	monsoonInfluence bool
-	drySeason        bool
+func (c climateZone) candidateConditions(temp int, month int) []Condition {
+	season := conditionSeason{
+		temperature: temp,
+		summer:      month >= 6 && month <= 8,
+		winter:      month == 12 || month <= 2,
+		monsoon:     c.monsoon().covers(month),
+	}
+	for _, rule := range zoneConditionRules[c] {
+		if rule.applies == nil || rule.applies(season) {
+			return rule.conditions
+		}
+	}
+	panic("fakeweather: every climate zone needs condition rules ending with an unconditional rule")
+}
+
+func (c climateZone) monsoon() monsoonSeason {
+	switch c {
+	case zoneTropical:
+		return monsoonSeason{start: 5, end: 10}
+	case zoneSubtropical:
+		return monsoonSeason{start: 4, end: 9}
+	}
+	return monsoonSeason{}
+}
+
+func (c climateZone) baseHumidity(month int) int {
+	switch c {
+	case zoneTropical:
+		if c.monsoon().covers(month) {
+			return 85
+		}
+		return 75
+	case zoneDesert:
+		return 20
+	case zoneMediterranean:
+		if month >= 6 && month <= 9 {
+			return 45
+		}
+		return 65
+	case zonePolar:
+		return 70
+	case zoneOceanic:
+		return 75
+	case zoneAlpine:
+		return 60
+	case zoneContinental:
+		return 55
+	}
+	return 50
+}
+
+func (c climateZone) typhoonSeason(month int) bool {
+	return (c == zoneTropical || c == zoneSubtropical) && month >= 6 && month <= 10
+}
+
+type conditionSeason struct {
+	temperature int
+	summer      bool
+	winter      bool
+	monsoon     bool
+}
+
+// A nil predicate always applies; each rule list ends with one.
+type conditionRule struct {
+	applies    func(conditionSeason) bool
+	conditions []Condition
+}
+
+var temperateConditionRules = []conditionRule{
+	{
+		func(s conditionSeason) bool { return s.temperature < 0 },
+		[]Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionFreezing},
+	},
+	{
+		func(s conditionSeason) bool { return s.temperature < 10 },
+		[]Condition{ConditionCloudy, ConditionClear, ConditionRainy, ConditionFoggy, ConditionDrizzle},
+	},
+	{
+		func(s conditionSeason) bool { return s.temperature < 25 },
+		[]Condition{ConditionSunny, ConditionPartlyCloudy, ConditionCloudy, ConditionClear, ConditionMild},
+	},
+	{
+		func(s conditionSeason) bool { return s.summer },
+		[]Condition{ConditionSunny, ConditionPartlyCloudy, ConditionRainy, ConditionStormy, ConditionHot},
+	},
+	{nil, []Condition{ConditionSunny, ConditionHot, ConditionPartlyCloudy, ConditionClear}},
+}
+
+var zoneConditionRules = map[climateZone][]conditionRule{
+	zoneTemperate:   temperateConditionRules,
+	zoneSubtropical: temperateConditionRules,
+	zoneTropical: {
+		{
+			func(s conditionSeason) bool { return s.monsoon },
+			[]Condition{ConditionRainy, ConditionStormy, ConditionPartlyCloudy, ConditionHumid, ConditionDrizzle},
+		},
+		{nil, []Condition{ConditionPartlyCloudy, ConditionHumid, ConditionSunny, ConditionRainy}},
+	},
+	zoneDesert: {
+		{
+			func(s conditionSeason) bool { return s.temperature > 38 },
+			[]Condition{ConditionSunny, ConditionHot, ConditionClear, ConditionDusty, ConditionHazy},
+		},
+		{nil, []Condition{ConditionSunny, ConditionClear, ConditionPartlyCloudy, ConditionDusty}},
+	},
+	zoneMediterranean: {
+		{
+			func(s conditionSeason) bool { return s.summer },
+			[]Condition{ConditionSunny, ConditionClear, ConditionHot, ConditionPartlyCloudy},
+		},
+		{nil, []Condition{ConditionRainy, ConditionCloudy, ConditionPartlyCloudy, ConditionClear, ConditionDrizzle}},
+	},
+	zonePolar: {
+		{
+			func(s conditionSeason) bool { return s.temperature < -15 },
+			[]Condition{ConditionSnowy, ConditionBlizzard, ConditionCloudy, ConditionFreezing, ConditionClear},
+		},
+		{nil, []Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionOvercast}},
+	},
+	zoneContinental: {
+		{
+			func(s conditionSeason) bool { return s.temperature < -5 },
+			[]Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionBlizzard},
+		},
+		{
+			func(s conditionSeason) bool { return s.temperature > 28 && s.summer },
+			[]Condition{ConditionSunny, ConditionHot, ConditionStormy, ConditionPartlyCloudy, ConditionClear},
+		},
+		{nil, []Condition{ConditionSunny, ConditionPartlyCloudy, ConditionCloudy, ConditionClear, ConditionRainy}},
+	},
+	zoneOceanic: {
+		{
+			func(s conditionSeason) bool { return s.winter },
+			[]Condition{ConditionRainy, ConditionCloudy, ConditionDrizzle, ConditionOvercast, ConditionFoggy},
+		},
+		{nil, []Condition{ConditionPartlyCloudy, ConditionCloudy, ConditionSunny, ConditionRainy, ConditionClear}},
+	},
+	zoneAlpine: {
+		{
+			func(s conditionSeason) bool { return s.temperature < 5 },
+			[]Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionWindy},
+		},
+		{nil, []Condition{ConditionPartlyCloudy, ConditionSunny, ConditionClear, ConditionCloudy, ConditionRainy}},
+	},
+}
+
+// The zero value has no monsoon; a season may cross December.
+type monsoonSeason struct {
+	start int
+	end   int
+}
+
+func (m monsoonSeason) covers(month int) bool {
+	if m == (monsoonSeason{}) {
+		return false
+	}
+	if m.start <= m.end {
+		return month >= m.start && month <= m.end
+	}
+	return month >= m.start || month <= m.end
 }
 
 type climateProfile struct {
-	mean [12]int // monthly mean (°C)
-	// Mean-to-maximum temperature swing in Celsius.
-	dailyAmplitude int
-
-	floor   int // °C lower bound (regardless of month)
-	ceiling int // °C upper bound (regardless of month)
+	mean           [12]int // Celsius
+	dailyAmplitude int     // Celsius swing from mean to maximum
+	floor          int     // Celsius
+	ceiling        int     // Celsius
 }
 
 func (c climateProfile) dailyVariation(hour int) int {
@@ -133,7 +220,7 @@ var climateProfiles = map[climateZone]climateProfile{
 	},
 	zoneDesert: {
 		mean:           [12]int{15, 18, 22, 28, 35, 40, 42, 41, 37, 30, 22, 16},
-		dailyAmplitude: 12, // characteristic large diurnal swing
+		dailyAmplitude: 12,
 		floor:          0, ceiling: 50,
 	},
 	zoneMediterranean: {
@@ -153,13 +240,6 @@ var climateProfiles = map[climateZone]climateProfile{
 	},
 }
 
-var seasonalPatterns = map[climateZone]seasonalPattern{
-	zoneTropical:      {rainyStart: 5, rainyEnd: 10, monsoonInfluence: true},
-	zoneSubtropical:   {rainyStart: 4, rainyEnd: 9, monsoonInfluence: true},
-	zoneMediterranean: {rainyStart: 11, rainyEnd: 3, drySeason: true},
-	zoneDesert:        {drySeason: true},
-}
-
 // Regional hints take precedence over city climate profiles.
 func identifyClimateZone(location string) climateZone {
 	if zone, ok := regionalZones.lookup(location); ok {
@@ -169,15 +249,4 @@ func identifyClimateZone(location string) climateZone {
 		return profile.Zone
 	}
 	return zoneTemperate
-}
-
-// The interval is inclusive and may cross December; zero bounds disable it.
-func monthInRange(month, start, end int) bool {
-	if start == 0 && end == 0 {
-		return false
-	}
-	if start <= end {
-		return month >= start && month <= end
-	}
-	return month >= start || month <= end
 }
