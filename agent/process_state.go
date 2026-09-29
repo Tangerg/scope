@@ -109,15 +109,11 @@ func (p *processState) adoptCandidate(candidate *processState) {
 func (p *processState) recordHostTermination(err error) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		intent, _ := newDeadlineIntent(deadlineOwnerHost, "host context deadline reached")
-		if !p.pendingControl.deadline.valid() {
-			p.pendingControl.deadline = intent
-		}
+		p.pendingControl.recordDeadline(intent)
 		return
 	}
 	intent, _ := newCancellationIntent(cancellationOwnerHost, "host context canceled")
-	if !p.pendingControl.cancellation.valid() {
-		p.pendingControl.cancellation = intent
-	}
+	p.pendingControl.recordCancellation(intent)
 }
 
 func (p *processState) recordParentTermination(parent Termination) {
@@ -126,18 +122,14 @@ func (p *processState) recordParentTermination(parent Termination) {
 	}
 	if parent.Status() == StatusTimedOut {
 		intent, _ := newDeadlineIntent(deadlineOwnerParent, "parent Process reached a deadline")
-		if !p.pendingControl.deadline.valid() {
-			p.pendingControl.deadline = intent
-		}
+		p.pendingControl.recordDeadline(intent)
 		return
 	}
 	intent, _ := newCancellationIntent(
 		cancellationOwnerParent,
 		"parent Process reached terminal status "+parent.Status().String(),
 	)
-	if !p.pendingControl.cancellation.valid() {
-		p.pendingControl.cancellation = intent
-	}
+	p.pendingControl.recordCancellation(intent)
 }
 
 // Admission validates the complete batch before changing mailbox or wait state.
@@ -224,9 +216,7 @@ func (p *processState) resume() error {
 }
 
 func (p *processState) requestCancellation(intent cancellationIntent) {
-	if !p.pendingControl.cancellation.valid() {
-		p.pendingControl.cancellation = intent
-	}
+	p.pendingControl.recordCancellation(intent)
 }
 
 func (p *processState) requestKill(reason string) error {
@@ -562,6 +552,20 @@ func (p *processState) terminalEventPayload() json.RawMessage {
 		eventPayload.FailureCode = failure.Code()
 	}
 	return marshalEventPayload(eventPayload)
+}
+
+// The first recorded intent of each kind is authoritative; later sources of
+// the same kind cannot rewrite its owner or reason.
+func (p *pendingControl) recordDeadline(intent deadlineIntent) {
+	if !p.deadline.valid() {
+		p.deadline = intent
+	}
+}
+
+func (p *pendingControl) recordCancellation(intent cancellationIntent) {
+	if !p.cancellation.valid() {
+		p.cancellation = intent
+	}
 }
 
 func (p pendingControl) hasTerminalIntent() bool {
