@@ -70,8 +70,6 @@ func Run(
 	return result
 }
 
-// assertUnsupportedSignalRejected runs while the recorder holds a protocol
-// frame open, so the Signal reaches a live mailbox instead of a finished one.
 func assertUnsupportedSignalRejected(t *testing.T, engine *agent.Engine, process *agent.Process) {
 	t.Helper()
 	id, err := agent.ParseSignalID("signal:conformance-unsupported")

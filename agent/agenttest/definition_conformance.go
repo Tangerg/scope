@@ -130,8 +130,6 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 	return nil
 }
 
-// conformanceCaseNames keeps case names unique per kind because each name
-// becomes a subtest name and must identify one captured state.
 type conformanceCaseNames struct {
 	kind  string
 	names map[string]struct{}

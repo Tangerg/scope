@@ -89,8 +89,6 @@ func assertConsumedReceipt(t *testing.T, receipts []agent.SignalReceipt, deliver
 	}
 }
 
-// assertPortKeepsOriginalAddress proves a replacement gate never receives the
-// unresolved original delivery and that the original identity cannot change.
 func assertPortKeepsOriginalAddress(
 	t *testing.T,
 	port *recipientPort,

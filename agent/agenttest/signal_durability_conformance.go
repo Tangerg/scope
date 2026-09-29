@@ -18,8 +18,6 @@ type signalAdmissionScenario struct {
 	crash bool
 }
 
-// durable reports whether the admission reached storage: either the commit
-// was acknowledged or the host crashed only after the head advanced.
 func (s signalAdmissionScenario) durable() bool {
 	return !s.crash || s.phase == crashCommitAfter
 }

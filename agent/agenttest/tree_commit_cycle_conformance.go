@@ -66,8 +66,6 @@ func pauseConformanceCycle(
 	return current
 }
 
-// resumeConformanceCycle requires resume to recommit the waiting content under
-// a new sequence rather than replay the historical waiting checkpoint.
 func resumeConformanceCycle(
 	t *testing.T,
 	engine *agent.Engine,

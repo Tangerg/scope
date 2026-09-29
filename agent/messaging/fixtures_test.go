@@ -222,8 +222,6 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.Pro
 	return nil
 }
 
-// holdFirstAdmission keeps the first delivery unacknowledged until the test
-// releases it, so the sender stays behind an admitted but unconfirmed Signal.
 func (r *recipientPort) holdFirstAdmission(ctx context.Context) error {
 	if r.firstAdmission == nil {
 		return nil

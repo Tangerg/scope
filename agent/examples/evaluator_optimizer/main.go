@@ -147,8 +147,6 @@ func (o optimizationState) validateHistory(threshold float64) error {
 	return nil
 }
 
-// earliestBest keeps the first attempt among equal scores, so a later revision
-// must strictly improve before it replaces the recorded best.
 func (o optimizationState) earliestBest() (attempt, error) {
 	best := o.History[0]
 	for index, recorded := range o.History {

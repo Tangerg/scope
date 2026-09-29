@@ -27,8 +27,6 @@ const (
 	compositionWaitKey            = "composition"
 )
 
-// compositionChildKeys orders the local child before the model child; child
-// start results and wait outcomes are validated against this order.
 var compositionChildKeys = [compositionChildCount]string{"local", "model"}
 
 func main() {
