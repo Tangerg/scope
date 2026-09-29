@@ -527,6 +527,18 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 	if err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidExecutionState, err)
 	}
+	if err := e.validateAppliedActions(ctx, decision); err != nil {
+		return err
+	}
+	before := e
+	before.Tasks = e.Tasks[:len(e.Turn.Input.Tasks)]
+	if err := before.validateDecision(ctx, d, decision); err != nil {
+		return fmt.Errorf("%w: applied decision: %w", ErrInvalidExecutionState, err)
+	}
+	return ctx.Err()
+}
+
+func (e executionState) validateAppliedActions(ctx context.Context, decision Decision) error {
 	previousCount := len(e.Turn.Input.Tasks)
 	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) ||
 		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) || !bytes.Equal(e.Output.JSON(), decision.Output.JSON()) {
@@ -548,12 +560,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 			return fmt.Errorf("%w: applied control %d does not match the coordinator decision", ErrInvalidExecutionState, index)
 		}
 	}
-	before := e
-	before.Tasks = e.Tasks[:previousCount]
-	if err := before.validateDecision(ctx, d, decision); err != nil {
-		return fmt.Errorf("%w: applied decision: %w", ErrInvalidExecutionState, err)
-	}
-	return ctx.Err()
+	return nil
 }
 
 func (e executionState) validateDecision(ctx context.Context, definition *Definition, decision Decision) error {
@@ -563,23 +570,31 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 	if err := definition.descriptor.ValidateInput(decision.State); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidDecision, err)
 	}
+	if err := decision.validateShape(); err != nil {
+		return err
+	}
 	if decision.Mode == Complete {
-		if !decision.Output.Valid() || len(decision.Tasks) != 0 || len(decision.Controls) != 0 {
-			return ErrInvalidDecision
-		}
 		if err := definition.descriptor.ValidateOutput(decision.Output); err != nil {
 			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
 		}
 		return nil
 	}
-	if decision.Mode != Continue && decision.Mode != Wait || decision.Output.Valid() {
-		return ErrInvalidDecision
-	}
+	remaining := len(e.remaining())
 	if !definition.maxTasks.Allows(uint64(len(e.Tasks)), uint64(len(decision.Tasks))) ||
-		uint64(len(e.remaining()))+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
+		uint64(remaining)+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
 		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
 		return fmt.Errorf("%w: task or control bound exceeded", ErrInvalidDecision)
 	}
+	if err := e.validateActions(ctx, definition, decision); err != nil {
+		return err
+	}
+	if decision.Mode == Wait && remaining+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
+		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
+	}
+	return ctx.Err()
+}
+
+func (e executionState) validateActions(ctx context.Context, definition *Definition, decision Decision) error {
 	tasks := e.taskIndex()
 	keys := make(map[agent.ChildKey]struct{}, len(decision.Tasks))
 	for _, request := range decision.Tasks {
@@ -605,10 +620,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 			return fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 		}
 	}
-	if decision.Mode == Wait && len(e.remaining())+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
-		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
-	}
-	return ctx.Err()
+	return nil
 }
 
 func (e executionState) hasUnseenOutcome() bool {

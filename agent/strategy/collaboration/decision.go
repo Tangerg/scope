@@ -87,6 +87,22 @@ type Decision struct {
 	Output   agent.Payload `json:"output,omitzero"`
 }
 
+func (d Decision) validateShape() error {
+	switch d.Mode {
+	case Complete:
+		if !d.Output.Valid() || len(d.Tasks) != 0 || len(d.Controls) != 0 {
+			return ErrInvalidDecision
+		}
+	case Continue, Wait:
+		if d.Output.Valid() {
+			return ErrInvalidDecision
+		}
+	default:
+		return ErrInvalidDecision
+	}
+	return nil
+}
+
 func (c Control) effect(task *Task) (agent.Effect, error) {
 	if task == nil || task.Request.Key != c.Task || task.Start == nil || (c.Signal == nil) == (c.CancelReason == nil) {
 		return agent.Effect{}, ErrInvalidDecision

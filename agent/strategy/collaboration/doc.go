@@ -18,16 +18,10 @@
 // uses execution / engine.counter.exhausted. Invalid coordinator
 // decisions and protocol frames use contract / collaboration.decision.invalid
 // and collaboration.protocol.invalid. These failures discard the candidate.
-// A finite zero MaxTurns is invalid; MaxTasks may be zero to forbid worker
-// starts while still allowing coordinator turns and completion.
 // A coordinator subtree with unresolved Effects cannot authorize a Decision.
 // Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
-// A rejected worker start counts toward MaxTasks. Admitted tasks count toward
-// MaxConcurrentTasks until their drained outcomes are observed. MaxTurns and
-// MaxTasks default to unlimited quotas; MaxControlsPerTurn bounds each control
-// batch independently of cumulative work.
 //
 // Controls compile to agent.NewChildSignalEffect and agent.NewChildCancelEffect. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe

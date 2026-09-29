@@ -38,6 +38,22 @@ type childBinding struct {
 	capabilities  agent.CapabilitySet
 }
 
+func (c childBinding) validateCoordinatorContract() error {
+	inputSchema, err := agent.SchemaFor[Turn]()
+	if err != nil {
+		return err
+	}
+	outputSchema, err := agent.SchemaFor[Decision]()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(inputSchema.JSON(), c.descriptor.InputSchema().JSON()) ||
+		!bytes.Equal(outputSchema.JSON(), c.descriptor.OutputSchema().JSON()) {
+		return fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
+	}
+	return nil
+}
+
 func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildSpec {
 	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: c.deploymentRef,
 		Budget: c.budget, Capabilities: c.capabilities}
@@ -61,6 +77,8 @@ type DefinitionConfig struct {
 	// MaxTasks is unlimited by default; a finite zero forbids worker starts.
 	MaxTasks           agent.Quota
 	MaxConcurrentTasks uint32
+	// MaxControlsPerTurn bounds each Decision's controls independently of
+	// cumulative work.
 	MaxControlsPerTurn uint32
 }
 
@@ -85,21 +103,28 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		config.MaxConcurrentTasks == 0 || config.MaxControlsPerTurn == 0 {
 		return nil, ErrInvalidConfig
 	}
-	inputSchema, err := agent.SchemaFor[Turn]()
-	if err != nil {
-		return nil, err
-	}
-	outputSchema, err := agent.SchemaFor[Decision]()
-	if err != nil {
-		return nil, err
-	}
 	coordinator := config.Coordinator.binding()
-	if !bytes.Equal(inputSchema.JSON(), coordinator.descriptor.InputSchema().JSON()) ||
-		!bytes.Equal(outputSchema.JSON(), coordinator.descriptor.OutputSchema().JSON()) {
-		return nil, fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
+	if err := coordinator.validateCoordinatorContract(); err != nil {
+		return nil, err
 	}
-	workers := make([]childBinding, 0, len(config.Workers))
-	for _, worker := range config.Workers {
+	workers, err := newWorkerBindings(config.Workers)
+	if err != nil {
+		return nil, err
+	}
+	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+		Name: config.Name, Description: config.Description, InputSchema: config.StateSchema, OutputSchema: config.OutputSchema,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+	}
+	return &Definition{descriptor: descriptor, coordinator: coordinator, workers: workers,
+		maxTurns: config.MaxTurns, maxTasks: config.MaxTasks,
+		maxConcurrentTasks: config.MaxConcurrentTasks, maxControlsPerTurn: config.MaxControlsPerTurn}, nil
+}
+
+func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
+	workers := make([]childBinding, 0, len(configs))
+	for _, worker := range configs {
 		if !worker.valid() {
 			return nil, ErrInvalidConfig
 		}
@@ -111,15 +136,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		}
 		workers = append(workers, child)
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: config.Name, Description: config.Description, InputSchema: config.StateSchema, OutputSchema: config.OutputSchema,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
-	}
-	return &Definition{descriptor: descriptor, coordinator: coordinator, workers: workers,
-		maxTurns: config.MaxTurns, maxTasks: config.MaxTasks,
-		maxConcurrentTasks: config.MaxConcurrentTasks, maxControlsPerTurn: config.MaxControlsPerTurn}, nil
+	return workers, nil
 }
 
 func (d *Definition) Descriptor() agent.Descriptor {

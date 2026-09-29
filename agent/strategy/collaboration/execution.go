@@ -52,7 +52,8 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	}
 	e.state.Number++
 	turn := Turn{Number: e.state.Number, State: e.state.State,
-		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...), Workers: []agent.Descriptor{}}
+		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...),
+		Workers: make([]agent.Descriptor, 0, len(e.definition.workers))}
 	for _, worker := range e.definition.workers {
 		turn.Workers = append(turn.Workers, worker.descriptor)
 	}
@@ -169,21 +170,25 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if e.state.Turn.Outcome == nil {
 		return e.openWait(1)
 	}
+	return e.adoptTurn(ctx, 1)
+}
+
+func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Transition, error) {
 	if e.state.Turn.unresolved() {
-		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCollaborationCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
+		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
 		e.state.Phase = phaseFailed
-		return agent.Fail(1, failure)
+		return agent.Fail(consumed, failure)
 	}
 	if e.state.Mode == Wait {
-		return e.startTurn(1)
+		return e.startTurn(consumed)
 	}
 	result := e.state.Turn.Outcome.Result()
 	if failure, failed := result.Termination().Failure(); failed {
 		e.state.Phase = phaseFailed
-		return agent.Fail(1, failure)
+		return agent.Fail(consumed, failure)
 	}
 	output, present := result.Output()
 	if !present || result.Status() != agent.StatusCompleted {
@@ -193,39 +198,61 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 	}
-	return e.applyDecision(ctx, decision, 1)
+	return e.applyDecision(ctx, decision, consumed)
 }
 
 func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) == 0 {
 		return agent.Transition{}, ErrInvalidProtocol
 	}
-	batch, err := e.state.batch(e.definition)
+	consumed, settled, err := e.acceptTaskStarts(signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	count := min(batch.PendingStarts(), len(signals))
-	starts := make([]agent.ChildStartResult, count)
-	for index := range starts {
-		started, err := agent.ParseChildStartResult(signals[index])
+	if settled {
+		consumed, settled, err = e.acceptControlResults(signals, consumed)
 		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-		}
-		starts[index] = started
-	}
-	if count > 0 {
-		indices, err := batch.AcceptStarts(starts)
-		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-		}
-		for offset, index := range indices {
-			e.state.recordStart(index, starts[offset])
+			return agent.Transition{}, err
 		}
 	}
-	consumed := uint32(count)
-	if count < batch.PendingStarts() {
+	if !settled {
 		return agent.Continue(consumed)
 	}
+	return e.afterActions(consumed)
+}
+
+// acceptTaskStarts adopts the ordered prefix of pending start settlements in
+// signals and reports whether every pending start has now settled.
+func (e *execution) acceptTaskStarts(signals []agent.Signal) (uint32, bool, error) {
+	batch, err := e.state.batch(e.definition)
+	if err != nil {
+		return 0, false, err
+	}
+	pending := batch.PendingStarts()
+	count := min(pending, len(signals))
+	if count == 0 {
+		return 0, true, nil
+	}
+	starts := make([]agent.ChildStartResult, count)
+	for index := range starts {
+		starts[index], err = agent.ParseChildStartResult(signals[index])
+		if err != nil {
+			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		}
+	}
+	indices, err := batch.AcceptStarts(starts)
+	if err != nil {
+		return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	}
+	for offset, index := range indices {
+		e.state.recordStart(index, starts[offset])
+	}
+	return uint32(count), count == pending, nil
+}
+
+// acceptControlResults adopts control results in declaration order after
+// consumed and reports whether every control has now settled.
+func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32) (uint32, bool, error) {
 	tasks := e.state.taskIndex()
 	for index := range e.state.Controls {
 		receipt := &e.state.Controls[index]
@@ -233,20 +260,20 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 			continue
 		}
 		if int(consumed) == len(signals) {
-			return agent.Continue(consumed)
+			return consumed, false, nil
 		}
 		result, err := agent.ParseChildControlResult(signals[consumed])
 		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
 		effect, err := receipt.Control.effect(tasks[receipt.Control.Task])
 		if err != nil || !result.Matches(effect) {
-			return agent.Transition{}, ErrInvalidProtocol
+			return 0, false, ErrInvalidProtocol
 		}
 		receipt.Result = &result
 		consumed++
 	}
-	return e.afterActions(consumed)
+	return consumed, true, nil
 }
 
 func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
@@ -304,4 +331,4 @@ func (e *execution) Snapshot() (agent.ExecutionState, error) {
 
 var _ agent.Execution = (*execution)(nil)
 
-const failureCodeCollaborationCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"
+const failureCodeCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"
