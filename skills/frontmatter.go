@@ -16,6 +16,7 @@ const (
 	maxCompatibilityLen = 500
 )
 
+// Frontmatter is the YAML metadata block of a SKILL.md document.
 type Frontmatter struct {
 	// Name is the unique skill identifier; it must match the skill's parent
 	// directory name after Unicode NFKC normalization. Repository results use
@@ -25,12 +26,11 @@ type Frontmatter struct {
 	License       string            `yaml:"license,omitempty"`
 	Compatibility string            `yaml:"compatibility,omitempty"`
 	Metadata      map[string]string `yaml:"metadata,omitempty"`
-	// AllowedTools is a space-separated list of pre-approved tools. Optional
-	// and experimental; this package parses but does not enforce it.
+	// AllowedTools is a space-separated advisory list of pre-approved tools;
+	// this package does not enforce it.
 	AllowedTools string `yaml:"allowed-tools,omitempty"`
 }
 
-// AllowedToolList returns advisory entries; this package does not enforce them.
 func (f Frontmatter) AllowedToolList() []string {
 	return strings.Fields(f.AllowedTools)
 }

@@ -59,9 +59,8 @@ func (r *Repository) validate() error {
 	return nil
 }
 
-// List returns a summary for every valid skill directory, sorted by name.
-// Invalid skill entries are skipped. Repository access failures are returned.
-// A missing root directory is treated as an empty repository.
+// List returns summaries sorted by name, skipping invalid skill entries. A
+// missing root directory is an empty repository.
 func (r *Repository) List(ctx context.Context) (summaries []Summary, err error) {
 	if validationErr := r.validate(); validationErr != nil {
 		return nil, validationErr
@@ -244,43 +243,48 @@ func (r *Repository) openSkillFile(ctx context.Context, name string) (fs.File, e
 		return nil, err
 	}
 	file, err := r.fsys.Open(name + "/" + SkillFile)
-	if err == nil {
-		info, statErr := file.Stat()
-		if statErr = errors.Join(statErr, contextError(ctx, "open skill")); statErr != nil {
-			return nil, errors.Join(statErr, file.Close(), contextError(ctx, "close skill"))
-		}
-		if !info.Mode().IsRegular() {
-			cause := fmt.Errorf("%s must be a regular file: mode %s", SkillFile, info.Mode().Type())
-			// List may skip invalid skills, but must propagate cleanup failures.
-			if closeErr := errors.Join(file.Close(), contextError(ctx, "close skill")); closeErr != nil {
-				return nil, errors.Join(cause, closeErr)
-			}
-			return nil, invalidSkill(name, cause)
-		}
-		return file, nil
+	if err != nil {
+		return nil, r.missingSkillFileError(ctx, name, err)
 	}
+	info, statErr := file.Stat()
+	if statErr = errors.Join(statErr, contextError(ctx, "open skill")); statErr != nil {
+		return nil, errors.Join(statErr, file.Close(), contextError(ctx, "close skill"))
+	}
+	if !info.Mode().IsRegular() {
+		cause := fmt.Errorf("%s must be a regular file: mode %s", SkillFile, info.Mode().Type())
+		// List may skip invalid skills, but must propagate cleanup failures.
+		if closeErr := errors.Join(file.Close(), contextError(ctx, "close skill")); closeErr != nil {
+			return nil, errors.Join(cause, closeErr)
+		}
+		return nil, invalidSkill(name, cause)
+	}
+	return file, nil
+}
+
+// missingSkillFileError classifies a failed SKILL.md open. A present bundle
+// owns its name even without a metadata file; only an absent directory permits
+// a lower-precedence source to supply the skill.
+func (r *Repository) missingSkillFileError(ctx context.Context, name string, err error) error {
 	if ctxErr := contextError(ctx, "open skill"); ctxErr != nil {
-		return nil, errors.Join(err, ctxErr)
+		return errors.Join(err, ctxErr)
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return err
 	}
-	// A present bundle owns its name even without a metadata file. Only an
-	// absent directory permits a lower-precedence source to supply the skill.
 	entry, openErr := r.fsys.Open(name)
 	if openErr != nil {
 		if ctxErr := contextError(ctx, "open skill directory"); ctxErr != nil {
-			return nil, errors.Join(err, openErr, ctxErr)
+			return errors.Join(err, openErr, ctxErr)
 		}
 		if errors.Is(openErr, fs.ErrNotExist) {
-			return nil, errors.Join(ErrSkillNotFound, err, openErr)
+			return errors.Join(ErrSkillNotFound, err, openErr)
 		}
-		return nil, errors.Join(err, openErr)
+		return errors.Join(err, openErr)
 	}
 	if closeErr := errors.Join(entry.Close(), contextError(ctx, "close skill directory")); closeErr != nil {
-		return nil, errors.Join(err, closeErr)
+		return errors.Join(err, closeErr)
 	}
-	return nil, invalidSkill(name, err)
+	return invalidSkill(name, err)
 }
 
 func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, error) {
@@ -296,7 +300,7 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 			return nil, errors.Join(readErr, contextErr)
 		}
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return nil, errors.Join(readErr, ctx.Err())
+			return nil, readErr
 		}
 		bytesRead += int64(len(text))
 		if bytesRead > maxBytes {
@@ -321,9 +325,8 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 	}
 }
 
-// OpenResource opens a file bundled under a skill. The resource path is
-// resolved relative to the skill directory. Lexical traversal is rejected;
-// repositories returned by [NewDirectoryRepository] also reject symlink escapes.
+// OpenResource rejects lexical traversal; repositories returned by
+// [NewDirectoryRepository] also reject symlink escapes from the skill directory.
 func (r *Repository) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
