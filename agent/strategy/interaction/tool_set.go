@@ -89,8 +89,7 @@ func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 // Tool. request must be the original Engine-minted request for this exact
 // Deployment and result must match its call. Direct-return policy comes only
 // from the binding. disposition must agree with result.IsError; rejected and
-// failed results cannot advertise Tools. The Host submits the returned
-// settlement through Process.ResolveUnknownEffect.
+// failed results cannot advertise Tools.
 func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, disposition ResultDisposition, advertisedToolNames []string) (agent.Settlement, error) {
 	if !t.Configured() || !request.Valid() || request.DeploymentRef() != t.deployment.DeploymentRef() {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)

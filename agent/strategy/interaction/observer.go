@@ -13,8 +13,6 @@ import (
 
 // ModelObserver receives provider-neutral model attempts. Callbacks are
 // observational, must return in bounded time, and have their panics isolated.
-// This Strategy hook exposes model-call details; agent.EventListener observes
-// kernel lifecycle facts and agent.DeltaListener receives ephemeral stream data.
 type ModelObserver interface {
 	// OnModelStarted receives the effective request after context reduction and
 	// local admission, immediately before calling the model. It is detached.

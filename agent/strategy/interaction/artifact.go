@@ -13,9 +13,8 @@ import (
 
 const maxCompletionFeedbackBytes = 4096
 
-// Artifact is one successful, schema-validated Delegate output. It is
-// identified by the exact Delegate binding, never by a Go runtime type name or
-// an application artifact store.
+// Artifact is one successful, schema-validated Delegate output, identified by
+// its exact Delegate binding rather than a Go type.
 type Artifact struct {
 	modelCallSequence uint64
 	toolCallID        string

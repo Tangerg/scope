@@ -9,8 +9,7 @@ import (
 )
 
 // PendingToolInput is the consumer-facing view of one current Tool input wait.
-// It deliberately excludes Tool continuation state and all application UI,
-// persistence, approval, or actor concepts.
+// It excludes the Tool's continuation state.
 type PendingToolInput struct {
 	processID      agent.ProcessID
 	waitID         agent.WaitID
