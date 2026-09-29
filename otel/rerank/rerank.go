@@ -20,14 +20,13 @@ import (
 
 	corererank "github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/rerank"
 	operationName       = "rerank"
 	documentCountKey    = attribute.Key("gen_ai.request.document.count")
-	errorCanceled       = "context.canceled"
-	errorDeadline       = "context.deadline_exceeded"
 	errorInvalidRequest = "rerank.invalid_request"
 	errorInvalidOutput  = "rerank.invalid_response"
 )
@@ -79,15 +78,11 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
 	meter := meterProvider.Meter(instrumentationName)
-	duration, err := genaiconv.NewClientOperationDuration(meter, metric.WithExplicitBucketBoundaries(
-		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
-	))
+	duration, err := genaiconv.NewClientOperationDuration(meter, genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter, metric.WithExplicitBucketBoundaries(
-		1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864,
-	))
+	tokens, err := genaiconv.NewClientTokenUsage(meter, genaimetric.TokenBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
@@ -194,16 +189,9 @@ func (m Middleware) metricAttributes(request *corererank.Request, response *core
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorDeadline)
-	case errors.Is(err, corererank.ErrInvalidRequest), errors.Is(err, corererank.ErrInvalidOptions):
-		return semconv.ErrorTypeKey.String(errorInvalidRequest)
-	case errors.Is(err, corererank.ErrInvalidResponse):
-		return semconv.ErrorTypeKey.String(errorInvalidOutput)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: corererank.ErrInvalidRequest, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: corererank.ErrInvalidOptions, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: corererank.ErrInvalidResponse, Type: errorInvalidOutput},
+	)
 }

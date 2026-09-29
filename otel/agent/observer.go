@@ -27,6 +27,7 @@ const (
 	effectUnit          = "{effect}"
 	signalUnit          = "{signal}"
 	deltaUnit           = "{delta}"
+	byteUnit            = "By"
 
 	invokeAgentOperationName = "invoke_agent"
 	stepSpanName             = "agent.step"
@@ -39,6 +40,7 @@ const (
 	processPreparedEffectsMetricName = "agent.process.prepared_effects"
 	processAcceptedSignalsMetricName = "agent.process.accepted_signals"
 	stepDurationMetricName           = "agent.step.work.duration"
+	stepAdoptionDelayMetricName      = "agent.step.adoption.delay"
 	effectDurationMetricName         = "agent.effect.duration"
 	deltaDropsMetricName             = "agent.delta.dropped"
 
@@ -223,7 +225,11 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create process accepted signals histogram: %w", ErrInvalidObserverConfig, err)
 	}
-	stepAdoptionDelay, err := meter.Float64Histogram("agent.step.adoption.delay", metric.WithDescription("Completion delivery and tree-owner wait after Step work."), metric.WithUnit(durationUnit))
+	stepAdoptionDelay, err := meter.Float64Histogram(
+		stepAdoptionDelayMetricName,
+		metric.WithDescription("Completion delivery and tree-owner wait after Step work."),
+		metric.WithUnit(durationUnit),
+	)
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create step adoption delay histogram: %w", ErrInvalidObserverConfig, err)
 	}
@@ -262,7 +268,7 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	durabilitySnapshotBytes, err := meter.Int64Histogram(
 		durabilitySnapshotBytesMetricName,
 		metric.WithDescription("Whole-tree snapshot bytes proposed at a durable protocol boundary."),
-		metric.WithUnit("By"),
+		metric.WithUnit(byteUnit),
 	)
 	if err != nil {
 		return observerInstruments{}, fmt.Errorf("%w: create committer snapshot size histogram: %w", ErrInvalidObserverConfig, err)
@@ -617,7 +623,7 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 	)
 	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
 		metricAttributes = append(metricAttributes,
-			processFailureKindAttribute.String(string(failureKind)),
+			processFailureKindAttribute.String(failureKind.String()),
 			processFailureCodeAttribute.String(failureCode),
 		)
 	}
@@ -722,7 +728,7 @@ func (o *Observer) observeDurability(ctx context.Context, operation, boundary st
 	if boundary != "" {
 		attributes = append(attributes, durabilityBoundaryAttribute.String(boundary))
 	}
-	ctx, span := o.tracer.Start(ctx, "agent.committer."+operation, trace.WithAttributes(attributes...))
+	ctx, span := o.tracer.Start(ctx, durabilitySpanPrefix+operation, trace.WithAttributes(attributes...))
 	if snapshot.Valid() {
 		span.SetAttributes(
 			processRootIDAttribute.String(snapshot.RootID().String()),

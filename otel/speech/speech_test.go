@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -84,5 +85,43 @@ func TestMiddlewareRejectsMissingCapabilities(t *testing.T) {
 	var streamer corespeech.StreamerFunc
 	if _, err := middleware.WrapStream(streamer); !errors.Is(err, otelspeech.ErrInvalidStreamer) {
 		t.Fatalf("WrapStream error = %v", err)
+	}
+}
+
+func TestStreamReportsNilSequenceAsInvalidStreamer(t *testing.T) {
+	spans := tracetest.NewSpanRecorder()
+	traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
+	t.Cleanup(func() { _ = traces.Shutdown(context.Background()) })
+	middleware, err := otelspeech.NewMiddleware(otelspeech.MiddlewareConfig{
+		Provider: "provider", TracerProvider: traces, MeterProvider: sdkmetric.NewMeterProvider(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamer, err := middleware.WrapStream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := corespeech.NewRequest("text")
+	var yielded []error
+	for response, streamErr := range streamer.Stream(t.Context(), request) {
+		if response != nil {
+			t.Fatalf("Stream yielded response %v", response)
+		}
+		yielded = append(yielded, streamErr)
+	}
+	if len(yielded) != 1 || !errors.Is(yielded[0], otelspeech.ErrInvalidStreamer) {
+		t.Fatalf("Stream errors = %v, want one ErrInvalidStreamer", yielded)
+	}
+	ended := spans.Ended()
+	if len(ended) != 1 || ended[0].Status().Code != codes.Error {
+		t.Fatalf("ended spans = %d, want one error span", len(ended))
+	}
+	attributes := attribute.NewSet(ended[0].Attributes()...)
+	errorType, _ := attributes.Value("error.type")
+	if errorType.AsString() != "otel.speech.invalid_streamer" {
+		t.Fatalf("error.type = %q, want otel.speech.invalid_streamer", errorType.AsString())
 	}
 }

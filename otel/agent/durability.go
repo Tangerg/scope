@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	durabilitySpanPrefix                            = "agent.committer."
 	durabilityDurationMetricName                    = "agent.committer.duration"
 	durabilitySnapshotBytesMetricName               = "agent.committer.snapshot.size"
 	durabilityOperationAttribute      attribute.Key = "agent.committer.operation"

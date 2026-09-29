@@ -12,7 +12,6 @@ import (
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	coreeval "github.com/Tangerg/scope/eval"
@@ -34,8 +33,6 @@ const (
 	scoreAttribute               = "eval.score"
 	measurementAttribute         = "eval.measurement"
 	operationEvaluate            = "evaluate"
-	errorCanceled                = "context.canceled"
-	errorDeadline                = "context.deadline_exceeded"
 	errorInvalidConfig           = "eval.invalid_evaluator_config"
 	errorInvalidReport           = "eval.invalid_report"
 )
@@ -159,16 +156,8 @@ func metricIdentityAttributes(metricValue coreeval.Metric) []attribute.KeyValue 
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorDeadline)
-	case errors.Is(err, coreeval.ErrInvalidEvaluatorConfig):
-		return semconv.ErrorTypeKey.String(errorInvalidConfig)
-	case errors.Is(err, coreeval.ErrInvalidReport):
-		return semconv.ErrorTypeKey.String(errorInvalidReport)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: coreeval.ErrInvalidEvaluatorConfig, Type: errorInvalidConfig},
+		errortelemetry.Class{Err: coreeval.ErrInvalidReport, Type: errorInvalidReport},
+	)
 }

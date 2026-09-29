@@ -29,8 +29,6 @@ const (
 	operationDurationMetric      = "chat_history.operation.duration"
 	operationDurationUnit        = "s"
 	operationDurationDescription = "Conversation history operation duration."
-	errorTypeCanceled            = "context.canceled"
-	errorTypeDeadlineExceeded    = "context.deadline_exceeded"
 )
 
 type historyOperation string
@@ -170,7 +168,7 @@ type historyObservation struct {
 func (h historyObservation) finish(err error) {
 	metricAttributes := h.metricAttributes
 	if err != nil {
-		errorType := historyErrorType(err)
+		errorType := errortelemetry.Classify(err)
 		errortelemetry.Record(h.span, errorType)
 		metricAttributes = append(metricAttributes, errorType)
 	}
@@ -180,17 +178,6 @@ func (h historyObservation) finish(err error) {
 		time.Since(h.startedAt).Seconds(),
 		metric.WithAttributes(metricAttributes...),
 	)
-}
-
-func historyErrorType(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorTypeCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorTypeDeadlineExceeded)
-	default:
-		return semconv.ErrorType(err)
-	}
 }
 
 type historyStore struct {

@@ -20,13 +20,12 @@ import (
 
 	coreimage "github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/image"
 	operationName       = "generate_content"
-	errorCanceled       = "context.canceled"
-	errorDeadline       = "context.deadline_exceeded"
 	errorInvalidRequest = "image.invalid_request"
 	errorInvalidOutput  = "image.invalid_response"
 )
@@ -77,9 +76,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
-	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName), metric.WithExplicitBucketBoundaries(
-		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
-	))
+	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName), genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
@@ -155,16 +152,9 @@ func (m Middleware) metricAttributes(request *coreimage.Request) []attribute.Key
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorDeadline)
-	case errors.Is(err, coreimage.ErrInvalidRequest), errors.Is(err, coreimage.ErrInvalidOptions):
-		return semconv.ErrorTypeKey.String(errorInvalidRequest)
-	case errors.Is(err, coreimage.ErrInvalidResponse):
-		return semconv.ErrorTypeKey.String(errorInvalidOutput)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: coreimage.ErrInvalidRequest, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: coreimage.ErrInvalidOptions, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: coreimage.ErrInvalidResponse, Type: errorInvalidOutput},
+	)
 }

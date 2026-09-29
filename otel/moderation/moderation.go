@@ -19,6 +19,7 @@ import (
 
 	coremoderation "github.com/Tangerg/scope/core/moderation"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
@@ -28,8 +29,6 @@ const (
 	operationDurationDescription = "GenAI client operation duration."
 	operationDurationUnit        = "s"
 	inputCountAttribute          = "gen_ai.request.input.count"
-	errorCanceled                = "context.canceled"
-	errorDeadline                = "context.deadline_exceeded"
 	errorInvalidRequest          = "moderation.invalid_request"
 	errorInvalidOutput           = "moderation.invalid_response"
 )
@@ -85,7 +84,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		operationDurationMetric,
 		metric.WithDescription(operationDurationDescription),
 		metric.WithUnit(operationDurationUnit),
-		metric.WithExplicitBucketBoundaries(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
+		genaimetric.DurationBuckets(),
 	)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
@@ -186,16 +185,9 @@ func (m Middleware) metricAttributes(
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorDeadline)
-	case errors.Is(err, coremoderation.ErrInvalidRequest), errors.Is(err, coremoderation.ErrInvalidOptions):
-		return semconv.ErrorTypeKey.String(errorInvalidRequest)
-	case errors.Is(err, coremoderation.ErrInvalidResponse):
-		return semconv.ErrorTypeKey.String(errorInvalidOutput)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: coremoderation.ErrInvalidRequest, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: coremoderation.ErrInvalidOptions, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: coremoderation.ErrInvalidResponse, Type: errorInvalidOutput},
+	)
 }

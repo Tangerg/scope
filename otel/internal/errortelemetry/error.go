@@ -3,6 +3,7 @@ package errortelemetry
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -13,10 +14,38 @@ import (
 )
 
 const (
-	exceptionEvent      = "exception"
-	genAIExceptionEvent = "gen_ai.client.operation.exception"
-	panicClassification = "panic"
+	exceptionEvent           = "exception"
+	genAIExceptionEvent      = "gen_ai.client.operation.exception"
+	panicClassification      = "panic"
+	canceledClassification   = "context.canceled"
+	deadlineClassification   = "context.deadline_exceeded"
+	exceptionSeverityWarning = "WARN"
 )
+
+// Class names the stable error.type reported for errors that match Err.
+type Class struct {
+	Err  error
+	Type string
+}
+
+// Classify reports cancellation and deadlines before the capability classes,
+// because a provider error produced while unwinding a canceled call does not
+// describe why the call ended. Unmatched errors use semconv.ErrorType, never
+// their message.
+func Classify(err error, classes ...Class) attribute.KeyValue {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return semconv.ErrorTypeKey.String(canceledClassification)
+	case errors.Is(err, context.DeadlineExceeded):
+		return semconv.ErrorTypeKey.String(deadlineClassification)
+	}
+	for _, class := range classes {
+		if errors.Is(err, class.Err) {
+			return semconv.ErrorTypeKey.String(class.Type)
+		}
+	}
+	return semconv.ErrorType(err)
+}
 
 type panicError struct{}
 
@@ -56,7 +85,7 @@ func EmitGenAIException(ctx context.Context, logger log.Logger, classification a
 	record.SetEventName(genAIExceptionEvent)
 	record.SetTimestamp(occurredAt)
 	record.SetSeverity(log.SeverityWarn)
-	record.SetSeverityText("WARN")
+	record.SetSeverityText(exceptionSeverityWarning)
 	record.AddAttributes(semconv.ExceptionType(classification.Value.AsString()))
 	logger.Emit(context.WithoutCancel(ctx), record)
 }

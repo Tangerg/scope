@@ -29,8 +29,8 @@ const (
 	searchReturnedRowsMetric      = "db.vector.search.returned_rows"
 	searchReturnedRowsDescription = "Rows returned by a vector search."
 	searchReturnedRowsUnit        = "{row}"
-	errorTypeCanceled             = "context.canceled"
-	errorTypeDeadlineExceeded     = "context.deadline_exceeded"
+	queryTopKKey                  = attribute.Key("db.vector.query.top_k")
+	queryMinScoreKey              = attribute.Key("db.vector.query.similarity_threshold")
 )
 
 type operationName string
@@ -40,8 +40,6 @@ const (
 	operationSearch      operationName = "search"
 	operationDeleteIDs   operationName = "delete_ids"
 	operationDeleteWhere operationName = "delete_where"
-	queryTopKKey                       = attribute.Key("db.vector.query.top_k")
-	queryMinScoreKey                   = attribute.Key("db.vector.query.similarity_threshold")
 )
 
 var (
@@ -221,7 +219,7 @@ type vectorStoreObservation struct {
 func (v vectorStoreObservation) finish(err error) {
 	metricAttributes := v.metricAttributes
 	if err != nil {
-		errorType := vectorStoreErrorType(err)
+		errorType := errortelemetry.Classify(err)
 		errortelemetry.Record(v.span, errorType)
 		metricAttributes = append(metricAttributes, errorType)
 	}
@@ -239,17 +237,6 @@ func (v vectorStoreObservation) recordReturnedRows(count int) {
 		int64(count),
 		metric.WithAttributes(v.metricAttributes...),
 	)
-}
-
-func vectorStoreErrorType(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorTypeCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorTypeDeadlineExceeded)
-	default:
-		return semconv.ErrorType(err)
-	}
 }
 
 type indexer struct {

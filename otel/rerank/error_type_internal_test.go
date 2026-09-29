@@ -16,8 +16,8 @@ func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 		err  error
 		want string
 	}{
-		"canceled":          {err: fmt.Errorf("provider: %w", context.Canceled), want: errorCanceled},
-		"deadline exceeded": {err: fmt.Errorf("provider: %w", context.DeadlineExceeded), want: errorDeadline},
+		"canceled":          {err: fmt.Errorf("provider: %w", context.Canceled), want: "context.canceled"},
+		"deadline exceeded": {err: fmt.Errorf("provider: %w", context.DeadlineExceeded), want: "context.deadline_exceeded"},
 		"invalid request":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidRequest), want: errorInvalidRequest},
 		"invalid options":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidOptions), want: errorInvalidRequest},
 		"invalid response":  {err: fmt.Errorf("provider: %w", corererank.ErrInvalidResponse), want: errorInvalidOutput},

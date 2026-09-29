@@ -21,6 +21,7 @@ import (
 
 	corespeech "github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
@@ -29,10 +30,9 @@ const (
 	operationDurationMetric      = "gen_ai.client.operation.duration"
 	operationDurationDescription = "GenAI client operation duration."
 	operationDurationUnit        = "s"
-	errorCanceled                = "context.canceled"
-	errorDeadline                = "context.deadline_exceeded"
 	errorInvalidRequest          = "speech.invalid_request"
 	errorInvalidOutput           = "speech.invalid_response"
+	errorInvalidStreamer         = "otel.speech.invalid_streamer"
 )
 
 var (
@@ -86,9 +86,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
 	meter := meterProvider.Meter(instrumentationName)
-	durationBuckets := metric.WithExplicitBucketBoundaries(
-		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
-	)
+	durationBuckets := genaimetric.DurationBuckets()
 	duration, err := meter.Float64Histogram(
 		operationDurationMetric,
 		metric.WithDescription(operationDurationDescription),
@@ -145,7 +143,13 @@ func (m Middleware) WrapStream(next corespeech.Streamer) (corespeech.Streamer, e
 			spanCtx, observation := m.start(ctx, request, true)
 			var streamErr error
 			defer errortelemetry.Finish(&streamErr, func(observedError error) { observation.finish(observedError) })
-			for response, err := range next.Stream(spanCtx, request) {
+			sequence := next.Stream(spanCtx, request)
+			if sequence == nil {
+				streamErr = fmt.Errorf("%w: nil stream sequence", ErrInvalidStreamer)
+				yield(nil, streamErr)
+				return
+			}
+			for response, err := range sequence {
 				observation.observeChunk(response)
 				streamErr = err
 				keepGoing := yield(response, err)
@@ -274,16 +278,10 @@ func (m Middleware) metricAttributes(
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorDeadline)
-	case errors.Is(err, corespeech.ErrInvalidRequest), errors.Is(err, corespeech.ErrInvalidOptions):
-		return semconv.ErrorTypeKey.String(errorInvalidRequest)
-	case errors.Is(err, corespeech.ErrInvalidResponse):
-		return semconv.ErrorTypeKey.String(errorInvalidOutput)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: corespeech.ErrInvalidRequest, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: corespeech.ErrInvalidOptions, Type: errorInvalidRequest},
+		errortelemetry.Class{Err: corespeech.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: ErrInvalidStreamer, Type: errorInvalidStreamer},
+	)
 }

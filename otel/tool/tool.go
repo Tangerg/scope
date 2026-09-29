@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
@@ -27,8 +28,6 @@ const (
 	toolTypeFunction    = "function"
 	durationMetricName  = "gen_ai.execute_tool.duration"
 	durationUnit        = "s"
-	errorTypeCanceled   = "context.canceled"
-	errorTypeDeadline   = "context.deadline_exceeded"
 )
 
 var (
@@ -63,7 +62,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 		durationMetricName,
 		metric.WithDescription("GenAI tool execution duration."),
 		metric.WithUnit(durationUnit),
-		metric.WithExplicitBucketBoundaries(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
+		genaimetric.DurationBuckets(),
 	)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
@@ -119,7 +118,7 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 		finishedAt := time.Now()
 		defer span.End(trace.WithTimestamp(finishedAt))
 		if observedError != nil {
-			errorType := errorTypeAttribute(observedError)
+			errorType := errortelemetry.Classify(observedError)
 			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
 			attributes = append(attributes, errorType)
 		}
@@ -130,17 +129,6 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 		)
 	})
 	return i.next.Call(ctx, invocation)
-}
-
-func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorTypeCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorTypeDeadline)
-	default:
-		return semconv.ErrorType(err)
-	}
 }
 
 var _ coretool.WrappingTool = (*instrumentedTool)(nil)

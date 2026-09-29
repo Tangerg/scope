@@ -8,7 +8,7 @@ import (
 
 	coreimage "github.com/Tangerg/scope/core/image"
 
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
@@ -18,11 +18,11 @@ func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 	}{
 		"canceled": {
 			err:  fmt.Errorf("provider: %w", context.Canceled),
-			want: errorCanceled,
+			want: "context.canceled",
 		},
 		"deadline exceeded": {
 			err:  fmt.Errorf("provider: %w", context.DeadlineExceeded),
-			want: errorDeadline,
+			want: "context.deadline_exceeded",
 		},
 		"invalid request": {
 			err:  fmt.Errorf("provider: %w", coreimage.ErrInvalidRequest),

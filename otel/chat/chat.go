@@ -22,13 +22,12 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
 	instrumentationName            = "github.com/Tangerg/scope/otel/chat"
 	chatOperationName              = "chat"
-	errorTypeContextCanceled       = "context.canceled"
-	errorTypeDeadlineExceeded      = "context.deadline_exceeded"
 	errorTypeInvalidRequest        = "chat.invalid_request"
 	errorTypeInvalidResponse       = "chat.invalid_response"
 	errorTypeInvalidMessage        = "chat.invalid_message"
@@ -97,16 +96,12 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}
 
 	meter := meterProvider.Meter(instrumentationName)
-	durationBuckets := metric.WithExplicitBucketBoundaries(
-		0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
-	)
+	durationBuckets := genaimetric.DurationBuckets()
 	duration, err := genaiconv.NewClientOperationDuration(meter, durationBuckets)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter, metric.WithExplicitBucketBoundaries(
-		1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864,
-	))
+	tokens, err := genaiconv.NewClientTokenUsage(meter, genaimetric.TokenBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
@@ -155,13 +150,11 @@ func (m Middleware) Call(next corechat.Model) corechat.Model {
 	})
 }
 
-// Stream is a [corechat.StreamMiddleware]. Instrumentation starts lazily when the
-// caller iterates and ends synchronously on completion, provider failure, or
-// early consumer stop. Deltas are forwarded unchanged. Only identity, cumulative
-// usage, finish reason, and arrival times are observed; content is never buffered
-// or assembled into a second response. Each non-nil delta is a received chunk,
-// including metadata-only increments. Time to first chunk does not measure
-// time to first visible token. Known usage survives an incomplete stream.
+// Stream is a [corechat.StreamMiddleware]. Observation starts when the caller
+// iterates and ends synchronously on completion, provider failure, or early
+// stop. Deltas pass through unchanged and content is never buffered. Every
+// non-nil delta counts as a chunk, including metadata-only increments, and
+// known usage survives an incomplete stream.
 func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 	if lo.IsNil(next) {
 		return nil
@@ -329,13 +322,8 @@ func requestAttributes(request *corechat.Request) []attribute.KeyValue {
 	if options.Model != "" {
 		attrs = append(attrs, semconv.GenAIRequestModel(options.Model))
 	}
-	if options.OutputFormat != nil {
-		switch options.OutputFormat.Type {
-		case corechat.OutputFormatText:
-			attrs = append(attrs, semconv.GenAIOutputTypeText)
-		case corechat.OutputFormatJSON, corechat.OutputFormatJSONSchema:
-			attrs = append(attrs, semconv.GenAIOutputTypeJSON)
-		}
+	if outputType, ok := outputTypeAttribute(options.OutputFormat); ok {
+		attrs = append(attrs, outputType)
 	}
 	if options.MaxOutputTokens != nil {
 		attrs = append(attrs, semconv.GenAIRequestMaxTokensKey.Int64(*options.MaxOutputTokens))
@@ -359,6 +347,20 @@ func requestAttributes(request *corechat.Request) []attribute.KeyValue {
 		attrs = append(attrs, semconv.GenAIRequestStopSequences(options.Stop...))
 	}
 	return attrs
+}
+
+func outputTypeAttribute(format *corechat.OutputFormat) (attribute.KeyValue, bool) {
+	if format == nil {
+		return attribute.KeyValue{}, false
+	}
+	switch format.Type {
+	case corechat.OutputFormatText:
+		return semconv.GenAIOutputTypeText, true
+	case corechat.OutputFormatJSON, corechat.OutputFormatJSONSchema:
+		return semconv.GenAIOutputTypeJSON, true
+	default:
+		return attribute.KeyValue{}, false
+	}
 }
 
 // responseObservation owns accounting snapshots across iterator callbacks.
@@ -416,36 +418,19 @@ func requestModel(request *corechat.Request) string {
 }
 
 func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorTypeContextCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorTypeDeadlineExceeded)
-	case errors.Is(err, corechat.ErrInvalidRequest):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidRequest)
-	case errors.Is(err, corechat.ErrInvalidResponse):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidResponse)
-	case errors.Is(err, corechat.ErrInvalidMessage):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidMessage)
-	case errors.Is(err, corechat.ErrInvalidPart):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidPart)
-	case errors.Is(err, corechat.ErrInvalidToolCall):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidToolCall)
-	case errors.Is(err, corechat.ErrInvalidToolResult):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidToolResult)
-	case errors.Is(err, corechat.ErrInvalidToolDefinition):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidToolDefinition)
-	case errors.Is(err, corechat.ErrInvalidOutputFormat):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidOutputFormat)
-	case errors.Is(err, corechat.ErrInvalidOptions):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidOptions)
-	case errors.Is(err, corechat.ErrInvalidUsage):
-		return semconv.ErrorTypeKey.String(errorTypeInvalidUsage)
-	case errors.Is(err, ErrNilStream):
-		return semconv.ErrorTypeKey.String(errorTypeNilStream)
-	default:
-		return semconv.ErrorType(err)
-	}
+	return errortelemetry.Classify(err,
+		errortelemetry.Class{Err: corechat.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: corechat.ErrInvalidResponse, Type: errorTypeInvalidResponse},
+		errortelemetry.Class{Err: corechat.ErrInvalidMessage, Type: errorTypeInvalidMessage},
+		errortelemetry.Class{Err: corechat.ErrInvalidPart, Type: errorTypeInvalidPart},
+		errortelemetry.Class{Err: corechat.ErrInvalidToolCall, Type: errorTypeInvalidToolCall},
+		errortelemetry.Class{Err: corechat.ErrInvalidToolResult, Type: errorTypeInvalidToolResult},
+		errortelemetry.Class{Err: corechat.ErrInvalidToolDefinition, Type: errorTypeInvalidToolDefinition},
+		errortelemetry.Class{Err: corechat.ErrInvalidOutputFormat, Type: errorTypeInvalidOutputFormat},
+		errortelemetry.Class{Err: corechat.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: corechat.ErrInvalidUsage, Type: errorTypeInvalidUsage},
+		errortelemetry.Class{Err: ErrNilStream, Type: errorTypeNilStream},
+	)
 }
 
 // Only the final known snapshot belongs on the span; optional breakdowns from

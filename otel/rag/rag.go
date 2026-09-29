@@ -10,7 +10,6 @@ import (
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/samber/lo"
@@ -28,8 +27,6 @@ const (
 	operationAttributeName       = "rag.operation.name"
 	documentCountAttribute       = "rag.document.count"
 	retrieveOperation            = "retrieve"
-	errorTypeCanceled            = "context.canceled"
-	errorTypeDeadlineExceeded    = "context.deadline_exceeded"
 )
 
 var (
@@ -106,7 +103,7 @@ func (i *instrumentedRetriever) Retrieve(
 		finishedAt := time.Now()
 		defer span.End(trace.WithTimestamp(finishedAt))
 		if observedError != nil {
-			errorType := errorTypeAttribute(observedError)
+			errorType := errortelemetry.Classify(observedError)
 			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
 			metricAttributes = append(metricAttributes, errorType)
 		}
@@ -119,17 +116,6 @@ func (i *instrumentedRetriever) Retrieve(
 	candidates, err = i.next.Retrieve(ctx, query)
 	span.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
 	return candidates, err
-}
-
-func errorTypeAttribute(err error) attribute.KeyValue {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return semconv.ErrorTypeKey.String(errorTypeCanceled)
-	case errors.Is(err, context.DeadlineExceeded):
-		return semconv.ErrorTypeKey.String(errorTypeDeadlineExceeded)
-	default:
-		return semconv.ErrorType(err)
-	}
 }
 
 var _ corerag.Retriever = (*instrumentedRetriever)(nil)
