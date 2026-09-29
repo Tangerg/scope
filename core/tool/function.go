@@ -3,7 +3,6 @@ package tool
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -61,14 +60,11 @@ func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) 
 }
 
 func validateFuncInputType(input reflect.Type) error {
-	if input == nil {
-		return errors.New("tool: function input type is nil")
-	}
 	if input.Kind() == reflect.Pointer {
 		input = input.Elem()
 	}
 	if input.Kind() != reflect.Struct {
-		return fmt.Errorf("tool: function input type %s must be a struct or pointer to struct", input)
+		return fmt.Errorf("function input type %s must be a struct or pointer to struct", input)
 	}
 	return nil
 }

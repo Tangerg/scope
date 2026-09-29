@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tangerg/scope/core/internal/ptr"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -19,11 +20,7 @@ type Options struct {
 }
 
 func (o Options) Clone() Options {
-	clone := Options{Model: o.Model, Extensions: o.Extensions.Clone()}
-	if o.TopK != nil {
-		clone.TopK = new(*o.TopK)
-	}
-	return clone
+	return Options{Model: o.Model, TopK: ptr.Clone(o.TopK), Extensions: o.Extensions.Clone()}
 }
 
 func (o Options) Resolve(override Options) (Options, error) {
@@ -42,7 +39,7 @@ func (o *Options) applyOverride(override Options) error {
 		o.Model = override.Model
 	}
 	if override.TopK != nil {
-		o.TopK = new(*override.TopK)
+		o.TopK = ptr.Clone(override.TopK)
 	}
 	if !override.Extensions.IsZero() {
 		if err := o.Extensions.Merge(override.Extensions); err != nil {

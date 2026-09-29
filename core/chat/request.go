@@ -63,32 +63,45 @@ func (r *Request) Validate() error {
 			return fmt.Errorf("%w: system messages must form a leading prefix", ErrInvalidRequest)
 		}
 	}
-
-	toolNames := make(map[string]struct{}, len(r.Tools))
-	for i := range r.Tools {
-		if err := r.Tools[i].Validate(); err != nil {
-			return fmt.Errorf("%w: tools[%d]: %w", ErrInvalidRequest, i, err)
-		}
-		if _, duplicate := toolNames[r.Tools[i].Name]; duplicate {
-			return fmt.Errorf("%w: duplicate tool name %q", ErrInvalidRequest, r.Tools[i].Name)
-		}
-		toolNames[r.Tools[i].Name] = struct{}{}
+	toolNames, err := r.validateTools()
+	if err != nil {
+		return err
 	}
-	if r.ToolChoice != nil {
-		if len(r.Tools) == 0 {
-			return fmt.Errorf("%w: tool_choice requires at least one tool", ErrInvalidRequest)
-		}
-		if err := r.ToolChoice.Validate(); err != nil {
-			return fmt.Errorf("%w: tool_choice: %w", ErrInvalidRequest, err)
-		}
-		if r.ToolChoice.Mode == ToolChoiceNamed {
-			if _, exists := toolNames[r.ToolChoice.Name]; !exists {
-				return fmt.Errorf("%w: tool_choice names undefined tool %q", ErrInvalidRequest, r.ToolChoice.Name)
-			}
-		}
+	if err := r.validateToolChoice(toolNames); err != nil {
+		return err
 	}
 	if err := r.Options.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+	}
+	return nil
+}
+
+func (r *Request) validateTools() (map[string]struct{}, error) {
+	toolNames := make(map[string]struct{}, len(r.Tools))
+	for i := range r.Tools {
+		if err := r.Tools[i].Validate(); err != nil {
+			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidRequest, i, err)
+		}
+		if _, duplicate := toolNames[r.Tools[i].Name]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate tool name %q", ErrInvalidRequest, r.Tools[i].Name)
+		}
+		toolNames[r.Tools[i].Name] = struct{}{}
+	}
+	return toolNames, nil
+}
+
+func (r *Request) validateToolChoice(toolNames map[string]struct{}) error {
+	if r.ToolChoice == nil {
+		return nil
+	}
+	if len(r.Tools) == 0 {
+		return fmt.Errorf("%w: tool_choice requires at least one tool", ErrInvalidRequest)
+	}
+	if err := r.ToolChoice.Validate(); err != nil {
+		return fmt.Errorf("%w: tool_choice: %w", ErrInvalidRequest, err)
+	}
+	if _, exists := toolNames[r.ToolChoice.Name]; r.ToolChoice.Mode == ToolChoiceNamed && !exists {
+		return fmt.Errorf("%w: tool_choice names undefined tool %q", ErrInvalidRequest, r.ToolChoice.Name)
 	}
 	return nil
 }

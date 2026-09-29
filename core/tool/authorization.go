@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ func (a Authorization) Definition() chat.ToolDefinition {
 
 // Arguments is detached for the same reason as Definition.
 func (a Authorization) Arguments() []byte {
-	return append([]byte(nil), a.arguments...)
+	return bytes.Clone(a.arguments)
 }
 
 // Authorizer is deliberately smaller than an application permission system:
@@ -90,10 +91,7 @@ func (g Guard) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput
 	if err := ctx.Err(); err != nil {
 		return chat.ToolOutput{}, err
 	}
-	authorization := Authorization{
-		definition: g.definition.Clone(), arguments: invocation.Arguments(),
-	}
-	allowed, err := g.authorizer.Authorize(ctx, authorization)
+	allowed, err := g.authorizer.Authorize(ctx, Authorization{definition: g.definition, arguments: invocation.arguments})
 	if err != nil {
 		return chat.ToolOutput{}, errors.Join(ctx.Err(), &AuthorizationError{name: g.definition.Name, cause: err})
 	}

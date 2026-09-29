@@ -238,7 +238,7 @@ func (r *ResponseDelta) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: nil response delta", ErrInvalidResponse)
 	}
-	if len(r.Parts) == 0 && len(r.MessageMetadata) == 0 && r.FinishReason == "" && r.OutputMetadata == nil && r.Metadata == nil {
+	if r.empty() {
 		return fmt.Errorf("%w: empty response delta", ErrInvalidResponse)
 	}
 	for index := range r.Parts {
@@ -259,6 +259,11 @@ func (r *ResponseDelta) Validate() error {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidResponse, err)
 	}
 	return nil
+}
+
+func (r *ResponseDelta) empty() bool {
+	return len(r.Parts) == 0 && len(r.MessageMetadata) == 0 && r.FinishReason == "" &&
+		r.OutputMetadata == nil && r.Metadata == nil
 }
 
 func (r ResponseDelta) MarshalJSON() ([]byte, error) {

@@ -38,23 +38,34 @@ type Source struct {
 func (s Source) Validate() error {
 	switch s.Kind {
 	case SourceBytes:
-		if len(s.Bytes) == 0 || s.URI != "" || s.Ref != "" {
+		if !s.carriesOnly(SourceBytes) {
 			return fmt.Errorf("%w: kind %q requires non-empty bytes and no URI or reference", ErrInvalidSource, s.Kind)
 		}
 	case SourceURI:
-		if len(s.Bytes) != 0 || s.URI == "" || s.Ref != "" {
+		if !s.carriesOnly(SourceURI) {
 			return fmt.Errorf("%w: kind %q requires a URI and no bytes or reference", ErrInvalidSource, s.Kind)
 		}
-		parsed, err := url.Parse(s.URI)
-		if err != nil || parsed.Scheme == "" || (parsed.Opaque == "" && parsed.Host == "" && parsed.Path == "") {
-			return fmt.Errorf("%w: %q is not an absolute URI", ErrInvalidSource, s.URI)
-		}
+		return s.validateURI()
 	case SourceReference:
-		if len(s.Bytes) != 0 || s.URI != "" || strings.TrimSpace(s.Ref) == "" {
+		if !s.carriesOnly(SourceReference) || strings.TrimSpace(s.Ref) == "" {
 			return fmt.Errorf("%w: kind %q requires a reference and no bytes or URI", ErrInvalidSource, s.Kind)
 		}
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrInvalidSource, s.Kind)
+	}
+	return nil
+}
+
+func (s Source) carriesOnly(kind SourceKind) bool {
+	return (len(s.Bytes) != 0) == (kind == SourceBytes) &&
+		(s.URI != "") == (kind == SourceURI) &&
+		(s.Ref != "") == (kind == SourceReference)
+}
+
+func (s Source) validateURI() error {
+	parsed, err := url.Parse(s.URI)
+	if err != nil || parsed.Scheme == "" || (parsed.Opaque == "" && parsed.Host == "" && parsed.Path == "") {
+		return fmt.Errorf("%w: %q is not an absolute URI", ErrInvalidSource, s.URI)
 	}
 	return nil
 }

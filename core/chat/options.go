@@ -119,8 +119,8 @@ func (o Options) Validate() error {
 	if err := validateFloat("frequency_penalty", o.FrequencyPenalty, minimumPenalty, maximumPenalty); err != nil {
 		return err
 	}
-	if o.MaxOutputTokens != nil && *o.MaxOutputTokens <= 0 {
-		return fmt.Errorf("%w: max_output_tokens must be greater than zero", ErrInvalidOptions)
+	if err := validatePositive("max_output_tokens", o.MaxOutputTokens); err != nil {
+		return err
 	}
 	if err := validateFloat("presence_penalty", o.PresencePenalty, minimumPenalty, maximumPenalty); err != nil {
 		return err
@@ -136,14 +136,21 @@ func (o Options) Validate() error {
 	if err := validateFloat("temperature", o.Temperature, minimumTemperature, maximumTemperature); err != nil {
 		return err
 	}
-	if o.TopK != nil && *o.TopK <= 0 {
-		return fmt.Errorf("%w: top_k must be greater than zero", ErrInvalidOptions)
+	if err := validatePositive("top_k", o.TopK); err != nil {
+		return err
 	}
 	if err := validateFloat("top_p", o.TopP, minimumTopP, maximumTopP); err != nil {
 		return err
 	}
 	if err := o.Extensions.Validate(); err != nil {
 		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
+	}
+	return nil
+}
+
+func validatePositive(name string, value *int64) error {
+	if value != nil && *value <= 0 {
+		return fmt.Errorf("%w: %s must be greater than zero", ErrInvalidOptions, name)
 	}
 	return nil
 }

@@ -31,7 +31,7 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		return history.WriteOutcome{}, err
 	}
 	if len(messages) == 0 {
-		return history.WriteOutcome{Accepted: len(messages)}, nil
+		return history.WriteOutcome{}, nil
 	}
 	messageSnapshot, err := snapshotMessages(messages)
 	if err != nil {

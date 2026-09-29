@@ -120,10 +120,7 @@ func (r *ResponseAccumulator) preflight(delta *ResponseDelta) error {
 			}
 		case PartDeltaToolCall:
 			call := part.ToolCall
-			name, exists := introduced[call.ID]
-			if position, found := r.toolParts[call.ID]; found {
-				name, exists = r.parts[position].part.ToolCall.Name, true
-			}
+			name, exists := r.toolCallName(call.ID, introduced)
 			if exists {
 				if name != call.Name {
 					return fmt.Errorf("part %d: tool call %q changed name from %q to %q", index, call.ID, name, call.Name)
@@ -146,6 +143,14 @@ func (r *ResponseAccumulator) preflight(delta *ResponseDelta) error {
 		}
 	}
 	return nil
+}
+
+func (r *ResponseAccumulator) toolCallName(id string, introduced map[string]string) (string, bool) {
+	if position, found := r.toolParts[id]; found {
+		return r.parts[position].part.ToolCall.Name, true
+	}
+	name, exists := introduced[id]
+	return name, exists
 }
 
 func (r *ResponseAccumulator) merge(delta *ResponseDelta) {

@@ -120,8 +120,7 @@ func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	if err := c.validateInput(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
-	owned := append([]byte(nil), arguments...)
-	return Invocation{contract: c.state, arguments: owned}, nil
+	return Invocation{contract: c.state, arguments: arguments}, nil
 }
 
 func (c Contract) validateInput(arguments []byte) (err error) {
@@ -149,4 +148,4 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (chat.ToolOutp
 }
 
 // Arguments returns an owned copy of the validated JSON object.
-func (i Invocation) Arguments() []byte { return append([]byte(nil), i.arguments...) }
+func (i Invocation) Arguments() []byte { return bytes.Clone(i.arguments) }

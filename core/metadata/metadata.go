@@ -85,7 +85,7 @@ func (m *Map) Set(key string, value any) error {
 	}
 
 	if !utf8.ValidString(key) {
-		return ErrInvalidValue
+		return fmt.Errorf("metadata: key %q: %w", key, ErrInvalidValue)
 	}
 	encoded, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
 	if err != nil {

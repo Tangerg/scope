@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/Tangerg/scope/core/internal/ptr"
 )
@@ -35,7 +36,7 @@ func (u Usage) Validate() error {
 	if u.OutputTokens < 0 {
 		return fmt.Errorf("%w: output_tokens must not be negative", ErrInvalidUsage)
 	}
-	if u.InputTokens > 0 && u.OutputTokens > (1<<63-1)-u.InputTokens {
+	if u.InputTokens > 0 && u.OutputTokens > math.MaxInt64-u.InputTokens {
 		return fmt.Errorf("%w: total token count overflows int64", ErrInvalidUsage)
 	}
 	if err := validateTokenSubset("reasoning_tokens", u.ReasoningTokens, u.OutputTokens); err != nil {

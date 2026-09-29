@@ -97,27 +97,31 @@ func (o OutputFormat) Validate() error {
 		}
 		return nil
 	case OutputFormatJSONSchema:
-		if o.Name == "" {
-			return fmt.Errorf("%w: json_schema name must not be empty", ErrInvalidOutputFormat)
-		}
-		if strings.TrimSpace(o.Name) != o.Name {
-			return fmt.Errorf("%w: json_schema name must not have surrounding whitespace", ErrInvalidOutputFormat)
-		}
-		if o.Description != "" && strings.TrimSpace(o.Description) != o.Description {
-			return fmt.Errorf("%w: json_schema description must not have surrounding whitespace", ErrInvalidOutputFormat)
-		}
-		schema, err := corejsonschema.Parse(o.Schema)
-		if err != nil {
-			return fmt.Errorf("%w: json_schema schema: %w", ErrInvalidOutputFormat, err)
-		}
-		var object map[string]json.RawMessage
-		if jsonv2.Unmarshal(schema.JSON(), &object) != nil || object == nil {
-			return fmt.Errorf("%w: json_schema schema must be an object", ErrInvalidOutputFormat)
-		}
-		return nil
+		return o.validateJSONSchema()
 	default:
 		return fmt.Errorf("%w: unsupported type %q", ErrInvalidOutputFormat, o.Type)
 	}
+}
+
+func (o OutputFormat) validateJSONSchema() error {
+	if o.Name == "" {
+		return fmt.Errorf("%w: json_schema name must not be empty", ErrInvalidOutputFormat)
+	}
+	if strings.TrimSpace(o.Name) != o.Name {
+		return fmt.Errorf("%w: json_schema name must not have surrounding whitespace", ErrInvalidOutputFormat)
+	}
+	if strings.TrimSpace(o.Description) != o.Description {
+		return fmt.Errorf("%w: json_schema description must not have surrounding whitespace", ErrInvalidOutputFormat)
+	}
+	schema, err := corejsonschema.Parse(o.Schema)
+	if err != nil {
+		return fmt.Errorf("%w: json_schema schema: %w", ErrInvalidOutputFormat, err)
+	}
+	var object map[string]json.RawMessage
+	if jsonv2.Unmarshal(schema.JSON(), &object) != nil || object == nil {
+		return fmt.Errorf("%w: json_schema schema must be an object", ErrInvalidOutputFormat)
+	}
+	return nil
 }
 
 func (o OutputFormat) MarshalJSON() ([]byte, error) {
