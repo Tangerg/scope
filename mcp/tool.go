@@ -7,7 +7,7 @@ import (
 	"maps"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -23,26 +23,6 @@ type remoteTool struct {
 }
 
 var _ toolcontract.Tool = remoteTool{}
-
-type remoteToolConfig struct {
-	source            ToolSource
-	descriptor        descriptorSnapshot
-	requestMeta       RequestMetaFunc
-	concurrencyPolicy ToolConcurrencyPolicy
-}
-
-func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
-	if config.source.Session == nil {
-		return remoteTool{}, ErrNilSession
-	}
-	return remoteTool{
-		session:           config.source.Session,
-		descriptor:        config.descriptor,
-		requestMeta:       config.requestMeta,
-		sourceName:        config.source.Name,
-		concurrencyPolicy: config.concurrencyPolicy,
-	}, nil
-}
 
 func (r remoteTool) Definition() corechat.ToolDefinition { return r.descriptor.definition.Clone() }
 
@@ -66,13 +46,11 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	}
 }
 
-// Remote IsError preserves complete content in tool.Failure, separate from
-// transport and protocol errors.
 func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
 	remoteName := r.descriptor.remoteName
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.call "+remoteName,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String(attrToolName, remoteName)),
+		trace.WithAttributes(semconv.GenAIToolName(remoteName)),
 	)
 	defer func() {
 		if err != nil {

@@ -9,27 +9,25 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+// ToolSource is one live client session whose tools DiscoverTools projects.
 type ToolSource struct {
-	// Name prefixes tool names and errors. Empty is allowed.
+	// Name prefixes public tool names and errors. Empty is allowed.
 	Name string
 
-	// Session is a live, initialized client session. The wrapper does not own
-	// the session; callers are responsible for closing it.
+	// Session must be initialized. Discovered tools borrow it; the caller
+	// closes it.
 	Session *sdkmcp.ClientSession
 }
 
-// ToolConcurrencyPolicy decides whether one remote tool call may overlap other calls
-// from the same model response. A false result keeps the call exclusive; a true
-// result with an empty key declares no known conflict, while equal non-empty
-// keys serialize.
+// ToolConcurrencyPolicy decides whether a remote tool call may overlap other
+// calls from the same model response. False keeps the call exclusive; true with
+// an empty key declares no known conflict, while equal non-empty keys serialize.
 //
-// The callback receives the source and remote tool names, an isolated copy of
-// the remote annotations, and a schema-validated invocation. It must be deterministic,
-// side-effect-free, and safe for concurrent use because a durable resume may
-// plan queued calls again and callers may inspect the capability from multiple
-// goroutines.
-// It must not capture a Tool, session, or execution backend; schedulers retain
-// the declaration independently of the remote tool's execution lifetime.
+// It receives an isolated copy of the annotations and a schema-validated
+// invocation. It must be deterministic, side-effect-free, and safe for
+// concurrent use, because a durable resume may plan queued calls again. It must
+// not capture a Tool, session, or execution backend: schedulers retain it
+// beyond the remote tool's execution lifetime.
 type ToolConcurrencyPolicy func(
 	sourceName, remoteName string,
 	annotations sdkmcp.ToolAnnotations,
@@ -42,22 +40,17 @@ type PublicToolNameFunc func(sourceName, remoteName string) string
 
 const maxPublicToolNameLength = 64
 
+// ToolDiscoveryConfig configures how DiscoverTools projects remote tools.
 type ToolDiscoveryConfig struct {
-	// PublicName maps each remote tool identity to its public name. Nil
-	// uses the package default, "<sourceName>_<remoteName>" sanitized to the
-	// function-name charset accepted by model providers.
+	// PublicName nil uses "<sourceName>_<remoteName>" sanitized to the
+	// function-name charset model providers accept, truncated to 64 bytes.
 	PublicName PublicToolNameFunc
 
-	// RequestMeta is applied to every tool produced. Nil forwards no metadata on
-	// tool calls.
+	// RequestMeta nil forwards no metadata on tool calls.
 	RequestMeta RequestMetaFunc
 
-	// ConcurrencyPolicy opts remote tools into a caller-owned scheduling policy. Nil
-	// keeps every MCP call exclusive because protocol descriptors do not provide
-	// a trustworthy resource-conflict contract. Callers retain ownership of
-	// execution and result ordering. [AnnotatedReadOnlyConcurrencyPolicy] is the
-	// conservative ready-made policy for trusted descriptors that declare
-	// readOnlyHint=true.
+	// ConcurrencyPolicy nil keeps every MCP call exclusive, because protocol
+	// descriptors carry no trustworthy resource-conflict contract.
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 
@@ -109,22 +102,17 @@ func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscove
 			if err != nil {
 				return nil, fmt.Errorf("mcp: snapshot tool from source %q: %w", source.Name, err)
 			}
-
-			remote, err := newRemoteTool(remoteToolConfig{
-				source:            source,
-				descriptor:        snapshot,
-				requestMeta:       config.RequestMeta,
-				concurrencyPolicy: config.ConcurrencyPolicy,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("mcp: wrap tool %q from source %q: %w", snapshot.remoteName, source.Name, err)
-			}
-
 			if _, exists := seen[name]; exists {
 				return nil, fmt.Errorf("mcp: duplicate tool name %q after public naming", name)
 			}
 			seen[name] = struct{}{}
-			tools = append(tools, remote)
+			tools = append(tools, remoteTool{
+				session:           source.Session,
+				descriptor:        snapshot,
+				requestMeta:       config.RequestMeta,
+				sourceName:        source.Name,
+				concurrencyPolicy: config.ConcurrencyPolicy,
+			})
 		}
 	}
 	return tools, nil

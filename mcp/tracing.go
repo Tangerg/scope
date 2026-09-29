@@ -12,8 +12,6 @@ import (
 
 var mcpTracer = otel.Tracer("github.com/Tangerg/scope/mcp")
 
-const attrToolName = "gen_ai.tool.name"
-
 // Raw remote errors can contain business content; telemetry retains only their classification.
 func recordSpanError(span trace.Span, err error) {
 	classification := semconv.ErrorType(err)

@@ -1,38 +1,29 @@
-// Package mcp provides Scope helpers around the Model Context Protocol
+// Package mcp adapts Scope tools and prompts to the Model Context Protocol
 // (https://modelcontextprotocol.io/).
 //
-// Use the Scope-maintained Go SDK fork (github.com/Tangerg/go-sdk/mcp)
-// for protocol clients, servers, sessions, and transports. The Scope package
-// keeps the small adapters needed around those SDK primitives:
-// context metadata, reverse-capability helpers, tool.Tool wrapping, tool
-// registration and prompt conversion. The SDK decoder preserves exact JSON
-// numbers in structuredContent and distinguishes explicit structured null from
-// an omitted value;
-// consumers must use the same SDK module path for protocol types.
+// Protocol clients, servers, sessions, and transports come from the
+// Scope-maintained SDK fork, github.com/Tangerg/go-sdk/mcp; consumers must use
+// that module path for protocol types. Its decoder keeps exact numbers in
+// structuredContent and distinguishes explicit null from absence.
 //
-// Client and server spans record error classifications without raw error
-// messages. Callers still receive the complete protocol error details.
-// Remote IsError results use core/tool.Failure to preserve every content part
-// and structured detail. Register projects that same failure value back into
-// the MCP result without flattening it to an error string. MCP does not encode
-// refusal separately: remote IsError maps to FailureKindFailed, which does not
-// imply that execution began. Unknown local outcomes and authorization errors
-// become generic protocol errors, never model-visible internal diagnostics or
-// definite Tool results. Input validation remains public Tool error feedback.
-// Results requiring further input return ErrIncompleteResult without exposing
-// unfinished content. This adapter does not implement multi-round-trip input
-// fulfillment; hosts that need it must complete the exchange through the SDK.
-// Discovery freezes optional output schemas and validates successful structured
-// results against them. Error results remain Tool failures and do not have to
-// satisfy the successful output contract.
+// Remote IsError results become [tool.Failure] values of kind
+// [tool.FailureKindFailed] with every content part and structured detail;
+// because MCP does not encode refusal, that kind does not imply execution
+// began. [Register] projects the same Failure back into an IsError result.
+// Invalid arguments stay model-visible error results, while unknown local
+// outcomes and authorization errors become generic protocol errors, never
+// definite results or internal diagnostics. Results that require further
+// input return [ErrIncompleteResult]; hosts that need multi-round-trip input
+// must complete that exchange through the SDK. Successful structured results
+// are validated against the output schema frozen at discovery.
 //
-// Tool results and prompts share one content codec. Core text and media own
-// their payloads; [ContentMetadataKey] preserves MCP annotations, resource
-// provenance, and presentation metadata. Register restores these fields and
-// carries other Core content metadata and citations through MCP _meta. Empty
-// text without metadata is omitted; malformed or unsupported content is rejected.
-// The SDK decodes numbers in outputSchema and native protocol _meta as float64,
-// which can lose precision before Scope receives them. Exact numeric schema
-// constraints and native metadata beyond that precision require an SDK fix.
-// Core metadata uses a JSON-text envelope to preserve its numbers on round trips.
+// Spans record error classifications, never raw error messages.
+//
+// Tool results and prompts share one content codec. [ContentMetadataKey]
+// carries MCP annotations, resource provenance, and presentation metadata
+// that Core has no field for, and Core metadata and citations travel through
+// MCP _meta as JSON text so their numbers survive. Empty text without
+// metadata is omitted; malformed or unsupported content is rejected. The SDK
+// decodes outputSchema and native _meta numbers as float64, so precision
+// beyond that is lost before Scope receives it.
 package mcp

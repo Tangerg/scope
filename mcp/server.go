@@ -4,43 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"mime"
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/go-sdk/jsonrpc"
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/media"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// Register snapshots and validates the complete batch before adding any tool.
-// Duplicate names are rejected; handlers retain the advertised identity even
-// if a Tool later changes. Structured details preserve exact numbers and the
-// distinction between null and absence.
-//
-// The low-level SDK API preserves tool-supplied schemas; generic AddTool would
-// replace them with reflected schemas.
+// Register validates the complete batch before adding any tool, so a rejected
+// batch adds nothing. Handlers keep the identity snapshotted at registration
+// even if a Tool later changes.
 func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
 	if server == nil {
 		return ErrNilServer
 	}
-
 	registry, err := toolcontract.NewRegistry(tools...)
 	if err != nil {
 		return fmt.Errorf("mcp: register tools: %w", err)
 	}
-
-	prepared := make([]serverTool, 0, len(tools))
 	for _, definition := range registry.Definitions() {
 		executable, _ := registry.Resolve(definition.Name)
-		prepared = append(prepared, serverTool{executable: executable, definition: definition})
-	}
-	for _, tool := range prepared {
+		tool := serverTool{executable: executable, definition: definition}
+		// The low-level AddTool keeps the Tool's own schema; the generic SDK
+		// helper would replace it with a reflected one.
 		server.AddTool(tool.descriptor(), tool.handle)
 	}
 	return nil
@@ -59,22 +49,17 @@ func (s serverTool) descriptor() *sdkmcp.Tool {
 	})
 }
 
-// Invalid arguments and valid definite [toolcontract.Failure] outcomes return
-// model-visible [sdkmcp.CallToolResult.IsError] results. Ordinary errors, invalid
-// Failures, and outputs that cannot be mapped remain JSON-RPC internal errors:
-// they establish no definite public Tool result and must preserve that uncertainty.
-//
-// The MCP server session is stamped onto the context so tool authors
-// can use the reverse-capability helpers ([ReportProgress] and [Elicit])
-// without taking a direct dependency on the SDK session.
+// Invalid arguments and valid definite [toolcontract.Failure] outcomes become
+// model-visible IsError results. Ordinary errors, invalid Failures, and
+// unmappable outputs establish no definite Tool result, so they stay JSON-RPC
+// internal errors that preserve that uncertainty without leaking diagnostics.
 func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 	toolName := s.definition.Name
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.serve "+toolName,
 		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attribute.String(attrToolName, toolName)),
+		trace.WithAttributes(semconv.GenAIToolName(toolName)),
 	)
 	defer span.End()
-
 	ctx = withServerCall(ctx, req)
 
 	var rawArgs string
@@ -105,8 +90,6 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 
 func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
 	recordSpanError(span, err)
-	// No definite public output exists. A protocol failure preserves uncertainty
-	// at the remote Tool boundary without publishing an internal diagnostic.
 	protocolError := &jsonrpc.Error{
 		Code: jsonrpc.CodeInternalError, Message: "tool call did not produce a valid result",
 	}
@@ -143,40 +126,4 @@ func mapServerToolOutput(output corechat.ToolOutput) (*sdkmcp.CallToolResult, er
 		result.StructuredContent = slices.Clone(output.Details)
 	}
 	return result, nil
-}
-
-func mapServerMedia(value *media.Media) (sdkmcp.Content, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return nil, err
-	}
-	if value.Source.Kind == media.SourceBytes {
-		data, bytesErr := value.Bytes()
-		if bytesErr != nil {
-			return nil, bytesErr
-		}
-		switch {
-		case strings.HasPrefix(mediaType, "image/"):
-			return &sdkmcp.ImageContent{MIMEType: value.MIME, Data: data}, nil
-		case strings.HasPrefix(mediaType, "audio/"):
-			return &sdkmcp.AudioContent{MIMEType: value.MIME, Data: data}, nil
-		default:
-			return &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
-				URI: "scope://tool-output/" + value.Name, MIMEType: value.MIME, Blob: data,
-			}}, nil
-		}
-	}
-	var uri string
-	switch value.Source.Kind {
-	case media.SourceURI:
-		uri, err = value.URI()
-	case media.SourceReference:
-		uri, err = value.Reference()
-	default:
-		return nil, media.ErrInvalidSource
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &sdkmcp.ResourceLink{URI: uri, Name: value.Name, MIMEType: value.MIME}, nil
 }

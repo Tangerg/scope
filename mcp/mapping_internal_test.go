@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -268,10 +269,10 @@ func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
 }
 
 func TestMapServerMediaRejectsAnUnusableSource(t *testing.T) {
-	if _, err := mapServerMedia(&media.Media{MIME: "not a mime"}); err == nil {
+	if _, err := mapServerMedia(&media.Media{MIME: "not a mime"}, nil); err == nil {
 		t.Fatal("an unparsable MIME type was accepted")
 	}
-	if _, err := mapServerMedia(&media.Media{MIME: pngMIME}); err == nil {
+	if _, err := mapServerMedia(&media.Media{MIME: pngMIME}, nil); err == nil {
 		t.Fatal("an unset media source was accepted")
 	}
 }
@@ -281,7 +282,7 @@ func TestMapServerMediaCarriesReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, err := mapServerMedia(reference)
+	content, err := mapServerMedia(reference, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,5 +346,32 @@ func TestPromptContentToPartRejectsUnusableContent(t *testing.T) {
 				t.Fatal("unusable prompt content was accepted")
 			}
 		})
+	}
+}
+
+func TestMapServerMediaEscapesInlineResourceNames(t *testing.T) {
+	opaque, err := media.NewBytes("application/pdf", []byte("%PDF"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opaque.Name = "quarterly report#1?.pdf"
+	content, err := mapServerMedia(opaque, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, ok := content.(*sdkmcp.EmbeddedResource)
+	if !ok {
+		t.Fatalf("content = %T, want EmbeddedResource", content)
+	}
+	const want = "scope://tool-output/quarterly%20report%231%3F.pdf"
+	if embedded.Resource.URI != want {
+		t.Fatalf("embedded resource URI = %q, want %q", embedded.Resource.URI, want)
+	}
+	parsed, err := url.Parse(embedded.Resource.URI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != "/"+opaque.Name || parsed.Fragment != "" || parsed.RawQuery != "" {
+		t.Fatalf("parsed URI = %#v, want the name as its only path segment", parsed)
 	}
 }

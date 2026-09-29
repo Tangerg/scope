@@ -48,10 +48,8 @@ func (s serverCall) reportProgress(ctx context.Context, progress float64, total 
 		return ErrNoServerSession
 	}
 	if s.progressToken == nil {
-
 		return nil
 	}
-
 	params := &sdkmcp.ProgressNotificationParams{
 		ProgressToken: s.progressToken,
 		Progress:      progress,
