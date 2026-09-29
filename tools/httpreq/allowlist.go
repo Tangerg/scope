@@ -34,9 +34,10 @@ func (a Allowlist) Allows(host string) bool {
 	if err != nil {
 		return false
 	}
+	_, parseErr := netip.ParseAddr(normalized)
+	address := parseErr == nil
 	for _, pattern := range a.patterns {
-		if pattern.exact == normalized ||
-			(pattern.suffix != "" && strings.HasSuffix(normalized, pattern.suffix)) {
+		if pattern.matches(normalized, address) {
 			return true
 		}
 	}
@@ -46,6 +47,15 @@ func (a Allowlist) Allows(host string) bool {
 type hostPattern struct {
 	exact  string
 	suffix string
+}
+
+// matches keeps IP addresses exact-only: a dotted IPv4 or IPv4-mapped address
+// would otherwise satisfy a numeric wildcard suffix such as "*.0.1".
+func (h hostPattern) matches(host string, address bool) bool {
+	if h.exact != "" {
+		return h.exact == host
+	}
+	return !address && strings.HasSuffix(host, h.suffix)
 }
 
 func parseHostPattern(raw string) (hostPattern, error) {
