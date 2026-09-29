@@ -392,3 +392,20 @@ func TestCallScreensUnsafeResponseWithError(t *testing.T) {
 		t.Fatalf("response=%v error=%v blocks=%d", got, err, blocks)
 	}
 }
+
+func TestStreamDropsUnscreenedChunkPairedWithProviderError(t *testing.T) {
+	providerErr := errors.New("provider failed")
+	middleware := mustMiddleware(t, mustSubstring(t, "secret"), safeguard.MiddlewareConfig{Scope: safeguard.ScopeOutput})
+	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		return func(yield func(*chat.ResponseDelta, error) bool) { yield(chunk("secret"), providerErr) }
+	})
+	var yielded []*chat.ResponseDelta
+	var gotErr error
+	for delta, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
+		yielded = append(yielded, delta)
+		gotErr = err
+	}
+	if !reflect.DeepEqual(yielded, []*chat.ResponseDelta{nil}) || !errors.Is(gotErr, providerErr) {
+		t.Fatalf("yielded = %#v, error = %v; want one nil delta with the provider error", yielded, gotErr)
+	}
+}
