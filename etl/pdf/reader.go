@@ -79,22 +79,16 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 	return r, nil
 }
 
-// Read parses the source and emits documents according to the
-// configuration. Context cancellation is honored between pages.
-//
-// Pages that fail to parse are skipped and reported through [ErrPartialRead];
-// successfully decoded documents are returned alongside that error. A
-// document-level parse failure returns no documents. Both guard against the
-// upstream library's panic-on-malformed-input style.
+// Read skips pages that fail to parse and reports them through
+// [ErrPartialRead] alongside the documents that were decoded. A document-level
+// parse failure returns no documents.
 func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	// ledongthuc/pdf (following rsc/pdf) reports malformed input by
-	// panicking deep in the parser, and only its GetPlainText path
-	// recovers internally. Convert document-level panics (trailer /
-	// xref parsing in ledongthuc.NewReader and NumPage) into errors at the module
-	// boundary so a corrupt PDF can't crash the caller.
+	// The parser reports malformed trailers and xref tables by panicking, and
+	// only GetPlainText recovers internally, so a corrupt PDF would otherwise
+	// crash the caller.
 	defer func() {
 		if rec := recover(); rec != nil {
 			docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
@@ -117,6 +111,8 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 
 func (r *Reader) openReader(ctx context.Context) (*ledongthuc.Reader, error) {
 	if r.password != "" {
+		// The parser retries until the callback returns "", so offering the
+		// password once ends the loop after a single wrong attempt.
 		password := r.password
 		pdfReader, err := ledongthuc.NewReaderEncrypted(r.source, r.size, func() string {
 			if ctx.Err() != nil {
@@ -208,11 +204,8 @@ func (r *Reader) baseMetadata(total int) (coremetadata.Map, error) {
 	return md, nil
 }
 
-// readAllText streams every page through [pageText] and concatenates
-// the result. Using the per-page API instead of Reader.GetPlainText so
-// a single bad page is skipped without aborting the whole document;
-// page errors are joined and returned with any text that was decoded. ctx
-// cancellation is honored between pages.
+// The per-page API is used instead of Reader.GetPlainText so one bad page is
+// skipped rather than aborting the whole document.
 func (r *Reader) readAllText(ctx context.Context, pdfReader *ledongthuc.Reader, total int) (string, error) {
 	var b strings.Builder
 	var failures pageErrors
@@ -249,10 +242,8 @@ func (p pageErrors) err() error {
 	return fmt.Errorf("%w: %w", ErrPartialRead, errors.Join(p...))
 }
 
-// pageText extracts one page's plain text. The upstream parser panics
-// on malformed page content (its panic-as-error style only recovers
-// inside GetPlainText itself, not in Page / object resolution), so the
-// recover here converts a bad page into an error the caller can skip.
+// Page and object resolution panic on malformed content outside
+// GetPlainText's own recovery, so a bad page becomes a skippable error here.
 func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int) (text string, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {

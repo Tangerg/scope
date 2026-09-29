@@ -1,19 +1,9 @@
-// Package pdf reads PDF payloads using
-// github.com/ledongthuc/pdf — a pure-Go PDF parser forked from rsc/pdf.
+// Package pdf reads PDF payloads with github.com/ledongthuc/pdf, a pure-Go
+// parser forked from rsc/pdf.
 //
-// The reader extracts plain text from each page. Two emission modes:
-//
-//   - Whole-document mode (default): one [*document.Document] holding
-//     the concatenated text of every page.
-//   - Per-page mode (opt in via [ReaderConfig.PerPage]): one document per page,
-//     with `pdf.page` (1-indexed) and `pdf.pages.total` metadata stamped.
-//
-// Limitations: text-only extraction; tables, columns and exotic font
-// encodings may yield imperfect order. PDFs that embed text as images
-// (scanned documents) need OCR upstream.
-//
-// Example:
-//
-//	r, _ := pdf.NewReader(file, fileSize, pdf.ReaderConfig{PerPage: true})
-//	docs, _ := r.Read(ctx)
+// The reader emits one document with the text of every page, or with
+// [ReaderConfig.PerPage] one document per page carrying the 1-based
+// [MetadataPageIndex]. Extraction is text-only: tables, columns, and unusual
+// font encodings may come out in imperfect order, and scanned PDFs need OCR
+// upstream.
 package pdf
