@@ -436,3 +436,33 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 		t.Fatalf("missing output = %v", err)
 	}
 }
+
+func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
+	for _, snapshot := range []ProcessSnapshot{completedEngineTestSnapshot(t), preparedEngineTestSnapshot(t)} {
+		for _, name := range []string{"committed_steps", "capabilities", "counters", "mailbox", "pending_control"} {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			delete(fields, name)
+			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("missing %s accepted: %v", name, err)
+			}
+		}
+		for _, name := range []string{"prepared_effects", "dropped_deltas"} {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			var counters map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(fields["counters"], &counters); err != nil {
+				t.Fatal(err)
+			}
+			delete(counters, name)
+			fields["counters"] = controlValue(jsonv2.Marshal(counters))
+			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("missing counters.%s accepted: %v", name, err)
+			}
+		}
+	}
+}

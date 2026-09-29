@@ -59,7 +59,13 @@ type ProcessSnapshot struct {
 // capability grant. Terminal prepared batches contain no pending attempt and
 // their unknown identities must exactly match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
-	wire, err := jsonwire.Decode[processSnapshotWire](data, "limits", "allocated_resources")
+	// Every always-emitted member is required: a decoded zero would silently
+	// reset usage, authority, mailbox history, or pending control intent.
+	wire, err := jsonwire.Decode[processSnapshotWire](data,
+		"process_id", "relation", "deployment_ref", "started_at", "status", "committed_steps",
+		"limits", "tree_limits", "allocated_resources", "capabilities", "counters",
+		"committed_execution_state", "mailbox", "pending_control",
+	)
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}

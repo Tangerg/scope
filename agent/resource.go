@@ -286,3 +286,16 @@ type processCounters struct {
 	PreparedEffects uint64 `json:"prepared_effects"`
 	DroppedDeltas   uint64 `json:"dropped_deltas"`
 }
+
+func (p *processCounters) UnmarshalJSON(data []byte) error {
+	if p == nil {
+		return errors.New("agent: nil process counters receiver")
+	}
+	type wire processCounters
+	value, err := jsonwire.Decode[wire](data, "prepared_effects", "dropped_deltas")
+	if err != nil {
+		return err
+	}
+	*p = processCounters(value)
+	return nil
+}
