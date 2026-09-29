@@ -54,8 +54,8 @@ type loopStage struct {
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {
-	if !agent.ValidQualifiedName(config.ID) || !config.Body.Valid() ||
-		!config.Capabilities.Valid() || !config.MaxIterations.Allows(1) || config.Predicate == nil {
+	binding, valid := newChildBinding(config.Body, config.Budget, config.Capabilities)
+	if !agent.ValidQualifiedName(config.ID) || !valid || !config.MaxIterations.Allows(1) || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	valueSchema, err := agent.SchemaFor[T]()
@@ -71,8 +71,19 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		!schemasEqual(valueSchema, descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Loop %q body must have an exact T-to-T contract", ErrInvalidStage, config.ID)
 	}
-	predicate := config.Predicate
-	evaluate := func(ctx context.Context, raw json.RawMessage) (bool, error) {
+	return Stage{
+		id: config.ID, kind: StageKindLoop,
+		inputSchema: valueSchema, outputSchema: resultSchema,
+		loop: loopStage{
+			binding: binding, maxIterations: config.MaxIterations, valueSchema: valueSchema,
+			predicate: loopPredicate(config.ID, valueSchema, config.Predicate),
+			result:    loopResult[T](resultSchema),
+		},
+	}, nil
+}
+
+func loopPredicate[T any](stageID string, valueSchema agent.Schema, predicate LoopPredicate[T]) func(context.Context, json.RawMessage) (bool, error) {
+	return func(ctx context.Context, raw json.RawMessage) (bool, error) {
 		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return false, err
@@ -86,11 +97,14 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		}
 		satisfied, err := predicate(ctx, value)
 		if err != nil {
-			return false, fmt.Errorf("Loop %q predicate: %w", config.ID, err)
+			return false, fmt.Errorf("Loop %q predicate: %w", stageID, err)
 		}
 		return satisfied, nil
 	}
-	result := func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
+}
+
+func loopResult[T any](resultSchema agent.Schema) func(json.RawMessage, uint64, bool) (json.RawMessage, error) {
+	return func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
 		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return nil, err
@@ -99,11 +113,11 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		if err != nil {
 			return nil, err
 		}
-		loopResult := LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied}
-		if !loopResult.Valid() {
+		result := LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied}
+		if !result.Valid() {
 			return nil, ErrInvalidExecutionState
 		}
-		erased, err := agent.EncodePayload(loopResult)
+		erased, err := agent.EncodePayload(result)
 		if err != nil {
 			return nil, err
 		}
@@ -112,16 +126,4 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		}
 		return erased.JSON(), nil
 	}
-	return Stage{
-		id: config.ID, kind: StageKindLoop,
-		inputSchema: valueSchema, outputSchema: resultSchema,
-		loop: loopStage{
-			binding: childBinding{
-				deploymentRef: config.Body.DeploymentRef(), budget: config.Budget,
-				capabilities: config.Capabilities,
-			},
-			maxIterations: config.MaxIterations, valueSchema: valueSchema,
-			predicate: evaluate, result: result,
-		},
-	}, nil
 }

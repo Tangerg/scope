@@ -29,14 +29,15 @@ type fanoutStage struct {
 	complete     func(context.Context, []json.RawMessage) (json.RawMessage, error)
 }
 
-type fanoutOutputDecoder struct {
-	stageName  string
-	stageID    string
-	memberName string
-	schema     agent.Schema
+type fanoutOutputs struct {
+	stageName    string
+	stageID      string
+	memberName   string
+	memberSchema agent.Schema
+	resultSchema agent.Schema
 }
 
-func (f fanoutOutputDecoder) decode[T any](ctx context.Context, encodedOutputs []json.RawMessage) ([]T, error) {
+func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.RawMessage) ([]T, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -49,7 +50,7 @@ func (f fanoutOutputDecoder) decode[T any](ctx context.Context, encodedOutputs [
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
 		}
-		if validateOutputErr := f.schema.Validate(output.JSON()); validateOutputErr != nil {
+		if validateOutputErr := f.memberSchema.Validate(output.JSON()); validateOutputErr != nil {
 			return nil, fmt.Errorf("%s %q %s %d output contract: %w", f.stageName, f.stageID, f.memberName, index, validateOutputErr)
 		}
 		decoded, err := output.Decode[T]()
@@ -62,4 +63,15 @@ func (f fanoutOutputDecoder) decode[T any](ctx context.Context, encodedOutputs [
 		return nil, err
 	}
 	return values, nil
+}
+
+func (f fanoutOutputs) encodeResult[O any](result O) (json.RawMessage, error) {
+	erased, err := agent.EncodePayload(result)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q encode result: %w", f.stageName, f.stageID, err)
+	}
+	if err := f.resultSchema.Validate(erased.JSON()); err != nil {
+		return nil, fmt.Errorf("%s %q result contract: %w", f.stageName, f.stageID, err)
+	}
+	return erased.JSON(), nil
 }

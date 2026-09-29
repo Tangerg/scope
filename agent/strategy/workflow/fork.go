@@ -43,6 +43,28 @@ type ForkConfig[I, B, O any] struct {
 
 type forkSource struct{ branches []fanoutMember }
 
+func newForkSource(stageID string, inputSchema, branchSchema agent.Schema, declared []ForkBranch) (forkSource, error) {
+	branches := make([]fanoutMember, 0, len(declared))
+	seen := make(map[string]struct{}, len(declared))
+	for index, branch := range declared {
+		binding, valid := newChildBinding(branch.Deployment, branch.Budget, branch.Capabilities)
+		if !agent.ValidQualifiedName(branch.ID) || !valid {
+			return forkSource{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, stageID, index)
+		}
+		if _, duplicate := seen[branch.ID]; duplicate {
+			return forkSource{}, fmt.Errorf("%w: Fork %q has duplicate branch %q", ErrInvalidStage, stageID, branch.ID)
+		}
+		descriptor := branch.Deployment.Descriptor()
+		if !schemasEqual(inputSchema, descriptor.InputSchema()) ||
+			!schemasEqual(branchSchema, descriptor.OutputSchema()) {
+			return forkSource{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, stageID, branch.ID)
+		}
+		seen[branch.ID] = struct{}{}
+		branches = append(branches, fanoutMember{id: branch.ID, binding: binding})
+	}
+	return forkSource{branches: branches}, nil
+}
+
 func (f forkSource) count(ctx context.Context, _ json.RawMessage) (uint32, error) {
 	return uint32(len(f.branches)), ctx.Err()
 }
@@ -108,36 +130,17 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Fork %q output schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	branches := make([]fanoutMember, 0, len(config.Branches))
-	seen := make(map[string]struct{}, len(config.Branches))
-	for index, branch := range config.Branches {
-		if !agent.ValidQualifiedName(branch.ID) || !branch.Deployment.Valid() ||
-			!branch.Capabilities.Valid() {
-			return Stage{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, config.ID, index)
-		}
-		if _, duplicate := seen[branch.ID]; duplicate {
-			return Stage{}, fmt.Errorf("%w: Fork %q has duplicate branch %q", ErrInvalidStage, config.ID, branch.ID)
-		}
-		descriptor := branch.Deployment.Descriptor()
-		if !schemasEqual(inputSchema, descriptor.InputSchema()) ||
-			!schemasEqual(branchSchema, descriptor.OutputSchema()) {
-			return Stage{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, config.ID, branch.ID)
-		}
-		seen[branch.ID] = struct{}{}
-		branches = append(branches, fanoutMember{
-			id: branch.ID,
-			binding: childBinding{
-				deploymentRef: branch.Deployment.DeploymentRef(), budget: branch.Budget,
-				capabilities: branch.Capabilities,
-			},
-		})
+	source, err := newForkSource(config.ID, inputSchema, branchSchema, config.Branches)
+	if err != nil {
+		return Stage{}, err
 	}
 	reducer := config.Reduce
-	decoder := fanoutOutputDecoder{
-		stageName: "Fork", stageID: config.ID, memberName: "branch", schema: branchSchema,
+	outputs := fanoutOutputs{
+		stageName: "Fork", stageID: config.ID, memberName: "branch",
+		memberSchema: branchSchema, resultSchema: outputSchema,
 	}
 	reduce := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
-		values, err := decoder.decode[B](ctx, raw)
+		values, err := outputs.decode[B](ctx, raw)
 		if err != nil {
 			return nil, err
 		}
@@ -145,20 +148,13 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}
-		erased, err := agent.EncodePayload(result)
-		if err != nil {
-			return nil, fmt.Errorf("Fork %q encode result: %w", config.ID, err)
-		}
-		if err := outputSchema.Validate(erased.JSON()); err != nil {
-			return nil, fmt.Errorf("Fork %q result contract: %w", config.ID, err)
-		}
-		return erased.JSON(), nil
+		return outputs.encodeResult(result)
 	}
 	return Stage{
 		id: config.ID, kind: StageKindFork,
 		inputSchema: inputSchema, outputSchema: outputSchema,
 		fanout: fanoutStage{
-			source: forkSource{branches: branches}, windowSize: config.WindowSize,
+			source: source, windowSize: config.WindowSize,
 			outputSchema: branchSchema, complete: reduce,
 		},
 	}, nil

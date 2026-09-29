@@ -80,8 +80,8 @@ func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]Bindin
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
-	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
-		!config.Capabilities.Valid() ||
+	binding, valid := newChildBinding(config.Deployment, config.Budget, config.Capabilities)
+	if !agent.ValidQualifiedName(config.ID) || !valid ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
 	}
@@ -102,12 +102,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		id: config.ID, kind: StageKindMap,
 		inputSchema: schemas.input, outputSchema: schemas.output,
 		fanout: fanoutStage{
-			source: mapSource{
-				binding: childBinding{
-					deploymentRef: config.Deployment.DeploymentRef(), budget: config.Budget, capabilities: config.Capabilities,
-				},
-				codec: codec, decodeItem: codec.item[I],
-			},
+			source:     mapSource{binding: binding, codec: codec, decodeItem: codec.item[I]},
 			windowSize: config.WindowSize, outputSchema: schemas.itemOutput, complete: collect,
 		},
 	}, nil
@@ -217,21 +212,15 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Payload, error) {
 }
 
 func (m mapValueCodec) collect[O any](ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
-	decoder := fanoutOutputDecoder{
-		stageName: "Map", stageID: m.id, memberName: "item", schema: m.schemas.itemOutput,
+	outputs := fanoutOutputs{
+		stageName: "Map", stageID: m.id, memberName: "item",
+		memberSchema: m.schemas.itemOutput, resultSchema: m.schemas.output,
 	}
-	values, err := decoder.decode[O](ctx, raw)
+	values, err := outputs.decode[O](ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	erased, err := agent.EncodePayload(values)
-	if err != nil {
-		return nil, fmt.Errorf("Map %q encode result: %w", m.id, err)
-	}
-	if err := m.schemas.output.Validate(erased.JSON()); err != nil {
-		return nil, fmt.Errorf("Map %q result contract: %w", m.id, err)
-	}
-	return erased.JSON(), nil
+	return outputs.encodeResult(values)
 }
 
 type mapMaxItemsExceededError struct {

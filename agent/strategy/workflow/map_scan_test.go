@@ -102,8 +102,8 @@ func TestFanoutOutputDecodeStopsBetweenItems(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
 			defer cancel()
-			decoder := fanoutOutputDecoder{stageName: kind, stageID: "items", memberName: "item", schema: schema}
-			values, err := decoder.decode[int](ctx, []json.RawMessage{json.RawMessage(`1`), json.RawMessage(`"invalid"`)})
+			outputs := fanoutOutputs{stageName: kind, stageID: "items", memberName: "item", memberSchema: schema}
+			values, err := outputs.decode[int](ctx, []json.RawMessage{json.RawMessage(`1`), json.RawMessage(`"invalid"`)})
 			if values != nil || !errors.Is(err, context.Canceled) {
 				t.Fatalf("decode continued after cancellation: %v %v", values, err)
 			}

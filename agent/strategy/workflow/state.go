@@ -47,6 +47,26 @@ type fanoutChildState struct {
 	Failure        *agent.Failure   `json:"failure,omitzero"`
 }
 
+func (f fanoutChildState) settled() bool {
+	return f.ChildProcessID != nil || f.Failure != nil
+}
+
+func (f *fanoutChildState) recordStart(start agent.ChildStartResult) {
+	if failure, failed := start.Failure(); failed {
+		f.Failure = &failure
+	} else if id, started := start.ProcessID(); started {
+		f.ChildProcessID = &id
+	}
+}
+
+func (f fanoutChildState) child(key agent.ChildKey, deployment agent.DeploymentRef) childcall.Child {
+	child := childcall.Child{Key: key, Deployment: deployment, Done: f.ChildProcessID == nil && f.Failure != nil}
+	if f.ChildProcessID != nil {
+		child.ProcessID = *f.ChildProcessID
+	}
+	return child
+}
+
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -68,9 +88,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 		if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
 			return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 		}
-		return e.validatePhaseState(ctx, definition)
-	}
-	if err := definition.descriptor.ValidateOutput(input); err != nil {
+	} else if err := definition.descriptor.ValidateOutput(input); err != nil {
 		return fmt.Errorf("%w: final value schema: %w", ErrInvalidExecutionState, err)
 	}
 	return e.validatePhaseState(ctx, definition)
@@ -90,7 +108,7 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 			return fmt.Errorf("%w: child phase requires matching single-child progress", ErrInvalidExecutionState)
 		}
 	case phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen, phaseWaitingFanout:
-		if e.SelectedCaseID != "" || e.Child != nil || e.LoopIteration != 0 {
+		if e.hasSingleChildProgress() {
 			return fmt.Errorf("%w: fan-out phase retains single-child progress", ErrInvalidExecutionState)
 		}
 		if err := e.validateFanout(ctx, definition); err != nil {
@@ -124,9 +142,11 @@ func (e executionState) singleChildStage(definition *Definition) bool {
 }
 
 func (e executionState) noProgress() bool {
-	return e.SelectedCaseID == "" && e.Child == nil && e.FanoutWaitID == nil &&
-		e.ActiveFanoutWindow == nil && e.CompletedFanoutOutputs == nil &&
-		e.LoopIteration == 0
+	return !e.hasSingleChildProgress() && !e.hasFanoutProgress()
+}
+
+func (e executionState) hasSingleChildProgress() bool {
+	return e.SelectedCaseID != "" || e.Child != nil || e.LoopIteration != 0
 }
 
 func (e executionState) hasFanoutProgress() bool {
@@ -141,14 +161,17 @@ func (e executionState) validateFanout(ctx context.Context, definition *Definiti
 	if err != nil {
 		return err
 	}
-	resolved, started, err := e.validateFanoutChildren(ctx)
+	window, err := e.validateFanoutChildren(ctx)
 	if err != nil {
 		return err
 	}
 	if err := e.validateCompletedFanoutOutputs(ctx, stage); err != nil {
 		return err
 	}
-	return e.validateFanoutPhase(ctx, resolved, started)
+	if err := e.validateFanoutPhase(window); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 func (e executionState) fanoutWindowStart() uint32 {
@@ -164,50 +187,59 @@ func (e executionState) validateFanoutBoundary(ctx context.Context, definition *
 		return Stage{}, fmt.Errorf("%w: fan-out progress requires a fork or map stage", ErrInvalidExecutionState)
 	}
 	count, err := stage.fanout.source.count(ctx, e.CurrentValue)
-	windowSize := stage.fanout.windowSize
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: fan-out count: %w", ErrInvalidExecutionState, err)
 	}
 	if uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
 		return Stage{}, fmt.Errorf("%w: completed fan-out outputs leave no active window", ErrInvalidExecutionState)
 	}
-	start := e.fanoutWindowStart()
+	start, windowSize := e.fanoutWindowStart(), stage.fanout.windowSize
 	if start%windowSize != 0 || uint64(len(e.ActiveFanoutWindow)) != uint64(min(windowSize, count-start)) {
 		return Stage{}, fmt.Errorf("%w: active fan-out window does not match source boundaries", ErrInvalidExecutionState)
 	}
 	return stage, nil
 }
 
-func (e executionState) validateFanoutChildren(ctx context.Context) (int, int, error) {
+// fanoutWindowSummary is derived from the active window. A window is adopted
+// atomically, so its starts are either all settled or all pending.
+type fanoutWindowSummary struct {
+	settled bool
+	started int
+	// failedAfterStart counts children whose completion failed after a start;
+	// they can exist only once the window wait has opened.
+	failedAfterStart int
+}
+
+func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindowSummary, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, 0, err
+		return fanoutWindowSummary{}, err
 	}
-	resolved := 0
+	var summary fanoutWindowSummary
+	settled := 0
 	started := make(map[agent.ProcessID]struct{}, len(e.ActiveFanoutWindow))
 	for index, child := range e.ActiveFanoutWindow {
 		if err := ctx.Err(); err != nil {
-			return 0, 0, err
+			return fanoutWindowSummary{}, err
 		}
-		hasProcess := child.ChildProcessID != nil && child.ChildProcessID.Valid()
-		hasFailure := child.Failure != nil && child.Failure.Valid()
-		if child.ChildProcessID != nil && !hasProcess || child.Failure != nil && !hasFailure {
-			return 0, 0, fmt.Errorf("%w: fan-out child %d has an invalid process or failure", ErrInvalidExecutionState, index)
+		if child.settled() {
+			settled++
 		}
-		if hasProcess || hasFailure {
-			resolved++
-		}
-		if !hasProcess {
+		if child.ChildProcessID == nil {
 			continue
 		}
 		if _, duplicate := started[*child.ChildProcessID]; duplicate {
-			return 0, 0, fmt.Errorf("%w: fan-out child %d reuses process %q", ErrInvalidExecutionState, index, *child.ChildProcessID)
+			return fanoutWindowSummary{}, fmt.Errorf("%w: fan-out child %d reuses process %q", ErrInvalidExecutionState, index, *child.ChildProcessID)
 		}
 		started[*child.ChildProcessID] = struct{}{}
+		if child.Failure != nil {
+			summary.failedAfterStart++
+		}
 	}
-	if resolved != 0 && resolved != len(e.ActiveFanoutWindow) {
-		return 0, 0, fmt.Errorf("%w: fan-out window retains partially applied starts", ErrInvalidExecutionState)
+	if settled != 0 && settled != len(e.ActiveFanoutWindow) {
+		return fanoutWindowSummary{}, fmt.Errorf("%w: fan-out window retains partially applied starts", ErrInvalidExecutionState)
 	}
-	return resolved, len(started), nil
+	summary.settled, summary.started = settled != 0, len(started)
+	return summary, nil
 }
 
 func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stage Stage) error {
@@ -229,35 +261,27 @@ func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stag
 	return ctx.Err()
 }
 
-func (e executionState) validateFanoutPhase(ctx context.Context, resolved, started int) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+func (e executionState) validateFanoutPhase(window fanoutWindowSummary) error {
 	switch e.Phase {
 	case phaseAwaitingFanoutStarts:
-		if e.FanoutWaitID != nil || resolved != 0 && started != 0 {
+		if e.FanoutWaitID != nil || window.settled && window.started != 0 {
 			return fmt.Errorf("%w: awaiting starts phase retains started children or a wait identity", ErrInvalidExecutionState)
 		}
 	case phaseAwaitingFanoutWaitOpen:
-		if e.FanoutWaitID != nil || resolved != len(e.ActiveFanoutWindow) || started == 0 {
+		if e.FanoutWaitID != nil || !window.settled || window.started == 0 {
 			return fmt.Errorf("%w: awaiting wait phase requires settled starts and no wait identity", ErrInvalidExecutionState)
 		}
-		for index, child := range e.ActiveFanoutWindow {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if child.ChildProcessID != nil && child.Failure != nil {
-				return fmt.Errorf("%w: fan-out child %d failed before its wait opened", ErrInvalidExecutionState, index)
-			}
+		if window.failedAfterStart != 0 {
+			return fmt.Errorf("%w: fan-out child failed before its wait opened", ErrInvalidExecutionState)
 		}
 	case phaseWaitingFanout:
-		if e.FanoutWaitID == nil || !e.FanoutWaitID.Valid() || resolved != len(e.ActiveFanoutWindow) || started == 0 {
+		if e.FanoutWaitID == nil || !window.settled || window.started == 0 {
 			return fmt.Errorf("%w: waiting phase requires a wait identity and settled starts", ErrInvalidExecutionState)
 		}
 	default:
 		return fmt.Errorf("%w: phase %q cannot carry fan-out progress", ErrInvalidExecutionState, e.Phase)
 	}
-	return ctx.Err()
+	return nil
 }
 
 func (e *executionState) clearSingleChild() {
@@ -267,7 +291,7 @@ func (e *executionState) clearSingleChild() {
 
 func (e executionState) firstFanoutFailure() agent.Failure {
 	for _, child := range e.ActiveFanoutWindow {
-		if child.Failure != nil && child.Failure.Valid() {
+		if child.Failure != nil {
 			return *child.Failure
 		}
 	}

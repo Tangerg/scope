@@ -55,34 +55,9 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Switch %q input schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	cases := make([]switchCase, 0, len(config.Cases))
-	indices := make(map[string]int, len(config.Cases))
-	var outputSchema agent.Schema
-	for index, candidate := range config.Cases {
-		if !agent.ValidQualifiedName(candidate.ID) || !candidate.Deployment.Valid() ||
-			!candidate.Capabilities.Valid() {
-			return Stage{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, config.ID, index)
-		}
-		if _, duplicate := indices[candidate.ID]; duplicate {
-			return Stage{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, config.ID, candidate.ID)
-		}
-		descriptor := candidate.Deployment.Descriptor()
-		if !schemasEqual(inputSchema, descriptor.InputSchema()) {
-			return Stage{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, config.ID, candidate.ID)
-		}
-		if index == 0 {
-			outputSchema = descriptor.OutputSchema()
-		} else if !schemasEqual(outputSchema, descriptor.OutputSchema()) {
-			return Stage{}, fmt.Errorf("%w: Switch %q case %q output schema mismatch", ErrInvalidStage, config.ID, candidate.ID)
-		}
-		indices[candidate.ID] = index
-		cases = append(cases, switchCase{
-			id: candidate.ID,
-			binding: childBinding{
-				deploymentRef: candidate.Deployment.DeploymentRef(), budget: candidate.Budget,
-				capabilities: candidate.Capabilities,
-			},
-		})
+	cases, outputSchema, err := newSwitchCases(config.ID, inputSchema, config.Cases)
+	if err != nil {
+		return Stage{}, err
 	}
 	selector := config.Select
 	selectCase := func(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -101,9 +76,6 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		if err != nil {
 			return "", fmt.Errorf("Switch %q selector: %w", config.ID, err)
 		}
-		if _, found := indices[selected]; !found {
-			return "", unknownSwitchCaseError{id: selected}
-		}
 		return selected, nil
 	}
 	return Stage{
@@ -113,6 +85,33 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	}, nil
 }
 
+func newSwitchCases(stageID string, inputSchema agent.Schema, declared []SwitchCase) ([]switchCase, agent.Schema, error) {
+	cases := make([]switchCase, 0, len(declared))
+	seen := make(map[string]struct{}, len(declared))
+	var outputSchema agent.Schema
+	for index, candidate := range declared {
+		binding, valid := newChildBinding(candidate.Deployment, candidate.Budget, candidate.Capabilities)
+		if !agent.ValidQualifiedName(candidate.ID) || !valid {
+			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
+		}
+		if _, duplicate := seen[candidate.ID]; duplicate {
+			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, stageID, candidate.ID)
+		}
+		seen[candidate.ID] = struct{}{}
+		descriptor := candidate.Deployment.Descriptor()
+		if !schemasEqual(inputSchema, descriptor.InputSchema()) {
+			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
+		}
+		if index == 0 {
+			outputSchema = descriptor.OutputSchema()
+		} else if !schemasEqual(outputSchema, descriptor.OutputSchema()) {
+			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q output schema mismatch", ErrInvalidStage, stageID, candidate.ID)
+		}
+		cases = append(cases, switchCase{id: candidate.ID, binding: binding})
+	}
+	return cases, outputSchema, nil
+}
+
 func (s switchStage) binding(caseID string) (childBinding, bool) {
 	for _, candidate := range s.cases {
 		if candidate.id == caseID {
@@ -120,10 +119,4 @@ func (s switchStage) binding(caseID string) (childBinding, bool) {
 		}
 	}
 	return childBinding{}, false
-}
-
-type unknownSwitchCaseError struct{ id string }
-
-func (u unknownSwitchCaseError) Error() string {
-	return fmt.Sprintf("Switch selector returned undeclared case %q", u.id)
 }

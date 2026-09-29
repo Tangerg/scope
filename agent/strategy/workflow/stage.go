@@ -56,6 +56,13 @@ type childBinding struct {
 	capabilities  agent.CapabilitySet
 }
 
+func newChildBinding(deployment agent.Deployment, budget agent.Budget, capabilities agent.CapabilitySet) (childBinding, bool) {
+	if !deployment.Valid() || !capabilities.Valid() {
+		return childBinding{}, false
+	}
+	return childBinding{deploymentRef: deployment.DeploymentRef(), budget: budget, capabilities: capabilities}, true
+}
+
 func (c childBinding) topology(
 	role BindingRole,
 	id string,
@@ -147,18 +154,15 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // Call constructs one managed child-Process Stage. No child Process is created
 // until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
-	if !agent.ValidQualifiedName(config.ID) || !config.Deployment.Valid() ||
-		!config.Capabilities.Valid() {
+	binding, valid := newChildBinding(config.Deployment, config.Budget, config.Capabilities)
+	if !agent.ValidQualifiedName(config.ID) || !valid {
 		return Stage{}, ErrInvalidStage
 	}
 	descriptor := config.Deployment.Descriptor()
 	return Stage{
 		id: config.ID, kind: StageKindCall,
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(),
-		call: childBinding{
-			deploymentRef: config.Deployment.DeploymentRef(), budget: config.Budget,
-			capabilities: config.Capabilities,
-		},
+		call: binding,
 	}, nil
 }
 

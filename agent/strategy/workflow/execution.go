@@ -71,17 +71,14 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 	case StageKindSwitch:
 		selected, err := stage.switcher.selectCase(ctx, e.state.CurrentValue)
 		if err != nil {
-			if _, ok := errors.AsType[unknownSwitchCaseError](err); ok {
-				return e.failContract(
-					0, stage.failureCode(failureSuffixCaseUnknown),
-					"Switch Stage "+stage.id+" selected an undeclared case",
-				)
-			}
 			return agent.Transition{}, err
 		}
 		binding, found := stage.switcher.binding(selected)
 		if !found {
-			return agent.Transition{}, fmt.Errorf("%w: Switch Stage %q selected case %q has no binding", ErrInvalidExecutionState, stage.id, selected)
+			return e.failContract(
+				0, stage.failureCode(failureSuffixCaseUnknown),
+				"Switch Stage "+stage.id+" selected an undeclared case",
+			)
 		}
 		e.state.SelectedCaseID = selected
 		return e.startSingleChild(0, binding)
@@ -131,13 +128,15 @@ func (e *execution) singleChildBinding() (childBinding, bool) {
 }
 
 func (e *execution) stageInvocationLabel() string {
-	if e.stage().kind == StageKindSwitch {
-		return e.stage().id + ".case." + e.state.SelectedCaseID
+	stage := e.stage()
+	switch stage.kind {
+	case StageKindSwitch:
+		return stage.id + ".case." + e.state.SelectedCaseID
+	case StageKindLoop:
+		return stage.id + ".iteration." + strconv.FormatUint(e.state.LoopIteration, 10)
+	default:
+		return stage.id
 	}
-	if e.stage().kind == StageKindLoop {
-		return e.stage().id + ".iteration." + strconv.FormatUint(e.state.LoopIteration, 10)
-	}
-	return e.stage().id
 }
 
 func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
@@ -368,12 +367,7 @@ func (e *execution) fanoutBatch() (childcall.Batch, error) {
 		if err != nil {
 			return childcall.Batch{}, err
 		}
-		child := &batch.Children[offset]
-		child.Key, child.Deployment = key, member.binding.deploymentRef
-		if progress.ChildProcessID != nil {
-			child.ProcessID = *progress.ChildProcessID
-		}
-		child.Done = progress.ChildProcessID == nil && progress.Failure != nil
+		batch.Children[offset] = progress.child(key, member.binding.deploymentRef)
 	}
 	return batch, nil
 }
@@ -399,11 +393,7 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	for index, offset := range indices {
-		if failure, failed := starts[index].Failure(); failed {
-			e.state.ActiveFanoutWindow[offset].Failure = &failure
-		} else if id, started := starts[index].ProcessID(); started {
-			e.state.ActiveFanoutWindow[offset].ChildProcessID = &id
-		}
+		e.state.ActiveFanoutWindow[offset].recordStart(starts[index])
 	}
 	consumed := uint32(count)
 	if !e.state.fanoutHasStartedChildren() {
