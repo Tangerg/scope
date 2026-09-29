@@ -19,6 +19,20 @@ type GlobRequest struct {
 	MaxResults int    `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum paths to return. Defaults to 100 and cannot exceed 1000."`
 }
 
+func (g GlobRequest) resultLimit() (int, error) {
+	limit, err := searchResultLimit(g.MaxResults, defaultGlobMaxResults)
+	if err != nil {
+		return 0, err
+	}
+	if g.Pattern == "" {
+		return 0, ErrEmptyPattern
+	}
+	if err := validateGlobPattern(g.Pattern); err != nil {
+		return 0, err
+	}
+	return limit, nil
+}
+
 type GlobResponse struct {
 	Paths     []string `json:"paths"`
 	Truncated bool     `json:"truncated,omitzero"`

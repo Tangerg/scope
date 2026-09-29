@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/Tangerg/scope/tools/textread"
 )
 
 const (
@@ -21,6 +23,19 @@ type readLimits struct {
 	inputBytes  int64
 	lineBytes   int
 	outputBytes int
+}
+
+func (r readLimits) scanError(path string, err error) error {
+	switch {
+	case errors.Is(err, textread.ErrInputTooLarge):
+		return fmt.Errorf("%w: %s grew beyond %d bytes", ErrFileTooLarge, path, r.inputBytes)
+	case errors.Is(err, textread.ErrLineTooLarge):
+		return &lineLimitError{path: path, line: textread.LineNumber(err), limit: r.lineBytes}
+	case errors.Is(err, textread.ErrInvalidText):
+		return ErrBinaryFile
+	default:
+		return fmt.Errorf("fs.LocalExecutor.Read: scan %s: %w", path, err)
+	}
 }
 
 func positiveOr[T ~int | ~int64](value, fallback T) T {

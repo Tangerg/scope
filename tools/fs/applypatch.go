@@ -110,16 +110,14 @@ func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invoc
 	return a.typed.Call(ctx, invocation)
 }
 
-// MutationPaths returns the sorted, unique file endpoints named by an invocation.
-// A rename includes both its source and destination; /dev/null is never a target.
-// Paths are lexically cleaned with Git's a/ and b/ prefixes removed. Relative
-// paths remain relative to the backend root and absolute paths remain absolute.
+// MutationPaths returns the sorted, unique file endpoints named by an invocation,
+// without I/O. A rename includes both endpoints; /dev/null is never a target.
+// Paths are lexically cleaned with Git's a/ and b/ prefixes removed; relative
+// paths stay relative to the backend root and absolute paths stay absolute.
 //
-// It uses the same patch parser and operation validation as LocalExecutor and
-// performs no I/O. A successful query does not establish filesystem authority,
-// target identity, hunk applicability, or execution success. Hosts resolve these
-// prospective paths for policy and locking; ApplyPatchResponse alone acknowledges
-// actual effects. Invalid arguments or unsupported patches return no paths.
+// It shares LocalExecutor's parser and operation validation, so invalid or
+// unsupported patches return no paths. A result does not establish authority,
+// hunk applicability, or success; ApplyPatchResponse alone acknowledges effects.
 func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 	var request ApplyPatchRequest
 	if err := jsonv2.Unmarshal(arguments, &request, jsonv2.RejectUnknownMembers(true)); err != nil {

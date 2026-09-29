@@ -1,35 +1,23 @@
 // Package fs exposes LLM-callable filesystem tools (read, write, edit,
-// apply_patch, glob, grep) on top of minimal per-operation ports. Local, sandbox, and
-// remote backends implement only the capabilities they provide; the tools
-// themselves are thin adapters that marshal LLM JSON into port calls and back.
+// apply_patch, glob, grep) over minimal per-operation backend ports. Backends
+// implement only the capabilities they provide and own all content processing;
+// the tools only marshal JSON into port calls and back.
 //
-// The local backend accepts one already-open [os.Root] with an absolute Name.
-// Hosts retain that authority for additional inspection or policy instead of
-// resolving its pathname again. [NewLocalExecutor] derives its own handle from
-// the supplied root; the host and executor each close the handle they own.
-// Sharing a directory does not synchronize separate host and executor operations.
+// Backends handle text files only: they must reject files that look binary and
+// Write content that contains NUL bytes.
 //
-// **Text files only.** Backend implementations MUST reject files
-// that look binary (NUL byte in the first 8 KiB is a good default
-// heuristic) and reject Write content that contains NUL bytes. Use
-// the shell tool if you need to manipulate binary data.
+// [LocalExecutor] is the local backend. [NewLocalExecutor] derives its own
+// handle from an already-open [os.Root] with an absolute Name, so the host keeps
+// that authority for its own inspection instead of resolving the pathname
+// again; each side closes the handle it owns.
 //
-// **Tools stay thin.** All content processing — line windowing,
-// binary detection, exact replacement, and complete writes — lives
-// in the backend, not the tool. The tool's job is JSON in, JSON out.
+// ApplyPatchTool.MutationPaths exposes prospective patch endpoints without I/O;
+// hosts discover it through core/tool.Capability for approval or locking.
+// Mutation tools carry ordinary backend errors and acknowledged effects as
+// core/tool.CallError evidence for evaluation and reconciliation, not as a
+// result for the model. Backends establish definite failure or refusal with
+// core/tool.Failure.
 //
-// ApplyPatchTool.MutationPaths exposes prospective patch endpoints without I/O,
-// using LocalExecutor's parser and supported-operation rules. Hosts may discover
-// this optional method through core/tool.Capability for approval or locking.
-// Filesystem authority and hunk applicability are checked during execution;
-// ApplyPatchResponse, including a partial response on error, reports actual effects.
-// Mutation tools preserve ordinary backend errors and acknowledged observations
-// through core/tool.CallError. Such evidence is available for evaluation and
-// reconciliation, not a completed result to feed back to the model. Backends
-// establish definite failure or permission refusal explicitly with core/tool.Failure.
-//
-// Why Glob and Grep have dedicated ports (instead of "walk + match" in the
-// tool layer): a remote backend cannot afford to ship every file
-// across the wire to pattern-match on the agent side. Pushing bulk
-// queries into their ports keeps remote implementations one round-trip per call.
+// Glob and Grep have dedicated ports so a remote backend answers a bulk query
+// in one round trip instead of shipping every file to the agent.
 package fs

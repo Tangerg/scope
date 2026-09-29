@@ -28,8 +28,7 @@ type ReadResponse struct {
 
 var _ toolcontract.Tool = (*ReadTool)(nil)
 
-// ReadTool adapts a concurrent-safe Reader and declares parallel calls. The
-// Reader owns synchronization across tool instances and Processes.
+// ReadTool declares parallel calls on the strength of the Reader contract.
 type ReadTool struct {
 	executor Reader
 	typed    toolcontract.Func[ReadRequest, ReadResponse]
@@ -70,21 +69,14 @@ func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 }
 
 func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
-
-	spiOffset := 0
-	if req.StartLine > 0 {
-		spiOffset = req.StartLine - 1
-	}
-
 	res, err := r.executor.Read(ctx, ReadInput{
 		Path:   req.Path,
-		Offset: spiOffset,
+		Offset: max(req.StartLine-1, 0),
 		Limit:  req.MaxLines,
 	})
 	if err != nil {
 		return ReadResponse{}, fmt.Errorf("fs.read: %w", err)
 	}
-
 	return ReadResponse{
 		Content:    res.Content,
 		StartLine:  res.StartLine + 1,

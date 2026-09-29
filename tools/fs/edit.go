@@ -25,7 +25,6 @@ type EditResponse struct {
 
 var _ toolcontract.Tool = (*EditTool)(nil)
 
-// EditTool delegates validation and atomic replacement to its Editor.
 type EditTool struct {
 	executor Editor
 	typed    toolcontract.Func[EditRequest, EditResponse]

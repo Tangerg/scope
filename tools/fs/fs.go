@@ -10,10 +10,8 @@ import (
 )
 
 // Reader is the read backend used by ReadTool. Implementations must support
-// concurrent calls, including calls through other tools sharing the same
-// backend. Private buffers, cursors, and caches remain the backend's concern.
-// This promise permits ReadTool to advertise parallel reads; it is stronger
-// than the absence of filesystem writes. LocalExecutor satisfies the contract.
+// concurrent calls, including calls through other tools sharing the backend;
+// ReadTool advertises parallel reads on that promise.
 type Reader interface {
 	Read(ctx context.Context, in ReadInput) (ReadOutput, error)
 }
@@ -37,13 +35,11 @@ type Editor interface {
 // PatchApplier validates a complete patch before mutation and reports every
 // acknowledged file effect, including on error. A multi-file patch is not a
 // filesystem transaction: commit failures can leave earlier changes applied.
-// Implementations may create parent directories while committing files.
 // Patch endpoints must follow [ApplyPatchTool.MutationPaths] so hosts can inspect
 // the complete prospective write set before invoking the backend.
-// A backend may return core/tool.Failure for an established unsuccessful outcome;
-// that value owns the complete model-visible output. An ordinary error preserves
-// uncertainty, and the Tool carries the response as core/tool.CallError evidence.
-// ErrMutationRejected explicitly establishes rejection before any mutation.
+// A core/tool.Failure owns the complete model-visible output of an established
+// unsuccessful outcome; ErrMutationRejected establishes rejection before any
+// mutation; any other error preserves uncertainty.
 type PatchApplier interface {
 	ApplyPatch(ctx context.Context, request ApplyPatchRequest) (ApplyPatchResponse, error)
 }
@@ -68,6 +64,13 @@ type ReadInput struct {
 	MaxLineBytes   int   // 0 = executor default
 	MaxOutputBytes int   // 0 = executor default
 	PartialLine    bool  // admit a UTF-8 prefix when the output cap splits a line
+}
+
+func (r ReadInput) validate() error {
+	if r.Limit < 0 || r.MaxInputBytes < 0 || r.MaxLineBytes < 0 || r.MaxOutputBytes < 0 {
+		return fmt.Errorf("%w: read limits must not be negative", ErrInvalidInput)
+	}
+	return nil
 }
 
 func (r ReadInput) resolvedLimits() readLimits {
@@ -115,7 +118,6 @@ func (e editOperation) apply(content, path string) (string, int, error) {
 type GrepOutputMode string
 
 const (
-	// GrepOutputContent returns structured matching and context lines.
 	GrepOutputContent          GrepOutputMode = "content"
 	GrepOutputFilesWithMatches GrepOutputMode = "files_with_matches"
 	GrepOutputCount            GrepOutputMode = "count"
@@ -148,17 +150,30 @@ type GrepInput struct {
 	IgnoreCase bool
 	Multiline  bool
 
-	// Context is the symmetric "lines before AND after" shortcut.
-	// BeforeContext / AfterContext override per-side when non-zero.
+	// Context applies to both sides; a non-zero BeforeContext or AfterContext
+	// overrides it for that side.
 	Context       int
 	BeforeContext int
 	AfterContext  int
 
-	// OutputMode picks the shape of GrepResponse. Its zero value resolves to
-	// [GrepOutputContent].
-	OutputMode GrepOutputMode
-
+	OutputMode GrepOutputMode // zero resolves to GrepOutputContent
 	MaxResults int
+}
+
+func (g GrepInput) resultLimit() (int, error) {
+	for _, lines := range []int{g.Context, g.BeforeContext, g.AfterContext} {
+		if lines < 0 || lines > maximumContextLines {
+			return 0, fmt.Errorf("%w: grep context lines must be between 0 and %d", ErrInvalidInput, maximumContextLines)
+		}
+	}
+	limit, err := searchResultLimit(g.MaxResults, defaultGrepMaxResults)
+	if err != nil {
+		return 0, err
+	}
+	if g.Pattern == "" {
+		return 0, ErrEmptyPattern
+	}
+	return limit, nil
 }
 
 func (g GrepInput) contextLines() (before, after int) {

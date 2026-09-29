@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -15,6 +16,16 @@ const (
 	maximumSearchResults  = 1000
 	maximumContextLines   = 20
 )
+
+func searchResultLimit(requested, fallback int) (int, error) {
+	if requested < 0 || requested > maximumSearchResults {
+		return 0, fmt.Errorf("%w: max_results must be between 0 and %d", ErrInvalidInput, maximumSearchResults)
+	}
+	if requested == 0 {
+		return fallback, nil
+	}
+	return requested, nil
+}
 
 // GlobWalk visits only matches, so cancellation belongs on its Stat and ReadDir
 // boundaries as well: a directory tree with no matches still performs I/O.
@@ -43,10 +54,33 @@ func validateGlobPattern(pattern string) error {
 	if filepath.IsAbs(pattern) {
 		return fmt.Errorf("%w: glob pattern %q", ErrPathOutsideRoot, pattern)
 	}
-	for _, component := range strings.Split(filepath.ToSlash(pattern), "/") {
+	for component := range strings.SplitSeq(filepath.ToSlash(pattern), "/") {
 		if component == ".." {
 			return fmt.Errorf("%w: glob pattern %q", ErrPathOutsideRoot, pattern)
 		}
 	}
 	return nil
+}
+
+// Walk order is not sorted, so a bounded result keeps the lexically smallest
+// paths seen so far; the answer is deterministic however the walk proceeds.
+type sortedPathSet struct {
+	limit     int
+	paths     []string
+	truncated bool
+}
+
+func (s *sortedPathSet) add(path string) {
+	index, exists := slices.BinarySearch(s.paths, path)
+	if exists {
+		return
+	}
+	if len(s.paths) >= s.limit {
+		s.truncated = true
+		if index >= s.limit {
+			return
+		}
+		s.paths = s.paths[:s.limit-1]
+	}
+	s.paths = slices.Insert(s.paths, index, path)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
@@ -109,19 +110,14 @@ func (f filePatch) validate() error {
 	if f.hunks() == 0 && !f.moved() {
 		return errors.New("fs.ApplyPatch: file patch has no hunks")
 	}
-	for _, fragment := range f.parsed.TextFragments {
-		if fragment.OldPosition < 0 || fragment.NewPosition < 0 {
-			return fmt.Errorf("fs.ApplyPatch: %s: hunk positions must not be negative", f.path())
-		}
+	if slices.ContainsFunc(f.parsed.TextFragments, func(fragment *gitdiff.TextFragment) bool {
+		return fragment.OldPosition < 0 || fragment.NewPosition < 0
+	}) {
+		return fmt.Errorf("fs.ApplyPatch: %s: hunk positions must not be negative", f.path())
 	}
-	if f.oldPath != "" {
-		if err := validatePatchPath(f.oldPath); err != nil {
-			return err
-		}
-	}
-	if f.newPath != "" {
-		if err := validatePatchPath(f.newPath); err != nil {
-			return err
+	for _, path := range f.touches() {
+		if path == "." || path == string(filepath.Separator) {
+			return fmt.Errorf("fs.ApplyPatch: invalid file path %q", path)
 		}
 	}
 	return nil
@@ -135,15 +131,88 @@ func (f filePatch) apply(source []byte) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func validatePatchPath(path string) error {
-	if path == "" || path == "." || path == string(filepath.Separator) {
-		return fmt.Errorf("fs.ApplyPatch: invalid file path %q", path)
+func (f filePatch) prepare(ctx context.Context, targets patchTargets) (preparedPatch, error) {
+	// A patch may not land on a file it did not open. Create says so by having no
+	// origin; a move has one, but its destination is a new file all the same.
+	if f.created() || f.moved() {
+		if err := targets[f.newPath].requireAbsent(); err != nil {
+			return preparedPatch{}, err
+		}
+	}
+	var source sourceText
+	var mode *os.FileMode
+	if !f.created() {
+		var err error
+		if source, err = targets[f.oldPath].readText(ctx); err != nil {
+			return preparedPatch{}, err
+		}
+		mode = &source.mode
+	}
+	patched, err := f.apply([]byte(source.text))
+	if err != nil {
+		return preparedPatch{}, err
+	}
+	if f.deleted() {
+		if len(patched) != 0 {
+			return preparedPatch{}, fmt.Errorf("fs.ApplyPatch: delete %s: patched content is not empty", f.path())
+		}
+		return preparedPatch{
+			source: targets[f.oldPath],
+			result: PatchFileResponse{Path: f.path(), Hunks: f.hunks(), Deleted: true},
+		}, nil
+	}
+	prepared := preparedPatch{
+		target: targets[f.newPath],
+		data:   source.restore(string(patched)),
+		mode:   mode,
+		result: PatchFileResponse{Path: f.path(), Hunks: f.hunks(), Created: f.created()},
+	}
+	if f.moved() {
+		prepared.source = targets[f.oldPath]
+		prepared.result.MovedFrom = f.oldPath
+	}
+	return prepared, nil
+}
+
+// patchTargets pins every endpoint of a patch before preparation, keyed by its
+// root-relative path, and rejects endpoints that name the same directory entry.
+type patchTargets map[string]*mutationTarget
+
+func (p patchTargets) open(root *os.Root, files []filePatch) error {
+	for _, file := range files {
+		for _, path := range file.touches() {
+			if err := p.add(root, path, path == file.newPath); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-// preparedPatch holds a validated file mutation. Preparation changes no files;
-// commit reports only effects acknowledged by the filesystem.
+func (p patchTargets) add(root *os.Root, path string, allowMissingParents bool) error {
+	target, err := openMutationTarget(root, path, allowMissingParents)
+	if err != nil {
+		return err
+	}
+	for _, previous := range p {
+		if target.overlaps(previous) {
+			return errors.Join(fmt.Errorf("fs.ApplyPatch: duplicate target %s and %s", previous.path, path), target.parent.Close())
+		}
+	}
+	p[path] = target
+	return nil
+}
+
+func (p patchTargets) close() error {
+	var err error
+	for _, target := range p {
+		err = errors.Join(err, target.parent.Close())
+	}
+	return err
+}
+
+// preparedPatch holds a validated file mutation. Commit reports only effects
+// acknowledged by the filesystem.
 type preparedPatch struct {
 	target *mutationTarget
 	source *mutationTarget
