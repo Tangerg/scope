@@ -382,8 +382,6 @@ func recordedInvocation(invocation interaction.ToolInvocation) (attemptIdentity,
 	return identity, call
 }
 
-// recordedOutcome returns ToolOutcomeInvalid unless the settlement selects
-// exactly one outcome mode; non-final evidence belongs only to Unknown.
 func recordedOutcome(settlement interaction.ToolSettlement) (ToolOutcome, *chat.ToolResult, string) {
 	modes := 0
 	for _, selected := range [...]bool{

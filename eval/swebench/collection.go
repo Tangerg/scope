@@ -146,8 +146,6 @@ func (o officialSummaryWire) reconcile(groups caseGroups) error {
 	return nil
 }
 
-// classifyFailures requires every failure reason to classify exactly one
-// unresolved or error instance.
 func (o officialSummaryWire) classifyFailures(results []CaseResult) error {
 	if !countedIDs(o.InfraFailureInstances, o.InfraFailureIDs) || !countedIDs(o.AmbiguousFailureInstances, o.AmbiguousFailureIDs) {
 		return fmt.Errorf("%w: official diagnostic counts or IDs are invalid", ErrInvalidArtifacts)

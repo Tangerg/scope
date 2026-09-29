@@ -228,8 +228,6 @@ type eventHistory struct {
 	stopped      map[agent.ProcessID]bool
 }
 
-// eventHistory requires every sequence number an activation skips to be
-// covered by declared event loss.
 func (t Trajectory) eventHistory() (eventHistory, error) {
 	history := eventHistory{finished: make(map[agent.ProcessID]bool), stopped: make(map[agent.ProcessID]bool)}
 	sequences := make(map[activationProcess]uint64)
@@ -277,8 +275,6 @@ func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) err
 	return nil
 }
 
-// validateTerminalEvidence excuses a missing terminal event only when declared
-// event loss can explain it.
 func (t Trajectory) validateTerminalEvidence(paths map[agent.ProcessID]string, history eventHistory) error {
 	complete := t.gaps.DroppedEvents == 0
 	if complete {

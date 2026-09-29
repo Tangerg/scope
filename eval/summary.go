@@ -182,8 +182,6 @@ func summarize(results []CaseResult) (ExperimentSummary, error) {
 	return builder.build(), nil
 }
 
-// summaryBuilder keeps first-seen order for assessments and metrics while
-// indexing them by identity.
 type summaryBuilder struct {
 	summary     ExperimentSummary
 	assessments map[AssessmentID]int

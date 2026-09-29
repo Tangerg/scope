@@ -22,7 +22,6 @@ const (
 	StatusUnresolved        Status = "unresolved"
 )
 
-// classifiable reports whether the run summary may attach failure advice.
 func (s Status) classifiable() bool {
 	return s == StatusError || s == StatusUnresolved
 }
@@ -69,7 +68,6 @@ func (t TestsStatus) clone() TestsStatus {
 	}
 }
 
-// complete requires every group's arrays, which the harness always writes.
 func (t TestsStatus) complete() bool {
 	for _, tests := range [...]TestResults{t.FailToPass, t.PassToPass, t.FailToFail, t.PassToFail} {
 		if tests.Success == nil || tests.Failure == nil {
