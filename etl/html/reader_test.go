@@ -136,3 +136,18 @@ func TestNewReaderRejectsNilSource(t *testing.T) {
 		t.Fatal("typed nil source must fail")
 	}
 }
+
+func TestCanonicalLinkMatchesRelTokenList(t *testing.T) {
+	const page = `<html><head><link rel="Alternate CANONICAL" href="https://example.com/c"></head><body><p>text</p></body></html>`
+	r, err := html.NewReader(strings.NewReader(page), html.ReaderConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := r.Read(t.Context())
+	if err != nil || len(docs) != 1 {
+		t.Fatalf("Read = %v, %v", docs, err)
+	}
+	if got := metadataValue[string](t, docs[0].Metadata, html.MetadataCanonical); got != "https://example.com/c" {
+		t.Fatalf("canonical = %q", got)
+	}
+}

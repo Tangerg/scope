@@ -243,7 +243,8 @@ func newPageInfo(doc *goquery.Document) pageInfo {
 			p.description = strings.TrimSpace(c)
 		}
 	})
-	doc.Find(`head > link[rel="canonical"]`).Each(func(_ int, s *goquery.Selection) {
+	// rel is a case-insensitive token list, so "canonical" may share it with other link types.
+	doc.Find(`head > link[rel~="canonical" i]`).Each(func(_ int, s *goquery.Selection) {
 		if href, ok := s.Attr("href"); ok && p.canonical == "" {
 			p.canonical = strings.TrimSpace(href)
 		}
