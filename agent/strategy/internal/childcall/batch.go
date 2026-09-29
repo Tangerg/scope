@@ -25,8 +25,8 @@ type Child struct {
 // facts. It is a temporary view, never a second persisted state machine. Methods
 // validate structure before phase, then the whole response before returning
 // indices for the Strategy to adopt; they never mutate the supplied facts.
-// Scheduling and result policy stay with
-// the Strategy, including partial admissions and refilling a bounded window.
+// Scheduling and result policy, including partial admissions and refilling a
+// bounded window, stay with the Strategy.
 type Batch struct {
 	Children []Child
 	WaitID   agent.WaitID
