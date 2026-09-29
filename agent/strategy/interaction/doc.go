@@ -70,6 +70,11 @@
 // SettledResults interprets exact known Tool and Delegate outcomes from the
 // authoritative tree, including sparse and cancellation-drained settlements.
 // Its RoundResults view is read-only and has no storage or acknowledgment role.
+// [ToolCallRef] correlates calls across [ToolInvocation.Reference],
+// [RoundResults.Reference] and [ActiveDelegateChild.Reference]. Its ProcessID is
+// the requesting Interaction, not the Tool child. Provider call IDs and physical
+// AttemptIDs remain separate. [ToolInvocationFromRequest] derives the same
+// attribution from retained requests during recovery without decoding wire DTOs.
 // Hosts that need a separate result history can derive it atomically within their
 // TreeCommitter transactions; its storage, retention, and delivery remain host policy.
 // Local rejections and complete rounds cross explicit Checkpoint transitions.

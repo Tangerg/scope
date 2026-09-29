@@ -65,6 +65,12 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 		t.Fatalf("incorrect sparse results: round=%+v entries=%+v", round, entries)
 	}
 	encoded := round.JSON()
+	for index := range uint32(2) {
+		reference, present := round.Reference(index)
+		if !present || reference.ProcessID() != root.ID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != index {
+			t.Fatalf("sparse reference %d = %v, present=%v", index, reference, present)
+		}
+	}
 	if round.Digest() != agent.ComputeDigest(encoded) {
 		t.Fatal("content digest does not bind exact JSON")
 	}

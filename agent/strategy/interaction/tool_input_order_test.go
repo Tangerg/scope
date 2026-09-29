@@ -25,6 +25,13 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				executable, err := tool.NewFunc(tool.FuncConfig{
 					Name: "confirm", Description: "Confirm the pending Tool operation.",
 				}, func(ctx context.Context, _ struct{}) (string, error) {
+					invocation, present := ToolInvocationFromContext(ctx)
+					if !present {
+						return "", errors.New("root Tool invocation lost physical attribution")
+					}
+					if reference, attributed := invocation.Reference(); attributed || reference.Valid() {
+						return "", errors.New("root Tool invocation invented an Interaction parent")
+					}
 					continuation, resumed := ToolInputContinuationFromContext(ctx)
 					if !resumed {
 						initialCalls.Add(1)

@@ -99,14 +99,11 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolR
 	if !disposition.Valid() || result.IsError != (disposition != ResultSucceeded) {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery disposition disagrees with result", ErrInvalidProtocol)
 	}
-	envelope, err := decodeEffect(request.Effect().Payload())
+	invocation, err := ToolInvocationFromRequest(request)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	if envelope.Operation != operationToolCall {
-		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires a tool_call", ErrInvalidProtocol)
-	}
-	call := envelope.ToolCall.Invocation.Call
+	call := invocation.ToolCall()
 	prepared := t.dispatcher.prepareToolCall(call)
 	if prepared.rejection != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery call is not admitted by its binding", ErrInvalidProtocol)

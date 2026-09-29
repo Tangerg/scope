@@ -6,26 +6,37 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 )
 
 type storedResult struct {
-	ProcessID agent.ProcessID
-	Sequence  uint64
+	Reference interaction.ToolCallRef
 	Entry     interaction.ResultEntry
 }
 
 type publicationDatabase struct {
 	Tree         agent.TreeSnapshot
+	Sequence     uint64
 	Publications map[string]json.RawMessage
 	Transactions map[string]agent.Digest
 	Results      []storedResult
+}
+
+type publicationCommit struct {
+	snapshot       agent.TreeSnapshot
+	previous       agent.Digest
+	expectedWriter agent.TreeIncarnationID
+	identity       string
+	content        agent.Digest
+	sequence       uint64
 }
 
 // publicationStore models a host that chooses to keep a separate result history.
@@ -71,6 +82,35 @@ func (p *publicationStore) tree() agent.TreeSnapshot {
 	return p.database.Tree
 }
 
+func (p *publicationStore) LoadTree(ctx context.Context, rootID agent.ProcessID) (agent.TreeSnapshot, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return agent.TreeSnapshot{}, false, err
+	}
+	if p.closed {
+		return agent.TreeSnapshot{}, false, os.ErrClosed
+	}
+	if !rootID.Valid() {
+		return agent.TreeSnapshot{}, false, agent.ErrInvalidTreeSnapshot
+	}
+	data, err := os.ReadFile(p.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return agent.TreeSnapshot{}, false, nil
+	}
+	if err != nil {
+		return agent.TreeSnapshot{}, false, err
+	}
+	var database publicationDatabase
+	if err := jsonv2.Unmarshal(data, &database, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return agent.TreeSnapshot{}, false, err
+	}
+	if database.Tree.RootID() != rootID {
+		return agent.TreeSnapshot{}, false, nil
+	}
+	return database.Tree, true, nil
+}
+
 func (p *publicationStore) entries() []interaction.ResultEntry {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -82,25 +122,42 @@ func (p *publicationStore) entries() []interaction.ResultEntry {
 }
 
 func (p *publicationStore) ActivateTree(_ context.Context, activation agent.TreeActivation) error {
-	return p.commit(activation.TreeSnapshot(), activation.PreviousTreeDigest(), activation.PreviousIncarnationID(), "activation/"+activation.IncarnationID().String())
+	content, err := activation.ContentDigest()
+	if err != nil {
+		return err
+	}
+	return p.commit(publicationCommit{
+		snapshot: activation.TreeSnapshot(), previous: activation.PreviousTreeDigest(),
+		expectedWriter: activation.PreviousIncarnationID(), identity: activation.Identity(), content: content,
+	})
 }
 
 func (p *publicationStore) CommitEffect(_ context.Context, boundary agent.EffectBoundary) error {
-	writer := boundary.TreeSnapshot().IncarnationID()
-	return p.commit(boundary.TreeSnapshot(), boundary.PreviousTreeDigest(), writer, "effect/"+boundary.Request().ID().String()+"/"+boundary.Kind().String())
+	content, err := boundary.ContentDigest()
+	if err != nil {
+		return err
+	}
+	return p.commit(publicationCommit{
+		snapshot: boundary.TreeSnapshot(), previous: boundary.PreviousTreeDigest(),
+		expectedWriter: boundary.TreeSnapshot().IncarnationID(), identity: boundary.Identity(), content: content,
+		sequence: boundary.Sequence(),
+	})
 }
 
 func (p *publicationStore) CommitCheckpoint(_ context.Context, checkpoint agent.TreeCheckpoint) error {
-	writer := checkpoint.TreeSnapshot().IncarnationID()
-	key := "checkpoint/" + checkpoint.TreeSnapshot().Digest().String()
-	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
-		key = "start"
-		writer = agent.TreeIncarnationID{}
+	content, err := checkpoint.ContentDigest()
+	if err != nil {
+		return err
 	}
-	return p.commit(checkpoint.TreeSnapshot(), checkpoint.PreviousTreeDigest(), writer, key)
+	return p.commit(publicationCommit{
+		snapshot: checkpoint.TreeSnapshot(), previous: checkpoint.PreviousTreeDigest(),
+		expectedWriter: checkpoint.TreeSnapshot().IncarnationID(), identity: checkpoint.Identity(), content: content,
+		sequence: checkpoint.Sequence(),
+	})
 }
 
-func (p *publicationStore) commit(snapshot agent.TreeSnapshot, previous agent.Digest, expected agent.TreeIncarnationID, key string) error {
+func (p *publicationStore) commit(proposal publicationCommit) error {
+	snapshot := proposal.snapshot
 	publications, err := interaction.SettledResults(snapshot)
 	if err != nil {
 		return err
@@ -111,7 +168,7 @@ func (p *publicationStore) commit(snapshot agent.TreeSnapshot, previous agent.Di
 		}
 	}
 	p.mu.Lock()
-	err = p.advance(snapshot, previous, expected, key, publications)
+	err = p.advance(proposal, publications)
 	p.mu.Unlock()
 	if err != nil {
 		return err
@@ -122,31 +179,36 @@ func (p *publicationStore) commit(snapshot agent.TreeSnapshot, previous agent.Di
 	return nil
 }
 
-func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.Digest, expected agent.TreeIncarnationID, key string, publications []interaction.RoundResults) error {
+func (p *publicationStore) advance(proposal publicationCommit, publications []interaction.RoundResults) error {
 	if p.closed {
 		return os.ErrClosed
 	}
+	snapshot := proposal.snapshot
 	head := p.database.Tree
-	writer := head.IncarnationID()
-	proposedWriter := snapshot.IncarnationID()
-	if writer != expected && (writer != proposedWriter || head.Digest() != snapshot.Digest()) {
+	if proposal.sequence > 0 && proposal.previous.Valid() && head.IncarnationID() != proposal.expectedWriter {
 		return agent.ErrTreeIncarnationConflict
 	}
-	if stored, exists := p.database.Transactions[key]; exists {
-		if stored != snapshot.Digest() {
+	if stored, exists := p.database.Transactions[proposal.identity]; exists {
+		if stored != proposal.content || p.database.Sequence != proposal.sequence || head.Digest() != snapshot.Digest() {
 			return agent.ErrCommitConflict
-		}
-		if head.Digest() != snapshot.Digest() {
-			return agent.ErrTreeIncarnationConflict
 		}
 		return nil
 	}
-	if head.Digest() != previous {
-		return agent.ErrTreeIncarnationConflict
+	if !proposal.previous.Valid() {
+		if head.Valid() {
+			return agent.ErrTreeIncarnationConflict
+		}
+	} else {
+		if !head.Valid() || head.IncarnationID() != proposal.expectedWriter || head.Digest() != proposal.previous {
+			return agent.ErrTreeIncarnationConflict
+		}
+		if proposal.sequence > 0 && (p.database.Sequence == math.MaxUint64 || proposal.sequence != p.database.Sequence+1) {
+			return agent.ErrTreeIncarnationConflict
+		}
 	}
 	// The proposal is committed as one file replacement. No process memory is
 	// needed after reopening to recover either the tree or its product projection.
-	candidate := publicationDatabase{Tree: snapshot, Publications: make(map[string]json.RawMessage), Transactions: make(map[string]agent.Digest), Results: append([]storedResult(nil), p.database.Results...)}
+	candidate := publicationDatabase{Tree: snapshot, Sequence: proposal.sequence, Publications: make(map[string]json.RawMessage), Transactions: make(map[string]agent.Digest), Results: append([]storedResult(nil), p.database.Results...)}
 	for id, data := range p.database.Publications {
 		candidate.Publications[id] = data
 	}
@@ -158,9 +220,13 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 			return err
 		}
 		for _, entry := range publication.Entries() {
+			reference, present := publication.Reference(entry.ToolCallIndex)
+			if !present {
+				return interaction.ErrInvalidToolCallRef
+			}
 			found := false
 			for _, existing := range candidate.Results {
-				if existing.ProcessID == publication.Relation().ProcessID() && existing.Sequence == publication.ModelCallSequence() && existing.Entry.ToolCallIndex == entry.ToolCallIndex {
+				if existing.Reference == reference {
 					oldData, err := jsonv2.Marshal(existing.Entry)
 					if err != nil {
 						return err
@@ -177,11 +243,11 @@ func (p *publicationStore) advance(snapshot agent.TreeSnapshot, previous agent.D
 				}
 			}
 			if !found {
-				candidate.Results = append(candidate.Results, storedResult{ProcessID: publication.Relation().ProcessID(), Sequence: publication.ModelCallSequence(), Entry: entry})
+				candidate.Results = append(candidate.Results, storedResult{Reference: reference, Entry: entry})
 			}
 		}
 	}
-	candidate.Transactions[key] = snapshot.Digest()
+	candidate.Transactions[proposal.identity] = proposal.content
 	data, err := jsonv2.Marshal(candidate)
 	if err != nil {
 		return err
@@ -233,4 +299,10 @@ func publicationEngine(t *testing.T, deployment interactionDeployment, store age
 func publicationText(entry interaction.ResultEntry) string {
 	text, _ := entry.Result.Output.Text()
 	return text
+}
+
+func TestPublicationStoreTreeCommitterConformance(t *testing.T) {
+	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
+		return newPublicationStore(t)
+	})
 }

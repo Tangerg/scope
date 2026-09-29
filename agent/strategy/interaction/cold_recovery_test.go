@@ -78,10 +78,26 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 				t.Fatal("restoration did not fence the old writer")
 			}
 			var settlement agent.Settlement
+			var reference interaction.ToolCallRef
 			if modelRecovery {
+				if _, attributionErr := interaction.ToolInvocationFromRequest(request); !errors.Is(attributionErr, interaction.ErrInvalidProtocol) {
+					t.Fatalf("model request accepted as Tool attribution: %v", attributionErr)
+				}
 				settlement, err = dispatcher.SettleModelResult(request, textResponse("recovered"),
 					[]chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced"))})
 			} else {
+				invocation, attributionErr := interaction.ToolInvocationFromRequest(request)
+				if attributionErr != nil || !invocation.Valid() {
+					t.Fatalf("recovered Tool attribution: %v", attributionErr)
+				}
+				var attributed bool
+				reference, attributed = invocation.Reference()
+				if !attributed || reference.ProcessID() != root.ID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
+					t.Fatalf("recovered logical reference=%v, present=%v", reference, attributed)
+				}
+				if _, dispatched := invocation.AttemptID(); dispatched {
+					t.Fatal("recovered logical request invented a physical attempt")
+				}
 				settlement, err = tools.SettleToolResult(request, chat.ToolResult{
 					ID: "call", Name: "uncertain", Output: chat.NewTextToolOutput("recovered"),
 				}, interaction.ResultSucceeded, nil)
@@ -117,6 +133,11 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 			}
 			if modelCalls.Load() != 0 || executable.calls.Load() != 0 {
 				t.Fatal("cold recovery replayed external work")
+			}
+			if !modelRecovery {
+				if len(store.database.Results) != 1 || store.database.Results[0].Reference != reference {
+					t.Fatal("resolved result changed the recovered logical reference")
+				}
 			}
 		})
 	}

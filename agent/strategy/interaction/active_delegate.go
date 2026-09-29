@@ -17,6 +17,7 @@ type ActiveDelegateChild struct {
 	toolCall          chat.ToolCall
 	childKey          agent.ChildKey
 	processID         agent.ProcessID
+	parentProcessID   agent.ProcessID
 }
 
 // ModelCallSequence returns the one-based model call that requested the child.
@@ -33,9 +34,16 @@ func (a ActiveDelegateChild) ChildKey() agent.ChildKey { return a.childKey }
 
 func (a ActiveDelegateChild) ProcessID() agent.ProcessID { return a.processID }
 
+func (a ActiveDelegateChild) Reference() (ToolCallRef, bool) {
+	if !a.Valid() {
+		return ToolCallRef{}, false
+	}
+	return ToolCallRef{processID: a.parentProcessID, modelCallSequence: a.modelCallSequence, toolCallIndex: a.toolCallIndex}, true
+}
+
 func (a ActiveDelegateChild) Valid() bool {
 	if a.modelCallSequence == 0 || a.toolCall.Validate() != nil ||
-		!a.childKey.Valid() || !a.processID.Valid() {
+		!a.childKey.Valid() || !a.processID.Valid() || !a.parentProcessID.Valid() {
 		return false
 	}
 	key, err := DelegateChildKey(a.modelCallSequence, a.toolCall)
@@ -84,6 +92,7 @@ func ActiveDelegateChildren(
 			toolCall:          call,
 			childKey:          *invocation.ChildKey,
 			processID:         *invocation.ProcessID,
+			parentProcessID:   snapshot.ProcessID(),
 		}
 		children = append(children, child)
 	}

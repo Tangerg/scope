@@ -2,24 +2,11 @@ package agent
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"sync"
 )
-
-// Each boundary retains its own identity scope: Effects by ID and phase,
-// checkpoints by incarnation and sequence, and activations by the proposed
-// writer. Content equality cannot identify a transition through repeated states.
-type memoryCommitFactKey struct {
-	rootID     ProcessID
-	effectKind EffectBoundaryKind
-	effectID   EffectID
-	checkpoint bool
-	sequence   uint64
-	writer     TreeIncarnationID
-}
 
 type memoryTreeHead struct {
 	snapshot TreeSnapshot
@@ -37,7 +24,7 @@ type memoryTreeHead struct {
 type MemoryTreeCommitter struct {
 	mu    sync.Mutex
 	heads map[ProcessID]memoryTreeHead
-	facts map[memoryCommitFactKey]Digest
+	facts map[string]Digest
 }
 
 // NewMemoryTreeCommitter starts a separate volatile ledger; it cannot fence
@@ -45,7 +32,7 @@ type MemoryTreeCommitter struct {
 func NewMemoryTreeCommitter() *MemoryTreeCommitter {
 	return &MemoryTreeCommitter{
 		heads: make(map[ProcessID]memoryTreeHead),
-		facts: make(map[memoryCommitFactKey]Digest),
+		facts: make(map[string]Digest),
 	}
 }
 
@@ -66,16 +53,16 @@ func (m *MemoryTreeCommitter) ActivateTree(
 	_ context.Context,
 	activation TreeActivation,
 ) error {
-	if m == nil || !activation.Valid() {
+	if m == nil {
 		return errors.New("agent: invalid tree activation")
+	}
+	content, err := activation.ContentDigest()
+	if err != nil {
+		return err
 	}
 	prospective := activation.TreeSnapshot()
 	rootID := prospective.RootID()
-	key := memoryCommitFactKey{
-		rootID: rootID,
-		writer: activation.IncarnationID(),
-	}
-	content := prospective.Digest()
+	key := activation.Identity()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if previous, exists := m.facts[key]; exists {
@@ -100,17 +87,15 @@ func (m *MemoryTreeCommitter) CommitEffect(
 	_ context.Context,
 	boundary EffectBoundary,
 ) error {
-	if m == nil || !boundary.Valid() {
+	if m == nil {
 		return errors.New("agent: invalid Effect boundary")
 	}
 	prospective := boundary.TreeSnapshot()
-	key := memoryCommitFactKey{
-		effectKind: boundary.Kind(), rootID: prospective.RootID(), effectID: boundary.Request().ID(),
-	}
-	content, err := effectBoundaryDigest(boundary)
+	content, err := boundary.ContentDigest()
 	if err != nil {
 		return err
 	}
+	key := boundary.Identity()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.advanceHead(
@@ -122,22 +107,15 @@ func (m *MemoryTreeCommitter) CommitCheckpoint(
 	_ context.Context,
 	checkpoint TreeCheckpoint,
 ) error {
-	if m == nil || !checkpoint.Valid() {
+	if m == nil {
 		return errors.New("agent: invalid tree checkpoint")
 	}
 	prospective := checkpoint.TreeSnapshot()
-	key := memoryCommitFactKey{
-		checkpoint: true, rootID: prospective.RootID(),
-		writer: prospective.IncarnationID(), sequence: checkpoint.Sequence(),
-	}
-	content, err := jsonDigest(struct {
-		Kind     TreeCheckpointKind
-		Previous string
-		Snapshot Digest
-	}{checkpoint.Kind(), checkpoint.PreviousTreeDigest().String(), prospective.Digest()})
+	content, err := checkpoint.ContentDigest()
 	if err != nil {
 		return err
 	}
+	key := checkpoint.Identity()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkpoint.Kind() == TreeCheckpointKindStart {
@@ -149,7 +127,7 @@ func (m *MemoryTreeCommitter) CommitCheckpoint(
 }
 
 func (m *MemoryTreeCommitter) createHead(
-	key memoryCommitFactKey,
+	key string,
 	content Digest,
 	prospective TreeSnapshot,
 ) error {
@@ -170,7 +148,7 @@ func (m *MemoryTreeCommitter) createHead(
 }
 
 func (m *MemoryTreeCommitter) advanceHead(
-	key memoryCommitFactKey,
+	key string,
 	content Digest,
 	sequence uint64,
 	previousDigest Digest,
@@ -195,43 +173,6 @@ func (m *MemoryTreeCommitter) advanceHead(
 	m.facts[key] = content
 	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: sequence}
 	return nil
-}
-
-func effectBoundaryDigest(boundary EffectBoundary) (Digest, error) {
-	request := boundary.Request()
-	settlement, hasSettlement := boundary.Settlement()
-	content := struct {
-		Sequence      uint64
-		Kind          EffectBoundaryKind
-		ProcessID     ProcessID
-		DeploymentRef DeploymentRef
-		Relation      processRelationWire
-		StepSequence  uint64
-		BatchIndex    uint32
-		EffectID      EffectID
-		Effect        Effect
-		Settlement    *Settlement
-		Previous      Digest
-		Snapshot      Digest
-	}{
-		Sequence: boundary.Sequence(), Kind: boundary.Kind(), ProcessID: request.ProcessID(),
-		DeploymentRef: request.DeploymentRef(), Relation: request.Relation().wire(),
-		StepSequence: request.StepSequence(), BatchIndex: request.BatchIndex(),
-		EffectID: request.ID(), Effect: request.Effect(),
-		Previous: boundary.PreviousTreeDigest(), Snapshot: boundary.TreeSnapshot().Digest(),
-	}
-	if hasSettlement {
-		content.Settlement = &settlement
-	}
-	return jsonDigest(content)
-}
-
-func jsonDigest(value any) (Digest, error) {
-	encoded, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
-	if err != nil {
-		return Digest{}, fmt.Errorf("agent: encode committer fact: %w", err)
-	}
-	return ComputeDigest(encoded), nil
 }
 
 func commitContentConflict() error {

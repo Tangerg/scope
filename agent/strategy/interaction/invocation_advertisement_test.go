@@ -73,6 +73,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 		}
 	}
 	wantToolNames := []string{"discover", "lookup"}
+	references := make(map[interaction.ToolCallRef]struct{})
 	for index, invocation := range tools {
 		parentID, child := invocation.Relation().ParentID()
 		if !child || parentID != result.ProcessID() || invocation.Relation().Depth() != 1 || invocation.Relation().RootID() != result.ProcessID() {
@@ -85,6 +86,14 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 			invocation.StepSequence() != 1 || invocation.ToolCall().Name != wantToolNames[index] {
 			t.Fatalf("tool invocation %d = %#v", index, invocation)
 		}
+		reference, present := invocation.Reference()
+		if !present || reference.ProcessID() != result.ProcessID() || reference.ModelCallSequence() != uint64(index+1) || reference.ToolCallIndex() != 0 {
+			t.Fatalf("tool reference %d = %v, present=%v", index, reference, present)
+		}
+		references[reference] = struct{}{}
+	}
+	if len(references) != 2 {
+		t.Fatal("distinct model calls share a logical reference")
 	}
 	for index := 1; index < len(models); index++ {
 		if models[index-1].EffectID() == models[index].EffectID() {

@@ -67,14 +67,13 @@ func TestCommitSequenceValidation(t *testing.T) {
 	}
 }
 
-func TestEffectBoundaryDigestIncludesProcessRelation(t *testing.T) {
+func TestEffectBoundaryContentRejectsMismatchedProcessRelation(t *testing.T) {
 	_, request, snapshot := effectBoundaryFixture(t, 2, 64)
 	boundary, err := newEffectBoundary(1, EffectBoundaryKindPending, request, Settlement{}, ComputeDigest([]byte("previous")), snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	original, err := effectBoundaryDigest(boundary)
-	if err != nil {
+	if _, err := boundary.ContentDigest(); err != nil {
 		t.Fatal(err)
 	}
 	for _, mutation := range []struct {
@@ -89,12 +88,44 @@ func TestEffectBoundaryDigestIncludesProcessRelation(t *testing.T) {
 		t.Run(mutation.name, func(t *testing.T) {
 			changed := boundary
 			mutation.change(&changed.request.relation)
-			digest, err := effectBoundaryDigest(changed)
-			if err != nil {
-				t.Fatal(err)
+			if digest, err := changed.ContentDigest(); err == nil || digest.Valid() || changed.Identity() != "" {
+				t.Fatal("mismatched relation acquired a committable fact")
 			}
-			if digest == original {
-				t.Fatal("relation change did not change the committed fact digest")
+		})
+	}
+}
+
+func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
+	runtime, _ := newChildCompletionTestProcess(t)
+	store := runtime.engine.committer.(*MemoryTreeCommitter)
+	wire := controlValue(runtime.head.wire())
+	wire.IncarnationID = newTreeIncarnationID()
+	prospective := controlValue(newTreeSnapshot(wire))
+	activation := controlValue(newTreeActivation(runtime.head.IncarnationID(), runtime.head.Digest(), wire.IncarnationID, prospective))
+	for range 2 {
+		if err := store.ActivateTree(t.Context(), activation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mutation := range []struct {
+		name   string
+		change func(*TreeActivation)
+	}{
+		{"previous writer", func(a *TreeActivation) { a.previousIncarnationID = newTreeIncarnationID() }},
+		{"previous head", func(a *TreeActivation) { a.previousTreeDigest = ComputeDigest([]byte("another predecessor")) }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := activation
+			mutation.change(&changed)
+			if !changed.Valid() || changed.Identity() != activation.Identity() {
+				t.Fatal("fixture did not retain a valid activation identity")
+			}
+			if err := store.ActivateTree(t.Context(), changed); !errors.Is(err, ErrCommitConflict) {
+				t.Fatalf("changed activation precondition: %v", err)
+			}
+			actual, exists, err := store.LoadTree(t.Context(), prospective.RootID())
+			if err != nil || !exists || actual.Digest() != prospective.Digest() {
+				t.Fatalf("activation conflict changed head: %v", err)
 			}
 		})
 	}

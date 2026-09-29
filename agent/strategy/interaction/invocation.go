@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -125,6 +126,17 @@ func (t ToolInvocation) ToolCallIndex() uint32 { return t.toolCallIndex }
 
 func (t ToolInvocation) ToolCall() chat.ToolCall { return t.toolCall }
 
+// Reference correlates this attempt with its requesting Interaction's results.
+// A ToolSet invoked as a root has no requesting Interaction and returns false;
+// its physical invocation attribution remains available through this value.
+func (t ToolInvocation) Reference() (ToolCallRef, bool) {
+	parent, child := t.relation.ParentID()
+	if !t.Valid() || !child {
+		return ToolCallRef{}, false
+	}
+	return ToolCallRef{processID: parent, modelCallSequence: t.modelCallSequence, toolCallIndex: t.toolCallIndex}, true
+}
+
 func (t ToolInvocation) Valid() bool {
 	return t.relation.Valid() && t.deploymentRef.Valid() &&
 		t.effectID.Valid() && t.stepSequence > 0 &&
@@ -139,6 +151,25 @@ func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
 	}
 	invocation, present := ctx.Value(toolInvocationContextKey).(ToolInvocation)
 	return invocation, present && invocation.Valid()
+}
+
+// ToolInvocationFromRequest decodes the exact attribution retained by a Tool
+// EffectRequest, including requests recovered from TreeSnapshot.EffectRequest.
+// Retained requests have no physical AttemptID until dispatched again. This
+// operation performs no Tool call and does not resolve an unknown Effect.
+func ToolInvocationFromRequest(request agent.EffectRequest) (ToolInvocation, error) {
+	if !request.Valid() {
+		return ToolInvocation{}, fmt.Errorf("%w: invalid Tool request", ErrInvalidProtocol)
+	}
+	envelope, err := decodeEffect(request.Effect().Payload())
+	if err != nil {
+		return ToolInvocation{}, err
+	}
+	if envelope.Operation != operationToolCall {
+		return ToolInvocation{}, fmt.Errorf("%w: Tool attribution requires a tool_call", ErrInvalidProtocol)
+	}
+	call := envelope.ToolCall.Invocation
+	return toolInvocationFromRequest(request, call.ModelCallSequence, call.ToolCallIndex, call.Call), nil
 }
 
 func modelInvocationFromRequest(

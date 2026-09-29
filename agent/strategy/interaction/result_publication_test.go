@@ -44,9 +44,16 @@ func TestCancellationPreservesDefiniteResults(t *testing.T) {
 				var knownOnce sync.Once
 				var modelCalls atomic.Int32
 				var executed [3]atomic.Int32
+				var invocationReferences sync.Map
 				var executables []tool.Tool
 				for index, name := range []string{"a", "b", "c"} {
 					executable := &callbackTool{name: name, call: func(ctx context.Context, _ string) (string, error) {
+						invocation, present := interaction.ToolInvocationFromContext(ctx)
+						reference, attributed := invocation.Reference()
+						if !present || !attributed || reference.ToolCallIndex() != uint32(index) {
+							return "", errors.New("missing logical Tool attribution")
+						}
+						invocationReferences.Store(uint32(index), reference)
 						executed[index].Add(1)
 						if index == 1 {
 							invocation, ok := interaction.ToolInvocationFromContext(ctx)
@@ -71,6 +78,16 @@ func TestCancellationPreservesDefiniteResults(t *testing.T) {
 				store.after = func(_ agent.TreeSnapshot, publications []interaction.RoundResults) error {
 					for _, publication := range publications {
 						entries := publication.Entries()
+						for _, entry := range entries {
+							reference, present := publication.Reference(entry.ToolCallIndex)
+							invocation, executed := invocationReferences.Load(entry.ToolCallIndex)
+							if !present || !executed || reference != invocation {
+								return errors.New("sparse or complete result changed the logical call reference")
+							}
+						}
+						if reference, present := publication.Reference(publication.CallCount()); present || reference.Valid() {
+							return errors.New("result reference admitted an index beyond the round")
+						}
 						if parallel && len(entries) == 2 && entries[0].ToolCallIndex == 0 && entries[1].ToolCallIndex == 2 {
 							if publication.Complete() {
 								return errors.New("sparse publication claimed completion")
@@ -280,8 +297,8 @@ func TestPublicationConflictAndStaleWriterAreRejected(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	current := store.tree()
-	writer := old.IncarnationID()
-	if err := store.commit(old, old.Digest(), writer, "stale"); !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+	staleEngine := publicationEngine(t, deployment, store)
+	if _, err := staleEngine.RestoreTree(t.Context(), deployment.Deployment, old); !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Fatalf("stale error=%v", err)
 	}
 	if store.tree().Digest() != current.Digest() {

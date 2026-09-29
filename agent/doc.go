@@ -36,6 +36,11 @@
 // Checkpoints and Effects share an incarnation-scoped commit sequence, allocated
 // by the Engine and atomically retained with the stored head. Equal snapshot
 // content can recur; it never identifies a commit or permits historical replay.
+// [EffectBoundary], [TreeCheckpoint], and [TreeActivation] derive the canonical
+// commit Identity and ContentDigest used by both memory and persistent stores.
+// A Host stores these Scope facts alongside its own business write set, within
+// the same atomic head comparison. The [TreeCommitter] example also binds the
+// real storage call to a Host deadline and shutdown signal.
 //
 // Start commits the initial head and writer identity before publishing the
 // Process. Every [TreeSnapshot] carries that identity. RestoreTree validates the

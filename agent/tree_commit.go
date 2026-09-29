@@ -2,8 +2,13 @@ package agent
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
+	"strconv"
 )
+
+const treeCommitIdentityPrefix = "commit:"
 
 var (
 	ErrCommitConflict          = errors.New("agent: committer boundary conflicts with committed content")
@@ -85,6 +90,57 @@ func (e EffectBoundary) Settlement() (Settlement, bool) {
 func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDigest }
 
 func (e EffectBoundary) TreeSnapshot() TreeSnapshot { return e.treeSnapshot }
+
+// Identity is the opaque storage key for this root, Effect, and boundary kind.
+// It survives writer activation; attempts, incarnation, and sequence do not
+// create a second permission or settlement for the same logical Effect stage.
+// Invalid boundaries have an empty identity. Persist the returned key verbatim.
+func (e EffectBoundary) Identity() string {
+	if !e.Valid() {
+		return ""
+	}
+	return deriveIdentity(treeCommitIdentityPrefix, "effect-boundary",
+		e.treeSnapshot.RootID().String(), e.request.ID().String(), e.kind.String()).String()
+}
+
+// ContentDigest covers the complete Scope boundary, including its predecessor,
+// sequence, request coordinates, settlement, and prospective recovery cut. It
+// excludes physical dispatch attempts and Host-owned business write sets.
+// Equal identity and content do not authorize historical replay: the store must
+// still atomically check the current writer, head, and sequence.
+func (e EffectBoundary) ContentDigest() (Digest, error) {
+	if !e.Valid() {
+		return Digest{}, errors.New("agent: invalid Effect boundary")
+	}
+	content := struct {
+		Sequence      uint64
+		Kind          EffectBoundaryKind
+		ProcessID     ProcessID
+		DeploymentRef DeploymentRef
+		Relation      processRelationWire
+		StepSequence  uint64
+		BatchIndex    uint32
+		EffectID      EffectID
+		Effect        Effect
+		Settlement    *Settlement
+		Previous      Digest
+		Snapshot      Digest
+	}{
+		Sequence: e.sequence, Kind: e.kind, ProcessID: e.request.ProcessID(),
+		DeploymentRef: e.request.DeploymentRef(), Relation: e.request.Relation().wire(),
+		StepSequence: e.request.StepSequence(), BatchIndex: e.request.BatchIndex(),
+		EffectID: e.request.ID(), Effect: e.request.Effect(),
+		Previous: e.previousTreeDigest, Snapshot: e.treeSnapshot.Digest(),
+	}
+	if settlement, present := e.Settlement(); present {
+		content.Settlement = &settlement
+	}
+	encoded, err := jsonv2.Marshal(content, jsonv2.Deterministic(true))
+	if err != nil {
+		return Digest{}, fmt.Errorf("agent: encode Effect boundary content: %w", err)
+	}
+	return ComputeDigest(encoded), nil
+}
 
 func (e EffectBoundary) Valid() bool {
 	if e.sequence == 0 || !e.kind.Valid() || !e.request.Valid() || !e.previousTreeDigest.Valid() ||
@@ -212,6 +268,37 @@ func (t TreeCheckpoint) PreviousTreeDigest() Digest { return t.previousTreeDiges
 
 func (t TreeCheckpoint) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
+// Identity is the opaque storage key for this root, writer, and sequence.
+// Repeated snapshot content cannot identify a checkpoint because execution may
+// return to an earlier recovery cut. Invalid checkpoints have an empty identity.
+// Persist the returned key verbatim.
+func (t TreeCheckpoint) Identity() string {
+	if !t.Valid() {
+		return ""
+	}
+	return deriveIdentity(treeCommitIdentityPrefix, "tree-checkpoint",
+		t.treeSnapshot.RootID().String(), t.treeSnapshot.IncarnationID().String(),
+		strconv.FormatUint(t.sequence, 10)).String()
+}
+
+// ContentDigest covers the Scope checkpoint kind, predecessor, and prospective
+// recovery cut. The sequence belongs to Identity. Hosts retain their business
+// write-set digest separately and check both within the same transaction.
+func (t TreeCheckpoint) ContentDigest() (Digest, error) {
+	if !t.Valid() {
+		return Digest{}, errors.New("agent: invalid tree checkpoint")
+	}
+	encoded, err := jsonv2.Marshal(struct {
+		Kind     TreeCheckpointKind
+		Previous string
+		Snapshot Digest
+	}{t.kind, t.previousTreeDigest.String(), t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
+	if err != nil {
+		return Digest{}, fmt.Errorf("agent: encode tree checkpoint content: %w", err)
+	}
+	return ComputeDigest(encoded), nil
+}
+
 func (t TreeCheckpoint) Valid() bool {
 	if t.sequence == 0 || !t.kind.Valid() || !t.treeSnapshot.Valid() {
 		return false
@@ -291,6 +378,34 @@ func (t TreeActivation) IncarnationID() TreeIncarnationID { return t.incarnation
 
 func (t TreeActivation) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
+// Identity is the opaque storage key for this root and proposed writer.
+// Invalid activations have an empty identity. Persist the returned key verbatim.
+func (t TreeActivation) Identity() string {
+	if !t.Valid() {
+		return ""
+	}
+	return deriveIdentity(treeCommitIdentityPrefix, "tree-activation",
+		t.treeSnapshot.RootID().String(), t.incarnationID.String()).String()
+}
+
+// ContentDigest includes both the expected previous writer and head as well as
+// the proposed snapshot. Changing a precondition under a retained identity is a
+// content conflict even when the proposed writer and snapshot are unchanged.
+func (t TreeActivation) ContentDigest() (Digest, error) {
+	if !t.Valid() {
+		return Digest{}, errors.New("agent: invalid tree activation")
+	}
+	encoded, err := jsonv2.Marshal(struct {
+		PreviousIncarnationID TreeIncarnationID
+		PreviousTreeDigest    Digest
+		Snapshot              Digest
+	}{t.previousIncarnationID, t.previousTreeDigest, t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
+	if err != nil {
+		return Digest{}, fmt.Errorf("agent: encode tree activation content: %w", err)
+	}
+	return ComputeDigest(encoded), nil
+}
+
 func (t TreeActivation) Valid() bool {
 	if !t.previousIncarnationID.Valid() || !t.previousTreeDigest.Valid() ||
 		!t.incarnationID.Valid() || t.previousIncarnationID == t.incarnationID ||
@@ -334,6 +449,10 @@ func (t TreeActivation) Valid() bool {
 // Activation replaces writer and head and resets the sequence atomically before
 // restoration can publish a Process. Initialization acknowledgment is separate
 // because failed root initialization has no execution tree to persist.
+//
+// EffectBoundary, TreeCheckpoint, and TreeActivation own Identity and
+// ContentDigest. All implementations must use those canonical projections for
+// Scope facts; they do not replace storage CAS or a Host business write set.
 type TreeCommitter interface {
 	// ActivateTree must fence the previous writer before restored work can run.
 	ActivateTree(ctx context.Context, activation TreeActivation) error

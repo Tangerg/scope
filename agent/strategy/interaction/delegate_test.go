@@ -291,6 +291,10 @@ func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot,
 		t.Fatalf("active Delegate children = %#v, found = %t, error = %v", activeChildren, found, err)
 	}
 	activeChild := activeChildren[0]
+	reference, attributed := activeChild.Reference()
+	if !attributed || reference.ProcessID() != rootSnapshot.ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
+		t.Fatalf("active Delegate reference=%v, present=%v", reference, attributed)
+	}
 	if !activeChild.Valid() || activeChild.ModelCallSequence() != 1 ||
 		activeChild.ToolCallIndex() != 0 || activeChild.ToolCall().ID != "call_paused" ||
 		activeChild.ChildKey().String() == "" || activeChild.ProcessID() != childID {

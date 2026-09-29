@@ -28,6 +28,17 @@ type RoundResults struct {
 func (r RoundResults) Relation() agent.ProcessRelation { return r.relation }
 func (r RoundResults) ModelCallSequence() uint64       { return r.sequence }
 func (r RoundResults) CallCount() uint32               { return r.callCount }
+
+// Reference uses the original model response index, not an entry's position in
+// this possibly sparse projection. A missing result does not invalidate a call's
+// reference; false means that index is outside the admitted round.
+func (r RoundResults) Reference(toolCallIndex uint32) (ToolCallRef, bool) {
+	if !r.relation.Valid() || r.sequence == 0 || toolCallIndex >= r.callCount {
+		return ToolCallRef{}, false
+	}
+	return ToolCallRef{processID: r.relation.ProcessID(), modelCallSequence: r.sequence, toolCallIndex: toolCallIndex}, true
+}
+
 func (r RoundResults) Complete() bool {
 	return uint64(len(r.entries)) == uint64(r.callCount) && r.callCount > 0
 }
@@ -89,8 +100,8 @@ type ResultEntry struct {
 //
 // Hosts that need a separate result history can derive it within each
 // TreeCommitter transaction, atomically with the proposed head and writer fence.
-// Overlapping cuts repeat facts: (ProcessID, ModelCallSequence, ToolCallIndex)
-// identifies one logical call. The host owns history storage, retention, and
+// Overlapping cuts repeat facts: RoundResults.Reference identifies one logical
+// call across projections and attempts. The host owns history storage, retention, and
 // delivery; reading or storing this projection never authorizes tool reexecution.
 func SettledResults(snapshot agent.TreeSnapshot) ([]RoundResults, error) {
 	if !snapshot.Valid() {
