@@ -58,3 +58,22 @@ func TestRemoteAgentErrorNilReceiver(t *testing.T) {
 		t.Fatalf("nil RemoteAgentError = %q", got)
 	}
 }
+
+func TestTextProjectionRendersDataDeterministically(t *testing.T) {
+	value := make(map[string]any)
+	want := "{"
+	for key := 'a'; key <= 'z'; key++ {
+		value[string(key)] = 1
+		if key != 'a' {
+			want += ","
+		}
+		want += `"` + string(key) + `":1`
+	}
+	want += "}"
+	parts := sdka2a.ContentParts{sdka2a.NewDataPart(value)}
+	for range 5 {
+		if got := (textProjection{}).parts(parts); got != want {
+			t.Fatalf("textProjection.parts(data) = %s, want %s", got, want)
+		}
+	}
+}

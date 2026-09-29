@@ -29,24 +29,23 @@ func (textProjection) parts(parts sdka2a.ContentParts) string {
 		case sdka2a.Text:
 			b.WriteString(string(content))
 		case sdka2a.Data:
-			if raw, err := jsonv2.Marshal(content.Value); err == nil {
+			// Decoded data holds Go maps; deterministic encoding keeps the
+			// rendered text stable across identical requests.
+			if raw, err := jsonv2.Marshal(content.Value, jsonv2.Deterministic(true)); err == nil {
 				b.Write(raw)
 			} else {
-
 				b.WriteString("[unrenderable data]")
 			}
 		case sdka2a.URL:
 			b.WriteString(string(content))
 		case sdka2a.Raw:
-			// Binary payloads have no faithful text form; note the size.
 			fmt.Fprintf(&b, "[binary content, %d bytes]", len(content))
 		}
 	}
 	return b.String()
 }
 
-// Non-completed tasks return RemoteAgentError. Successful tasks prefer
-// artifacts over their status message.
+// Successful tasks prefer artifacts over their status message.
 func (t textProjection) result(result sdka2a.SendMessageResult) (string, error) {
 	switch r := result.(type) {
 	case *sdka2a.Message:
