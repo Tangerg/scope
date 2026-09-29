@@ -55,6 +55,28 @@ type artifactRecord struct {
 	Output            agent.Payload `json:"output"`
 }
 
+func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) error {
+	delegate, found := definition.delegate(a.DelegateName)
+	if a.ModelCallSequence == 0 || a.ModelCallSequence > modelCallCount || a.ToolCallID == "" || !found || !a.Output.Valid() {
+		return errors.New("invalid identity or output")
+	}
+	if err := delegate.outputSchema.Validate(a.Output.JSON()); err != nil {
+		return fmt.Errorf("violates Delegate output contract: %w", err)
+	}
+	return nil
+}
+
+func (a artifactRecord) follows(previous artifactRecord) bool {
+	return a.ModelCallSequence > previous.ModelCallSequence ||
+		a.ModelCallSequence == previous.ModelCallSequence && a.ToolCallIndex > previous.ToolCallIndex
+}
+
+func (a artifactRecord) matchesSettled(call chat.ToolCall, result chat.ToolResult) bool {
+	return call.ID == a.ToolCallID && call.Name == a.DelegateName && !result.IsError &&
+		result.ID == call.ID && result.Name == call.Name &&
+		bytes.Equal(result.Output.Details, a.Output.JSON()) && len(result.Output.Content) == 0
+}
+
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -104,21 +126,7 @@ func (e executionState) validateEnvelope() error {
 func (e executionState) validatePhaseState(ctx context.Context, definition *Definition) error {
 	switch e.Phase {
 	case phaseAdvancingTools, phaseRoundComplete:
-		if e.FinalOutput != nil || e.ModelCallCount == 0 || e.ToolRound == nil || e.ToolRound.ChildBatch != nil {
-			return fmt.Errorf("%w: invalid round boundary", ErrInvalidExecutionState)
-		}
-		if e.Phase == phaseRoundComplete {
-			return e.ToolRound.validateComplete(ctx)
-		}
-		calls, err := validatedToolCalls(e.ToolRound.Response)
-		if err != nil || len(calls) == 0 {
-			return fmt.Errorf("%w: round requires calls", ErrInvalidExecutionState)
-		}
-		finish := e.ToolRound.Response.Output.FinishReason
-		if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
-			return ErrInvalidExecutionState
-		}
-		return e.ToolRound.validateResults(ctx, calls)
+		return e.validateRoundBoundary(ctx)
 	case phaseReadyModel:
 		return e.validateReadyModelState()
 	case phaseAwaitingModel:
@@ -129,6 +137,24 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 		return e.validateCompletedState()
 	}
 	return nil
+}
+
+func (e executionState) validateRoundBoundary(ctx context.Context) error {
+	if e.FinalOutput != nil || e.ModelCallCount == 0 || e.ToolRound == nil || e.ToolRound.ChildBatch != nil {
+		return fmt.Errorf("%w: invalid round boundary", ErrInvalidExecutionState)
+	}
+	if e.Phase == phaseRoundComplete {
+		return e.ToolRound.validateComplete(ctx)
+	}
+	calls, err := validatedToolCalls(e.ToolRound.Response)
+	if err != nil || len(calls) == 0 {
+		return fmt.Errorf("%w: round requires calls", ErrInvalidExecutionState)
+	}
+	finish := e.ToolRound.Response.Output.FinishReason
+	if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
+		return ErrInvalidExecutionState
+	}
+	return e.ToolRound.validateResults(ctx, calls)
 }
 
 func (e executionState) validateReadyModelState() error {
@@ -166,6 +192,16 @@ func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, 
 		return nil, err
 	}
 	return active, nil
+}
+
+func (e *executionState) replaceModelContext(messages []chat.Message) error {
+	effective := e.WorkingContext.Clone()
+	effective.Messages = cloneMessages(messages)
+	if err := effective.Validate(); err != nil {
+		return fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, err)
+	}
+	e.WorkingContext = effective
+	return nil
 }
 
 func (e *executionState) addSteer(batch steerBatch) error {
@@ -236,8 +272,6 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var previousModelCallSequence uint64
-	var previousToolCallIndex uint32
 	type artifactIdentity struct {
 		modelCallSequence uint64
 		toolCallID        string
@@ -247,36 +281,22 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		delegate, found := definition.delegate(artifact.DelegateName)
-		if artifact.ModelCallSequence == 0 || artifact.ModelCallSequence > e.ModelCallCount ||
-			artifact.ToolCallID == "" || !found || !artifact.Output.Valid() {
-			return fmt.Errorf("%w: artifact %d has invalid identity or output", ErrInvalidExecutionState, index)
+		if err := artifact.validate(definition, e.ModelCallCount); err != nil {
+			return fmt.Errorf("%w: artifact %d %w", ErrInvalidExecutionState, index, err)
 		}
-		if index > 0 && (artifact.ModelCallSequence < previousModelCallSequence ||
-			artifact.ModelCallSequence == previousModelCallSequence && artifact.ToolCallIndex <= previousToolCallIndex) {
+		if index > 0 && !artifact.follows(e.ArtifactRecords[index-1]) {
 			return fmt.Errorf("%w: artifacts are not in strict ToolCall order", ErrInvalidExecutionState)
 		}
-		identity := artifactIdentity{
-			modelCallSequence: artifact.ModelCallSequence,
-			toolCallID:        artifact.ToolCallID,
-		}
+		identity := artifactIdentity{modelCallSequence: artifact.ModelCallSequence, toolCallID: artifact.ToolCallID}
 		if _, duplicate := seen[identity]; duplicate {
 			return fmt.Errorf("%w: duplicate artifact ToolCall identity", ErrInvalidExecutionState)
 		}
 		seen[identity] = struct{}{}
-		if err := delegate.outputSchema.Validate(artifact.Output.JSON()); err != nil {
-			return fmt.Errorf("%w: artifact %d violates Delegate output contract: %w", ErrInvalidExecutionState, index, err)
-		}
-		previousModelCallSequence = artifact.ModelCallSequence
-		previousToolCallIndex = artifact.ToolCallIndex
 	}
-	return e.validateCurrentBatchArtifacts(ctx, definition)
+	return e.validateCurrentBatchArtifacts(ctx)
 }
 
-func (e executionState) validateCurrentBatchArtifacts(ctx context.Context, definition *Definition) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+func (e executionState) validateCurrentBatchArtifacts(ctx context.Context) error {
 	if e.ToolRound == nil || len(e.ArtifactRecords) == 0 ||
 		e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
 		return nil
@@ -296,17 +316,8 @@ func (e executionState) validateCurrentBatchArtifacts(ctx context.Context, defin
 			uint64(artifact.ToolCallIndex) >= uint64(len(e.ToolRound.Results)) {
 			return fmt.Errorf("%w: current-round artifact is not settled", ErrInvalidExecutionState)
 		}
-		call := calls[artifact.ToolCallIndex]
-		if call.ID != artifact.ToolCallID || call.Name != artifact.DelegateName {
-			return fmt.Errorf("%w: current-round artifact does not match ToolCall", ErrInvalidExecutionState)
-		}
-		if _, found := definition.delegate(call.Name); !found {
-			return fmt.Errorf("%w: current-round artifact is not a Delegate output", ErrInvalidExecutionState)
-		}
-		result := e.ToolRound.Results[artifact.ToolCallIndex].Result
-		if result.IsError || result.ID != call.ID || result.Name != call.Name ||
-			!bytes.Equal(result.Output.Details, artifact.Output.JSON()) || len(result.Output.Content) != 0 {
-			return fmt.Errorf("%w: current-round artifact does not match settled result", ErrInvalidExecutionState)
+		if !artifact.matchesSettled(calls[artifact.ToolCallIndex], e.ToolRound.Results[artifact.ToolCallIndex].Result) {
+			return fmt.Errorf("%w: current-round artifact does not match its settled ToolCall result", ErrInvalidExecutionState)
 		}
 	}
 	return ctx.Err()

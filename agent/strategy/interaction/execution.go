@@ -31,30 +31,9 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	}
 	switch e.state.Phase {
 	case phaseReadyModel:
-		steer, consumedSignals, err := collectSteerSignals(signals)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		if addSteerErr := e.state.addSteer(steer); addSteerErr != nil {
-			return agent.Transition{}, addSteerErr
-		}
-		appliedSteerSignalIDs, err := e.state.applyPendingSteer()
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return e.requestModel(consumedSignals, appliedSteerSignalIDs)
+		return e.startModelCall(signals)
 	case phaseAdvancingTools, phaseRoundComplete:
-		steer, consumed, err := collectSteerSignals(signals)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		if steerErr := e.state.addSteer(steer); steerErr != nil {
-			return agent.Transition{}, steerErr
-		}
-		if e.state.Phase == phaseRoundComplete {
-			return e.finishToolCallBatch(ctx, consumed, e.state.ToolRound.Response.Output.Message)
-		}
-		return e.advanceToolCallBatch(ctx, consumed)
+		return e.continueToolRound(ctx, signals)
 	case phaseAwaitingModel:
 		return e.acceptModel(ctx, signals)
 	case phaseAwaitingChildStarts:
@@ -68,6 +47,40 @@ func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	default:
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
+}
+
+func (e *execution) startModelCall(signals []agent.Signal) (agent.Transition, error) {
+	consumed, err := e.acceptSteer(signals)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return e.requestModel(consumed, appliedSteerSignalIDs)
+}
+
+func (e *execution) continueToolRound(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	consumed, err := e.acceptSteer(signals)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if e.state.Phase == phaseRoundComplete {
+		return e.finishToolCallBatch(ctx, consumed, e.state.ToolRound.Response.Output.Message)
+	}
+	return e.advanceToolCallBatch(ctx, consumed)
+}
+
+func (e *execution) acceptSteer(signals []agent.Signal) (uint32, error) {
+	steer, consumed, err := collectSteerSignals(signals)
+	if err != nil {
+		return 0, err
+	}
+	if err := e.state.addSteer(steer); err != nil {
+		return 0, err
+	}
+	return consumed, nil
 }
 
 func (e *execution) Snapshot() (agent.ExecutionState, error) {
@@ -113,7 +126,7 @@ func (e *execution) requestModel(
 }
 
 func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	envelope, steer, consumedSignals, err := collectExpectedSignal(signals, operationModelCall)
+	envelope, steer, consumedSignals, err := collectModelResult(signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -134,21 +147,14 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		)
 	}
 	if replacement := envelope.ModelResult.ReplacementMessages; replacement != nil {
-		effective := e.state.WorkingContext.Clone()
-		effective.Messages = cloneMessages(replacement)
-		if effectiveErr := effective.Validate(); effectiveErr != nil {
-			return agent.Transition{}, fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, effectiveErr)
+		if replaceErr := e.state.replaceModelContext(replacement); replaceErr != nil {
+			return agent.Transition{}, replaceErr
 		}
-		e.state.WorkingContext = effective
 	}
 	response := envelope.ModelResult.Response.Clone()
 	calls, err := validatedToolCalls(response)
 	if err != nil {
-		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, agent.NormalizeDiagnostic(err.Error()))
-		if failureErr != nil {
-			return agent.Transition{}, failureErr
-		}
-		return agent.Transition{}, &agent.StepError{Failure: failure, Cause: err}
+		return agent.Transition{}, invalidModelResponse(err.Error(), err)
 	}
 	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
 		response.Output.FinishReason != chat.FinishReasonLength {
@@ -177,11 +183,7 @@ func (e *execution) acceptFinalModelResponse(
 ) (agent.Transition, error) {
 	modelOutput := response.Output
 	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
-		failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, "model response has no finished assistant message")
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return agent.Transition{}, &agent.StepError{Failure: failure}
+		return agent.Transition{}, invalidModelResponse("model response has no finished assistant message", nil)
 	}
 	if e.state.PendingSteer == nil {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
@@ -199,6 +201,16 @@ func (e *execution) acceptFinalModelResponse(
 	}
 	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
+}
+
+// invalidModelResponse rejects the whole Step, so the response never enters
+// Interaction state.
+func invalidModelResponse(diagnostic string, cause error) error {
+	failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, agent.NormalizeDiagnostic(diagnostic))
+	if err != nil {
+		return err
+	}
+	return &agent.StepError{Failure: failure, Cause: cause}
 }
 
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
@@ -361,10 +373,7 @@ func collectSteerSignals(signals []agent.Signal) (steerBatch, uint32, error) {
 	return batch, uint32(len(signals)), nil
 }
 
-func collectExpectedSignal(
-	signals []agent.Signal,
-	expected operation,
-) (signalEnvelope, steerBatch, uint32, error) {
+func collectModelResult(signals []agent.Signal) (signalEnvelope, steerBatch, uint32, error) {
 	var result signalEnvelope
 	var found bool
 	var steer steerBatch
@@ -378,28 +387,33 @@ func collectExpectedSignal(
 			if err := steer.appendSignal(signal, envelope.Steer.Messages); err != nil {
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 			}
-		case expected:
-			if !signal.EngineOwned() {
-				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q Signal requires Engine authority", ErrInvalidExecutionState, expected)
-			}
-			if found {
-				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, expected)
-			}
-			_, addressed := signal.WaitID()
-			requiresAddress := expected == operationWaitOpened || expected == operationInputResponse
-			if addressed != requiresAddress {
-				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q Signal has invalid wait addressing", ErrInvalidExecutionState, expected)
+		case operationModelCall:
+			if err := acceptModelResultSignal(signal, found); err != nil {
+				return signalEnvelope{}, steerBatch{}, 0, err
 			}
 			found = true
 			result = envelope
 		default:
-			return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.Operation, expected)
+			return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.Operation, operationModelCall)
 		}
 	}
 	if !found {
-		return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, expected)
+		return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, operationModelCall)
 	}
 	return result, steer, uint32(len(signals)), nil
+}
+
+func acceptModelResultSignal(signal agent.Signal, duplicate bool) error {
+	if !signal.EngineOwned() {
+		return fmt.Errorf("%w: %q Signal requires Engine authority", ErrInvalidExecutionState, operationModelCall)
+	}
+	if duplicate {
+		return fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, operationModelCall)
+	}
+	if _, addressed := signal.WaitID(); addressed {
+		return fmt.Errorf("%w: %q Signal has invalid wait addressing", ErrInvalidExecutionState, operationModelCall)
+	}
+	return nil
 }
 
 func (e *execution) fail(
@@ -529,45 +543,21 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	for _, outcome := range completed.Outcomes() {
-		result := outcome.Result()
-		if batch.Kind == childCallsDelegate {
-			if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
-				return e.fail(consumed, agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved))
-			}
-		} else if result.Status() != agent.StatusCompleted {
-			termination := result.Termination()
-			if failure, failed := termination.Failure(); failed {
-				return agent.Fail(consumed, failure)
-			}
-			diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
-			return e.fail(consumed, agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, diagnostic)
-		}
+	failure, failed, err := batch.Kind.terminalFailure(completed.Outcomes())
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if failed {
+		return agent.Fail(consumed, failure)
 	}
 	for offset, outcome := range completed.Outcomes() {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
 		index := indices[offset]
-		result := outcome.Result()
-		if batch.Kind == childCallsDelegate {
-			if err := e.acceptDelegateOutcome(index, calls[index], result); err != nil {
-				return agent.Transition{}, err
-			}
-			continue
-		}
-		encoded, present := result.Output()
-		if !present {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		decoded, err := encoded.Decode[toolCallResult]()
-		if err != nil {
+		if err := e.acceptChildOutcome(batch.Kind, index, calls[index], outcome.Result()); err != nil {
 			return agent.Transition{}, err
 		}
-		if err := decoded.validateCall(calls[index]); err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-		}
-		batch.Invocations[index].Result = &decoded
 	}
 	batch.WaitID = nil
 	if batch.Kind == childCallsTool {
@@ -577,6 +567,25 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		return agent.Transition{}, err
 	}
 	return e.advanceToolCallBatch(ctx, consumed)
+}
+
+func (e *execution) acceptChildOutcome(kind childCallKind, index int, call chat.ToolCall, result agent.Result) error {
+	if kind == childCallsDelegate {
+		return e.acceptDelegateOutcome(index, call, result)
+	}
+	encoded, present := result.Output()
+	if !present {
+		return ErrInvalidExecutionState
+	}
+	decoded, err := encoded.Decode[toolCallResult]()
+	if err != nil {
+		return err
+	}
+	if err := decoded.validateCall(call); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
+	e.state.ToolRound.ChildBatch.Invocations[index].Result = &decoded
+	return nil
 }
 
 func (e *execution) finishChildBatch() error {

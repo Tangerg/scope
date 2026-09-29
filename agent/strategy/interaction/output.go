@@ -32,7 +32,7 @@ func (c CompletionSource) String() string {
 	return string(c)
 }
 
-// Output is the final semantic Interaction result. Response is accumulated
+// Output is the final semantic Interaction result. ModelResponse is accumulated
 // independently of best-effort stream Delta delivery, so it remains complete
 // after observer loss or snapshot restoration.
 type Output struct {
@@ -57,41 +57,47 @@ func (o Output) Validate() error {
 	if o.ModelCalls == 0 {
 		return fmt.Errorf("%w: output model_calls must be positive", ErrInvalidResult)
 	}
-	switch o.Source {
-	case CompletionSourceModelResponse:
-		if o.ModelResponse == nil || len(o.DirectToolResults) != 0 {
-			return fmt.Errorf("%w: model_response output requires only ModelResponse", ErrInvalidResult)
+	if o.Source == CompletionSourceModelResponse {
+		return o.validateModelResponse()
+	}
+	return o.validateDirectToolResults()
+}
+
+func (o Output) validateModelResponse() error {
+	if o.ModelResponse == nil || len(o.DirectToolResults) != 0 {
+		return fmt.Errorf("%w: model_response output requires only ModelResponse", ErrInvalidResult)
+	}
+	if err := o.ModelResponse.Validate(); err != nil {
+		return fmt.Errorf("%w: output model response: %w", ErrInvalidResult, err)
+	}
+	modelOutput := o.ModelResponse.Output
+	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
+		return fmt.Errorf("%w: output has no finished assistant response", ErrInvalidResult)
+	}
+	for _, part := range modelOutput.Message.Parts {
+		if part.ToolCall != nil {
+			return fmt.Errorf("%w: final model response contains a pending tool call", ErrInvalidResult)
 		}
-		if err := o.ModelResponse.Validate(); err != nil {
-			return fmt.Errorf("%w: output model response: %w", ErrInvalidResult, err)
+	}
+	return nil
+}
+
+func (o Output) validateDirectToolResults() error {
+	if o.ModelResponse != nil || len(o.DirectToolResults) == 0 {
+		return fmt.Errorf("%w: direct_tool_results output requires only DirectToolResults", ErrInvalidResult)
+	}
+	seen := make(map[string]struct{}, len(o.DirectToolResults))
+	for index, result := range o.DirectToolResults {
+		if err := result.Validate(); err != nil {
+			return fmt.Errorf("%w: direct tool result %d: %w", ErrInvalidResult, index, err)
 		}
-		modelOutput := o.ModelResponse.Output
-		if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
-			return fmt.Errorf("%w: output has no finished assistant response", ErrInvalidResult)
+		if result.IsError {
+			return fmt.Errorf("%w: direct tool result %d failed", ErrInvalidResult, index)
 		}
-		for _, part := range modelOutput.Message.Parts {
-			if part.ToolCall != nil {
-				return fmt.Errorf("%w: final model response contains a pending tool call", ErrInvalidResult)
-			}
+		if _, duplicate := seen[result.ID]; duplicate {
+			return fmt.Errorf("%w: duplicate direct tool result ID %q", ErrInvalidResult, result.ID)
 		}
-	case CompletionSourceDirectToolResults:
-		if o.ModelResponse != nil || len(o.DirectToolResults) == 0 {
-			return fmt.Errorf("%w: direct_tool_results output requires only DirectToolResults", ErrInvalidResult)
-		}
-		seen := make(map[string]struct{}, len(o.DirectToolResults))
-		for index := range o.DirectToolResults {
-			result := o.DirectToolResults[index]
-			if err := result.Validate(); err != nil {
-				return fmt.Errorf("%w: direct tool result %d: %w", ErrInvalidResult, index, err)
-			}
-			if result.IsError {
-				return fmt.Errorf("%w: direct tool result %d failed", ErrInvalidResult, index)
-			}
-			if _, duplicate := seen[result.ID]; duplicate {
-				return fmt.Errorf("%w: duplicate direct tool result ID %q", ErrInvalidResult, result.ID)
-			}
-			seen[result.ID] = struct{}{}
-		}
+		seen[result.ID] = struct{}{}
 	}
 	return nil
 }

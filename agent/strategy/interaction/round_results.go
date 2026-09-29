@@ -108,20 +108,10 @@ func SettledResults(snapshot agent.TreeSnapshot) ([]RoundResults, error) {
 		return nil, fmt.Errorf("%w: invalid tree", ErrInvalidResult)
 	}
 	processes := snapshot.ProcessSnapshots()
-	children := make(map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot)
-	for _, process := range processes {
-		if parent, child := process.Relation().ParentID(); child {
-			key, _ := process.Relation().ChildKey()
-			if children[parent] == nil {
-				children[parent] = make(map[agent.ChildKey]agent.ProcessSnapshot)
-			}
-			children[parent][key] = process
-		}
-	}
+	children := newChildIndex(processes)
 	var rounds []RoundResults
 	for index := len(processes) - 1; index >= 0; index-- {
-		process := processes[index]
-		round, err := settledProcessResults(process, children)
+		round, err := children.settledProcessResults(processes[index])
 		if err != nil {
 			return nil, err
 		}
@@ -133,61 +123,31 @@ func SettledResults(snapshot agent.TreeSnapshot) ([]RoundResults, error) {
 	return rounds, nil
 }
 
-func settledProcessResults(process agent.ProcessSnapshot, children map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot) (RoundResults, error) {
+func pendingRound(process agent.ProcessSnapshot) (*executionState, []chat.ToolCall, error) {
 	if process.CommittedExecutionState().Kind() != executionStateKind {
-		return RoundResults{}, nil
+		return nil, nil, nil
 	}
 	state, err := process.CommittedExecutionState().Decode[executionState](executionStateKind)
 	if err != nil {
-		return RoundResults{}, err
+		return nil, nil, err
 	}
 	if envelopeErr := state.validateEnvelope(); envelopeErr != nil {
-		return RoundResults{}, envelopeErr
+		return nil, nil, envelopeErr
 	}
 	if state.ToolRound == nil {
-		return RoundResults{}, nil
+		return nil, nil, nil
 	}
 	calls, err := validatedToolCalls(state.ToolRound.Response)
 	if err != nil {
-		return RoundResults{}, err
+		return nil, nil, err
 	}
 	if state.ModelCallCount == 0 || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
-		return RoundResults{}, ErrInvalidExecutionState
+		return nil, nil, ErrInvalidExecutionState
 	}
 	if validationErr := state.ToolRound.validateResults(context.Background(), calls); validationErr != nil {
-		return RoundResults{}, validationErr
+		return nil, nil, validationErr
 	}
-	round := RoundResults{relation: process.Relation(), sequence: state.ModelCallCount, callCount: uint32(len(calls))}
-	for index, call := range calls {
-		result := state.ToolRound.knownResult(index)
-		if result == nil {
-			result, err = settledChildResult(process, children, state.ModelCallCount, uint32(index), call)
-			if err != nil {
-				return RoundResults{}, err
-			}
-		}
-		if result == nil {
-			continue
-		}
-		if validationErr := result.validateCall(call); validationErr != nil {
-			return RoundResults{}, validationErr
-		}
-		disposition := ResultSucceeded
-		if result.Rejected {
-			disposition = ResultRejected
-		} else if result.Result.IsError {
-			disposition = ResultFailed
-		}
-		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.Result.Clone(), Disposition: disposition})
-	}
-	if len(round.entries) == 0 {
-		return RoundResults{}, nil
-	}
-
-	if err := round.seal(); err != nil {
-		return RoundResults{}, err
-	}
-	return round, nil
+	return &state, calls, nil
 }
 
 func (r *RoundResults) seal() error {
@@ -215,23 +175,70 @@ type roundResultsWire struct {
 	Entries           []ResultEntry    `json:"entries"`
 }
 
-func settledChildResult(process agent.ProcessSnapshot, children map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
+type childIndex map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot
+
+func newChildIndex(processes []agent.ProcessSnapshot) childIndex {
+	children := make(childIndex)
+	for _, process := range processes {
+		if parent, child := process.Relation().ParentID(); child {
+			key, _ := process.Relation().ChildKey()
+			if children[parent] == nil {
+				children[parent] = make(map[agent.ChildKey]agent.ProcessSnapshot)
+			}
+			children[parent][key] = process
+		}
+	}
+	return children
+}
+
+func (c childIndex) settledProcessResults(process agent.ProcessSnapshot) (RoundResults, error) {
+	state, calls, err := pendingRound(process)
+	if err != nil || state == nil {
+		return RoundResults{}, err
+	}
+	round := RoundResults{relation: process.Relation(), sequence: state.ModelCallCount, callCount: uint32(len(calls))}
+	for index, call := range calls {
+		result := state.ToolRound.knownResult(index)
+		if result == nil {
+			result, err = c.settledChildResult(process, state.ModelCallCount, uint32(index), call)
+			if err != nil {
+				return RoundResults{}, err
+			}
+		}
+		if result == nil {
+			continue
+		}
+		if validationErr := result.validateCall(call); validationErr != nil {
+			return RoundResults{}, validationErr
+		}
+		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.Result.Clone(), Disposition: result.disposition()})
+	}
+	if len(round.entries) == 0 {
+		return RoundResults{}, nil
+	}
+	if err := round.seal(); err != nil {
+		return RoundResults{}, err
+	}
+	return round, nil
+}
+
+func (c childIndex) settledChildResult(process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
 	toolKey, err := ToolChildKey(sequence, call)
 	if err != nil {
 		return nil, err
 	}
-	if child, found := children[process.ProcessID()][toolKey]; found {
+	if child, found := c[process.ProcessID()][toolKey]; found {
 		return settledToolResult(child, sequence, index, call)
 	}
 	delegateKey, err := DelegateChildKey(sequence, call)
 	if err != nil {
 		return nil, err
 	}
-	child, found := children[process.ProcessID()][delegateKey]
+	child, found := c[process.ProcessID()][delegateKey]
 	if !found {
 		return rejectedDelegateStart(process, delegateKey, call), nil
 	}
-	if !subtreeSettled(child, children) {
+	if !c.subtreeSettled(child) {
 		return nil, nil
 	}
 	outcome, _ := child.Result()
@@ -240,6 +247,18 @@ func settledChildResult(process agent.ProcessSnapshot, children map[agent.Proces
 		return nil, err
 	}
 	return &toolCallResult{Result: converted}, nil
+}
+
+func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {
+	if !process.Status().Terminal() || len(process.UnknownEffectIDs()) != 0 {
+		return false
+	}
+	for _, child := range c[process.ProcessID()] {
+		if !c.subtreeSettled(child) {
+			return false
+		}
+	}
+	return true
 }
 
 func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
@@ -297,16 +316,4 @@ func rejectedDelegateStart(process agent.ProcessSnapshot, key agent.ChildKey, ca
 		}
 	}
 	return nil
-}
-
-func subtreeSettled(process agent.ProcessSnapshot, children map[agent.ProcessID]map[agent.ChildKey]agent.ProcessSnapshot) bool {
-	if !process.Status().Terminal() || len(process.UnknownEffectIDs()) != 0 {
-		return false
-	}
-	for _, child := range children[process.ProcessID()] {
-		if !subtreeSettled(child, children) {
-			return false
-		}
-	}
-	return true
 }

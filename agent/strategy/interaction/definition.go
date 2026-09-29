@@ -76,36 +76,62 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		len(config.ToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {
 		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidDefinitionConfig)
 	}
+	descriptor, err := newDescriptor(config.Name, config.Description)
+	if err != nil {
+		return nil, err
+	}
+	delegates := slices.Clone(config.Delegates)
+	names, err := indexDelegates(delegates, config.Tools.manifest)
+	if err != nil {
+		return nil, err
+	}
+	return &Definition{
+		descriptor:             descriptor,
+		maxModelCalls:          config.MaxModelCalls,
+		delegates:              delegates,
+		delegatesByName:        names,
+		completionValidator:    config.CompletionValidator,
+		tools:                  config.Tools.manifest,
+		toolBudget:             config.ToolBudget,
+		toolCapabilities:       config.ToolCapabilities,
+		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
+	}, nil
+}
+
+func newDescriptor(name, description string) (agent.Descriptor, error) {
 	inputSchema, err := agent.SchemaFor[Input]()
 	if err != nil {
-		return nil, fmt.Errorf("%w: input schema: %w", ErrInvalidDefinitionConfig, err)
+		return agent.Descriptor{}, fmt.Errorf("%w: input schema: %w", ErrInvalidDefinitionConfig, err)
 	}
 	outputSchema, err := agent.SchemaFor[Output]()
 	if err != nil {
-		return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
+		return agent.Descriptor{}, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
 	}
 	signalSchema, err := agent.SchemaFor[steerSignal]()
 	if err != nil {
-		return nil, fmt.Errorf("%w: signal schema: %w", ErrInvalidDefinitionConfig, err)
+		return agent.Descriptor{}, fmt.Errorf("%w: signal schema: %w", ErrInvalidDefinitionConfig, err)
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name:         config.Name,
-		Description:  config.Description,
+		Name:         name,
+		Description:  description,
 		InputSchema:  inputSchema,
 		OutputSchema: outputSchema,
 		SignalSchema: signalSchema,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
+		return agent.Descriptor{}, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
-	delegates := slices.Clone(config.Delegates)
+	return descriptor, nil
+}
+
+func indexDelegates(delegates []Delegate, tools toolManifest) (map[string]int, error) {
 	names := make(map[string]int, len(delegates))
 	for index, delegate := range delegates {
 		if !delegate.Valid() {
 			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidDelegate)
 		}
 		name := delegate.definition.Name
-		if _, duplicate := config.Tools.manifest.entries[name]; duplicate {
+		if _, duplicate := tools.entries[name]; duplicate {
 			return nil, fmt.Errorf("%w: Delegate name %q collides with a Tool", ErrInvalidDefinitionConfig, name)
 		}
 		if _, duplicate := names[name]; duplicate {
@@ -113,15 +139,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		}
 		names[name] = index
 	}
-	return &Definition{
-		descriptor: descriptor, maxModelCalls: config.MaxModelCalls,
-		delegates:           delegates,
-		delegatesByName:     names,
-		completionValidator: config.CompletionValidator,
-		tools:               config.Tools.manifest, toolBudget: config.ToolBudget,
-		toolCapabilities:       config.ToolCapabilities,
-		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
-	}, nil
+	return names, nil
 }
 
 func (d *Definition) Descriptor() agent.Descriptor {
@@ -161,7 +179,6 @@ func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (a
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}

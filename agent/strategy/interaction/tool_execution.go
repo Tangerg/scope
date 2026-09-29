@@ -42,24 +42,27 @@ func (t toolExecutionState) validate() error {
 			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 	}
-
-	valid := false
-	switch t.Phase {
-	case toolReady:
-		valid = t.Checkpoint == nil && t.WaitID == nil && t.Result == nil
-	case toolAwaitingResult:
-		valid = t.WaitID == nil && t.Result == nil
-	case toolAwaitingWaitOpen:
-		valid = t.Checkpoint != nil && t.WaitID == nil && t.Result == nil
-	case toolWaitingInput:
-		valid = t.Checkpoint != nil && t.WaitID != nil && t.WaitID.Valid() && t.Result == nil
-	case toolCompleted:
-		valid = t.Checkpoint == nil && t.WaitID == nil && t.Result != nil
-	}
-	if !valid {
+	if !t.continuationMatchesPhase() {
 		return fmt.Errorf("%w: Tool phase disagrees with its continuation", ErrInvalidExecutionState)
 	}
 	return nil
+}
+
+func (t toolExecutionState) continuationMatchesPhase() bool {
+	if (t.Result != nil) != (t.Phase == toolCompleted) || (t.WaitID != nil) != (t.Phase == toolWaitingInput) ||
+		t.WaitID != nil && !t.WaitID.Valid() {
+		return false
+	}
+	switch t.Phase {
+	case toolReady, toolCompleted:
+		return t.Checkpoint == nil
+	case toolAwaitingWaitOpen, toolWaitingInput:
+		return t.Checkpoint != nil
+	case toolAwaitingResult:
+		return true
+	default:
+		return false
+	}
 }
 
 type toolDefinition struct{ descriptor agent.Descriptor }
@@ -100,7 +103,6 @@ func (t *toolDefinition) Restore(ctx context.Context, state agent.ExecutionState
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
 	decoded, err := decodeToolState(state)
 	if err != nil {
 		return nil, err
@@ -156,34 +158,38 @@ func (t *toolExecution) step(ctx context.Context, signals []agent.Signal) (agent
 	}
 	switch t.state.Phase {
 	case toolAwaitingResult:
-		_, addressed := signal.WaitID()
-		if !signal.EngineOwned() || addressed || envelope.Operation != operationToolCall {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		return t.acceptResult(*envelope.ToolResult)
+		return t.acceptResult(signal, envelope)
 	case toolAwaitingWaitOpen:
-		if !signal.EngineOwned() || envelope.Operation != operationWaitOpened {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		waitID, addressed := signal.WaitID()
-		if !addressed || !t.state.Checkpoint.InputRequest.equal(*envelope.WaitOpened) {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		t.state.WaitID = &waitID
-		t.state.Phase = toolWaitingInput
-		return agent.Wait(1, waitID)
+		return t.acceptWaitOpened(signal, envelope)
 	case toolWaitingInput:
-		waitID, addressed := signal.WaitID()
-		if envelope.Operation != operationInputResponse || !addressed || waitID != *t.state.WaitID {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		return t.request(1, toolDispatchRequest{
-			Invocation: t.state.Call,
-			Resume:     &toolResume{Checkpoint: *t.state.Checkpoint, InputResponse: envelope.InputResponse},
-		})
+		return t.acceptInputResponse(signal, envelope)
 	default:
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
+}
+
+func (t *toolExecution) acceptWaitOpened(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
+	if !signal.EngineOwned() || envelope.Operation != operationWaitOpened {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	waitID, addressed := signal.WaitID()
+	if !addressed || !t.state.Checkpoint.InputRequest.equal(*envelope.WaitOpened) {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	t.state.WaitID = &waitID
+	t.state.Phase = toolWaitingInput
+	return agent.Wait(1, waitID)
+}
+
+func (t *toolExecution) acceptInputResponse(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
+	waitID, addressed := signal.WaitID()
+	if envelope.Operation != operationInputResponse || !addressed || waitID != *t.state.WaitID {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	return t.request(1, toolDispatchRequest{
+		Invocation: t.state.Call,
+		Resume:     &toolResume{Checkpoint: *t.state.Checkpoint, InputResponse: envelope.InputResponse},
+	})
 }
 
 func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agent.Transition, error) {
@@ -204,30 +210,13 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 	return agent.Continue(consumed, effect)
 }
 
-func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transition, error) {
-	if checkpoint := outcome.Checkpoint; checkpoint != nil {
-		previous := uint64(0)
-		if t.state.Checkpoint != nil {
-			previous = t.state.Checkpoint.PauseCount
-		}
-		if previous == ^uint64(0) || checkpoint.PauseCount != previous+1 {
-			return agent.Transition{}, ErrInvalidExecutionState
-		}
-		payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewWaitEffect(key, payload)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		t.state.Checkpoint = checkpoint
-		t.state.Phase = toolAwaitingWaitOpen
-		return agent.Continue(1, effect)
+func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
+	if _, addressed := signal.WaitID(); !signal.EngineOwned() || addressed || envelope.Operation != operationToolCall {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	outcome := envelope.ToolResult
+	if outcome.Checkpoint != nil {
+		return t.openInputWait(*outcome.Checkpoint)
 	}
 	result := outcome.Completion
 	if err := result.validateCall(t.state.Call.Call); err != nil {
@@ -242,6 +231,31 @@ func (t *toolExecution) acceptResult(outcome toolDispatchResult) (agent.Transiti
 	t.state.Result = result
 	t.state.Phase = toolCompleted
 	return agent.Complete(1, output)
+}
+
+func (t *toolExecution) openInputWait(checkpoint toolCheckpoint) (agent.Transition, error) {
+	previous := uint64(0)
+	if t.state.Checkpoint != nil {
+		previous = t.state.Checkpoint.PauseCount
+	}
+	if previous == ^uint64(0) || checkpoint.PauseCount != previous+1 {
+		return agent.Transition{}, ErrInvalidExecutionState
+	}
+	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(key, payload)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	t.state.Checkpoint = &checkpoint
+	t.state.Phase = toolAwaitingWaitOpen
+	return agent.Continue(1, effect)
 }
 
 var _ agent.Definition = (*toolDefinition)(nil)

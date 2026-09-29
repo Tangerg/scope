@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -57,6 +58,14 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
 	}
 	return outcome.settlement(request.ID())
+}
+
+func protocolFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
 }
 
 func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {

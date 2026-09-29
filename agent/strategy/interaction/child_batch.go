@@ -16,6 +16,35 @@ const (
 	childCallsDelegate childCallKind = "delegate"
 )
 
+// terminalFailure applies the kind's policy to drained outcomes: an ordinary
+// Tool child is required infrastructure, so any unsuccessful end fails the
+// parent, while a Delegate's own failure is model-visible and only unresolved
+// Effects in its drained subtree fail the parent.
+func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Failure, bool, error) {
+	for _, outcome := range outcomes {
+		result := outcome.Result()
+		if c == childCallsDelegate {
+			if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
+				diagnostic := fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved)
+				failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, agent.NormalizeDiagnostic(diagnostic))
+				return failure, true, err
+			}
+			continue
+		}
+		if result.Status() == agent.StatusCompleted {
+			continue
+		}
+		termination := result.Termination()
+		if failure, failed := termination.Failure(); failed {
+			return failure, true, nil
+		}
+		diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
+		failure, err := agent.NewFailure(agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, agent.NormalizeDiagnostic(diagnostic))
+		return failure, true, err
+	}
+	return agent.Failure{}, false, nil
+}
+
 type childInvocationState struct {
 	ChildKey  *agent.ChildKey  `json:"child_key,omitzero"`
 	ProcessID *agent.ProcessID `json:"process_id,omitzero"`
@@ -35,6 +64,10 @@ func (c childInvocationState) validate(kind childCallKind, key agent.ChildKey, c
 	if c.Result == nil {
 		return nil
 	}
+	return c.validateResult(kind, call)
+}
+
+func (c childInvocationState) validateResult(kind childCallKind, call chat.ToolCall) error {
 	if err := c.Result.validateCall(call); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
@@ -50,6 +83,10 @@ func (c childInvocationState) validate(kind childCallKind, key agent.ChildKey, c
 	return nil
 }
 
+func (c childInvocationState) empty() bool {
+	return c.ChildKey == nil && c.ProcessID == nil && c.Result == nil
+}
+
 // One batch owns child admission, the active wait, and ordered settlements.
 // Kind selects binding and scheduling policy without creating another protocol.
 type childCallBatch struct {
@@ -60,6 +97,29 @@ type childCallBatch struct {
 }
 
 func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelSequence uint64) error {
+	if err := c.validateShape(calls); err != nil {
+		return err
+	}
+	if err := c.validateWait(current); err != nil {
+		return err
+	}
+	pending, active, err := c.unsettledCounts(ctx, calls, modelSequence)
+	if err != nil {
+		return err
+	}
+	if current == phaseAwaitingChildStarts {
+		if pending == 0 || c.Kind == childCallsDelegate && active != 0 {
+			return fmt.Errorf("%w: child starts disagree with the active batch", ErrInvalidExecutionState)
+		}
+		return nil
+	}
+	if pending != 0 || active == 0 {
+		return fmt.Errorf("%w: child wait disagrees with the active batch", ErrInvalidExecutionState)
+	}
+	return nil
+}
+
+func (c childCallBatch) validateShape(calls []chat.ToolCall) error {
 	if c.Kind != childCallsTool && c.Kind != childCallsDelegate || len(calls) == 0 ||
 		len(c.Invocations) != len(calls) || c.NextStartIndex == 0 || uint64(c.NextStartIndex) > uint64(len(calls)) {
 		return fmt.Errorf("%w: invalid child call batch", ErrInvalidExecutionState)
@@ -67,51 +127,50 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 	if c.Kind == childCallsDelegate && int(c.NextStartIndex) != len(calls) {
 		return fmt.Errorf("%w: Delegate batch has unplanned calls", ErrInvalidExecutionState)
 	}
-	if current == phaseWaitingChildren {
-		if c.WaitID == nil || !c.WaitID.Valid() {
-			return fmt.Errorf("%w: waiting children require an Engine WaitID", ErrInvalidExecutionState)
+	return nil
+}
+
+func (c childCallBatch) validateWait(current phase) error {
+	if current != phaseWaitingChildren {
+		if c.WaitID != nil {
+			return fmt.Errorf("%w: child start or wait opening already has a WaitID", ErrInvalidExecutionState)
 		}
-	} else if c.WaitID != nil {
-		return fmt.Errorf("%w: child start or wait opening already has a WaitID", ErrInvalidExecutionState)
+	} else if c.WaitID == nil || !c.WaitID.Valid() {
+		return fmt.Errorf("%w: waiting children require an Engine WaitID", ErrInvalidExecutionState)
 	}
-	pending, active := 0, 0
 	if err := c.protocolBatch(nil).Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
+	return nil
+}
+
+func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCall, modelSequence uint64) (pending, active int, err error) {
 	for index, invocation := range c.Invocations {
 		if err := ctx.Err(); err != nil {
-			return err
+			return 0, 0, err
 		}
 		if index >= int(c.NextStartIndex) {
-			if invocation.ChildKey != nil || invocation.ProcessID != nil || invocation.Result != nil {
-				return fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
+			if !invocation.empty() {
+				return 0, 0, fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
 			}
 			continue
 		}
 		key, err := c.childKey(modelSequence, calls[index])
 		if err != nil {
-			return fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
+			return 0, 0, fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
 		}
 		if err := invocation.validate(c.Kind, key, calls[index]); err != nil {
-			return err
+			return 0, 0, err
 		}
-		if invocation.Result != nil {
-			continue
-		}
-		if invocation.ProcessID == nil {
+		switch {
+		case invocation.Result != nil:
+		case invocation.ProcessID == nil:
 			pending++
-		} else {
+		default:
 			active++
 		}
 	}
-	if current == phaseAwaitingChildStarts {
-		if pending == 0 || c.Kind == childCallsDelegate && active != 0 {
-			return fmt.Errorf("%w: child starts disagree with the active batch", ErrInvalidExecutionState)
-		}
-	} else if pending != 0 || active == 0 {
-		return fmt.Errorf("%w: child wait disagrees with the active batch", ErrInvalidExecutionState)
-	}
-	return nil
+	return pending, active, nil
 }
 
 func (c childCallBatch) childKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
@@ -130,15 +189,17 @@ func (c childCallBatch) validateBindings(ctx context.Context, definition *Defini
 		if delegated != (c.Kind == childCallsDelegate) {
 			return fmt.Errorf("%w: child batch mixes Tool and Delegate ownership", ErrInvalidExecutionState)
 		}
-		if c.Kind == childCallsTool {
-			if _, found := definition.tools.entries[call.Name]; !found {
-				return fmt.Errorf("%w: child batch references an unavailable Tool", ErrInvalidExecutionState)
-			}
+		if _, found := definition.tools.entries[call.Name]; !delegated && !found {
+			return fmt.Errorf("%w: child batch references an unavailable Tool", ErrInvalidExecutionState)
 		}
 	}
 	if c.Kind == childCallsDelegate {
 		return nil
 	}
+	return c.validateToolWindow(ctx, definition, calls)
+}
+
+func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
 	end, err := definition.tools.concurrentBatchEnd(ctx, calls)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)

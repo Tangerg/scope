@@ -100,7 +100,7 @@ func TestModelResultRequiresEngineAuthority(t *testing.T) {
 		if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		_, _, _, err = collectExpectedSignal([]agent.Signal{signal}, operationModelCall)
+		_, _, _, err = collectModelResult([]agent.Signal{signal})
 		if id == "signal:external" && !errors.Is(err, ErrInvalidExecutionState) || id != "signal:external" && err != nil {
 			t.Fatalf("source %s: %v", id, err)
 		}

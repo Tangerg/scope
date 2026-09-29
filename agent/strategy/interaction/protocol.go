@@ -88,6 +88,36 @@ type modelCallResult struct {
 	HostError           string         `json:"host_error,omitempty"`
 }
 
+func (m modelCallResult) validate() error {
+	modes := 0
+	for _, present := range []bool{m.Response != nil, m.Error != "", m.HostError != ""} {
+		if present {
+			modes++
+		}
+	}
+	if modes != 1 {
+		return fmt.Errorf("%w: model_result requires exactly one response, provider error, or host error", ErrInvalidProtocol)
+	}
+	if m.Response == nil {
+		if m.ReplacementMessages != nil {
+			return fmt.Errorf("%w: failed model_result cannot carry replacement messages", ErrInvalidProtocol)
+		}
+		return nil
+	}
+	if err := m.Response.Validate(); err != nil {
+		return fmt.Errorf("%w: model_result response: %w", ErrInvalidProtocol, err)
+	}
+	if m.ReplacementMessages != nil && len(m.ReplacementMessages) == 0 {
+		return fmt.Errorf("%w: replacement messages must not be empty", ErrInvalidProtocol)
+	}
+	for index := range m.ReplacementMessages {
+		if err := m.ReplacementMessages[index].Validate(); err != nil {
+			return fmt.Errorf("%w: model_result replacement message %d: %w", ErrInvalidProtocol, index, err)
+		}
+	}
+	return nil
+}
+
 func (m modelCallResult) settlement(id agent.EffectID, maxBytes int) (agent.Settlement, error) {
 	signal := signalEnvelope{Operation: operationModelCall, ModelResult: &m}
 	if err := signal.validateModelResult(); err != nil {
@@ -238,36 +268,7 @@ func (s signalEnvelope) validateModelResult() error {
 	if s.ModelResult == nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
 		return fmt.Errorf("%w: model_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
-	result := s.ModelResult
-	modes := 0
-	if result.Response != nil {
-		modes++
-	}
-	if result.Error != "" {
-		modes++
-	}
-	if result.HostError != "" {
-		modes++
-	}
-	if modes != 1 {
-		return fmt.Errorf("%w: model_result requires exactly one response, provider error, or host error", ErrInvalidProtocol)
-	}
-	if result.Response != nil {
-		if err := result.Response.Validate(); err != nil {
-			return fmt.Errorf("%w: model_result response: %w", ErrInvalidProtocol, err)
-		}
-		if result.ReplacementMessages != nil && len(result.ReplacementMessages) == 0 {
-			return fmt.Errorf("%w: replacement messages must not be empty", ErrInvalidProtocol)
-		}
-		for index := range result.ReplacementMessages {
-			if err := result.ReplacementMessages[index].Validate(); err != nil {
-				return fmt.Errorf("%w: model_result replacement message %d: %w", ErrInvalidProtocol, index, err)
-			}
-		}
-	} else if result.ReplacementMessages != nil {
-		return fmt.Errorf("%w: failed model_result cannot carry replacement messages", ErrInvalidProtocol)
-	}
-	return nil
+	return s.ModelResult.validate()
 }
 
 func (s signalEnvelope) validateToolResult() error {
@@ -302,6 +303,17 @@ func (t toolCallResult) clone() toolCallResult {
 	t.Result = t.Result.Clone()
 	t.AdvertisedToolNames = slices.Clone(t.AdvertisedToolNames)
 	return t
+}
+
+func (t toolCallResult) disposition() ResultDisposition {
+	switch {
+	case t.Rejected:
+		return ResultRejected
+	case t.Result.IsError:
+		return ResultFailed
+	default:
+		return ResultSucceeded
+	}
 }
 
 func (t toolCallResult) validate() error {

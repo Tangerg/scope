@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"cmp"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -79,13 +80,10 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
 		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
 	}
-	limit := config.MaxResponseBytes
-	if limit < 0 || limit > agent.MaxPayloadBytes {
+	if config.MaxResponseBytes < 0 || config.MaxResponseBytes > agent.MaxPayloadBytes {
 		return nil, fmt.Errorf("%w: MaxResponseBytes must be between 0 and %d", ErrInvalidDispatcherConfig, agent.MaxPayloadBytes)
 	}
-	if limit == 0 {
-		limit = agent.MaxPayloadBytes
-	}
+	limit := cmp.Or(config.MaxResponseBytes, agent.MaxPayloadBytes)
 	dispatcher := &Dispatcher{
 		model: config.Model, streamer: config.Streamer, observer: config.Observer,
 		contextReducer:     config.ModelContextReducer,
@@ -357,11 +355,3 @@ func cloneDefinitions(definitions []chat.ToolDefinition) []chat.ToolDefinition {
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
-
-func protocolFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
-	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
-}
