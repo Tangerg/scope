@@ -28,6 +28,7 @@ type briefOutput struct {
 }
 
 const (
+	briefingTopic             = "agent frameworks in 2026"
 	briefingModelCallLimit    = 3
 	researchToolSource        = "research"
 	researchToolName          = "search"
@@ -46,8 +47,6 @@ func main() {
 }
 
 func run(ctx context.Context) (err error) {
-	model := &stubModel{}
-
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	server, err := buildMCPServer()
 	if err != nil {
@@ -63,10 +62,7 @@ func run(ctx context.Context) (err error) {
 		}
 	}()
 
-	mcpClient := sdkmcp.NewClient(
-		&sdkmcp.Implementation{Name: "scope-mcp-agent"},
-		nil,
-	)
+	mcpClient := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "scope-mcp-agent"}, nil)
 	clientSession, err := mcpClient.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		return fmt.Errorf("connect MCP client: %w", err)
@@ -77,32 +73,60 @@ func run(ctx context.Context) (err error) {
 		}
 	}()
 
-	topic := "agent frameworks in 2026"
-	promptResult, err := clientSession.GetPrompt(ctx, &sdkmcp.GetPromptParams{
+	systemPrompt, err := fetchSystemPrompt(ctx, clientSession, briefingTopic)
+	if err != nil {
+		return err
+	}
+	engine, deployment, err := newBriefingEngine(ctx, clientSession)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close agent engine: %w", closeErr))
+		}
+	}()
+
+	brief, err := runBriefing(ctx, engine, deployment, systemPrompt, briefingTopic)
+	if err != nil {
+		return err
+	}
+	fmt.Println("\n--- result ---")
+	fmt.Printf("topic:   %s\n", briefingTopic)
+	fmt.Printf("sources: %v\n", brief.Sources)
+	return nil
+}
+
+func fetchSystemPrompt(ctx context.Context, session *sdkmcp.ClientSession, topic string) (string, error) {
+	promptResult, err := session.GetPrompt(ctx, &sdkmcp.GetPromptParams{
 		Name: researchPromptName, Arguments: map[string]string{researchTopicArgument: topic},
 	})
 	if err != nil {
-		return fmt.Errorf("get MCP prompt %q: %w", researchPromptName, err)
+		return "", fmt.Errorf("get MCP prompt %q: %w", researchPromptName, err)
 	}
-	systemMessages, err := scopemcp.PromptMessagesToChat(promptResult.Messages)
+	messages, err := scopemcp.PromptMessagesToChat(promptResult.Messages)
 	if err != nil {
-		return fmt.Errorf("convert MCP prompt messages: %w", err)
+		return "", fmt.Errorf("convert MCP prompt messages: %w", err)
 	}
 	var systemPrompt strings.Builder
-	for index := range systemMessages {
-		systemPrompt.WriteString(systemMessages[index].Text())
+	for index := range messages {
+		systemPrompt.WriteString(messages[index].Text())
 	}
+	return systemPrompt.String(), nil
+}
+
+func newBriefingEngine(ctx context.Context, session *sdkmcp.ClientSession) (*agent.Engine, agent.Deployment, error) {
 	availableTools, err := scopemcp.DiscoverTools(
 		ctx,
-		[]scopemcp.ToolSource{{Name: researchToolSource, Session: clientSession}},
+		[]scopemcp.ToolSource{{Name: researchToolSource, Session: session}},
 		scopemcp.ToolDiscoveryConfig{RequestMeta: scopemcp.RequestMetaFromContext},
 	)
 	if err != nil {
-		return fmt.Errorf("discover MCP tools: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("discover MCP tools: %w", err)
 	}
-	chatClient, err := chatclient.New(model, chatclient.Config{})
+	chatClient, err := chatclient.New(&stubModel{}, chatclient.Config{})
 	if err != nil {
-		return fmt.Errorf("create chat client: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("create chat client: %w", err)
 	}
 	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
 		Name: "example.mcp_tools", Description: "Execute each requested Tool through its own child Process.", Tools: availableTools,
@@ -110,7 +134,7 @@ func run(ctx context.Context) (err error) {
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example.mcp_tools.configuration")),
 	})
 	if err != nil {
-		return err
+		return nil, agent.Deployment{}, fmt.Errorf("create MCP tool set: %w", err)
 	}
 	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 		Name:          "example.mcp_briefing",
@@ -119,13 +143,11 @@ func run(ctx context.Context) (err error) {
 		Tools:         toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 	})
 	if err != nil {
-		return fmt.Errorf("create interaction definition: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("create interaction definition: %w", err)
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Model: chatClient,
-	})
+	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: chatClient})
 	if err != nil {
-		return fmt.Errorf("create interaction dispatcher: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("create interaction dispatcher: %w", err)
 	}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
@@ -134,55 +156,57 @@ func run(ctx context.Context) (err error) {
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example-mcp-briefing-configuration")),
 	})
 	if err != nil {
-		return fmt.Errorf("create agent deployment: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("create agent deployment: %w", err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
+	engine, err := agent.NewEngine(agent.EngineConfig{
+		TreeCommitter:      agent.NewMemoryTreeCommitter(),
+		DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()},
+	})
 	if err != nil {
-		return fmt.Errorf("create agent engine: %w", err)
+		return nil, agent.Deployment{}, fmt.Errorf("create agent engine: %w", err)
 	}
-	defer func() {
-		if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("close agent engine: %w", closeErr))
-		}
-	}()
+	return engine, deployment, nil
+}
 
+func runBriefing(
+	ctx context.Context,
+	engine *agent.Engine,
+	deployment agent.Deployment,
+	systemPrompt, topic string,
+) (briefOutput, error) {
 	outputFormat, err := chat.NewOutputFormat(chat.OutputFormatJSON)
 	if err != nil {
-		return fmt.Errorf("create JSON output format: %w", err)
+		return briefOutput{}, fmt.Errorf("create JSON output format: %w", err)
 	}
 	prompt := fmt.Sprintf("Use %s to gather source URLs on %q.", researchQualifiedToolName, topic)
 	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
-		chat.NewSystemMessage(systemPrompt.String()),
+		chat.NewSystemMessage(systemPrompt),
 		chat.NewUserMessage(chat.NewTextPart(prompt)),
 	}, Options: chat.Options{OutputFormat: &outputFormat}})
 	if err != nil {
-		return fmt.Errorf("encode interaction input: %w", err)
+		return briefOutput{}, fmt.Errorf("encode interaction input: %w", err)
 	}
 	ctx = scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{requestMetaKey: "mcp-agent"})
 	result, err := engine.Run(ctx, deployment, input)
 	if err != nil {
-		return fmt.Errorf("run MCP briefing interaction: %w", err)
+		return briefOutput{}, fmt.Errorf("run MCP briefing interaction: %w", err)
 	}
 	encodedOutput, ok := result.Output()
 	if !ok {
-		return fmt.Errorf("MCP briefing produced no output with status %q", result.Status())
+		return briefOutput{}, fmt.Errorf("MCP briefing produced no output with status %q", result.Status())
 	}
 	output, err := encodedOutput.Decode[interaction.Output]()
 	if err != nil {
-		return fmt.Errorf("decode interaction output: %w", err)
+		return briefOutput{}, fmt.Errorf("decode interaction output: %w", err)
 	}
 	if output.ModelResponse == nil {
-		return fmt.Errorf("MCP briefing completed from source %q without a model response", output.Source)
+		return briefOutput{}, fmt.Errorf("MCP briefing completed from source %q without a model response", output.Source)
 	}
 	var brief briefOutput
 	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &brief); err != nil {
-		return fmt.Errorf("decode model response as brief: %w", err)
+		return briefOutput{}, fmt.Errorf("decode model response as brief: %w", err)
 	}
-
-	fmt.Println("\n--- result ---")
-	fmt.Printf("topic:   %s\n", topic)
-	fmt.Printf("sources: %v\n", brief.Sources)
-	return nil
+	return brief, nil
 }
 
 func buildMCPServer() (*sdkmcp.Server, error) {

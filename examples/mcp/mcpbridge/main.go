@@ -45,7 +45,6 @@ func run(ctx context.Context) (err error) {
 		return fmt.Errorf("register echo tool: %w", registerErr)
 	}
 
-	// In-memory transports keep this demonstration offline.
 	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {
@@ -82,13 +81,24 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("call MCP tool %q: %w", echoToolName, err)
 	}
+	text, err := echoText(result)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("[host] tool result: %s\n", text)
+	return nil
+}
+
+func echoText(result *sdkmcp.CallToolResult) (string, error) {
+	if result.IsError {
+		return "", fmt.Errorf("MCP tool %q reported a tool error: %v", echoToolName, result.Content)
+	}
 	if len(result.Content) != 1 {
-		return fmt.Errorf("MCP tool %q returned %d content items, want 1", echoToolName, len(result.Content))
+		return "", fmt.Errorf("MCP tool %q returned %d content items, want 1", echoToolName, len(result.Content))
 	}
 	text, ok := result.Content[0].(*sdkmcp.TextContent)
 	if !ok {
-		return fmt.Errorf("MCP tool %q returned content type %T, want text", echoToolName, result.Content[0])
+		return "", fmt.Errorf("MCP tool %q returned content type %T, want text", echoToolName, result.Content[0])
 	}
-	fmt.Printf("[host] tool result: %s\n", text.Text)
-	return nil
+	return text.Text, nil
 }
