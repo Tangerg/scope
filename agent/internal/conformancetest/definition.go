@@ -47,13 +47,33 @@ func Run(
 	}
 	finished := make(chan error, 1)
 	go func() { finished <- process.Join(t.Context()) }()
-	select {
-	case <-recorder.frameReady:
-	case joinErr := <-finished:
-		t.Fatalf("execution ended before exercising a protocol frame: %v", joinErr)
-	case <-t.Context().Done():
-		t.Fatal(t.Context().Err())
+	recorder.awaitFrame(t, finished)
+	assertUnsupportedSignalRejected(t, engine, process)
+	release()
+	if joinErr := <-finished; joinErr != nil {
+		t.Fatal(joinErr)
 	}
+	result, err := process.Await(t.Context())
+	if err != nil || result.Status() != agent.StatusCompleted {
+		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Status(), result.Termination(), err)
+	}
+	cases := recorder.recordedCases()
+	if len(cases) < 2 {
+		t.Fatal("conformance scenario must exercise a continuation boundary")
+	}
+	for _, sample := range cases {
+		CheckRestoreCancellation(t, definition, sample.State)
+	}
+	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+		Definition: definition, Input: input, RestoredCases: cases,
+	})
+	return result
+}
+
+// assertUnsupportedSignalRejected runs while the recorder holds a protocol
+// frame open, so the Signal reaches a live mailbox instead of a finished one.
+func assertUnsupportedSignalRejected(t *testing.T, engine *agent.Engine, process *agent.Process) {
+	t.Helper()
 	id, err := agent.ParseSignalID("signal:conformance-unsupported")
 	if err != nil {
 		t.Fatal(err)
@@ -78,27 +98,6 @@ func Run(
 			t.Fatal("rejected input was admitted")
 		}
 	}
-	release()
-	if joinErr := <-finished; joinErr != nil {
-		t.Fatal(joinErr)
-	}
-	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Status(), result.Termination(), err)
-	}
-	recorder.mu.Lock()
-	cases := slices.Clone(recorder.cases)
-	recorder.mu.Unlock()
-	if len(cases) < 2 {
-		t.Fatal("conformance scenario must exercise a continuation boundary")
-	}
-	for _, sample := range cases {
-		CheckRestoreCancellation(t, definition, sample.State)
-	}
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
-		Definition: definition, Input: input, RestoredCases: cases,
-	})
-	return result
 }
 
 type recordingDefinition struct {
@@ -128,6 +127,43 @@ func (r *recordingDefinition) Restore(ctx context.Context, state agent.Execution
 	return &recordingExecution{execution: execution, recorder: r}, nil
 }
 
+// holdFirstFrame parks the first Step that receives Signals until Run releases
+// it, giving Run a deterministic window in which the Process is still live.
+func (r *recordingDefinition) holdFirstFrame(ctx context.Context) {
+	r.frameOnce.Do(func() {
+		close(r.frameReady)
+		select {
+		case <-r.releaseFrame:
+		case <-ctx.Done():
+		}
+	})
+}
+
+func (r *recordingDefinition) awaitFrame(t *testing.T, finished <-chan error) {
+	t.Helper()
+	select {
+	case <-r.frameReady:
+	case joinErr := <-finished:
+		t.Fatalf("execution ended before exercising a protocol frame: %v", joinErr)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+}
+
+func (r *recordingDefinition) record(state agent.ExecutionState, signals []agent.Signal) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cases = append(r.cases, agenttest.ExecutionConformanceCase{
+		Name: fmt.Sprintf("step_%02d", len(r.cases)+1), State: state, Signals: slices.Clone(signals),
+	})
+}
+
+func (r *recordingDefinition) recordedCases() []agenttest.ExecutionConformanceCase {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.cases)
+}
+
 type recordingExecution struct {
 	execution agent.Execution
 	recorder  *recordingDefinition
@@ -139,13 +175,7 @@ func (r *recordingExecution) Snapshot() (agent.ExecutionState, error) {
 
 func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if len(signals) > 0 {
-		r.recorder.frameOnce.Do(func() {
-			close(r.recorder.frameReady)
-			select {
-			case <-r.recorder.releaseFrame:
-			case <-ctx.Done():
-			}
-		})
+		r.recorder.holdFirstFrame(ctx)
 	}
 	state, err := r.execution.Snapshot()
 	if err != nil {
@@ -155,11 +185,7 @@ func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	r.recorder.mu.Lock()
-	defer r.recorder.mu.Unlock()
-	r.recorder.cases = append(r.recorder.cases, agenttest.ExecutionConformanceCase{
-		Name: fmt.Sprintf("step_%02d", len(r.recorder.cases)+1), State: state, Signals: slices.Clone(signals),
-	})
+	r.recorder.record(state, signals)
 	return transition, nil
 }
 

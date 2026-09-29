@@ -12,29 +12,13 @@ import (
 // the Engine boundary and can be consumed without host adjudication.
 func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect agent.Effect) {
 	t.Helper()
-	schema, err := agent.SchemaFor[struct{}]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "conformance.dispatch", Description: "Exercise a rejected dispatcher protocol.", InputSchema: schema, OutputSchema: schema,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	recorder := &rejectionDispatcher{next: dispatcher, outcome: make(chan dispatchOutcome, 1)}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: rejectionDefinition{descriptor: descriptor, effect: effect}, Dispatcher: recorder,
-		ImplementationDigest: agent.ComputeDigest([]byte("dispatcher-rejection")), ConfigurationDigest: agent.ComputeDigest(effect.Payload()),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	deployment := newRejectionDeployment(t, recorder, effect)
 	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), rejectionTimeout)
 	defer cancel()
 	defer func() {
 		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -51,7 +35,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 	}
 	defer func() {
 		cancel()
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(t.Context()), rejectionTimeout)
 		defer cleanupCancel()
 		if joinErr := process.Join(cleanupCtx); joinErr != nil {
 			t.Error(joinErr)
@@ -63,7 +47,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if outcome.err != nil || !outcome.settlement.Valid() || outcome.settlement.Status() != agent.SettlementStatusFailed || outcome.settlement.EffectID() != outcome.id {
+	if !outcome.definiteFailure() {
 		t.Fatalf("local rejection settlement = %+v, error = %v; want definite failed settlement", outcome.settlement, outcome.err)
 	}
 	result, err := process.Await(ctx)
@@ -72,10 +56,42 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 	}
 }
 
+const (
+	rejectionStateKind = "conformance.dispatch"
+	rejectionTimeout   = 5 * time.Second
+)
+
+func newRejectionDeployment(t *testing.T, dispatcher agent.Dispatcher, effect agent.Effect) agent.Deployment {
+	t.Helper()
+	schema, err := agent.SchemaFor[struct{}]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+		Name: rejectionStateKind, Description: "Exercise a rejected dispatcher protocol.", InputSchema: schema, OutputSchema: schema,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+		Definition: rejectionDefinition{descriptor: descriptor, effect: effect}, Dispatcher: dispatcher,
+		ImplementationDigest: agent.ComputeDigest([]byte("dispatcher-rejection")), ConfigurationDigest: agent.ComputeDigest(effect.Payload()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deployment
+}
+
 type dispatchOutcome struct {
 	id         agent.EffectID
 	settlement agent.Settlement
 	err        error
+}
+
+func (d dispatchOutcome) definiteFailure() bool {
+	return d.err == nil && d.settlement.Valid() &&
+		d.settlement.Status() == agent.SettlementStatusFailed && d.settlement.EffectID() == d.id
 }
 
 type rejectionDispatcher struct {
@@ -105,7 +121,7 @@ func (r rejectionDefinition) Restore(ctx context.Context, state agent.ExecutionS
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sent, err := state.Decode[bool]("conformance.dispatch")
+	sent, err := state.Decode[bool](rejectionStateKind)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +134,7 @@ type rejectionExecution struct {
 }
 
 func (r *rejectionExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.EncodeExecutionState("conformance.dispatch", r.sent)
+	return agent.EncodeExecutionState(rejectionStateKind, r.sent)
 }
 func (r *rejectionExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if !r.sent {

@@ -17,51 +17,54 @@ func AssertNoProcessAuthority(t *testing.T, value reflect.Type) {
 	}
 }
 
+var processAuthorityTypes = map[reflect.Type]bool{
+	reflect.TypeFor[agent.Engine]():             true,
+	reflect.TypeFor[agent.Process]():            true,
+	reflect.TypeFor[agent.TreeCommitter]():      true,
+	reflect.TypeFor[agent.DeploymentResolver](): true,
+}
+
 func processAuthorityPath(value reflect.Type, seen map[reflect.Type]bool) string {
 	if seen[value] {
 		return ""
 	}
 	seen[value] = true
-	switch value {
-	case reflect.TypeFor[agent.Engine](), reflect.TypeFor[agent.Process](),
-		reflect.TypeFor[agent.TreeCommitter](), reflect.TypeFor[agent.DeploymentResolver]():
+	if processAuthorityTypes[value] {
 		return value.String()
 	}
-	visit := func(name string, child reflect.Type) string {
-		if path := processAuthorityPath(child, seen); path != "" {
-			return name + "." + path
+	for _, edge := range reachableTypes(value) {
+		if path := processAuthorityPath(edge.value, seen); path != "" {
+			return edge.name + "." + path
 		}
-		return ""
 	}
+	return ""
+}
+
+type typeEdge struct {
+	name  string
+	value reflect.Type
+}
+
+// reachableTypes includes the methods of the pointer type because a value
+// stored by a Strategy can still expose pointer-receiver capabilities.
+func reachableTypes(value reflect.Type) []typeEdge {
+	var edges []typeEdge
 	switch value.Kind() {
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Chan:
-		if path := visit("element", value.Elem()); path != "" {
-			return path
-		}
+		edges = append(edges, typeEdge{"element", value.Elem()})
 	case reflect.Map:
-		if path := visit("key", value.Key()); path != "" {
-			return path
-		}
-		if path := visit("value", value.Elem()); path != "" {
-			return path
-		}
+		edges = append(edges, typeEdge{"key", value.Key()}, typeEdge{"value", value.Elem()})
 	case reflect.Struct:
 		for index := range value.NumField() {
 			field := value.Field(index)
-			if path := visit(field.Name, field.Type); path != "" {
-				return path
-			}
+			edges = append(edges, typeEdge{field.Name, field.Type})
 		}
 	case reflect.Func:
 		for index := range value.NumIn() {
-			if path := visit("parameter", value.In(index)); path != "" {
-				return path
-			}
+			edges = append(edges, typeEdge{"parameter", value.In(index)})
 		}
 		for index := range value.NumOut() {
-			if path := visit("result", value.Out(index)); path != "" {
-				return path
-			}
+			edges = append(edges, typeEdge{"result", value.Out(index)})
 		}
 	}
 	methods := value
@@ -70,9 +73,7 @@ func processAuthorityPath(value reflect.Type, seen map[reflect.Type]bool) string
 	}
 	for index := range methods.NumMethod() {
 		method := methods.Method(index)
-		if path := visit(method.Name, method.Type); path != "" {
-			return path
-		}
+		edges = append(edges, typeEdge{method.Name, method.Type})
 	}
-	return ""
+	return edges
 }
