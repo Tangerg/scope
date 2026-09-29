@@ -378,14 +378,17 @@ done
 release_status=$(git status --porcelain)
 [[ -z "$release_status" ]] || fail "release staging left uncommitted changes"
 
-git push "$release_remote" "$release_branch"
+# CI starts on the branch update and resolves the pinned requirements of the
+# pushed commits, so the branch and every new tag must become visible together.
+release_push_refs=("refs/heads/$release_branch:refs/heads/$release_branch")
 while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
   release_tag=$(tag_for "$release_module_path")
-  release_remote_object=$(remote_tag_object "$release_tag")
-  if [[ -n "$release_remote_object" ]]; then
-    continue
-  fi
-  git push "$release_remote" "refs/tags/$release_tag:refs/tags/$release_tag"
+  [[ -n "$(remote_tag_object "$release_tag")" ]] ||
+    release_push_refs+=("refs/tags/$release_tag:refs/tags/$release_tag")
+done <"$release_plan"
+git push --atomic "$release_remote" "${release_push_refs[@]}"
+while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
+  release_tag=$(tag_for "$release_module_path")
   release_published=$(git ls-remote --tags "$release_remote" "refs/tags/$release_tag^{}" | awk 'NR == 1 { print $1 }')
   [[ "$release_published" == "$(git rev-list -n 1 "$release_tag")" ]] ||
     fail "remote verification failed for $release_tag"

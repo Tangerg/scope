@@ -44,6 +44,7 @@ func TestReleaseEntryDerivesModulesAndKeepsTagsImmutable(t *testing.T) {
 		"git tag -a",
 		"mod download -json",
 		"refs/tags/$release_tag:refs/tags/$release_tag",
+		"push --atomic",
 	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("scripts/release.sh no longer contains required release boundary %q", required)
@@ -112,6 +113,11 @@ func TestReleasePublishesNotesFromVerifiedModuleTags(t *testing.T) {
 			}
 			if mode != "new" && (strings.Contains(calls, "git push") || strings.Contains(calls, "repository-gates") || strings.Contains(calls, "git diff --name-only")) {
 				t.Fatalf("published tags must resume from their own source without staging or pushing:\n%s", calls)
+			}
+			const atomicPush = "git push --atomic origin refs/heads/main:refs/heads/main " +
+				"refs/tags/core/v0.0.2:refs/tags/core/v0.0.2 refs/tags/consumer/v0.0.2:refs/tags/consumer/v0.0.2\n"
+			if mode == "new" && (strings.Count(calls, "git push") != 1 || !strings.Contains(calls, atomicPush)) {
+				t.Fatalf("the branch and its new tags must be published in one atomic push:\n%s", calls)
 			}
 			publishedAt := strings.Index(calls, "gh release "+action)
 			for _, module := range []string{"core", "consumer"} {
@@ -233,10 +239,12 @@ case "$*" in
   'rev-parse '*) object_for "$2" ;;
   'rev-list -n 1 '*) commit_for "$4" ;;
   'tag -a '*) touch "$SCRIPT_ROOT/tag-${3%%/*}" ;;
-  'push origin main') ;;
-  'push origin refs/tags/'*)
-    tag=${3#refs/tags/}
-    touch "$SCRIPT_ROOT/remote-${tag%%/*}"
+  'push --atomic origin refs/heads/main:refs/heads/main'*)
+    shift 4
+    for ref in "$@"; do
+      tag=${ref#refs/tags/}
+      touch "$SCRIPT_ROOT/remote-${tag%%/*}"
+    done
     ;;
   'ls-remote --tags origin refs/tags/'*)
     tag=${4#refs/tags/}
