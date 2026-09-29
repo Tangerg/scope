@@ -2,15 +2,12 @@ package eval
 
 import "context"
 
-// Target executes an input and freezes the resulting candidate before grading.
-// It receives only the public input; references, hidden tests, and evaluation
-// policy belong to the assessment closure or a separate evaluation context.
-//
-// A non-nil error means no usable Execution was returned. Known target failure,
-// cancellation, or budget exhaustion is a valid Execution with a stop reason,
-// optionally retaining a candidate. Implementations must honor ctx and finish
-// collecting their execution evidence before returning. They must not expose
-// credentials, cleanup handles, or mutable workspaces as candidate artifacts.
+// Target executes the public input and freezes its candidate before grading;
+// references and hidden tests stay with the assessments. A non-nil error means
+// no usable Execution; known failure, cancellation, or budget exhaustion is an
+// Execution with a stop reason. Implementations honor ctx, finish collecting
+// evidence before returning, and never expose credentials, cleanup handles, or
+// mutable workspaces as candidates.
 type Target[I, O any] interface {
 	Run(ctx context.Context, input I) (Execution[O], error)
 }

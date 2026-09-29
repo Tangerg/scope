@@ -13,11 +13,9 @@ import (
 // MaxReportDepth bounds recursive detail trees at every public trust boundary.
 const MaxReportDepth = 64
 
-// Report is one evaluation result. Decision, normalized Score, and raw
-// Measurement are independent and optional so measurement-only and qualitative
-// evaluations do not need to invent a pass threshold or quality score. Details
-// contains owned supporting reports. Details are evidence, not additional
-// observations: experiment summaries count only explicit assessment results.
+// Report is one evaluation result. Decision, Score, and Measurement are
+// independent and optional, so no evaluation has to invent a threshold or a
+// score. Details are supporting evidence, never additional summary observations.
 type Report struct {
 	Metric      Metric       `json:"metric"`
 	Decision    *Decision    `json:"decision,omitzero"`

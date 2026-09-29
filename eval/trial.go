@@ -10,25 +10,22 @@ import (
 
 var ErrInvalidTrial = errors.New("eval: invalid trial")
 
-// TrialSample is the read-only input to an assessment after execution. Keeping
-// Execution separate from Case preserves fixture identity across generated
-// outputs and permits regrading without invoking the target again.
+// TrialSample keeps Execution apart from Case so generated outputs never change
+// fixture identity and can be regraded without invoking the target again.
 type TrialSample[I, O any] struct {
 	Case      Case[I]
 	Execution Execution[O]
 }
 
-// TrialConfig binds a target to the assessments of its frozen execution. Both
-// are required and may be shared only when their implementations support the
-// Host's concurrent calls; Trial introduces no additional execution scheduling.
+// TrialConfig requires both fields; share them only when they support the
+// Host's concurrent calls, because Trial adds no scheduling of its own.
 type TrialConfig[I, O any] struct {
 	Target Target[I, O]
 	Suite  *Suite[TrialSample[I, O]]
 }
 
-// Trial composes one execution with independent assessments. It does not own
-// dataset scheduling, retries, persistence, sandboxes, or an external harness.
-// Offline observations can be passed directly to Suite or Experiment.
+// Trial composes one execution with independent assessments. Dataset
+// scheduling, retries, persistence, and sandboxes belong to the Host.
 type Trial[I, O any] struct {
 	target Target[I, O]
 	suite  *Suite[TrialSample[I, O]]

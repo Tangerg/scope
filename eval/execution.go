@@ -24,11 +24,9 @@ const (
 	ExecutionFailed          ExecutionStatus = "failed"
 )
 
-// Execution is the target's receipt for one invocation. Output distinguishes a
-// present empty candidate from an unavailable candidate. The target freezes its
-// output before returning; referenced objects remain borrowed read-only, like
-// Case.Subject. A live workspace or mutable remote handle is not a frozen output.
-// The Host owns artifact storage, sandbox cleanup, and execution budgets.
+// Execution is the target's receipt for one invocation. A nil Output means no
+// candidate; a present empty candidate is not nil. Objects the output references
+// stay borrowed read-only, like Case.Subject.
 type Execution[O any] struct {
 	Status   ExecutionStatus `json:"status"`
 	Output   *O              `json:"output,omitzero"`

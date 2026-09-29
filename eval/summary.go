@@ -68,10 +68,9 @@ type AssessmentSummary struct {
 	NotEvaluated int
 }
 
-// ExperimentSummary counts complete and incomplete cases separately. Partial
-// counts cases with both successful and incomplete assessments; their valid
-// observations remain in Metrics. Errors counts incomplete cases, not task
-// quality failures. Assessment execution classifications remain in Assessments.
+// ExperimentSummary counts complete and incomplete cases separately. Errors
+// counts incomplete cases, not quality failures; Partial counts the incomplete
+// cases whose completed assessments still contribute to Metrics.
 type ExperimentSummary struct {
 	Total       int
 	Evaluated   int
@@ -84,9 +83,8 @@ type ExperimentSummary struct {
 	Metrics     []MetricSummary
 }
 
-// ExperimentReport owns ordered case facts and a summary derived only from
-// those facts. NewExperimentReport is also the import boundary for independently
-// generated observations; it never executes a target or an evaluator.
+// ExperimentReport owns ordered case facts and the summary derived from them.
+// NewExperimentReport also imports independently generated observations.
 type ExperimentReport struct {
 	fixtureID string
 	cases     []CaseResult

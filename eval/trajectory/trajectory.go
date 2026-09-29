@@ -379,14 +379,11 @@ func (t *Trajectory) canonicalize() error {
 	return nil
 }
 
-// BehaviorDigest identifies deterministic, semantic behavior while excluding
-// observation loss, signal arrival and commit-publication interleaving, transient scheduling status,
-// wall-clock time, attempt duration, response envelopes, and token usage.
-// The required projection selects the semantic root output; the generic
-// recorder never guesses which opaque output fields are business data.
-// Complete event history and declared semantic coverage are required.
-// Projected JSON object order and string escapes are normalized; number
-// spellings and precision are preserved.
+// BehaviorDigest identifies deterministic semantic behavior, excluding
+// observation loss, signal and publication interleaving, scheduling status,
+// timing, response envelopes, and token usage. It requires complete history,
+// declared coverage, and a projection selecting the semantic root output. The
+// projection's object order and string escapes are normalized; numbers are not.
 func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.RawMessage]) (string, error) {
 	if err := t.Validate(); err != nil {
 		return "", err

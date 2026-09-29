@@ -85,10 +85,9 @@ func (s Submission) AttemptID() string         { return s.attemptID }
 func (s Submission) RunID() string             { return s.runID }
 func (s Submission) Predictions() []Prediction { return slices.Clone(s.predictions) }
 
-// WritePredictions emits the official JSONL protocol, including a final newline
-// for each row. It validates and encodes the complete submission before writing
-// any bytes. An I/O failure can still leave partial output; the Host owns atomic
-// publication of its prediction file. Patch whitespace is never normalized.
+// WritePredictions encodes every row of the official JSONL before writing any
+// bytes and never normalizes patch whitespace. An I/O failure can still leave
+// partial output; the Host owns atomic publication.
 func (s Submission) WritePredictions(writer io.Writer) error {
 	if s.runID == "" || lo.IsNil(writer) {
 		return fmt.Errorf("%w: initialized submission and writer are required", ErrInvalidSubmission)
@@ -112,11 +111,9 @@ func (s Submission) WritePredictions(writer io.Writer) error {
 	return nil
 }
 
-// Arguments supplies the official Python module and selection flags. Pass the
-// returned values as separate process arguments, never shell-interpolated text.
-// datasetPath must name a locally frozen official dataset matching Selection;
-// predictionsPath must contain WritePredictions output. The Host owns all
-// execution settings represented by each Task digest and pins HarnessRevision.
+// Arguments returns the official harness module and selection flags as separate
+// process arguments, never shell text. datasetPath must name a frozen dataset
+// matching Selection and predictionsPath must hold WritePredictions output.
 func (s Submission) Arguments(datasetPath, predictionsPath string) ([]string, error) {
 	if s.runID == "" || !nonempty(datasetPath) || !nonempty(predictionsPath) {
 		return nil, fmt.Errorf("%w: initialized submission and dataset/prediction paths are required", ErrInvalidSubmission)
@@ -132,21 +129,15 @@ func (s Submission) Arguments(datasetPath, predictionsPath string) ([]string, er
 	return arguments, nil
 }
 
-// Collect imports a completed official run from a filesystem rooted at the
-// harness working directory. The filesystem must be a trusted, immutable
-// artifact snapshot. For disk access, the Host can use os.OpenRoot and Root.FS
-// to confine reads; os.DirFS alone does not prevent symlink escapes.
+// Collect imports a completed official run from a trusted, immutable snapshot
+// of the harness working directory. Confine disk reads with os.OpenRoot and
+// Root.FS; os.DirFS alone does not prevent symlink escapes.
 //
-// Collect requires the official results.json for this entire Selection, then
-// checks its IDs and counts against predictions and per-instance reports. If
-// cases ran separately, invoke official make_run_report once for the frozen
-// selection and all predictions before collecting; single-case summaries do
-// not describe the batch. No harness process exit code substitutes for reports.
-//
-// Missing or malformed case reports remain StatusError without a quality
-// report. A candidate mismatch, an unbound report, or an inconsistent summary
-// rejects the whole collection. Artifacts copied into a matching path are not
-// cryptographic proof that the declared harness or environment executed.
+// Collect requires one results.json covering the entire Selection; for cases
+// run separately, invoke the official make_run_report once over all of them.
+// Missing or malformed case reports remain StatusError without a grade, while
+// a candidate mismatch, an unbound report, or an inconsistent summary rejects
+// the collection. Matching artifacts do not prove what the harness executed.
 func (s Submission) Collect(artifacts fs.FS) (Collection, error) {
 	if s.runID == "" || lo.IsNil(artifacts) {
 		return Collection{}, fmt.Errorf("%w: initialized submission and artifact filesystem are required", ErrInvalidArtifacts)
