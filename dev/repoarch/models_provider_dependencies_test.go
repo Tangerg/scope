@@ -2,57 +2,33 @@ package repoarch
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"io/fs"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-const modelsImportPrefix = "github.com/Tangerg/scope/models/"
+const modelsImportPrefix = repositoryModulePrefix + "/models/"
 
 func TestProviderDependenciesAreOneWay(t *testing.T) {
 	t.Parallel()
 
-	root := modelsRoot(t)
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
-			return nil
-		}
-		relative, err := filepath.Rel(root, filename)
-		if err != nil {
-			return err
-		}
-		source, _, _ := strings.Cut(filepath.ToSlash(relative), "/")
-		file, err := parser.ParseFile(fset, filename, nil, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
+	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
+		source := firstPathSegment(path)
 		for _, imported := range file.Imports {
-			pathValue, err := strconv.Unquote(imported.Path.Value)
-			if err != nil || !strings.HasPrefix(pathValue, modelsImportPrefix) {
+			pathValue := importPathOf(t, path, imported)
+			if !strings.HasPrefix(pathValue, modelsImportPrefix) {
 				continue
 			}
 			target := strings.TrimPrefix(pathValue, modelsImportPrefix)
 			targetRoot, _, _ := strings.Cut(target, "/")
 			switch {
 			case source == "internal" && targetRoot != "internal" && targetRoot != "protocol":
-				t.Errorf("%s:%d internal implementation must not depend on public provider %q", filepath.ToSlash(relative), fset.Position(imported.Pos()).Line, targetRoot)
+				t.Errorf("%s:%d internal implementation must not depend on public provider %q", path, fset.Position(imported.Pos()).Line, targetRoot)
 			case source != "internal" && targetRoot != "internal" && targetRoot != "protocol" && targetRoot != source:
-				t.Errorf("%s:%d provider %q must not depend on peer provider %q", filepath.ToSlash(relative), fset.Position(imported.Pos()).Line, source, targetRoot)
+				t.Errorf("%s:%d provider %q must not depend on peer provider %q", path, fset.Position(imported.Pos()).Line, source, targetRoot)
 			}
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 // Exact shared protocols may be promoted by alias; provider-private
@@ -60,61 +36,24 @@ func TestProviderDependenciesAreOneWay(t *testing.T) {
 func TestProviderAPIsHideProtocolDetails(t *testing.T) {
 	t.Parallel()
 
-	root := modelsRoot(t)
-	entries, err := filepath.Glob(filepath.Join(root, "*", "*.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	for _, filename := range entries {
-		if strings.HasSuffix(filename, "_test.go") {
-			continue
+	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
+		// Only immediate provider packages: google/vertexai still defines public
+		// types over its internal protocol.
+		if strings.Count(path, "/") != 1 || containsPathSegment(path, "internal") || containsPathSegment(path, "protocol") {
+			return
 		}
-		checkProviderAPIFile(t, fset, filename)
-	}
-}
-
-func checkProviderAPIFile(t *testing.T, fset *token.FileSet, filename string) {
-	t.Helper()
-	file, err := parser.ParseFile(fset, filename, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	protocolAliases, sharedProtocolAliases := protocolImportAliases(file)
-	if len(protocolAliases) == 0 {
-		return
-	}
-	for _, declaration := range file.Decls {
-		checkProtocolDeclaration(
-			t, fset, filename, declaration, protocolAliases, sharedProtocolAliases,
-		)
-	}
-}
-
-func protocolImportAliases(file *ast.File) (map[string]struct{}, map[string]struct{}) {
-	protocolAliases := make(map[string]struct{})
-	sharedProtocolAliases := make(map[string]struct{})
-	for _, imported := range file.Imports {
-		pathValue, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || !strings.HasPrefix(pathValue, modelsImportPrefix) {
-			continue
+		protocolAliases := importNamesWhere(t, path, file, func(importPath string) bool {
+			return isSharedProtocolImport(importPath) ||
+				strings.HasPrefix(importPath, modelsImportPrefix) && strings.Contains(importPath+"/", "/internal/protocol/")
+		})
+		if len(protocolAliases) == 0 {
+			return
 		}
-		relativeImport := strings.TrimPrefix(pathValue, modelsImportPrefix)
-		shared := strings.HasPrefix(relativeImport, "protocol/")
-		private := strings.Contains("/"+relativeImport+"/", "/internal/protocol/")
-		if !shared && !private {
-			continue
+		sharedProtocolAliases := importNamesWhere(t, path, file, isSharedProtocolImport)
+		for _, declaration := range file.Decls {
+			checkProtocolDeclaration(t, fset, path, declaration, protocolAliases, sharedProtocolAliases)
 		}
-		name := filepath.Base(pathValue)
-		if imported.Name != nil {
-			name = imported.Name.Name
-		}
-		protocolAliases[name] = struct{}{}
-		if shared {
-			sharedProtocolAliases[name] = struct{}{}
-		}
-	}
-	return protocolAliases, sharedProtocolAliases
+	})
 }
 
 func checkProtocolDeclaration(
@@ -191,7 +130,7 @@ func rejectProtocolSelectors(t *testing.T, fset *token.FileSet, filename string,
 			return true
 		}
 		if _, protocol := aliases[qualifier.Name]; protocol {
-			t.Errorf("%s:%d exported API leaks protocol implementation type %s.%s", filepath.Base(filename), fset.Position(selector.Pos()).Line, qualifier.Name, selector.Sel.Name)
+			t.Errorf("%s:%d exported API leaks protocol implementation type %s.%s", filename, fset.Position(selector.Pos()).Line, qualifier.Name, selector.Sel.Name)
 		}
 		return true
 	})

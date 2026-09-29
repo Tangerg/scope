@@ -2,6 +2,7 @@ package repoarch
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -12,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -90,10 +92,26 @@ import (
 	}
 }
 
+// Guards share one workspace go list because it takes seconds.
+var workspacePackageNames struct {
+	once  sync.Once
+	names map[string]string
+	err   error
+}
+
 func loadPackageNames(t *testing.T) map[string]string {
 	t.Helper()
-	root := repositoryRoot(t)
-	modules := discoverModules(t, root)
+	workspacePackageNames.once.Do(func() {
+		root := repositoryRoot(t)
+		workspacePackageNames.names, workspacePackageNames.err = listPackageNames(root, discoverModules(t, root))
+	})
+	if workspacePackageNames.err != nil {
+		t.Fatal(workspacePackageNames.err)
+	}
+	return workspacePackageNames.names
+}
+
+func listPackageNames(root string, modules map[string]repositoryModule) (map[string]string, error) {
 	patterns := make([]string, 0, len(modules))
 	for _, module := range modules {
 		patterns = append(patterns, "./"+module.dir+"/...")
@@ -101,17 +119,16 @@ func loadPackageNames(t *testing.T) map[string]string {
 	slices.Sort(patterns)
 
 	arguments := []string{"list", "-deps", "-test", "-f", goListPackageNameFormat}
-	command := exec.CommandContext(t.Context(), "go", append(arguments, patterns...)...)
+	command := exec.Command("go", append(arguments, patterns...)...)
 	command.Dir = root
 	// The guard may run as an isolated module, but package identities belong
 	// to the repository workspace being inspected.
 	command.Env = append(command.Environ(), "GOWORK="+filepath.Join(root, "go.work"))
-	// Dependency download diagnostics on stderr are not package identities.
 	var diagnostics bytes.Buffer
 	command.Stderr = &diagnostics
 	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("resolve Go package names: %v\n%s", err, diagnostics.Bytes())
+		return nil, fmt.Errorf("resolve Go package names: %w\n%s", err, diagnostics.Bytes())
 	}
 
 	names := make(map[string]string)
@@ -119,11 +136,11 @@ func loadPackageNames(t *testing.T) map[string]string {
 		line = strings.TrimSuffix(line, "\n")
 		importPath, name, ok := strings.Cut(line, "\t")
 		if !ok || importPath == "" || name == "" {
-			t.Fatalf("go list returned malformed package identity %q", line)
+			return nil, fmt.Errorf("go list returned malformed package identity %q", line)
 		}
 		names[importPath] = name
 	}
-	return names
+	return names, nil
 }
 
 func importedPackageNames(
@@ -135,25 +152,53 @@ func importedPackageNames(
 	t.Helper()
 	names := make(map[string]bool, len(file.Imports))
 	for _, specification := range file.Imports {
-		if specification.Name != nil {
-			name := specification.Name.Name
-			if name != "_" && name != "." {
-				names[name] = true
-			}
-			continue
+		if name := importedName(t, sourcePath, specification, packageNames); name != "" {
+			names[name] = true
 		}
-
-		importPath, err := strconv.Unquote(specification.Path.Value)
-		if err != nil {
-			t.Fatalf("%s has invalid import path %s: %v", sourcePath, specification.Path.Value, err)
-		}
-		name, ok := packageNames[importPath]
-		if !ok {
-			t.Fatalf("%s imports %q, whose package name go list did not report", sourcePath, importPath)
-		}
-		names[name] = true
 	}
 	return names
+}
+
+// importedName returns the identifier an import binds in its file, or "" for
+// blank and dot imports, which bind none.
+func importedName(t *testing.T, sourcePath string, specification *ast.ImportSpec, packageNames map[string]string) string {
+	t.Helper()
+	if specification.Name != nil {
+		if name := specification.Name.Name; name != "_" && name != "." {
+			return name
+		}
+		return ""
+	}
+	importPath := importPathOf(t, sourcePath, specification)
+	name, ok := packageNames[importPath]
+	if !ok {
+		t.Fatalf("%s imports %q, whose package name go list did not report", sourcePath, importPath)
+	}
+	return name
+}
+
+func importNamesWhere(t *testing.T, sourcePath string, file *ast.File, include func(importPath string) bool) map[string]struct{} {
+	t.Helper()
+	packageNames := loadPackageNames(t)
+	names := make(map[string]struct{})
+	for _, specification := range file.Imports {
+		if !include(importPathOf(t, sourcePath, specification)) {
+			continue
+		}
+		if name := importedName(t, sourcePath, specification, packageNames); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func importPathOf(t *testing.T, sourcePath string, specification *ast.ImportSpec) string {
+	t.Helper()
+	importPath, err := strconv.Unquote(specification.Path.Value)
+	if err != nil {
+		t.Fatalf("%s has invalid import path %s: %v", sourcePath, specification.Path.Value, err)
+	}
+	return importPath
 }
 
 func receiverTypeName(expr ast.Expr) string {
@@ -172,22 +217,33 @@ func receiverTypeName(expr ast.Expr) string {
 
 func forEachGoFile(t *testing.T, visit func(path string, fset *token.FileSet, file *ast.File)) {
 	t.Helper()
-	root := repositoryRoot(t)
+	walkGoFiles(t, repositoryRoot(t), false, visit)
+}
+
+func walkProductionGoFiles(t *testing.T, root string, visit func(path string, fset *token.FileSet, file *ast.File)) {
+	t.Helper()
+	walkGoFiles(t, root, true, visit)
+}
+
+// A file that fails to parse fails the guard instead of escaping it.
+func walkGoFiles(t *testing.T, root string, productionOnly bool, visit func(path string, fset *token.FileSet, file *ast.File)) {
+	t.Helper()
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
-			if path == root {
-				return nil
-			}
-			name := entry.Name()
-			if name == "node_modules" || name == "testdata" || strings.HasPrefix(name, ".") {
+			if shouldSkipRepositoryDir(relative, entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" {
+		if filepath.Ext(path) != ".go" || productionOnly && strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		fset := token.NewFileSet()
@@ -195,11 +251,7 @@ func forEachGoFile(t *testing.T, visit func(path string, fset *token.FileSet, fi
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		visit(filepath.ToSlash(relative), fset, file)
+		visit(relative, fset, file)
 		return nil
 	})
 	if err != nil {

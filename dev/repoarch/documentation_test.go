@@ -27,13 +27,9 @@ var documentedCapabilityModules = []string{
 
 var documentationOnlyModuleRoots = []string{"core", "examples", "otel", "tools"}
 
-type packageDocumentation struct {
-	hasOverview bool
-}
-
 type moduleDocumentation struct {
-	packages        map[string]packageDocumentation
-	checkedExamples int
+	packageOverviews map[string]bool
+	checkedExamples  int
 }
 
 func TestWorkspaceModulesKeepDocumentationEntryPoints(t *testing.T) {
@@ -126,7 +122,7 @@ func TestRepositoryGuidanceHasOneCanonicalSource(t *testing.T) {
 			return relativeErr
 		}
 		if entry.IsDir() {
-			if path != root && shouldSkipRepositoryDir(filepath.ToSlash(relativePath), entry.Name()) {
+			if shouldSkipRepositoryDir(filepath.ToSlash(relativePath), entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -173,8 +169,8 @@ func TestWorkspaceModulesDocumentPublishedPackages(t *testing.T) {
 			t.Parallel()
 			moduleRoot := filepath.Join(root, filepath.FromSlash(module.dir))
 			documentation := inspectModuleDocumentation(t, moduleRoot)
-			for directory, documented := range documentation.packages {
-				if !documented.hasOverview {
+			for directory, documented := range documentation.packageOverviews {
+				if !documented {
 					t.Errorf("public package %s has no Package comment in production code", filepath.ToSlash(directory))
 				}
 			}
@@ -217,22 +213,25 @@ func assertPackageOverview(t *testing.T, path string) *ast.File {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if file.Doc == nil || !strings.HasPrefix(strings.TrimSpace(file.Doc.Text()), "Package "+file.Name.Name) {
+	if !hasPackageOverview(file) {
 		t.Errorf("%s has no package overview", path)
 	}
 	return file
+}
+
+func hasPackageOverview(file *ast.File) bool {
+	return file.Doc != nil && strings.HasPrefix(strings.TrimSpace(file.Doc.Text()), "Package "+file.Name.Name)
 }
 
 func TestCapabilityModulesKeepCheckedExamples(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
 	for _, relativeModule := range documentedCapabilityModules {
-		relativeModule := relativeModule
 		t.Run(relativeModule, func(t *testing.T) {
 			t.Parallel()
 			moduleRoot := filepath.Join(root, filepath.FromSlash(relativeModule))
 			documentation := inspectModuleDocumentation(t, moduleRoot)
-			if len(documentation.packages) == 0 {
+			if len(documentation.packageOverviews) == 0 {
 				t.Fatalf("capability module %s has no public packages", relativeModule)
 			}
 			if documentation.checkedExamples == 0 {
@@ -244,13 +243,13 @@ func TestCapabilityModulesKeepCheckedExamples(t *testing.T) {
 
 func inspectModuleDocumentation(t *testing.T, moduleRoot string) moduleDocumentation {
 	t.Helper()
-	documentation := moduleDocumentation{packages: make(map[string]packageDocumentation)}
+	documentation := moduleDocumentation{packageOverviews: make(map[string]bool)}
 	err := filepath.WalkDir(moduleRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() {
-			if path != moduleRoot && excludedDocumentationDirectory(entry.Name()) {
+			if path != moduleRoot && (excludedDocumentationDirectory(entry.Name()) || isModuleDirectory(path)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -270,17 +269,20 @@ func inspectModuleDocumentation(t *testing.T, moduleRoot string) moduleDocumenta
 			return nil
 		}
 		directory := filepath.Dir(path)
-		packageDocumentation := documentation.packages[directory]
-		if file.Doc != nil && strings.HasPrefix(strings.TrimSpace(file.Doc.Text()), "Package "+file.Name.Name) {
-			packageDocumentation.hasOverview = true
-		}
-		documentation.packages[directory] = packageDocumentation
+		documentation.packageOverviews[directory] = documentation.packageOverviews[directory] || hasPackageOverview(file)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return documentation
+}
+
+// A nested module documents and exemplifies itself, so its files must not
+// satisfy the enclosing module's gates.
+func isModuleDirectory(path string) bool {
+	_, err := os.Stat(filepath.Join(path, "go.mod"))
+	return err == nil
 }
 
 func excludedDocumentationDirectory(name string) bool {

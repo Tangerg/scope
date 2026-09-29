@@ -17,12 +17,14 @@ func TestCatalogProviderKeysMatchTheirAdapterConstants(t *testing.T) {
 	t.Parallel()
 
 	root := repositoryRoot(t)
-	keys := catalogProviderKeys(t, root)
-	constants := adapterProviderConstants(t, root)
+	providers := make(map[string]bool)
+	for _, adapter := range adapterPackages(t, root) {
+		providers[adapter.provider] = true
+	}
 
-	for key, file := range keys {
-		if _, found := constants[key]; !found {
-			t.Errorf("catalog %s keys provider %q, which no adapter declares as its Provider constant", file, key)
+	for provider, catalog := range catalogConfigs(t, root) {
+		if !providers[provider] {
+			t.Errorf("catalog %s keys provider %q, which no adapter declares as its Provider constant", catalog.file, provider)
 		}
 	}
 }
@@ -33,27 +35,29 @@ func TestModelConstantsNameCatalogedModels(t *testing.T) {
 	t.Parallel()
 
 	root := repositoryRoot(t)
-	catalogs := catalogModelIDs(t, root)
+	catalogs := catalogConfigs(t, root)
 
 	claimed := make(map[string]bool, len(nonChatModelConstants))
-	for _, constant := range adapterModelConstants(t, root) {
-		models, covered := catalogs[constant.provider]
+	for _, adapter := range adapterPackages(t, root) {
+		catalog, covered := catalogs[adapter.provider]
 		if !covered {
 			// Audio, image, and embedding-only backends may have no chat catalog.
 			continue
 		}
-		if nonChatModelConstants[constant.qualifiedName()] {
-			claimed[constant.qualifiedName()] = true
-			continue
-		}
-		deprecated, found := models[constant.id]
-		switch {
-		case !found:
-			t.Errorf("%s:%d: %s names %q, which the %s catalog does not carry",
-				constant.file, constant.line, constant.qualifiedName(), constant.id, constant.provider)
-		case deprecated:
-			t.Errorf("%s:%d: %s names %q, which the %s catalog marks deprecated",
-				constant.file, constant.line, constant.qualifiedName(), constant.id, constant.provider)
+		for _, constant := range adapter.models {
+			if nonChatModelConstants[constant.qualifiedName()] {
+				claimed[constant.qualifiedName()] = true
+				continue
+			}
+			deprecated, found := catalog.models[constant.id]
+			switch {
+			case !found:
+				t.Errorf("%s:%d: %s names %q, which the %s catalog does not carry",
+					constant.file, constant.line, constant.qualifiedName(), constant.id, adapter.provider)
+			case deprecated:
+				t.Errorf("%s:%d: %s names %q, which the %s catalog marks deprecated",
+					constant.file, constant.line, constant.qualifiedName(), constant.id, adapter.provider)
+			}
 		}
 	}
 
@@ -74,70 +78,90 @@ var nonChatModelConstants = map[string]bool{
 	"zhipu.ModelEmbedding3":       true,
 }
 
-type modelConstant struct {
+type catalogConfig struct {
+	file   string
+	models map[string]bool
+}
+
+type adapterPackage struct {
 	provider string
-	pkg      string
-	name     string
-	id       string
-	file     string
-	line     int
+	models   []modelConstant
+}
+
+type modelConstant struct {
+	pkg  string
+	name string
+	id   string
+	file string
+	line int
 }
 
 func (m modelConstant) qualifiedName() string {
 	return m.pkg + "." + m.name
 }
 
-func catalogModelIDs(t *testing.T, root string) map[string]map[string]bool {
+func catalogConfigs(t *testing.T, root string) map[string]catalogConfig {
 	t.Helper()
 
 	directory := filepath.Join(root, "models", "catalog", "configs")
-	names, err := os.ReadDir(directory)
+	entries, err := os.ReadDir(directory)
 	if err != nil {
 		t.Fatalf("read catalog configs: %v", err)
 	}
-	catalogs := make(map[string]map[string]bool, len(names))
-	for _, name := range names {
-		if name.IsDir() || filepath.Ext(name.Name()) != ".json" {
+	catalogs := make(map[string]catalogConfig, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".json" {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(directory, name.Name()))
+		raw, err := os.ReadFile(filepath.Join(directory, name))
 		if err != nil {
-			t.Fatalf("read %s: %v", name.Name(), err)
+			t.Fatalf("read %s: %v", name, err)
 		}
-		var entry struct {
+		var config struct {
 			Provider string `json:"provider"`
 			Models   []struct {
 				ID         string `json:"id"`
 				Deprecated bool   `json:"deprecated"`
 			} `json:"models"`
 		}
-		if err := jsonv2.Unmarshal(raw, &entry); err != nil {
-			t.Fatalf("decode %s: %v", name.Name(), err)
+		if err := jsonv2.Unmarshal(raw, &config); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
 		}
-		models := make(map[string]bool, len(entry.Models))
-		for _, model := range entry.Models {
+		if config.Provider == "" {
+			t.Errorf("catalog %s declares no provider key", name)
+			continue
+		}
+		if previous, duplicate := catalogs[config.Provider]; duplicate {
+			t.Errorf("catalogs %s and %s both key provider %q", previous.file, name, config.Provider)
+			continue
+		}
+		models := make(map[string]bool, len(config.Models))
+		for _, model := range config.Models {
 			models[model.ID] = model.Deprecated
 		}
-		catalogs[entry.Provider] = models
+		catalogs[config.Provider] = catalogConfig{file: name, models: models}
 	}
 	if len(catalogs) == 0 {
-		t.Fatal("read no models from the catalog configs")
+		t.Fatal("read no provider keys from the catalog configs")
 	}
 	return catalogs
 }
 
-func adapterModelConstants(t *testing.T, root string) []modelConstant {
+func adapterPackages(t *testing.T, root string) []adapterPackage {
 	t.Helper()
 
-	var constants []modelConstant
-	collectModelConstants(t, filepath.Join(root, "models"), &constants)
-	if len(constants) == 0 {
-		t.Fatal("read no model id constants from the adapters")
+	var adapters []adapterPackage
+	collectAdapterPackages(t, filepath.Join(root, "models"), &adapters)
+	if len(adapters) == 0 {
+		t.Fatal("read no Provider constants from the adapters")
 	}
-	return constants
+	return adapters
 }
 
-func collectModelConstants(t *testing.T, directory string, into *[]modelConstant) {
+// A package declares an adapter surface through its Provider constant; the
+// Model constants of a package without one belong to no catalog.
+func collectAdapterPackages(t *testing.T, directory string, into *[]adapterPackage) {
 	t.Helper()
 
 	entries, err := os.ReadDir(directory)
@@ -145,16 +169,13 @@ func collectModelConstants(t *testing.T, directory string, into *[]modelConstant
 		t.Fatalf("read %s: %v", directory, err)
 	}
 	fileSet := token.NewFileSet()
-	provider := ""
-	packageName := ""
-	var candidates []modelConstant
+	var adapter adapterPackage
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
-			if name == "testdata" || strings.HasPrefix(name, ".") {
-				continue
+			if name != "testdata" && !strings.HasPrefix(name, ".") {
+				collectAdapterPackages(t, filepath.Join(directory, name), into)
 			}
-			collectModelConstants(t, filepath.Join(directory, name), into)
 			continue
 		}
 		if filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
@@ -163,38 +184,29 @@ func collectModelConstants(t *testing.T, directory string, into *[]modelConstant
 		path := filepath.Join(directory, name)
 		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
 		if err != nil {
-			// A build-tagged generator is not an adapter surface.
-			continue
+			t.Fatalf("parse %s: %v", path, err)
 		}
-		for identifier, literal := range stringConstants(parsed) {
+		for identifier, literal := range stringConstants(t, path, parsed) {
 			switch {
 			case identifier.Name == "Provider":
-				provider = strings.ToLower(literal)
-				packageName = parsed.Name.Name
+				adapter.provider = strings.ToLower(literal)
 			case strings.HasPrefix(identifier.Name, "Model") && identifier.IsExported():
-				position := fileSet.Position(identifier.Pos())
-				candidates = append(candidates, modelConstant{
+				adapter.models = append(adapter.models, modelConstant{
+					pkg:  parsed.Name.Name,
 					name: identifier.Name,
 					id:   literal,
 					file: filepath.ToSlash(path),
-					line: position.Line,
+					line: fileSet.Position(identifier.Pos()).Line,
 				})
 			}
 		}
 	}
-	// A package without a Provider constant declares no adapter surface, so
-	// its constants belong to no catalog.
-	if provider == "" {
-		return
-	}
-	for _, candidate := range candidates {
-		candidate.provider = provider
-		candidate.pkg = packageName
-		*into = append(*into, candidate)
+	if adapter.provider != "" {
+		*into = append(*into, adapter)
 	}
 }
 
-func stringConstants(file *ast.File) func(func(*ast.Ident, string) bool) {
+func stringConstants(t *testing.T, path string, file *ast.File) func(func(*ast.Ident, string) bool) {
 	return func(yield func(*ast.Ident, string) bool) {
 		for _, declaration := range file.Decls {
 			generic, ok := declaration.(*ast.GenDecl)
@@ -202,10 +214,7 @@ func stringConstants(file *ast.File) func(func(*ast.Ident, string) bool) {
 				continue
 			}
 			for _, specification := range generic.Specs {
-				value, ok := specification.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
+				value := specification.(*ast.ValueSpec)
 				for index, identifier := range value.Names {
 					if index >= len(value.Values) {
 						continue
@@ -216,123 +225,11 @@ func stringConstants(file *ast.File) func(func(*ast.Ident, string) bool) {
 					}
 					unquoted, err := strconv.Unquote(literal.Value)
 					if err != nil {
-						continue
+						t.Fatalf("%s: constant %s: %v", path, identifier.Name, err)
 					}
 					if !yield(identifier, unquoted) {
 						return
 					}
-				}
-			}
-		}
-	}
-}
-
-func catalogProviderKeys(t *testing.T, root string) map[string]string {
-	t.Helper()
-
-	directory := filepath.Join(root, "models", "catalog", "configs")
-	names, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("read catalog configs: %v", err)
-	}
-	keys := make(map[string]string, len(names))
-	for _, name := range names {
-		if name.IsDir() || filepath.Ext(name.Name()) != ".json" {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(directory, name.Name()))
-		if err != nil {
-			t.Fatalf("read %s: %v", name.Name(), err)
-		}
-		var entry struct {
-			Provider string `json:"provider"`
-		}
-		if err := jsonv2.Unmarshal(raw, &entry); err != nil {
-			t.Fatalf("decode %s: %v", name.Name(), err)
-		}
-		if entry.Provider == "" {
-			t.Errorf("catalog %s declares no provider key", name.Name())
-			continue
-		}
-		keys[entry.Provider] = name.Name()
-	}
-	if len(keys) == 0 {
-		t.Fatal("read no provider keys from the catalog configs")
-	}
-	return keys
-}
-
-func adapterProviderConstants(t *testing.T, root string) map[string]string {
-	t.Helper()
-
-	constants := make(map[string]string)
-	modelsDirectory := filepath.Join(root, "models")
-	entries, err := os.ReadDir(modelsDirectory)
-	if err != nil {
-		t.Fatalf("read models directory: %v", err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		// Provider constants may live in nested packages, such as google/vertexai.
-		root := filepath.Join(modelsDirectory, entry.Name())
-		collectProviderConstants(t, root, constants)
-	}
-	if len(constants) == 0 {
-		t.Fatal("read no Provider constants from the adapters")
-	}
-	return constants
-}
-
-func collectProviderConstants(t *testing.T, directory string, into map[string]string) {
-	t.Helper()
-
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("read %s: %v", directory, err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			if name == "testdata" || strings.HasPrefix(name, ".") {
-				continue
-			}
-			collectProviderConstants(t, filepath.Join(directory, name), into)
-			continue
-		}
-		if filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		path := filepath.Join(directory, name)
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-		if err != nil {
-			// A build-tagged generator is not an adapter surface.
-			continue
-		}
-		for _, declaration := range parsed.Decls {
-			generic, ok := declaration.(*ast.GenDecl)
-			if !ok || generic.Tok != token.CONST {
-				continue
-			}
-			for _, specification := range generic.Specs {
-				value, ok := specification.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for index, identifier := range value.Names {
-					if identifier.Name != "Provider" || index >= len(value.Values) {
-						continue
-					}
-					literal, ok := value.Values[index].(*ast.BasicLit)
-					if !ok || literal.Kind != token.STRING {
-						continue
-					}
-					unquoted, err := strconv.Unquote(literal.Value)
-					if err != nil {
-						continue
-					}
-					into[strings.ToLower(unquoted)] = path
 				}
 			}
 		}

@@ -100,9 +100,8 @@ fi
 	}
 }
 
-// A hand-copied CI list and the script's default drifted once, and race and
-// isolate silently ran nowhere but CI. Reconciling two lists would leave both
-// able to advance, so CI names no checks and the default set has one owner.
+// CI names no checks so that the default set in scripts/check.sh is the only
+// list that can advance; a copied list drifts from it.
 func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
 	t.Parallel()
 	workflow, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".github", "workflows", "ci.yml"))

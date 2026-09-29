@@ -22,12 +22,11 @@ func TestRepositoryUsesOnlyCanonicalScopeIdentity(t *testing.T) {
 	}
 
 	type retiredIdentity struct {
-		name    string
-		word    *regexp.Regexp
-		scanApp bool
+		name string
+		word *regexp.Regexp
 	}
 	retiredIdentities := []retiredIdentity{
-		{name: "ly" + "nx", word: regexp.MustCompile(`(?i)\b` + "ly" + "nx" + `\b`), scanApp: true},
+		{name: "ly" + "nx", word: regexp.MustCompile(`(?i)\b` + "ly" + "nx" + `\b`)},
 		{name: "agent" + "2", word: regexp.MustCompile(`(?i)\b` + "agent" + "2" + `\b`)},
 	}
 	for relative := range strings.SplitSeq(string(output), "\x00") {
@@ -43,9 +42,6 @@ func TestRepositoryUsesOnlyCanonicalScopeIdentity(t *testing.T) {
 			continue
 		}
 		for _, identity := range retiredIdentities {
-			if !identity.scanApp && (relative == "app" || strings.HasPrefix(relative, "app/")) {
-				continue
-			}
 			if strings.Contains(strings.ToLower(filepath.ToSlash(relative)), identity.name) {
 				t.Errorf("tracked path %q uses retired repository identity %q", relative, identity.name)
 			}

@@ -2,9 +2,7 @@ package repoarch
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"io/fs"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,28 +28,15 @@ func TestConfigurableStoresShareOneConstructionShape(t *testing.T) {
 func assertStoreConstructionShape(t *testing.T, family string) {
 	t.Helper()
 
-	root := filepath.Join(repositoryRoot(t), family)
-	fileSet := token.NewFileSet()
 	found := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, parseErr := parser.ParseFile(fileSet, path, nil, 0)
-		if parseErr != nil {
-			return parseErr
-		}
+	walkProductionGoFiles(t, filepath.Join(repositoryRoot(t), family), func(path string, fset *token.FileSet, file *ast.File) {
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || function.Recv != nil || function.Name.Name != "NewStore" {
 				continue
 			}
 			found++
-			position := fileSet.Position(function.Pos())
-			location := filepath.ToSlash(path) + ":" + strconv.Itoa(position.Line)
+			location := family + "/" + path + ":" + strconv.Itoa(fset.Position(function.Pos()).Line)
 			if !firstParameterIsContext(function) {
 				t.Errorf("%s: NewStore does not take a context first, so it cannot confirm the backend it is pointed at", location)
 			}
@@ -59,11 +44,7 @@ func assertStoreConstructionShape(t *testing.T, family string) {
 				t.Errorf("%s: NewStore does not take a StoreConfig second", location)
 			}
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", family, err)
-	}
 	if found == 0 {
 		t.Fatalf("found no NewStore declarations under %s", family)
 	}
@@ -84,11 +65,7 @@ func firstParameterIsContext(function *ast.FuncDecl) bool {
 
 func secondParameterIsStoreConfig(function *ast.FuncDecl) bool {
 	parameters := function.Type.Params
-	if parameters == nil {
-		return false
-	}
-
-	if len(parameters.List) < 2 {
+	if parameters == nil || len(parameters.List) < 2 {
 		return false
 	}
 	identifier, ok := parameters.List[1].Type.(*ast.Ident)
@@ -106,20 +83,8 @@ func TestModelConstructorsTakeAContext(t *testing.T) {
 		"NewCompatibleMessages": {}, "NewTextCounter": {},
 	}
 
-	root := filepath.Join(repositoryRoot(t), "models")
-	fileSet := token.NewFileSet()
 	found := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, parseErr := parser.ParseFile(fileSet, path, nil, 0)
-		if parseErr != nil {
-			return parseErr
-		}
+	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || function.Recv != nil {
@@ -133,16 +98,10 @@ func TestModelConstructorsTakeAContext(t *testing.T) {
 			}
 			found++
 			if !firstParameterIsContext(function) {
-				position := fileSet.Position(function.Pos())
-				t.Errorf("%s:%d: %s does not take a context first",
-					filepath.ToSlash(path), position.Line, name)
+				t.Errorf("models/%s:%d: %s does not take a context first", path, fset.Position(function.Pos()).Line, name)
 			}
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatalf("walk models: %v", err)
-	}
 	if found == 0 {
 		t.Fatal("found no model constructors under models")
 	}

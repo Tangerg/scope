@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -80,23 +79,12 @@ func TestWorkspaceCoversEveryProductModule(t *testing.T) {
 		if _, ok := workspaceDirs[module.dir]; !ok {
 			t.Errorf("module %s (%s) is missing from go.work", module.path, module.dir)
 		}
-		if module.file.Go == nil || work.Go == nil || module.file.Go.Version != work.Go.Version {
-			moduleVersion := ""
-			if module.file.Go != nil {
-				moduleVersion = module.file.Go.Version
-			}
-			workspaceVersion := ""
-			if work.Go != nil {
-				workspaceVersion = work.Go.Version
-			}
-			t.Errorf("%s go version = %q; workspace = %q", module.path, moduleVersion, workspaceVersion)
+		if moduleVersion := goVersion(module.file.Go); moduleVersion == "" || moduleVersion != goVersion(work.Go) {
+			t.Errorf("%s go version = %q; workspace = %q", module.path, moduleVersion, goVersion(work.Go))
 		}
 	}
 
 	for dir := range workspaceDirs {
-		if isExcludedAppDir(dir) {
-			continue
-		}
 		if _, ok := moduleByDir(modules, dir); !ok {
 			t.Errorf("go.work contains product module %q that repository discovery did not classify", dir)
 		}
@@ -118,35 +106,44 @@ func TestCoverageGatesTargetTheirOwningModules(t *testing.T) {
 		"Core coverage budget":  "core",
 		"Agent coverage budget": "agent",
 	} {
-		gateIndex := strings.Index(text, "- name: "+gate)
-		if gateIndex < 0 {
+		block, found := workflowStep(text, gate)
+		if !found {
 			t.Errorf("CI is missing %q", gate)
 			continue
-		}
-		nextStep := strings.Index(text[gateIndex+1:], "\n      - name:")
-		block := text[gateIndex:]
-		if nextStep >= 0 {
-			block = text[gateIndex : gateIndex+1+nextStep]
 		}
 		if !strings.Contains(block, "if: matrix.module == '"+module+"'") {
 			t.Errorf("CI gate %q does not select the %s module", gate, module)
 		}
 	}
 
-	gateIndex := strings.Index(text, "- name: Provider coverage budget")
-	if gateIndex < 0 {
+	block, found := workflowStep(text, "Provider coverage budget")
+	if !found {
 		t.Fatal("CI is missing Provider coverage budget")
-	}
-	nextStep := strings.Index(text[gateIndex+1:], "\n      - name:")
-	block := text[gateIndex:]
-	if nextStep >= 0 {
-		block = text[gateIndex : gateIndex+1+nextStep]
 	}
 	for _, family := range []string{"models/", "vectorstores/", "historystores/"} {
 		if !strings.Contains(block, "startsWith(matrix.module, '"+family+"')") {
 			t.Errorf("CI provider coverage gate does not select %s modules", family)
 		}
 	}
+}
+
+func goVersion(directive *modfile.Go) string {
+	if directive == nil {
+		return ""
+	}
+	return directive.Version
+}
+
+func workflowStep(workflow, name string) (string, bool) {
+	start := strings.Index(workflow, "- name: "+name)
+	if start < 0 {
+		return "", false
+	}
+	step := workflow[start:]
+	if next := strings.Index(step[1:], "\n      - name:"); next >= 0 {
+		step = step[:1+next]
+	}
+	return step, true
 }
 
 func TestProductModulesStayOutOfInternalDirectories(t *testing.T) {
@@ -207,10 +204,7 @@ func TestCoreModulePreservesDependencyDirection(t *testing.T) {
 			return err
 		}
 		for _, imported := range file.Imports {
-			importPath, err := strconv.Unquote(imported.Path.Value)
-			if err != nil {
-				continue
-			}
+			importPath := importPathOf(t, path, imported)
 			if isRepositoryImport(importPath) && importPath != core.path && !strings.HasPrefix(importPath, core.path+"/") {
 				t.Errorf("%s imports higher module %s", filepath.ToSlash(path), importPath)
 			}
@@ -237,11 +231,7 @@ func TestETLFilesystemAdaptersStayOutsideRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imported := range file.Imports {
-			importPath, err := strconv.Unquote(imported.Path.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if importPath == "os" {
+			if importPathOf(t, path, imported) == "os" {
 				t.Errorf("%s imports os; filesystem lifecycles belong in ETL format adapters", path)
 			}
 		}
@@ -299,8 +289,7 @@ func assertNoOpenTelemetryImports(t *testing.T, root string) {
 			return err
 		}
 		for _, imported := range file.Imports {
-			importPath, err := strconv.Unquote(imported.Path.Value)
-			if err == nil && strings.HasPrefix(importPath, "go.opentelemetry.io/otel") {
+			if strings.HasPrefix(importPathOf(t, path, imported), "go.opentelemetry.io/otel") {
 				t.Errorf("%s imports OpenTelemetry; domain instrumentation belongs in the otel module", filepath.ToSlash(path))
 			}
 		}
@@ -334,10 +323,7 @@ func TestRAGRootDoesNotImportAdapters(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imported := range file.Imports {
-			importPath, err := strconv.Unquote(imported.Path.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
+			importPath := importPathOf(t, path, imported)
 			for _, prefix := range forbidden {
 				if importPath == prefix || strings.HasPrefix(importPath, prefix+"/") {
 					t.Errorf("%s imports %s; adapter dependencies belong outside the RAG domain root", path, importPath)
@@ -416,7 +402,7 @@ func TestPackageNamesDescribeTheirDirectories(t *testing.T) {
 		}
 		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
-			if isExcludedAppDir(relative) || shouldSkipRepositoryDir(relative, entry.Name()) {
+			if shouldSkipRepositoryDir(relative, entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -464,7 +450,7 @@ func discoverModules(t *testing.T, root string) map[string]repositoryModule {
 		}
 		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
-			if isExcludedAppDir(relative) || shouldSkipRepositoryDir(relative, entry.Name()) {
+			if shouldSkipRepositoryDir(relative, entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -687,10 +673,7 @@ func assertProviderBoundary(t *testing.T, provider providerPackage) {
 			continue
 		}
 		for _, spec := range file.Imports {
-			importPath, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				continue
-			}
+			importPath := importPathOf(t, path, spec)
 			if !strings.HasSuffix(path, "_test.go") && strings.HasPrefix(importPath, "go.opentelemetry.io/otel") {
 				t.Errorf("%s imports OpenTelemetry; provider observability belongs in the otel module", filepath.ToSlash(path))
 			}
@@ -737,8 +720,7 @@ func assertConformanceCall(t *testing.T, provider providerPackage, suite string)
 	wantImport := repositoryModulePrefix + "/" + suite
 	aliases := make(map[string]struct{})
 	for _, spec := range file.Imports {
-		importPath, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || importPath != wantImport {
+		if importPathOf(t, path, spec) != wantImport {
 			continue
 		}
 		alias := "storetest"
@@ -818,8 +800,8 @@ func assertFamilySiblingBoundary(t *testing.T, root, family string, shared map[s
 		}
 		prefix := repositoryModulePrefix + "/" + family + "/"
 		for _, spec := range file.Imports {
-			importPath, err := strconv.Unquote(spec.Path.Value)
-			if err != nil || !strings.HasPrefix(importPath, prefix) {
+			importPath := importPathOf(t, path, spec)
+			if !strings.HasPrefix(importPath, prefix) {
 				continue
 			}
 			target := firstPathSegment(strings.TrimPrefix(importPath, prefix))
@@ -886,8 +868,7 @@ func hasThirdPartyProductionImport(t *testing.T, dir string) bool {
 			return err
 		}
 		for _, imported := range file.Imports {
-			importPath, err := strconv.Unquote(imported.Path.Value)
-			if err == nil && !isRepositoryImport(importPath) && isThirdPartyImport(importPath) {
+			if isExternalImport(importPathOf(t, path, imported)) {
 				found = true
 				return fs.SkipAll
 			}
@@ -977,15 +958,11 @@ func isThirdPartyImport(path string) bool {
 	return strings.Contains(firstPathSegment(path), ".")
 }
 
-func isExcludedAppDir(relative string) bool {
-	return relative == "app" || strings.HasPrefix(relative, "app/")
-}
-
 func shouldSkipRepositoryDir(relative, name string) bool {
 	if relative == "." {
 		return false
 	}
-	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
+	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "testdata" || name == "vendor"
 }
 
 func repositoryRoot(t *testing.T) string {

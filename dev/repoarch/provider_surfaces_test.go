@@ -4,10 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,58 +85,24 @@ func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
 func TestSharedProtocolsArePromotedWithoutDelegatingWrappers(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(repositoryRoot(t), "models")
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
+		if containsPathSegment(path, "internal") || containsPathSegment(path, "protocol") {
+			return
 		}
-		if entry.IsDir() {
-			return skipInternalOrProtocolDirectory(root, path)
+		protocols := importNamesWhere(t, path, file, isSharedProtocolImport)
+		if len(protocols) == 0 {
+			return
 		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
-			return nil
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, specification := range general.Specs {
+				checkSharedProtocolType(t, fset, path, protocols, specification)
+			}
 		}
-		return checkSharedProtocolWrappers(t, path)
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func skipInternalOrProtocolDirectory(root, path string) error {
-	relative, err := filepath.Rel(root, path)
-	if err != nil {
-		return err
-	}
-	for segment := range strings.SplitSeq(filepath.ToSlash(relative), "/") {
-		if segment == "internal" || segment == "protocol" {
-			return filepath.SkipDir
-		}
-	}
-	return nil
-}
-
-func checkSharedProtocolWrappers(t *testing.T, path string) error {
-	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, nil, 0)
-	if err != nil {
-		return err
-	}
-	protocols := sharedProtocolImportAliases(file)
-	if len(protocols) == 0 {
-		return nil
-	}
-	for _, declaration := range file.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, specification := range general.Specs {
-			checkSharedProtocolType(t, fset, path, protocols, specification)
-		}
-	}
-	return nil
 }
 
 func checkSharedProtocolType(
@@ -168,21 +132,11 @@ func checkSharedProtocolType(
 func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(repositoryRoot(t), "models")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "catalog" || entry.Name() == "internal" || entry.Name() == "protocol" {
-			continue
-		}
-		dir := filepath.Join(root, entry.Name())
-		if hasProductionGoFiles(t, dir) {
-			assertOwnedPublicSurface(t, dir, retiredProviderSymbols)
-		}
+	for _, dir := range modelProviderDirectories(t) {
+		assertOwnedPublicSurface(t, dir, retiredProviderSymbols)
 	}
 
+	root := modelsRoot(t)
 	// Reusable wire protocols are public infrastructure rather than provider
 	// facades, but their semantic APIs must still hide SDK-owned types.
 	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "anthropic"), retiredProtocolChatSymbols)
@@ -192,7 +146,19 @@ func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {
 func TestModelProvidersDoNotDuplicateCoreChatOptions(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(repositoryRoot(t), "models")
+	root := modelsRoot(t)
+	dirs := append(modelProviderDirectories(t),
+		filepath.Join(root, "protocol", "anthropic"),
+		filepath.Join(root, "protocol", "openai"),
+	)
+	for _, dir := range dirs {
+		assertNoCoreOwnedChatOptions(t, dir)
+	}
+}
+
+func modelProviderDirectories(t *testing.T) []string {
+	t.Helper()
+	root := modelsRoot(t)
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
@@ -202,16 +168,14 @@ func TestModelProvidersDoNotDuplicateCoreChatOptions(t *testing.T) {
 		if !entry.IsDir() || entry.Name() == "catalog" || entry.Name() == "internal" || entry.Name() == "protocol" {
 			continue
 		}
-		dirs = append(dirs, filepath.Join(root, entry.Name()))
+		if dir := filepath.Join(root, entry.Name()); hasProductionGoFiles(t, dir) {
+			dirs = append(dirs, dir)
+		}
 	}
-	dirs = append(dirs,
-		filepath.Join(root, "protocol", "anthropic"),
-		filepath.Join(root, "protocol", "openai"),
-	)
-
-	for _, dir := range dirs {
-		assertNoCoreOwnedChatOptions(t, dir)
+	if len(dirs) == 0 {
+		t.Fatal("discovered no model provider directories")
 	}
+	return dirs
 }
 
 func assertNoCoreOwnedChatOptions(t *testing.T, dir string) {
@@ -318,7 +282,7 @@ func assertOwnedPublicSurface(t *testing.T, dir string, retired map[string]struc
 		if err != nil {
 			t.Fatal(err)
 		}
-		thirdParty := thirdPartyImportAliases(file)
+		thirdParty := importNamesWhere(t, path, file, isExternalImport)
 		for _, declaration := range file.Decls {
 			checkOwnedPublicDeclaration(t, fset, path, declaration, retired, thirdParty)
 		}
@@ -363,7 +327,16 @@ func checkOwnedPublicSpec(
 			return
 		}
 		rejectRetiredProviderSymbol(t, fset, path, spec.Name, retired)
-		rejectThirdPartySelectors(t, fset, path, spec.Type, thirdParty)
+		structure, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			rejectThirdPartySelectors(t, fset, path, spec.Type, thirdParty)
+			return
+		}
+		for _, field := range structure.Fields.List {
+			if len(field.Names) == 0 || hasExportedName(field.Names) {
+				rejectThirdPartySelectors(t, fset, path, field.Type, thirdParty)
+			}
+		}
 	case *ast.ValueSpec:
 		if spec.Type != nil && hasExportedName(spec.Names) {
 			rejectThirdPartySelectors(t, fset, path, spec.Type, thirdParty)
@@ -404,7 +377,7 @@ func assertProviderTestsAreOffline(t *testing.T, dir string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		osAliases := importAliases(file, "os")
+		osAliases := importNamesWhere(t, path, file, func(importPath string) bool { return importPath == "os" })
 		ast.Inspect(file, func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
 			if !ok {
@@ -446,54 +419,12 @@ func parseImmediateProductionFiles(t *testing.T, dir string) []*ast.File {
 	return files
 }
 
-func thirdPartyImportAliases(file *ast.File) map[string]struct{} {
-	aliases := make(map[string]struct{})
-	for _, imported := range file.Imports {
-		path, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || isRepositoryImport(path) || !isThirdPartyImport(path) {
-			continue
-		}
-		name := filepath.Base(path)
-		if imported.Name != nil {
-			name = imported.Name.Name
-		}
-		if name != "_" && name != "." {
-			aliases[name] = struct{}{}
-		}
-	}
-	return aliases
+func isSharedProtocolImport(importPath string) bool {
+	return strings.HasPrefix(importPath, modelsImportPrefix+"protocol/")
 }
 
-func importAliases(file *ast.File, wantPath string) map[string]struct{} {
-	aliases := make(map[string]struct{})
-	for _, imported := range file.Imports {
-		path, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || path != wantPath {
-			continue
-		}
-		name := filepath.Base(path)
-		if imported.Name != nil {
-			name = imported.Name.Name
-		}
-		aliases[name] = struct{}{}
-	}
-	return aliases
-}
-
-func sharedProtocolImportAliases(file *ast.File) map[string]struct{} {
-	aliases := make(map[string]struct{})
-	for _, imported := range file.Imports {
-		path, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || (path != "github.com/Tangerg/scope/models/protocol/openai" && path != "github.com/Tangerg/scope/models/protocol/anthropic") {
-			continue
-		}
-		name := filepath.Base(path)
-		if imported.Name != nil {
-			name = imported.Name.Name
-		}
-		aliases[name] = struct{}{}
-	}
-	return aliases
+func isExternalImport(importPath string) bool {
+	return !isRepositoryImport(importPath) && isThirdPartyImport(importPath)
 }
 
 func pointsToImportedSelector(expression ast.Expr, aliases map[string]struct{}) bool {
