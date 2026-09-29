@@ -73,6 +73,27 @@ func TestRerankerTopKAndResponseContract(t *testing.T) {
 	}
 }
 
+func TestRerankerTopKCapsShorterCandidateLists(t *testing.T) {
+	model := corererank.ModelFunc(func(_ context.Context, request *corererank.Request) (*corererank.Response, error) {
+		if request.Options.TopK == nil || *request.Options.TopK != 2 {
+			t.Fatalf("TopK = %v, want pointer to 2", request.Options.TopK)
+		}
+		return &corererank.Response{Results: []*corererank.Result{{Index: 1, Score: 0.8}, {Index: 0, Score: 0.3}}}, nil
+	})
+	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model, TopK: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := rag.Candidates{
+		candidate(identifiedDocument(t, "first", "first")),
+		candidate(identifiedDocument(t, "second", "second")),
+	}
+	got, err := reranker.Refine(t.Context(), mustQuery(t, "query"), candidates)
+	if err != nil || len(got) != 2 || got[0].Document.ID != "second" || got[1].Document.ID != "first" {
+		t.Fatalf("Refine = %#v, %v", got, err)
+	}
+}
+
 func TestRerankerValidatesConstructionAndFormatting(t *testing.T) {
 	if _, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{}); !errors.Is(err, ragrerank.ErrNilModel) {
 		t.Fatalf("missing model error = %v", err)
