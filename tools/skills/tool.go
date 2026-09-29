@@ -30,9 +30,13 @@ type toolSet struct {
 
 const (
 	DefaultMaxOutputBytes = int64(256 * 1024)
-	minimumMaxOutputBytes = int64(len("<available_skills>\n  <truncated>true</truncated>\n</available_skills>"))
+	minimumMaxOutputBytes = int64(len(summariesOpen + summariesTruncated + summariesClose))
 	maximumMaxOutputBytes = int64(^uint(0)>>1) - 1
 	truncationMarker      = "\n\n[output truncated]"
+
+	summariesOpen      = "<available_skills>"
+	summariesClose     = "\n</available_skills>"
+	summariesTruncated = "\n  <truncated>true</truncated>"
 )
 
 // Config bounds model-visible content independently of repository storage limits.
@@ -124,18 +128,23 @@ var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 func renderSummaries(summaries []skillsrc.Summary, maxBytes int64) string {
 	var b strings.Builder
-	b.WriteString("<available_skills>")
-	for _, summary := range summaries {
+	b.WriteString(summariesOpen)
+	for index, summary := range summaries {
 		entry := "\n  <skill>\n    <name>" + xmlEscaper.Replace(summary.Name) +
 			"</name>\n    <description>" + xmlEscaper.Replace(summary.Description) +
 			"</description>\n  </skill>"
-		if int64(b.Len()+len(entry)+len("\n  <truncated>true</truncated>\n</available_skills>")) > maxBytes {
-			b.WriteString("\n  <truncated>true</truncated>")
+		// Only a non-final entry must leave room for the truncation marker.
+		reserved := len(summariesClose)
+		if index < len(summaries)-1 {
+			reserved += len(summariesTruncated)
+		}
+		if int64(b.Len()+len(entry)+reserved) > maxBytes {
+			b.WriteString(summariesTruncated)
 			break
 		}
 		b.WriteString(entry)
 	}
-	b.WriteString("\n</available_skills>")
+	b.WriteString(summariesClose)
 	return b.String()
 }
 

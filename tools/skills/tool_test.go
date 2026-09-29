@@ -154,6 +154,22 @@ func TestSkillToolsBoundModelFacingContent(t *testing.T) {
 	}
 }
 
+func TestListSkillsKeepsCompleteListThatFitsExactly(t *testing.T) {
+	completeOutput, err := invokeTestTool(t.Context(), newTools(t)["list_skills"], `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete := testOutputText(completeOutput)
+	tools := newToolsWithConfig(t, Config{MaxOutputBytes: int64(len(complete))})
+	boundedOutput, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bounded := testOutputText(boundedOutput); bounded != complete {
+		t.Fatalf("list output at exact limit = %q, want %q", bounded, complete)
+	}
+}
+
 func TestNewToolsRejectsOutputLimitTooSmallForItsEnvelope(t *testing.T) {
 	for _, maxOutputBytes := range []int64{minimumMaxOutputBytes - 1, maximumMaxOutputBytes + 1} {
 		if _, err := NewTools(newToolFS(), Config{MaxOutputBytes: maxOutputBytes}); !errors.Is(err, skillsrc.ErrInvalidLimit) {
