@@ -111,7 +111,7 @@ func (p preparedEffect) snapshotReservation() (preparedEffect, uint64, error) {
 	if p.Settlement != nil {
 		return p, 0, nil
 	}
-	failure := Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
+	failure := snapshotReservationFailure()
 	if p.Effect.Target() == EffectTargetDispatcher {
 		if p.Phase == effectPhasePending {
 			if err := p.settleUnknown(); err != nil {

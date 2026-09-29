@@ -47,6 +47,6 @@ func callbackPanic(operation string, value any) error {
 		cause: cause, message: "agent: " + operation + " panicked: " + message,
 		kind:     FailureKindPanic,
 		runtime:  newEngineFailure(FailureKindExternal, failureCodeEngineTreeCommitterFailed, errors.New("agent: "+operation+" panicked: "+message)),
-		dispatch: newEngineFailure(FailureKindPanic, failureCodeEngineDispatchPanicked, errors.New("Dispatcher panicked without a definite outcome")),
+		dispatch: dispatchPanicFailure(),
 	}
 }

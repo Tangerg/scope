@@ -220,11 +220,11 @@ func (p ProcessSnapshot) WaitID() (WaitID, bool) {
 func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	waitID, waiting := p.WaitID()
 	if !waiting {
-		return "", false
+		return WaitKindInvalid, false
 	}
 	wait, found := p.state.Mailbox.waitRecord(waitID)
 	if !found {
-		return "", false
+		return WaitKindInvalid, false
 	}
 	return wait.Kind, true
 }

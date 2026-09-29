@@ -6,8 +6,6 @@ import (
 	"fmt"
 )
 
-const nullJSON = "null"
-
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
 
 func dispatcherReplayPolicy(
@@ -53,7 +51,7 @@ func dispatchFailure(err error) Failure {
 		return sealed.dispatch
 	}
 	if _, panicked := errors.AsType[*CallbackPanicError](err); panicked {
-		return newEngineFailure(FailureKindPanic, failureCodeEngineDispatchPanicked, errors.New("Dispatcher panicked without a definite outcome"))
+		return dispatchPanicFailure()
 	}
 	switch {
 	case errors.Is(err, ErrInvalidSettlement):
@@ -65,4 +63,8 @@ func dispatchFailure(err error) Failure {
 	default:
 		return newEngineFailure(FailureKindExternal, failureCodeEngineDispatchFailed, errors.New("Dispatcher returned an error without a definite outcome"))
 	}
+}
+
+func dispatchPanicFailure() Failure {
+	return newEngineFailure(FailureKindPanic, failureCodeEngineDispatchPanicked, errors.New("Dispatcher panicked without a definite outcome"))
 }

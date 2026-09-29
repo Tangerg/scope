@@ -21,6 +21,8 @@ import (
 // number canonicalization.
 const MaxPayloadBytes = 64 << 20
 
+const nullJSON = "null"
+
 var ErrInvalidPayload = errors.New("agent: invalid payload")
 
 // Payload is an immutable canonical JSON value. Its zero value is invalid.

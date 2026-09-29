@@ -58,7 +58,7 @@ func (q *Quota) UnmarshalJSON(data []byte) error {
 	if len(wire.Maximum) == 0 {
 		return errors.New("agent: quota maximum is required")
 	}
-	if bytes.Equal(bytes.TrimSpace(wire.Maximum), []byte("null")) {
+	if bytes.Equal(bytes.TrimSpace(wire.Maximum), []byte(nullJSON)) {
 		*q = Quota{}
 		return nil
 	}

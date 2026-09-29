@@ -11,5 +11,11 @@ func (s *snapshotTextReservation) reason(maxBytes int) string {
 
 func (s *snapshotTextReservation) failure() Failure {
 	s.growth += snapshotFailureGrowth
+	return snapshotReservationFailure()
+}
+
+// snapshotReservationFailure is the placeholder whose worst-case expansion is
+// snapshotFailureGrowth.
+func snapshotReservationFailure() Failure {
 	return Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
 }
