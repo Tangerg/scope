@@ -113,8 +113,8 @@ func TestCountText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got <= 0 {
-		t.Fatalf("CountText() = %d, want > 0", got)
+	if got != 2 {
+		t.Fatalf("CountText() = %d, want 2", got)
 	}
 }
 
