@@ -44,13 +44,11 @@ func NewTrial[I, O any](config TrialConfig[I, O]) (*Trial[I, O], error) {
 	return &Trial[I, O]{target: config.Target, suite: config.Suite}, nil
 }
 
-// Run returns all accumulated stage results, including a valid execution when
-// grading fails. ExecutionError means no execution receipt exists; assessments
-// then remain explicitly not evaluated. An execution with no output still goes
-// to the suite, whose assessments decide which evidence they require. The same
-// context covers both stages: a canceled grading stage does not erase execution.
-// Results contain runtime errors; persist the chosen domain facts and artifacts
-// explicitly rather than treating this result as a storage schema.
+// Run returns every accumulated stage result: a valid execution survives failed
+// or canceled grading, and an ExecutionError leaves assessments not evaluated.
+// An execution without output is still graded; assessments decide which
+// evidence they require. The result holds runtime errors and is not a storage
+// schema.
 func (t *Trial[I, O]) Run(ctx context.Context, caseValue Case[I]) (TrialResult[O], error) {
 	if t == nil || lo.IsNil(t.target) || t.suite == nil {
 		return TrialResult[O]{}, fmt.Errorf("%w: uninitialized trial", ErrInvalidTrial)

@@ -44,20 +44,17 @@ func (c Case[T]) clone() Case[T] {
 	return c
 }
 
-// Dataset owns an ordered snapshot of case identities and metadata.
-// FixtureID identifies fixed inputs and evaluation context, as assigned by the
-// Host. Observed outputs may differ between runs without changing this fixture;
-// changing inputs, references, or the selected cases requires a new identity.
-// Subjects remain borrowed read-only values; callers and evaluators must not mutate
-// referenced objects while the Dataset is in use.
+// Dataset owns an ordered snapshot of case identities and metadata. Its
+// Host-assigned FixtureID must change with inputs, references, or selected
+// cases, but not with observed outputs. Subjects stay borrowed read-only while
+// the Dataset is in use.
 type Dataset[T any] struct {
 	fixtureID string
 	cases     []Case[T]
 }
 
-// NewDataset snapshots the case container and metadata, preserving Subject by
-// assignment. It rejects duplicate identity before experiment scheduling can
-// make result correlation ambiguous.
+// NewDataset snapshots cases and metadata, copying Subject by assignment, and
+// rejects duplicate IDs that would make result correlation ambiguous.
 func NewDataset[T any](fixtureID string, cases ...Case[T]) (Dataset[T], error) {
 	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
 		return Dataset[T]{}, fmt.Errorf("%w: fixture identity is required", ErrInvalidDataset)
@@ -81,8 +78,8 @@ func (d Dataset[T]) FixtureID() string { return d.fixtureID }
 
 func (d Dataset[T]) Len() int { return len(d.cases) }
 
-// Cases copies the case container and metadata in declaration order. Subject
-// is still borrowed read-only and can share referenced objects with the Dataset.
+// Cases copies cases and metadata in declaration order; Subject may share
+// referenced objects with the Dataset.
 func (d Dataset[T]) Cases() []Case[T] {
 	cases := slices.Clone(d.cases)
 	for index := range cases {

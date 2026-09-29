@@ -13,7 +13,6 @@ const DefaultMaxConcurrency = 4
 // scheduling at the Suite or Experiment boundary that owns the policy.
 type ErrorPolicy string
 
-// Error policies never hide failures from assessment results.
 const (
 	ErrorCollect  ErrorPolicy = "collect"
 	ErrorFailFast ErrorPolicy = "fail_fast"

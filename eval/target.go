@@ -15,7 +15,6 @@ type Target[I, O any] interface {
 	Run(ctx context.Context, input I) (Execution[O], error)
 }
 
-// TargetFunc implements the same execution boundary for a Host-owned solver.
 type TargetFunc[I, O any] func(context.Context, I) (Execution[O], error)
 
 func (t TargetFunc[I, O]) Run(ctx context.Context, input I) (Execution[O], error) {

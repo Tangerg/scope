@@ -7,7 +7,6 @@ import "fmt"
 type Verdict string
 
 const (
-	// VerdictUnspecified represents a valid result with no categorical decision.
 	VerdictUnspecified Verdict = ""
 	VerdictPass        Verdict = "pass"
 	VerdictFail        Verdict = "fail"
