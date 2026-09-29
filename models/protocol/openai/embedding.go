@@ -24,8 +24,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	if err := validateProvider(e.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
-	if e.APIKey == "" {
-		return errors.New("openai: APIKey is required")
+	if err := (apiConfig{APIKey: e.APIKey, BaseURL: e.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if e.DefaultOptions.Model == "" {
 		return errors.New("openai: DefaultOptions.Model is required")

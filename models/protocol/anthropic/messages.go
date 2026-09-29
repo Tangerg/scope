@@ -31,8 +31,8 @@ type MessagesConfig struct {
 }
 
 func (m MessagesConfig) Validate() error {
-	if m.APIKey == "" {
-		return errors.New("anthropic: API key is required")
+	if err := (apiConfig{APIKey: m.APIKey, BaseURL: m.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("anthropic: default options: %w", err)
@@ -87,6 +87,15 @@ func newMessages(config MessagesConfig, dialect Dialect) (*Messages, error) {
 		defaults: config.DefaultOptions.Clone(),
 		dialect:  dialect,
 	}, nil
+}
+
+// ListModels returns the model IDs visible to this binding in provider order.
+// Both limits must be positive. maxResponseBytes bounds the total response bytes
+// across all pages; maxModels counts advertised entries, including duplicates.
+// Failure or incomplete pagination returns no IDs. The caller owns the deadline;
+// discovery performs no retries and preserves HTTPStatus and HTTPHeader errors.
+func (m *Messages) ListModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
+	return m.api.listModels(ctx, maxModels, maxResponseBytes)
 }
 
 func (m *Messages) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {

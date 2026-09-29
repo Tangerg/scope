@@ -1,6 +1,12 @@
 // Package anthropic implements the Anthropic Messages wire protocol reused by
 // native and compatible provider endpoints inside the models module.
 //
+// A nonempty Config BaseURL overrides ANTHROPIC_BASE_URL; an absent environment
+// value uses the SDK production endpoint. Both supplied URL sources are checked
+// during construction because the SDK applies its environment options before
+// explicit options: malformed environment options can otherwise fail only
+// when a request starts.
+//
 // Constructors:
 //
 //   - [NewMessages] — native /v1/messages. Full Claude surface:
@@ -19,6 +25,11 @@
 //
 // [Messages.CountInputTokens] exposes the provider-specific complete-request
 // token endpoint. [NewTextCounter] serves isolated text workflows.
+//
+// [Messages.ListModels] follows the SDK's native model pagination using this
+// binding. Count and total response-byte budgets are explicit per operation;
+// the context owns the deadline. A partial scan never returns successful IDs.
+// Catalog enrichment and model selection remain consumer policy.
 //
 // Anthropic's Message Batches API (~50% pricing, up to 24h
 // asynchronous) doesn't fit core/chat's synchronous request/response shape and

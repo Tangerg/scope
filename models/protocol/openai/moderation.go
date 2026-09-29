@@ -24,8 +24,8 @@ func (m ModerationModelConfig) Validate() error {
 	if err := validateProvider(m.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
-	if m.APIKey == "" {
-		return errors.New("openai: APIKey is required")
+	if err := (apiConfig{APIKey: m.APIKey, BaseURL: m.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if m.DefaultOptions.Model == "" {
 		return errors.New("openai: DefaultOptions.Model is required")

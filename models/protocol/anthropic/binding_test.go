@@ -1,0 +1,128 @@
+package anthropic_test
+
+import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/Tangerg/scope/models/protocol/anthropic"
+)
+
+type bindingTransport struct {
+	calls      int
+	requestURL string
+}
+
+func (b *bindingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	b.calls++
+	b.requestURL = request.URL.String()
+	return nil, errors.New("unexpected construction HTTP I/O")
+}
+
+func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
+	constructors := map[string]func(string, *http.Client) (bool, error){
+		"NewMessages": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client})
+			return model == nil, err
+		},
+		"NewTextCounter": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := anthropic.NewTextCounter(t.Context(), anthropic.TextCounterConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Model: "test-model"})
+			return model == nil, err
+		},
+		"NewCompatibleMessages": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := anthropic.NewCompatibleMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, anthropic.Dialect{Provider: "compatible"})
+			return model == nil, err
+		},
+	}
+	for name, construct := range constructors {
+		t.Run(name, func(t *testing.T) {
+			transport := &bindingTransport{}
+			client := &http.Client{Transport: transport}
+			for _, endpoint := range []string{"%", "/relative", "//example.test/path", "ftp://example.test", "https://", "https://:443", "https://example.test:bad", "https://example.test/\x00"} {
+				missing, err := construct(endpoint, client)
+				if err == nil || !missing {
+					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
+				}
+			}
+			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://user:pass@example.test/path#section"} {
+				missing, err := construct(endpoint, client)
+				if err != nil || missing {
+					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
+				}
+			}
+			if transport.calls != 0 {
+				t.Fatalf("construction made %d HTTP calls", transport.calls)
+			}
+		})
+	}
+}
+
+func TestBindingValidatesEnvironmentURLBeforeIO(t *testing.T) {
+	for _, environmentURL := range []string{"%", "", "/relative", "ftp://example.test"} {
+		t.Run(environmentURL, func(t *testing.T) {
+			t.Setenv("ANTHROPIC_BASE_URL", environmentURL)
+			transport := &bindingTransport{}
+			for _, explicitURL := range []string{"", "https://explicit.example.test"} {
+				model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}})
+				if err == nil || model != nil || !strings.Contains(err.Error(), "ANTHROPIC_BASE_URL") {
+					t.Fatalf("environment binding: model = %v, error = %v", model, err)
+				}
+			}
+			if transport.calls != 0 {
+				t.Fatal("invalid environment binding performed HTTP I/O")
+			}
+		})
+	}
+}
+
+func TestBindingFreezesEnvironmentURLAndPreservesExplicitPrecedence(t *testing.T) {
+	paths := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		paths <- request.URL.Path
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"data":[],"has_more":false}`)
+	}))
+	defer server.Close()
+	for _, test := range []struct{ explicitURL, wantPath string }{
+		{"", "/environment/v1/models"},
+		{server.URL + "/explicit", "/explicit/v1/models"},
+	} {
+		t.Setenv("ANTHROPIC_BASE_URL", server.URL+"/environment")
+		model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: test.explicitURL, HTTPClient: server.Client()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("ANTHROPIC_BASE_URL", "%")
+		if _, listErr := model.ListModels(t.Context(), 1, 1024); listErr != nil {
+			t.Fatal(listErr)
+		}
+		if got := <-paths; got != test.wantPath {
+			t.Fatalf("path = %q; want %q", got, test.wantPath)
+		}
+	}
+}
+
+func TestBindingUsesSDKDefaultWhenEnvironmentIsAbsent(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "restored by cleanup")
+	if err := os.Unsetenv("ANTHROPIC_BASE_URL"); err != nil {
+		t.Fatal(err)
+	}
+	transport := &bindingTransport{}
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport.calls != 0 {
+		t.Fatal("default binding performed construction HTTP I/O")
+	}
+	if _, listErr := model.ListModels(t.Context(), 1, 1024); listErr == nil {
+		t.Fatal("injected transport failure was lost")
+	}
+	if transport.requestURL != "https://api.anthropic.com/v1/models?limit=1" || transport.calls != 1 {
+		t.Fatalf("default endpoint = %q, calls = %d", transport.requestURL, transport.calls)
+	}
+}

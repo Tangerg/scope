@@ -22,8 +22,8 @@ type TextCounterConfig struct {
 }
 
 func (t TextCounterConfig) Validate() error {
-	if t.APIKey == "" {
-		return errors.New("anthropic: APIKey is required")
+	if err := (apiConfig{APIKey: t.APIKey, BaseURL: t.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if t.Model == "" {
 		return errors.New("anthropic: Model is required")

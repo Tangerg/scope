@@ -29,8 +29,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := validateProvider(i.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
-	if i.APIKey == "" {
-		return errors.New("openai: APIKey is required")
+	if err := (apiConfig{APIKey: i.APIKey, BaseURL: i.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if i.DefaultOptions.Model == "" {
 		return errors.New("openai: DefaultOptions.Model is required")

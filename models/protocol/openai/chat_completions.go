@@ -35,8 +35,8 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("openai: API key is required")
+	if err := (apiConfig{APIKey: c.APIKey, BaseURL: c.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("openai: default options: %w", err)
@@ -110,6 +110,15 @@ func newChatCompletions(config ChatCompletionsConfig, dialect Dialect) (*ChatCom
 		defaults: config.DefaultOptions.Clone(),
 		dialect:  dialect,
 	}, nil
+}
+
+// ListModels returns the model IDs visible to this binding in provider order.
+// Both limits must be positive. maxResponseBytes bounds the total response bytes
+// across all pages; maxModels counts advertised entries, including duplicates.
+// Failure or incomplete pagination returns no IDs. The caller owns the deadline;
+// discovery performs no retries and preserves HTTPStatus and HTTPHeader errors.
+func (c *ChatCompletions) ListModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
+	return c.api.listModels(ctx, maxModels, maxResponseBytes)
 }
 
 func (c *ChatCompletions) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {

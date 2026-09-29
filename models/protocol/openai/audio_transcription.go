@@ -25,8 +25,8 @@ func (a AudioTranscriptionModelConfig) Validate() error {
 	if err := validateProvider(a.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
-	if a.APIKey == "" {
-		return errors.New("openai: APIKey is required")
+	if err := (apiConfig{APIKey: a.APIKey, BaseURL: a.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if a.DefaultOptions.Model == "" {
 		return errors.New("openai: DefaultOptions.Model is required")

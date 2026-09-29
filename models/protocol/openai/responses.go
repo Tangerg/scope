@@ -26,8 +26,8 @@ type ResponsesConfig struct {
 }
 
 func (r ResponsesConfig) Validate() error {
-	if r.APIKey == "" {
-		return errors.New("openai responses: API key is required")
+	if err := (apiConfig{APIKey: r.APIKey, BaseURL: r.BaseURL}).validate(); err != nil {
+		return err
 	}
 	if err := r.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("openai responses: default options: %w", err)
@@ -73,6 +73,15 @@ func NewResponses(_ context.Context, config ResponsesConfig) (*Responses, error)
 		return nil, err
 	}
 	return &Responses{api: api, defaults: config.DefaultOptions.Clone()}, nil
+}
+
+// ListModels returns the model IDs visible to this binding in provider order.
+// Both limits must be positive. maxResponseBytes bounds the total response bytes
+// across all pages; maxModels counts advertised entries, including duplicates.
+// Failure or incomplete pagination returns no IDs. The caller owns the deadline;
+// discovery performs no retries and preserves HTTPStatus and HTTPHeader errors.
+func (r *Responses) ListModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
+	return r.api.listModels(ctx, maxModels, maxResponseBytes)
 }
 
 func (r *Responses) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {

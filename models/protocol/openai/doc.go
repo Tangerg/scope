@@ -1,6 +1,12 @@
 // Package openai implements reusable OpenAI wire adapters for native and
 // compatible provider endpoints.
 //
+// A nonempty Config BaseURL overrides OPENAI_BASE_URL; an absent environment
+// value uses the SDK production endpoint. Both supplied URL sources are checked
+// during construction because the SDK applies its environment options before
+// explicit options: malformed environment options can otherwise fail only
+// when a request starts.
+//
 // Modalities exposed:
 //
 //   - chat (Chat Completions) via [NewChatCompletions] — tool calling, streaming,
@@ -18,6 +24,12 @@
 //   - audio translation via [NewAudioTranslationModel] — whisper-1
 //     translating any source language to English (implements
 //     transcription.Model).
+//
+// [ChatCompletions.ListModels] and [Responses.ListModels] discover IDs visible
+// to the same credential, endpoint, and HTTP client. Discovery uses the SDK's
+// Models endpoint with caller-supplied count, byte, and context budgets. Results
+// are complete or fail without exposing partial IDs; catalog enrichment,
+// selection, sorting, and deduplication remain consumer policy.
 //
 // Model id constants aren't exported here — they're maintained by
 // openai-go ([openai.ChatModelGPT5_6Sol], [openai.EmbeddingModelTextEmbedding3Large],
