@@ -75,8 +75,6 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	return r, nil
 }
 
-// Read parses the source and emits documents according to the configuration.
-// Context cancellation is honored around parsing and between matches.
 func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

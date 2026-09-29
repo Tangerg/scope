@@ -1,21 +1,7 @@
-// Package html reads HTML payloads using
-// github.com/PuerkitoBio/goquery.
+// Package html reads HTML payloads with github.com/PuerkitoBio/goquery.
 //
-// The reader extracts visible text from an HTML document. Two modes:
-//
-//   - Whole-document mode (default): a single [*document.Document]
-//     containing the body text with title / description / canonical URL
-//     stamped as metadata.
-//   - Selector mode (opt in via [ReaderConfig.Selector]): emits one document per
-//     element matched by the CSS selector — useful for scraping blog
-//     post lists, search results, etc.
-//
-// Example:
-//
-//	r, _ := html.NewReader(strings.NewReader(htmlSrc), html.ReaderConfig{})
-//	docs, _ := r.Read(ctx)
-//
-//	r, _ := html.NewReader(strings.NewReader(htmlSrc),
-//	    html.ReaderConfig{Selector: "article"})
-//	docs, _ := r.Read(ctx) // one doc per <article>
+// By default the reader emits one document with the visible body text and the
+// page title, description, and canonical URL as metadata. With
+// [ReaderConfig.Selector] it emits one document per element matched by the CSS
+// selector instead.
 package html
