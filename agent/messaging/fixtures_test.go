@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 
@@ -22,6 +23,33 @@ func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher
 		t.Fatal(err)
 	}
 	return deployment
+}
+
+func newEngine(t testing.TB, store agent.TreeCommitter) *agent.Engine {
+	t.Helper()
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine
+}
+
+func newDispatcher(t testing.TB, port messaging.DeliveryPort) *messaging.Dispatcher {
+	t.Helper()
+	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dispatcher
+}
+
+func start(t testing.TB, engine *agent.Engine, deployment agent.Deployment, payload agent.Payload) *agent.Process {
+	t.Helper()
+	process, err := engine.Start(t.Context(), deployment, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return process
 }
 
 func input[T any](t testing.TB, value T) agent.Payload {
@@ -151,8 +179,6 @@ func (s *senderExecution) Snapshot() (agent.ExecutionState, error) {
 	return agent.ParseExecutionState("test.sender", encoded.JSON())
 }
 
-// recipientPort grants this bound reviewer access to one concrete mailbox.
-// Inspection can reconcile a terminal recipient without changing its address.
 type recipientPort struct {
 	engine             *agent.Engine
 	recipient          *agent.Process
@@ -175,45 +201,76 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.Pro
 	if _, decodeErr := payload.Decode[string](); decodeErr != nil {
 		return decodeErr
 	}
-	r.mu.Lock()
-	r.calls = append(r.calls, signal)
-	first := len(r.calls) == 1
-	r.mu.Unlock()
+	first := r.record(signal)
 	if r.checkReceipts {
-		tree, inspectErr := r.engine.InspectTree(ctx, r.recipient.Relation().RootID())
-		if inspectErr != nil {
-			return inspectErr
-		}
-		fact, present := tree.Process(recipient)
-		if !present {
-			return errors.New("recipient missing from tree inspection")
-		}
-		for _, receipt := range fact.Snapshot.SignalReceipts() {
-			if receipt.ID() != signal.ID() {
-				continue
-			}
-			if !receipt.Matches(signal) {
-				return agent.ErrSignalConflict
-			}
-			return nil
+		if admitted, reconcileErr := r.reconcile(ctx, signal); admitted || reconcileErr != nil {
+			return reconcileErr
 		}
 	}
-	_, err = r.recipient.DeliverSignals(ctx, signal)
-	if err != nil {
+	if _, err := r.recipient.DeliverSignals(ctx, signal); err != nil {
 		return err
 	}
-	if first && r.firstAdmission != nil {
-		close(r.firstAdmission)
-		select {
-		case <-r.release:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if !first {
+		return nil
 	}
-	if first && r.lostAcknowledgment {
+	if err := r.holdFirstAdmission(ctx); err != nil {
+		return err
+	}
+	if r.lostAcknowledgment {
 		return errors.New("delivery acknowledgment lost")
 	}
 	return nil
+}
+
+// holdFirstAdmission keeps the first delivery unacknowledged until the test
+// releases it, so the sender stays behind an admitted but unconfirmed Signal.
+func (r *recipientPort) holdFirstAdmission(ctx context.Context) error {
+	if r.firstAdmission == nil {
+		return nil
+	}
+	close(r.firstAdmission)
+	select {
+	case <-r.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *recipientPort) record(signal agent.SignalRequest) (first bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, signal)
+	return len(r.calls) == 1
+}
+
+func (r *recipientPort) recordedCalls() []agent.SignalRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.calls)
+}
+
+// reconcile proves an earlier admission from the recipient's authoritative
+// receipts, which remain after the recipient has consumed or finished.
+func (r *recipientPort) reconcile(ctx context.Context, signal agent.SignalRequest) (bool, error) {
+	tree, err := r.engine.InspectTree(ctx, r.recipient.Relation().RootID())
+	if err != nil {
+		return false, err
+	}
+	fact, present := tree.Process(r.recipient.ID())
+	if !present {
+		return false, errors.New("recipient missing from tree inspection")
+	}
+	for _, receipt := range fact.Snapshot.SignalReceipts() {
+		if receipt.ID() != signal.ID() {
+			continue
+		}
+		if !receipt.Matches(signal) {
+			return false, agent.ErrSignalConflict
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func finish(t testing.TB, process *agent.Process) agent.Result {

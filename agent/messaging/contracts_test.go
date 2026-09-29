@@ -13,10 +13,7 @@ import (
 )
 
 func TestDispatcherRejectsNilContextBeforeProtocolValidation(t *testing.T) {
-	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: &recipientPort{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	dispatcher := newDispatcher(t, &recipientPort{})
 	defer func() {
 		if recover() == nil {
 			t.Fatal("nil context became a protocol result")
@@ -33,10 +30,7 @@ func TestMessageValidatesFrozenProtocol(t *testing.T) {
 			t.Fatalf("NewDispatcher with nil port = %v, %v", dispatcher, err)
 		}
 	}
-	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: &recipientPort{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	dispatcher := newDispatcher(t, &recipientPort{})
 	if _, dispatchErr := dispatcher.Dispatch(context.Background(), agent.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {
 		t.Fatalf("empty request=%v", dispatchErr)
 	}
@@ -102,25 +96,12 @@ func TestSenderConformsAndMessageEffectOwnsRecipient(t *testing.T) {
 
 func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
-		if err != nil {
-			t.Fatal(err)
-		}
-		receiver, err := engine.Start(t.Context(), bind(t, newGate(t), nil), input(t, "review"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		engine := newEngine(t, agent.NewMemoryTreeCommitter())
+		receiver := start(t, engine, bind(t, newGate(t), nil), input(t, "review"))
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, receiver).WaitID()
 		port := &recipientPort{engine: engine, recipient: receiver, firstAdmission: make(chan struct{}), release: make(chan struct{})}
-		dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: port})
-		if err != nil {
-			t.Fatal(err)
-		}
-		sender, err := engine.Start(t.Context(), bind(t, newSender(t), dispatcher), input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "review admitted")}))
-		if err != nil {
-			t.Fatal(err)
-		}
+		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "review admitted")}))
 		<-port.firstAdmission
 		if cancelErr := sender.RequestCancellation(t.Context(), "cancel while confirmation is pending"); cancelErr != nil {
 			t.Fatal(cancelErr)
@@ -137,10 +118,7 @@ func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 }
 
 func TestMalformedMessageSettlesBeforeDelivery(t *testing.T) {
-	dispatcher, err := messaging.NewDispatcher(messaging.DispatcherConfig{Port: rejectingDeliveryPort{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	dispatcher := newDispatcher(t, rejectingDeliveryPort{})
 	for _, raw := range []string{`null`, `{}`, `{"recipient":"process:peer","payload":null,"unknown":true}`} {
 		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
 		if effectErr != nil {

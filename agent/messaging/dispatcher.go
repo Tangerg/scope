@@ -10,22 +10,20 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// messageSignalPrefix is persisted in recipient receipts and replay identities.
-const messageSignalPrefix = "signal:message:"
-
 // ErrNilDeliveryPort rejects construction without a delivery authority.
 var ErrNilDeliveryPort = errors.New("messaging: delivery port is required")
 
 // DeliveryPort admits one Signal to the supplied concrete recipient. The
 // implementation owns destination authority and payload validation, preserves
-// the recipient across replay, and uses atomic single-Signal admission. A
-// nil error confirms that this exact Signal was admitted, either by this call
-// or an earlier identical delivery. New and duplicate admissions share the
-// same acknowledgment contract; the mailbox owns admission accounting. Errors
-// never prove the message was not admitted by this attempt or a previous one. Calls must
-// honor ctx, be bounded and concurrency-safe, and may reconcile authoritative
-// receipts before reporting a terminal recipient error. Retention must preserve
-// identity conflicts and admission evidence for the entire replay obligation.
+// the recipient across replay, and uses atomic single-Signal admission. A nil
+// error confirms that this exact Signal was admitted, either by this call or an
+// earlier identical delivery. New and duplicate admissions share the same
+// acknowledgment contract; the mailbox owns admission accounting. Errors never
+// prove the message was not admitted by this attempt or a previous one. Calls
+// must honor ctx, be bounded and concurrency-safe, and may reconcile
+// authoritative receipts before reporting a terminal recipient error. Retention
+// must preserve identity conflicts and admission evidence for the entire replay
+// obligation.
 type DeliveryPort interface {
 	Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error
 }
@@ -82,22 +80,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if err != nil {
 		return messageFailureSettlement(request.ID(), err)
 	}
-	id, err := agent.ParseSignalID(messageSignalPrefix + agent.ComputeDigest([]byte(request.ID().String())).String())
-	if err != nil {
-		return messageFailureSettlement(request.ID(), err)
-	}
-	var waitID agent.WaitID
-	if message.WaitID != nil {
-		waitID = *message.WaitID
-	}
-	signal, err := agent.NewSignalRequest(id, waitID, message.Payload.JSON())
+	signal, err := message.signalRequest(request.ID())
 	if err != nil {
 		return messageFailureSettlement(request.ID(), err)
 	}
 	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
 	}
-	payload, err := jsonv2.Marshal(Receipt{Recipient: message.Recipient, SignalID: id})
+	payload, err := jsonv2.Marshal(Receipt{Recipient: message.Recipient, SignalID: signal.ID()})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -106,7 +96,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
 
-// A failed payload carries a diagnostic string; a successful payload is Receipt.
 func messageFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {

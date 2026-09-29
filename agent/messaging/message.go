@@ -35,6 +35,23 @@ func (m Message) Effect() (agent.Effect, error) {
 	return agent.NewDispatcherEffect(payload)
 }
 
+// messageSignalPrefix is persisted in recipient receipts and replay identities.
+const messageSignalPrefix = "signal:message:"
+
+// signalRequest derives the SignalID from the sending EffectID, so every replay
+// of one Effect presents the recipient with the same identity.
+func (m Message) signalRequest(effectID agent.EffectID) (agent.SignalRequest, error) {
+	id, err := agent.ParseSignalID(messageSignalPrefix + agent.ComputeDigest([]byte(effectID.String())).String())
+	if err != nil {
+		return agent.SignalRequest{}, err
+	}
+	var waitID agent.WaitID
+	if m.WaitID != nil {
+		waitID = *m.WaitID
+	}
+	return agent.NewSignalRequest(id, waitID, m.Payload.JSON())
+}
+
 func decodeMessage(effect agent.Effect) (Message, error) {
 	if !effect.Valid() || effect.Target() != agent.EffectTargetDispatcher {
 		return Message{}, ErrInvalidMessage
