@@ -102,46 +102,34 @@ func restoreProcessState(
 	return process, nil
 }
 
+// Each intent is absent only when all of its wire members are; a partial
+// intent fails its constructor.
 func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
-	if wire.Failure != nil && !wire.Failure.Valid() {
-		return pendingControl{}, ErrInvalidFailure
-	}
-	var control pendingControl
+	control := pendingControl{pauseReason: wire.PauseReason}
+	var err error
 	if wire.Failure != nil {
+		if !wire.Failure.Valid() {
+			return pendingControl{}, ErrInvalidFailure
+		}
 		control.failure = *wire.Failure
 	}
 	if wire.KillReason != "" {
-		kill, err := newKillIntent(wire.KillReason)
-		if err != nil {
+		if control.kill, err = newKillIntent(wire.KillReason); err != nil {
 			return pendingControl{}, err
 		}
-		control.kill = kill
 	}
-	if (wire.DeadlineOwner == "") != (wire.DeadlineReason == "") {
-		return pendingControl{}, errInvalidTermination
-	}
-	if wire.DeadlineOwner != "" {
-		deadline, err := newDeadlineIntent(wire.DeadlineOwner, wire.DeadlineReason)
-		if err != nil {
+	if wire.DeadlineOwner != "" || wire.DeadlineReason != "" {
+		if control.deadline, err = newDeadlineIntent(wire.DeadlineOwner, wire.DeadlineReason); err != nil {
 			return pendingControl{}, err
 		}
-		control.deadline = deadline
 	}
-	if (wire.CancellationOwner == "") != (wire.CancellationReason == "") {
-		return pendingControl{}, errInvalidTermination
-	}
-	if wire.CancellationOwner != "" {
-		cancellation, err := newCancellationIntent(wire.CancellationOwner, wire.CancellationReason)
-		if err != nil {
+	if wire.CancellationOwner != "" || wire.CancellationReason != "" {
+		if control.cancellation, err = newCancellationIntent(wire.CancellationOwner, wire.CancellationReason); err != nil {
 			return pendingControl{}, err
 		}
-		control.cancellation = cancellation
 	}
-	if wire.PauseReason != "" {
-		if !validPauseReason(wire.PauseReason) {
-			return pendingControl{}, fmt.Errorf("pause reason must be non-empty, trimmed UTF-8 within %d bytes", maxPauseReasonBytes)
-		}
-		control.pauseReason = wire.PauseReason
+	if wire.PauseReason != "" && !validPauseReason(wire.PauseReason) {
+		return pendingControl{}, fmt.Errorf("pause reason must be non-empty, trimmed UTF-8 within %d bytes", maxPauseReasonBytes)
 	}
 	return control, nil
 }
