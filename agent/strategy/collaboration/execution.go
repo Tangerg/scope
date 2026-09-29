@@ -221,9 +221,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 	return e.afterActions(consumed)
 }
 
-// acceptTaskStarts adopts the ordered prefix of pending start settlements in
-// signals and reports whether every pending start has now settled.
-func (e *execution) acceptTaskStarts(signals []agent.Signal) (uint32, bool, error) {
+func (e *execution) acceptTaskStarts(signals []agent.Signal) (consumed uint32, settled bool, err error) {
 	batch, err := e.state.batch(e.definition)
 	if err != nil {
 		return 0, false, err
@@ -250,9 +248,7 @@ func (e *execution) acceptTaskStarts(signals []agent.Signal) (uint32, bool, erro
 	return uint32(count), count == pending, nil
 }
 
-// acceptControlResults adopts control results in declaration order after
-// consumed and reports whether every control has now settled.
-func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32) (uint32, bool, error) {
+func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32) (total uint32, settled bool, err error) {
 	tasks := e.state.taskIndex()
 	for index := range e.state.Controls {
 		receipt := &e.state.Controls[index]
@@ -262,12 +258,12 @@ func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32
 		if int(consumed) == len(signals) {
 			return consumed, false, nil
 		}
-		result, err := agent.ParseChildControlResult(signals[consumed])
-		if err != nil {
-			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		result, parseErr := agent.ParseChildControlResult(signals[consumed])
+		if parseErr != nil {
+			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, parseErr)
 		}
-		effect, err := receipt.Control.effect(tasks[receipt.Control.Task])
-		if err != nil || !result.Matches(effect) {
+		effect, effectErr := receipt.Control.effect(tasks[receipt.Control.Task])
+		if effectErr != nil || !result.Matches(effect) {
 			return 0, false, ErrInvalidProtocol
 		}
 		receipt.Result = &result

@@ -205,8 +205,7 @@ func (e executionState) validateFanoutBoundary(ctx context.Context, definition *
 type fanoutWindowSummary struct {
 	settled bool
 	started int
-	// failedAfterStart counts children whose completion failed after a start;
-	// they can exist only once the window wait has opened.
+	// failedAfterStart is legal only after the window wait has opened.
 	failedAfterStart int
 }
 

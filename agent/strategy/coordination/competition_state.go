@@ -140,8 +140,7 @@ func (f firstSuccessState) remaining() []agent.ProcessID {
 	return children
 }
 
-// waitSpec derives a fresh wait key from the observed outcome count, which
-// grows with every satisfied wait.
+// Every satisfied wait adds an outcome, so the outcome count keys a fresh wait.
 func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
 	key, err := agent.ParseWaitKey(fmt.Sprintf("%s.%d", firstSuccessWaitKeyPrefix, len(f.Outcomes)))
 	if err != nil {
