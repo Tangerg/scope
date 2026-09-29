@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 const (
 	maxIdentityBytes     = 256
+	processIDRandomBytes = 16
 	processIDPrefix      = "process:"
 	effectIDPrefix       = "effect:"
 	waitIDPrefix         = "wait:"
@@ -40,6 +42,14 @@ func parseHexIdentity(value, prefix string, size int) (identity, error) {
 		return identity{}, fmt.Errorf("%w: %w", ErrInvalidIdentity, err)
 	}
 	return identity{value: value}, nil
+}
+
+func randomHexIdentity(prefix string, size int) identity {
+	random := make([]byte, size)
+	// crypto/rand.Read fills the buffer or crashes the program; it never
+	// reports a partial read.
+	_, _ = rand.Read(random)
+	return identity{value: prefix + hex.EncodeToString(random)}
 }
 
 // Tags, identity parts, and decimal coordinates cannot contain NUL. Separating
@@ -91,6 +101,10 @@ type ProcessID struct{ identity }
 func ParseProcessID(value string) (ProcessID, error) {
 	id, err := parseIdentity("process ID", value)
 	return ProcessID{id}, err
+}
+
+func newProcessID() ProcessID {
+	return ProcessID{randomHexIdentity(processIDPrefix, processIDRandomBytes)}
 }
 
 func (p *ProcessID) UnmarshalText(text []byte) error {

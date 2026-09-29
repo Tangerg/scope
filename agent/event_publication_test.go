@@ -162,7 +162,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 			committer.mu.Lock()
 			head := committer.head
 			committer.mu.Unlock()
-			snapshot := snapshotByID(head.ProcessSnapshots(), event.ProcessID())
+			snapshot := head.state.processSnapshot(event.ProcessID())
 			if !snapshot.Valid() {
 				t.Errorf("%s published before Process admission", event.Name())
 				return

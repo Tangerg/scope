@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 )
@@ -30,9 +28,7 @@ func parseTreeIncarnationID(value string) (TreeIncarnationID, error) {
 }
 
 func newTreeIncarnationID() TreeIncarnationID {
-	var random [treeIncarnationRandomBytes]byte
-	rand.Read(random[:])
-	return TreeIncarnationID{identity{value: treeIncarnationIDPrefix + hex.EncodeToString(random[:])}}
+	return TreeIncarnationID{randomHexIdentity(treeIncarnationIDPrefix, treeIncarnationRandomBytes)}
 }
 
 func (t TreeIncarnationID) MarshalText() ([]byte, error) {

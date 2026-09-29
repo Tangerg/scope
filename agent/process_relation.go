@@ -68,6 +68,19 @@ func (p ProcessRelation) Valid() bool {
 		p.processID != p.parentID && p.processID != p.rootID
 }
 
+// childIdentity is the parent-scoped key that makes a child start idempotent.
+type childIdentity struct {
+	parent ProcessID
+	key    ChildKey
+}
+
+func (p ProcessRelation) childIdentity() (childIdentity, bool) {
+	if !p.parentID.Valid() || !p.childKey.Valid() {
+		return childIdentity{}, false
+	}
+	return childIdentity{parent: p.parentID, key: p.childKey}, true
+}
+
 type processRelationWire struct {
 	ParentID *ProcessID `json:"parent_id,omitzero"`
 	RootID   ProcessID  `json:"root_id"`

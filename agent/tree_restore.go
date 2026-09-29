@@ -103,12 +103,3 @@ func (t *treeRestoration) prepareChildWaits() error {
 	}
 	return nil
 }
-
-func snapshotByID(snapshots []ProcessSnapshot, id ProcessID) ProcessSnapshot {
-	for _, snapshot := range snapshots {
-		if snapshot.ProcessID() == id {
-			return snapshot
-		}
-	}
-	return ProcessSnapshot{}
-}

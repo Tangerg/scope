@@ -135,6 +135,11 @@ func (c ChildWaitSpec) wire() childWaitSpecWire {
 	}
 }
 
+func (c ChildWaitSpec) equal(other ChildWaitSpec) bool {
+	return c.Key == other.Key && c.Boundary == other.Boundary &&
+		c.Condition == other.Condition && slices.Equal(c.Children, other.Children)
+}
+
 func (c ChildWaitSpec) clone() ChildWaitSpec {
 	cloned := c
 	cloned.Children = slices.Clone(c.Children)
@@ -171,8 +176,7 @@ func (c ChildWaitOpened) Valid() bool { return c.waitID.Valid() && c.spec.Valid(
 
 // Matches binds the acknowledgment to the entire request, including child order.
 func (c ChildWaitOpened) Matches(spec ChildWaitSpec) bool {
-	return c.Valid() && c.spec.Key == spec.Key && c.spec.Boundary == spec.Boundary &&
-		c.spec.Condition == spec.Condition && slices.Equal(c.spec.Children, spec.Children)
+	return c.Valid() && c.spec.equal(spec)
 }
 
 // ParseChildWaitOpened decodes the settlement Signal produced by
@@ -238,9 +242,11 @@ func (c ChildOutcome) SubtreeUnresolvedEffects() ([]UnresolvedEffect, bool) {
 }
 
 func (c ChildOutcome) Valid() bool {
-	if !c.key.Valid() || !c.result.Valid() || !c.boundary.Valid() ||
-		c.boundary == ChildWaitBoundaryResult && len(c.subtreeUnresolvedEffects) != 0 {
+	if !c.key.Valid() || !c.result.Valid() || !c.boundary.Valid() {
 		return false
+	}
+	if c.boundary == ChildWaitBoundaryResult {
+		return len(c.subtreeUnresolvedEffects) == 0
 	}
 	var own []EffectID
 	for index, effect := range c.subtreeUnresolvedEffects {
@@ -251,19 +257,9 @@ func (c ChildOutcome) Valid() bool {
 			own = append(own, effect.EffectID)
 		}
 	}
-	if c.boundary != ChildWaitBoundaryDrained {
-		return true
-	}
-	expected := c.result.Termination().UnresolvedEffectIDs()
-	if len(own) != len(expected) {
-		return false
-	}
-	for _, id := range own {
-		if !slices.Contains(expected, id) {
-			return false
-		}
-	}
-	return true
+	// Both sides are canonically ordered, so the child's own entries must equal
+	// the unresolved identities its Termination retains.
+	return slices.Equal(own, c.result.Termination().UnresolvedEffectIDs())
 }
 
 func (c ChildOutcome) Matches(key ChildKey, processID ProcessID) bool {

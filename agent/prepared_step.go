@@ -70,6 +70,9 @@ func (p *preparedStep) consumedSignals() uint64 {
 }
 
 func (p *preparedStep) hasUnknownSettlement() bool {
+	if p == nil {
+		return false
+	}
 	for _, effect := range p.Effects {
 		if effect.unknown() {
 			return true

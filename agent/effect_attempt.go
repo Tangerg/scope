@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -31,9 +29,7 @@ func parseEffectAttemptID(value string) (EffectAttemptID, error) {
 }
 
 func newEffectAttemptID() EffectAttemptID {
-	var random [effectAttemptRandomBytes]byte
-	rand.Read(random[:])
-	return EffectAttemptID{identity{value: effectAttemptIDPrefix + hex.EncodeToString(random[:])}}
+	return EffectAttemptID{randomHexIdentity(effectAttemptIDPrefix, effectAttemptRandomBytes)}
 }
 
 func (e EffectAttemptID) MarshalText() ([]byte, error) {

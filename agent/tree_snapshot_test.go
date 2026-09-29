@@ -557,10 +557,10 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	if !childCheckpoint.Valid() || !childCheckpoint.PreviousTreeDigest().Valid() {
 		t.Fatalf("child checkpoint lacks durable tree facts: %#v", childCheckpoint)
 	}
-	if len(tree.ProcessSnapshots()) != 2 || !snapshotByID(tree.ProcessSnapshots(), wantChildID).Valid() {
+	if len(tree.ProcessSnapshots()) != 2 || !tree.state.processSnapshot(wantChildID).Valid() {
 		t.Fatalf("child outcome tree does not contain both Processes: %#v", tree.ProcessSnapshots())
 	}
-	parentWire, err := snapshotByID(tree.ProcessSnapshots(), root.ID()).wire()
+	parentWire, err := tree.state.processSnapshot(root.ID()).wire()
 	if err != nil || parentWire.Prepared == nil ||
 		!parentWire.Prepared.Effects[0].definitelySettled() {
 		t.Fatalf("parent child-start settlement is not atomic with child: %v", err)

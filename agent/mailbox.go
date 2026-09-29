@@ -346,6 +346,24 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	return receipts
 }
 
+func (m mailboxWire) openChildWaits() map[WaitID]*childWaitValidationFacts {
+	waits := make(map[WaitID]*childWaitValidationFacts)
+	for _, record := range m.Waits {
+		if record.Kind == WaitKindChildren && !record.Closed {
+			waits[record.WaitID] = &childWaitValidationFacts{record: record}
+		}
+	}
+	for _, signal := range m.Signals {
+		if signal.WaitID == nil {
+			continue
+		}
+		if facts := waits[*signal.WaitID]; facts != nil {
+			facts.signals = append(facts.signals, signal)
+		}
+	}
+	return waits
+}
+
 func (m mailboxWire) waitRecord(id WaitID) (waitRecordWire, bool) {
 	for _, record := range m.Waits {
 		if record.WaitID == id {

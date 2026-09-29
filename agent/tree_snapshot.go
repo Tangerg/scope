@@ -178,6 +178,15 @@ func (t treeSnapshotWire) clone() treeSnapshotWire {
 	return clone
 }
 
+func (t treeSnapshotWire) processSnapshot(id ProcessID) ProcessSnapshot {
+	for _, snapshot := range t.ProcessSnapshots {
+		if snapshot.ProcessID() == id {
+			return snapshot
+		}
+	}
+	return ProcessSnapshot{}
+}
+
 func (t *treeSnapshotWire) normalize() {
 	slices.SortFunc(t.ProcessSnapshots, compareSnapshots)
 	slices.SortFunc(t.ChildWaits, func(left, right childWaitSnapshotWire) int {
@@ -255,37 +264,42 @@ func (t *treeSnapshotValidation) validateRelations() error {
 		if id == t.wire.RootID {
 			continue
 		}
-		parentID, child := relation.ParentID()
-		key, keyed := relation.ChildKey()
-		parent, parentExists := t.processes[parentID]
-		if !child || !keyed || !parentExists {
-			return fmt.Errorf("%w: child parent is absent", ErrInvalidTreeSnapshot)
+		if err := t.recordChild(relation, processWire); err != nil {
+			return err
 		}
-		parentRelation := mustProcessRelation(parentID, parent.Relation)
-		identity := childIdentity{parent: parentID, key: key}
-		if relation.Depth() != parentRelation.Depth()+1 ||
-			processWire.Limits.MaxPendingSignals != parent.Limits.MaxPendingSignals || processWire.Limits.MaxSnapshotBytes != parent.Limits.MaxSnapshotBytes ||
-			!parent.Capabilities.Allows(processWire.Capabilities) {
-			return fmt.Errorf("%w: invalid child relation, capacity, or attenuation", ErrInvalidTreeSnapshot)
-		}
-		if _, duplicate := t.children[identity]; duplicate {
-			return fmt.Errorf("%w: duplicate parent-scoped ChildKey", ErrInvalidTreeSnapshot)
-		}
-		t.children[identity] = id
-		t.childCounts[parentID]++
-		if !processWire.Status.Terminal() {
-			t.activeChildCounts[parentID]++
-		}
-		debit, ok := parent.Limits.Budget.allocation(processWire.Limits.Budget)
-		if !ok {
-			return fmt.Errorf("%w: child grant exceeds parent authority", ErrInvalidTreeSnapshot)
-		}
-		allocated, ok := t.allocatedResources[parentID].add(debit)
-		if !ok {
-			return fmt.Errorf("%w: child budget overflow", ErrInvalidTreeSnapshot)
-		}
-		t.allocatedResources[parentID] = allocated
 	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child processSnapshotWire) error {
+	identity, isChild := relation.childIdentity()
+	parent, parentExists := t.processes[identity.parent]
+	if !isChild || !parentExists {
+		return fmt.Errorf("%w: child parent is absent", ErrInvalidTreeSnapshot)
+	}
+	parentRelation := mustProcessRelation(identity.parent, parent.Relation)
+	if relation.Depth() != parentRelation.Depth()+1 ||
+		child.Limits.MaxPendingSignals != parent.Limits.MaxPendingSignals || child.Limits.MaxSnapshotBytes != parent.Limits.MaxSnapshotBytes ||
+		!parent.Capabilities.Allows(child.Capabilities) {
+		return fmt.Errorf("%w: invalid child relation, capacity, or attenuation", ErrInvalidTreeSnapshot)
+	}
+	if _, duplicate := t.children[identity]; duplicate {
+		return fmt.Errorf("%w: duplicate parent-scoped ChildKey", ErrInvalidTreeSnapshot)
+	}
+	t.children[identity] = relation.ProcessID()
+	t.childCounts[identity.parent]++
+	if !child.Status.Terminal() {
+		t.activeChildCounts[identity.parent]++
+	}
+	debit, ok := parent.Limits.Budget.allocation(child.Limits.Budget)
+	if !ok {
+		return fmt.Errorf("%w: child grant exceeds parent authority", ErrInvalidTreeSnapshot)
+	}
+	allocated, ok := t.allocatedResources[identity.parent].add(debit)
+	if !ok {
+		return fmt.Errorf("%w: child budget overflow", ErrInvalidTreeSnapshot)
+	}
+	t.allocatedResources[identity.parent] = allocated
 	return nil
 }
 
@@ -307,60 +321,48 @@ type childWaitValidationFacts struct {
 }
 
 func (t *treeSnapshotValidation) validateChildWaits() error {
-	mailboxes := make(map[ProcessID]map[WaitID]*childWaitValidationFacts)
+	openWaits := make(map[ProcessID]map[WaitID]*childWaitValidationFacts, len(t.wire.ProcessSnapshots))
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		mailbox := snapshot.state.Mailbox
-		waits := make(map[WaitID]*childWaitValidationFacts)
-		for _, record := range mailbox.Waits {
-			if record.Kind == WaitKindChildren && !record.Closed {
-				waits[record.WaitID] = &childWaitValidationFacts{record: record}
-			}
-		}
-		if len(waits) == 0 {
-			continue
-		}
-		for _, signal := range mailbox.Signals {
-			if signal.WaitID == nil {
-				continue
-			}
-			if facts := waits[*signal.WaitID]; facts != nil {
-				facts.signals = append(facts.signals, signal)
-			}
-		}
-		mailboxes[snapshot.ProcessID()] = waits
+		openWaits[snapshot.ProcessID()] = snapshot.state.Mailbox.openChildWaits()
 	}
 	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
 	for _, encoded := range t.wire.ChildWaits {
-		parent, exists := t.processes[encoded.ParentProcessID]
-		spec, err := encoded.Spec.value()
-		if !exists || err != nil || !encoded.WaitID.Valid() || parent.Status.Terminal() {
-			return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
-		}
 		if _, duplicate := waitOwners[encoded.WaitID]; duplicate {
 			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
-		facts := mailboxes[encoded.ParentProcessID][encoded.WaitID]
-		if facts == nil || facts.record.WaitKey != spec.Key {
-			return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
-		}
-		if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
+		facts := openWaits[encoded.ParentProcessID][encoded.WaitID]
+		if err := t.validateChildWaitRegistration(encoded, facts); err != nil {
 			return err
-		}
-		if err := spec.validateRelations(encoded.ParentProcessID, t.processRelation); err != nil {
-			return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 		}
 		waitOwners[encoded.WaitID] = encoded.ParentProcessID
 	}
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		processWire := snapshot.state
-		for _, wait := range processWire.Mailbox.Waits {
-			if wait.Kind != WaitKindChildren || wait.Closed {
-				continue
-			}
-			if waitOwners[wait.WaitID] != processWire.ProcessID {
+		for waitID := range openWaits[snapshot.ProcessID()] {
+			if waitOwners[waitID] != snapshot.ProcessID() {
 				return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
 			}
 		}
+	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) validateChildWaitRegistration(
+	encoded childWaitSnapshotWire,
+	facts *childWaitValidationFacts,
+) error {
+	parent, exists := t.processes[encoded.ParentProcessID]
+	spec, err := encoded.Spec.value()
+	if !exists || err != nil || !encoded.WaitID.Valid() || parent.Status.Terminal() {
+		return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
+	}
+	if facts == nil || facts.record.WaitKey != spec.Key {
+		return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
+	}
+	if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
+		return err
+	}
+	if err := spec.validateRelations(encoded.ParentProcessID, t.processRelation); err != nil {
+		return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
 	return nil
 }
@@ -405,33 +407,31 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecord
 	}
 	openedDigest := ComputeDigest(opened)
 	for _, record := range signals {
-		if record.OpensWait {
-			if record.PayloadDigest != openedDigest {
-				return fmt.Errorf("%w: child wait disagrees with its opening Signal", ErrInvalidTreeSnapshot)
+		if !record.OpensWait {
+			if err := t.validateChildWaitSatisfaction(record, waitID, spec); err != nil {
+				return err
 			}
 			continue
 		}
-		signal, signalErr := NewSignal(record.ID, waitID, record.Payload)
-		if signalErr != nil {
-			return fmt.Errorf("%w: invalid child wait Signal: %w", ErrInvalidTreeSnapshot, signalErr)
+		if record.PayloadDigest != openedDigest {
+			return fmt.Errorf("%w: child wait disagrees with its opening Signal", ErrInvalidTreeSnapshot)
 		}
-		satisfied, parseErr := ParseChildWaitSatisfied(signal)
-		if parseErr != nil || record.ID != waitID.childWaitSignalID() ||
-			satisfied.Key() != spec.Key || satisfied.Boundary() != spec.Boundary {
-			return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
-		}
-		if uint32(len(satisfied.outcomes)) < spec.required() {
-			return fmt.Errorf("%w: child wait condition is unsatisfied", ErrInvalidTreeSnapshot)
-		}
-		index := 0
-		for _, outcome := range satisfied.outcomes {
-			for index < len(spec.Children) && spec.Children[index] != outcome.result.ProcessID() {
-				index++
-			}
-			if index == len(spec.Children) || !t.matchesChildWaitOutcome(outcome, spec.Boundary) {
-				return fmt.Errorf("%w: child wait outcome disagrees with its tree", ErrInvalidTreeSnapshot)
-			}
-			index++
+	}
+	return nil
+}
+
+func (t *treeSnapshotValidation) validateChildWaitSatisfaction(record signalRecordWire, waitID WaitID, spec ChildWaitSpec) error {
+	signal, err := NewSignal(record.ID, waitID, record.Payload)
+	if err != nil {
+		return fmt.Errorf("%w: invalid child wait Signal: %w", ErrInvalidTreeSnapshot, err)
+	}
+	satisfied, err := ParseChildWaitSatisfied(signal)
+	if err != nil || record.ID != waitID.childWaitSignalID() || !satisfied.Matches(waitID, spec) {
+		return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
+	}
+	for _, outcome := range satisfied.outcomes {
+		if !t.matchesChildWaitOutcome(outcome, spec.Boundary) {
+			return fmt.Errorf("%w: child wait outcome disagrees with its tree", ErrInvalidTreeSnapshot)
 		}
 	}
 	return nil

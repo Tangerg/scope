@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -141,31 +139,38 @@ func (e *Engine) FlushDeltas(ctx context.Context) error {
 	return e.observation.flushDeltas(ctx)
 }
 
+func (e EngineConfig) validateCollaborators() error {
+	if lo.IsNil(e.TreeCommitter) {
+		return fmt.Errorf("%w: TreeCommitter is required", ErrInvalidEngineConfig)
+	}
+	if e.ProcessInitializationOutcomeAcknowledger != nil && lo.IsNil(e.ProcessInitializationOutcomeAcknowledger) {
+		return fmt.Errorf("%w: ProcessInitializationOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
+	}
+	if e.DeploymentResolver != nil && lo.IsNil(e.DeploymentResolver) {
+		return fmt.Errorf("%w: DeploymentResolver is typed nil", ErrInvalidEngineConfig)
+	}
+	if e.ProcessAdmitter != nil && lo.IsNil(e.ProcessAdmitter) {
+		return fmt.Errorf("%w: ProcessAdmitter is typed nil", ErrInvalidEngineConfig)
+	}
+	for index, listener := range e.EventListeners {
+		if lo.IsNil(listener) {
+			return fmt.Errorf("%w: EventListeners[%d] is nil", ErrInvalidEngineConfig, index)
+		}
+	}
+	for index, listener := range e.DeltaListeners {
+		if lo.IsNil(listener) {
+			return fmt.Errorf("%w: DeltaListeners[%d] is nil", ErrInvalidEngineConfig, index)
+		}
+	}
+	return nil
+}
+
 func NewEngine(config EngineConfig) (*Engine, error) {
 	if config.DeltaBufferCapacity < 0 {
 		return nil, fmt.Errorf("%w: DeltaBufferCapacity must not be negative", ErrInvalidEngineConfig)
 	}
-	if lo.IsNil(config.TreeCommitter) {
-		return nil, fmt.Errorf("%w: TreeCommitter is required", ErrInvalidEngineConfig)
-	}
-	if config.ProcessInitializationOutcomeAcknowledger != nil && lo.IsNil(config.ProcessInitializationOutcomeAcknowledger) {
-		return nil, fmt.Errorf("%w: ProcessInitializationOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
-	}
-	if config.DeploymentResolver != nil && lo.IsNil(config.DeploymentResolver) {
-		return nil, fmt.Errorf("%w: DeploymentResolver is typed nil", ErrInvalidEngineConfig)
-	}
-	if config.ProcessAdmitter != nil && lo.IsNil(config.ProcessAdmitter) {
-		return nil, fmt.Errorf("%w: ProcessAdmitter is typed nil", ErrInvalidEngineConfig)
-	}
-	for index, listener := range config.EventListeners {
-		if lo.IsNil(listener) {
-			return nil, fmt.Errorf("%w: EventListeners[%d] is nil", ErrInvalidEngineConfig, index)
-		}
-	}
-	for index, listener := range config.DeltaListeners {
-		if lo.IsNil(listener) {
-			return nil, fmt.Errorf("%w: DeltaListeners[%d] is nil", ErrInvalidEngineConfig, index)
-		}
+	if err := config.validateCollaborators(); err != nil {
+		return nil, err
 	}
 	capacity := config.DeltaBufferCapacity
 	if capacity == 0 {
@@ -201,11 +206,6 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		children:                          make(map[childIdentity]ProcessID),
 		childStartReservations:            make(map[childIdentity]ProcessID),
 	}, nil
-}
-
-type childIdentity struct {
-	parent ProcessID
-	key    ChildKey
 }
 
 // Start keeps ctx attached to the resulting tree so Host cancellation and
@@ -412,20 +412,27 @@ func (e *Engine) reserveProcessStart(
 	if e.closeDone != nil {
 		return ErrEngineClosed
 	}
-	processID := relation.ProcessID()
-	if _, exists := e.processes[processID]; exists {
-		return ErrProcessAlreadyExists
-	}
-	if _, exists := e.startReservations[processID]; exists {
-		return ErrProcessAlreadyExists
-	}
-	if e.restoredProcesses[processID] != nil {
+	if e.processIdentityTaken(relation.ProcessID()) {
 		return ErrProcessAlreadyExists
 	}
 	if relation.IsRoot() {
 		return e.reserveRootStart(reservation)
 	}
 	return e.reserveChildStart(reservation)
+}
+
+// processIdentityTaken and childIdentityTaken require e.mu. Published,
+// starting, and restoring Processes reserve the same identity space.
+func (e *Engine) processIdentityTaken(processID ProcessID) bool {
+	_, published := e.processes[processID]
+	_, starting := e.startReservations[processID]
+	return published || starting || e.restoredProcesses[processID] != nil
+}
+
+func (e *Engine) childIdentityTaken(identity childIdentity) bool {
+	_, published := e.children[identity]
+	_, starting := e.childStartReservations[identity]
+	return published || starting || e.restoredChildren[identity] != nil
 }
 
 // Hold e.mu so root publication cannot overtake its admission reservation.
@@ -440,30 +447,18 @@ func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 // The tree owner admits resources; e.mu reserves global identities atomically.
 func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	relation := reservation.relation
-	treeLimits := reservation.treeLimits
-	if !reservation.childRequestDigest.Valid() {
+	identity, isChild := relation.childIdentity()
+	if !reservation.childRequestDigest.Valid() || !isChild {
 		return ErrInvalidProcessRelation
 	}
-	parentID, child := relation.ParentID()
-	key, keyed := relation.ChildKey()
-	if !child || !keyed {
-		return ErrInvalidProcessRelation
-	}
-	identity := childIdentity{parent: parentID, key: key}
-	if _, exists := e.children[identity]; exists {
+	if e.childIdentityTaken(identity) {
 		return ErrInvalidChildStart
 	}
-	if _, exists := e.childStartReservations[identity]; exists {
-		return ErrInvalidChildStart
-	}
-	if e.restoredChildren[identity] != nil {
-		return ErrInvalidChildStart
-	}
-	parent := e.processes[parentID]
+	parent := e.processes[identity.parent]
 	if parent == nil {
 		return ErrInvalidProcessRelation
 	}
-	if treeLimits != parent.treeLimits || relation.depth > treeLimits.MaxDepth {
+	if reservation.treeLimits != parent.treeLimits || relation.depth > reservation.treeLimits.MaxDepth {
 		return ErrResourceLimitExceeded
 	}
 	processID := relation.ProcessID()
@@ -480,12 +475,8 @@ func (e *Engine) discardProcessStart(processID ProcessID) {
 		return
 	}
 	delete(e.startReservations, processID)
-	if parentID, child := reservation.relation.ParentID(); child {
-		key, _ := reservation.relation.ChildKey()
-		identity := childIdentity{parent: parentID, key: key}
-		if e.childStartReservations[identity] == processID {
-			delete(e.childStartReservations, identity)
-		}
+	if identity, child := reservation.relation.childIdentity(); child && e.childStartReservations[identity] == processID {
+		delete(e.childStartReservations, identity)
 	}
 }
 
@@ -499,32 +490,25 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
-	var identity childIdentity
-	parentID, isChild := handle.relation.ParentID()
+	runtime := handle.runtime.Load()
+	identity, isChild := handle.relation.childIdentity()
 	if isChild {
-		key, _ := handle.relation.ChildKey()
-		identity = childIdentity{parent: parentID, key: key}
-		if e.childStartReservations[identity] != handle.processID ||
-			e.children[identity].Valid() {
+		parent := e.processes[identity.parent]
+		if e.childStartReservations[identity] != handle.processID || e.children[identity].Valid() ||
+			parent == nil || runtime == nil || runtime != parent.runtime.Load() {
 			panic("agent: invalid child Process start reservation")
 		}
+	} else if runtime == nil || e.trees[handle.processID] != nil {
+		panic("agent: invalid root tree runtime")
 	}
 	delete(e.startReservations, handle.processID)
 	handle.childRequestDigest = reservation.childRequestDigest
 	e.processes[handle.processID] = handle
-	if handle.relation.IsRoot() {
-		if handle.runtime.Load() == nil || e.trees[handle.processID] != nil {
-			panic("agent: invalid root tree runtime")
-		}
-		e.trees[handle.processID] = handle.runtime.Load()
-	}
 	if isChild {
-		parent := e.processes[parentID]
-		if parent == nil || handle.runtime.Load() == nil || handle.runtime.Load() != parent.runtime.Load() {
-			panic("agent: invalid child tree runtime")
-		}
 		delete(e.childStartReservations, identity)
 		e.children[identity] = handle.processID
+	} else {
+		e.trees[handle.processID] = runtime
 	}
 }
 
@@ -633,9 +617,8 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	}
 	for processID, process := range runtime.processes {
 		handle := process.handle
-		if parentID, child := handle.relation.ParentID(); child {
-			key, _ := handle.relation.ChildKey()
-			delete(e.children, childIdentity{parent: parentID, key: key})
+		if identity, child := handle.relation.childIdentity(); child {
+			delete(e.children, identity)
 		}
 		handle.runtime.Store(nil)
 		delete(e.processes, processID)
@@ -769,7 +752,7 @@ func (e *Engine) newRestoration(
 	if err != nil {
 		return nil, err
 	}
-	rootSnapshot := snapshotByID(wire.ProcessSnapshots, wire.RootID)
+	rootSnapshot := wire.processSnapshot(wire.RootID)
 	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
 		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
 	}
@@ -814,35 +797,18 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 		return ErrProcessAlreadyExists
 	}
 	for _, process := range restoration.wire.ProcessSnapshots {
-		if _, exists := e.processes[process.ProcessID()]; exists {
+		if e.processIdentityTaken(process.ProcessID()) {
 			return ErrProcessAlreadyExists
 		}
-		if _, exists := e.startReservations[process.ProcessID()]; exists {
-			return ErrProcessAlreadyExists
-		}
-		if e.restoredProcesses[process.ProcessID()] != nil {
-			return ErrProcessAlreadyExists
-		}
-		if parentID, child := process.Relation().ParentID(); child {
-			key, _ := process.Relation().ChildKey()
-			identity := childIdentity{parent: parentID, key: key}
-			if _, exists := e.children[identity]; exists {
-				return ErrInvalidChildStart
-			}
-			if _, exists := e.childStartReservations[identity]; exists {
-				return ErrInvalidChildStart
-			}
-			if e.restoredChildren[identity] != nil {
-				return ErrInvalidChildStart
-			}
+		if identity, child := process.Relation().childIdentity(); child && e.childIdentityTaken(identity) {
+			return ErrInvalidChildStart
 		}
 	}
 	e.treeRestoreReservations[rootID] = restoration
 	for _, process := range restoration.wire.ProcessSnapshots {
 		e.restoredProcesses[process.ProcessID()] = restoration
-		if parentID, child := process.Relation().ParentID(); child {
-			key, _ := process.Relation().ChildKey()
-			e.restoredChildren[childIdentity{parent: parentID, key: key}] = restoration
+		if identity, child := process.Relation().childIdentity(); child {
+			e.restoredChildren[identity] = restoration
 		}
 	}
 	return nil
@@ -852,9 +818,8 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 func (e *Engine) releaseRestoredTree(restoration *treeRestoration) {
 	for _, process := range restoration.wire.ProcessSnapshots {
 		delete(e.restoredProcesses, process.ProcessID())
-		if parentID, child := process.Relation().ParentID(); child {
-			key, _ := process.Relation().ChildKey()
-			delete(e.restoredChildren, childIdentity{parent: parentID, key: key})
+		if identity, child := process.Relation().childIdentity(); child {
+			delete(e.restoredChildren, identity)
 		}
 	}
 	delete(e.treeRestoreReservations, restoration.wire.RootID)
@@ -886,9 +851,8 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 			panic("agent: restored Process reservation changed")
 		}
 		e.processes[handle.processID] = handle
-		if parentID, child := handle.relation.ParentID(); child {
-			key, _ := handle.relation.ChildKey()
-			e.children[childIdentity{parent: parentID, key: key}] = handle.processID
+		if identity, child := handle.relation.childIdentity(); child {
+			e.children[identity] = handle.processID
 		}
 	}
 	e.trees[rootID] = runtime
@@ -939,14 +903,6 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 		return nil, ErrInvalidProcessRelation
 	}
 	return runtime, nil
-}
-
-func newProcessID() ProcessID {
-	var random [16]byte
-	// crypto/rand.Read fills b entirely or crashes the program; it never
-	// reports a partial read.
-	_, _ = rand.Read(random[:])
-	return ProcessID{identity{value: processIDPrefix + hex.EncodeToString(random[:])}}
 }
 
 type processStartReservation struct {

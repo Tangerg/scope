@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"strconv"
 )
 
@@ -149,47 +150,28 @@ func (e EffectBoundary) Valid() bool {
 		return false
 	}
 	incarnationID := e.treeSnapshot.IncarnationID()
-	if !incarnationID.Valid() || e.request.incarnationID != incarnationID {
-		return false
-	}
-	if !e.matchesProspectiveTree() {
-		return false
-	}
-	switch e.kind {
-	case EffectBoundaryKindPending:
+	return incarnationID.Valid() && e.request.incarnationID == incarnationID &&
+		e.matchesProspectiveTree() && e.settlementMatchesKind()
+}
+
+func (e EffectBoundary) settlementMatchesKind() bool {
+	if e.kind == EffectBoundaryKindPending {
 		return !e.settlement.Valid()
-	case EffectBoundaryKindSettled:
-		return e.settlement.Valid() &&
-			e.settlement.EffectID() == e.request.ID()
-	case EffectBoundaryKindResolved:
-		return e.settlement.Valid() &&
-			e.settlement.Status() != SettlementStatusUnknown &&
-			e.settlement.EffectID() == e.request.ID()
-	default:
+	}
+	if !e.settlement.Valid() || e.settlement.EffectID() != e.request.ID() {
 		return false
 	}
+	return e.kind != EffectBoundaryKindResolved || e.settlement.Status() != SettlementStatusUnknown
 }
 
 func (e EffectBoundary) matchesProspectiveTree() bool {
-	var processSnapshot ProcessSnapshot
-	for _, candidate := range e.treeSnapshot.state.ProcessSnapshots {
-		if candidate.ProcessID() == e.request.ProcessID() {
-			processSnapshot = candidate
-			break
-		}
-	}
-	if !processSnapshot.Valid() || processSnapshot.DeploymentRef() != e.request.DeploymentRef() ||
-		processSnapshot.Relation() != e.request.Relation() {
+	process := e.treeSnapshot.state.processSnapshot(e.request.ProcessID())
+	if !process.Valid() || process.DeploymentRef() != e.request.DeploymentRef() ||
+		process.Relation() != e.request.Relation() {
 		return false
 	}
-	wire := processSnapshot.state
-	if wire.Prepared == nil ||
-		wire.Prepared.StepSequence != e.request.StepSequence() ||
-		uint64(e.request.BatchIndex()) >= uint64(len(wire.Prepared.Effects)) {
-		return false
-	}
-	record := wire.Prepared.Effects[e.request.BatchIndex()]
-	if record.ID != e.request.ID() || !record.Effect.equal(e.request.effect) {
+	record, found := process.preparedEffect(e.request.StepSequence(), e.request.BatchIndex())
+	if !found || record.ID != e.request.ID() || !record.Effect.equal(e.request.effect) {
 		return false
 	}
 	if e.kind == EffectBoundaryKindPending {
@@ -321,24 +303,30 @@ func (t TreeCheckpoint) matchesSafeCut() bool {
 	if t.kind == TreeCheckpointKindSignals || t.kind == TreeCheckpointKindChildStart {
 		return true
 	}
-	allTerminal := true
-	parked := true
-	for _, snapshot := range t.treeSnapshot.state.ProcessSnapshots {
-		if snapshot.Status().Terminal() {
+	return t.kind == classifyCheckpointCut(func(yield func(Status, *preparedStep) bool) {
+		for _, snapshot := range t.treeSnapshot.state.ProcessSnapshots {
+			if !yield(snapshot.Status(), snapshot.state.Prepared) {
+				return
+			}
+		}
+	})
+}
+
+// classifyCheckpointCut is the one rule shared by the runtime choosing a
+// checkpoint kind and a store validating it. A live member blocks progress
+// only while waiting, paused, or holding an Unknown settlement.
+func classifyCheckpointCut(members iter.Seq2[Status, *preparedStep]) TreeCheckpointKind {
+	kind := TreeCheckpointKindTerminal
+	for status, prepared := range members {
+		if status.Terminal() {
 			continue
 		}
-		allTerminal = false
-		if snapshot.Status() == StatusWaiting || snapshot.Status() == StatusPaused {
-			continue
+		if status != StatusWaiting && status != StatusPaused && !prepared.hasUnknownSettlement() {
+			return TreeCheckpointKindProgress
 		}
-		wire := snapshot.state
-		if wire.Prepared == nil || len(wire.Prepared.Effects.unknownEffectIDs()) == 0 {
-			parked = false
-		}
+		kind = TreeCheckpointKindParked
 	}
-	return t.kind == TreeCheckpointKindTerminal && allTerminal ||
-		t.kind == TreeCheckpointKindParked && !allTerminal && parked ||
-		t.kind == TreeCheckpointKindProgress && !parked
+	return kind
 }
 
 // TreeActivation changes writer identity and recovery state together so the

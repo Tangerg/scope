@@ -95,7 +95,7 @@ func (c childWaitOperation) validate(p *preparedEffect) error {
 	if err != nil {
 		return err
 	}
-	if opened.Operation != childSignalWaitOpened || got.Key != c.spec.Key || got.Boundary != c.spec.Boundary || got.Condition != c.spec.Condition || !slices.Equal(got.Children, c.spec.Children) {
+	if opened.Operation != childSignalWaitOpened || !got.equal(c.spec) {
 		return errors.New("child-wait Effect settlement differs from its request")
 	}
 	return nil

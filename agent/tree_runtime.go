@@ -1030,22 +1030,13 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 }
 
 func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
-	allTerminal := true
-	for _, process := range t.processes {
-		if process.status.Terminal() {
-			continue
+	return classifyCheckpointCut(func(yield func(Status, *preparedStep) bool) {
+		for _, process := range t.processes {
+			if !yield(process.status, process.prepared) {
+				return
+			}
 		}
-		allTerminal = false
-		if process.status == StatusWaiting || process.status == StatusPaused ||
-			process.prepared != nil && process.prepared.hasUnknownSettlement() {
-			continue
-		}
-		return TreeCheckpointKindProgress
-	}
-	if allTerminal {
-		return TreeCheckpointKindTerminal
-	}
-	return TreeCheckpointKindParked
+	})
 }
 
 func (t *treeRuntime) stageTerminal(process *processState) {
