@@ -24,7 +24,12 @@ const (
 	compositionChildBudgetSteps   = 20
 	compositionChildBudgetEffects = 20
 	compositionChildBudgetSignals = 40
+	compositionWaitKey            = "composition"
 )
+
+// compositionChildKeys orders the local child before the model child; child
+// start results and wait outcomes are validated against this order.
+var compositionChildKeys = [compositionChildCount]string{"local", "model"}
 
 func main() {
 	if err := run(context.Background(), os.Stdout); err != nil {
@@ -290,25 +295,40 @@ type compositionState struct {
 }
 
 func (c compositionState) validate() error {
+	valid := false
 	switch c.Phase {
 	case compositionReady, compositionAwaitingChildStarts, compositionCompleted:
-		if len(c.ChildIDs) != 0 || c.WaitID != nil {
-			return agent.ErrInvalidExecutionState
-		}
-	case compositionAwaitingChildWaitOpen, compositionWaitingChildren:
-		if len(c.ChildIDs) != compositionChildCount || !c.ChildIDs[0].Valid() || !c.ChildIDs[1].Valid() || c.ChildIDs[0] == c.ChildIDs[1] {
-			return agent.ErrInvalidExecutionState
-		}
-		if c.Phase == compositionAwaitingChildWaitOpen && c.WaitID != nil {
-			return agent.ErrInvalidExecutionState
-		}
-		if c.Phase == compositionWaitingChildren && (c.WaitID == nil || !c.WaitID.Valid()) {
-			return agent.ErrInvalidExecutionState
-		}
-	default:
+		valid = len(c.ChildIDs) == 0 && c.WaitID == nil
+	case compositionAwaitingChildWaitOpen:
+		valid = c.validChildren() && c.WaitID == nil
+	case compositionWaitingChildren:
+		valid = c.validChildren() && c.WaitID != nil && c.WaitID.Valid()
+	}
+	if !valid {
 		return agent.ErrInvalidExecutionState
 	}
 	return nil
+}
+
+func (c compositionState) validChildren() bool {
+	return len(c.ChildIDs) == compositionChildCount && c.ChildIDs[0].Valid() && c.ChildIDs[1].Valid() &&
+		c.ChildIDs[0] != c.ChildIDs[1]
+}
+
+func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
+	if c.WaitID == nil || completed.WaitID() != *c.WaitID || completed.Key().String() != compositionWaitKey {
+		return nil, errors.New("composition received another wait's result")
+	}
+	outcomes := completed.Outcomes()
+	if len(outcomes) != compositionChildCount {
+		return nil, agent.ErrInvalidChildWait
+	}
+	for index, outcome := range outcomes {
+		if outcome.Key().String() != compositionChildKeys[index] || outcome.Result().ProcessID() != c.ChildIDs[index] {
+			return nil, agent.ErrInvalidChildWait
+		}
+	}
+	return outcomes, nil
 }
 
 type compositionExecution struct {
@@ -338,7 +358,7 @@ func (c *compositionExecution) Step(
 			return agent.Transition{}, err
 		}
 		spec := opened.Spec()
-		if spec.Key.String() != "composition" || !slices.Equal(spec.Children, c.state.ChildIDs) || spec.Condition != agent.AllChildren() {
+		if spec.Key.String() != compositionWaitKey || !slices.Equal(spec.Children, c.state.ChildIDs) || spec.Condition != agent.AllChildren() {
 			return agent.Transition{}, agent.ErrInvalidChildWait
 		}
 		waitID := opened.WaitID()
@@ -363,11 +383,11 @@ func (c *compositionExecution) startChildren() (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	localKey, err := agent.ParseChildKey("local")
+	localKey, err := agent.ParseChildKey(compositionChildKeys[0])
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	modelKey, err := agent.ParseChildKey("model")
+	modelKey, err := agent.ParseChildKey(compositionChildKeys[1])
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -396,7 +416,6 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, errors.New("composition requires two child-start results")
 	}
 	children := make([]agent.ProcessID, compositionChildCount)
-	keys := [...]string{"local", "model"}
 	references := [...]agent.DeploymentRef{c.local, c.model}
 	var failure *agent.Failure
 	for index, signal := range signals {
@@ -404,7 +423,7 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		if started.Key().String() != keys[index] || started.DeploymentRef() != references[index] {
+		if started.Key().String() != compositionChildKeys[index] || started.DeploymentRef() != references[index] {
 			return agent.Transition{}, agent.ErrInvalidChildStart
 		}
 		if startFailure, failed := started.Failure(); failed {
@@ -422,7 +441,7 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 	if failure != nil {
 		return agent.Fail(compositionChildCount, *failure)
 	}
-	waitKey, err := agent.ParseWaitKey("composition")
+	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -448,21 +467,12 @@ func (c *compositionExecution) complete(
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if c.state.WaitID == nil || completed.WaitID() != *c.state.WaitID || completed.Key().String() != "composition" {
-		return agent.Transition{}, errors.New("composition received another wait's result")
+	outcomes, err := c.state.waitOutcomes(completed)
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	outcomes := completed.Outcomes()
-	if len(outcomes) != compositionChildCount {
-		return agent.Transition{}, agent.ErrInvalidChildWait
-	}
-	keys := [...]string{"local", "model"}
+	var payloads [compositionChildCount]agent.Payload
 	for index, outcome := range outcomes {
-		if outcome.Key().String() != keys[index] || outcome.Result().ProcessID() != c.state.ChildIDs[index] {
-			return agent.Transition{}, agent.ErrInvalidChildWait
-		}
-	}
-	var output compositionOutput
-	for _, outcome := range outcomes {
 		result := outcome.Result()
 		if result.Status() != agent.StatusCompleted {
 			failure, failureErr := agent.NewFailure(
@@ -477,20 +487,11 @@ func (c *compositionExecution) complete(
 		if !present {
 			return agent.Transition{}, agent.ErrInvalidChildWait
 		}
-		switch outcome.Key().String() {
-		case "local":
-			decoded, decodeErr := erased.Decode[textOutput]()
-			if decodeErr != nil {
-				return agent.Transition{}, decodeErr
-			}
-			output.Local = decoded.Text
-		case "model":
-			decoded, decodeErr := erased.Decode[interaction.Output]()
-			if decodeErr != nil {
-				return agent.Transition{}, decodeErr
-			}
-			output.Model = decoded.ModelResponse.Text()
-		}
+		payloads[index] = erased
+	}
+	output, err := decodeCompositionOutput(payloads[0], payloads[1])
+	if err != nil {
+		return agent.Transition{}, err
 	}
 	erased, err := agent.EncodePayload(output)
 	if err != nil {
@@ -500,6 +501,18 @@ func (c *compositionExecution) complete(
 	c.state.ChildIDs = nil
 	c.state.WaitID = nil
 	return agent.Complete(1, erased)
+}
+
+func decodeCompositionOutput(local, model agent.Payload) (compositionOutput, error) {
+	text, err := local.Decode[textOutput]()
+	if err != nil {
+		return compositionOutput{}, err
+	}
+	response, err := model.Decode[interaction.Output]()
+	if err != nil {
+		return compositionOutput{}, err
+	}
+	return compositionOutput{Local: text.Text, Model: response.ModelResponse.Text()}, nil
 }
 
 func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {

@@ -195,13 +195,7 @@ func newPatternChildren() (patternChildren, error) {
 		"example.workflow_patterns.normalize",
 		"Normalize one request for the following prompt-chain stage.",
 		struct{}{},
-		func(_ context.Context, request patternRequest) (chainState, error) {
-			text := strings.ToUpper(strings.TrimSpace(request.Text))
-			if text == "" {
-				return chainState{}, errors.New("request text must not be empty")
-			}
-			return chainState{Normalized: text, Urgent: request.Urgent}, nil
-		},
+		normalizePatternRequest,
 	)
 	if err != nil {
 		return patternChildren{}, err
@@ -210,13 +204,7 @@ func newPatternChildren() (patternChildren, error) {
 		"example.workflow_patterns.summarize",
 		"Summarize the normalized result from the previous prompt-chain stage.",
 		struct{}{},
-		func(_ context.Context, state chainState) (chainState, error) {
-			if state.Normalized == "" || state.Summary != "" {
-				return chainState{}, errors.New("summarizer received an invalid chain state")
-			}
-			state.Summary = "summary: " + state.Normalized
-			return state, nil
-		},
+		summarizeChain,
 	)
 	if err != nil {
 		return patternChildren{}, err
@@ -270,16 +258,8 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 		return nil, err
 	}
 	route, err := workflow.Switch(workflow.SwitchConfig[chainState]{
-		ID: "route",
-		Select: func(_ context.Context, state chainState) (string, error) {
-			if state.Normalized == "" || state.Summary == "" {
-				return "", errors.New("router received an incomplete chain state")
-			}
-			if state.Urgent {
-				return urgentRouteID, nil
-			}
-			return standardRouteID, nil
-		},
+		ID:     "route",
+		Select: selectPatternRoute,
 		Cases: []workflow.SwitchCase{
 			{ID: urgentRouteID, Deployment: children.urgent, Budget: budget},
 			{ID: standardRouteID, Deployment: children.standard, Budget: budget},
@@ -295,16 +275,7 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 			{ID: "risks", Deployment: children.risks, Budget: budget},
 		},
 		WindowSize: sectionWindowSize,
-		Reduce: func(_ context.Context, findings []finding) (findingBundle, error) {
-			if len(findings) != sectionWorkerCount || findings[0].Normalized != findings[1].Normalized ||
-				findings[0].Summary != findings[1].Summary || findings[0].Route != findings[1].Route {
-				return findingBundle{}, errors.New("parallel sections returned inconsistent context")
-			}
-			return findingBundle{
-				Normalized: findings[0].Normalized, Summary: findings[0].Summary,
-				Route: findings[0].Route, Findings: slices.Clone(findings),
-			}, nil
-		},
+		Reduce:     reduceFindings,
 	})
 	if err != nil {
 		return nil, err
@@ -324,6 +295,43 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 		return nil, err
 	}
 	return []workflow.Stage{normalize, summarize, route, section, vote}, nil
+}
+
+func normalizePatternRequest(_ context.Context, request patternRequest) (chainState, error) {
+	text := strings.ToUpper(strings.TrimSpace(request.Text))
+	if text == "" {
+		return chainState{}, errors.New("request text must not be empty")
+	}
+	return chainState{Normalized: text, Urgent: request.Urgent}, nil
+}
+
+func summarizeChain(_ context.Context, state chainState) (chainState, error) {
+	if state.Normalized == "" || state.Summary != "" {
+		return chainState{}, errors.New("summarizer received an invalid chain state")
+	}
+	state.Summary = "summary: " + state.Normalized
+	return state, nil
+}
+
+func selectPatternRoute(_ context.Context, state chainState) (string, error) {
+	if state.Normalized == "" || state.Summary == "" {
+		return "", errors.New("router received an incomplete chain state")
+	}
+	if state.Urgent {
+		return urgentRouteID, nil
+	}
+	return standardRouteID, nil
+}
+
+func reduceFindings(_ context.Context, findings []finding) (findingBundle, error) {
+	if len(findings) != sectionWorkerCount || findings[0].Normalized != findings[1].Normalized ||
+		findings[0].Summary != findings[1].Summary || findings[0].Route != findings[1].Route {
+		return findingBundle{}, errors.New("parallel sections returned inconsistent context")
+	}
+	return findingBundle{
+		Normalized: findings[0].Normalized, Summary: findings[0].Summary,
+		Route: findings[0].Route, Findings: slices.Clone(findings),
+	}, nil
 }
 
 func newPatternRoot(

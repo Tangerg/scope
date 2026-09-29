@@ -35,28 +35,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 
-	managedClient, err := chatclient.New(echoModel{prefix: "managed"}, chatclient.Config{})
-	if err != nil {
-		return err
-	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name:          "example.managed_echo",
-		Description:   "Return one deterministic model response through an Engine Process.",
-		MaxModelCalls: agent.NewQuota(1),
-	})
-	if err != nil {
-		return err
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: managedClient})
-	if err != nil {
-		return err
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition:           definition,
-		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-managed-echo-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-managed-echo-configuration")),
-	})
+	deployment, err := newManagedEchoDeployment()
 	if err != nil {
 		return err
 	}
@@ -90,6 +69,31 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}
 	_, err = fmt.Fprintf(output, "direct: %s\nmanaged: %s\n", direct.Text(), managed.ModelResponse.Text())
 	return err
+}
+
+func newManagedEchoDeployment() (agent.Deployment, error) {
+	client, err := chatclient.New(echoModel{prefix: "managed"}, chatclient.Config{})
+	if err != nil {
+		return agent.Deployment{}, err
+	}
+	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+		Name:          "example.managed_echo",
+		Description:   "Return one deterministic model response through an Engine Process.",
+		MaxModelCalls: agent.NewQuota(1),
+	})
+	if err != nil {
+		return agent.Deployment{}, err
+	}
+	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
+	if err != nil {
+		return agent.Deployment{}, err
+	}
+	return agent.NewDeployment(agent.DeploymentConfig{
+		Definition:           definition,
+		Dispatcher:           dispatcher,
+		ImplementationDigest: agent.ComputeDigest([]byte("example-managed-echo-implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example-managed-echo-configuration")),
+	})
 }
 
 type echoModel struct{ prefix string }

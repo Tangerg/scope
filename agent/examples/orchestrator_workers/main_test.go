@@ -175,6 +175,9 @@ func assertPlanningDelegateTree(
 }
 
 type planningTaskState struct {
+	incomplete planning.Condition
+	complete   planning.Condition
+
 	mu        sync.Mutex
 	completed map[string]bool
 }
@@ -183,6 +186,34 @@ func (p *planningTaskState) CompletedCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.completed)
+}
+
+func (p *planningTaskState) sense(_ context.Context, request planning.SenseRequest) (planning.WorldState, error) {
+	task, err := request.Input.Decode[workerTask]()
+	if err != nil {
+		return planning.WorldState{}, err
+	}
+	p.mu.Lock()
+	done := p.completed[task.ID]
+	p.mu.Unlock()
+	if done {
+		return planning.NewWorldState(p.complete)
+	}
+	return planning.NewWorldState(p.incomplete)
+}
+
+func (p *planningTaskState) review(_ context.Context, request planning.ActionRequest) (planning.ActionResult, error) {
+	if request.ActionName != "review" {
+		return planning.ActionResult{}, errors.New("unexpected planning action")
+	}
+	task, err := request.Input.Decode[workerTask]()
+	if err != nil {
+		return planning.ActionResult{}, err
+	}
+	p.mu.Lock()
+	p.completed[task.ID] = true
+	p.mu.Unlock()
+	return planning.ActionSucceeded(), nil
 }
 
 func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
@@ -227,42 +258,10 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := &planningTaskState{completed: make(map[string]bool)}
-	sensor := planning.SensorFunc(func(
-		_ context.Context,
-		request planning.SenseRequest,
-	) (planning.WorldState, error) {
-		task, decodeErr := request.Input.Decode[workerTask]()
-		if decodeErr != nil {
-			return planning.WorldState{}, decodeErr
-		}
-		state.mu.Lock()
-		done := state.completed[task.ID]
-		state.mu.Unlock()
-		condition := incomplete
-		if done {
-			condition = complete
-		}
-		return planning.NewWorldState(condition)
-	})
-	executor := planning.ActionExecutorFunc(func(
-		_ context.Context,
-		request planning.ActionRequest,
-	) (planning.ActionResult, error) {
-		if request.ActionName != "review" {
-			return planning.ActionResult{}, errors.New("unexpected planning action")
-		}
-		task, decodeErr := request.Input.Decode[workerTask]()
-		if decodeErr != nil {
-			return planning.ActionResult{}, decodeErr
-		}
-		state.mu.Lock()
-		state.completed[task.ID] = true
-		state.mu.Unlock()
-		return planning.ActionSucceeded(), nil
-	})
+	state := &planningTaskState{incomplete: incomplete, complete: complete, completed: make(map[string]bool)}
 	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
-		Sensor: sensor, ActionExecutors: map[string]planning.ActionExecutor{"review": executor},
+		Sensor:          planning.SensorFunc(state.sense),
+		ActionExecutors: map[string]planning.ActionExecutor{"review": planning.ActionExecutorFunc(state.review)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -288,33 +287,41 @@ func (p *planningDelegateModel) Call(_ context.Context, request *chat.Request) (
 	defer p.mu.Unlock()
 	p.calls++
 	if p.calls == 1 {
-		if len(request.Tools) != 1 || request.Tools[0].Name != "review_with_planning" {
-			return nil, fmt.Errorf("planning Delegate manifest=%#v", request.Tools)
-		}
-		first, err := jsonv2.Marshal(workerTask{
-			ID: "facts", Objective: "ship agent", Instruction: "review facts",
-		})
-		if err != nil {
-			return nil, fmt.Errorf("encode first Planning task: %w", err)
-		}
-		second, err := jsonv2.Marshal(workerTask{
-			ID: "risks", Objective: "ship agent", Instruction: "review risks",
-		})
-		if err != nil {
-			return nil, fmt.Errorf("encode second Planning task: %w", err)
-		}
-		message := chat.NewAssistantMessage(
-			chat.NewToolCallPart(chat.ToolCall{
-				ID: "call_planning_facts", Name: "review_with_planning", Arguments: string(first),
-			}),
-			chat.NewToolCallPart(chat.ToolCall{
-				ID: "call_planning_risks", Name: "review_with_planning", Arguments: string(second),
-			}),
-		)
-		return chat.NewResponse(&chat.Output{
-			Message: &message, FinishReason: chat.FinishReasonToolCalls,
-		}, nil)
+		return delegatePlanningTasks(request)
 	}
+	return summarizePlanningResults(request)
+}
+
+func delegatePlanningTasks(request *chat.Request) (*chat.Response, error) {
+	if len(request.Tools) != 1 || request.Tools[0].Name != "review_with_planning" {
+		return nil, fmt.Errorf("planning Delegate manifest=%#v", request.Tools)
+	}
+	first, err := jsonv2.Marshal(workerTask{
+		ID: "facts", Objective: "ship agent", Instruction: "review facts",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode first Planning task: %w", err)
+	}
+	second, err := jsonv2.Marshal(workerTask{
+		ID: "risks", Objective: "ship agent", Instruction: "review risks",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode second Planning task: %w", err)
+	}
+	message := chat.NewAssistantMessage(
+		chat.NewToolCallPart(chat.ToolCall{
+			ID: "call_planning_facts", Name: "review_with_planning", Arguments: string(first),
+		}),
+		chat.NewToolCallPart(chat.ToolCall{
+			ID: "call_planning_risks", Name: "review_with_planning", Arguments: string(second),
+		}),
+	)
+	return chat.NewResponse(&chat.Output{
+		Message: &message, FinishReason: chat.FinishReasonToolCalls,
+	}, nil)
+}
+
+func summarizePlanningResults(request *chat.Request) (*chat.Response, error) {
 	if len(request.Messages) != 3 || request.Messages[2].Role != chat.RoleTool ||
 		len(request.Messages[2].Parts) != 2 {
 		return nil, fmt.Errorf("planning results context=%#v", request.Messages)

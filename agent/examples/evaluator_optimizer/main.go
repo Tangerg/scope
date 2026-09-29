@@ -80,6 +80,11 @@ type attempt struct {
 	Assessment assessment `json:"assessment"`
 }
 
+func (a attempt) validAt(revision uint32) bool {
+	return a.Candidate.Revision == revision && strings.TrimSpace(a.Candidate.Content) != "" &&
+		validScore(a.Assessment.Score) && strings.TrimSpace(a.Assessment.Feedback) != ""
+}
+
 type optimizationState struct {
 	Objective string    `json:"objective"`
 	History   []attempt `json:"history"`
@@ -129,17 +134,9 @@ func (o optimizationState) validateHistory(threshold float64) error {
 		}
 		return nil
 	}
-	best := o.History[0]
-	for index, recorded := range o.History {
-		if recorded.Candidate.Revision != uint32(index+1) ||
-			strings.TrimSpace(recorded.Candidate.Content) == "" ||
-			!validScore(recorded.Assessment.Score) ||
-			strings.TrimSpace(recorded.Assessment.Feedback) == "" {
-			return fmt.Errorf("attempt %d is invalid", index)
-		}
-		if recorded.Assessment.Score > best.Assessment.Score {
-			best = recorded
-		}
+	best, err := o.earliestBest()
+	if err != nil {
+		return err
 	}
 	if !o.HasBest || o.Best != best {
 		return errors.New("best attempt is not the earliest highest-scoring attempt")
@@ -148,6 +145,21 @@ func (o optimizationState) validateHistory(threshold float64) error {
 		return errors.New("acceptance state does not match the configured threshold")
 	}
 	return nil
+}
+
+// earliestBest keeps the first attempt among equal scores, so a later revision
+// must strictly improve before it replaces the recorded best.
+func (o optimizationState) earliestBest() (attempt, error) {
+	best := o.History[0]
+	for index, recorded := range o.History {
+		if !recorded.validAt(uint32(index + 1)) {
+			return attempt{}, fmt.Errorf("attempt %d is invalid", index)
+		}
+		if recorded.Assessment.Score > best.Assessment.Score {
+			best = recorded
+		}
+	}
+	return best, nil
 }
 
 type optimizationReport struct {
@@ -365,18 +377,37 @@ func newIterationDeployment(
 	)
 }
 
+func initializeOptimization(_ context.Context, request optimizationRequest) (optimizationState, error) {
+	objective := strings.TrimSpace(request.Objective)
+	if objective == "" || objective != request.Objective {
+		return optimizationState{}, errors.New("objective must be non-empty and trimmed")
+	}
+	return optimizationState{Objective: objective, History: []attempt{}}, nil
+}
+
+func finalizeOptimization(result workflow.LoopResult[optimizationState], threshold float64) (optimizationReport, error) {
+	state := result.Value
+	if !result.Valid() || result.Satisfied != state.Accepted {
+		return optimizationReport{}, errors.New("loop result and acceptance state disagree")
+	}
+	if err := state.validateSettled(threshold); err != nil {
+		return optimizationReport{}, err
+	}
+	if !state.HasBest || uint64(len(state.History)) != result.Iterations {
+		return optimizationReport{}, errors.New("loop result has incomplete attempt history")
+	}
+	return optimizationReport{
+		Objective: state.Objective, History: slices.Clone(state.History), Best: state.Best,
+		Accepted: state.Accepted, Iterations: result.Iterations,
+	}, nil
+}
+
 func newOptimizationRoot(
 	iteration agent.Deployment,
 	threshold float64,
 	maxIterations uint64,
 ) (agent.Deployment, error) {
-	initialize, err := workflow.Transform("initialize", func(_ context.Context, request optimizationRequest) (optimizationState, error) {
-		objective := strings.TrimSpace(request.Objective)
-		if objective == "" || objective != request.Objective {
-			return optimizationState{}, errors.New("objective must be non-empty and trimmed")
-		}
-		return optimizationState{Objective: objective, History: []attempt{}}, nil
-	})
+	initialize, err := workflow.Transform("initialize", initializeOptimization)
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -399,20 +430,7 @@ func newOptimizationRoot(
 	finalize, err := workflow.Transform("finalize", func(_ context.Context,
 		result workflow.LoopResult[optimizationState],
 	) (optimizationReport, error) {
-		state := result.Value
-		if !result.Valid() || result.Satisfied != state.Accepted {
-			return optimizationReport{}, errors.New("loop result and acceptance state disagree")
-		}
-		if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
-			return optimizationReport{}, validateSettledStateErr
-		}
-		if !state.HasBest || uint64(len(state.History)) != result.Iterations {
-			return optimizationReport{}, errors.New("loop result has incomplete attempt history")
-		}
-		return optimizationReport{
-			Objective: state.Objective, History: slices.Clone(state.History), Best: state.Best,
-			Accepted: state.Accepted, Iterations: result.Iterations,
-		}, nil
+		return finalizeOptimization(result, threshold)
 	})
 	if err != nil {
 		return agent.Deployment{}, err

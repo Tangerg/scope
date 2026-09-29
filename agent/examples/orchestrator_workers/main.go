@@ -111,91 +111,17 @@ type orchestrationReport struct {
 }
 
 func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
-	decomposer, err := interactionDeployment(
-		"example.orchestrator_workers.decomposer",
-		"Decompose one objective into a bounded ordered task list.",
-		decompositionModel{},
-	)
+	children, err := newOrchestratorChildren()
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
-	worker, err := transformDeployment(
-		"example.orchestrator_workers.worker",
-		"Execute one decomposed task and return a typed finding.",
-		func(_ context.Context, task workerTask) (workerResult, error) {
-			if task.ID == "" || task.Objective == "" || task.Instruction == "" {
-				return workerResult{}, errors.New("worker task is incomplete")
-			}
-			return workerResult{
-				TaskID: task.ID, Objective: task.Objective,
-				Finding: task.Instruction + ": complete",
-			}, nil
-		},
-	)
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	synthesizer, err := interactionDeployment(
-		"example.orchestrator_workers.synthesizer",
-		"Synthesize ordered typed worker results into a final report.",
-		synthesisModel{},
-	)
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	budget := agent.Budget{
-		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
-	}
-
-	renderGoal, err := workflow.Transform("render_goal", interactionInput[orchestrationGoal])
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	decompose, err := workflow.Call(workflow.CallConfig{
-		ID: "decompose", Deployment: decomposer, Budget: budget,
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	parsePlan, err := workflow.Transform("parse_plan", func(ctx context.Context, output interaction.Output) ([]workerTask, error) {
-		plan, decodeModelJSONErr := decodeModelJSON[workPlan](ctx, output)
-		if decodeModelJSONErr != nil {
-			return nil, decodeModelJSONErr
-		}
-		if len(plan.Tasks) == 0 {
-			return nil, errors.New("decomposer returned no tasks")
-		}
-		return plan.Tasks, nil
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	execute, err := workflow.Map(workflow.MapConfig[workerTask, workerResult]{
-		ID: "execute", Deployment: worker, Budget: budget,
-		WindowSize: workerParallelism, MaxItems: maximumPlannedTasks,
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	renderResults, err := workflow.Transform("render_results", interactionInput[[]workerResult])
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	synthesize, err := workflow.Call(workflow.CallConfig{
-		ID: "synthesize", Deployment: synthesizer, Budget: budget,
-	})
-	if err != nil {
-		return agent.Deployment{}, nil, err
-	}
-	parseReport, err := workflow.Transform("parse_report", decodeModelJSON[orchestrationReport])
+	stages, err := children.stages()
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.orchestrator_workers", Description: "Decompose, execute, and synthesize with managed child Processes.",
-		Stages: []workflow.Stage{
-			renderGoal, decompose, parsePlan, execute, renderResults, synthesize, parseReport,
-		},
+		Stages: stages,
 	})
 	if err != nil {
 		return agent.Deployment{}, nil, err
@@ -204,18 +130,115 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-orchestrator-workers-implementation")),
 		ConfigurationDigest: agent.ComputeDigest([]byte(
-			"example-orchestrator-workers:" + decomposer.DeploymentRef().Digest().String() + ":" +
-				worker.DeploymentRef().Digest().String() + ":" + synthesizer.DeploymentRef().Digest().String(),
+			"example-orchestrator-workers:" + children.decomposer.DeploymentRef().Digest().String() + ":" +
+				children.worker.DeploymentRef().Digest().String() + ":" + children.synthesizer.DeploymentRef().Digest().String(),
 		)),
 	})
 	if err != nil {
 		return agent.Deployment{}, nil, err
 	}
 	return root, deploymentResolver{
-		decomposer.DeploymentRef():  decomposer,
-		worker.DeploymentRef():      worker,
-		synthesizer.DeploymentRef(): synthesizer,
+		children.decomposer.DeploymentRef():  children.decomposer,
+		children.worker.DeploymentRef():      children.worker,
+		children.synthesizer.DeploymentRef(): children.synthesizer,
 	}, nil
+}
+
+type orchestratorChildren struct {
+	decomposer  agent.Deployment
+	worker      agent.Deployment
+	synthesizer agent.Deployment
+}
+
+func newOrchestratorChildren() (orchestratorChildren, error) {
+	decomposer, err := interactionDeployment(
+		"example.orchestrator_workers.decomposer",
+		"Decompose one objective into a bounded ordered task list.",
+		decompositionModel{},
+	)
+	if err != nil {
+		return orchestratorChildren{}, err
+	}
+	worker, err := transformDeployment(
+		"example.orchestrator_workers.worker",
+		"Execute one decomposed task and return a typed finding.",
+		executeWorkerTask,
+	)
+	if err != nil {
+		return orchestratorChildren{}, err
+	}
+	synthesizer, err := interactionDeployment(
+		"example.orchestrator_workers.synthesizer",
+		"Synthesize ordered typed worker results into a final report.",
+		synthesisModel{},
+	)
+	if err != nil {
+		return orchestratorChildren{}, err
+	}
+	return orchestratorChildren{decomposer: decomposer, worker: worker, synthesizer: synthesizer}, nil
+}
+
+func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
+	budget := agent.Budget{
+		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
+	}
+	renderGoal, err := workflow.Transform("render_goal", interactionInput[orchestrationGoal])
+	if err != nil {
+		return nil, err
+	}
+	decompose, err := workflow.Call(workflow.CallConfig{
+		ID: "decompose", Deployment: o.decomposer, Budget: budget,
+	})
+	if err != nil {
+		return nil, err
+	}
+	parsePlan, err := workflow.Transform("parse_plan", parseWorkPlan)
+	if err != nil {
+		return nil, err
+	}
+	execute, err := workflow.Map(workflow.MapConfig[workerTask, workerResult]{
+		ID: "execute", Deployment: o.worker, Budget: budget,
+		WindowSize: workerParallelism, MaxItems: maximumPlannedTasks,
+	})
+	if err != nil {
+		return nil, err
+	}
+	renderResults, err := workflow.Transform("render_results", interactionInput[[]workerResult])
+	if err != nil {
+		return nil, err
+	}
+	synthesize, err := workflow.Call(workflow.CallConfig{
+		ID: "synthesize", Deployment: o.synthesizer, Budget: budget,
+	})
+	if err != nil {
+		return nil, err
+	}
+	parseReport, err := workflow.Transform("parse_report", decodeModelJSON[orchestrationReport])
+	if err != nil {
+		return nil, err
+	}
+	return []workflow.Stage{renderGoal, decompose, parsePlan, execute, renderResults, synthesize, parseReport}, nil
+}
+
+func executeWorkerTask(_ context.Context, task workerTask) (workerResult, error) {
+	if task.ID == "" || task.Objective == "" || task.Instruction == "" {
+		return workerResult{}, errors.New("worker task is incomplete")
+	}
+	return workerResult{
+		TaskID: task.ID, Objective: task.Objective,
+		Finding: task.Instruction + ": complete",
+	}, nil
+}
+
+func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask, error) {
+	plan, err := decodeModelJSON[workPlan](ctx, output)
+	if err != nil {
+		return nil, err
+	}
+	if len(plan.Tasks) == 0 {
+		return nil, errors.New("decomposer returned no tasks")
+	}
+	return plan.Tasks, nil
 }
 
 func interactionDeployment(name, description string, model chat.Model) (agent.Deployment, error) {

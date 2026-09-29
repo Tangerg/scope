@@ -29,23 +29,54 @@ func TestRun(t *testing.T) {
 	}
 }
 
-func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
-	if _, err := newCompositionDeployment(agent.DeploymentRef{}, agent.DeploymentRef{}); !errors.Is(err, agent.ErrInvalidDeploymentRef) {
-		t.Fatalf("invalid child bindings: %v", err)
-	}
+type compositionFixture struct {
+	local       agent.Deployment
+	model       agent.Deployment
+	composition agent.Deployment
+}
+
+func newCompositionFixture(t *testing.T, model agent.Deployment) compositionFixture {
+	t.Helper()
 	local, err := newUppercaseDeployment()
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := newModelDeployment()
-	if err != nil {
-		t.Fatal(err)
+	if !model.Valid() {
+		if model, err = newModelDeployment(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, deployment := range []agent.Deployment{local, composition} {
+	return compositionFixture{local: local, model: model, composition: composition}
+}
+
+func (c compositionFixture) resolver() deploymentResolver {
+	return deploymentResolver{c.local.DeploymentRef(): c.local, c.model.DeploymentRef(): c.model}
+}
+
+func newCompositionEngine(t *testing.T, config agent.EngineConfig) *agent.Engine {
+	t.Helper()
+	engine, err := agent.NewEngine(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	return engine
+}
+
+func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
+	if _, err := newCompositionDeployment(agent.DeploymentRef{}, agent.DeploymentRef{}); !errors.Is(err, agent.ErrInvalidDeploymentRef) {
+		t.Fatalf("invalid child bindings: %v", err)
+	}
+	fixture := newCompositionFixture(t, agent.Deployment{})
+	for _, deployment := range []agent.Deployment{fixture.local, fixture.composition} {
 		t.Run(deployment.Descriptor().Name(), func(t *testing.T) {
 			input, err := agent.ParsePayload([]byte(`{}`))
 			if err != nil {
@@ -74,7 +105,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := composition.Definition().Restore(t.Context(), state); err == nil {
+			if _, err := fixture.composition.Definition().Restore(t.Context(), state); err == nil {
 				t.Fatal("Restore accepted contradictory execution state")
 			}
 		})
@@ -85,36 +116,21 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	store := agent.NewMemoryTreeCommitter()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	local, err := newUppercaseDeployment()
-	if err != nil {
-		t.Fatal(err)
-	}
 	model, dispatcher := newUncertainModelDeployment(t)
-	composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolver := deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}
+	fixture := newCompositionFixture(t, model)
 	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store,
-		DeploymentResolver: resolver, EventListeners: []agent.EventListener{observations},
+	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store,
+		DeploymentResolver: fixture.resolver(), EventListeners: []agent.EventListener{observations},
 	})
+	input, err := fixture.composition.Descriptor().EncodeInput(compositionInput{Prompt: "recovered"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
-	input, err := composition.Descriptor().EncodeInput(compositionInput{Prompt: "recovered"})
+	root, err := engine.Start(ctx, fixture.composition, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := engine.Start(ctx, composition, input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { retireWriter(t, root) })
 	unknownEvent, err := observations.AwaitEvent(ctx, func(event agent.Event) bool {
 		fact, ok := event.EffectFinished()
 		return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown
@@ -122,23 +138,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-	for {
-		inspection, inspectErr := engine.InspectTree(ctx, root.ID())
-		if inspectErr != nil {
-			t.Fatal(inspectErr)
-		}
-		report, found := inspection.Process(root.ID())
-		if found && report.Snapshot.Status() == agent.StatusWaiting {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("composition did not wait for the unknown child: %v", ctx.Err())
-		case <-ticker.C:
-		}
-	}
+	waitForRootStatus(ctx, t, engine, root.ID(), agent.StatusWaiting)
 	tree, err := engine.CaptureTree(ctx, root.ID())
 	if err != nil {
 		t.Fatal(err)
@@ -146,47 +146,13 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if len(tree.ProcessSnapshots()) != 3 {
 		t.Fatalf("captured Processes=%d, want one root and two children", len(tree.ProcessSnapshots()))
 	}
-	t.Cleanup(func() {
-		_ = root.Kill(context.Background(), "release retired writer")
-		if joinErr := root.Join(context.Background()); joinErr != nil && !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
-			t.Error(joinErr)
-		}
-		if closeErr := engine.Close(context.Background()); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
 
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver})
+	restoredEngine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store, DeploymentResolver: fixture.resolver()})
+	restored, err := restoredEngine.RestoreTree(ctx, fixture.composition, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
-	restored, err := restoredEngine.RestoreTree(ctx, composition, tree)
-	if err != nil {
-		t.Fatal(err)
-	}
-	child, found := restoredEngine.Process(unknownEvent.ProcessID())
-	if !found {
-		t.Fatal("restoration lost the model child identity")
-	}
-	inspection, err := restoredEngine.InspectTree(ctx, restored.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	childReport, childFound := inspection.Process(child.ID())
-	rootReport, rootFound := inspection.Process(restored.ID())
-	unknown := childReport.Snapshot.UnknownEffectIDs()
-	effectID, present := unknownEvent.EffectID()
-	if !childFound || !present || len(unknown) != 1 || unknown[0] != effectID {
-		t.Fatalf("unknown Effects=%v original=%s", unknown, effectID)
-	}
-	if !rootFound || rootReport.Snapshot.Status() != agent.StatusWaiting || dispatcher.calls.Load() != 1 {
-		t.Fatalf("root status=%s dispatches=%d", rootReport.Snapshot.Status(), dispatcher.calls.Load())
-	}
+	child := assertRestoredUnknownChild(ctx, t, restoredEngine, restored, unknownEvent, dispatcher)
 	// The external boundary supplies the recovered result; the Host never decodes
 	// the Interaction payload or edits either Strategy's execution state.
 	var settlement agent.Settlement
@@ -206,25 +172,101 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if err != nil || output != (compositionOutput{Local: "RECOVERED", Model: "model: recovered"}) {
 		t.Fatalf("output=%+v error=%v", output, err)
 	}
-	finalTree, err := restoredEngine.CaptureTree(ctx, restored.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(finalTree.ProcessSnapshots()) != 3 || dispatcher.calls.Load() != 1 {
-		t.Fatalf("final Processes=%d dispatches=%d", len(finalTree.ProcessSnapshots()), dispatcher.calls.Load())
-	}
-	inspection, err = restoredEngine.InspectTree(ctx, restored.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, original := range tree.ProcessSnapshots() {
-		report, found := inspection.Process(original.ProcessID())
-		if !found || report.Snapshot.Status() != agent.StatusCompleted {
-			t.Fatalf("original Process %s was lost or did not complete", original.ProcessID())
-		}
-	}
+	assertRecoveredTreeCompleted(ctx, t, restoredEngine, restored.ID(), tree, dispatcher)
 	if releaseErr := restoredEngine.ReleaseTree(ctx, restored.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
+	}
+}
+
+// retireWriter stops the original root after restoration fenced it, so its
+// only acceptable outcomes are completion or an incarnation conflict.
+func retireWriter(t *testing.T, root *agent.Process) {
+	t.Helper()
+	ctx := context.WithoutCancel(t.Context())
+	if err := root.Kill(ctx, "release retired writer"); err != nil &&
+		!errors.Is(err, agent.ErrProcessFinished) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		t.Error(err)
+	}
+	if err := root.Join(ctx); err != nil && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		t.Error(err)
+	}
+}
+
+func waitForRootStatus(ctx context.Context, t *testing.T, engine *agent.Engine, rootID agent.ProcessID, want agent.Status) {
+	t.Helper()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		inspection, err := engine.InspectTree(ctx, rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report, found := inspection.Process(rootID); found && report.Snapshot.Status() == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("composition did not reach %s: %v", want, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func assertRestoredUnknownChild(
+	ctx context.Context,
+	t *testing.T,
+	engine *agent.Engine,
+	restored *agent.Process,
+	unknownEvent agent.Event,
+	dispatcher *lostResponseDispatcher,
+) *agent.Process {
+	t.Helper()
+	child, found := engine.Process(unknownEvent.ProcessID())
+	if !found {
+		t.Fatal("restoration lost the model child identity")
+	}
+	inspection, err := engine.InspectTree(ctx, restored.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	childReport, childFound := inspection.Process(child.ID())
+	rootReport, rootFound := inspection.Process(restored.ID())
+	unknown := childReport.Snapshot.UnknownEffectIDs()
+	effectID, present := unknownEvent.EffectID()
+	if !childFound || !present || len(unknown) != 1 || unknown[0] != effectID {
+		t.Fatalf("unknown Effects=%v original=%s", unknown, effectID)
+	}
+	if !rootFound || rootReport.Snapshot.Status() != agent.StatusWaiting || dispatcher.calls.Load() != 1 {
+		t.Fatalf("root status=%s dispatches=%d", rootReport.Snapshot.Status(), dispatcher.calls.Load())
+	}
+	return child
+}
+
+func assertRecoveredTreeCompleted(
+	ctx context.Context,
+	t *testing.T,
+	engine *agent.Engine,
+	rootID agent.ProcessID,
+	original agent.TreeSnapshot,
+	dispatcher *lostResponseDispatcher,
+) {
+	t.Helper()
+	final, err := engine.CaptureTree(ctx, rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(final.ProcessSnapshots()) != 3 || dispatcher.calls.Load() != 1 {
+		t.Fatalf("final Processes=%d dispatches=%d", len(final.ProcessSnapshots()), dispatcher.calls.Load())
+	}
+	inspection, err := engine.InspectTree(ctx, rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, process := range original.ProcessSnapshots() {
+		report, found := inspection.Process(process.ProcessID())
+		if !found || report.Snapshot.Status() != agent.StatusCompleted {
+			t.Fatalf("original Process %s was lost or did not complete", process.ProcessID())
+		}
 	}
 }
 
@@ -281,18 +323,8 @@ func (*lostResponseDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
 }
 
 func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
-	local, err := newUppercaseDeployment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	model, err := newModelDeployment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	base, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := newCompositionFixture(t, agent.Deployment{})
+	base := fixture.composition
 	definition := &recordingDefinition{Definition: base.Definition()}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
@@ -302,17 +334,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{
-		local.DeploymentRef(): local, model.DeploymentRef(): model,
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
+	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: fixture.resolver()})
 	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "boundaries"})
 	if err != nil {
 		t.Fatal(err)
@@ -324,8 +346,48 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
 		Definition: base.Definition(), Input: input, RestoredCases: definition.samples,
 	})
-	var opening, completion agenttest.ExecutionConformanceCase
 	for _, sample := range definition.samples {
+		t.Run(sample.Name+" rejects unexpected first signal", func(t *testing.T) {
+			execution := restoreComposition(t, base, sample)
+			if _, err := execution.Step(t.Context(), append([]agent.Signal{{}}, sample.Signals...)); err == nil {
+				t.Fatal("unexpected first Signal was discarded")
+			}
+		})
+	}
+	opening, completion := childWaitSamples(t, definition.samples)
+	for _, sample := range []agenttest.ExecutionConformanceCase{opening, completion} {
+		t.Run(sample.Name+" consumes only its prefix", func(t *testing.T) {
+			transition, err := restoreComposition(t, base, sample).Step(t.Context(), append(sample.Signals[:1:1], completion.Signals[0]))
+			if err != nil || transition.ConsumedSignals() != 1 {
+				t.Fatalf("consumed=%d error=%v", transition.ConsumedSignals(), err)
+			}
+			if sample.Name == opening.Name && transition.Kind() != agent.TransitionKindWait {
+				t.Fatalf("kind=%s, want wait", transition.Kind())
+			}
+		})
+		t.Run(sample.Name+" rejects unrelated wait", func(t *testing.T) {
+			if _, err := restoreComposition(t, base, sample).Step(t.Context(), []agent.Signal{unrelatedWaitSignal(t, sample.Signals[0])}); err == nil {
+				t.Fatal("unrelated wait was accepted")
+			}
+		})
+	}
+	if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func restoreComposition(t *testing.T, deployment agent.Deployment, sample agenttest.ExecutionConformanceCase) agent.Execution {
+	t.Helper()
+	execution, err := deployment.Definition().Restore(t.Context(), sample.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return execution
+}
+
+func childWaitSamples(t *testing.T, samples []agenttest.ExecutionConformanceCase) (opening, completion agenttest.ExecutionConformanceCase) {
+	t.Helper()
+	for _, sample := range samples {
 		var state compositionState
 		if err := jsonv2.Unmarshal(sample.State.Payload(), &state); err != nil {
 			t.Fatal(err)
@@ -336,55 +398,25 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 		case compositionWaitingChildren:
 			completion = sample
 		}
-		t.Run(sample.Name+" rejects unexpected first signal", func(t *testing.T) {
-			execution, err := base.Definition().Restore(t.Context(), sample.State)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := execution.Step(t.Context(), append([]agent.Signal{{}}, sample.Signals...)); err == nil {
-				t.Fatal("unexpected first Signal was discarded")
-			}
-		})
 	}
 	if !opening.State.Valid() || !completion.State.Valid() {
 		t.Fatal("execution did not visit both child wait boundaries")
 	}
-	for _, sample := range []agenttest.ExecutionConformanceCase{opening, completion} {
-		t.Run(sample.Name+" consumes only its prefix", func(t *testing.T) {
-			execution, err := base.Definition().Restore(t.Context(), sample.State)
-			if err != nil {
-				t.Fatal(err)
-			}
-			transition, err := execution.Step(t.Context(), append(sample.Signals[:1:1], completion.Signals[0]))
-			if err != nil || transition.ConsumedSignals() != 1 {
-				t.Fatalf("consumed=%d error=%v", transition.ConsumedSignals(), err)
-			}
-			if sample.Name == opening.Name && transition.Kind() != agent.TransitionKindWait {
-				t.Fatalf("kind=%s, want wait", transition.Kind())
-			}
-		})
-		t.Run(sample.Name+" rejects unrelated wait", func(t *testing.T) {
-			execution, err := base.Definition().Restore(t.Context(), sample.State)
-			if err != nil {
-				t.Fatal(err)
-			}
-			encoded, err := jsonv2.Marshal(sample.Signals[0])
-			if err != nil {
-				t.Fatal(err)
-			}
-			encoded = bytes.ReplaceAll(encoded, []byte(`"composition"`), []byte(`"unrelated"`))
-			var signal agent.Signal
-			if err := jsonv2.Unmarshal(encoded, &signal); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := execution.Step(t.Context(), []agent.Signal{signal}); err == nil {
-				t.Fatal("unrelated wait was accepted")
-			}
-		})
-	}
-	if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
+	return opening, completion
+}
+
+func unrelatedWaitSignal(t *testing.T, signal agent.Signal) agent.Signal {
+	t.Helper()
+	encoded, err := jsonv2.Marshal(signal)
+	if err != nil {
 		t.Fatal(err)
 	}
+	encoded = bytes.ReplaceAll(encoded, []byte(`"composition"`), []byte(`"unrelated"`))
+	var unrelated agent.Signal
+	if err := jsonv2.Unmarshal(encoded, &unrelated); err != nil {
+		t.Fatal(err)
+	}
+	return unrelated
 }
 
 type recordingDefinition struct {
@@ -425,64 +457,58 @@ func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (
 }
 
 func TestCompositionPreservesChildFailures(t *testing.T) {
-	for _, failStart := range []bool{true, false} {
-		t.Run(fmt.Sprintf("start failure %t", failStart), func(t *testing.T) {
-			local, err := newUppercaseDeployment()
+	for _, test := range []struct {
+		name     string
+		failStep bool
+		wantCode string
+	}{
+		{name: "start failure true", wantCode: "engine.child.deployment_unavailable"},
+		{name: "start failure false", failStep: true, wantCode: "example.child.failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := agent.Deployment{}
+			if test.failStep {
+				model = newFailingModelDeployment(t)
+			}
+			fixture := newCompositionFixture(t, model)
+			resolver := deploymentResolver{fixture.local.DeploymentRef(): fixture.local}
+			if test.failStep {
+				resolver[fixture.model.DeploymentRef()] = fixture.model
+			}
+			engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+			input, err := fixture.composition.Descriptor().EncodeInput(compositionInput{Prompt: "failure"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			model, err := newModelDeployment()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !failStart {
-				model, err = agent.NewDeployment(agent.DeploymentConfig{
-					Definition:           failingDefinition{Definition: model.Definition()},
-					ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
-					ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
-			if err != nil {
-				t.Fatal(err)
-			}
-			resolver := deploymentResolver{local.DeploymentRef(): local}
-			if !failStart {
-				resolver[model.DeploymentRef()] = model
-			}
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-					t.Error(closeErr)
-				}
-			})
-			input, err := composition.Descriptor().EncodeInput(compositionInput{Prompt: "failure"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			result, err := engine.Run(t.Context(), composition, input)
+			result, err := engine.Run(t.Context(), fixture.composition, input)
 			if err != nil || result.Status() != agent.StatusFailed {
 				t.Fatalf("status=%s error=%v", result.Status(), err)
 			}
-			failure, found := result.Termination().Failure()
-			wantCode := "example.child.failed"
-			if failStart {
-				wantCode = "engine.child.deployment_unavailable"
-			}
-			if !found || failure.Code() != wantCode {
-				t.Fatalf("failure=%s, want %s", failure.Code(), wantCode)
+			if failure, found := result.Termination().Failure(); !found || failure.Code() != test.wantCode {
+				t.Fatalf("failure=%s, want %s", failure.Code(), test.wantCode)
 			}
 			if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
+}
+
+func newFailingModelDeployment(t *testing.T) agent.Deployment {
+	t.Helper()
+	model, err := newModelDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing, err := agent.NewDeployment(agent.DeploymentConfig{
+		Definition:           failingDefinition{Definition: model.Definition()},
+		ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
+		ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return failing
 }
 
 type failingDefinition struct{ agent.Definition }
@@ -514,21 +540,15 @@ func (f failingExecution) Step(context.Context, []agent.Signal) (agent.Transitio
 }
 
 func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
-	local, err := newUppercaseDeployment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	model, err := newModelDeployment()
-	if err != nil {
-		t.Fatal(err)
-	}
-	base, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := newCompositionFixture(t, agent.Deployment{})
+	base := fixture.composition
 	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "admission"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conformancetest.Run(t, agent.DeploymentConfig{Definition: base.Definition(), ImplementationDigest: base.DeploymentRef().ImplementationDigest(), ConfigurationDigest: base.DeploymentRef().ConfigurationDigest()}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{local.DeploymentRef(): local, model.DeploymentRef(): model}}, input)
+	conformancetest.Run(t, agent.DeploymentConfig{
+		Definition:           base.Definition(),
+		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
+		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
+	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: fixture.resolver()}, input)
 }
