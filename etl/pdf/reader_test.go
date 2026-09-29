@@ -195,6 +195,21 @@ func escapePDFText(text string) string {
 	return replacer.Replace(text)
 }
 
+func TestWholeDocumentSkipsBlankPages(t *testing.T) {
+	data := testPDF(t, "Alpha", "   ", "Omega")
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)), pdf.ReaderConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := reader.Read(t.Context())
+	if err != nil || len(docs) != 1 {
+		t.Fatalf("Read = %v, %v", docs, err)
+	}
+	if docs[0].Text != "Alpha\n\nOmega" {
+		t.Fatalf("text = %q", docs[0].Text)
+	}
+}
+
 func TestReaderResolvesToUnicodePerPage(t *testing.T) {
 	objects := []string{
 		`<< /Type /Catalog /Pages 2 0 R >>`,

@@ -222,6 +222,7 @@ func (r *Reader) readAllText(ctx context.Context, pdfReader *ledongthuc.Reader, 
 			failures = append(failures, err)
 			continue
 		}
+		text = strings.TrimSpace(text)
 		if text == "" {
 			continue
 		}
