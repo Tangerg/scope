@@ -10,11 +10,8 @@ import (
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
 
-// Func adapts a typed Go function to [Tool]. It owns the derived input
-// contract, strict argument decoding, invocation, and result encoding.
-//
-// Func is immutable after construction and is safe for concurrent calls when
-// the wrapped function is safe for concurrent calls.
+// Func adapts a typed Go function to [Tool]. It is immutable and as safe for
+// concurrent calls as the wrapped function.
 type Func[In, Out any] struct {
 	config   FuncConfig
 	input    corejsonschema.Schema

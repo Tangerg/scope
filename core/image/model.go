@@ -2,11 +2,9 @@ package image
 
 import "context"
 
-// Model is the complete provider-neutral image generation SPI. Call
-// implementations validate requests before I/O, reject explicit options they
-// cannot represent, preserve context error identity, and return responses that
-// pass Validate. Provider defaults and identity belong to provider construction
-// and observability.
+// Model is the complete provider-neutral image generation SPI. Implementations
+// reject explicit options they cannot represent and return responses that pass
+// Validate; provider defaults and identity belong to provider construction.
 type Model interface {
 	// Call performs one image-generation request after validating all prompt and
 	// option invariants. It must not retain or mutate request and transfers

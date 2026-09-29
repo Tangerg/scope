@@ -12,10 +12,9 @@ import (
 
 var ErrInvalidDocument = errors.New("document: invalid document")
 
-// Document is the canonical content carrier. It holds identity, content, and
-// metadata; query-specific relationships and runtime policies live outside
-// this value. Clone recursively snapshots media and metadata so indexing and
-// retrieval boundaries never retain caller-owned mutable buffers.
+// Document is the canonical content carrier. Clone recursively snapshots media
+// and metadata so indexing and retrieval boundaries never retain caller-owned
+// mutable buffers.
 type Document struct {
 	ID string `json:"id,omitempty"`
 

@@ -2,10 +2,9 @@ package embedding
 
 import "context"
 
-// Model is the complete provider-neutral embedding SPI. Call implementations
-// validate requests before I/O, reject explicit options they cannot represent,
-// preserve context error identity, and return responses that pass Validate.
-// Defaults, identity, observability, batching, and dimension discovery are
+// Model is the complete provider-neutral embedding SPI. Implementations
+// reject explicit options they cannot represent and return responses that pass
+// Validate. Defaults, identity, batching, and dimension discovery are
 // independent concerns.
 type Model interface {
 	// Call performs one embedding request after validating the complete batch.

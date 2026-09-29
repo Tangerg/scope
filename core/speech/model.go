@@ -5,10 +5,9 @@ import (
 	"iter"
 )
 
-// Model is the synchronous provider-neutral speech generation SPI. Call
-// implementations validate requests before I/O, reject explicit options they
-// cannot represent, preserve context error identity, and return responses that
-// pass Validate.
+// Model is the synchronous provider-neutral speech generation SPI.
+// Implementations validate requests before I/O, reject explicit options they
+// cannot represent, and return responses that pass Validate.
 type Model interface {
 	// Call produces one complete audio response from a validated request. It
 	// must not retain or mutate request, transfers response ownership to the
