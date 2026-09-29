@@ -1,8 +1,8 @@
 package serper
 
 import (
+	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,51 +11,38 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
 
 const (
-	baseURL = "https://google.serper.dev"
+	baseURL      = "https://google.serper.dev"
+	searchPath   = "/search"
+	apiKeyHeader = "X-API-KEY"
 )
 
-// Config takes an optional [http.Client] so the host keeps ownership of
-// timeouts, proxying, and transport instrumentation instead of inheriting
-// whatever this package would otherwise choose.
+// Config configures a [Client]. APIKey is required; an empty BaseURL selects
+// Serper's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Serper API. It exposes no
-// vendor-specific surface, so a caller can substitute another search backend
-// without touching the tool that consumes it.
+// Client implements [web.Searcher] against the Serper Google Search API.
 type Client struct {
 	http *resty.Client
 }
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first search.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("serper: API key is required")
 	}
-	if config.BaseURL == "" {
-		config.BaseURL = baseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		http: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.BaseURL).
-			SetHeader("X-API-KEY", config.APIKey).
-			SetHeader("Content-Type", "application/json"),
-	}
-	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
+		SetHeader(apiKeyHeader, config.APIKey).
+		SetHeader("Content-Type", "application/json")
+	return &Client{http: transport}, nil
 }
 
 type searchRequest struct {
@@ -65,14 +52,13 @@ type searchRequest struct {
 	Tbs         string `json:"tbs,omitempty"`
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("serper: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest) *searchRequest {
+	return &searchRequest{
+		Q:           request.QueryWithSiteOperators(),
+		Num:         request.MaxResults,
+		Autocorrect: true,
+		Tbs:         recencyToTbs(request.Recency),
 	}
-	if s.Q == "" {
-		return errors.New("serper: search query must not be empty")
-	}
-	return nil
 }
 
 type searchParameters struct {
@@ -91,19 +77,20 @@ type searchResponse struct {
 	Organic          []*organicResult `json:"organic"`
 }
 
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
+func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+	results := make([]*web.SearchResult, 0, len(s.Organic))
+	for _, searchResult := range s.Organic {
+		if searchResult == nil {
+			continue
+		}
+		results = append(results, &web.SearchResult{
+			Title:         searchResult.Title,
+			URL:           searchResult.Link,
+			Snippet:       searchResult.Snippet,
+			PublishedTime: parseDate(searchResult.Date),
+		})
 	}
-	var raw searchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/search")
-	if err != nil {
-		return nil, fmt.Errorf("serper: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("serper: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
+	return &web.SearchResponse{Query: cmp.Or(s.SearchParameters.Q, query), Results: results}
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -111,24 +98,12 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if err != nil {
 		return nil, fmt.Errorf("serper: prepare search request: %w", err)
 	}
-	request = prepared
-	raw, err := c.search(ctx, buildSearchRequest(request))
-	if err != nil {
-		return nil, err
+	var raw searchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
+		return nil, fmt.Errorf("serper: search request: %w", err)
 	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Q:           request.QueryWithSiteOperators(),
-		Autocorrect: true,
-	}
-	if request.MaxResults > 0 {
-		r.Num = request.MaxResults
-	}
-	r.Tbs = recencyToTbs(request.Recency)
-	return r
+	return raw.toSearchResponse(prepared.Query), nil
 }
 
 func recencyToTbs(r web.Recency) string {
@@ -147,31 +122,8 @@ func recencyToTbs(r web.Recency) string {
 	return ""
 }
 
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
-	results := make([]*web.SearchResult, 0, len(s.Organic))
-	for _, searchResult := range s.Organic {
-		if searchResult == nil {
-			continue
-		}
-		results = append(results, &web.SearchResult{
-			Title:         searchResult.Title,
-			URL:           searchResult.Link,
-			Snippet:       searchResult.Snippet,
-			PublishedTime: parseDate(searchResult.Date),
-		})
-	}
-	if s.SearchParameters.Q != "" {
-		query = s.SearchParameters.Q
-	}
-	return &web.SearchResponse{Query: query, Results: results}
-}
-
-// parseDate tries Serper's common date formats. Relative strings
-// ("2 days ago") are returned as zero time.
+// parseDate returns the zero time for relative dates such as "2 days ago".
 func parseDate(s string) time.Time {
-	if s == "" {
-		return time.Time{}
-	}
 	for _, layout := range []string{"Jan 2, 2006", time.DateOnly, time.RFC3339} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t

@@ -3,7 +3,6 @@ package jina
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,25 +14,30 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
 
 const (
 	searchBaseURL         = "https://s.jina.ai"
 	fetchBaseURL          = "https://r.jina.ai"
+	fetchPath             = "/"
 	queryParameterCount   = "count"
 	queryParameterPage    = "page"
 	queryParameterSite    = "site"
+	firstPage             = 1
 	defaultSearchResults  = 10
 	maximumSnippetRunes   = 300
 	snippetEllipsis       = "..."
 	mediaTypeJSON         = "application/json"
 	respondWithHeader     = "X-Respond-With"
 	respondWithoutContent = "no-content"
+	retainImagesHeader    = "X-Retain-Images"
+	retainNoImages        = "none"
 )
 
-// Config carries separate search and fetch base URLs because Jina serves the
-// two capabilities from different endpoints; one shared base would silently
-// send half the calls to the wrong service.
+// Config configures a [Client]. APIKey is required. Jina serves search and
+// fetch from different endpoints, so each has its own base URL; an empty one
+// selects Jina's public endpoint. A nil HTTPClient selects a default client.
 type Config struct {
 	APIKey        string
 	SearchBaseURL string
@@ -41,10 +45,8 @@ type Config struct {
 	HTTPClient    *http.Client
 }
 
-// Client implements the web contracts against Jina's reader and search
-// endpoints. It holds two HTTP clients for the two base URLs rather than
-// rewriting the host per call, so each endpoint's configuration stays
-// independent.
+// Client implements [web.Searcher] and [web.Fetcher] against Jina Search and
+// Jina Reader.
 type Client struct {
 	searchHTTP *resty.Client
 	fetchHTTP  *resty.Client
@@ -52,64 +54,45 @@ type Client struct {
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first call.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("jina: API key is required")
 	}
-	if config.SearchBaseURL == "" {
-		config.SearchBaseURL = searchBaseURL
-	}
-	if config.FetchBaseURL == "" {
-		config.FetchBaseURL = fetchBaseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		searchHTTP: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.SearchBaseURL).
+	return &Client{
+		searchHTTP: providerhttp.NewClient(config.HTTPClient, cmp.Or(config.SearchBaseURL, searchBaseURL)).
 			SetAuthToken(config.APIKey).
 			SetHeader("Accept", mediaTypeJSON).
 			SetHeader(respondWithHeader, respondWithoutContent),
-		fetchHTTP: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.FetchBaseURL).
+		fetchHTTP: providerhttp.NewClient(config.HTTPClient, cmp.Or(config.FetchBaseURL, fetchBaseURL)).
 			SetAuthToken(config.APIKey).
 			SetHeader("Content-Type", mediaTypeJSON).
-			SetHeader("Accept", mediaTypeJSON),
-	}
-	client.searchHTTP.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.searchHTTP.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	client.fetchHTTP.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.fetchHTTP.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+			SetHeader("Accept", mediaTypeJSON).
+			SetHeader(retainImagesHeader, retainNoImages),
+	}, nil
 }
 
 type searchRequest struct {
-	Query string   `json:"-"`
-	Count int      `json:"count,omitzero"`
-	Page  int      `json:"page,omitzero"`
-	Site  []string `json:"site,omitempty"`
+	Query string
+	Count int
+	Site  []string
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("jina: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest) *searchRequest {
+	return &searchRequest{
+		Query: request.Query,
+		Count: cmp.Or(request.MaxResults, defaultSearchResults),
+		Site:  request.AllowedDomains,
 	}
-	if s.Query == "" {
-		return errors.New("jina: search query must not be empty")
-	}
-	return nil
+}
+
+func (s *searchRequest) path() string {
+	return "/" + url.PathEscape(s.Query)
 }
 
 func (s *searchRequest) params() url.Values {
-	parameters := make(url.Values)
-	if s.Count > 0 {
-		parameters.Set(queryParameterCount, strconv.Itoa(s.Count))
-	}
-	if s.Page > 0 {
-		parameters.Set(queryParameterPage, strconv.Itoa(s.Page))
+	parameters := url.Values{
+		queryParameterCount: {strconv.Itoa(s.Count)},
+		queryParameterPage:  {strconv.Itoa(firstPage)},
 	}
 	for _, site := range s.Site {
 		parameters.Add(queryParameterSite, site)
@@ -125,93 +108,18 @@ type searchResult struct {
 	Date        string `json:"date,omitempty"`
 }
 
+func (s *searchResult) snippet() string {
+	if s.Description != "" {
+		return s.Description
+	}
+	if lo.RuneLength(s.Content) > maximumSnippetRunes {
+		return lo.Substring(s.Content, 0, maximumSnippetRunes) + snippetEllipsis
+	}
+	return s.Content
+}
+
 type searchResponse struct {
 	Data []*searchResult `json:"data"`
-}
-
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	endpoint := "/" + url.PathEscape(request.Query)
-	params := request.params()
-	httpRequest := c.searchHTTP.R().SetContext(ctx).SetQueryParamsFromValues(params)
-	var raw searchResponse
-	response, err := httpRequest.SetResult(&raw).Get(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("jina: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("jina: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("jina: prepare search request: %w", err)
-	}
-	request = prepared
-	if len(request.BlockedDomains) > 0 {
-		return nil, fmt.Errorf("jina: %w: blocked_domains", web.ErrUnsupportedFilter)
-	}
-	if request.Recency != "" {
-		return nil, fmt.Errorf("jina: %w: recency", web.ErrUnsupportedFilter)
-	}
-	raw, err := c.search(ctx, buildSearchRequest(request))
-	if err != nil {
-		return nil, err
-	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func (c *Client) fetch(ctx context.Context, request *fetchRequest) (*fetchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	httpRequest := c.fetchHTTP.R().SetContext(ctx).
-		SetBody(request).
-		SetHeader("X-Retain-Images", "none")
-	if request.ReturnFormat != "" {
-		httpRequest.SetHeader(respondWithHeader, request.ReturnFormat)
-	}
-
-	var raw fetchResponse
-	response, err := httpRequest.SetResult(&raw).Post("/")
-	if err != nil {
-		return nil, fmt.Errorf("jina: execute fetch request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("jina: fetch request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("jina: prepare fetch request: %w", err)
-	}
-	request = prepared
-	format := request.Format
-	raw, err := c.fetch(ctx, &fetchRequest{URL: request.URL, ReturnFormat: string(format)})
-	if err != nil {
-		return nil, err
-	}
-	return &web.FetchResponse{Content: raw.Data.Content, Format: format}, nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Query: request.Query,
-		Count: cmp.Or(request.MaxResults, defaultSearchResults),
-		Page:  1,
-	}
-	if len(request.AllowedDomains) > 0 {
-		r.Site = request.AllowedDomains
-	}
-	return r
 }
 
 func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
@@ -230,23 +138,45 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 	return &web.SearchResponse{Query: query, Results: results}
 }
 
-func (s *searchResult) snippet() string {
-	if s.Description != "" {
-		return s.Description
+func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("jina: prepare search request: %w", err)
 	}
-	if s.Content == "" {
-		return ""
+	if len(prepared.BlockedDomains) > 0 {
+		return nil, fmt.Errorf("jina: %w: blocked_domains", web.ErrUnsupportedFilter)
 	}
-	if lo.RuneLength(s.Content) > maximumSnippetRunes {
-		return lo.Substring(s.Content, 0, maximumSnippetRunes) + snippetEllipsis
+	if prepared.Recency != "" {
+		return nil, fmt.Errorf("jina: %w: recency", web.ErrUnsupportedFilter)
 	}
-	return s.Content
+	search := newSearchRequest(prepared)
+	var raw searchResponse
+	httpRequest := c.searchHTTP.R().SetContext(ctx).SetQueryParamsFromValues(search.params())
+	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, search.path(), &raw); err != nil {
+		return nil, fmt.Errorf("jina: search request: %w", err)
+	}
+	return raw.toSearchResponse(prepared.Query), nil
+}
+
+func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("jina: prepare fetch request: %w", err)
+	}
+	var raw fetchResponse
+	httpRequest := c.fetchHTTP.R().SetContext(ctx).
+		SetHeader(respondWithHeader, string(prepared.Format)).
+		SetBody(&fetchRequest{URL: prepared.URL})
+	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
+		return nil, fmt.Errorf("jina: fetch request: %w", err)
+	}
+	if raw.Data.Content == nil {
+		return nil, errors.New("jina: fetch response contains no content")
+	}
+	return &web.FetchResponse{Content: *raw.Data.Content, Format: prepared.Format}, nil
 }
 
 func parseDate(s string) time.Time {
-	if s == "" {
-		return time.Time{}
-	}
 	for _, layout := range []string{"Jan 2, 2006", "02 Jan 2006", time.DateOnly, time.RFC3339} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t

@@ -1,10 +1,6 @@
 package firecrawl
 
-import (
-	"errors"
-
-	"github.com/Tangerg/scope/tools/web"
-)
+import "github.com/Tangerg/scope/tools/web"
 
 var _ web.Fetcher = (*Client)(nil)
 
@@ -18,19 +14,16 @@ type fetchRequest struct {
 	OnlyMainContent bool          `json:"onlyMainContent"`
 }
 
-func (f *fetchRequest) validate() error {
-	if f == nil {
-		return errors.New("firecrawl: fetch request must not be nil")
-	}
-	if f.URL == "" {
-		return errors.New("firecrawl: fetch URL must not be empty")
-	}
-	return nil
-}
-
 type fetchResponseData struct {
 	Markdown *string `json:"markdown,omitzero"`
 	HTML     *string `json:"html,omitzero"`
+}
+
+func (f fetchResponseData) content(format web.ContentFormat) *string {
+	if format == web.FormatHTML {
+		return f.HTML
+	}
+	return f.Markdown
 }
 
 type fetchResponse struct {

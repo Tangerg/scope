@@ -3,7 +3,6 @@ package tavily
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,53 +10,42 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
-
-const defaultSearchResultCount = 5
 
 const (
-	baseURL = "https://api.tavily.com"
+	baseURL                  = "https://api.tavily.com"
+	searchPath               = "/search"
+	extractPath              = "/extract"
+	depthBasic               = "basic"
+	topicGeneral             = "general"
+	defaultSearchResultCount = 5
 )
 
-// Config takes an optional [http.Client] so the host keeps ownership of
-// timeouts, proxying, and transport instrumentation instead of inheriting
-// whatever this package would otherwise choose.
+// Config configures a [Client]. APIKey is required; an empty BaseURL selects
+// Tavily's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Tavily API. It exposes no
-// vendor-specific surface, so a caller can substitute another search backend
-// without touching the tool that consumes it.
+// Client implements [web.Searcher] and [web.Fetcher] against Tavily Search and
+// Extract.
 type Client struct {
 	http *resty.Client
 }
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first search.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("tavily: API key is required")
 	}
-	if config.BaseURL == "" {
-		config.BaseURL = baseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		http: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.BaseURL).
-			SetAuthToken(config.APIKey).
-			SetHeader("Content-Type", "application/json"),
-	}
-	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
+		SetAuthToken(config.APIKey).
+		SetHeader("Content-Type", "application/json")
+	return &Client{http: transport}, nil
 }
 
 type searchRequest struct {
@@ -71,14 +59,17 @@ type searchRequest struct {
 	IncludeFavicon bool     `json:"include_favicon,omitzero"`
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("tavily: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest) *searchRequest {
+	return &searchRequest{
+		Query:          request.Query,
+		SearchDepth:    depthBasic,
+		Topic:          topicGeneral,
+		MaxResults:     cmp.Or(request.MaxResults, defaultSearchResultCount),
+		TimeRange:      recencyToTimeRange(request.Recency),
+		IncludeDomains: request.AllowedDomains,
+		ExcludeDomains: request.BlockedDomains,
+		IncludeFavicon: true,
 	}
-	if s.Query == "" {
-		return errors.New("tavily: search query must not be empty")
-	}
-	return nil
 }
 
 type searchResult struct {
@@ -91,113 +82,6 @@ type searchResult struct {
 type searchResponse struct {
 	Query   string          `json:"query"`
 	Results []*searchResult `json:"results"`
-}
-
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw searchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/search")
-	if err != nil {
-		return nil, fmt.Errorf("tavily: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("tavily: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("tavily: prepare search request: %w", err)
-	}
-	request = prepared
-	if request.Recency == web.RecencyHour {
-		return nil, fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
-	}
-	raw, err := c.search(ctx, buildSearchRequest(request))
-	if err != nil {
-		return nil, err
-	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func (c *Client) fetch(ctx context.Context, request *fetchRequest) (*fetchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw fetchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/extract")
-	if err != nil {
-		return nil, fmt.Errorf("tavily: execute fetch request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("tavily: fetch request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("tavily: prepare fetch request: %w", err)
-	}
-	request = prepared
-	format := request.Format
-	if format == web.FormatHTML {
-		return nil, fmt.Errorf("tavily: %w: %s", web.ErrUnsupportedFormat, format)
-	}
-	raw, err := c.fetch(ctx, &fetchRequest{
-		URLs:         []string{request.URL},
-		ExtractDepth: "basic",
-		Format:       string(format),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(raw.Results) == 0 || raw.Results[0] == nil {
-		if len(raw.FailedResults) > 0 {
-			if failure := raw.FailedResults[0]; failure != nil {
-				return nil, fmt.Errorf("tavily: fetch response reported failure: %s", failure.Error)
-			}
-		}
-		return nil, errors.New("tavily: fetch response contains no result")
-	}
-	return &web.FetchResponse{Content: raw.Results[0].RawContent, Format: format}, nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Query:          request.Query,
-		SearchDepth:    "basic",
-		Topic:          "general",
-		MaxResults:     cmp.Or(request.MaxResults, defaultSearchResultCount),
-		IncludeFavicon: true,
-	}
-	if len(request.AllowedDomains) > 0 {
-		r.IncludeDomains = request.AllowedDomains
-	}
-	if len(request.BlockedDomains) > 0 {
-		r.ExcludeDomains = request.BlockedDomains
-	}
-	r.TimeRange = recencyToTimeRange(request.Recency)
-	return r
-}
-
-func recencyToTimeRange(r web.Recency) string {
-	switch r {
-	case web.RecencyDay:
-		return "day" // Tavily's minimum granularity
-	case web.RecencyWeek:
-		return "week"
-	case web.RecencyMonth:
-		return "month"
-	case web.RecencyYear:
-		return "year"
-	}
-	return ""
 }
 
 func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
@@ -214,4 +98,59 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 		})
 	}
 	return &web.SearchResponse{Query: cmp.Or(s.Query, query), Results: results}
+}
+
+func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("tavily: prepare search request: %w", err)
+	}
+	if prepared.Recency == web.RecencyHour {
+		return nil, fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
+	}
+	var raw searchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
+		return nil, fmt.Errorf("tavily: search request: %w", err)
+	}
+	return raw.toSearchResponse(prepared.Query), nil
+}
+
+func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("tavily: prepare fetch request: %w", err)
+	}
+	format := prepared.Format
+	if format == web.FormatHTML {
+		return nil, fmt.Errorf("tavily: %w: %s", web.ErrUnsupportedFormat, format)
+	}
+	var raw fetchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{
+		URLs:         []string{prepared.URL},
+		ExtractDepth: depthBasic,
+		Format:       string(format),
+	})
+	if _, err = providerhttp.Execute(httpRequest, http.MethodPost, extractPath, &raw); err != nil {
+		return nil, fmt.Errorf("tavily: fetch request: %w", err)
+	}
+	content, err := raw.content()
+	if err != nil {
+		return nil, err
+	}
+	return &web.FetchResponse{Content: content, Format: format}, nil
+}
+
+func recencyToTimeRange(r web.Recency) string {
+	switch r {
+	case web.RecencyDay:
+		return "day"
+	case web.RecencyWeek:
+		return "week"
+	case web.RecencyMonth:
+		return "month"
+	case web.RecencyYear:
+		return "year"
+	}
+	return ""
 }

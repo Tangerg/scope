@@ -3,7 +3,6 @@ package brave
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,78 +12,66 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
-
-const defaultSearchResultCount = 10
 
 const (
-	baseURL                 = "https://api.search.brave.com/res/v1"
-	queryParameterQuery     = "q"
-	queryParameterCount     = "count"
-	queryParameterFreshness = "freshness"
+	baseURL                  = "https://api.search.brave.com/res/v1"
+	searchPath               = "/web/search"
+	defaultSearchResultCount = 10
+	queryParameterQuery      = "q"
+	queryParameterCount      = "count"
+	queryParameterFreshness  = "freshness"
+	subscriptionTokenHeader  = "X-Subscription-Token"
+	freshnessPastDay         = "pd"
+	freshnessPastWeek        = "pw"
+	freshnessPastMonth       = "pm"
+	freshnessPastYear        = "py"
 )
 
-// Config takes an optional [http.Client] so the host keeps ownership of
-// timeouts, proxying, and transport instrumentation instead of inheriting
-// whatever this package would otherwise choose.
+// Config configures a [Client]. APIKey is required; an empty BaseURL selects
+// Brave's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Brave API. It exposes no
-// vendor-specific surface, so a caller can substitute another search backend
-// without touching the tool that consumes it.
+// Client implements [web.Searcher] against the Brave Web Search API.
 type Client struct {
 	http *resty.Client
 }
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first search.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("brave: API key is required")
 	}
-	if config.BaseURL == "" {
-		config.BaseURL = baseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		http: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.BaseURL).
-			SetHeader("X-Subscription-Token", config.APIKey).
-			SetHeader("Accept", "application/json"),
-	}
-	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
+		SetHeader(subscriptionTokenHeader, config.APIKey).
+		SetHeader("Accept", "application/json")
+	return &Client{http: transport}, nil
 }
 
 type searchRequest struct {
-	Q         string `json:"-"`
-	Count     int    `json:"-"`
-	Freshness string `json:"-"`
+	Q         string
+	Count     int
+	Freshness string
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("brave: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest) *searchRequest {
+	return &searchRequest{
+		Q:         request.QueryWithSiteOperators(),
+		Count:     cmp.Or(request.MaxResults, defaultSearchResultCount),
+		Freshness: recencyToFreshness(request.Recency),
 	}
-	if s.Q == "" {
-		return errors.New("brave: search query must not be empty")
-	}
-	return nil
 }
 
 func (s *searchRequest) params() map[string]string {
-	parameters := map[string]string{queryParameterQuery: s.Q}
-	if s.Count > 0 {
-		parameters[queryParameterCount] = strconv.Itoa(s.Count)
+	parameters := map[string]string{
+		queryParameterQuery: s.Q,
+		queryParameterCount: strconv.Itoa(s.Count),
 	}
 	if s.Freshness != "" {
 		parameters[queryParameterFreshness] = s.Freshness
@@ -112,56 +99,32 @@ type searchResponse struct {
 	Web   *webResults `json:"web,omitzero"`
 }
 
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw searchResponse
-	response, err := c.http.R().SetContext(ctx).SetQueryParams(request.params()).SetResult(&raw).Get("/web/search")
-	if err != nil {
-		return nil, fmt.Errorf("brave: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("brave: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
 		return nil, fmt.Errorf("brave: prepare search request: %w", err)
 	}
-	request = prepared
-	if request.Recency == web.RecencyHour {
+	if prepared.Recency == web.RecencyHour {
 		return nil, fmt.Errorf("brave: %w: hourly recency", web.ErrUnsupportedFilter)
 	}
-	raw, err := c.search(ctx, buildSearchRequest(request))
-	if err != nil {
-		return nil, err
+	var raw searchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetQueryParams(newSearchRequest(prepared).params())
+	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
+		return nil, fmt.Errorf("brave: search request: %w", err)
 	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Q:     request.QueryWithSiteOperators(),
-		Count: cmp.Or(request.MaxResults, defaultSearchResultCount),
-	}
-	r.Freshness = recencyToFreshness(request.Recency)
-	return r
+	return raw.toSearchResponse(prepared.Query), nil
 }
 
 func recencyToFreshness(r web.Recency) string {
 	switch r {
 	case web.RecencyDay:
-		return "pd"
+		return freshnessPastDay
 	case web.RecencyWeek:
-		return "pw"
+		return freshnessPastWeek
 	case web.RecencyMonth:
-		return "pm"
+		return freshnessPastMonth
 	case web.RecencyYear:
-		return "py"
+		return freshnessPastYear
 	}
 	return ""
 }
@@ -186,11 +149,9 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 }
 
 func parseAge(s string) time.Time {
-	if s == "" {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
 		return time.Time{}
 	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t
-	}
-	return time.Time{}
+	return t
 }

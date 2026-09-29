@@ -3,7 +3,6 @@ package firecrawl
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,52 +10,41 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
-
-const defaultSearchResultCount = 10
 
 const (
-	baseURL = "https://api.firecrawl.dev/v2"
+	baseURL                  = "https://api.firecrawl.dev/v2"
+	searchPath               = "/search"
+	scrapePath               = "/scrape"
+	defaultSearchResultCount = 10
 )
 
-// Config takes an optional [http.Client] so the host keeps ownership of
-// timeouts, proxying, and transport instrumentation instead of inheriting
-// whatever this package would otherwise choose.
+// Config configures a [Client]. APIKey is required; an empty BaseURL selects
+// Firecrawl's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// Client implements the web contracts against Firecrawl, whose fetch path can
-// render a page before extracting content produced by client-side scripts.
+// Client implements [web.Searcher] and [web.Fetcher] against Firecrawl, whose
+// fetch path renders a page before extracting content produced by client-side
+// scripts.
 type Client struct {
 	http *resty.Client
 }
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first fetch.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("firecrawl: API key is required")
 	}
-	if config.BaseURL == "" {
-		config.BaseURL = baseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		http: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.BaseURL).
-			SetAuthToken(config.APIKey).
-			SetHeader("Content-Type", "application/json"),
-	}
-	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
+		SetAuthToken(config.APIKey).
+		SetHeader("Content-Type", "application/json")
+	return &Client{http: transport}, nil
 }
 
 type searchRequest struct {
@@ -65,14 +53,12 @@ type searchRequest struct {
 	Tbs   string `json:"tbs,omitempty"`
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("firecrawl: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest) *searchRequest {
+	return &searchRequest{
+		Query: request.QueryWithSiteOperators(),
+		Limit: cmp.Or(request.MaxResults, defaultSearchResultCount),
+		Tbs:   recencyToTbs(request.Recency),
 	}
-	if s.Query == "" {
-		return errors.New("firecrawl: search query must not be empty")
-	}
-	return nil
 }
 
 type searchResult struct {
@@ -90,22 +76,19 @@ type searchResponse struct {
 	Data    searchResponseData `json:"data"`
 }
 
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
+func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+	results := make([]*web.SearchResult, 0, len(s.Data.Web))
+	for _, searchResult := range s.Data.Web {
+		if searchResult == nil {
+			continue
+		}
+		results = append(results, &web.SearchResult{
+			Title:   searchResult.Title,
+			URL:     searchResult.URL,
+			Snippet: searchResult.Description,
+		})
 	}
-	var raw searchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/search")
-	if err != nil {
-		return nil, fmt.Errorf("firecrawl: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("firecrawl: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	if !raw.Success {
-		return nil, fmt.Errorf("firecrawl: search response reported failure: %s", response.String())
-	}
-	return &raw, nil
+	return &web.SearchResponse{Query: query, Results: results}
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -113,30 +96,16 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl: prepare search request: %w", err)
 	}
-	request = prepared
-	raw, err := c.search(ctx, buildSearchRequest(request))
+	var raw searchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	response, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw)
 	if err != nil {
-		return nil, err
-	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func (c *Client) fetch(ctx context.Context, request *fetchRequest) (*fetchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw fetchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/scrape")
-	if err != nil {
-		return nil, fmt.Errorf("firecrawl: execute fetch request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("firecrawl: fetch request returned HTTP %d: %s", response.StatusCode(), response.String())
+		return nil, fmt.Errorf("firecrawl: search request: %w", err)
 	}
 	if !raw.Success {
-		return nil, fmt.Errorf("firecrawl: fetch response reported failure: %s", response.String())
+		return nil, fmt.Errorf("firecrawl: search response reported failure: %s", response.String())
 	}
-	return &raw, nil
+	return raw.toSearchResponse(prepared.Query), nil
 }
 
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
@@ -144,36 +113,28 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl: prepare fetch request: %w", err)
 	}
-	request = prepared
-	format := request.Format
+	format := prepared.Format
 	if format == web.FormatText {
 		return nil, fmt.Errorf("firecrawl: %w: %s", web.ErrUnsupportedFormat, format)
 	}
-	raw, err := c.fetch(ctx, &fetchRequest{
-		URL:             request.URL,
+	var raw fetchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{
+		URL:             prepared.URL,
 		Formats:         []fetchFormat{{Type: string(format)}},
 		OnlyMainContent: true,
 	})
+	response, err := providerhttp.Execute(httpRequest, http.MethodPost, scrapePath, &raw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("firecrawl: fetch request: %w", err)
 	}
-	content := raw.Data.Markdown
-	if format == web.FormatHTML {
-		content = raw.Data.HTML
+	if !raw.Success {
+		return nil, fmt.Errorf("firecrawl: fetch response reported failure: %s", response.String())
 	}
+	content := raw.Data.content(format)
 	if content == nil {
 		return nil, fmt.Errorf("firecrawl: response is missing requested %s content", format)
 	}
 	return &web.FetchResponse{Content: *content, Format: format}, nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Query: request.QueryWithSiteOperators(),
-		Limit: cmp.Or(request.MaxResults, defaultSearchResultCount),
-	}
-	r.Tbs = recencyToTbs(request.Recency)
-	return r
 }
 
 func recencyToTbs(r web.Recency) string {
@@ -190,19 +151,4 @@ func recencyToTbs(r web.Recency) string {
 		return "qdr:y"
 	}
 	return ""
-}
-
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
-	results := make([]*web.SearchResult, 0, len(s.Data.Web))
-	for _, searchResult := range s.Data.Web {
-		if searchResult == nil {
-			continue
-		}
-		results = append(results, &web.SearchResult{
-			Title:   searchResult.Title,
-			URL:     searchResult.URL,
-			Snippet: searchResult.Description,
-		})
-	}
-	return &web.SearchResponse{Query: query, Results: results}
 }

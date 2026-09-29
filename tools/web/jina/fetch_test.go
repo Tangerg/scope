@@ -56,3 +56,21 @@ func TestFetch(t *testing.T) {
 		t.Fatalf("response = %#v", response)
 	}
 }
+
+func TestFetchRequiresContent(t *testing.T) {
+	for _, body := range []string{`{"data":{}}`, `{"data":{"content":null}}`, `{}`} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		}))
+		client, err := NewClient(Config{APIKey: "test-key", FetchBaseURL: server.URL, HTTPClient: server.Client()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com"})
+		server.Close()
+		if response != nil || err == nil {
+			t.Fatalf("body %s: response = %#v, error = %v", body, response, err)
+		}
+	}
+}

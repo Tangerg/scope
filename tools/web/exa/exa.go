@@ -3,7 +3,6 @@ package exa
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,53 +11,41 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
+	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
-
-const defaultSearchResultCount = 10
 
 const (
-	baseURL = "https://api.exa.ai"
+	baseURL                  = "https://api.exa.ai"
+	searchPath               = "/search"
+	contentsPath             = "/contents"
+	apiKeyHeader             = "x-api-key"
+	searchTypeFast           = "fast"
+	defaultSearchResultCount = 10
 )
 
-// Config takes an optional [http.Client] so the host keeps ownership of
-// timeouts, proxying, and transport instrumentation instead of inheriting
-// whatever this package would otherwise choose.
+// Config configures a [Client]. APIKey is required; an empty BaseURL selects
+// Exa's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Exa API. It exposes no
-// vendor-specific surface, so a caller can substitute another search backend
-// without touching the tool that consumes it.
+// Client implements [web.Searcher] and [web.Fetcher] against the Exa API.
 type Client struct {
 	http *resty.Client
 }
 
 var _ web.Searcher = (*Client)(nil)
 
-// NewClient requires the API key at construction so a missing credential fails
-// at wiring rather than as an authorization error on a model's first search.
 func NewClient(config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("exa: API key is required")
 	}
-	if config.BaseURL == "" {
-		config.BaseURL = baseURL
-	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{}
-	}
-	client := &Client{
-		http: resty.NewWithClient(config.HTTPClient).
-			SetBaseURL(config.BaseURL).
-			SetHeader("x-api-key", config.APIKey).
-			SetHeader("Content-Type", "application/json"),
-	}
-	client.http.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
-	client.http.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
-	return client, nil
+	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
+		SetHeader(apiKeyHeader, config.APIKey).
+		SetHeader("Content-Type", "application/json")
+	return &Client{http: transport}, nil
 }
 
 type summaryOptions struct {
@@ -79,14 +66,21 @@ type searchRequest struct {
 	Contents           *contentsOptions `json:"contents,omitzero"`
 }
 
-func (s *searchRequest) validate() error {
-	if s == nil {
-		return errors.New("exa: search request must not be nil")
+func newSearchRequest(request *web.SearchRequest, now time.Time) *searchRequest {
+	r := &searchRequest{
+		Query:          request.Query,
+		Type:           searchTypeFast,
+		NumResults:     cmp.Or(request.MaxResults, defaultSearchResultCount),
+		IncludeDomains: request.AllowedDomains,
+		ExcludeDomains: request.BlockedDomains,
+		Contents: &contentsOptions{
+			Summary: &summaryOptions{Query: request.Query},
+		},
 	}
-	if s.Query == "" {
-		return errors.New("exa: search query must not be empty")
+	if start := recencyToStart(request.Recency, now); !start.IsZero() {
+		r.StartPublishedDate = start.Format(time.RFC3339)
 	}
-	return nil
+	return r
 }
 
 type searchResult struct {
@@ -99,112 +93,15 @@ type searchResult struct {
 	Summary       string   `json:"summary,omitempty"`
 }
 
+func (s *searchResult) snippet() string {
+	if len(s.Highlights) > 0 {
+		return s.Highlights[0]
+	}
+	return s.Summary
+}
+
 type searchResponse struct {
 	Results []*searchResult `json:"results"`
-}
-
-func (c *Client) search(ctx context.Context, request *searchRequest) (*searchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw searchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/search")
-	if err != nil {
-		return nil, fmt.Errorf("exa: execute search request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("exa: search request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("exa: prepare search request: %w", err)
-	}
-	request = prepared
-	raw, err := c.search(ctx, buildSearchRequest(request))
-	if err != nil {
-		return nil, err
-	}
-	return raw.toSearchResponse(request.Query), nil
-}
-
-func (c *Client) fetch(ctx context.Context, request *fetchRequest) (*fetchResponse, error) {
-	if err := request.validate(); err != nil {
-		return nil, err
-	}
-	var raw fetchResponse
-	response, err := c.http.R().SetContext(ctx).SetBody(request).SetResult(&raw).Post("/contents")
-	if err != nil {
-		return nil, fmt.Errorf("exa: execute fetch request: %w", err)
-	}
-	if !response.IsSuccess() {
-		return nil, fmt.Errorf("exa: fetch request returned HTTP %d: %s", response.StatusCode(), response.String())
-	}
-	return &raw, nil
-}
-
-func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, fmt.Errorf("exa: prepare fetch request: %w", err)
-	}
-	request = prepared
-	format := request.Format
-	if format == web.FormatText {
-		return nil, fmt.Errorf("exa: %w: plain text is not available; use markdown or html", web.ErrUnsupportedFormat)
-	}
-	raw, err := c.fetch(ctx, &fetchRequest{
-		URLs: []string{request.URL},
-		Text: fetchTextOptions{IncludeHTMLTags: format == web.FormatHTML},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(raw.Results) == 0 || raw.Results[0] == nil || raw.Results[0].Text == nil {
-		return nil, errors.New("exa: fetch response contains no result")
-	}
-	return &web.FetchResponse{Content: *raw.Results[0].Text, Format: format}, nil
-}
-
-func buildSearchRequest(request *web.SearchRequest) *searchRequest {
-	r := &searchRequest{
-		Query:      request.Query,
-		Type:       "fast",
-		NumResults: cmp.Or(request.MaxResults, defaultSearchResultCount),
-		Contents: &contentsOptions{
-			Summary: &summaryOptions{Query: request.Query},
-		},
-	}
-	if len(request.AllowedDomains) > 0 {
-		r.IncludeDomains = request.AllowedDomains
-	}
-	if len(request.BlockedDomains) > 0 {
-		r.ExcludeDomains = request.BlockedDomains
-	}
-	if start := recencyToStart(request.Recency); !start.IsZero() {
-		r.StartPublishedDate = start.Format(time.RFC3339)
-	}
-	return r
-}
-
-func recencyToStart(r web.Recency) time.Time {
-	now := time.Now()
-	switch r {
-	case web.RecencyHour:
-		return now.Add(-time.Hour)
-	case web.RecencyDay:
-		return now.Add(-24 * time.Hour)
-	case web.RecencyWeek:
-		return now.Add(-7 * 24 * time.Hour)
-	case web.RecencyMonth:
-		return now.AddDate(0, -1, 0)
-	case web.RecencyYear:
-		return now.AddDate(-1, 0, 0)
-	}
-	return time.Time{}
 }
 
 func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
@@ -225,19 +122,62 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 	return &web.SearchResponse{Query: query, Results: results}
 }
 
-func (s *searchResult) snippet() string {
-	if len(s.Highlights) > 0 {
-		return s.Highlights[0]
+func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("exa: prepare search request: %w", err)
 	}
-	return s.Summary
+	var raw searchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared, time.Now()))
+	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
+		return nil, fmt.Errorf("exa: search request: %w", err)
+	}
+	return raw.toSearchResponse(prepared.Query), nil
+}
+
+func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return nil, fmt.Errorf("exa: prepare fetch request: %w", err)
+	}
+	format := prepared.Format
+	if format == web.FormatText {
+		return nil, fmt.Errorf("exa: %w: plain text is not available; use markdown or html", web.ErrUnsupportedFormat)
+	}
+	var raw fetchResponse
+	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{
+		URLs: []string{prepared.URL},
+		Text: fetchTextOptions{IncludeHTMLTags: format == web.FormatHTML},
+	})
+	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, contentsPath, &raw); err != nil {
+		return nil, fmt.Errorf("exa: fetch request: %w", err)
+	}
+	if len(raw.Results) == 0 || raw.Results[0] == nil || raw.Results[0].Text == nil {
+		return nil, errors.New("exa: fetch response contains no result")
+	}
+	return &web.FetchResponse{Content: *raw.Results[0].Text, Format: format}, nil
+}
+
+func recencyToStart(r web.Recency, now time.Time) time.Time {
+	switch r {
+	case web.RecencyHour:
+		return now.Add(-time.Hour)
+	case web.RecencyDay:
+		return now.Add(-24 * time.Hour)
+	case web.RecencyWeek:
+		return now.Add(-7 * 24 * time.Hour)
+	case web.RecencyMonth:
+		return now.AddDate(0, -1, 0)
+	case web.RecencyYear:
+		return now.AddDate(-1, 0, 0)
+	}
+	return time.Time{}
 }
 
 func parseDate(s string) time.Time {
-	if s == "" {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
 		return time.Time{}
 	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t
-	}
-	return time.Time{}
+	return t
 }

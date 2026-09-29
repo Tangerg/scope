@@ -4,11 +4,18 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"net/url"
 	"strings"
 	"time"
 
 	"golang.org/x/net/idna"
+)
+
+const (
+	maxSearchResults = 20
+	maxDomainFilters = 20
+	// DNS limits from RFC 1035, applied to the ASCII form of a domain.
+	maxDomainLength      = 253
+	maxDomainLabelLength = 63
 )
 
 // Recency expresses a relative freshness window shared across backends.
@@ -34,14 +41,12 @@ func (r Recency) Validate() error {
 type SearchRequest struct {
 	Query string `json:"query" jsonschema:"minLength=1" jsonschema_description:"Non-empty web search query. Include the current year when asking for the latest information."`
 
-	// Zero selects the configured provider default.
 	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=20" jsonschema_description:"Maximum results to return, from 1 to 20. Omit to use the configured search default (typically 5-10)."`
 
 	AllowedDomains []string `json:"allowed_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Only include results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with blocked_domains."`
 
 	BlockedDomains []string `json:"blocked_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Exclude results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with allowed_domains."`
 
-	// Recency filters to a coarse time-window. "" = no time filter.
 	Recency Recency `json:"recency,omitempty" jsonschema:"enum=hour,enum=day,enum=week,enum=month,enum=year" jsonschema_description:"Optional time window: hour, day, week, month, or year."`
 }
 
@@ -68,13 +73,13 @@ func (s *SearchRequest) Validate() error {
 	if strings.TrimSpace(s.Query) == "" {
 		return ErrEmptyQuery
 	}
-	if s.MaxResults < 0 || s.MaxResults > 20 {
+	if s.MaxResults < 0 || s.MaxResults > maxSearchResults {
 		return ErrInvalidMaxResults
 	}
 	if len(s.AllowedDomains) > 0 && len(s.BlockedDomains) > 0 {
 		return ErrDomainsBothSides
 	}
-	if len(s.AllowedDomains) > 20 || len(s.BlockedDomains) > 20 {
+	if len(s.AllowedDomains) > maxDomainFilters || len(s.BlockedDomains) > maxDomainFilters {
 		return ErrTooManyDomains
 	}
 	if _, err := normalizeDomains(s.AllowedDomains); err != nil {
@@ -116,7 +121,7 @@ func normalizeDomain(raw string) (string, error) {
 		return "", fmt.Errorf("%w: %q: %w", ErrInvalidDomain, raw, err)
 	}
 	ascii = strings.ToLower(strings.TrimSuffix(ascii, "."))
-	if len(ascii) > 253 {
+	if len(ascii) > maxDomainLength {
 		return "", fmt.Errorf("%w: %q", ErrInvalidDomain, raw)
 	}
 	for _, label := range strings.Split(ascii, ".") {
@@ -128,7 +133,7 @@ func normalizeDomain(raw string) (string, error) {
 }
 
 func validDomainLabel(label string) bool {
-	if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+	if label == "" || len(label) > maxDomainLabelLength || label[0] == '-' || label[len(label)-1] == '-' {
 		return false
 	}
 	for _, character := range label {
@@ -193,23 +198,21 @@ func (s *SearchResponse) Validate() error {
 		if result == nil {
 			return fmt.Errorf("%w: result %d is nil", ErrInvalidSearchResponse, index)
 		}
-		parsed, err := url.Parse(strings.TrimSpace(result.URL))
-		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		if !isHTTPURL(result.URL) {
 			return fmt.Errorf("%w: result %d has invalid URL %q", ErrInvalidSearchResponse, index, result.URL)
 		}
 	}
 	return nil
 }
 
-// Searcher is the provider boundary behind the model-facing search tool. It
-// receives only the normalized provider-neutral contract; authentication,
-// endpoint selection, and provider defaults are frozen in the implementation.
-// Implementations must support concurrent calls, including calls through
-// other tools sharing the same backend; search tools advertise parallel use.
+// Searcher is the provider boundary behind the model-facing search tool.
+// Authentication, endpoint selection, and provider defaults are fixed by the
+// implementation. Implementations must be safe for concurrent use because
+// search tools advertise parallel calls.
 type Searcher interface {
-	// Search performs one request without mutating or retaining it and transfers
-	// ownership of a normalized response to the caller. Implementations must
-	// honor ctx, preserve provider error causes, and reject unsupported explicit
-	// fields instead of silently ignoring them.
+	// Search performs one request without mutating or retaining it and
+	// transfers ownership of the response to the caller. Implementations must
+	// honor ctx, preserve provider error causes, and reject unsupported
+	// explicit fields instead of ignoring them.
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 }

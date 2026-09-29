@@ -1,10 +1,6 @@
 package exa
 
-import (
-	"errors"
-
-	"github.com/Tangerg/scope/tools/web"
-)
+import "github.com/Tangerg/scope/tools/web"
 
 var _ web.Fetcher = (*Client)(nil)
 
@@ -15,18 +11,8 @@ type fetchTextOptions struct {
 type fetchRequest struct {
 	URLs []string         `json:"urls,omitempty"`
 	Text fetchTextOptions `json:"text"`
-	// Rendering options apply to newly fetched pages when maxAgeHours is zero.
+	// An explicit zero forces a fresh crawl; a cached page ignores Text options.
 	MaxAgeHours int `json:"maxAgeHours"`
-}
-
-func (f *fetchRequest) validate() error {
-	if f == nil {
-		return errors.New("exa: fetch request must not be nil")
-	}
-	if len(f.URLs) == 0 {
-		return errors.New("exa: fetch URLs must not be empty")
-	}
-	return nil
 }
 
 type fetchResult struct {
