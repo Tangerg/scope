@@ -125,23 +125,18 @@ func (t Transition) Output() (Payload, bool) { return t.output, t.kind == Transi
 
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.kind == TransitionKindFail }
 
+// Valid requires each kind to carry exactly its own payload field.
 func (t Transition) Valid() bool {
-	switch t.kind {
-	case TransitionKindContinue:
-		return validEffects(t.effects) && !t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
-	case TransitionKindCheckpoint:
-		return len(t.effects) == 0 && !t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
-	case TransitionKindWait:
-		return len(t.effects) == 0 && t.waitID.Valid() && t.reason == "" && !t.output.Valid() && !t.failure.Valid()
-	case TransitionKindPause:
-		return len(t.effects) == 0 && !t.waitID.Valid() && validPauseReason(t.reason) && !t.output.Valid() && !t.failure.Valid()
-	case TransitionKindComplete:
-		return len(t.effects) == 0 && !t.waitID.Valid() && t.reason == "" && t.output.Valid() && !t.failure.Valid()
-	case TransitionKindFail:
-		return len(t.effects) == 0 && !t.waitID.Valid() && t.reason == "" && !t.output.Valid() && t.failure.Valid()
-	default:
+	if !t.kind.Valid() || t.kind == TransitionKindPause && !validPauseReason(t.reason) {
 		return false
 	}
+	if len(t.effects) != 0 && (t.kind != TransitionKindContinue || !validEffects(t.effects)) {
+		return false
+	}
+	return t.waitID.Valid() == (t.kind == TransitionKindWait) &&
+		(t.reason != "") == (t.kind == TransitionKindPause) &&
+		t.output.Valid() == (t.kind == TransitionKindComplete) &&
+		t.failure.Valid() == (t.kind == TransitionKindFail)
 }
 
 func cloneEffects(effects []Effect) ([]Effect, error) {

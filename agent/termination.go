@@ -234,6 +234,25 @@ func (t TerminationCause) String() string {
 	return string(t)
 }
 
+// status returns the only terminal Status this cause can explain.
+func (t TerminationCause) status() Status {
+	switch t {
+	case TerminationCauseCompletion:
+		return StatusCompleted
+	case TerminationCauseEngineKill:
+		return StatusKilled
+	case TerminationCauseParentDeadline, TerminationCauseHostDeadline:
+		return StatusTimedOut
+	case TerminationCauseParentCancellation, TerminationCauseHostCancellation:
+		return StatusCanceled
+	case TerminationCauseExecutionFailure, TerminationCauseContractFailure,
+		TerminationCauseExternalFailure, TerminationCausePanic:
+		return StatusFailed
+	default:
+		return StatusInvalid
+	}
+}
+
 // Termination is the immutable result of applying the terminal priority matrix.
 // Only the Engine creates terminal facts from validated control intents and
 // Step outcomes; callers obtain this observation from Result or decode it.
@@ -284,38 +303,30 @@ func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 }
 
 func (t Termination) Valid() bool {
-	if !t.status.Terminal() || !t.cause.Valid() {
+	if !t.status.Terminal() || t.cause.status() != t.status || !t.canonicalUnresolvedEffectIDs() {
 		return false
 	}
-	if t.status != StatusCompleted && validateTerminationReason(t.reason) != nil {
+	if t.status == StatusCompleted {
+		return t.reason == "" && !t.failure.Valid() && len(t.unresolvedEffectIDs) == 0
+	}
+	if validateTerminationReason(t.reason) != nil {
 		return false
 	}
+	if t.status == StatusFailed {
+		return t.failure.Valid() && t.reason == t.failure.Message() &&
+			t.cause == t.failure.Kind().terminationCause()
+	}
+	return !t.failure.Valid()
+}
+
+func (t Termination) canonicalUnresolvedEffectIDs() bool {
 	for index, effectID := range t.unresolvedEffectIDs {
 		if !effectID.Valid() || index > 0 &&
 			cmp.Compare(t.unresolvedEffectIDs[index-1].String(), effectID.String()) >= 0 {
 			return false
 		}
 	}
-	switch t.status {
-	case StatusCompleted:
-		return t.cause == TerminationCauseCompletion && t.reason == "" &&
-			!t.failure.Valid() && len(t.unresolvedEffectIDs) == 0
-	case StatusFailed:
-		if !t.failure.Valid() || t.reason != t.failure.Message() {
-			return false
-		}
-		return t.cause == t.failure.terminationCause()
-	case StatusCanceled:
-		return (t.cause == TerminationCauseParentCancellation || t.cause == TerminationCauseHostCancellation) &&
-			!t.failure.Valid()
-	case StatusTimedOut:
-		return (t.cause == TerminationCauseParentDeadline || t.cause == TerminationCauseHostDeadline) &&
-			!t.failure.Valid()
-	case StatusKilled:
-		return t.cause == TerminationCauseEngineKill && !t.failure.Valid()
-	default:
-		return false
-	}
+	return true
 }
 
 func (t Termination) MarshalJSON() ([]byte, error) {

@@ -322,17 +322,14 @@ func (r Result) Valid() bool {
 	if !r.processID.Valid() || r.startedAt.IsZero() || r.finishedAt.IsZero() || !r.termination.Valid() {
 		return false
 	}
-	return r.termination.Status() == StatusCompleted && r.output.Valid() ||
-		r.termination.Status() != StatusCompleted && !r.output.Valid()
+	return (r.termination.Status() == StatusCompleted) == r.output.Valid()
 }
 
 func (r Result) wire() resultWire {
-	wire := resultWire{
+	return resultWire{
 		ProcessID: r.processID, StartedAt: r.startedAt, FinishedAt: r.finishedAt,
-		Termination: r.termination, Usage: r.usage,
+		Output: r.output, Termination: r.termination, Usage: r.usage,
 	}
-	wire.Output = r.output
-	return wire
 }
 
 func (p *Process) Budget() Budget {

@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -173,17 +174,31 @@ func (p ProcessSnapshot) Settlements() []Settlement {
 	return settlements
 }
 
+// EffectDiagnostic returns the bounded diagnostic retained for an uncertain
+// dispatch attempt while its prepared Step remains captured, including after
+// restoration or explicit resolution. It does not establish failure of the
+// external operation or authorize replay.
+func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
+	if p.state.Prepared != nil {
+		for _, effect := range p.state.Prepared.Effects {
+			if effect.ID == id && effect.Diagnostic != nil {
+				return *effect.Diagnostic, true
+			}
+		}
+	}
+	return Failure{}, false
+}
+
 // Result returns the captured immutable terminal outcome, when present. Its
 // persistence authority is that of the enclosing TreeSnapshot transaction.
 func (p ProcessSnapshot) Result() (Result, bool) {
 	if !p.Status().Terminal() {
 		return Result{}, false
 	}
-	result := Result{processID: p.state.ProcessID, startedAt: p.state.StartedAt,
-		finishedAt: *p.state.FinishedAt, termination: *p.state.Termination,
-		usage: p.state.usage()}
-	result.output = p.state.Output
-	return result, true
+	return Result{
+		processID: p.state.ProcessID, startedAt: p.state.StartedAt, finishedAt: *p.state.FinishedAt,
+		output: p.state.Output, termination: *p.state.Termination, usage: p.state.usage(),
+	}, true
 }
 
 // WaitID returns the current unanswered Engine-minted wait identity, including
@@ -449,46 +464,50 @@ func (p processSnapshotWire) validateRelation() error {
 }
 
 func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
+	if err := p.validatePrepared(mailbox); err != nil {
+		return err
+	}
 	remainingPending := mailbox.pendingCount()
-	var reserved uint64
-	var preparedSteps uint64
-	if p.Prepared != nil {
-		if p.Status != StatusRunning && !p.Status.Terminal() || p.Status == StatusCompleted {
-			return fmt.Errorf("%w: prepared Step requires Running or interrupted terminal status", ErrInvalidSnapshot)
-		}
-		const maxUint64 = ^uint64(0)
-		if !resourceQuantitiesFit(maxUint64, p.CommittedSteps, 1) {
-			return fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
-		}
-		if err := p.Prepared.validate(
-			p.ProcessID, p.CommittedSteps+1, p.CommittedExecutionState, mailbox,
-		); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
-		}
-		for _, record := range p.Prepared.Effects {
-			if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
-				return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
-			}
-			if p.Status.Terminal() && record.Phase == effectPhasePending {
-				return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
-			}
-		}
-		if p.usage().PreparedEffects < p.Prepared.settlementSignalCount() {
-			return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
-		}
-		if !p.Status.Terminal() {
-			// Prepared validation bounds its cursor by accepted Signals and anchors
-			// consumption at the mailbox committed cursor, so this cannot underflow.
-			remainingPending -= p.Prepared.consumedSignals()
-			reserved = p.Prepared.settlementSignalCount()
-			preparedSteps = 1
-		}
+	var reserved, preparedSteps uint64
+	if p.Prepared != nil && !p.Status.Terminal() {
+		// Prepared validation bounds its cursor by accepted Signals and anchors
+		// consumption at the mailbox committed cursor, so this cannot underflow.
+		remainingPending -= p.Prepared.consumedSignals()
+		reserved = p.Prepared.settlementSignalCount()
+		preparedSteps = 1
 	}
 	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
 		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
 		!p.Limits.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
 		!p.Limits.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
 		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
+	}
+	return nil
+}
+
+func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
+	if p.Prepared == nil {
+		return nil
+	}
+	if p.Status != StatusRunning && !p.Status.Terminal() || p.Status == StatusCompleted {
+		return fmt.Errorf("%w: prepared Step requires Running or interrupted terminal status", ErrInvalidSnapshot)
+	}
+	if p.CommittedSteps == math.MaxUint64 {
+		return fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
+	}
+	if err := p.Prepared.validate(p.ProcessID, p.CommittedSteps+1, p.CommittedExecutionState, mailbox); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
+	}
+	for _, record := range p.Prepared.Effects {
+		if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
+			return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
+		}
+		if p.Status.Terminal() && record.Phase == effectPhasePending {
+			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
+		}
+	}
+	if p.usage().PreparedEffects < p.Prepared.settlementSignalCount() {
+		return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 	}
 	return nil
 }
@@ -517,44 +536,61 @@ func (p processSnapshotWire) validate() error {
 }
 
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
+	if err := p.validateTermination(); err != nil {
+		return err
+	}
+	if (p.Status == StatusCompleted) != p.Output.Valid() {
+		return fmt.Errorf("%w: exactly a Completed Process contains Output", ErrInvalidSnapshot)
+	}
+	if err := p.validateCurrentWait(mailbox); err != nil {
+		return err
+	}
+	if p.Status == StatusPaused && !validPauseReason(p.PauseReason) {
+		return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
+	}
+	if p.Status != StatusPaused && p.PauseReason != "" {
+		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
+	}
+	if !p.Status.Terminal() {
+		return nil
+	}
+	return p.validateTerminalEvidence()
+}
+
+func (p processSnapshotWire) validateTermination() error {
 	terminal := p.Status.Terminal()
 	if terminal != (p.Termination != nil) || terminal != (p.FinishedAt != nil) {
 		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
 	}
-	if p.FinishedAt != nil && p.FinishedAt.IsZero() {
-		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
-	}
-	if terminal && (p.Termination.Status() != p.Status || !p.Termination.Valid()) {
-		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
-	}
-	if p.Status == StatusCompleted {
-		if !p.Output.Valid() {
-			return fmt.Errorf("%w: completed process requires output", ErrInvalidSnapshot)
-		}
-	} else if p.Output.Valid() {
-		return fmt.Errorf("%w: only Completed Process may contain Output", ErrInvalidSnapshot)
-	}
-	if p.Status == StatusWaiting && p.CurrentWaitID == nil {
-		return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
-	}
-	if p.CurrentWaitID != nil {
-		if p.Status != StatusWaiting && p.Status != StatusPaused {
-			return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
-		}
-		if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
-			return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
-		}
-	}
-	if p.Status == StatusPaused {
-		if !validPauseReason(p.PauseReason) {
-			return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
-		}
-	} else if p.PauseReason != "" {
-		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
-	}
 	if !terminal {
 		return nil
 	}
+	if p.FinishedAt.IsZero() {
+		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
+	}
+	if p.Termination.Status() != p.Status || !p.Termination.Valid() {
+		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
+	}
+	return nil
+}
+
+func (p processSnapshotWire) validateCurrentWait(mailbox signalMailbox) error {
+	if p.CurrentWaitID == nil {
+		if p.Status == StatusWaiting {
+			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
+		}
+		return nil
+	}
+	if p.Status != StatusWaiting && p.Status != StatusPaused {
+		return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
+	}
+	if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
+		return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
+	}
+	return nil
+}
+
+func (p processSnapshotWire) validateTerminalEvidence() error {
 	if p.PendingControl != (pendingControlWire{}) {
 		return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
 	}
@@ -570,19 +606,4 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 
 func (p processSnapshotWire) usage() Usage {
 	return Usage{CommittedSteps: p.CommittedSteps, AcceptedSignals: uint64(len(p.Mailbox.Signals)), PreparedEffects: p.Counters.PreparedEffects, DroppedDeltas: p.Counters.DroppedDeltas}
-}
-
-// EffectDiagnostic returns the bounded diagnostic retained for an uncertain
-// dispatch attempt while its prepared Step remains captured, including after
-// restoration or explicit resolution. It does not establish failure of the
-// external operation or authorize replay.
-func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
-	if p.state.Prepared != nil {
-		for _, effect := range p.state.Prepared.Effects {
-			if effect.ID == id && effect.Diagnostic != nil {
-				return *effect.Diagnostic, true
-			}
-		}
-	}
-	return Failure{}, false
 }

@@ -335,77 +335,53 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e eventFact) validateContract() error {
-	switch e.name {
-	case EventProcessStarted, EventProcessRestored, EventProcessPaused, EventProcessResumed:
-		return e.validateEmpty(EventPhaseCommitted, eventIdentityProcess)
-	case EventProcessFinished:
-		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeProcessFinishedFact(e.payload)
+// eventContract fixes the phase, identity scope, and payload shape of one
+// Framework event name.
+type eventContract struct {
+	phase           EventPhase
+	scope           eventIdentityScope
+	validatePayload func(json.RawMessage) error
+}
+
+var frameworkEventContracts = map[string]eventContract{
+	EventProcessStarted:  {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
+	EventProcessRestored: {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
+	EventProcessPaused:   {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
+	EventProcessResumed:  {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
+	EventProcessFinished: {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeProcessFinishedFact)},
+	EventRuntimeStopped:  {EventPhaseAttempt, eventIdentityProcess, decodesEventPayload(decodeRuntimeStoppedFact)},
+	EventSignalAccepted:  {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeSignalAcceptedFact)},
+	EventStepStarted:     {EventPhaseAttempt, eventIdentityStep, validateEmptyEventPayload},
+	EventStepPrepared:    {EventPhaseAttempt, eventIdentityStep, validateEmptyEventPayload},
+	EventStepFinished:    {EventPhaseAttempt, eventIdentityStep, decodesEventPayload(decodeStepFinishedFact)},
+	EventStepCommitted:   {EventPhaseCommitted, eventIdentityStep, decodesEventPayload(decodeStepCommittedFact)},
+	EventEffectStarted:   {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectStartedFact)},
+	EventEffectFinished:  {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectFinishedFact)},
+	EventDeltaDropped:    {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeDeltaDroppedFact)},
+	EventEffectResolved:  {EventPhaseCommitted, eventIdentityEffect, decodesEventPayload(decodeEffectResolvedFact)},
+}
+
+func decodesEventPayload[T any](decode func(json.RawMessage) (T, error)) func(json.RawMessage) error {
+	return func(payload json.RawMessage) error {
+		_, err := decode(payload)
 		return err
-	case EventRuntimeStopped:
-		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeRuntimeStoppedFact(e.payload)
-		return err
-	case EventSignalAccepted:
-		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityProcess); err != nil {
-			return err
-		}
-		_, err := decodeSignalAcceptedFact(e.payload)
-		return err
-	case EventStepStarted, EventStepPrepared:
-		return e.validateEmpty(EventPhaseAttempt, eventIdentityStep)
-	case EventStepFinished:
-		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityStep); err != nil {
-			return err
-		}
-		_, err := decodeStepFinishedFact(e.payload)
-		return err
-	case EventStepCommitted:
-		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityStep); err != nil {
-			return err
-		}
-		_, err := decodeStepCommittedFact(e.payload)
-		return err
-	case EventEffectStarted:
-		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeEffectStartedFact(e.payload)
-		return err
-	case EventEffectFinished:
-		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeEffectFinishedFact(e.payload)
-		return err
-	case EventDeltaDropped:
-		if err := e.validateIdentity(EventPhaseAttempt, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeDeltaDroppedFact(e.payload)
-		return err
-	case EventEffectResolved:
-		if err := e.validateIdentity(EventPhaseCommitted, eventIdentityEffect); err != nil {
-			return err
-		}
-		_, err := decodeEffectResolvedFact(e.payload)
-		return err
-	default:
-		return errors.New("unknown Framework event name")
 	}
 }
 
-func (e eventFact) validateEmpty(wantPhase EventPhase, scope eventIdentityScope) error {
-	if err := e.validateIdentity(wantPhase, scope); err != nil {
+func validateEmptyEventPayload(payload json.RawMessage) error {
+	_, err := jsonwire.Decode[struct{}](payload)
+	return err
+}
+
+func (e eventFact) validateContract() error {
+	contract, known := frameworkEventContracts[e.name]
+	if !known {
+		return errors.New("unknown Framework event name")
+	}
+	if err := e.validateIdentity(contract.phase, contract.scope); err != nil {
 		return err
 	}
-	_, err := jsonwire.Decode[struct{}](e.payload)
-	return err
+	return contract.validatePayload(e.payload)
 }
 
 func (e eventFact) validateIdentity(wantPhase EventPhase, scope eventIdentityScope) error {

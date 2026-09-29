@@ -47,6 +47,23 @@ func (f FailureKind) String() string {
 	return string(f)
 }
 
+func (f FailureKind) terminationCause() TerminationCause {
+	switch f {
+	case FailureKindContract:
+		return TerminationCauseContractFailure
+	case FailureKindExternal:
+		return TerminationCauseExternalFailure
+	case FailureKindPanic:
+		return TerminationCausePanic
+	default:
+		return TerminationCauseExecutionFailure
+	}
+}
+
+func validFailureCode(code string) bool {
+	return ValidQualifiedName(code) && len(code) <= maxFailureCodeBytes
+}
+
 // Failure separates stable codes from diagnostic text so wording changes cannot
 // alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
 // must exclude secrets.
@@ -61,7 +78,7 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !kind.Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)
 	}
-	if !ValidQualifiedName(code) || len(code) > maxFailureCodeBytes {
+	if !validFailureCode(code) {
 		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxFailureCodeBytes)
 	}
 	if !ValidDiagnostic(message) {
@@ -139,21 +156,8 @@ type failureWire struct {
 
 func (Failure) JSONSchemaAlias() any { return failureWire{} }
 
-func (f Failure) terminationCause() TerminationCause {
-	cause := TerminationCauseExecutionFailure
-	switch f.Kind() {
-	case FailureKindContract:
-		cause = TerminationCauseContractFailure
-	case FailureKindExternal:
-		cause = TerminationCauseExternalFailure
-	case FailureKindPanic:
-		cause = TerminationCausePanic
-	}
-	return cause
-}
-
 func (f Failure) termination() Termination {
-	return Termination{status: StatusFailed, cause: f.terminationCause(), reason: f.Message(), failure: f}
+	return Termination{status: StatusFailed, cause: f.kind.terminationCause(), reason: f.message, failure: f}
 }
 
 const (

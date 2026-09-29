@@ -68,6 +68,11 @@ type waitRecord struct {
 	closed   bool
 }
 
+// Only Host input answers an external wait; only the Engine answers a child wait.
+func (w waitRecord) answerableBy(source signalSource) bool {
+	return (w.kind == WaitKindExternal) == (source == signalSourceExternal)
+}
+
 // signalMailbox has reference semantics. candidate must clone it before any
 // speculative mutation: commit may advance a prefix before returning an error,
 // and that candidate must then be discarded in full.
@@ -129,32 +134,36 @@ func (s *signalMailbox) enqueueRecord(status Status, record signalRecord) (bool,
 	return true, nil
 }
 
+// validateRecord reports false without error for an identical duplicate.
 func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool, error) {
-	source := record.source
 	if index, exists := s.seen[record.id]; exists {
-		if !s.records[index].sameContent(record) {
-			return false, ErrSignalConflict
-		}
-		if s.records[index].source != source {
-			return false, ErrSignalRejected
-		}
-		if record.waitID.Valid() && (s.waits[record.waitID].kind == WaitKindExternal) != (source == signalSourceExternal) {
-			return false, ErrSignalRejected
-		}
-		return false, nil
+		return false, s.validateDuplicate(s.records[index], record)
 	}
-	waitID := record.waitID
-	if waitID.Valid() {
-		wait, exists := s.waits[waitID]
-		acceptsAnswer := status == StatusRunning || status == StatusWaiting || status == StatusPaused
-		if !exists || (wait.kind == WaitKindExternal) != (source == signalSourceExternal) || wait.closed || wait.answered ||
-			!acceptsAnswer {
+	if !status.acceptsSignals() {
+		return false, ErrSignalRejected
+	}
+	if !record.waitID.Valid() {
+		if record.source == signalSourceChildWait {
 			return false, ErrSignalRejected
 		}
-	} else if source == signalSourceChildWait || (status != StatusRunning && status != StatusPaused && status != StatusWaiting) {
+		return true, nil
+	}
+	wait, exists := s.waits[record.waitID]
+	if !exists || !wait.answerableBy(record.source) || wait.closed || wait.answered {
 		return false, ErrSignalRejected
 	}
 	return true, nil
+}
+
+func (s *signalMailbox) validateDuplicate(existing, record signalRecord) error {
+	if !existing.sameContent(record) {
+		return ErrSignalConflict
+	}
+	if existing.source != record.source ||
+		record.waitID.Valid() && !s.waits[record.waitID].answerableBy(record.source) {
+		return ErrSignalRejected
+	}
+	return nil
 }
 
 func (s *signalMailbox) acceptRecord(record signalRecord) {
@@ -386,23 +395,31 @@ func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, si
 			// in the batch. Nothing is applied unless every entry passes preflight.
 			continue
 		}
-		waitID := record.waitID
-		if waitID.Valid() {
+		if waitID := record.waitID; waitID.Valid() {
 			if _, alreadyAnswered := answered[waitID]; alreadyAnswered {
 				return nil, ErrSignalRejected
 			}
 			answered[waitID] = struct{}{}
 		}
-		if currentWaitID.Valid() && source == signalSourceExternal {
-			wait := s.waits[currentWaitID]
-			_, currentAnswered := answered[currentWaitID]
-			if waitID != currentWaitID && (waitID.Valid() || (wait.kind == WaitKindExternal && !currentAnswered)) {
-				return nil, ErrSignalRejected
-			}
+		if source == signalSourceExternal && s.blockedByCurrentWait(currentWaitID, record.waitID, answered) {
+			return nil, ErrSignalRejected
 		}
 		records = append(records, record)
 	}
 	return records, nil
+}
+
+// A current wait rejects answers to any other wait. A current external wait
+// also rejects unaddressed input until the batch has answered it.
+func (s *signalMailbox) blockedByCurrentWait(currentWaitID, waitID WaitID, answered map[WaitID]struct{}) bool {
+	if !currentWaitID.Valid() || waitID == currentWaitID {
+		return false
+	}
+	if waitID.Valid() {
+		return true
+	}
+	_, currentAnswered := answered[currentWaitID]
+	return s.waits[currentWaitID].kind == WaitKindExternal && !currentAnswered
 }
 
 // Restoration replays portable facts through the live mailbox transitions.
@@ -411,15 +428,9 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 	if wire.SignalCursor > uint64(len(wire.Signals)) {
 		return signalMailbox{}, errMailboxCursor
 	}
-	waits := make(map[WaitID]waitRecordWire, len(wire.Waits))
-	for _, record := range wire.Waits {
-		if !record.WaitKey.Valid() || !record.WaitID.Valid() {
-			return signalMailbox{}, errWaitState
-		}
-		if _, duplicate := waits[record.WaitID]; duplicate {
-			return signalMailbox{}, fmt.Errorf("%w: duplicate WaitID", errWaitState)
-		}
-		waits[record.WaitID] = record
+	waits, err := wire.waitIndex()
+	if err != nil {
+		return signalMailbox{}, err
 	}
 	mailbox := newSignalMailbox()
 	for index, encoded := range wire.Signals {
@@ -427,19 +438,8 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 		if err != nil {
 			return signalMailbox{}, err
 		}
-		if record.opensWait {
-			wait, exists := waits[record.waitID]
-			if !exists {
-				return signalMailbox{}, fmt.Errorf("%w: opening Signal has no wait", errWaitState)
-			}
-			if err := mailbox.openWaitRecord(wait.WaitKey, record, wait.Kind); err != nil {
-				return signalMailbox{}, err
-			}
-		} else {
-			accepted, err := mailbox.enqueueRecord(StatusRunning, record)
-			if err != nil || !accepted {
-				return signalMailbox{}, errors.Join(err, errors.New("invalid mailbox Signal history"))
-			}
+		if err := mailbox.replay(record, waits); err != nil {
+			return signalMailbox{}, err
 		}
 		if record.arrivalSequence <= wire.SignalCursor {
 			if _, err := mailbox.commit(1); err != nil {
@@ -450,44 +450,61 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 	if status.Terminal() {
 		mailbox.closeAllWaits()
 	}
-	if len(mailbox.waits) != len(waits) {
-		return signalMailbox{}, fmt.Errorf("%w: wait has no opening Signal", errWaitState)
-	}
-	for id, expected := range waits {
-		actual := mailbox.waits[id]
-		if actual.answered != expected.Answered || actual.closed != expected.Closed {
-			return signalMailbox{}, fmt.Errorf("%w: wait lifecycle disagrees with Signal history", errWaitState)
-		}
+	if err := mailbox.matchWaits(waits); err != nil {
+		return signalMailbox{}, err
 	}
 	return mailbox, nil
 }
 
+func (m mailboxWire) waitIndex() (map[WaitID]waitRecordWire, error) {
+	waits := make(map[WaitID]waitRecordWire, len(m.Waits))
+	for _, record := range m.Waits {
+		if !record.WaitKey.Valid() || !record.WaitID.Valid() {
+			return nil, errWaitState
+		}
+		if _, duplicate := waits[record.WaitID]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate WaitID", errWaitState)
+		}
+		waits[record.WaitID] = record
+	}
+	return waits, nil
+}
+
+func (s *signalMailbox) replay(record signalRecord, waits map[WaitID]waitRecordWire) error {
+	if !record.opensWait {
+		accepted, err := s.enqueueRecord(StatusRunning, record)
+		if err != nil || !accepted {
+			return errors.Join(err, errors.New("invalid mailbox Signal history"))
+		}
+		return nil
+	}
+	wait, exists := waits[record.waitID]
+	if !exists {
+		return fmt.Errorf("%w: opening Signal has no wait", errWaitState)
+	}
+	return s.openWaitRecord(wait.WaitKey, record, wait.Kind)
+}
+
+func (s *signalMailbox) matchWaits(expected map[WaitID]waitRecordWire) error {
+	if len(s.waits) != len(expected) {
+		return fmt.Errorf("%w: wait has no opening Signal", errWaitState)
+	}
+	for id, want := range expected {
+		actual := s.waits[id]
+		if actual.answered != want.Answered || actual.closed != want.Closed {
+			return fmt.Errorf("%w: wait lifecycle disagrees with Signal history", errWaitState)
+		}
+	}
+	return nil
+}
+
 func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error) {
-	if !s.Source.accepts(s.ID) ||
-		s.OpensWait && s.Source != signalSourceSettlement ||
-		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
-		return signalRecord{}, fmt.Errorf("%w: invalid signal source", errMailboxCursor)
-	}
-	if s.ArrivalSequence != sequence {
-		return signalRecord{}, fmt.Errorf("%w: Signal arrival sequence disagrees with history", errMailboxCursor)
-	}
-	if !s.ID.Valid() {
-		return signalRecord{}, fmt.Errorf("%w: Signal identity is invalid", errMailboxCursor)
-	}
-	if !s.PayloadDigest.Valid() {
-		return signalRecord{}, fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
-	}
-	if s.WaitID != nil && !s.WaitID.Valid() {
-		return signalRecord{}, fmt.Errorf("%w: Signal wait identity is invalid", errMailboxCursor)
-	}
-	if s.OpensWait && s.WaitID == nil {
-		return signalRecord{}, fmt.Errorf("%w: wait-opening Signal has no wait identity", errMailboxCursor)
+	if err := s.validateShape(sequence); err != nil {
+		return signalRecord{}, err
 	}
 	record := signalRecord{
-		arrivalSequence: sequence, id: s.ID, payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,
-	}
-	if s.WaitID != nil {
-		record.waitID = *s.WaitID
+		arrivalSequence: sequence, id: s.ID, waitID: snapshotWaitID(s.WaitID),
+		payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,
 	}
 	if sequence <= cursor {
 		if len(s.Payload) != 0 {
@@ -501,4 +518,24 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 	}
 	record.payload = payload
 	return record, nil
+}
+
+func (s signalRecordWire) validateShape(sequence uint64) error {
+	if !s.Source.accepts(s.ID) ||
+		s.OpensWait && s.Source != signalSourceSettlement ||
+		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
+		return fmt.Errorf("%w: invalid signal source", errMailboxCursor)
+	}
+	switch {
+	case s.ArrivalSequence != sequence:
+		return fmt.Errorf("%w: Signal arrival sequence disagrees with history", errMailboxCursor)
+	case !s.PayloadDigest.Valid():
+		return fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
+	case s.WaitID != nil && !s.WaitID.Valid():
+		return fmt.Errorf("%w: Signal wait identity is invalid", errMailboxCursor)
+	case s.OpensWait && s.WaitID == nil:
+		return fmt.Errorf("%w: wait-opening Signal has no wait identity", errMailboxCursor)
+	default:
+		return nil
+	}
 }

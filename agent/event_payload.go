@@ -138,43 +138,14 @@ func (p ProcessFinishedFact) FailureClassification() (FailureKind, string, bool)
 func (p ProcessFinishedFact) Usage() Usage { return p.usage }
 
 func (p ProcessFinishedFact) Valid() bool {
-	if !p.status.Terminal() || !p.cause.Valid() {
+	if !p.status.Terminal() || p.cause.status() != p.status {
 		return false
 	}
-	failed := p.status == StatusFailed
-	if failed != (p.failureKind.Valid() && ValidQualifiedName(p.failureCode) && len(p.failureCode) <= maxFailureCodeBytes) {
-		return false
+	if p.status != StatusFailed {
+		return p.failureKind == FailureKindInvalid && p.failureCode == ""
 	}
-	if !failed && (p.failureKind != FailureKindInvalid || p.failureCode != "") {
-		return false
-	}
-	switch p.status {
-	case StatusCompleted:
-		return p.cause == TerminationCauseCompletion
-	case StatusFailed:
-		switch p.failureKind {
-		case FailureKindExecution:
-			return p.cause == TerminationCauseExecutionFailure
-		case FailureKindContract:
-			return p.cause == TerminationCauseContractFailure
-		case FailureKindExternal:
-			return p.cause == TerminationCauseExternalFailure
-		case FailureKindPanic:
-			return p.cause == TerminationCausePanic
-		default:
-			return false
-		}
-	case StatusCanceled:
-		return p.cause == TerminationCauseParentCancellation ||
-			p.cause == TerminationCauseHostCancellation
-	case StatusTimedOut:
-		return p.cause == TerminationCauseParentDeadline ||
-			p.cause == TerminationCauseHostDeadline
-	case StatusKilled:
-		return p.cause == TerminationCauseEngineKill
-	default:
-		return false
-	}
+	return p.failureKind.Valid() && validFailureCode(p.failureCode) &&
+		p.cause == p.failureKind.terminationCause()
 }
 
 // RuntimeStoppedFact describes an instance failure, not a logical Process
@@ -190,7 +161,7 @@ func (r RuntimeStoppedFact) FailureKind() FailureKind { return r.failureKind }
 func (r RuntimeStoppedFact) FailureCode() string { return r.failureCode }
 
 func (r RuntimeStoppedFact) Valid() bool {
-	return r.failureKind.Valid() && ValidQualifiedName(r.failureCode) && len(r.failureCode) <= maxFailureCodeBytes
+	return r.failureKind.Valid() && validFailureCode(r.failureCode)
 }
 
 func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
@@ -290,7 +261,7 @@ func (e EffectFinishedFact) Valid() bool {
 		return true
 	}
 	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown &&
-		e.failureKind.Valid() && ValidQualifiedName(e.failureCode) && len(e.failureCode) <= maxFailureCodeBytes
+		e.failureKind.Valid() && validFailureCode(e.failureCode)
 }
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect

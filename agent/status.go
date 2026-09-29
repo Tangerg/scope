@@ -62,6 +62,8 @@ func (s Status) Terminal() bool {
 	}
 }
 
+func (s Status) acceptsSignals() bool { return s.Valid() && !s.Terminal() }
+
 func (s Status) MarshalText() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidStatus
