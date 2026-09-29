@@ -17,13 +17,9 @@ var (
 	ErrNilContext            = errors.New("agent: nil Context")
 )
 
-// A bounded buffer lets control-plane callers submit while the tree owner is
-// completing a safe boundary without allowing an unbounded command backlog.
-// Freeze management has its own bounded lane so a full Process queue cannot
-// prevent the command that releases its barrier.
-// The fixed capacity is an internal burst allowance, not a Process or Signal
-// quota: full lanes backpressure Process callers through context-aware sends.
-// Keeping it private avoids making scheduler buffering part of captured Host authority.
+// The capacity is an internal burst allowance, not a Process or Signal quota:
+// full lanes backpressure callers through context-aware sends. Freeze commands
+// use their own lane so a full Process queue cannot block releasing a barrier.
 const treeCommandBufferCapacity = 32
 
 // Process is an Engine-issued handle to one managed execution. Its fields and
@@ -65,28 +61,25 @@ func (p *Process) StartedAt() time.Time {
 }
 
 // DeliverSignals submits one or more immutable Strategy inputs as an ordered,
-// atomic batch. Unaddressed input must satisfy Descriptor.SignalSchema or the
-// batch returns ErrSignalRejected unchanged. Accepted input queues for the next
-// Strategy-safe Step, including while Paused or waiting for child completion.
-// Unaddressed input never releases a wait or pause. A current external wait
-// accepts only its answer until satisfied, including while Paused.
-// Every new addressed answer must name the WaitID current at batch admission,
-// if any, including while Paused and after an earlier answer in the same batch.
-// Any other external wait answer returns ErrSignalRejected. The batch is accepted
-// or the mailbox remains unchanged. Reusing a SignalID with different normalized
-// payload bytes or a different WaitID returns ErrSignalConflict, as does repeating
-// a SignalID within the batch. Historical identities with identical content are
-// retained without another budget charge or acceptance event. Only new identities
-// are appended, in request order, after the entire batch passes validation.
-// With nil error, accepted reports whether any new input was admitted; false
-// means every requested identity was already accepted. Engine-reserved SignalIDs
-// are invalid SignalRequests. A batch exceeding mailbox,
-// work-budget, Process snapshot, or tree snapshot capacity returns
-// ErrResourceLimitExceeded before changing the mailbox.
-// Accepted is true only after the mailbox and budget changes
-// commit to the authoritative tree head. A caller timeout does not revoke an
-// admitted command; retry the identical batch to reconcile uncertain delivery.
-// If the Process has since terminated, inspect its SignalReceipts instead.
+// atomic batch: either every new identity is appended in request order or the
+// mailbox remains unchanged. Accepted input queues for the next Strategy-safe
+// Step, including while Paused or waiting for child completion.
+//
+// Unaddressed input must satisfy Descriptor.SignalSchema and never releases a
+// wait or pause. A current external wait accepts only its answer until
+// satisfied, including while Paused and after an earlier answer in the same
+// batch; any other wait answer returns ErrSignalRejected. Reusing a SignalID
+// with different normalized payload bytes or WaitID, or repeating it within the
+// batch, returns ErrSignalConflict. Identical historical identities are
+// retained without another budget charge or acceptance event. Exceeding
+// mailbox, work-budget, Process snapshot, or tree snapshot capacity returns
+// ErrResourceLimitExceeded.
+//
+// With nil error, accepted reports whether any new input committed to the
+// authoritative tree head; false means every identity was already accepted. A
+// caller timeout does not revoke an admitted command; retry the identical batch
+// to reconcile uncertain delivery, or inspect SignalReceipts once the Process
+// has terminated.
 func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest) (accepted bool, err error) {
 	ctx = RequireContext(ctx)
 	if len(requests) == 0 {
@@ -98,47 +91,37 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 }
 
 // Pause requests a scheduling pause for a Running or Waiting Process at the next
-// safe Step boundary. A Paused Process returns ErrInvalidProcessControl. An
-// in-flight Effect is allowed to settle before the pause becomes visible.
-// A committed wait retains its WaitID until answered. Answers may queue while
-// Paused, but only Resume releases the pause; it returns to Waiting if unanswered.
+// safe Step boundary; a Paused Process returns ErrInvalidProcessControl. An
+// in-flight Effect settles before the pause becomes visible. A committed wait
+// keeps its WaitID and may queue answers, but only Resume releases the pause.
 // An accepted pause discards an unadopted Wait candidate without consuming its
-// Signals; Resume recomputes that Step from committed state.
-// A nil error acknowledges the local control intent, not its durable publication
-// or completion; [Engine.InspectTree] reports StatusPaused only after a tree
-// commit acknowledges the paused state.
+// Signals. A nil error acknowledges the local intent; [Engine.InspectTree]
+// reports StatusPaused only after a tree commit acknowledges it.
 func (p *Process) Pause(ctx context.Context, reason string) error {
 	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
 	return err
 }
 
 // Resume releases an explicit pause. An unanswered current wait returns to
-// Waiting; otherwise the Process becomes Running. External waits
-// require an answer addressed to their WaitID; child waits require Framework
-// child completion. Resume does not satisfy either wait.
-// A nonterminal Process that is not Paused returns ErrInvalidProcessControl.
-// A nil error acknowledges local resumption. Subsequent durable boundaries
-// publish the resumed state before reporting their own acknowledgments.
+// Waiting, since Resume satisfies no wait; otherwise the Process becomes
+// Running. A nonterminal Process that is not Paused returns
+// ErrInvalidProcessControl. A nil error acknowledges local resumption; later
+// durable boundaries publish the resumed state.
 func (p *Process) Resume(ctx context.Context) error {
 	_, err := p.request(ctx, processCommand{kind: commandResume})
 	return err
 }
 
 // RequestCancellation submits a caller-owned cancellation intent. A nil error
-// means the request entered the owning tree runtime's queue; it does not mean the
-// Process has reached a safe boundary or become terminal. Once submitted, ctx
-// cancellation cannot revoke the request. The first committed cancellation
-// intent maps to StatusCanceled with a host-cancellation cause.
-// A pending tree commit must finish before the owner can apply this queued
-// intent. Storage acknowledgment latency therefore also delays cancellation of
-// owned contexts; submission alone does not interrupt an in-flight commit.
-// Applying the intent cancels owned Step, Dispatch, and child-admission contexts
-// throughout the subtree before waiting for their results. Already started
-// external work still settles; remaining planned Effects do not start. Required
-// initialization and persistence acknowledgments retain independent contexts.
-// A surviving parent receives the ordinary child-completion Signal
-// and its Strategy decides how to continue. Await reports this Process's
-// acknowledged terminal result; every descendant retains its own settlement.
+// means the request entered the owning tree runtime's queue, not that the
+// Process reached a safe boundary; ctx cancellation cannot revoke it. The first
+// committed cancellation maps to StatusCanceled with a host-cancellation cause.
+// An in-flight tree commit finishes before the intent applies, so storage
+// latency also delays cancellation. Applying it cancels owned Step, Dispatch,
+// and child-admission contexts throughout the subtree; started external work
+// still settles, planned Effects do not start, and required acknowledgments
+// keep independent contexts. A surviving parent receives the ordinary
+// child-completion Signal.
 func (p *Process) RequestCancellation(ctx context.Context, reason string) error {
 	ctx = RequireContext(ctx)
 	intent, err := newCancellationIntent(cancellationOwnerHost, reason)
@@ -192,19 +175,18 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 }
 
 // ReplayUnknownEffect explicitly repeats an uncertain Dispatcher Effect under
-// its original identity and immutable intent. Only ReplayPolicySameIdentity
-// permits this operation. The Dispatcher must reconcile or idempotently repeat
-// the external operation using the current writer; this is not a declaration
-// that the previous attempt did no work.
+// its original identity and immutable intent when its ReplayPolicy is
+// ReplayPolicySameIdentity. The Dispatcher must reconcile or idempotently
+// repeat the external operation; replay does not claim the earlier attempt did
+// no work.
 //
-// The Engine owns the attempt, cancellation and settlement. Unknown evidence
-// remains authoritative until a definite settlement commits, including if the
-// host crashes or cancellation intervenes. A nil error confirms that settlement;
-// an uncertain attempt returns ErrEffectOutcomeUnknown and remains unresolved.
-// Every replay publishes its own EffectStarted and EffectFinished attempt facts;
-// a committed definite result also publishes EventEffectResolved.
-// Canceling ctx stops only the caller's wait. Terminal intent rejects new
-// attempts, and concurrent replay or resolution returns ErrEffectNotPending.
+// The Unknown remains authoritative until a definite settlement commits,
+// including across crashes and cancellation. A nil error confirms that
+// settlement; an uncertain attempt returns ErrEffectOutcomeUnknown. Every
+// replay publishes its own attempt facts, and a committed definite result also
+// publishes EventEffectResolved. Canceling ctx stops only the caller's wait.
+// Terminal intent rejects new attempts, and concurrent replay or resolution
+// returns ErrEffectNotPending.
 func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) error {
 	_, err := p.request(ctx, processCommand{kind: commandReplayUnknownEffect, effectID: effectID})
 	return err
@@ -232,14 +214,13 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 }
 
 // Join waits for this Process and every descendant to finish their owned work
-// and required acknowledgments in this runtime. It does not cancel execution
-// or release registry entries. Canceling ctx stops only this wait.
-// Ordinary execution failure and terminal Unknown settlements do not prevent
-// a successful join; Await reports the Process result. A runtime failure in
-// this subtree returns a RuntimeError after its local jobs have returned, even
-// when this Process published its result before a descendant failed.
-// Join makes no claim that a remote operation or a previous writer has stopped.
-// Strategies wait without blocking a Dispatcher through NewChildWaitEffect.
+// and required acknowledgments in this runtime. It neither cancels execution
+// nor releases registry entries, and canceling ctx stops only this wait.
+// Execution failure and terminal Unknown settlements still join successfully.
+// A runtime failure in this subtree returns a RuntimeError after its local jobs
+// return, even when this Process published its result first. Join makes no
+// claim that a remote operation or a previous writer has stopped; Strategies
+// wait on children through NewChildWaitEffect instead.
 func (p *Process) Join(ctx context.Context) error {
 	ctx = RequireContext(ctx)
 	if runtime := p.handle.runtime.Load(); runtime != nil {

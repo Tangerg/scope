@@ -13,13 +13,12 @@ const (
 
 var ErrInvalidEffectAttemptID = errors.New("agent: invalid Effect attempt identity")
 
-// EffectAttemptID identifies one actual Effect invocation. Each invocation gets a
-// fresh random identity, including replay and invocations after restore. It is observation metadata, not Process recovery state.
+// EffectAttemptID identifies one actual Effect invocation, including replay and
+// invocations after restore. It is observation metadata, not recovery state.
 type EffectAttemptID struct{ identity }
 
-// parseEffectAttemptID validates the canonical wire representation. The
-// identity is observation metadata that no Agent boundary accepts, so decoding
-// serves UnmarshalText alone.
+// No Agent boundary accepts a caller-built attempt, so only UnmarshalText
+// parses one.
 func parseEffectAttemptID(value string) (EffectAttemptID, error) {
 	id, err := parseHexIdentity(value, effectAttemptIDPrefix, effectAttemptRandomBytes)
 	if err != nil {
@@ -51,7 +50,6 @@ func (e *EffectAttemptID) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// effectAttempt binds duration and observation identity to the same invocation.
 type effectAttempt struct {
 	id        EffectAttemptID
 	startedAt time.Time

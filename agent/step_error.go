@@ -20,19 +20,16 @@ func (s *StepError) Error() string { return s.Failure.Message() }
 func (s *StepError) Unwrap() error { return s.Cause }
 
 // ClassifiedError is a sentinel that owns the Failure kind and code persisted
-// when an error wrapping it leaves Execution.Step. Binding the classification
-// to the declaration gives that fact one owner: a mapping kept beside the
-// sentinels is a second owner that can disagree with them, and a sentinel
-// missing from such a mapping degrades silently to execution.step.failed.
+// when an error wrapping it leaves Execution.Step, so no separate mapping can
+// disagree with the declaration.
 type ClassifiedError struct {
 	failure Failure
 }
 
 // NewClassifiedError declares one sentinel together with the Failure the Engine
-// persists for it. message states the sentinel's own meaning; ClassifyStepError
-// replaces it with the complete wrapped diagnostic. Sentinels are package-level
-// declarations, so an invalid kind, code, or message is a programming error and
-// panics rather than yielding an unclassified sentinel.
+// persists for it; ClassifyStepError replaces message with the complete wrapped
+// diagnostic. An invalid kind, code, or message is a programming error and
+// panics.
 func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError {
 	failure, err := NewFailure(kind, code, message)
 	if err != nil {
@@ -43,12 +40,11 @@ func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError
 
 func (c *ClassifiedError) Error() string { return c.failure.Message() }
 
-// ClassifyStepError returns the error Execution.Step must return for err. It is
-// the only conversion from a sentinel to the Step contract: an error wrapping a
-// ClassifiedError becomes a *StepError carrying that classification and the
-// complete diagnostic, and every other error is returned unchanged for the
-// Engine to record as execution.step.failed. Engine-owned cancellation and an
-// already classified *StepError outrank Strategy classification.
+// ClassifyStepError returns the error Execution.Step must return for err. An
+// error wrapping a ClassifiedError becomes a *StepError carrying that
+// classification and the complete diagnostic; every other error is returned
+// unchanged and recorded as execution.step.failed. Cancellation, contained
+// panics, and an existing *StepError outrank Strategy classification.
 func ClassifyStepError(err error) error {
 	if err == nil {
 		return nil

@@ -18,10 +18,9 @@ type SignalRequest struct {
 	payload json.RawMessage
 }
 
-// NewSignalRequest rejects the reserved signal:engine: namespace and requires
-// a caller-chosen signal identity so that resubmitting the same delivery is exactly one logical consumption. Without
-// it, a host retry after an ambiguous network failure would be
-// indistinguishable from a second answer.
+// NewSignalRequest requires a caller-chosen SignalID outside the reserved
+// signal:engine: namespace, so a Host retry after an ambiguous failure stays
+// one logical delivery rather than a second answer.
 func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (SignalRequest, error) {
 	if !signalSourceExternal.accepts(id) {
 		return SignalRequest{}, fmt.Errorf("%w: signal ID: %w", ErrInvalidSignalRequest, ErrInvalidIdentity)

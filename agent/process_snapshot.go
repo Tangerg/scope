@@ -55,10 +55,9 @@ type ProcessSnapshot struct {
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
 // including single-answer wait history and an open, unanswered current wait
-// when the Process is Waiting or retains a wait while Paused.
-// Prepared Effects must fit the captured Process
-// capability grant. Terminal prepared batches contain no pending attempt and
-// their unknown identities must exactly match the Termination.
+// when the Process is Waiting or retains a wait while Paused. Prepared Effects
+// must fit the captured capability grant. Terminal prepared batches contain no
+// pending attempt, and their unknown identities must match the Termination.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	// Every always-emitted member is required: a decoded zero would silently
 	// reset usage, authority, mailbox history, or pending control intent.

@@ -7,14 +7,12 @@ import (
 )
 
 // RuntimeError reports that the active runtime stopped without establishing the
-// requested Process result or subtree completion. A result acknowledged before
-// a descendant failed remains available through Process.Await. The Host may
-// reconcile storage and restore its authoritative tree head in another Engine.
-// Await alone does not establish that descendant work has drained. This error
-// does not establish logical termination or authorize replay of an uncertain Effect.
-// Engine constructs these errors; the zero value carries no runtime identity.
-// Process methods and tree reports return independent RuntimeError values;
-// Unwrap preserves the original cause.
+// requested Process result or subtree completion. It establishes neither
+// logical termination nor permission to replay an uncertain Effect; a result
+// acknowledged before a descendant failed remains available through
+// Process.Await. The Host may reconcile storage and restore its authoritative
+// tree head in another Engine. Only the Engine constructs these errors, and
+// each accessor returns an independent value.
 type RuntimeError struct {
 	processID           ProcessID
 	incarnationID       TreeIncarnationID

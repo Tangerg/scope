@@ -68,10 +68,9 @@ func Continue(consumedSignals uint32, effects ...Effect) (Transition, error) {
 	return Transition{kind: TransitionKindContinue, consumedSignals: consumedSignals, effects: owned}, nil
 }
 
-// Checkpoint commits the consumed Signal prefix and candidate state before any
-// further Step or Effect in this Process can run. TreeCommitter
-// must acknowledge the complete tree first.
-// It performs no external operation and creates no settlement Signal.
+// Checkpoint commits the consumed Signal prefix and candidate state; the
+// TreeCommitter must acknowledge the complete tree before any further Step or
+// Effect in this Process runs. It creates no settlement Signal.
 func Checkpoint(consumedSignals uint32) (Transition, error) {
 	return Transition{kind: TransitionKindCheckpoint, consumedSignals: consumedSignals}, nil
 }

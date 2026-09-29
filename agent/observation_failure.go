@@ -6,11 +6,10 @@ import (
 	"github.com/Tangerg/scope/agent/internal/panicinfo"
 )
 
-// ListenerPanic identifies one isolated listener failure. The
-// returned value is a detached report; editing it cannot change Engine facts.
-// ListenerIndex is the zero-based position in EngineConfig.EventListeners or DeltaListeners, and
-// ListenerType is its Go type. Message retains at most 4 KiB of the formatted
-// panic value; Stack retains at most 64 KiB of the failing goroutine's stack.
+// ListenerPanic is a detached report of one isolated listener failure.
+// ListenerIndex is the zero-based position in EngineConfig.EventListeners or
+// DeltaListeners, and ListenerType is its Go type. Message retains at most
+// 4 KiB of the formatted panic value; Stack retains at most 64 KiB.
 type ListenerPanic struct {
 	ListenerIndex int
 	ListenerType  string
@@ -19,9 +18,9 @@ type ListenerPanic struct {
 	Stack         string
 }
 
-// ObservationFailures is an immutable snapshot of event loss and listener panics isolated by
-// one Engine. Counts are monotonic and saturate at math.MaxUint64. Only the
-// latest event-listener panic and delta-listener panic are retained.
+// ObservationFailures is an immutable snapshot of event loss and listener
+// panics isolated by one Engine. Counts are monotonic and saturate at
+// math.MaxUint64; only the latest panic of each listener kind is retained.
 type ObservationFailures struct {
 	droppedEvents       uint64
 	eventListenerPanics uint64

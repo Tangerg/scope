@@ -26,13 +26,12 @@ type TreeSnapshot struct {
 	state  treeSnapshotWire
 }
 
-// ParseTreeSnapshot validates the current wire shape and domain constraints of
-// one complete Process tree. Validation follows canonical Process and wait order
-// regardless of input array order. Unknown members are rejected. Every active child
-// wait must have a registration belonging to its Process and matching its
-// opening Signal. Pending satisfaction Signals must agree with that boundary
-// and the terminal results in the captured tree. A retained successful child-start
-// settlement must identify a captured child matching the complete start request.
+// ParseTreeSnapshot strictly validates the current wire shape and domain
+// constraints of one complete Process tree, in canonical order regardless of
+// input array order. Every active child wait must have a registration matching
+// its Process and opening Signal, pending satisfaction Signals must agree with
+// the captured terminal results, and a retained successful child-start
+// settlement must identify a captured child matching the complete request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	wire, err := jsonwire.Decode[treeSnapshotWire](data)
 	if err != nil {
@@ -54,9 +53,8 @@ func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
 	return treeSnapshotFromWire(wire.clone())
 }
 
-// This codec only borrows already validated Process bytes during tree encoding.
-// Reusing its type metadata avoids rebuilding a marshaler on every capture.
-// Public JSON access still transfers an independently owned copy.
+// The codec borrows already validated Process bytes during tree encoding, and
+// reusing it avoids rebuilding a marshaler on every capture.
 var treeSnapshotMarshalers = jsonv2.MarshalFunc(func(snapshot ProcessSnapshot) ([]byte, error) {
 	return snapshot.data, nil
 })
@@ -102,12 +100,11 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 	return slices.Clone(t.state.ProcessSnapshots)
 }
 
-// EffectRequest returns a frozen request retained in a captured prepared Step.
-// The request carries this capture's writer identity, not a restored writer's
-// authority. It can supply typed settlement helpers after a restart; it does not
-// authorize dispatch or replay. Adopted Steps are no longer retained, so absence
-// does not prove non-execution. AttemptID is absent because physical invocations
-// are observations, not recovery state. The enclosing snapshot defines acknowledgment.
+// EffectRequest returns a frozen request retained in a captured prepared Step,
+// carrying this capture's writer identity and no AttemptID. It can supply typed
+// settlement helpers after a restart but authorizes neither dispatch nor
+// replay. Adopted Steps are not retained, so absence does not prove
+// non-execution.
 func (t TreeSnapshot) EffectRequest(processID ProcessID, id EffectID) (EffectRequest, bool) {
 	for _, process := range t.state.ProcessSnapshots {
 		if process.ProcessID() != processID || process.state.Prepared == nil {
@@ -223,7 +220,6 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		if !snapshot.Valid() {
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, ErrInvalidSnapshot)
 		}
-		// Validation only reads facts already owned by the immutable snapshot.
 		processWire := snapshot.state
 		if _, duplicate := processes[processWire.ProcessID]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate ProcessID", ErrInvalidTreeSnapshot)

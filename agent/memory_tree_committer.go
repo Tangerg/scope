@@ -13,14 +13,12 @@ type memoryTreeHead struct {
 	sequence uint64
 }
 
-// MemoryTreeCommitter atomically accepts tree commits in volatile memory. An
-// acknowledgment survives only for the lifetime of this store instance, not a
-// process restart. Share the instance when restoring trees into another Engine.
-// Heads and replay-protection facts are retained for the entire store lifetime;
-// Engine.ReleaseTree does not delete them. Each accepted checkpoint retains a
-// fact even when snapshot content repeats, so retention grows with commit count,
-// not just tree size. Discard the store only after all its writers and callers
-// have stopped. Construct it with NewMemoryTreeCommitter.
+// MemoryTreeCommitter atomically accepts tree commits in volatile memory; an
+// acknowledgment survives only as long as this instance. Share the instance
+// when restoring trees into another Engine. Heads and replay-protection facts
+// are retained for the store lifetime, including after Engine.ReleaseTree, so
+// retention grows with commit count. Discard the store only after all its
+// writers and callers have stopped. Construct it with NewMemoryTreeCommitter.
 type MemoryTreeCommitter struct {
 	mu    sync.Mutex
 	heads map[ProcessID]memoryTreeHead

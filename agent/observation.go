@@ -15,27 +15,19 @@ const defaultDeltaBuffer = 256
 // return in bounded time and must not query or control the observed tree.
 type EventListener interface {
 	// OnEvent receives one committed or attempted Framework fact in increasing
-	// ProcessSequence for its Process within one tree runtime activation. A
-	// restored nonterminal Process starts with EventProcessRestored; durable
-	// activations also carry distinct TreeIncarnationIDs. Different tree runtimes
-	// may call the listener concurrently. It runs synchronously on the
-	// observed tree's owner, so it must return in bounded time without querying or
-	// controlling that tree, or calling Process.Await on it. Calls using this
-	// context, or a derived context, return [ErrListenerReentrancy] while the
-	// callback is active. The restriction ends when this invocation returns,
-	// including after a panic. Calls to other trees must still return in bounded
-	// time; distinct owners do not prevent cyclic waits between callbacks.
-	// A blocked callback prevents tree control and shutdown. Network and disk
-	// exporters belong behind a Host-owned bounded queue whose worker, drops, and
-	// drain lifecycle the Host owns. DeltaListener carries different facts and
-	// cannot replace Event delivery. The listener has no veto or acknowledgment
-	// authority.
+	// ProcessSequence for its Process within one tree runtime activation; a
+	// restored nonterminal Process starts with EventProcessRestored. Different
+	// tree runtimes may call the listener concurrently. It runs synchronously on
+	// the observed tree's owner, so a blocked callback prevents that tree's
+	// control and shutdown. Querying or controlling that tree with this context,
+	// or a derived one, returns [ErrListenerReentrancy] until the invocation
+	// returns. Calls to other trees must still be bounded; distinct owners do not
+	// prevent cyclic waits between callbacks. Network and disk exporters belong
+	// behind a Host-owned bounded queue.
 	OnEvent(ctx context.Context, event Event)
 }
 
-// EventListenerFunc adapts a plain function to the event listener interface.
-// A listener observes and must not steer execution, so the signature returns
-// nothing to make that boundary hard to violate by accident.
+// EventListenerFunc adapts a plain function to EventListener.
 type EventListenerFunc func(ctx context.Context, event Event)
 
 func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {
@@ -43,20 +35,15 @@ func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {
 }
 
 // DeltaListener observes best-effort Strategy streaming increments. Panics are
-// isolated; all listeners and trees share one Engine queue and delivery worker.
-// A slow callback delays the other listeners and trees and can cause bounded
-// queue drops. Implementations must return in bounded time without closing or
-// flushing their Engine. Hosts must put network or disk exporters behind their
-// own bounded queue, own its worker and drain lifecycle, and expose its drops.
-// Register independent queues for consumers requiring delivery isolation.
+// isolated; all listeners and trees share one Engine queue and delivery worker,
+// so a slow callback delays the others and can cause bounded queue drops.
+// Implementations must return in bounded time. Hosts put network or disk
+// exporters behind their own bounded queue and expose its drops.
 type DeltaListener interface {
-	// OnDelta receives an accepted best-effort increment in queue order. Delivery
-	// is sequential per listener but may lag Process execution; slow callbacks can
-	// cause later increments to be dropped. It has no acknowledgment authority;
-	// Engine.Close and FlushDeltas still wait for accepted callback delivery.
-	// Close and FlushDeltas using this context, or a derived context, return
-	// [ErrListenerReentrancy] while this invocation is active because both would
-	// wait for the worker delivering this callback.
+	// OnDelta receives an accepted increment in queue order, sequentially per
+	// listener and possibly lagging execution. Engine.Close and FlushDeltas wait
+	// for accepted delivery, so calling either with this context, or a derived
+	// one, returns [ErrListenerReentrancy] while the invocation is active.
 	OnDelta(ctx context.Context, delta Delta)
 }
 

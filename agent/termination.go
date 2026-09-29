@@ -16,8 +16,6 @@ const maxTerminationReasonBytes = 4096
 
 var errInvalidTermination = errors.New("agent: invalid termination")
 
-// deadlineOwner identifies the lifecycle boundary whose reached deadline is
-// recorded by the Engine.
 type deadlineOwner string
 
 const (
@@ -37,7 +35,6 @@ func (d deadlineOwner) String() string {
 	return string(d)
 }
 
-// cancellationOwner identifies a non-deadline cancellation source.
 type cancellationOwner string
 
 const (
@@ -68,9 +65,8 @@ func newKillIntent(reason string) (killIntent, error) {
 
 func (k killIntent) valid() bool { return k.reason != "" }
 
-// deadlineIntent records that a specific Process lifecycle deadline was
-// reached. A local Effect timeout remains a settlement Signal unless promoted
-// to a Process termination before constructing these facts.
+// A local Effect timeout remains a settlement Signal; only a Process lifecycle
+// deadline becomes a deadlineIntent.
 type deadlineIntent struct {
 	owner  deadlineOwner
 	reason string
@@ -103,8 +99,6 @@ func (d deadlineIntent) termination() Termination {
 	return Termination{status: StatusTimedOut, cause: cause, reason: d.reason}
 }
 
-// cancellationIntent records a non-deadline cancellation from a parent Process
-// or Host context.
 type cancellationIntent struct {
 	owner  cancellationOwner
 	reason string
@@ -172,8 +166,8 @@ type terminationFacts struct {
 	outcome      stepOutcome
 }
 
-// resolve applies Engine kill, deadline, cancellation, and Step
-// outcome facts in that priority order. It never infers intent from an error.
+// resolve applies kill, deadline, cancellation, and Step outcome in that
+// priority order.
 func (t terminationFacts) resolve() (Termination, error) {
 	if !t.outcome.valid() {
 		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)

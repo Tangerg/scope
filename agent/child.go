@@ -18,10 +18,8 @@ var ErrInvalidChildStart = errors.New("agent: invalid child process start")
 // any Process. Routing and caller-specific selection happen before an exact
 // DeploymentRef reaches this contract.
 type DeploymentResolver interface {
-	// Resolve returns the immutable binding for exactly reference. It must not
-	// fall back by name, perform routing or remote discovery, or retain
-	// caller state. Missing and mismatched bindings are errors; concurrent calls
-	// must be safe.
+	// Resolve returns the immutable binding for exactly reference, without
+	// falling back by name. Missing and mismatched bindings are errors.
 	Resolve(reference DeploymentRef) (Deployment, error)
 }
 
@@ -79,8 +77,7 @@ func (c ChildStartResult) ProcessID() (ProcessID, bool) {
 
 func (c ChildStartResult) DeploymentRef() DeploymentRef { return c.deploymentRef }
 
-// Failure returns the definite start failure and true when no child was
-// created.
+// Failure returns the definite start failure and true when no child was created.
 func (c ChildStartResult) Failure() (Failure, bool) {
 	return c.failure, c.failure.Valid()
 }

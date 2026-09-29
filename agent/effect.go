@@ -75,9 +75,8 @@ func NewWaitEffect(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 	})
 }
 
-// Typed Framework constructors validate their domain requests before encoding.
-// Only UnmarshalJSON crosses an untrusted protocol boundary and must decode
-// those fields again. freezeEffect owns JSON validity, size, and immutability.
+// Typed constructors validate their requests before encoding, so only
+// UnmarshalJSON must decode Framework fields again.
 func newFrameworkEffect(request any) (Effect, error) {
 	payload, err := jsonv2.Marshal(request)
 	if err != nil {

@@ -170,9 +170,7 @@ func schemaFor(t *testing.T, raw string) agent.Schema {
 	return schema
 }
 
-// TestDescriptorPublishesItsCompleteContract covers the accessors a dispatcher
-// and a Host use for discovery, and the ownership rule behind them: a caller
-// must not be able to reach back into the Definition's schema.
+// A caller must not be able to reach back into the Definition's schema.
 func TestDescriptorPublishesItsCompleteContract(t *testing.T) {
 	input := schemaFor(t, `{"type":"object","properties":{"question":{"type":"string"}}}`)
 	output := schemaFor(t, `{"type":"object","properties":{"answer":{"type":"string"}}}`)

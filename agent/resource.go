@@ -12,8 +12,7 @@ var ErrResourceLimitExceeded = errors.New("agent: resource limit exceeded")
 
 // ErrCounterExhausted reports exhausted numeric identity or accounting space,
 // independently of the Host's quota policy. Work stops before a counter wraps.
-// Strategies exhausting their own counters report this same fact and therefore
-// share its classification instead of renaming it per package.
+// Strategies exhausting their own counters report this same sentinel.
 var ErrCounterExhausted = NewClassifiedError(
 	FailureKindExecution, failureCodeEngineCounterExhausted, "agent: counter exhausted",
 )
@@ -29,14 +28,10 @@ const (
 // Snapshots retain the effective contract independently of Engine configuration.
 type Limits struct {
 	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained
-	// history. Admission also reserves mandatory control, termination, diagnostic,
-	// and Framework settlement growth. A finite quota must fit that reservation,
-	// even when the current encoding is smaller. With the current diagnostic and
-	// reason bounds, control strings alone reserve 144 KiB per live Process after
-	// worst-case JSON escaping; metadata, state, history, and Effects add to it.
-	// The required capacity depends on the admitted state, not a fixed minimum.
-	// Terminal Processes need only their encoded size. A finite zero denies every
-	// new admission.
+	// history. Admission of a live Process also reserves worst-case control,
+	// termination, diagnostic, and Framework settlement growth; control strings
+	// alone reserve about 144 KiB after JSON escaping. Terminal Processes need
+	// only their encoded size. A finite zero denies every new admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
 
 	// Budget bounds cumulative work and grants child allocations.

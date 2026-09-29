@@ -246,9 +246,9 @@ func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settl
 
 func (e EffectFinishedFact) Duration() time.Duration { return e.duration }
 
-// FailureClassification classifies a Dispatcher error that made its outcome Unknown. It
-// contains no diagnostic message and does not change the settlement semantics.
-// An Unknown returned directly by the Dispatcher has no error classification.
+// FailureClassification classifies the Dispatcher error that made the outcome
+// Unknown, without diagnostic text. An Unknown returned directly by the
+// Dispatcher has no classification.
 func (e EffectFinishedFact) FailureClassification() (FailureKind, string, bool) {
 	return e.failureKind, e.failureCode, e.failureKind.Valid()
 }

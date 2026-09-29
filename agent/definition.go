@@ -14,20 +14,15 @@ type Definition interface {
 	// belong in the descriptor.
 	Descriptor() Descriptor
 	// Start validates input against Descriptor and creates a fresh, isolated
-	// Execution without performing external I/O. The returned Execution has not
-	// executed a Step and must not share mutable state with another Process.
-	// Start must return promptly; it has no cancellation context because it only
-	// initializes fresh local state. Restore may validate substantial persisted
-	// state on every Step and therefore must cooperate with cancellation.
+	// Execution without performing external I/O. It takes no context because it
+	// only initializes local state and must return promptly.
 	Start(input Payload) (Execution, error)
 	// Restore reconstructs one Execution from a state previously produced by
-	// Snapshot for this exact definition. The caller must supply the matching
-	// definition; Engine enforces this with the snapshot's exact DeploymentRef.
-	// Restore validates state structure and strategy invariants without replaying
-	// external work. It must honor ctx during bounded CPU work and may not use
-	// context values as unrecorded inputs. Engine supplies a non-nil context with
-	// cancellation but without Host values. Opaque state need not independently
-	// identify its deployment.
+	// Snapshot for this exact definition; the Engine enforces the pairing through
+	// the snapshot's DeploymentRef. Restore validates state and strategy
+	// invariants without replaying external work, and runs on every Step, so it
+	// must honor ctx. The Engine's ctx carries cancellation but no Host values,
+	// which must not become unrecorded inputs.
 	Restore(ctx context.Context, state ExecutionState) (Execution, error)
 }
 
@@ -37,26 +32,19 @@ type Definition interface {
 // random or global state, or start ownerless goroutines. External operations are
 // returned as Effects. Snapshot must fail rather than return partial state.
 //
-// Start and Restore own construction validity; Execution methods require the
-// initialized instance they returned. Nil and zero private implementations have
-// no protocol meaning.
-// The Engine is the sole caller and never invokes Step concurrently for the same
-// Execution. If Step or Snapshot fails, the instance is discarded and may only
-// be rebuilt from the committed ExecutionState.
-// The Engine always supplies a non-nil Step context. Callback containment also
-// covers interpretation of returned errors: their methods may not escape into
-// the scheduler. A panic during interpretation is an execution panic.
+// Execution methods require the initialized instance Start or Restore returned.
+// The Engine is the sole caller, supplies a non-nil context, and never invokes
+// Step concurrently for the same Execution. If Step or Snapshot fails, the
+// instance is discarded and rebuilt from the committed ExecutionState. A panic
+// while interpreting a returned error is an execution panic.
 type Execution interface {
 	// Step reduces the current private state and the supplied ordered Signal
 	// prefix into one candidate Transition. It must honor ctx for bounded CPU
 	// work, perform no I/O, consume no hidden input, and never retain signals.
-	// The Engine serializes calls for one Execution. A *StepError discards the
-	// candidate and preserves its Failure; an ordinary error discards it with
-	// execution.step.failed. Fail instead commits the candidate and consumption.
-	// Declare domain sentinels with NewClassifiedError and return
-	// ClassifyStepError at the Step boundary: that is the one conversion from a
-	// sentinel to this contract, so a violation cannot reach the Host under the
-	// generic code because a mapping elsewhere forgot it.
+	// A *StepError discards the candidate and preserves its Failure; an ordinary
+	// error discards it with execution.step.failed. Fail instead commits the
+	// candidate and consumption. Return domain sentinels declared with
+	// NewClassifiedError through ClassifyStepError.
 	Step(ctx context.Context, signals []Signal) (Transition, error)
 	// Snapshot returns a complete, independently owned state from
 	// which Definition.Restore can reproduce the current Execution exactly. It

@@ -16,9 +16,8 @@ var ErrInvalidTreeIncarnationID = errors.New("agent: invalid tree incarnation id
 // Process tree. Its zero value is invalid.
 type TreeIncarnationID struct{ identity }
 
-// parseTreeIncarnationID validates the canonical wire representation. No Agent
-// boundary accepts a caller-built incarnation, so decoding serves UnmarshalText
-// alone.
+// No Agent boundary accepts a caller-built incarnation, so only UnmarshalText
+// parses one.
 func parseTreeIncarnationID(value string) (TreeIncarnationID, error) {
 	id, err := parseHexIdentity(value, treeIncarnationIDPrefix, treeIncarnationRandomBytes)
 	if err != nil {

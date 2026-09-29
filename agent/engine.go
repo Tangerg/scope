@@ -209,13 +209,12 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 }
 
 // Start keeps ctx attached to the resulting tree so Host cancellation and
-// deadlines reach accepted work. Execution that outlives a request therefore
-// needs a longer-lived context. An already-canceled context never reserves an
-// identity or invokes Host admission.
-// Snapshot admission includes mandatory lifecycle growth. Insufficient Process or tree capacity returns ErrResourceLimitExceeded
-// before publishing the Process or committing its initial head.
-// Success admits only the initial state and its lifecycle reservation. Later
-// Steps, dispatch permissions, and settlements each require capacity admission.
+// deadlines reach accepted work; execution that outlives a request needs a
+// longer-lived context. An already-canceled context never reserves an identity
+// or invokes Host admission. Insufficient Process or tree snapshot capacity,
+// including mandatory lifecycle growth, returns ErrResourceLimitExceeded before
+// the initial head commits. Later Steps, dispatch permissions, and settlements
+// each require their own capacity admission.
 func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload) (*Process, error) {
 	if e == nil {
 		return nil, ErrInvalidEngineConfig
@@ -328,9 +327,9 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 // closing the Engine.
 // Once closing begins, the Engine drains accepted Delta delivery and stops
 // observation workers. Canceling ctx stops only this caller's wait; it does not
-// interrupt that owned shutdown. A later Close joins the same shutdown.
-// Concurrent callers join the same closure; existing handles retain results
-// and RuntimeErrors for later reads. A nil Engine returns ErrInvalidEngineConfig.
+// interrupt that owned shutdown, which later and concurrent callers join.
+// Existing handles retain results and RuntimeErrors for later reads. A nil
+// Engine returns ErrInvalidEngineConfig.
 func (e *Engine) Close(ctx context.Context) error {
 	if e == nil {
 		return ErrInvalidEngineConfig
@@ -705,18 +704,13 @@ func (e *Engine) RestoreTree(
 }
 
 // ValidateRestorableTree reports whether this Engine can rebuild snapshot under
-// rootDeployment. It runs the same prepare pass RestoreTree runs, from the same
-// code, so the two cannot disagree about what is restorable: the exact root
-// binding, every captured DeploymentRef, each committed and prepared Execution
-// state through its own Definition, mailbox and wait history, Signal and output
-// schemas, and captured snapshot capacity.
+// rootDeployment, using the same prepare pass as RestoreTree: exact Deployment
+// bindings, committed and prepared Execution states, mailbox and wait history,
+// Signal and output schemas, and captured snapshot capacity.
 //
-// It answers a question about the snapshot, not about this moment. It skips
-// admission, reserves no identity, and activates no writer, so it neither
-// fences the previous writer nor promises a later RestoreTree will succeed:
-// the Engine may close, another writer may advance the stored head, and a
-// concurrent start may take one of the captured identities. Retained Unknown
-// settlements are restorable facts and do not fail this check; whether to
+// It skips admission, reserves no identity, and activates no writer, so it
+// neither fences the previous writer nor promises that a later RestoreTree
+// succeeds. Retained Unknown settlements are restorable facts; whether to
 // reconcile, replay, or refuse them stays a Host decision.
 func (e *Engine) ValidateRestorableTree(
 	ctx context.Context,
@@ -738,9 +732,6 @@ func (e *Engine) ValidateRestorableTree(
 	return err
 }
 
-// newRestoration binds a snapshot to its exact root Deployment. It performs the
-// checks that cost nothing, so admission can refuse before prepare runs Host
-// Definition code.
 func (e *Engine) newRestoration(
 	rootDeployment Deployment,
 	snapshot TreeSnapshot,

@@ -78,9 +78,8 @@ func newEffectRequest(
 func (e EffectRequest) ProcessID() ProcessID { return e.processID }
 
 // TreeIncarnationID identifies the active durable writer for observation and
-// correlation. Engine-produced requests always carry this identity; unbound
-// values return false. It does not participate in the Effect's stable idempotency
-// identity, which remains ID across restoration.
+// correlation. It is not part of the Effect's idempotency identity, which
+// remains ID across restoration.
 func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return e.incarnationID, e.incarnationID.Valid()
 }
@@ -109,47 +108,34 @@ func (e EffectRequest) Effect() Effect { return e.effect.clone() }
 
 // DeltaEmitter accepts Strategy-owned streaming payloads while Dispatch is
 // active. The Engine validates, orders, bounds, and publishes each payload as a
-// best-effort Delta. Concurrent calls are serialized in emitter admission order;
-// delivered EffectSequence values increase, with gaps for dropped payloads.
-// With no DeltaListener the emitter is nil: no observation payload is built,
-// validated, sequenced, or counted as dropped. Dispatchers must guard emission
-// with emit != nil. Their execution validation remains mandatory.
-// It intentionally returns no observer error. A Dispatcher must join concurrent
-// emissions before returning and must not retain or call emit afterward.
+// best-effort Delta; concurrent calls are serialized, and delivered
+// EffectSequence values increase with gaps for dropped payloads. It returns no
+// observer error. With no DeltaListener the emitter is nil, so Dispatchers must
+// guard emission with emit != nil. A Dispatcher must join concurrent emissions
+// before returning and must not retain or call emit afterward.
 type DeltaEmitter func(payload json.RawMessage)
 
-// Dispatcher executes Strategy-owned Effects outside Execution.Step. It must
-// return a Settlement addressed to request.ID. Engine supplies valid requests;
-// direct callers must preserve that precondition. For valid requests, rejection
-// before external work starts is a definite Failed settlement. A returned error means the Engine
-// cannot prove the external result and records an unknown settlement. The same
-// Dispatcher may serve Processes concurrently; implementations must be
-// concurrency-safe, return in bounded time, not mutate an Execution, and not
-// start unowned goroutines. ReplayPolicy must be a pure, deterministic
-// declaration for the supplied immutable Effect.
-// The Engine always supplies a non-nil context. Direct callers must do the same;
-// a nil context is a programming error, not an unknown external outcome.
+// Dispatcher executes Strategy-owned Effects outside Execution.Step. The Engine
+// supplies valid requests and non-nil contexts; direct callers must do the
+// same. Rejecting a valid request before external work starts is a definite
+// Failed settlement. Implementations may serve Processes concurrently, must
+// return in bounded time, and must not mutate an Execution or start unowned
+// goroutines.
 //
-// A transparent decorator preserves the context, complete request identity, emitter,
-// Settlement, and error of its wrapped Dispatcher. Its ReplayPolicy must also
-// account for its own behavior: forwarding a SameIdentity claim is valid only
-// when the added work is safe to repeat under the original identity. Observation
-// counters may count dispatch attempts, including replay; they do not count
-// distinct logical external operations. See the Definition example for a
-// concurrency-safe attempt counter around a bound Dispatcher.
+// A transparent decorator preserves the context, request identity, emitter,
+// Settlement, and error of its wrapped Dispatcher. Forwarding a SameIdentity
+// ReplayPolicy is valid only when the added work is safe to repeat under the
+// original identity. Observation counters count dispatch attempts, including
+// replay, not distinct logical operations; the Definition example shows one.
 type Dispatcher interface {
-	// Dispatch performs one frozen Strategy Effect outside Execution.Step.
-	// Settlement must address request.ID; a non-nil error means the external
-	// outcome is unknown, not definitely failed. emit is valid only during this
-	// call. The runtime cancels ctx when it applies terminal intent to this
-	// Process or an ancestor. It still collects the returned settlement; ctx
-	// cancellation alone proves no external outcome. Host context values are
-	// preserved. Implementations honor ctx and may be called concurrently.
-	// Panics in Dispatch or in interpretation of its returned error are isolated
-	// as unknown outcomes. Direct callers, transparent decorators, and explicit
-	// replay errors preserve the original cause for inspection. Ordinary Await,
-	// durable state, and events retain only the allowed outcome classifications
-	// and bounded diagnostics.
+	// Dispatch performs one frozen Effect. The Settlement must address
+	// request.ID; a non-nil error means the external outcome is unknown, not
+	// definitely failed. emit is valid only during this call. The runtime
+	// cancels ctx, which keeps Host values, when terminal intent reaches this
+	// Process or an ancestor, and still collects the returned settlement. Panics
+	// in Dispatch or in interpreting its error are isolated as unknown outcomes.
+	// Explicit replay errors keep the original cause; Await, durable state, and
+	// events retain only outcome classifications and bounded diagnostics.
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
 	// ReplayPolicy declares, without I/O or mutable side effects, whether this
 	// exact Effect can be repeated under its original EffectID when restoring

@@ -23,12 +23,10 @@ type Signal struct {
 	payload json.RawMessage
 }
 
-// NewSignal builds one delivery envelope with a canonical payload. At runtime
-// the Engine mints every Signal, from an admitted SignalRequest or from an
-// Effect settlement; constructing one does not admit or deliver it, and
-// Process.DeliverSignals still accepts only a SignalRequest. Definition tests
-// and conformance cases need the exact envelope a Step must accept, which is
-// otherwise reachable only by hand-writing this type's wire form.
+// NewSignal builds one delivery envelope with a canonical payload for
+// Definition tests and conformance cases. Constructing one does not admit or
+// deliver it: at runtime the Engine mints every Signal, and
+// Process.DeliverSignals accepts only a SignalRequest.
 func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, error) {
 	if !id.Valid() {
 		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, ErrInvalidIdentity)
@@ -49,9 +47,8 @@ func (s Signal) ID() SignalID { return s.id }
 func (s Signal) EngineOwned() bool { return s.Valid() && s.id.engineOwned() }
 
 // Settles reports whether the Engine minted this delivery for effectID's
-// settlement. Strategies can bind an opaque receipt to its source without
-// interpreting the private delivery identity. As with EngineOwned, decoded
-// Signals must come from trusted storage.
+// settlement, without exposing the private delivery identity. As with
+// EngineOwned, decoded Signals must come from trusted storage.
 func (s Signal) Settles(effectID EffectID) bool {
 	return s.EngineOwned() && effectID.Valid() && s.id == effectID.settlementSignalID()
 }

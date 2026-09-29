@@ -5,9 +5,8 @@ import (
 	"errors"
 )
 
-// effectPhase is the durable lifecycle of one Effect in a prepared batch.
-// It stays private because callers act through typed boundaries, not by
-// mutating the kernel's program counter.
+// effectPhase stays private: callers act through typed boundaries, not by
+// moving the kernel's program counter.
 type effectPhase string
 
 const (
@@ -32,7 +31,6 @@ func (e effectPhase) String() string {
 	return string(e)
 }
 
-// preparedEffect is mutable owner-local state; readers and mutators share its identity.
 type preparedEffect struct {
 	ID         EffectID    `json:"id"`
 	Effect     Effect      `json:"effect"`

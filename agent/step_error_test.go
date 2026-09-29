@@ -101,8 +101,6 @@ func (r *rejectedStepExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("rejected_step", r.phase)
 }
 
-// ClassifyStepError is the only conversion from a sentinel to the Step
-// contract, so its precedence rules are part of that contract.
 func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
 	sentinel := NewClassifiedError(FailureKindContract, "test.sentinel.invalid", "test: sentinel rejected")
 	if classified := ClassifyStepError(nil); classified != nil {

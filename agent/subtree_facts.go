@@ -2,8 +2,7 @@ package agent
 
 import "slices"
 
-// Both live and recovered trees query the same rule through read-only facts.
-// The traversal never promotes working state to an acknowledged head.
+// Live and recovered trees share this rule through read-only accessors.
 func subtreeUnresolvedEffects(root ProcessID, children func(ProcessID) []ProcessID, termination func(ProcessID) Termination) []UnresolvedEffect {
 	var effects []UnresolvedEffect
 	var visit func(ProcessID)

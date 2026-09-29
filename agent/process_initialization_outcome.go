@@ -72,19 +72,18 @@ func (p ProcessInitializationOutcome) Valid() bool {
 	}
 }
 
-// ProcessInitializationOutcomeAcknowledger lets a Host close each accepted admission even
-// when initialization fails before a Process exists. Rejecting an initialized outcome
-// prevents publication; accepting it does not guarantee later persistence.
-// Implementations must be bounded, concurrency-safe, idempotent by admission
-// identity, and must not re-enter Engine or Process, because initialization waits
-// for this call. Restore produces no outcome because it does not initialize.
-// ctx retains Host values but excludes cancellation and deadlines so an accepted
-// admission can finish acknowledgment even when its parent is terminating. The
-// Host must apply an independent bounded deadline and reconcile an uncertain
-// acknowledgment by admission identity; timeout alone does not prove rejection.
+// ProcessInitializationOutcomeAcknowledger lets a Host close each accepted
+// admission, even when initialization fails before a Process exists. Rejecting
+// an initialized outcome prevents publication; accepting it does not guarantee
+// later persistence. Initialization waits for this call, so implementations
+// must be bounded, concurrency-safe, idempotent by admission identity, and must
+// not re-enter the Engine. ctx keeps Host values without cancellation so an
+// accepted admission can finish while its parent terminates; the Host applies
+// its own deadline and reconciles an uncertain acknowledgment by admission
+// identity. Restore produces no outcome.
 type ProcessInitializationOutcomeAcknowledger interface {
-	// AcknowledgeProcessInitializationOutcome must return before publication so a Host
-	// can reject initialization without exposing a usable Process.
+	// AcknowledgeProcessInitializationOutcome runs before publication, so an
+	// error rejects initialization without exposing a usable Process.
 	AcknowledgeProcessInitializationOutcome(ctx context.Context, outcome ProcessInitializationOutcome) error
 }
 

@@ -40,30 +40,22 @@ func (p ProcessAdmission) Valid() bool {
 }
 
 // ProcessAdmitter decides whether one prospective root or child Process may
-// initialize. Implementations may coordinate caller-owned external admission work,
-// but must not create a Process, mutate the admission, or allocate Framework
-// resources. A prepared Step may replay the same child admission with the same
-// prospective Process identity after recovery.
-// The runtime cancels an active child admission when its parent terminates;
-// an accepted admission still receives its required initialization outcome.
-// Cancellation during pure restoration produces a failed initialization outcome;
-// a successfully initialized child is published and then terminated with its parent.
+// initialize. Implementations may coordinate caller-owned external admission
+// work but must not create a Process, mutate the admission, allocate Framework
+// resources, or re-enter the Engine. They must respect ctx, return in bounded
+// time, and be safe for concurrent calls. Persistence, charging, and business
+// idempotency are implementation responsibilities; a prepared Step may replay
+// the same child admission with the same prospective identity after recovery.
 //
-// Implementations must respect ctx, return in bounded time, be safe for
-// concurrent calls when shared, and must not re-enter the Engine or a Process.
-// Framework identity is stable, but persistence, transactionality, charging,
-// and business idempotency remain implementation responsibilities. Returning
-// an error rejects only this prospective Process. Budget allocation, capability
-// attenuation, and tree limits remain Engine invariants and cannot be changed
-// by an admitter. Every accepted admission concludes with exactly one
-// ProcessInitializationOutcome when an acknowledger is configured. Restore repeats
-// neither admission nor its outcome for a captured Process.
+// The runtime cancels an active child admission when its parent terminates.
+// Every accepted admission concludes with exactly one
+// ProcessInitializationOutcome when an acknowledger is configured; a child that
+// initializes anyway is published and then terminated with its parent. Restore
+// repeats neither admission nor its outcome for a captured Process.
 type ProcessAdmitter interface {
-	// Admit decides whether the immutable prospective Process may initialize.
-	// Returning nil accepts only the supplied identity and resources; it cannot
-	// enlarge Budget or Capabilities. Returning an error prevents initialization
-	// and publication. Implementations honor ctx, are bounded and concurrency-
-	// safe, and must tolerate the same prospective identity after recovery.
+	// Admit returns nil to accept only the supplied identity and resources, or
+	// an error to reject this prospective Process before initialization. It
+	// cannot enlarge Budget or Capabilities.
 	Admit(ctx context.Context, admission ProcessAdmission) error
 }
 

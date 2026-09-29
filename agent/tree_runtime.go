@@ -2084,7 +2084,8 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 }
 
-// Attempt facts close even when the result is stale or the runtime stopped.
+// Attempt facts close even when the candidate is stale, cannot be committed,
+// or a sibling has already stopped the runtime.
 func (t *treeRuntime) publishJobFinished(process *processState, job *processJob, completion treeJobCompletion) {
 	switch completion.kind {
 	case processJobStep:
@@ -2336,8 +2337,6 @@ func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error 
 	return nil
 }
 
-// Attempt completion remains observable even when its candidate cannot be committed
-// or a sibling has already stopped the runtime.
 func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
 	if result.dropped > 0 {
 		process.counters.DroppedDeltas = saturatingCountAdd(

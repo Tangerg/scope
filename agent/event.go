@@ -175,7 +175,6 @@ func (e Event) DeploymentRef() DeploymentRef { return e.deploymentRef }
 func (e Event) Relation() ProcessRelation { return e.relation }
 
 // TreeIncarnationID returns the active writer that emitted this event.
-// Engine-produced Events always identify their active writer.
 func (e Event) TreeIncarnationID() (TreeIncarnationID, bool) {
 	return e.incarnationID, e.incarnationID.Valid()
 }
@@ -186,8 +185,7 @@ func (e Event) StepSequence() (uint64, bool) {
 	return e.stepSequence, e.stepSequence > 0
 }
 
-// EffectID returns the related Effect identity and true when this is an Effect
-// fact.
+// EffectID returns the related Effect identity and true for an Effect fact.
 func (e Event) EffectID() (EffectID, bool) { return e.effectID, e.effectID.Valid() }
 
 func (e Event) Name() string { return e.name }

@@ -77,13 +77,12 @@ type ProcessInspection struct {
 }
 
 // TreeInspection is a caller-owned report from one runtime owner turn.
-// Snapshots and HeadDigest come only from the last head this
-// instance acknowledged. A lost response or a replacement writer may have
-// advanced storage further. Recovery must load the authoritative stored tree.
-// Work and barriers
-// describe the sampling turn and may be newer than the acknowledged snapshots.
-// Stopped means the owner has exited after draining its work. Reports contain
-// no recovery or scheduling authority and are not a persistence schema.
+// Snapshots and HeadDigest come from the last head this instance acknowledged;
+// storage may have advanced further, so recovery must load the authoritative
+// stored tree. Work and barriers describe the sampling turn and may be newer
+// than the snapshots. Stopped means the owner has exited after draining its
+// work. Reports carry no recovery or scheduling authority and are not a
+// persistence schema.
 type TreeInspection struct {
 	RootID        ProcessID
 	IncarnationID TreeIncarnationID
