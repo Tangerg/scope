@@ -380,6 +380,15 @@ func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobRespons
 	if !info.IsDir() {
 		return GlobResponse{}, fmt.Errorf("fs.LocalExecutor.Glob: %s is not a directory", in.Path)
 	}
+	// Opening the base keeps its name out of the pattern, where glob
+	// metacharacters in a directory name would select other directories.
+	directory, err := root.OpenRoot(base)
+	if err != nil {
+		return GlobResponse{}, err
+	}
+	defer func() {
+		err = errors.Join(err, directory.Close())
+	}()
 
 	maxResults := in.MaxResults
 	if maxResults == 0 {
@@ -400,12 +409,12 @@ func (l *LocalExecutor) Glob(ctx context.Context, in GlobRequest) (_ GlobRespons
 		paths     []string
 		truncated bool
 	)
-	pattern := slashpath.Join(filepath.ToSlash(base), filepath.ToSlash(in.Pattern))
-	err = doublestar.GlobWalk(globFilesystem{FS: root.FS(), ctx: ctx}, pattern, func(name string, _ fs.DirEntry) error {
+	pattern := slashpath.Clean(filepath.ToSlash(in.Pattern))
+	err = doublestar.GlobWalk(globFilesystem{FS: directory.FS(), ctx: ctx}, pattern, func(name string, _ fs.DirEntry) error {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return contextErr
 		}
-		name = filepath.FromSlash(name)
+		name = filepath.Join(base, filepath.FromSlash(name))
 		index, exists := slices.BinarySearch(paths, name)
 		if exists {
 			return nil

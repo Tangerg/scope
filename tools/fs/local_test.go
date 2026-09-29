@@ -522,6 +522,26 @@ func TestLocalExecutor_Glob_UsesFullDoublestarSyntax(t *testing.T) {
 	}
 }
 
+func TestLocalExecutor_Glob_TreatsPathAsLiteralDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTemp(t, dir, "src[1]/a.go", "")
+	writeTemp(t, dir, "src1/b.go", "")
+	writeTemp(t, dir, "src*/c.go", "")
+
+	for _, testCase := range []struct{ path, want string }{
+		{path: "src[1]", want: filepath.Join("src[1]", "a.go")},
+		{path: "src*", want: filepath.Join("src*", "c.go")},
+	} {
+		out, err := mustLocalExecutor(t, dir).Glob(t.Context(), GlobRequest{Pattern: "*.go", Path: testCase.path})
+		if err != nil {
+			t.Fatalf("Glob(%q): %v", testCase.path, err)
+		}
+		if want := []string{testCase.want}; !slices.Equal(out.Paths, want) {
+			t.Fatalf("Glob(%q) paths = %v, want %v", testCase.path, out.Paths, want)
+		}
+	}
+}
+
 func TestGrepOutputModeOwnsDefaultAndValidation(t *testing.T) {
 	for _, mode := range []GrepOutputMode{"", GrepOutputContent, GrepOutputFilesWithMatches, GrepOutputCount} {
 		if !mode.Valid() {
