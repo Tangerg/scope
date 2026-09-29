@@ -9,6 +9,8 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
+const firstSuccessWaitKeyPrefix = "coordination.first_success"
+
 type competitionPhase string
 
 const (
@@ -80,18 +82,7 @@ func (f firstSuccessState) validatePhase() error {
 			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidExecutionState)
 		}
 	case competitionAwaitingOpen, competitionWaiting:
-		if len(f.Starts) != len(f.Candidates) {
-			return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidExecutionState)
-		}
-		if len(f.remaining()) == 0 {
-			return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidExecutionState)
-		}
-		if f.Phase == competitionAwaitingOpen && f.WaitID != nil {
-			return fmt.Errorf("%w: unopened wait already has a WaitID", ErrInvalidExecutionState)
-		}
-		if f.Phase == competitionWaiting && (f.WaitID == nil || !f.WaitID.Valid()) {
-			return fmt.Errorf("%w: waiting competition requires a valid WaitID", ErrInvalidExecutionState)
-		}
+		return f.validateWait()
 	case competitionCompleted:
 		if len(f.Starts) != len(f.Candidates) || f.WaitID != nil {
 			return fmt.Errorf("%w: completed competition retains pending starts or wait", ErrInvalidExecutionState)
@@ -101,6 +92,19 @@ func (f firstSuccessState) validatePhase() error {
 		}
 	default:
 		return fmt.Errorf("%w: unknown competition phase %q", ErrInvalidExecutionState, f.Phase)
+	}
+	return nil
+}
+
+func (f firstSuccessState) validateWait() error {
+	if len(f.Starts) != len(f.Candidates) {
+		return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidExecutionState)
+	}
+	if len(f.remaining()) == 0 {
+		return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidExecutionState)
+	}
+	if (f.Phase == competitionWaiting) != (f.WaitID != nil) {
+		return fmt.Errorf("%w: competition WaitID does not match phase %q", ErrInvalidExecutionState, f.Phase)
 	}
 	return nil
 }
@@ -136,8 +140,10 @@ func (f firstSuccessState) remaining() []agent.ProcessID {
 	return children
 }
 
+// waitSpec derives a fresh wait key from the observed outcome count, which
+// grows with every satisfied wait.
 func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
-	key, err := agent.ParseWaitKey(fmt.Sprintf("coordination.first_success.%d", len(f.Outcomes)))
+	key, err := agent.ParseWaitKey(fmt.Sprintf("%s.%d", firstSuccessWaitKeyPrefix, len(f.Outcomes)))
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
@@ -145,8 +151,7 @@ func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
 }
 
 func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.ChildOutcome) {
-	// Complete supplies ordered, previously unobserved candidate indices. The
-	// Strategy owns only merging those facts into its request-ordered history.
+	// indices are ordered, previously unobserved candidates as returned by Complete.
 	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
 	prior, incoming := 0, 0
 	for index, started := range f.Starts {
@@ -162,12 +167,12 @@ func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.Child
 }
 
 func (f firstSuccessState) result() FirstSuccessResult {
+	// FirstSuccessResult requires non-nil Outcomes, which slices.Clone(nil) would not produce.
 	outcomes := make([]agent.ChildOutcome, len(f.Outcomes))
 	copy(outcomes, f.Outcomes)
 	result := FirstSuccessResult{Starts: slices.Clone(f.Starts), Outcomes: outcomes}
 	if f.Winner != nil {
-		winner := *f.Winner
-		result.Winner = &winner
+		result.Winner = new(*f.Winner)
 	}
 	return result
 }

@@ -71,21 +71,7 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 	}
 	result := timerResult{Deadline: operation.Deadline}
 	if ctx.Err() == nil {
-		timer := time.NewTimer(time.Until(operation.Deadline))
-		defer timer.Stop()
-		for {
-			select {
-			case <-timer.C:
-				// A duration limit or wall-clock adjustment can leave the absolute deadline ahead.
-				if remaining := time.Until(operation.Deadline); remaining > 0 {
-					timer.Reset(remaining)
-					continue
-				}
-				result.Reached = true
-			case <-ctx.Done():
-			}
-			break
-		}
+		result.Reached = waitUntil(ctx, operation.Deadline)
 	}
 	status := agent.SettlementStatusFailed
 	if result.Reached {
@@ -96,6 +82,24 @@ func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.
 		return timerFailureSettlement(request.ID(), err)
 	}
 	return agent.NewSettlement(request.ID(), status, payload)
+}
+
+func waitUntil(ctx context.Context, deadline time.Time) bool {
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			// A duration limit or wall-clock adjustment can leave the absolute deadline ahead.
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return true
+			}
+			timer.Reset(remaining)
+		}
+	}
 }
 
 func timerFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {

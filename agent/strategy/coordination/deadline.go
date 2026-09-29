@@ -92,6 +92,10 @@ const (
 	deadlineCompleted deadlinePhase = "completed"
 )
 
+func (d deadlinePhase) valid() bool {
+	return d == deadlineReady || d == deadlineAwaiting || d == deadlineCompleted
+}
+
 type deadlineState struct {
 	Deadline time.Time     `json:"deadline"`
 	Phase    deadlinePhase `json:"phase"`
@@ -101,7 +105,7 @@ func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
 		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidExecutionState)
 	}
-	if d.Phase != deadlineReady && d.Phase != deadlineAwaiting && d.Phase != deadlineCompleted {
+	if !d.Phase.valid() {
 		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidExecutionState, d.Phase)
 	}
 	return nil
@@ -133,39 +137,43 @@ func (d *deadlineExecution) step(ctx context.Context, signals []agent.Signal) (a
 		d.state.Phase = deadlineAwaiting
 		return agent.Continue(0, effect)
 	case deadlineAwaiting:
-		if len(signals) != 1 || !signals[0].EngineOwned() {
-			return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
-		}
-		if _, addressed := signals[0].WaitID(); addressed {
-			return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
-		}
-		payload, err := agent.ParsePayload(signals[0].Payload())
-		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
-		}
-		result, err := payload.Decode[timerResult]()
-		if err != nil {
-			return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
-		}
-		if !result.Deadline.Equal(d.state.Deadline) {
-			return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
-		}
-		if !result.Reached {
-			failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinationDeadlineInterrupted, "timer returned before its deadline")
-			if failureErr != nil {
-				return agent.Transition{}, failureErr
-			}
-			return agent.Fail(1, failure)
-		}
-		d.state.Phase = deadlineCompleted
-		output, err := agent.EncodePayload(d.state.Deadline)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return agent.Complete(1, output)
+		return d.acceptTimer(signals)
 	default:
 		return agent.Transition{}, fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol)
 	}
+}
+
+func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) != 1 || !signals[0].EngineOwned() {
+		return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
+	}
+	if _, addressed := signals[0].WaitID(); addressed {
+		return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
+	}
+	payload, err := agent.ParsePayload(signals[0].Payload())
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
+	}
+	result, err := payload.Decode[timerResult]()
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
+	}
+	if !result.Deadline.Equal(d.state.Deadline) {
+		return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
+	}
+	if !result.Reached {
+		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
+		if failureErr != nil {
+			return agent.Transition{}, failureErr
+		}
+		return agent.Fail(1, failure)
+	}
+	d.state.Phase = deadlineCompleted
+	output, err := agent.EncodePayload(d.state.Deadline)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Complete(1, output)
 }
 
 func (d *deadlineExecution) Snapshot() (agent.ExecutionState, error) {
@@ -176,4 +184,4 @@ var _ agent.Execution = (*deadlineExecution)(nil)
 
 var _ agent.Definition = (*Deadline)(nil)
 
-const failureCodeCoordinationDeadlineInterrupted = "coordination.deadline.interrupted"
+const failureCodeDeadlineInterrupted = "coordination.deadline.interrupted"
