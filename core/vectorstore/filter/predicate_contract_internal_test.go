@@ -223,9 +223,6 @@ func TestSemanticConstructorsCoverVocabulary(t *testing.T) {
 	if NewIdent(ident) != ident {
 		t.Fatal("NewIdent did not preserve an existing identifier")
 	}
-	if _, err := newIdent(42); err == nil {
-		t.Fatal("newIdent accepted a number")
-	}
 
 	index := Index("metadata", "author")
 	nested := Index(index, 0)

@@ -37,59 +37,39 @@ type lexeme struct {
 	start, end Position
 }
 
+var tokenKindNames = [...]string{
+	tokenEOF:          "end of input",
+	tokenIdent:        "identifier",
+	tokenNumber:       "number",
+	tokenString:       "string",
+	tokenTrue:         "boolean",
+	tokenFalse:        "boolean",
+	tokenEqual:        "==",
+	tokenNotEqual:     "!=",
+	tokenLess:         "<",
+	tokenLessEqual:    "<=",
+	tokenGreater:      ">",
+	tokenGreaterEqual: ">=",
+	tokenAnd:          "AND",
+	tokenOr:           "OR",
+	tokenNot:          "NOT",
+	tokenIn:           "IN",
+	tokenHas:          "HAS",
+	tokenLike:         "LIKE",
+	tokenIs:           "IS",
+	tokenNull:         "NULL",
+	tokenLeftParen:    "(",
+	tokenRightParen:   ")",
+	tokenLeftBracket:  "[",
+	tokenRightBracket: "]",
+	tokenComma:        ",",
+}
+
 func (t tokenKind) string() string {
-	switch t {
-	case tokenEOF:
-		return "end of input"
-	case tokenIdent:
-		return "identifier"
-	case tokenNumber:
-		return "number"
-	case tokenString:
-		return "string"
-	case tokenTrue, tokenFalse:
-		return "boolean"
-	case tokenEqual:
-		return "=="
-	case tokenNotEqual:
-		return "!="
-	case tokenLess:
-		return "<"
-	case tokenLessEqual:
-		return "<="
-	case tokenGreater:
-		return ">"
-	case tokenGreaterEqual:
-		return ">="
-	case tokenAnd:
-		return "AND"
-	case tokenOr:
-		return "OR"
-	case tokenNot:
-		return "NOT"
-	case tokenIn:
-		return "IN"
-	case tokenHas:
-		return "HAS"
-	case tokenLike:
-		return "LIKE"
-	case tokenIs:
-		return "IS"
-	case tokenNull:
-		return "NULL"
-	case tokenLeftParen:
-		return "("
-	case tokenRightParen:
-		return ")"
-	case tokenLeftBracket:
-		return "["
-	case tokenRightBracket:
-		return "]"
-	case tokenComma:
-		return ","
-	default:
-		return "invalid token"
+	if int(t) < len(tokenKindNames) && tokenKindNames[t] != "" {
+		return tokenKindNames[t]
 	}
+	return "invalid token"
 }
 
 func (t tokenKind) operator() Operator {

@@ -57,11 +57,11 @@ func newLiteral(value any) (*Literal, error) {
 }
 
 func NewLiteral[T LiteralValue](value T) *Literal {
-	lit, err := newLiteral(value)
+	literal, err := newLiteral(value)
 	if err != nil {
-		panic(fmt.Errorf("filter: create literal: %w", err))
+		panic(err)
 	}
-	return lit
+	return literal
 }
 
 func NewLiterals[T LiteralValue](values []T) []*Literal {
@@ -106,55 +106,31 @@ type ListValue interface {
 }
 
 func newListLiteral(value any) (*ListLiteral, error) {
-	if list, ok := value.(*ListLiteral); ok {
-		return list, nil
-	}
-
-	result := &ListLiteral{}
-
 	switch typed := value.(type) {
-	case []int:
-		result.values = NewLiterals(typed)
-	case []int8:
-		result.values = NewLiterals(typed)
-	case []int16:
-		result.values = NewLiterals(typed)
-	case []int32:
-		result.values = NewLiterals(typed)
-	case []int64:
-		result.values = NewLiterals(typed)
-	case []uint:
-		result.values = NewLiterals(typed)
-	case []uint8:
-		result.values = NewLiterals(typed)
-	case []uint16:
-		result.values = NewLiterals(typed)
-	case []uint32:
-		result.values = NewLiterals(typed)
-	case []uint64:
-		result.values = NewLiterals(typed)
-	case []float32:
-		result.values = NewLiterals(typed)
-	case []float64:
-		result.values = NewLiterals(typed)
-	case []string:
-		result.values = NewLiterals(typed)
-	case []bool:
-		result.values = NewLiterals(typed)
+	case *ListLiteral:
+		return typed, nil
 	case []*Literal:
-		result.values = slices.Clone(typed)
-	default:
-		return nil, fmt.Errorf("filter: create list literal: unsupported list type %T (%v)",
-			value, value)
+		return &ListLiteral{values: slices.Clone(typed)}, nil
 	}
-
-	return result, nil
+	reflected := reflect.ValueOf(value)
+	if reflected.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("filter: create list literal: unsupported list type %T (%v)", value, value)
+	}
+	values := make([]*Literal, reflected.Len())
+	for index := range values {
+		literal, err := newLiteral(reflected.Index(index).Interface())
+		if err != nil {
+			return nil, err
+		}
+		values[index] = literal
+	}
+	return &ListLiteral{values: values}, nil
 }
 
 func NewListLiteral[T ListValue](value T) *ListLiteral {
 	list, err := newListLiteral(value)
 	if err != nil {
-		panic(fmt.Errorf("filter: create list literal: %w", err))
+		panic(err)
 	}
 	return list
 }

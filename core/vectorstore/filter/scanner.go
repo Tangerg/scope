@@ -2,6 +2,7 @@ package filter
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -25,38 +26,35 @@ func (s *scanner) next() (lexeme, error) {
 	}
 
 	current := s.peek()
-	switch current {
-	case '=':
+	if kind, ok := punctuationTokens[current]; ok {
+		return s.single(kind, start), nil
+	}
+	switch {
+	case current == '=':
 		return s.scanPair('=', tokenEqual, start)
-	case '!':
+	case current == '!':
 		return s.scanPair('=', tokenNotEqual, start)
-	case '<':
+	case current == '<':
 		return s.scanOptionalPair('=', tokenLess, tokenLessEqual, start), nil
-	case '>':
+	case current == '>':
 		return s.scanOptionalPair('=', tokenGreater, tokenGreaterEqual, start), nil
-	case '\'':
+	case current == '\'':
 		return s.scanString(start)
-	case '-':
+	case current == '-' || isASCIIDigit(current):
 		return s.scanNumber(start)
-	case '(':
-		return s.single(tokenLeftParen, start), nil
-	case ')':
-		return s.single(tokenRightParen, start), nil
-	case '[':
-		return s.single(tokenLeftBracket, start), nil
-	case ']':
-		return s.single(tokenRightBracket, start), nil
-	case ',':
-		return s.single(tokenComma, start), nil
-	}
-
-	if isASCIIDigit(current) {
-		return s.scanNumber(start)
-	}
-	if unicode.IsLetter(current) {
+	case unicode.IsLetter(current):
 		return s.scanIdentifier(start), nil
+	default:
+		return lexeme{}, newSyntaxError(start, string(current), "invalid character")
 	}
-	return lexeme{}, newSyntaxError(start, string(current), "invalid character")
+}
+
+var punctuationTokens = map[rune]tokenKind{
+	'(': tokenLeftParen,
+	')': tokenRightParen,
+	'[': tokenLeftBracket,
+	']': tokenRightBracket,
+	',': tokenComma,
 }
 
 func (s *scanner) scanPair(second rune, kind tokenKind, start Position) (lexeme, error) {
@@ -128,34 +126,17 @@ func unescape(r rune) (rune, bool) {
 
 func (s *scanner) scanNumber(start Position) (lexeme, error) {
 	var raw strings.Builder
-	if s.peek() == '-' {
-		raw.WriteRune(s.take())
-		if s.done() || !isASCIIDigit(s.peek()) {
-			return lexeme{}, newSyntaxError(start, "-", "expected digit after '-'")
-		}
+	s.accept(&raw, '-')
+	if !s.takeDigits(&raw) {
+		return lexeme{}, newSyntaxError(start, "-", "expected digit after '-'")
 	}
-	for !s.done() && isASCIIDigit(s.peek()) {
-		raw.WriteRune(s.take())
+	if s.accept(&raw, '.') && !s.takeDigits(&raw) {
+		return lexeme{}, newSyntaxError(start, raw.String(), "expected digit after decimal point")
 	}
-	if !s.done() && s.peek() == '.' {
-		raw.WriteRune(s.take())
-		if s.done() || !isASCIIDigit(s.peek()) {
-			return lexeme{}, newSyntaxError(start, raw.String(), "expected digit after decimal point")
-		}
-		for !s.done() && isASCIIDigit(s.peek()) {
-			raw.WriteRune(s.take())
-		}
-	}
-	if !s.done() && (s.peek() == 'e' || s.peek() == 'E') {
-		raw.WriteRune(s.take())
-		if !s.done() && (s.peek() == '+' || s.peek() == '-') {
-			raw.WriteRune(s.take())
-		}
-		if s.done() || !isASCIIDigit(s.peek()) {
+	if s.accept(&raw, 'e', 'E') {
+		s.accept(&raw, '+', '-')
+		if !s.takeDigits(&raw) {
 			return lexeme{}, newSyntaxError(start, raw.String(), "expected digit in exponent")
-		}
-		for !s.done() && isASCIIDigit(s.peek()) {
-			raw.WriteRune(s.take())
 		}
 	}
 
@@ -164,6 +145,23 @@ func (s *scanner) scanNumber(start Position) (lexeme, error) {
 		return lexeme{}, newSyntaxError(start, raw.String(), err.Error())
 	}
 	return lexeme{kind: tokenNumber, literal: number, start: start, end: s.position()}, nil
+}
+
+func (s *scanner) accept(raw *strings.Builder, candidates ...rune) bool {
+	if s.done() || !slices.Contains(candidates, s.peek()) {
+		return false
+	}
+	raw.WriteRune(s.take())
+	return true
+}
+
+func (s *scanner) takeDigits(raw *strings.Builder) bool {
+	taken := false
+	for !s.done() && isASCIIDigit(s.peek()) {
+		raw.WriteRune(s.take())
+		taken = true
+	}
+	return taken
 }
 
 func (s *scanner) scanIdentifier(start Position) lexeme {

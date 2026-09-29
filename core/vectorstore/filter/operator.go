@@ -26,38 +26,30 @@ const (
 )
 
 func (o Operator) String() string { return string(o) }
-func (o Operator) Name() string {
-	switch o {
-	case OpEqual:
-		return "EQ"
-	case OpNotEqual:
-		return "NE"
-	case OpLess:
-		return "LT"
-	case OpLessEqual:
-		return "LE"
-	case OpGreater:
-		return "GT"
-	case OpGreaterEqual:
-		return "GE"
-	case OpAnd:
-		return "AND"
-	case OpOr:
-		return "OR"
-	case OpNot:
-		return "NOT"
-	case OpIn:
-		return "IN"
-	case OpHas:
-		return "HAS"
-	case OpLike:
-		return "LIKE"
-	case OpIs:
-		return "IS"
-	default:
-		return "INVALID"
-	}
+
+var operatorNames = map[Operator]string{
+	OpEqual:        "EQ",
+	OpNotEqual:     "NE",
+	OpLess:         "LT",
+	OpLessEqual:    "LE",
+	OpGreater:      "GT",
+	OpGreaterEqual: "GE",
+	OpAnd:          "AND",
+	OpOr:           "OR",
+	OpNot:          "NOT",
+	OpIn:           "IN",
+	OpHas:          "HAS",
+	OpLike:         "LIKE",
+	OpIs:           "IS",
 }
+
+func (o Operator) Name() string {
+	if name, ok := operatorNames[o]; ok {
+		return name
+	}
+	return "INVALID"
+}
+
 func (o Operator) IsEqualityOperator() bool { return o == OpEqual || o == OpNotEqual }
 func (o Operator) IsOrderingOperator() bool {
 	return o == OpLess || o == OpLessEqual || o == OpGreater || o == OpGreaterEqual

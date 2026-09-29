@@ -47,37 +47,52 @@ func (f *formatter) expression(expr Expr, parent formatPrecedence, right bool) e
 	case *Literal:
 		f.literal(node)
 	case *ListLiteral:
-		f.output.WriteByte('(')
-		for i, value := range node.values {
-			if i > 0 {
-				f.output.WriteString(", ")
-			}
-			if err := f.expression(value, formatRoot, false); err != nil {
-				return err
-			}
-		}
-		f.output.WriteByte(')')
+		return f.list(node)
 	case *IndexExpr:
-		if err := f.expression(node.left, formatTest, false); err != nil {
-			return err
-		}
-		f.output.WriteByte('[')
-		if err := f.expression(node.index, formatRoot, false); err != nil {
-			return err
-		}
-		f.output.WriteByte(']')
+		return f.index(node)
 	case *UnaryExpr:
-		f.output.WriteString(node.operator.String())
-		f.output.WriteString(" (")
-		if err := f.expression(node.right, formatRoot, false); err != nil {
-			return err
-		}
-		f.output.WriteByte(')')
+		return f.unary(node)
 	case *BinaryExpr:
 		return f.binary(node, parent, right)
 	default:
 		return fmt.Errorf("filter: unsupported expression %T", expr)
 	}
+	return nil
+}
+
+func (f *formatter) list(list *ListLiteral) error {
+	f.output.WriteByte('(')
+	for i, value := range list.values {
+		if i > 0 {
+			f.output.WriteString(", ")
+		}
+		if err := f.expression(value, formatRoot, false); err != nil {
+			return err
+		}
+	}
+	f.output.WriteByte(')')
+	return nil
+}
+
+func (f *formatter) index(index *IndexExpr) error {
+	if err := f.expression(index.left, formatTest, false); err != nil {
+		return err
+	}
+	f.output.WriteByte('[')
+	if err := f.expression(index.index, formatRoot, false); err != nil {
+		return err
+	}
+	f.output.WriteByte(']')
+	return nil
+}
+
+func (f *formatter) unary(unary *UnaryExpr) error {
+	f.output.WriteString(unary.operator.String())
+	f.output.WriteString(" (")
+	if err := f.expression(unary.right, formatRoot, false); err != nil {
+		return err
+	}
+	f.output.WriteByte(')')
 	return nil
 }
 

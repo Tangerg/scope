@@ -264,33 +264,37 @@ func (l *Literal) Value() (any, error) {
 	case l.IsString():
 		return l.AsString()
 	case l.IsNumber():
-		if strings.ContainsAny(l.text, ".eE") {
-			number, err := strconv.ParseFloat(l.text, 64)
-			if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
-				return nil, fmt.Errorf("filter: decode literal value: invalid number %q", l.text)
-			}
-			return number, nil
-		}
-		if strings.HasPrefix(l.text, "-") {
-			number, err := strconv.ParseInt(l.text, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("filter: decode literal value: invalid integer %q: %w", l.text, err)
-			}
-			return number, nil
-		}
-		number, err := strconv.ParseUint(l.text, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("filter: decode literal value: invalid integer %q: %w", l.text, err)
-		}
-		if number <= math.MaxInt64 {
-			return int64(number), nil
-		}
-		return number, nil
+		return l.decodeNumber()
 	case l.IsBool():
 		return l.AsBool()
 	default:
 		return nil, fmt.Errorf("filter: decode literal value: unsupported kind %s", l.kind)
 	}
+}
+
+func (l *Literal) decodeNumber() (any, error) {
+	if strings.ContainsAny(l.text, ".eE") {
+		number, err := strconv.ParseFloat(l.text, 64)
+		if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+			return nil, fmt.Errorf("filter: decode literal value: invalid number %q", l.text)
+		}
+		return number, nil
+	}
+	if strings.HasPrefix(l.text, "-") {
+		number, err := strconv.ParseInt(l.text, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("filter: decode literal value: invalid integer %q: %w", l.text, err)
+		}
+		return number, nil
+	}
+	number, err := strconv.ParseUint(l.text, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("filter: decode literal value: invalid integer %q: %w", l.text, err)
+	}
+	if number <= math.MaxInt64 {
+		return int64(number), nil
+	}
+	return number, nil
 }
 
 func (l *Literal) numberRat() (*big.Rat, error) {
