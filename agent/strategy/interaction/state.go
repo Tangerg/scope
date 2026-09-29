@@ -342,11 +342,11 @@ func validatedToolCalls(response *chat.Response) ([]chat.ToolCall, error) {
 	if err := response.Validate(); err != nil {
 		return nil, fmt.Errorf("interaction: invalid model response: %w", err)
 	}
-	var calls []chat.ToolCall
-	seenCallIDs := make(map[string]struct{})
 	if response.Output == nil || response.Output.Message == nil {
 		return nil, nil
 	}
+	var calls []chat.ToolCall
+	seenCallIDs := make(map[string]struct{})
 	for _, part := range response.Output.Message.Parts {
 		if part.Kind != chat.PartToolCall {
 			continue

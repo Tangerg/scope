@@ -478,8 +478,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 		if batch.Kind == childCallsTool {
 			return agent.Fail(consumed, failure)
 		}
-		result := delegateErrorResult(calls[index], "child start failed: "+failure.Code()+": "+failure.Message())
-		batch.Invocations[index].Result = &toolCallResult{Result: result, Rejected: true}
+		batch.Invocations[index].Result = rejectedDelegateStartResult(calls[index], failure)
 	}
 	if len(batch.children()) == 0 {
 		if err := e.finishChildBatch(); err != nil {

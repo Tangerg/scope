@@ -307,8 +307,7 @@ func rejectedDelegateStart(process agent.ProcessSnapshot, key agent.ChildKey, ca
 			continue
 		}
 		if failure, failed := start.Failure(); failed {
-			result := delegateErrorResult(call, "child start failed: "+failure.Code()+": "+failure.Message())
-			return &toolCallResult{Result: result, Rejected: true}
+			return rejectedDelegateStartResult(call, failure)
 		}
 	}
 	return nil

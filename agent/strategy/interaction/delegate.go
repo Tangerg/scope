@@ -101,6 +101,13 @@ func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult 
 	}
 }
 
+// rejectedDelegateStartResult is shared by live execution and SettledResults so
+// both report the same model-visible refusal.
+func rejectedDelegateStartResult(call chat.ToolCall, failure agent.Failure) *toolCallResult {
+	result := delegateErrorResult(call, "child start failed: "+failure.Code()+": "+failure.Message())
+	return &toolCallResult{Result: result, Rejected: true}
+}
+
 func (d Delegate) prepareInput(call chat.ToolCall) (agent.Payload, error) {
 	arguments := strings.TrimSpace(call.Arguments)
 	if arguments == "" {

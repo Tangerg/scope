@@ -206,7 +206,12 @@ type toolManifestEntry struct {
 	concurrent func(tool.Invocation) (string, bool)
 }
 
-func (t toolManifestEntry) plan(call chat.ToolCall) (toolConcurrencyPlan, error) {
+type toolConcurrencyPlan struct {
+	concurrent bool
+	key        string
+}
+
+func (t toolManifestEntry) plan(call chat.ToolCall) (plan toolConcurrencyPlan, err error) {
 	if t.concurrent == nil {
 		return toolConcurrencyPlan{}, nil
 	}
@@ -216,6 +221,11 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (toolConcurrencyPlan, error)
 		// confer no authority to overlap other calls.
 		return toolConcurrencyPlan{}, nil
 	}
-	key, concurrent, err := concurrencyDeclaration(t.concurrent, invocation)
-	return toolConcurrencyPlan{concurrent: concurrent, key: key}, err
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			plan, err = toolConcurrencyPlan{}, &agent.CallbackPanicError{Operation: "ConcurrentTool policy", Value: recovered}
+		}
+	}()
+	key, concurrent := t.concurrent(invocation)
+	return toolConcurrencyPlan{concurrent: concurrent, key: key}, nil
 }

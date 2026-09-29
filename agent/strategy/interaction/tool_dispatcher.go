@@ -18,6 +18,18 @@ type boundTool struct {
 	concurrent func(tool.Invocation) (string, bool)
 }
 
+type preparedToolCall struct {
+	call       chat.ToolCall
+	binding    *boundTool
+	invocation tool.Invocation
+	rejection  *chat.ToolResult
+}
+
+func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, advertised []string) *toolCallResult {
+	return &toolCallResult{Result: result.Clone(), Rejected: rejected,
+		Direct: p.binding != nil && p.binding.direct && !result.IsError, AdvertisedToolNames: advertised}
+}
+
 type toolDispatcher struct {
 	tools               map[string]boundTool
 	initialDefinitions  []chat.ToolDefinition

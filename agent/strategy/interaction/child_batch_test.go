@@ -378,3 +378,33 @@ type batchConcurrentTool struct{ tool.Tool }
 func (b batchConcurrentTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	return func(tool.Invocation) (string, bool) { return "", true }
 }
+
+type panickingClassifierTool struct{ tool.Tool }
+
+func (panickingClassifierTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	return func(tool.Invocation) (string, bool) { panic("classifier failed") }
+}
+
+func TestConcurrencyClassifierPanicFailsScheduling(t *testing.T) {
+	executable, err := tool.NewFunc(tool.FuncConfig{
+		Name: "classified", Description: "Exercise classifier panic isolation.",
+	}, func(context.Context, fuzzDelegateInput) (string, error) { return "done", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := NewToolSet(ToolSetConfig{
+		Name: "interaction.classifier.tools", Description: "Exercise classifier panic isolation.",
+		Tools:                []tool.Tool{panickingClassifierTool{executable}},
+		ImplementationDigest: agent.ComputeDigest([]byte("classifier-tool")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("classifier-config")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := []chat.ToolCall{{ID: "call", Name: "classified", Arguments: `{"task":"run"}`}}
+	end, err := tools.manifest.concurrentBatchEnd(t.Context(), calls)
+	panicErr, isPanic := errors.AsType[*agent.CallbackPanicError](err)
+	if end != 0 || !isPanic || panicErr.Operation != "ConcurrentTool policy" || panicErr.Value != "classifier failed" {
+		t.Fatalf("classifier panic = %d, %v", end, err)
+	}
+}
