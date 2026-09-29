@@ -4,19 +4,18 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Tangerg/scope/tools/process"
 )
 
 const (
 	defaultShell             = "/bin/sh"
 	shellCommandFlag         = "-c"
 	defaultMaxBytesPerStream = 30 * 1024
-	pipeCloseDelay           = time.Second
 )
 
 // LocalConfig makes the local process authority visible at construction. The
@@ -84,22 +83,23 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, l.shell, shellCommandFlag, in.Cmd)
-	cmd.Dir = l.directory
-	if err := configureProcessGroup(cmd); err != nil {
-		return Output{ExitCode: -1}, err
-	}
-	// Escaped descendants cannot keep inherited pipes alive indefinitely.
-	cmd.WaitDelay = pipeCloseDelay
-
 	stdout := newBoundedBuffer(l.maxBytesPerStream)
 	stderr := newBoundedBuffer(l.maxBytesPerStream)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	command, err := process.New(runCtx, process.Config{
+		Argv:      []string{l.shell, shellCommandFlag, in.Cmd},
+		Directory: l.directory,
+		Stdout:    stdout,
+		Stderr:    stderr,
+	})
+	if err != nil {
+		return Output{ExitCode: -1}, err
+	}
 
 	start := time.Now()
-	err := cmd.Run()
-	cleanupErr := cmd.Cancel()
+	if startErr := command.Start(); startErr != nil {
+		return Output{ExitCode: -1, Duration: time.Since(start), CancellationObserved: runCtx.Err() != nil}, startErr
+	}
+	result, err := command.Wait()
 	duration := time.Since(start)
 
 	out := Output{
@@ -107,21 +107,11 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 		Stderr:               stderr.finalize(),
 		StdoutTruncated:      stdout.dropped != 0,
 		StderrTruncated:      stderr.dropped != 0,
-		ExitCode:             -1,
+		ExitCode:             result.ExitCode,
 		Duration:             duration,
-		CancellationObserved: runCtx.Err() != nil,
+		CancellationObserved: result.CancellationObserved,
 	}
-	if cmd.ProcessState != nil {
-		out.ExitCode = cmd.ProcessState.ExitCode()
-	}
-
-	if err != nil {
-		_, ok := errors.AsType[*exec.ExitError](err)
-		if !ok {
-			return out, errors.Join(err, cleanupErr)
-		}
-	}
-	return out, cleanupErr
+	return out, err
 }
 
 // Writes report len(p), nil even when truncated: breaking the child's stdio

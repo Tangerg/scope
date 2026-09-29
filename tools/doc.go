@@ -3,12 +3,14 @@
 //
 // This module implements executable capability only. The tool protocol, typed
 // functions, and the registry belong to core/tool; schemas are derived by
-// core/jsonschema. Every capability here is an ordinary core/tool.Tool, so a
+// core/jsonschema. Model-facing capabilities implement core/tool.Tool, so a
 // chat client, an Agent, or an MCP server consumes them through one contract.
+// Shared backend guarantees also support consumers that do not expose a tool.
 //
 // # Capabilities
 //
 //   - shell: run a command and capture its output.
+//   - process: own a local command's lifetime and Unix process-group cleanup.
 //   - content: preserve arbitrary response bytes as UTF-8 or explicit base64.
 //   - fs: read, write, edit, glob, and grep inside an explicitly supplied directory authority.
 //   - textread: read text with line numbering and limits.
@@ -19,7 +21,7 @@
 //
 // # Two tiers
 //
-// Every capability is split in two. The Tool tier faces the model: JSON in,
+// Model-facing capabilities have two tiers. The Tool tier faces the model: JSON in,
 // JSON out, schema validation. The Backend Port tier does the work and holds
 // all the domain logic — line numbering, binary detection, write locks, path
 // authority. That split is what lets a remote or sandboxed backend answer a

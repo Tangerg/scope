@@ -1,4 +1,4 @@
-package shell
+package process
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 func TestProcessGroupCancellationKeepsItsCompletedResult(t *testing.T) {
 	command := exec.CommandContext(t.Context(), "/bin/sh", "-c", "sleep 60")
-	if err := configureProcessGroup(command); err != nil {
+	if err := configureGroup(command); err != nil {
 		t.Fatal(err)
 	}
 	if err := command.Start(); err != nil {
