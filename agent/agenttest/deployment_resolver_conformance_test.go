@@ -72,14 +72,12 @@ func (n nameFallbackResolver) Resolve(reference agent.DeploymentRef) (agent.Depl
 	return deployment, nil
 }
 
-// mismatchResolver answers every reference with one fixed binding.
 type mismatchResolver struct{ deployment agent.Deployment }
 
 func (m mismatchResolver) Resolve(agent.DeploymentRef) (agent.Deployment, error) {
 	return m.deployment, nil
 }
 
-// statefulResolver answers only until a second reference passes through it.
 type statefulResolver struct {
 	bindings map[agent.DeploymentRef]agent.Deployment
 	seen     map[agent.DeploymentRef]struct{}

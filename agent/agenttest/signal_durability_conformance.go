@@ -1,7 +1,6 @@
 package agenttest
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -13,151 +12,142 @@ type signalDeliveryResult struct {
 	err      error
 }
 
+type signalAdmissionScenario struct {
+	name  string
+	phase crashCommitPhase
+	crash bool
+}
+
+// durable reports whether the admission reached storage: either the commit
+// was acknowledged or the host crashed only after the head advanced.
+func (s signalAdmissionScenario) durable() bool {
+	return !s.crash || s.phase == crashCommitAfter
+}
+
+func (s signalAdmissionScenario) release(gate *treeCommitterCommitGate) {
+	if s.crash {
+		gate.abort()
+		return
+	}
+	gate.continueCommit()
+}
+
 func runSignalAdmissionConformance(t *testing.T, factory func() TreeCommitterConformanceDriver) {
 	t.Helper()
-	for _, scenario := range []struct {
-		name  string
-		phase crashCommitPhase
-		crash bool
-	}{
+	for _, scenario := range []signalAdmissionScenario{
 		{name: "acknowledgment follows publication", phase: crashCommitBefore},
 		{name: "failure before commit", phase: crashCommitBefore, crash: true},
 		{name: "response lost after commit", phase: crashCommitAfter, crash: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			driver := factory()
-			gate := newTreeCommitterCommitGate(t, driver, crashCommitPoint{
-				kind: crashCommitCheckpointInput, phase: scenario.phase,
-			})
-			recorder := &ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{
-				TreeCommitter: gate, EventListeners: []agent.EventListener{recorder},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			deployment := conformanceDeployment(t, conformanceModePause)
-			input, err := deployment.Descriptor().EncodeInput(conformanceInput{Value: "signal admission"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			process, err := engine.Start(t.Context(), deployment, input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				gate.abort()
-				closeSignalConformanceProcess(t, engine, process)
-			})
-			before := waitForConformanceHeadStatus(t, driver, process.ID(), agent.StatusPaused)
-			// A reader can see the stored pause before its acknowledgment has
-			// returned to the Engine. Establish both sides before taking usage.
-			waitForConformanceStatus(t, engine, process, agent.StatusPaused)
-			usage := inspectConformanceProcess(t, engine, process).Usage()
-			id, err := agent.ParseSignalID("signal:durable-input")
-			if err != nil {
-				t.Fatal(err)
-			}
-			request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"value":"accepted"}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			delivered := make(chan signalDeliveryResult, 1)
-			go func() {
-				accepted, deliveryErr := process.DeliverSignals(t.Context(), request)
-				delivered <- signalDeliveryResult{accepted: accepted, err: deliveryErr}
-			}()
-			observation := gate.await(t)
-			select {
-			case response := <-delivered:
-				t.Fatalf("delivery acknowledged before committer returned: %+v", response)
-			default:
-			}
-			if inspectConformanceProcess(t, engine, process).Usage() != usage {
-				t.Fatal("unacknowledged input changed published resource usage")
-			}
-			assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
-			wantHead := before.Digest()
-			if scenario.phase == crashCommitAfter {
-				wantHead = observation.prospective.Digest()
-			}
-			assertCrashHead(t, driver, process.ID(), wantHead)
-			if scenario.crash {
-				gate.abort()
-			} else {
-				gate.continueCommit()
-			}
-			ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-			defer cancel()
-			select {
-			case response := <-delivered:
-				if scenario.crash {
-					if response.accepted || !errors.Is(response.err, errSimulatedHostCrash) {
-						t.Fatalf("uncertain delivery = %+v", response)
-					}
-					assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
-					awaitCrashRuntimeError(t, process, errSimulatedHostCrash)
-				} else if !response.accepted || response.err != nil {
-					t.Fatalf("acknowledged delivery = %+v", response)
-				}
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			}
-			if !scenario.crash {
-				wantHead = observation.prospective.Digest()
-			}
-			head := assertCrashHead(t, driver, process.ID(), wantHead)
-			hasInput := !scenario.crash || scenario.phase == crashCommitAfter
-			assertDurableSignal(t, head, id, hasInput)
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: driver})
-			if err != nil {
-				t.Fatal(err)
-			}
-			restored, err := restoredEngine.RestoreTree(t.Context(), deployment, head)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				closeSignalConformanceProcess(t, restoredEngine, restored)
-			})
-			accepted, err := restored.DeliverSignals(t.Context(), request)
-			if err != nil || accepted == hasInput {
-				t.Fatalf("retry after recovery accepted=%t previously committed=%t error=%v", accepted, hasInput, err)
-			}
-			if inspectConformanceProcess(t, restoredEngine, restored).Usage().AcceptedSignals != usage.AcceptedSignals+1 {
-				t.Fatalf("recovered input charged more than once: %+v", inspectConformanceProcess(t, restoredEngine, restored).Usage())
-			}
-			conflict, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"value":"conflict"}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if accepted, err := restored.DeliverSignals(t.Context(), conflict); accepted || !errors.Is(err, agent.ErrSignalConflict) {
-				t.Fatalf("conflicting retry accepted=%t error=%v", accepted, err)
-			}
+			runSignalAdmission(t, factory(), scenario)
 		})
 	}
 }
 
-func closeSignalConformanceProcess(t *testing.T, engine *agent.Engine, process *agent.Process) {
+func runSignalAdmission(t *testing.T, driver TreeCommitterConformanceDriver, scenario signalAdmissionScenario) {
+	gate := newTreeCommitterCommitGate(t, driver, crashCommitPoint{
+		kind: crashCommitCheckpointInput, phase: scenario.phase,
+	})
+	recorder := &ObservationRecorder{}
+	engine, err := agent.NewEngine(agent.EngineConfig{
+		TreeCommitter: gate, EventListeners: []agent.EventListener{recorder},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := conformanceDeployment(t, conformanceModePause)
+	process := startConformanceProcess(t, engine, deployment, "signal admission")
+	t.Cleanup(func() {
+		gate.abort()
+		closeConformanceProcess(t, engine, process)
+	})
+	before := waitForConformanceHeadStatus(t, driver, process.ID(), agent.StatusPaused)
+	// A reader can see the stored pause before its acknowledgment has
+	// returned to the Engine. Establish both sides before taking usage.
+	waitForConformanceStatus(t, engine, process, agent.StatusPaused)
+	usage := inspectConformanceProcess(t, engine, process).Usage()
+	request := durableSignalRequest(t, `{"value":"accepted"}`)
+	delivered := make(chan signalDeliveryResult, 1)
+	go func() {
+		accepted, deliveryErr := process.DeliverSignals(t.Context(), request)
+		delivered <- signalDeliveryResult{accepted: accepted, err: deliveryErr}
+	}()
+	observation := gate.await(t)
+	select {
+	case response := <-delivered:
+		t.Fatalf("delivery acknowledged before committer returned: %+v", response)
+	default:
+	}
+	if inspectConformanceProcess(t, engine, process).Usage() != usage {
+		t.Fatal("unacknowledged input changed published resource usage")
+	}
+	assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
+	wantHead := before.Digest()
+	if scenario.phase == crashCommitAfter {
+		wantHead = observation.prospective.Digest()
+	}
+	assertCrashHead(t, driver, process.ID(), wantHead)
+
+	scenario.release(gate)
+	response := awaitConformanceValue(t, delivered, "signal delivery did not return")
+	if scenario.crash {
+		if response.accepted || !errors.Is(response.err, errSimulatedHostCrash) {
+			t.Fatalf("uncertain delivery = %+v", response)
+		}
+		assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
+		awaitCrashRuntimeError(t, process, errSimulatedHostCrash)
+	} else {
+		if !response.accepted || response.err != nil {
+			t.Fatalf("acknowledged delivery = %+v", response)
+		}
+		wantHead = observation.prospective.Digest()
+	}
+	head := assertCrashHead(t, driver, process.ID(), wantHead)
+	assertDurableSignal(t, head, request, scenario.durable())
+	assertSignalRetryAfterRecovery(t, driver, deployment, head, request, usage, scenario.durable())
+}
+
+func assertSignalRetryAfterRecovery(
+	t *testing.T,
+	driver TreeCommitterConformanceDriver,
+	deployment agent.Deployment,
+	head agent.TreeSnapshot,
+	request agent.SignalRequest,
+	usage agent.Usage,
+	durable bool,
+) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), conformanceStatusTimeout)
-	defer cancel()
-	if err := process.Kill(ctx, "signal conformance cleanup"); err != nil && !errors.Is(err, agent.ErrProcessFinished) &&
-		!errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
-		t.Error(err)
+	engine := newConformanceEngine(t, driver)
+	restored := restoreCrashTree(t, engine, deployment, head)
+	t.Cleanup(func() { closeConformanceProcess(t, engine, restored) })
+	accepted, err := restored.DeliverSignals(t.Context(), request)
+	if err != nil || accepted == durable {
+		t.Fatalf("retry after recovery accepted=%t previously committed=%t error=%v", accepted, durable, err)
 	}
-	if _, err := process.Await(ctx); err != nil && !errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
-		t.Error(err)
+	if recovered := inspectConformanceProcess(t, engine, restored).Usage(); recovered.AcceptedSignals != usage.AcceptedSignals+1 {
+		t.Fatalf("recovered input charged more than once: %+v", recovered)
 	}
-	if err := process.Join(ctx); err != nil && !errors.Is(err, errSimulatedHostCrash) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
-		t.Error(err)
-	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
-		t.Error(err)
+	conflict := durableSignalRequest(t, `{"value":"conflict"}`)
+	if accepted, err := restored.DeliverSignals(t.Context(), conflict); accepted || !errors.Is(err, agent.ErrSignalConflict) {
+		t.Fatalf("conflicting retry accepted=%t error=%v", accepted, err)
 	}
 }
 
-func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, id agent.SignalID, present bool) {
+func durableSignalRequest(t *testing.T, payload string) agent.SignalRequest {
+	t.Helper()
+	id, err := agent.ParseSignalID("signal:durable-input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, request agent.SignalRequest, present bool) {
 	t.Helper()
 	root := conformanceSnapshotByID(snapshot.ProcessSnapshots(), snapshot.RootID())
 	receipts := root.SignalReceipts()
@@ -168,14 +158,11 @@ func assertDurableSignal(t *testing.T, snapshot agent.TreeSnapshot, id agent.Sig
 	if len(receipts) != wantCount {
 		t.Fatalf("durable input count=%d want=%d", len(receipts), wantCount)
 	}
-	if present {
-		request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"value":"accepted"}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		signal, pending := receipts[0].PendingSignal()
-		if !pending || !receipts[0].Matches(request) || string(signal.Payload()) != `{"value":"accepted"}` {
-			t.Fatalf("durable input=%s %s", signal.ID(), signal.Payload())
-		}
+	if !present {
+		return
+	}
+	signal, pending := receipts[0].PendingSignal()
+	if !pending || !receipts[0].Matches(request) || string(signal.Payload()) != string(request.Payload()) {
+		t.Fatalf("durable input=%s %s", signal.ID(), signal.Payload())
 	}
 }

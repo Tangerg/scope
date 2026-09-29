@@ -56,14 +56,14 @@ type RejectedStepConformanceCase struct {
 
 // RunDefinitionConformance verifies descriptor stability, concurrent Start
 // isolation, exact Snapshot/Restore, byte-equivalent Step results, and stable
-// rejection classifications for the supplied representative cases. All
-// configured Signals are validated before invoking the Definition. Restore and
+// rejection classifications for the supplied representative cases.
+//
+// All configured Signals are validated before the Definition runs. Restore and
 // Step inherit the test context; each Step receives a child context canceled
-// when that call returns.
-// RestoredCases and the fresh Signal batches must describe successful Steps;
-// RejectedCases describe domain violations and assert the exact Failure the
-// Definition persists for them. Cancellation paths remain ordinary tests owned
-// by the Definition implementation.
+// when that call returns. RestoredCases and the fresh Signal batches must
+// describe successful Steps; RejectedCases describe domain violations and
+// assert the exact Failure the Definition persists for them. Cancellation paths
+// remain ordinary tests owned by the Definition implementation.
 func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) {
 	t.Helper()
 	if err := validateDefinitionConformanceConfig(config); err != nil {
@@ -106,33 +106,19 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 	if err := validateConformanceSignals(config.InitialSignals, config.FollowingSignals...); err != nil {
 		return fmt.Errorf("agenttest: Definition conformance fresh Signals: %w", err)
 	}
-	names := make(map[string]struct{}, len(config.RestoredCases))
+	restored := conformanceCaseNames{kind: "restored"}
 	for index, sample := range config.RestoredCases {
-		if sample.Name == "" || strings.TrimSpace(sample.Name) != sample.Name {
-			return fmt.Errorf("agenttest: Definition conformance restored case %d has an invalid name", index)
-		}
-		if _, exists := names[sample.Name]; exists {
-			return fmt.Errorf("agenttest: Definition conformance restored case name %q is duplicated", sample.Name)
-		}
-		names[sample.Name] = struct{}{}
-		if !sample.State.Valid() {
-			return fmt.Errorf("agenttest: Definition conformance restored case %q has an invalid state", sample.Name)
+		if err := restored.claim(index, sample.Name, sample.State); err != nil {
+			return err
 		}
 		if err := validateConformanceSignals(sample.Signals, sample.FollowingSignals...); err != nil {
 			return fmt.Errorf("agenttest: Definition conformance restored case %q Signals: %w", sample.Name, err)
 		}
 	}
-	rejectedNames := make(map[string]struct{}, len(config.RejectedCases))
+	rejected := conformanceCaseNames{kind: "rejected"}
 	for index, sample := range config.RejectedCases {
-		if sample.Name == "" || strings.TrimSpace(sample.Name) != sample.Name {
-			return fmt.Errorf("agenttest: Definition conformance rejected case %d has an invalid name", index)
-		}
-		if _, exists := rejectedNames[sample.Name]; exists {
-			return fmt.Errorf("agenttest: Definition conformance rejected case name %q is duplicated", sample.Name)
-		}
-		rejectedNames[sample.Name] = struct{}{}
-		if !sample.State.Valid() {
-			return fmt.Errorf("agenttest: Definition conformance rejected case %q has an invalid state", sample.Name)
+		if err := rejected.claim(index, sample.Name, sample.State); err != nil {
+			return err
 		}
 		if err := validateConformanceSignals(sample.Signals); err != nil {
 			return fmt.Errorf("agenttest: Definition conformance rejected case %q Signals: %w", sample.Name, err)
@@ -140,6 +126,30 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 		if !sample.FailureKind.Valid() || !agent.ValidQualifiedName(sample.FailureCode) {
 			return fmt.Errorf("agenttest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
 		}
+	}
+	return nil
+}
+
+// conformanceCaseNames keeps case names unique per kind because each name
+// becomes a subtest name and must identify one captured state.
+type conformanceCaseNames struct {
+	kind  string
+	names map[string]struct{}
+}
+
+func (c *conformanceCaseNames) claim(index int, name string, state agent.ExecutionState) error {
+	if name == "" || strings.TrimSpace(name) != name {
+		return fmt.Errorf("agenttest: Definition conformance %s case %d has an invalid name", c.kind, index)
+	}
+	if _, exists := c.names[name]; exists {
+		return fmt.Errorf("agenttest: Definition conformance %s case name %q is duplicated", c.kind, name)
+	}
+	if c.names == nil {
+		c.names = make(map[string]struct{})
+	}
+	c.names[name] = struct{}{}
+	if !state.Valid() {
+		return fmt.Errorf("agenttest: Definition conformance %s case %q has an invalid state", c.kind, name)
 	}
 	return nil
 }
@@ -200,37 +210,32 @@ func validateConformanceSignals(signals []agent.Signal, following ...[]agent.Sig
 	return nil
 }
 
-func verifyDescriptorStability(definition agent.Definition) error {
-	type result struct {
-		data []byte
-		err  error
-	}
-	results := make(chan result, 2)
+// callConcurrently runs call twice at once so a Definition that shares
+// unsynchronized state is exposed to the race detector and to divergence.
+func callConcurrently[T any](call func() (T, error)) ([2]T, error) {
+	var values [2]T
+	var errs [2]error
 	var group sync.WaitGroup
-	group.Add(2)
-	for range 2 {
-		go func() {
-			defer group.Done()
-			descriptor, err := callDescriptor(definition)
-			if err != nil {
-				results <- result{err: err}
-				return
-			}
-			data, err := jsonv2.Marshal(descriptor)
-			results <- result{data: data, err: err}
-		}()
+	for index := range values {
+		group.Go(func() { values[index], errs[index] = call() })
 	}
 	group.Wait()
-	close(results)
-	values := make([]result, 0, 2)
-	for value := range results {
-		if value.err != nil {
-			return value.err
+	return values, errors.Join(errs[:]...)
+}
+
+func verifyDescriptorStability(definition agent.Definition) error {
+	encoded, err := callConcurrently(func() ([]byte, error) {
+		descriptor, err := callDescriptor(definition)
+		if err != nil {
+			return nil, err
 		}
-		values = append(values, value)
+		return jsonv2.Marshal(descriptor)
+	})
+	if err != nil {
+		return err
 	}
-	if !bytes.Equal(values[0].data, values[1].data) {
-		return fmt.Errorf("agenttest: concurrent Descriptor results differ:\nfirst:  %s\nsecond: %s", values[0].data, values[1].data)
+	if !bytes.Equal(encoded[0], encoded[1]) {
+		return fmt.Errorf("agenttest: concurrent Descriptor results differ:\nfirst:  %s\nsecond: %s", encoded[0], encoded[1])
 	}
 	return nil
 }
@@ -243,33 +248,16 @@ func verifyFreshExecutions(ctx context.Context, config DefinitionConformanceConf
 	if validationErr := descriptorBefore.ValidateInput(config.Input); validationErr != nil {
 		return fmt.Errorf("agenttest: conformance Input does not satisfy Descriptor: %w", validationErr)
 	}
-	type result struct {
-		execution agent.Execution
-		err       error
-	}
-	results := make(chan result, 2)
-	var group sync.WaitGroup
-	group.Add(2)
-	for range 2 {
-		go func() {
-			defer group.Done()
-			execution, startErr := callStart(config.Definition, config.Input)
-			results <- result{execution: execution, err: startErr}
-		}()
-	}
-	group.Wait()
-	close(results)
-	values := make([]result, 0, 2)
-	for value := range results {
-		if value.err != nil {
-			return value.err
-		}
-		values = append(values, value)
+	executions, err := callConcurrently(func() (agent.Execution, error) {
+		return callStart(config.Definition, config.Input)
+	})
+	if err != nil {
+		return err
 	}
 	if pairErr := verifyExecutionPair(ctx,
 		config.Definition,
-		values[0].execution,
-		values[1].execution,
+		executions[0],
+		executions[1],
 		config.InitialSignals, config.FollowingSignals...,
 	); pairErr != nil {
 		return pairErr
@@ -325,16 +313,9 @@ func verifyExecutionStep(
 	if lo.IsNil(left) || lo.IsNil(right) {
 		return errors.New("agenttest: Definition returned a nil Execution")
 	}
-	leftBefore, err := callSnapshot(left)
+	leftBefore, rightBefore, err := snapshotEquivalentPair("initial Execution state", left, right)
 	if err != nil {
 		return err
-	}
-	rightBefore, err := callSnapshot(right)
-	if err != nil {
-		return err
-	}
-	if comparisonErr := requireEquivalent("initial Execution state", leftBefore, rightBefore); comparisonErr != nil {
-		return comparisonErr
 	}
 	if restoreErr := verifyExactRestore(ctx, definition, leftBefore); restoreErr != nil {
 		return restoreErr
@@ -344,29 +325,9 @@ func verifyExecutionStep(
 	if err != nil {
 		return err
 	}
-	leftTransition, err := callStep(ctx, left, slices.Clone(signals))
+	leftTransition, err := stepIsolatedPair(ctx, left, right, rightBefore, signals)
 	if err != nil {
 		return err
-	}
-	rightStill, err := callSnapshot(right)
-	if err != nil {
-		return err
-	}
-	if comparisonErr := requireEquivalent("sibling Execution state after the first Step", rightBefore, rightStill); comparisonErr != nil {
-		return fmt.Errorf("%w: %w", errConformanceExecutionsShareState, comparisonErr)
-	}
-	rightTransition, err := callStep(ctx, right, slices.Clone(signals))
-	if err != nil {
-		return err
-	}
-	if validationErr := validateTransition(leftTransition, len(signals)); validationErr != nil {
-		return validationErr
-	}
-	if validationErr := validateTransition(rightTransition, len(signals)); validationErr != nil {
-		return validationErr
-	}
-	if comparisonErr := requireEquivalent("Step Transition", leftTransition, rightTransition); comparisonErr != nil {
-		return comparisonErr
 	}
 	restoredTransition, err := callStep(ctx, restored, slices.Clone(signals))
 	if err != nil {
@@ -375,12 +336,8 @@ func verifyExecutionStep(
 	if checkErr := requireEquivalent("original versus restored Step Transition", leftTransition, restoredTransition); checkErr != nil {
 		return checkErr
 	}
-	restoredAfter, err := callSnapshot(restored)
-	if err != nil {
-		return err
-	}
 
-	leftAfter, err := callSnapshot(left)
+	leftAfter, _, err := snapshotEquivalentPair("original versus restored resulting state", left, restored)
 	if err != nil {
 		return err
 	}
@@ -391,10 +348,62 @@ func verifyExecutionStep(
 	if checkErr := requireEquivalent("resulting Execution state", leftAfter, rightAfter); checkErr != nil {
 		return checkErr
 	}
-	if checkErr := requireEquivalent("original versus restored resulting state", leftAfter, restoredAfter); checkErr != nil {
-		return checkErr
-	}
 	return verifyExactRestore(ctx, definition, leftAfter)
+}
+
+// stepIsolatedPair steps left before right so a Step that mutates state shared
+// with its sibling is visible in right's snapshot before right runs.
+func stepIsolatedPair(
+	ctx context.Context,
+	left, right agent.Execution,
+	rightBefore agent.ExecutionState,
+	signals []agent.Signal,
+) (agent.Transition, error) {
+	leftTransition, err := callValidStep(ctx, left, signals)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	rightStill, err := callSnapshot(right)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if comparisonErr := requireEquivalent("sibling Execution state after the first Step", rightBefore, rightStill); comparisonErr != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", errConformanceExecutionsShareState, comparisonErr)
+	}
+	rightTransition, err := callValidStep(ctx, right, signals)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if err := requireEquivalent("Step Transition", leftTransition, rightTransition); err != nil {
+		return agent.Transition{}, err
+	}
+	return leftTransition, nil
+}
+
+func snapshotEquivalentPair(label string, left, right agent.Execution) (agent.ExecutionState, agent.ExecutionState, error) {
+	leftState, err := callSnapshot(left)
+	if err != nil {
+		return agent.ExecutionState{}, agent.ExecutionState{}, err
+	}
+	rightState, err := callSnapshot(right)
+	if err != nil {
+		return agent.ExecutionState{}, agent.ExecutionState{}, err
+	}
+	if err := requireEquivalent(label, leftState, rightState); err != nil {
+		return agent.ExecutionState{}, agent.ExecutionState{}, err
+	}
+	return leftState, rightState, nil
+}
+
+func callValidStep(ctx context.Context, execution agent.Execution, signals []agent.Signal) (agent.Transition, error) {
+	transition, err := callStep(ctx, execution, slices.Clone(signals))
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if err := validateTransition(transition, len(signals)); err != nil {
+		return agent.Transition{}, err
+	}
+	return transition, nil
 }
 
 func verifyExactRestore(ctx context.Context, definition agent.Definition, state agent.ExecutionState) error {

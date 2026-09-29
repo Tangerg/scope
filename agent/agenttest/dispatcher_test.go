@@ -71,43 +71,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			definition := newScriptedEffectDefinition(t, effect)
-			deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-				Definition:           definition,
-				Dispatcher:           dispatcher,
-				ImplementationDigest: agent.ComputeDigest([]byte("agenttest scripted fixture implementation")),
-				ConfigurationDigest:  agent.ComputeDigest([]byte("agenttest scripted fixture configuration")),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			recorder := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-				EventListeners: []agent.EventListener{recorder},
-				DeltaListeners: []agent.DeltaListener{recorder},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			input, err := agent.EncodePayload("start")
-			if err != nil {
-				t.Fatal(err)
-			}
-			result, err := engine.Run(t.Context(), deployment, input)
-			if err != nil || result.Status() != agent.StatusCompleted {
-				t.Fatalf("Run result=%+v error=%v", result, err)
-			}
-
-			awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			if _, awaitErr := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
-				return event.Name() == agent.EventProcessFinished
-			}); awaitErr != nil {
-				t.Fatal(awaitErr)
-			}
-			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-				t.Fatal(closeErr)
-			}
+			recorder := runScriptedEffect(t, dispatcher, effect)
 			if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
 				t.Fatalf("remaining=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
 			}
@@ -135,6 +99,46 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runScriptedEffect(t *testing.T, dispatcher *agenttest.ScriptedDispatcher, effect agent.Effect) *agenttest.ObservationRecorder {
+	t.Helper()
+	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+		Definition:           newScriptedEffectDefinition(t, effect),
+		Dispatcher:           dispatcher,
+		ImplementationDigest: agent.ComputeDigest([]byte("agenttest scripted fixture implementation")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("agenttest scripted fixture configuration")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &agenttest.ObservationRecorder{}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
+		EventListeners: []agent.EventListener{recorder},
+		DeltaListeners: []agent.DeltaListener{recorder},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := agent.EncodePayload("start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Run(t.Context(), deployment, input)
+	if err != nil || result.Status() != agent.StatusCompleted {
+		t.Fatalf("Run result=%+v error=%v", result, err)
+	}
+	awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := recorder.AwaitEvent(awaitCtx, func(event agent.Event) bool {
+		return event.Name() == agent.EventProcessFinished
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	return recorder
 }
 
 type scriptedEffectDefinition struct {

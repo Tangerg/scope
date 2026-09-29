@@ -19,8 +19,7 @@ func runCrashAfterChildCommit(t *testing.T, store TreeCommitterConformanceDriver
 
 func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, phase crashCommitPhase) {
 	t.Helper()
-	committer := store
-	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
+	gate := newTreeCommitterCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitCheckpointChild, phase: phase,
 	})
 	deployment := newCrashTreeDeployment(t)
@@ -37,17 +36,16 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 			t.Fatal("unacknowledged child published an observation")
 		}
 	}
-	wantHead := observation.previousDigest
 	wantProcesses := 1
 	if phase == crashCommitAfter {
-		wantHead = observation.prospective.Digest()
 		wantProcesses = 2
 	}
-	head := assertCrashHead(t, store, original.ID(), wantHead)
+	head := assertCrashHead(t, store, original.ID(), observation.durableDigest())
 	if len(head.ProcessSnapshots()) != wantProcesses {
 		t.Fatalf("child boundary processes=%d want=%d", len(head.ProcessSnapshots()), wantProcesses)
 	}
-	restoredEngine := newCrashEngine(t, committer, nil)
+
+	restoredEngine := newCrashEngine(t, store, nil)
 	root := restoreCrashTree(t, restoredEngine, deployment, head)
 	waitForConformanceStatus(t, restoredEngine, root, agent.StatusWaiting)
 	child, found := restoredEngine.Process(childID)
@@ -55,14 +53,27 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 		t.Fatal("restoration changed the child identity")
 	}
 	waitForConformanceStatus(t, restoredEngine, child, agent.StatusWaiting)
+	assertCrashTreeAllocation(t, store, original, childID)
+	answerCrashTreeChild(t, restoredEngine, child)
+	assertCrashTreeCompleted(t, root, child)
+	gate.abort()
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
+}
+
+func assertCrashTreeAllocation(
+	t *testing.T,
+	store TreeCommitterConformanceDriver,
+	original *agent.Process,
+	childID agent.ProcessID,
+) {
+	t.Helper()
 	head, found, err := store.LoadTree(t.Context(), original.ID())
 	if err != nil || !found || len(head.ProcessSnapshots()) != 2 {
 		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
 	}
-	wantBudget := agent.Budget{
-		Steps: agent.NewQuota(crashTreeChildStepBudget), Effects: agent.NewQuota(crashTreeChildEffectBudget), Signals: agent.NewQuota(crashTreeChildSignalBudget),
-	}
-	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
+	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), original.ID())
 	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
 	var allocation struct {
 		AllocatedResources struct {
@@ -71,15 +82,21 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 			Signals uint64 `json:"signals"`
 		} `json:"allocated_resources"`
 	}
-	if decodeErr := jsonv2.Unmarshal(rootSnapshot.JSON(), &allocation); decodeErr != nil {
-		t.Fatal(decodeErr)
+	if err := jsonv2.Unmarshal(rootSnapshot.JSON(), &allocation); err != nil {
+		t.Fatal(err)
 	}
-	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != wantBudget ||
-		(allocation.AllocatedResources.Steps != crashTreeChildStepBudget || allocation.AllocatedResources.Effects != crashTreeChildEffectBudget || allocation.AllocatedResources.Signals != crashTreeChildSignalBudget) {
+	reserved := allocation.AllocatedResources
+	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != crashTreeChildBudget() ||
+		reserved.Steps != crashTreeChildStepBudget || reserved.Effects != crashTreeChildEffectBudget ||
+		reserved.Signals != crashTreeChildSignalBudget {
 		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
-			rootSnapshot.Budget(), childSnapshot.Budget(), allocation.AllocatedResources)
+			rootSnapshot.Budget(), childSnapshot.Budget(), reserved)
 	}
-	waitID, waiting := inspectConformanceProcess(t, restoredEngine, child).WaitID()
+}
+
+func answerCrashTreeChild(t *testing.T, engine *agent.Engine, child *agent.Process) {
+	t.Helper()
+	waitID, waiting := inspectConformanceProcess(t, engine, child).WaitID()
 	if !waiting {
 		t.Fatal("restored child lost its input wait")
 	}
@@ -98,6 +115,10 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 	if accepted, err := child.DeliverSignals(t.Context(), request); err != nil || !accepted {
 		t.Fatalf("restored child input accepted=%t error=%v", accepted, err)
 	}
+}
+
+func assertCrashTreeCompleted(t *testing.T, root, child *agent.Process) {
+	t.Helper()
 	rootResult := awaitCrashProcess(t, root)
 	childResult := awaitCrashProcess(t, child)
 	for _, result := range []agent.Result{rootResult, childResult} {
@@ -112,15 +133,10 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 	if rootResult.Usage() != wantRootUsage || childResult.Usage() != wantChildUsage {
 		t.Fatalf("recovered consumption root=%+v child=%+v", rootResult.Usage(), childResult.Usage())
 	}
-	gate.abort()
-	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
-	closeCrashEngine(t, restoredEngine)
-	closeCrashEngine(t, engine)
 }
 
 func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitterConformanceDriver) {
-	committer := store
-	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
+	gate := newTreeCommitterCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitCheckpointCancellation, phase: crashCommitAfter,
 	})
 	deployment := newCrashTreeDeployment(t)
@@ -141,11 +157,11 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitte
 		t.Fatal(err)
 	}
 	observation := gate.await(t)
-	head = assertCrashHead(t, store, root.ID(), observation.prospective.Digest())
+	head = assertCrashHead(t, store, root.ID(), observation.durableDigest())
 	if inspectConformanceProcess(t, engine, root).Status() != agent.StatusWaiting || inspectConformanceProcess(t, engine, child).Status() != agent.StatusWaiting {
 		t.Fatal("cancellation was published before checkpoint acknowledgment")
 	}
-	restoredEngine := newCrashEngine(t, committer, nil)
+	restoredEngine := newCrashEngine(t, store, nil)
 	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
 	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
 		t.Fatalf("restored parent status=%s", result.Status())
@@ -173,10 +189,6 @@ const (
 	crashTreeRoleChild   crashTreeRole = "child"
 )
 
-func (c crashTreeRole) valid() bool {
-	return c == crashTreeRoleRoot || c == crashTreeRoleChild
-}
-
 type crashTreePhase string
 
 const (
@@ -189,18 +201,6 @@ const (
 	crashTreePhaseChildWaiting     crashTreePhase = "child_waiting"
 	crashTreePhaseFinished         crashTreePhase = "finished"
 )
-
-func (c crashTreePhase) valid() bool {
-	switch c {
-	case crashTreePhaseReady, crashTreePhaseChildStarting,
-		crashTreePhaseRootWaitOpening, crashTreePhaseRootWaiting,
-		crashTreePhaseChildWaitOpening, crashTreePhaseChildWaiting,
-		crashTreePhaseFinished:
-		return true
-	default:
-		return false
-	}
-}
 
 const (
 	crashTreeDeploymentName        = "agenttest.committer_crash_tree"
@@ -218,6 +218,14 @@ const (
 	crashTreeDirectChildDepth      = 1
 )
 
+func crashTreeChildBudget() agent.Budget {
+	return agent.Budget{
+		Steps:   agent.NewQuota(crashTreeChildStepBudget),
+		Effects: agent.NewQuota(crashTreeChildEffectBudget),
+		Signals: agent.NewQuota(crashTreeChildSignalBudget),
+	}
+}
+
 type crashTreeInput struct {
 	Role crashTreeRole `json:"role"`
 }
@@ -234,26 +242,35 @@ type crashTreeState struct {
 }
 
 func (c crashTreeState) valid() bool {
-	if !c.Role.valid() || !c.Phase.valid() {
+	switch c.Role {
+	case crashTreeRoleRoot:
+		return c.validRoot()
+	case crashTreeRoleChild:
+		return c.validChild()
+	default:
 		return false
 	}
-	if c.Role == crashTreeRoleRoot {
-		switch c.Phase {
-		case crashTreePhaseReady, crashTreePhaseChildStarting:
-			return c.ChildID == "" && c.WaitID == ""
-		case crashTreePhaseRootWaitOpening:
-			_, err := agent.ParseProcessID(c.ChildID)
-			return err == nil && c.WaitID == ""
-		case crashTreePhaseRootWaiting:
-			_, childErr := agent.ParseProcessID(c.ChildID)
-			_, waitErr := agent.ParseWaitID(c.WaitID)
-			return childErr == nil && waitErr == nil
-		case crashTreePhaseFinished:
-			return true
-		default:
-			return false
-		}
+}
+
+func (c crashTreeState) validRoot() bool {
+	switch c.Phase {
+	case crashTreePhaseReady, crashTreePhaseChildStarting:
+		return c.ChildID == "" && c.WaitID == ""
+	case crashTreePhaseRootWaitOpening:
+		_, err := agent.ParseProcessID(c.ChildID)
+		return err == nil && c.WaitID == ""
+	case crashTreePhaseRootWaiting:
+		_, childErr := agent.ParseProcessID(c.ChildID)
+		_, waitErr := agent.ParseWaitID(c.WaitID)
+		return childErr == nil && waitErr == nil
+	case crashTreePhaseFinished:
+		return true
+	default:
+		return false
 	}
+}
+
+func (c crashTreeState) validChild() bool {
 	switch c.Phase {
 	case crashTreePhaseReady, crashTreePhaseChildWaitOpening:
 		return c.ChildID == "" && c.WaitID == ""
@@ -321,7 +338,10 @@ func (c *crashTreeExecution) stepRoot(signals []agent.Signal) (agent.Transition,
 	case crashTreePhaseRootWaitOpening:
 		return c.enterRootChildWait(signals)
 	case crashTreePhaseRootWaiting:
-		return c.completeRoot(signals)
+		return c.complete(signals, "agenttest: child completion is missing", func(signal agent.Signal) error {
+			_, err := agent.ParseChildWaitSatisfied(signal)
+			return err
+		})
 	default:
 		return agent.Transition{}, errors.New("agenttest: root cannot advance from its current phase")
 	}
@@ -339,10 +359,9 @@ func (c *crashTreeExecution) startRootChild(signals []agent.Signal) (agent.Trans
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	budget := agent.Budget{Steps: agent.NewQuota(crashTreeChildStepBudget), Effects: agent.NewQuota(crashTreeChildEffectBudget), Signals: agent.NewQuota(crashTreeChildSignalBudget)}
 	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
 		Key: key, DeploymentRef: c.definition.reference, Input: input,
-		Budget: budget, Capabilities: agent.CapabilitySet{},
+		Budget: crashTreeChildBudget(), Capabilities: agent.CapabilitySet{},
 	})
 	if err != nil {
 		return agent.Transition{}, err
@@ -392,43 +411,10 @@ func (c *crashTreeExecution) enterRootChildWait(signals []agent.Signal) (agent.T
 	return agent.Wait(1, opened.WaitID())
 }
 
-func (c *crashTreeExecution) completeRoot(signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) != 1 {
-		return agent.Transition{}, errors.New("agenttest: child completion is missing")
-	}
-	if _, err := agent.ParseChildWaitSatisfied(signals[0]); err != nil {
-		return agent.Transition{}, err
-	}
-	c.state.Phase = crashTreePhaseFinished
-	output, err := agent.EncodePayload(crashTreeOutput{Completed: true})
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	return agent.Complete(1, output)
-}
-
 func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition, error) {
 	switch c.state.Phase {
 	case crashTreePhaseReady:
-		if len(signals) != 0 {
-			return agent.Transition{}, errors.New("agenttest: child received an unexpected initial Signal")
-		}
-		key, err := agent.ParseWaitKey(crashTreeChildWaitKey)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		payload, err := jsonv2.Marshal(struct {
-			Kind string `json:"kind"`
-		}{Kind: crashTreeWaitPayloadKind})
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewWaitEffect(key, payload)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		c.state.Phase = crashTreePhaseChildWaitOpening
-		return agent.Continue(0, effect)
+		return c.openChildWait(signals)
 	case crashTreePhaseChildWaitOpening:
 		if len(signals) != 1 {
 			return agent.Transition{}, errors.New("agenttest: external wait acknowledgement is missing")
@@ -441,18 +427,53 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 		c.state.Phase = crashTreePhaseChildWaiting
 		return agent.Wait(1, waitID)
 	case crashTreePhaseChildWaiting:
-		if len(signals) != 1 {
-			return agent.Transition{}, errors.New("agenttest: external wait response is missing")
-		}
-		c.state.Phase = crashTreePhaseFinished
-		output, err := agent.EncodePayload(crashTreeOutput{Completed: true})
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return agent.Complete(1, output)
+		return c.complete(signals, "agenttest: external wait response is missing", nil)
 	default:
 		return agent.Transition{}, errors.New("agenttest: child cannot advance from its current phase")
 	}
+}
+
+func (c *crashTreeExecution) openChildWait(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) != 0 {
+		return agent.Transition{}, errors.New("agenttest: child received an unexpected initial Signal")
+	}
+	key, err := agent.ParseWaitKey(crashTreeChildWaitKey)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	payload, err := jsonv2.Marshal(struct {
+		Kind string `json:"kind"`
+	}{Kind: crashTreeWaitPayloadKind})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(key, payload)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	c.state.Phase = crashTreePhaseChildWaitOpening
+	return agent.Continue(0, effect)
+}
+
+func (c *crashTreeExecution) complete(
+	signals []agent.Signal,
+	missing string,
+	validate func(agent.Signal) error,
+) (agent.Transition, error) {
+	if len(signals) != 1 {
+		return agent.Transition{}, errors.New(missing)
+	}
+	if validate != nil {
+		if err := validate(signals[0]); err != nil {
+			return agent.Transition{}, err
+		}
+	}
+	c.state.Phase = crashTreePhaseFinished
+	output, err := agent.EncodePayload(crashTreeOutput{Completed: true})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Complete(1, output)
 }
 
 func (c *crashTreeExecution) Snapshot() (agent.ExecutionState, error) {

@@ -276,8 +276,6 @@ func TestEquivalentStateIgnoresObjectMemberOrder(t *testing.T) {
 	}
 }
 
-// rejectingDefinition returns one configured Step outcome so the rejection
-// check can be exercised against every shape a Definition might produce.
 type rejectingDefinition struct {
 	descriptor agent.Descriptor
 	err        error

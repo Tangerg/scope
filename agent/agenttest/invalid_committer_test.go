@@ -19,11 +19,16 @@ func TestTreeCommitterConformanceRejectsBrokenStores(t *testing.T) {
 	const fixtureEnv = "SCOPE_INVALID_COMMITTER_FIXTURE"
 	if fixture := os.Getenv(fixtureEnv); fixture != "" {
 		agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
+			if fixture == "typed_nil" {
+				return (*invalidCommitter)(nil)
+			}
 			return &invalidCommitter{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), fixture: fixture}
 		})
 		return
 	}
 	for _, test := range []struct{ name, scenario, diagnostic string }{
+		{"typed_nil", "effect_boundaries_and_terminal_head", "TreeCommitter conformance driver returned nil"},
+		{"typed_nil", "crash_boundaries$/^root_start_before_commit", "invalid tree committer crash gate"},
 		{"missing_head", "effect_boundaries_and_terminal_head", "authoritative terminal head exists=false"},
 		{"accepted_conflict", "effect_boundaries_and_terminal_head", "duplicate error=<nil>, want ErrCommitConflict"},
 		{"stale_checkpoint", "repeated_waiting_pause_resume", "historical waiting replay at identical head: <nil>"},
@@ -40,8 +45,8 @@ func TestTreeCommitterConformanceRejectsBrokenStores(t *testing.T) {
 			}
 			command.Env = append(os.Environ(), fixtureEnv+"="+test.name)
 			output, err := command.CombinedOutput()
-			var failure *exec.ExitError
-			if !errors.As(err, &failure) || failure.ExitCode() != 1 || !strings.Contains(string(output), test.diagnostic) {
+			failure, exited := errors.AsType[*exec.ExitError](err)
+			if !exited || failure.ExitCode() != 1 || !strings.Contains(string(output), test.diagnostic) {
 				t.Fatalf("invalid store was not rejected by the expected contract: %v\n%s", err, output)
 			}
 		})

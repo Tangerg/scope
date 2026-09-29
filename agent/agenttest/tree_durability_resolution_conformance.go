@@ -1,7 +1,6 @@
 package agenttest
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -18,17 +17,16 @@ func runCrashAfterResolvedCommit(t *testing.T, store TreeCommitterConformanceDri
 
 func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, phase crashCommitPhase) {
 	t.Helper()
-	committer := store
-	gate := newTreeCommitterCommitGate(t, committer, crashCommitPoint{
+	gate := newTreeCommitterCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitEffectResolved, phase: phase,
 	})
 	step := crashSucceededDispatchStep(t)
 	step.SettlementStatus = agent.SettlementStatusUnknown
 	deployment, dispatcher := newCrashDeployment(t, conformanceModeEffect, agent.ReplayPolicyNever, step)
 	engine := newCrashEngine(t, gate, nil)
-	original := startCrashProcess(t, engine, deployment)
+	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	effectID := waitForConformanceUnknownEffect(t, engine, original)
-	resolution := crashResolution(t, effectID)
+	resolution := conformanceResolution(t, effectID, crashInputValue)
 	resolved := make(chan error, 1)
 	go func() { resolved <- original.ResolveUnknownEffect(t.Context(), resolution) }()
 	observation := gate.await(t)
@@ -37,12 +35,8 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 		t.Fatalf("resolution returned before its durable acknowledgment: %v", err)
 	default:
 	}
-	wantHead := observation.previousDigest
-	if phase == crashCommitAfter {
-		wantHead = observation.prospective.Digest()
-	}
-	head := assertCrashHead(t, store, original.ID(), wantHead)
-	restoredEngine := newCrashEngine(t, committer, nil)
+	head := assertCrashHead(t, store, original.ID(), observation.durableDigest())
+	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if phase == crashCommitBefore {
 		if restoredID := waitForConformanceUnknownEffect(t, restoredEngine, restored); restoredID != effectID {
@@ -52,7 +46,22 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 			t.Fatal(err)
 		}
 	}
-	result := awaitCrashProcess(t, restored)
+	assertResolvedContinuation(t, awaitCrashProcess(t, restored))
+	requests := dispatcher.Requests()
+	if len(requests) != 1 || requests[0].ID() != effectID {
+		t.Fatalf("resolution replayed or replaced the external operation: %v", requests)
+	}
+	gate.abort()
+	if err := awaitConformanceValue(t, resolved, "resolution did not return"); !errors.Is(err, errSimulatedHostCrash) {
+		t.Fatalf("lost resolution acknowledgment error=%v", err)
+	}
+	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
+	closeCrashEngine(t, restoredEngine)
+	closeCrashEngine(t, engine)
+}
+
+func assertResolvedContinuation(t *testing.T, result agent.Result) {
+	t.Helper()
 	output, present := result.Output()
 	decoded, err := output.Decode[conformanceOutput]()
 	if result.Status() != agent.StatusCompleted || !present || err != nil || decoded.Value != crashInputValue {
@@ -62,22 +71,4 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 	if result.Usage() != wantUsage {
 		t.Fatalf("resolved continuation usage=%+v want=%+v", result.Usage(), wantUsage)
 	}
-	requests := dispatcher.Requests()
-	if len(requests) != 1 || requests[0].ID() != effectID {
-		t.Fatalf("resolution replayed or replaced the external operation: %v", requests)
-	}
-	gate.abort()
-	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-	defer cancel()
-	select {
-	case err := <-resolved:
-		if !errors.Is(err, errSimulatedHostCrash) {
-			t.Fatalf("lost resolution acknowledgment error=%v", err)
-		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
-	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
-	closeCrashEngine(t, restoredEngine)
-	closeCrashEngine(t, engine)
 }

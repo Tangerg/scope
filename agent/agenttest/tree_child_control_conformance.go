@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	agent "github.com/Tangerg/scope/agent"
 )
 
 type childControlOperation string
@@ -26,19 +26,21 @@ const (
 // leaves that vocabulary one owner, so a rename cannot make this suite watch
 // for an operation the Engine no longer issues.
 var childControlReferences = sync.OnceValue(func() map[string]childControlOperation {
-	childID, childErr := agent.ParseProcessID("process:child-control-reference")
-	signalID, signalErr := agent.ParseSignalID("signal:child-control-reference")
-	if childErr != nil || signalErr != nil {
-		return nil
+	childID, err := agent.ParseProcessID("process:child-control-reference")
+	if err != nil {
+		panic(fmt.Sprintf("agenttest: child control reference ProcessID: %v", err))
 	}
-	request, requestErr := agent.NewSignalRequest(signalID, agent.WaitID{}, []byte("{}"))
-	if requestErr != nil {
-		return nil
+	request, err := newChildControlSignalRequest()
+	if err != nil {
+		panic(fmt.Sprintf("agenttest: child control reference SignalRequest: %v", err))
 	}
-	signal, signalEffectErr := agent.NewChildSignalEffect(childID, request)
-	cancel, cancelErr := agent.NewChildCancelEffect(childID, childControlCancelReason)
-	if signalEffectErr != nil || cancelErr != nil {
-		return nil
+	signal, err := agent.NewChildSignalEffect(childID, request)
+	if err != nil {
+		panic(fmt.Sprintf("agenttest: child signal reference Effect: %v", err))
+	}
+	cancel, err := agent.NewChildCancelEffect(childID, childControlCancelReason)
+	if err != nil {
+		panic(fmt.Sprintf("agenttest: child cancel reference Effect: %v", err))
 	}
 	return map[string]childControlOperation{
 		frameworkOperationName(signal): childControlSignal,
@@ -77,6 +79,23 @@ type childControlScenario struct {
 	wantKind    agent.FailureKind
 }
 
+func (c childControlScenario) rejected() bool { return c.wantFailure != "" }
+
+func (c childControlScenario) controlCount() int {
+	if c.duplicate {
+		return 2
+	}
+	return 1
+}
+
+func (c childControlScenario) assertFailure(t *testing.T, label string, result agent.ChildControlResult) {
+	t.Helper()
+	failure, failed := result.Failure()
+	if failed != c.rejected() || failed && (failure.Code() != c.wantFailure || failure.Kind() != c.wantKind) {
+		t.Fatalf("%s failure=%s/%s, want %s/%s", label, failure.Kind(), failure.Code(), c.wantKind, c.wantFailure)
+	}
+}
+
 func runChildControlConformance(t *testing.T, factory func() TreeCommitterConformanceDriver) {
 	t.Helper()
 	for _, scenario := range []childControlScenario{
@@ -88,47 +107,47 @@ func runChildControlConformance(t *testing.T, factory func() TreeCommitterConfor
 		{name: "unowned cancel", operation: childControlCancel, unowned: true, wantFailure: "engine.child.control.not_owned", wantKind: agent.FailureKindContract},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			driver := factory()
-			probe := &childControlCommitterProbe{
-				TreeCommitter: newConformanceDurabilityProbe(t, driver), reader: driver,
-				observed: make(chan childControlCommitObservation, 4),
-			}
-			deployment, release := newChildControlDeployment(t, scenario)
-			engine, root, child, before := startChildControlTree(t, probe, driver, deployment, release, scenario)
-			t.Cleanup(func() { closeSignalConformanceProcess(t, engine, root) })
-			count := 1
-			if scenario.duplicate {
-				count++
-			}
-			ids := make(map[agent.EffectID]bool, count)
-			for range count {
-				observation := probe.await(t)
-				if observation.err != nil {
-					t.Fatalf("framework control commit: %v", observation.err)
-				}
-				boundary := observation.boundary
-				if boundary.Kind() != agent.EffectBoundaryKindSettled || ids[boundary.Request().ID()] {
-					t.Fatalf("framework control must first settle directly: kind=%s Effect=%s", boundary.Kind(), boundary.Request().ID())
-				}
-				ids[boundary.Request().ID()] = true
-				if !observation.found || !observation.head.Valid() || observation.head.Digest() != boundary.TreeSnapshot().Digest() {
-					t.Fatalf("framework control acknowledged head digest=%s exists=%t, want %s", observation.head.Digest(), observation.found, boundary.TreeSnapshot().Digest())
-				}
-				assertChildControlCut(t, observation.head, boundary, before, child.ID(), scenario)
-			}
-			waitForConformanceStatus(t, engine, root, agent.StatusPaused)
-			assertChildControlContinuation(t, driver, engine, root, child.ID(), before, scenario)
-			select {
-			case extra := <-probe.observed:
-				t.Fatalf("unexpected framework control boundary: %s", extra.boundary.Kind())
-			default:
-			}
+			runChildControl(t, factory(), scenario)
 		})
 	}
 }
 
-// Reads occur before returning the acknowledgment, while this writer still owns
-// the observed boundary. A later checkpoint must not hide a missing installation.
+func runChildControl(t *testing.T, driver TreeCommitterConformanceDriver, scenario childControlScenario) {
+	probe := &childControlCommitterProbe{
+		TreeCommitter: newConformanceDurabilityProbe(t, driver), reader: driver,
+		observed: make(chan childControlCommitObservation, 4),
+	}
+	deployment, release := newChildControlDeployment(t, scenario)
+	engine, root, child, before := startChildControlTree(t, probe, driver, deployment, release, scenario)
+	t.Cleanup(func() { closeConformanceProcess(t, engine, root) })
+	ids := make(map[agent.EffectID]bool, scenario.controlCount())
+	for range scenario.controlCount() {
+		observation := probe.await(t)
+		if observation.err != nil {
+			t.Fatalf("framework control commit: %v", observation.err)
+		}
+		boundary := observation.boundary
+		if boundary.Kind() != agent.EffectBoundaryKindSettled || ids[boundary.Request().ID()] {
+			t.Fatalf("framework control must first settle directly: kind=%s Effect=%s", boundary.Kind(), boundary.Request().ID())
+		}
+		ids[boundary.Request().ID()] = true
+		if !observation.found || !observation.head.Valid() || observation.head.Digest() != boundary.TreeSnapshot().Digest() {
+			t.Fatalf("framework control acknowledged head digest=%s exists=%t, want %s", observation.head.Digest(), observation.found, boundary.TreeSnapshot().Digest())
+		}
+		assertChildControlCut(t, observation.head, boundary, before, child.ID(), scenario)
+	}
+	waitForConformanceStatus(t, engine, root, agent.StatusPaused)
+	assertChildControlContinuation(t, driver, engine, root, child.ID(), before, scenario)
+	select {
+	case extra := <-probe.observed:
+		t.Fatalf("unexpected framework control boundary: %s", extra.boundary.Kind())
+	default:
+	}
+}
+
+// childControlCommitterProbe reads before returning the acknowledgment, while
+// this writer still owns the observed boundary, so a later checkpoint cannot
+// hide a missing installation.
 type childControlCommitterProbe struct {
 	agent.TreeCommitter
 	reader   treeSnapshotReader
@@ -150,15 +169,7 @@ func (c *childControlCommitterProbe) CommitEffect(ctx context.Context, boundary 
 
 func (c *childControlCommitterProbe) await(t *testing.T) childControlCommitObservation {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-	defer cancel()
-	select {
-	case observation := <-c.observed:
-		return observation
-	case <-ctx.Done():
-		t.Fatal("framework control commit was not reached", ctx.Err())
-		return childControlCommitObservation{}
-	}
+	return awaitConformanceValue(t, c.observed, "framework control commit was not reached")
 }
 
 type childControlCommitObservation struct {
@@ -186,78 +197,92 @@ func runChildControlCrashConformance(t *testing.T, factory func() TreeCommitterC
 			{name: "stored before acknowledgment", phase: crashCommitAfter},
 		} {
 			t.Run(control.name+"/"+crash.name, func(t *testing.T) {
-				driver := factory()
-				gate := newTreeCommitterCommitGate(t, newConformanceDurabilityProbe(t, driver), crashCommitPoint{
-					kind: control.kind, phase: crash.phase,
-				})
-				scenario := childControlScenario{operation: control.operation}
-				deployment, release := newChildControlDeployment(t, scenario)
-				engine, root, child, before := startChildControlTree(t, gate, driver, deployment, release, scenario)
-				t.Cleanup(func() {
-					gate.abort()
-					closeSignalConformanceProcess(t, engine, root)
-				})
-				observation := gate.await(t)
-				if observation.boundary.Kind() != agent.EffectBoundaryKindSettled ||
-					childControlOperationFor(observation.boundary.Request().Effect()) != control.operation {
-					t.Fatal("crash gate missed the exact framework control")
-				}
-				assertChildControlCut(t, observation.prospective, observation.boundary, before, child.ID(), scenario)
-				inspectCtx, cancelInspection := context.WithTimeout(t.Context(), conformanceStatusTimeout)
-				inspection, err := engine.InspectTree(inspectCtx, root.ID())
-				cancelInspection()
-				if err != nil || inspection.HeadDigest != observation.previousDigest {
-					t.Fatalf("framework control head published before acknowledgment: head=%s error=%v", inspection.HeadDigest, err)
-				}
-				published, rootFound := inspection.Process(root.ID())
-				publishedChild, childFound := inspection.Process(child.ID())
-				priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ID())
-				if !rootFound || !childFound || !bytes.Equal(publishedChild.Snapshot.JSON(), priorChild.JSON()) {
-					t.Fatal("framework control recipient published before acknowledgment")
-				}
-				for _, settlement := range published.Snapshot.Settlements() {
-					if settlement.EffectID() == observation.boundary.Request().ID() {
-						t.Fatal("framework control settlement published before acknowledgment")
-					}
-				}
-				state, err := published.Snapshot.CommittedExecutionState().Decode[childControlState](childControlDeploymentName)
-				if err != nil || len(state.Results) != 0 || state.Phase == childControlParked {
-					t.Fatalf("control receipt published before acknowledgment: state=%+v error=%v", state, err)
-				}
-				want := observation.previousDigest
-				if crash.phase == crashCommitAfter {
-					want = observation.prospective.Digest()
-				}
-				head := assertCrashHead(t, driver, root.ID(), want)
-				if crash.phase == crashCommitBefore {
-					storedChild := conformanceSnapshotByID(head.ProcessSnapshots(), child.ID())
-					priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ID())
-					if !bytes.Equal(storedChild.JSON(), priorChild.JSON()) {
-						t.Fatal("uncommitted framework control changed the recipient head")
-					}
-				} else {
-					assertChildControlCut(t, head, observation.boundary, before, child.ID(), scenario)
-				}
-				gate.abort()
-				awaitCrashRuntimeError(t, root, errSimulatedHostCrash)
-				// Reparse the stored bytes and build a fresh Definition and Engine;
-				// recovery cannot borrow the interrupted execution's candidate state.
-				head, err = agent.ParseTreeSnapshot(head.JSON())
-				if err != nil {
-					t.Fatal(err)
-				}
-				restoredDeployment, restoredRelease := newChildControlDeployment(t, scenario)
-				close(restoredRelease)
-				restoredEngine := newCrashEngine(t, driver, nil)
-				restoredRoot := restoreCrashTree(t, restoredEngine, restoredDeployment, head)
-				t.Cleanup(func() { closeSignalConformanceProcess(t, restoredEngine, restoredRoot) })
-				waitForConformanceStatus(t, restoredEngine, restoredRoot, agent.StatusPaused)
-				assertChildControlContinuation(t, driver, restoredEngine, restoredRoot, child.ID(), before, scenario)
-				if err := driver.CommitEffect(t.Context(), observation.boundary); !errors.Is(err, agent.ErrCommitConflict) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
-					t.Fatalf("old control writer was not fenced: %v", err)
-				}
+				runChildControlCrash(t, factory(), control.operation, crashCommitPoint{kind: control.kind, phase: crash.phase})
 			})
 		}
+	}
+}
+
+func runChildControlCrash(
+	t *testing.T,
+	driver TreeCommitterConformanceDriver,
+	operation childControlOperation,
+	point crashCommitPoint,
+) {
+	gate := newTreeCommitterCommitGate(t, newConformanceDurabilityProbe(t, driver), point)
+	scenario := childControlScenario{operation: operation}
+	deployment, release := newChildControlDeployment(t, scenario)
+	engine, root, child, before := startChildControlTree(t, gate, driver, deployment, release, scenario)
+	t.Cleanup(func() {
+		gate.abort()
+		closeConformanceProcess(t, engine, root)
+	})
+	observation := gate.await(t)
+	if observation.boundary.Kind() != agent.EffectBoundaryKindSettled ||
+		childControlOperationFor(observation.boundary.Request().Effect()) != operation {
+		t.Fatal("crash gate missed the exact framework control")
+	}
+	assertChildControlCut(t, observation.prospective, observation.boundary, before, child.ID(), scenario)
+	assertChildControlUnpublished(t, engine, root.ID(), child.ID(), before, observation)
+	head := assertCrashHead(t, driver, root.ID(), observation.durableDigest())
+	if point.phase == crashCommitBefore {
+		storedChild := conformanceSnapshotByID(head.ProcessSnapshots(), child.ID())
+		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ID())
+		if !bytes.Equal(storedChild.JSON(), priorChild.JSON()) {
+			t.Fatal("uncommitted framework control changed the recipient head")
+		}
+	} else {
+		assertChildControlCut(t, head, observation.boundary, before, child.ID(), scenario)
+	}
+	gate.abort()
+	awaitCrashRuntimeError(t, root, errSimulatedHostCrash)
+
+	// Reparse the stored bytes and build a fresh Definition and Engine;
+	// recovery cannot borrow the interrupted execution's candidate state.
+	head, err := agent.ParseTreeSnapshot(head.JSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredDeployment, restoredRelease := newChildControlDeployment(t, scenario)
+	close(restoredRelease)
+	restoredEngine := newCrashEngine(t, driver, nil)
+	restoredRoot := restoreCrashTree(t, restoredEngine, restoredDeployment, head)
+	t.Cleanup(func() { closeConformanceProcess(t, restoredEngine, restoredRoot) })
+	waitForConformanceStatus(t, restoredEngine, restoredRoot, agent.StatusPaused)
+	assertChildControlContinuation(t, driver, restoredEngine, restoredRoot, child.ID(), before, scenario)
+	if err := driver.CommitEffect(t.Context(), observation.boundary); !errors.Is(err, agent.ErrCommitConflict) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		t.Fatalf("old control writer was not fenced: %v", err)
+	}
+}
+
+func assertChildControlUnpublished(
+	t *testing.T,
+	engine *agent.Engine,
+	rootID, childID agent.ProcessID,
+	before agent.TreeSnapshot,
+	observation crashCommitObservation,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), conformanceStatusTimeout)
+	inspection, err := engine.InspectTree(ctx, rootID)
+	cancel()
+	if err != nil || inspection.HeadDigest != observation.previousDigest {
+		t.Fatalf("framework control head published before acknowledgment: head=%s error=%v", inspection.HeadDigest, err)
+	}
+	published, rootFound := inspection.Process(rootID)
+	publishedChild, childFound := inspection.Process(childID)
+	priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), childID)
+	if !rootFound || !childFound || !bytes.Equal(publishedChild.Snapshot.JSON(), priorChild.JSON()) {
+		t.Fatal("framework control recipient published before acknowledgment")
+	}
+	for _, settlement := range published.Snapshot.Settlements() {
+		if settlement.EffectID() == observation.boundary.Request().ID() {
+			t.Fatal("framework control settlement published before acknowledgment")
+		}
+	}
+	state, err := published.Snapshot.CommittedExecutionState().Decode[childControlState](childControlDeploymentName)
+	if err != nil || len(state.Results) != 0 || state.Phase == childControlParked {
+		t.Fatalf("control receipt published before acknowledgment: state=%+v error=%v", state, err)
 	}
 }
 
@@ -268,7 +293,7 @@ func assertChildControlCut(t *testing.T, head agent.TreeSnapshot, boundary agent
 	priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), childID)
 	settlement, settled := boundary.Settlement()
 	wantStatus := agent.SettlementStatusSucceeded
-	if scenario.wantFailure != "" {
+	if scenario.rejected() {
 		wantStatus = agent.SettlementStatusFailed
 	}
 	if !settled || settlement.Status() != wantStatus {
@@ -278,43 +303,49 @@ func assertChildControlCut(t *testing.T, head agent.TreeSnapshot, boundary agent
 	if err := jsonv2.Unmarshal(settlement.Payload(), &result); err != nil || !result.Matches(boundary.Request().Effect()) {
 		t.Fatalf("framework control receipt does not match its request: %v", err)
 	}
-	retained := false
-	for _, recorded := range parent.Settlements() {
-		if recorded.EffectID() == settlement.EffectID() && bytes.Equal(recorded.Payload(), settlement.Payload()) {
-			retained = true
-		}
-	}
-	if !retained {
+	if !retainsSettlement(parent, settlement) {
 		t.Fatal("acknowledged parent is missing the framework control receipt")
 	}
-	failure, failed := result.Failure()
-	if failed != (scenario.wantFailure != "") || failed && (failure.Code() != scenario.wantFailure || failure.Kind() != scenario.wantKind) {
-		t.Fatalf("framework control failure=%s/%s, want %s/%s", failure.Kind(), failure.Code(), scenario.wantKind, scenario.wantFailure)
-	}
-	if failed {
+	scenario.assertFailure(t, "framework control", result)
+	switch {
+	case scenario.rejected():
 		if !bytes.Equal(child.JSON(), priorChild.JSON()) {
 			t.Fatal("rejected framework control partially changed its recipient")
 		}
-	} else if scenario.operation == childControlSignal {
+	case scenario.operation == childControlSignal:
 		assertChildControlSignal(t, child, childControlSignalRequest(t), priorChild.Usage().AcceptedSignals+1)
-	} else {
-		var intent struct {
-			PendingControl struct {
-				Owner  string `json:"cancellation_owner"`
-				Reason string `json:"cancellation_reason"`
-			} `json:"pending_control"`
-		}
-		if err := jsonv2.Unmarshal(child.JSON(), &intent); err != nil {
-			t.Fatal(err)
-		}
-		if child.Status().Terminal() || intent.PendingControl.Owner != "parent" || intent.PendingControl.Reason != childControlCancelReason {
-			t.Fatalf("cancellation receipt must retain intent before termination: status=%s intent=%+v", child.Status(), intent.PendingControl)
-		}
-		if child.Usage() != priorChild.Usage() {
-			t.Fatal("cancellation receipt changed child consumption")
-		}
+	default:
+		assertChildControlCancelIntent(t, child, priorChild)
 	}
 	assertChildControlAllocation(t, parent, child, before)
+}
+
+func retainsSettlement(process agent.ProcessSnapshot, settlement agent.Settlement) bool {
+	for _, recorded := range process.Settlements() {
+		if recorded.EffectID() == settlement.EffectID() && bytes.Equal(recorded.Payload(), settlement.Payload()) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertChildControlCancelIntent(t *testing.T, child, priorChild agent.ProcessSnapshot) {
+	t.Helper()
+	var intent struct {
+		PendingControl struct {
+			Owner  string `json:"cancellation_owner"`
+			Reason string `json:"cancellation_reason"`
+		} `json:"pending_control"`
+	}
+	if err := jsonv2.Unmarshal(child.JSON(), &intent); err != nil {
+		t.Fatal(err)
+	}
+	if child.Status().Terminal() || intent.PendingControl.Owner != "parent" || intent.PendingControl.Reason != childControlCancelReason {
+		t.Fatalf("cancellation receipt must retain intent before termination: status=%s intent=%+v", child.Status(), intent.PendingControl)
+	}
+	if child.Usage() != priorChild.Usage() {
+		t.Fatal("cancellation receipt changed child consumption")
+	}
 }
 
 func assertChildControlAllocation(t *testing.T, parent, child agent.ProcessSnapshot, before agent.TreeSnapshot) {
@@ -345,12 +376,13 @@ func assertChildControlSignal(t *testing.T, child agent.ProcessSnapshot, request
 	t.Helper()
 	var matches int
 	for _, receipt := range child.SignalReceipts() {
-		if receipt.Matches(request) {
-			matches++
-			signal, pending := receipt.PendingSignal()
-			if receipt.Consumed() || !pending || !bytes.Equal(signal.Payload(), request.Payload()) {
-				t.Fatal("paused child did not retain the exact pending control signal")
-			}
+		if !receipt.Matches(request) {
+			continue
+		}
+		matches++
+		signal, pending := receipt.PendingSignal()
+		if receipt.Consumed() || !pending || !bytes.Equal(signal.Payload(), request.Payload()) {
+			t.Fatal("paused child did not retain the exact pending control signal")
 		}
 	}
 	if matches != 1 || child.Usage().AcceptedSignals != wantUsage || child.Status() != agent.StatusPaused {
@@ -360,12 +392,9 @@ func assertChildControlSignal(t *testing.T, child agent.ProcessSnapshot, request
 
 func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanceDriver, engine *agent.Engine, root *agent.Process, childID agent.ProcessID, before agent.TreeSnapshot, scenario childControlScenario) {
 	t.Helper()
-	if scenario.operation == childControlCancel && scenario.wantFailure == "" {
-		child, found := engine.Process(childID)
-		if !found {
-			t.Fatal("control recovery lost the child")
-		}
-		result := awaitCrashProcess(t, child)
+	delivered := !scenario.rejected()
+	if delivered && scenario.operation == childControlCancel {
+		result := awaitCrashProcess(t, childControlProcess(t, engine, childID, "control recovery lost the child"))
 		if result.Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseParentCancellation {
 			t.Fatalf("control recovery lost parent cancellation: status=%s termination=%+v", result.Status(), result.Termination())
 		}
@@ -377,54 +406,65 @@ func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanc
 	if err != nil || state.Phase != childControlParked {
 		t.Fatalf("parent did not adopt the control receipt: %v", err)
 	}
-	want := 1
-	if scenario.duplicate {
-		want++
-	}
-	if len(state.Results) != want {
-		t.Fatalf("parent adopted %d receipts, want %d", len(state.Results), want)
+	if len(state.Results) != scenario.controlCount() {
+		t.Fatalf("parent adopted %d receipts, want %d", len(state.Results), scenario.controlCount())
 	}
 	for _, result := range state.Results {
-		failure, failed := result.Failure()
-		if failed != (scenario.wantFailure != "") || failed && (failure.Code() != scenario.wantFailure || failure.Kind() != scenario.wantKind) {
-			t.Fatalf("recovered control failure=%s/%s, want %s/%s", failure.Kind(), failure.Code(), scenario.wantKind, scenario.wantFailure)
-		}
-	}
-	if scenario.operation == childControlSignal && scenario.wantFailure == "" {
-		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), childID)
-		assertChildControlSignal(t, child, childControlSignalRequest(t), priorChild.Usage().AcceptedSignals+1)
+		scenario.assertFailure(t, "recovered control", result)
 	}
 	assertChildControlAllocation(t, parent, child, before)
-	if scenario.operation == childControlSignal && scenario.wantFailure == "" {
-		process, found := engine.Process(childID)
-		if !found {
-			t.Fatal("controlled child disappeared before consumption")
-		}
-		if err := process.Resume(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-		if result := awaitCrashProcess(t, process); result.Status() != agent.StatusCompleted {
-			t.Fatalf("control signal consumption status=%s", result.Status())
-		}
-		head = waitForConformanceHeadStatus(t, driver, root.ID(), agent.StatusPaused)
-		consumed := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
-		if consumed.Usage().AcceptedSignals != child.Usage().AcceptedSignals || consumed.Usage().CommittedSteps != child.Usage().CommittedSteps+1 {
-			t.Fatal("control recovery repeated signal admission or consumption")
-		}
-		receipts := consumed.SignalReceipts()
-		if len(receipts) != 1 || !receipts[0].Matches(childControlSignalRequest(t)) || !receipts[0].Consumed() {
-			t.Fatal("control consumption did not retain exactly one durable receipt")
-		}
-		if _, pending := receipts[0].PendingSignal(); pending {
-			t.Fatal("control consumption retained an unconsumed payload")
-		}
+	if delivered && scenario.operation == childControlSignal {
+		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), childID)
+		assertChildControlSignal(t, child, childControlSignalRequest(t), priorChild.Usage().AcceptedSignals+1)
+		assertChildControlSignalConsumed(t, driver, engine, root.ID(), child)
 	}
+}
+
+func assertChildControlSignalConsumed(
+	t *testing.T,
+	driver TreeCommitterConformanceDriver,
+	engine *agent.Engine,
+	rootID agent.ProcessID,
+	admitted agent.ProcessSnapshot,
+) {
+	t.Helper()
+	process := childControlProcess(t, engine, admitted.ProcessID(), "controlled child disappeared before consumption")
+	if err := process.Resume(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if result := awaitCrashProcess(t, process); result.Status() != agent.StatusCompleted {
+		t.Fatalf("control signal consumption status=%s", result.Status())
+	}
+	head := waitForConformanceHeadStatus(t, driver, rootID, agent.StatusPaused)
+	consumed := conformanceSnapshotByID(head.ProcessSnapshots(), admitted.ProcessID())
+	if consumed.Usage().AcceptedSignals != admitted.Usage().AcceptedSignals || consumed.Usage().CommittedSteps != admitted.Usage().CommittedSteps+1 {
+		t.Fatal("control recovery repeated signal admission or consumption")
+	}
+	receipts := consumed.SignalReceipts()
+	if len(receipts) != 1 || !receipts[0].Matches(childControlSignalRequest(t)) || !receipts[0].Consumed() {
+		t.Fatal("control consumption did not retain exactly one durable receipt")
+	}
+	if _, pending := receipts[0].PendingSignal(); pending {
+		t.Fatal("control consumption retained an unconsumed payload")
+	}
+}
+
+func childControlProcess(t *testing.T, engine *agent.Engine, childID agent.ProcessID, missing string) *agent.Process {
+	t.Helper()
+	process, found := engine.Process(childID)
+	if !found {
+		t.Fatal(missing)
+	}
+	return process
 }
 
 const (
 	childControlDeploymentName = "agenttest.child_control"
 	childControlCancelReason   = "parent no longer needs child work"
 	childControlChildBudget    = 10
+	childControlMailboxSize    = 2
+	childControlSignalID       = "signal:framework-control"
+	childControlSignalPayload  = `{"instruction":"retain exactly once"}`
 )
 
 type childControlPhase string
@@ -480,82 +520,100 @@ type childControlExecution struct {
 
 func (c *childControlExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if c.state.Child {
-		if c.state.Phase == childControlParked {
-			if len(signals) != 1 {
-				return agent.Transition{}, errors.New("agenttest: child did not consume exactly one control signal")
-			}
-			output, err := agent.EncodePayload(true)
-			if err != nil {
-				return agent.Transition{}, err
-			}
-			return agent.Complete(1, output)
-		}
-		c.state.Phase = childControlParked
-		return agent.Pause(0, "hold control input for independent inspection")
+		return c.stepChild(signals)
 	}
 	switch c.state.Phase {
 	case childControlReady:
-		input, err := c.definition.descriptor.EncodeInput(true)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		key, err := agent.ParseChildKey("controlled")
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewChildStartEffect(agent.ChildSpec{
-			Key: key, DeploymentRef: c.definition.reference, Input: input,
-			Budget: agent.Budget{Steps: agent.NewQuota(childControlChildBudget), Effects: agent.NewQuota(childControlChildBudget), Signals: agent.NewQuota(childControlChildBudget)},
-		})
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		c.state.Phase = childControlStarting
-		return agent.Continue(0, effect)
+		return c.startChild()
 	case childControlStarting:
-		if len(signals) != 1 {
-			return agent.Transition{}, errors.New("agenttest: missing controlled child start")
-		}
-		started, err := agent.ParseChildStartResult(signals[0])
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		childID, found := started.ProcessID()
-		if !found {
-			return agent.Transition{}, errors.New("agenttest: controlled child did not start")
-		}
-		select {
-		case <-c.definition.release:
-		case <-ctx.Done():
-			return agent.Transition{}, ctx.Err()
-		}
-		c.state.ChildID = childID
-		effect, err := c.controlEffect()
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		c.state.Phase = childControlIssued
-		if c.definition.scenario.duplicate {
-			return agent.Continue(1, effect, effect)
-		}
-		return agent.Continue(1, effect)
+		return c.issueControl(ctx, signals)
 	case childControlIssued:
-		effect, err := c.controlEffect()
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		for _, signal := range signals {
-			result, err := agent.ParseChildControlResult(signal)
-			if err != nil || !result.Matches(effect) {
-				return agent.Transition{}, errors.New("agenttest: control receipt did not match its request")
-			}
-			c.state.Results = append(c.state.Results, result)
-		}
-		c.state.Phase = childControlParked
-		return agent.Pause(uint32(len(signals)), "control receipt adopted")
+		return c.adoptReceipts(signals)
 	default:
 		return agent.Transition{}, errors.New("agenttest: controlled parent unexpectedly resumed")
 	}
+}
+
+func (c *childControlExecution) stepChild(signals []agent.Signal) (agent.Transition, error) {
+	if c.state.Phase != childControlParked {
+		c.state.Phase = childControlParked
+		return agent.Pause(0, "hold control input for independent inspection")
+	}
+	if len(signals) != 1 {
+		return agent.Transition{}, errors.New("agenttest: child did not consume exactly one control signal")
+	}
+	output, err := agent.EncodePayload(true)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return agent.Complete(1, output)
+}
+
+func (c *childControlExecution) startChild() (agent.Transition, error) {
+	input, err := c.definition.descriptor.EncodeInput(true)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	key, err := agent.ParseChildKey("controlled")
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
+		Key: key, DeploymentRef: c.definition.reference, Input: input,
+		Budget: agent.Budget{Steps: agent.NewQuota(childControlChildBudget), Effects: agent.NewQuota(childControlChildBudget), Signals: agent.NewQuota(childControlChildBudget)},
+	})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	c.state.Phase = childControlStarting
+	return agent.Continue(0, effect)
+}
+
+// issueControl waits for the harness release so the suite can capture the
+// pre-control head before the Engine commits the control boundary.
+func (c *childControlExecution) issueControl(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) != 1 {
+		return agent.Transition{}, errors.New("agenttest: missing controlled child start")
+	}
+	started, err := agent.ParseChildStartResult(signals[0])
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	childID, found := started.ProcessID()
+	if !found {
+		return agent.Transition{}, errors.New("agenttest: controlled child did not start")
+	}
+	select {
+	case <-c.definition.release:
+	case <-ctx.Done():
+		return agent.Transition{}, ctx.Err()
+	}
+	c.state.ChildID = childID
+	effect, err := c.controlEffect()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	c.state.Phase = childControlIssued
+	if c.definition.scenario.duplicate {
+		return agent.Continue(1, effect, effect)
+	}
+	return agent.Continue(1, effect)
+}
+
+func (c *childControlExecution) adoptReceipts(signals []agent.Signal) (agent.Transition, error) {
+	effect, err := c.controlEffect()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	for _, signal := range signals {
+		result, err := agent.ParseChildControlResult(signal)
+		if err != nil || !result.Matches(effect) {
+			return agent.Transition{}, errors.New("agenttest: control receipt did not match its request")
+		}
+		c.state.Results = append(c.state.Results, result)
+	}
+	c.state.Phase = childControlParked
+	return agent.Pause(uint32(len(signals)), "control receipt adopted")
 }
 
 func (c *childControlExecution) controlEffect() (agent.Effect, error) {
@@ -570,11 +628,7 @@ func (c *childControlExecution) controlEffect() (agent.Effect, error) {
 	if c.definition.scenario.operation == childControlCancel {
 		return agent.NewChildCancelEffect(childID, childControlCancelReason)
 	}
-	id, err := agent.ParseSignalID("signal:framework-control")
-	if err != nil {
-		return agent.Effect{}, err
-	}
-	request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"instruction":"retain exactly once"}`))
+	request, err := newChildControlSignalRequest()
 	if err != nil {
 		return agent.Effect{}, err
 	}
@@ -623,7 +677,7 @@ func startChildControlTree(t *testing.T, committer agent.TreeCommitter, reader T
 	t.Helper()
 	engine, err := agent.NewEngine(agent.EngineConfig{
 		TreeCommitter: committer,
-		Limits:        agent.Limits{MaxPendingSignals: 2, Budget: agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(100)}},
+		Limits:        agent.Limits{MaxPendingSignals: childControlMailboxSize, Budget: agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(100)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -639,19 +693,7 @@ func startChildControlTree(t *testing.T, committer agent.TreeCommitter, reader T
 	child := waitForChildControlChild(t, engine, root)
 	waitForConformanceStatus(t, engine, child, agent.StatusPaused)
 	if scenario.fullMailbox {
-		for index := range 2 {
-			id, parseErr := agent.ParseSignalID(fmt.Sprintf("signal:occupied:%d", index))
-			if parseErr != nil {
-				t.Fatal(parseErr)
-			}
-			request, requestErr := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`"occupied"`))
-			if requestErr != nil {
-				t.Fatal(requestErr)
-			}
-			if accepted, deliveryErr := child.DeliverSignals(t.Context(), request); deliveryErr != nil || !accepted {
-				t.Fatalf("mailbox fixture admission=%t error=%v", accepted, deliveryErr)
-			}
-		}
+		fillChildControlMailbox(t, child)
 	}
 	before, found, err := reader.LoadTree(t.Context(), root.ID())
 	if err != nil || !found || !before.Valid() {
@@ -659,6 +701,23 @@ func startChildControlTree(t *testing.T, committer agent.TreeCommitter, reader T
 	}
 	close(release)
 	return engine, root, child, before
+}
+
+func fillChildControlMailbox(t *testing.T, child *agent.Process) {
+	t.Helper()
+	for index := range childControlMailboxSize {
+		id, err := agent.ParseSignalID(fmt.Sprintf("signal:occupied:%d", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`"occupied"`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if accepted, err := child.DeliverSignals(t.Context(), request); err != nil || !accepted {
+			t.Fatalf("mailbox fixture admission=%t error=%v", accepted, err)
+		}
+	}
 }
 
 func waitForChildControlChild(t *testing.T, engine *agent.Engine, root *agent.Process) *agent.Process {
@@ -673,11 +732,11 @@ func waitForChildControlChild(t *testing.T, engine *agent.Engine, root *agent.Pr
 			t.Fatal(err)
 		}
 		for _, process := range inspection.Processes {
-			if process.Snapshot.ProcessID() != root.ID() {
-				child, found := engine.Process(process.Snapshot.ProcessID())
-				if found {
-					return child
-				}
+			if process.Snapshot.ProcessID() == root.ID() {
+				continue
+			}
+			if child, found := engine.Process(process.Snapshot.ProcessID()); found {
+				return child
 			}
 		}
 		select {
@@ -689,13 +748,17 @@ func waitForChildControlChild(t *testing.T, engine *agent.Engine, root *agent.Pr
 	}
 }
 
+func newChildControlSignalRequest() (agent.SignalRequest, error) {
+	id, err := agent.ParseSignalID(childControlSignalID)
+	if err != nil {
+		return agent.SignalRequest{}, err
+	}
+	return agent.NewSignalRequest(id, agent.WaitID{}, []byte(childControlSignalPayload))
+}
+
 func childControlSignalRequest(t *testing.T) agent.SignalRequest {
 	t.Helper()
-	id, err := agent.ParseSignalID("signal:framework-control")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"instruction":"retain exactly once"}`))
+	request, err := newChildControlSignalRequest()
 	if err != nil {
 		t.Fatal(err)
 	}
