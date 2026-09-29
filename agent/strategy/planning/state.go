@@ -116,22 +116,12 @@ func (e executionState) validateProgress(definition *Definition) error {
 		}
 		return nil
 	}
-	attempts := uint64(len(e.Attempts))
-	passes := e.PlanningPasses
-	switch e.Phase {
-	case phaseReadySense:
-		if attempts != 0 || passes != 0 {
-			return fmt.Errorf("%w: ready_sense requires zero attempts and planning passes", ErrInvalidExecutionState)
-		}
-	case phaseAwaitingSense:
-		if e.awaitingConfirmation() && passes != attempts+1 ||
-			!e.awaitingConfirmation() && passes != attempts {
-			return fmt.Errorf("%w: sensing phase counters are inconsistent", ErrInvalidExecutionState)
-		}
-	case phaseAwaitingAction, phaseChild:
-		if passes != attempts+1 {
-			return fmt.Errorf("%w: active Action counters are inconsistent", ErrInvalidExecutionState)
-		}
+	if e.Phase == phaseReadySense && len(e.Attempts) != 0 {
+		return fmt.Errorf("%w: ready_sense requires zero attempts and planning passes", ErrInvalidExecutionState)
+	}
+	// Before completion, every planning pass selected exactly one Action attempt.
+	if e.PlanningPasses != e.attemptCount() {
+		return fmt.Errorf("%w: planning passes disagree with Action attempts", ErrInvalidExecutionState)
 	}
 	return nil
 }

@@ -37,26 +37,36 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if !definition.valid() || lo.IsNil(config.Sensor) {
 		return nil, ErrInvalidDispatcherConfig
 	}
+	executors, err := bindExecutors(definition.bindings, config.ActionExecutors)
+	if err != nil {
+		return nil, err
+	}
+	return &Dispatcher{
+		descriptor: definition.descriptor, sensor: config.Sensor, executors: executors,
+	}, nil
+}
+
+func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor) (map[string]boundExecutor, error) {
 	executors := make(map[string]boundExecutor)
-	for _, binding := range definition.bindings {
-		executor, supplied := config.ActionExecutors[binding.action.name]
+	for _, binding := range bindings {
+		executor, found := supplied[binding.action.name]
 		switch binding.target {
 		case bindingTargetDispatcher:
-			if !supplied || lo.IsNil(executor) {
+			if !found || lo.IsNil(executor) {
 				return nil, fmt.Errorf("%w: missing executor for Action %q", ErrInvalidDispatcherConfig, binding.action.name)
 			}
 			executors[binding.action.name] = boundExecutor{
 				action: binding.action, required: binding.required, executor: executor,
 			}
 		case bindingTargetChild:
-			if supplied {
+			if found {
 				return nil, fmt.Errorf("%w: child Action %q cannot have an executor", ErrInvalidDispatcherConfig, binding.action.name)
 			}
 		default:
 			return nil, ErrInvalidDispatcherConfig
 		}
 	}
-	for name, executor := range config.ActionExecutors {
+	for name, executor := range supplied {
 		if !agent.ValidQualifiedName(name) || lo.IsNil(executor) {
 			return nil, fmt.Errorf("%w: invalid executor %q", ErrInvalidDispatcherConfig, name)
 		}
@@ -64,9 +74,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 			return nil, fmt.Errorf("%w: extra executor for Action %q", ErrInvalidDispatcherConfig, name)
 		}
 	}
-	return &Dispatcher{
-		descriptor: definition.descriptor, sensor: config.Sensor, executors: executors,
-	}, nil
+	return executors, nil
 }
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors

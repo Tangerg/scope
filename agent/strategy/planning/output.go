@@ -126,7 +126,7 @@ func (o Output) Validate() error {
 func validateAttempts(attempts []Attempt) error {
 	for index, attempt := range attempts {
 		if err := attempt.Validate(); err != nil {
-			return fmt.Errorf("%w: attempt %d: %w", ErrInvalidResult, index, err)
+			return fmt.Errorf("attempt %d: %w", index, err)
 		}
 	}
 	return nil

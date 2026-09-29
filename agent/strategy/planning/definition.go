@@ -172,7 +172,7 @@ func (d *Definition) validateActionHistory(ctx context.Context, attempts []Attem
 			return err
 		}
 		if err := attempt.Validate(); err != nil {
-			return fmt.Errorf("%w: attempt %d: %w", ErrInvalidResult, index, err)
+			return fmt.Errorf("attempt %d: %w", index, err)
 		}
 		if _, found := d.binding(attempt.ActionName); !found {
 			return fmt.Errorf("attempt references unknown Action %q", attempt.ActionName)

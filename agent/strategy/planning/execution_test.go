@@ -385,6 +385,34 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 	}
 }
 
+func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
+	done := mustCondition(t, "world.done", planning.True)
+	world := newManagedWorld(t)
+	unresolved := newManagedDeployment(t, managedDeploymentConfig{name: "planning.unresolved", goal: mustGoal(t, done)})
+	delegate := mustAction(t, planning.ActionConfig{
+		Name: "action.delegate", Description: "Delegate completion to an unresolvable child Deployment.",
+		Effects: []planning.Condition{done},
+	})
+	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
+	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
+		Action: delegate, DeploymentRef: unresolved.DeploymentRef(), Budget: budget,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := newManagedDeployment(t, managedDeploymentConfig{
+		name: "planning.parent", goal: mustGoal(t, done),
+		bindings: []planning.ActionBinding{childBinding}, sensor: world,
+	})
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: managedResolver{}}, parent)
+	output := managedOutput(t, result)
+	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses != 2 || len(output.Attempts) != 1 ||
+		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptFailed ||
+		output.Attempts[0].Diagnostic != "engine.child.deployment_unavailable: deployment not found" || world.truth("world.done") != planning.Unknown {
+		t.Fatalf("output = %#v", output)
+	}
+}
+
 func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T) {
 	done := mustCondition(t, "world.done", planning.True)
 	action := mustAction(t, planning.ActionConfig{

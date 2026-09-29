@@ -55,24 +55,14 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	}
 	search := newSearch(problem, p.maxExpansions, p.maxGeneratedNodes)
 	producers, err := search.hasGoalProducers(ctx)
-	if err != nil {
+	if err != nil || !producers {
 		return planning.Plan{}, false, err
-	}
-	if !producers {
-		return planning.Plan{}, false, nil
 	}
 	goal, found, err := search.run(ctx)
-	if err != nil {
+	if err != nil || !found {
 		return planning.Plan{}, false, err
 	}
-	if !found {
-		return planning.Plan{}, false, nil
-	}
-	actions, err := search.reconstruct(ctx, goal.state.Key())
-	if err != nil {
-		return planning.Plan{}, false, err
-	}
-	plan, err := planning.NewPlan(actions, goal.cost)
+	plan, err := search.plan(ctx, goal)
 	if err != nil {
 		return planning.Plan{}, false, err
 	}

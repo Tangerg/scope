@@ -130,28 +130,42 @@ func (s *search) expand(ctx context.Context, current *searchNode, currentKey str
 		if cancelErr := ctx.Err(); cancelErr != nil {
 			return cancelErr
 		}
-		cost := current.cost + edgeCost
-		if math.IsInf(cost, 0) {
-			return fmt.Errorf("%w: Action %q overflows cumulative cost", planning.ErrInvalidActionCost, action.Name())
-		}
-		if best, known := s.bestCosts[nextKey]; known && cost >= best {
-			continue
-		}
-		if !s.maxGeneratedNodes.Allows(s.nextOrder, 1) {
-			return ErrGenerationLimitReached
-		}
-		if s.nextOrder == ^uint64(0) {
-			return agent.ErrCounterExhausted
-		}
-		planned, err := planning.NewPlannedAction(action.Name())
-		if err != nil {
+		if err := s.relax(action, currentKey, nextState, nextKey, current.cost+edgeCost); err != nil {
 			return err
 		}
-		s.bestCosts[nextKey] = cost
-		s.predecessors[nextKey] = predecessor{stateKey: currentKey, action: planned}
-		s.push(nextState, cost)
 	}
 	return nil
+}
+
+func (s *search) relax(action planning.Action, fromKey string, state planning.WorldState, key string, cost float64) error {
+	if math.IsInf(cost, 0) {
+		return fmt.Errorf("%w: Action %q overflows cumulative cost", planning.ErrInvalidActionCost, action.Name())
+	}
+	if best, known := s.bestCosts[key]; known && cost >= best {
+		return nil
+	}
+	if !s.maxGeneratedNodes.Allows(s.nextOrder, 1) {
+		return ErrGenerationLimitReached
+	}
+	if s.nextOrder == ^uint64(0) {
+		return agent.ErrCounterExhausted
+	}
+	planned, err := planning.NewPlannedAction(action.Name())
+	if err != nil {
+		return err
+	}
+	s.bestCosts[key] = cost
+	s.predecessors[key] = predecessor{stateKey: fromKey, action: planned}
+	s.push(state, cost)
+	return nil
+}
+
+func (s *search) plan(ctx context.Context, goal searchNode) (planning.Plan, error) {
+	actions, err := s.reconstruct(ctx, goal.state.Key())
+	if err != nil {
+		return planning.Plan{}, err
+	}
+	return planning.NewPlan(actions, goal.cost)
 }
 
 func (s *search) reconstruct(ctx context.Context, goalKey string) ([]planning.PlannedAction, error) {
@@ -180,27 +194,24 @@ func (s *search) hasGoalProducers(ctx context.Context) (bool, error) {
 		if initial.Truth(required.Key()) == required.Truth() {
 			continue
 		}
-		produced := false
-		for _, action := range s.actions {
-			if err := ctx.Err(); err != nil {
-				return false, err
-			}
-			for _, effect := range action.Effects() {
-				if err := ctx.Err(); err != nil {
-					return false, err
-				}
-				if effect.Key() == required.Key() && effect.Truth() == required.Truth() {
-					produced = true
-					break
-				}
-			}
-			if produced {
-				break
-			}
-		}
-		if !produced {
-			return false, nil
+		produced, err := s.produces(ctx, required)
+		if err != nil || !produced {
+			return false, err
 		}
 	}
 	return true, ctx.Err()
+}
+
+func (s *search) produces(ctx context.Context, required planning.Condition) (bool, error) {
+	for _, action := range s.actions {
+		for _, effect := range action.Effects() {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			if effect == required {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

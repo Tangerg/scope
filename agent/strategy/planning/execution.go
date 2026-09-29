@@ -71,29 +71,16 @@ func (e *execution) requestSense(consumedSignals uint32) (agent.Transition, erro
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) acceptSense(
-	ctx context.Context,
-	signals []agent.Signal,
-) (agent.Transition, error) {
-	signal, err := oneSignal(signals)
+func (e *execution) acceptSense(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+	envelope, err := decodeSettlement(signals, operationSense)
 	if err != nil {
 		return agent.Transition{}, err
-	}
-	envelope, err := decodeSignal(signal.Payload())
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: expected sensing Signal: %w", ErrInvalidProtocol, err)
 	}
 	if envelope.HostError != "" {
 		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
-	if envelope.Operation != operationSense {
-		return agent.Transition{}, fmt.Errorf("%w: expected sensing Signal", ErrInvalidProtocol)
-	}
-	consumedSignals := uint32(len(signals))
 	if envelope.Sensing.Error != "" {
-		return e.fail(
-			consumedSignals, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error,
-		)
+		return e.fail(1, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error)
 	}
 	e.state.WorldState = *envelope.Sensing.WorldState
 	if e.state.awaitingConfirmation() {
@@ -103,10 +90,11 @@ func (e *execution) acceptSense(
 		}
 		e.state.confirmAction(binding.action)
 	}
-	if e.definition.goal.SatisfiedBy(e.state.WorldState) {
-		return e.complete(ctx, consumedSignals)
-	}
-	if !e.definition.maxActionAttempts.Allows(e.state.attemptCount(), 1) {
+	return e.decide(ctx, 1)
+}
+
+func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
+	if e.definition.goal.SatisfiedBy(e.state.WorldState) || !e.definition.maxActionAttempts.Allows(e.state.attemptCount(), 1) {
 		return e.complete(ctx, consumedSignals)
 	}
 	if e.state.PlanningPasses == math.MaxUint64 {
@@ -121,23 +109,16 @@ func (e *execution) acceptSense(
 		return agent.Transition{}, cancelErr
 	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return agent.Transition{}, err
-		}
-		return e.fail(consumedSignals, agent.FailureKindExecution, failureCodePlanningPlannerFailed, err.Error())
+		return e.failPlanning(consumedSignals, agent.FailureKindExecution, failureCodePlanningPlannerFailed, err)
 	}
 	if !found {
 		e.state.PlanningPasses++
 		return e.complete(ctx, consumedSignals)
 	}
 	if err := problem.ValidatePlan(ctx, plan); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return agent.Transition{}, err
-		}
-		return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err.Error())
+		return e.failPlanning(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err)
 	}
-	actions := plan.Actions()
-	binding, found := e.definition.binding(actions[0].Name())
+	binding, found := e.definition.binding(plan.actions[0].name)
 	if !found {
 		return e.fail(
 			consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract,
@@ -147,78 +128,78 @@ func (e *execution) acceptSense(
 	return e.startAction(consumedSignals, binding)
 }
 
-func (e *execution) startAction(
-	consumedSignals uint32,
-	binding ActionBinding,
-) (agent.Transition, error) {
+// failPlanning keeps cancellation a Step error rather than a Planner Failure.
+func (e *execution) failPlanning(consumedSignals uint32, kind agent.FailureKind, code string, err error) (agent.Transition, error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return agent.Transition{}, err
+	}
+	return e.fail(consumedSignals, kind, code, err.Error())
+}
+
+func (e *execution) startAction(consumedSignals uint32, binding ActionBinding) (agent.Transition, error) {
 	input, err := e.state.input()
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	switch binding.target {
 	case bindingTargetDispatcher:
-		effect, newActionEffectErr := newActionEffect(input, binding, e.state.WorldState)
-		if newActionEffectErr != nil {
-			return agent.Transition{}, newActionEffectErr
+		effect, err := newActionEffect(input, binding, e.state.WorldState)
+		if err != nil {
+			return agent.Transition{}, err
 		}
 		e.state.PlanningPasses++
 		e.state.CurrentActionName = binding.action.name
 		e.state.Phase = phaseAwaitingAction
 		return agent.Continue(consumedSignals, effect)
 	case bindingTargetChild:
-		childInput := input
-		if binding.childInput != nil {
-			childInput, err = binding.childInput(input, e.state.WorldState)
-			if err != nil {
-				return e.fail(
-					consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputFailed, err.Error(),
-				)
-			}
-		}
-		if !childInput.Valid() {
-			return e.fail(
-				consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputInvalid,
-				"Child input function returned an invalid Input",
-			)
-		}
-		key, err := planningChildKey(binding.action.name, uint64(len(e.state.Attempts))+1)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		effect, err := agent.NewChildStartEffect(binding.childSpec(key, childInput))
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		e.state.PlanningPasses++
-		e.state.CurrentActionName = binding.action.name
-		e.state.Child = &childcall.Single{}
-		e.state.Phase = phaseChild
-		return agent.Continue(consumedSignals, effect)
+		return e.startChild(consumedSignals, binding, input)
 	default:
 		return agent.Transition{}, fmt.Errorf("%w: Action %q has an unknown binding target", ErrInvalidExecutionState, binding.action.name)
 	}
 }
 
-func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, error) {
-	signal, err := oneSignal(signals)
+func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, input agent.Payload) (agent.Transition, error) {
+	childInput := input
+	if binding.childInput != nil {
+		var err error
+		childInput, err = binding.childInput(input, e.state.WorldState)
+		if err != nil {
+			return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
+		}
+	}
+	if !childInput.Valid() {
+		return e.fail(
+			consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputInvalid,
+			"Child input function returned an invalid Input",
+		)
+	}
+	key, err := planningChildKey(binding.action.name, uint64(len(e.state.Attempts))+1)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	envelope, err := decodeSignal(signal.Payload())
+	effect, err := agent.NewChildStartEffect(binding.childSpec(key, childInput))
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: expected Action Signal: %w", ErrInvalidProtocol, err)
+		return agent.Transition{}, err
+	}
+	e.state.PlanningPasses++
+	e.state.CurrentActionName = binding.action.name
+	e.state.Child = &childcall.Single{}
+	e.state.Phase = phaseChild
+	return agent.Continue(consumedSignals, effect)
+}
+
+func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, error) {
+	envelope, err := decodeSettlement(signals, operationAction)
+	if err != nil {
+		return agent.Transition{}, err
 	}
 	if envelope.HostError != "" {
 		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
-	if envelope.Operation != operationAction {
-		return agent.Transition{}, fmt.Errorf("%w: expected Action Signal", ErrInvalidProtocol)
-	}
-	consumedSignals := uint32(len(signals))
 	if !envelope.Action.Succeeded {
 		e.state.recordFailedAction(envelope.Action.Diagnostic)
 	}
-	return e.requestSense(consumedSignals)
+	return e.requestSense(1)
 }
 
 func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, error) {

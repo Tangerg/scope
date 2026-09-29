@@ -16,8 +16,6 @@ const (
 	operationAction operation = "action"
 )
 
-func (o operation) valid() bool { return o == operationSense || o == operationAction }
-
 type effectEnvelope struct {
 	Operation operation     `json:"operation"`
 	Input     agent.Payload `json:"input"`
@@ -42,9 +40,20 @@ type senseResult struct {
 	Error      string      `json:"error,omitempty"`
 }
 
+func (s senseResult) valid() bool {
+	if s.Error != "" {
+		return s.WorldState == nil && agent.ValidDiagnostic(s.Error)
+	}
+	return s.WorldState != nil
+}
+
 type actionResultWire struct {
 	Succeeded  bool   `json:"succeeded"`
 	Diagnostic string `json:"diagnostic,omitempty"`
+}
+
+func (a actionResultWire) result() ActionResult {
+	return ActionResult{succeeded: a.Succeeded, diagnostic: a.Diagnostic}
 }
 
 func newSenseEffect(input agent.Payload) (agent.Effect, error) {
@@ -83,21 +92,24 @@ func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
 	if err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: decode Effect: %w", ErrInvalidProtocol, err)
 	}
-	if !envelope.Operation.valid() || !envelope.Input.Valid() {
+	if !envelope.valid() {
 		return effectEnvelope{}, ErrInvalidProtocol
 	}
-	switch envelope.Operation {
-	case operationSense:
-		if envelope.Action != nil {
-			return effectEnvelope{}, ErrInvalidProtocol
-		}
-	case operationAction:
-		if envelope.Action == nil || !agent.ValidQualifiedName(envelope.Action.Name) ||
-			!agent.ValidDescription(envelope.Action.Description) {
-			return effectEnvelope{}, ErrInvalidProtocol
-		}
-	}
 	return envelope, nil
+}
+
+func (e effectEnvelope) valid() bool {
+	if !e.Input.Valid() {
+		return false
+	}
+	switch e.Operation {
+	case operationSense:
+		return e.Action == nil
+	case operationAction:
+		return e.Action != nil && agent.ValidQualifiedName(e.Action.Name) && agent.ValidDescription(e.Action.Description)
+	default:
+		return false
+	}
 }
 
 func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
@@ -130,32 +142,38 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 	if err != nil {
 		return signalEnvelope{}, fmt.Errorf("%w: decode Signal: %w", ErrInvalidProtocol, err)
 	}
-	if envelope.HostError != "" {
-		if !agent.ValidDiagnostic(envelope.HostError) || envelope.Operation != "" || envelope.Sensing != nil || envelope.Action != nil {
-			return signalEnvelope{}, ErrInvalidProtocol
-		}
-		return envelope, nil
-	}
-	if !envelope.Operation.valid() {
+	if !envelope.valid() {
 		return signalEnvelope{}, ErrInvalidProtocol
 	}
-	switch envelope.Operation {
-	case operationSense:
-		if envelope.Sensing == nil || envelope.Action != nil ||
-			(envelope.Sensing.WorldState == nil) == (envelope.Sensing.Error == "") {
-			return signalEnvelope{}, ErrInvalidProtocol
-		}
-		if envelope.Sensing.Error != "" && !agent.ValidDiagnostic(envelope.Sensing.Error) {
-			return signalEnvelope{}, ErrInvalidProtocol
-		}
-	case operationAction:
-		if envelope.Action == nil || envelope.Sensing != nil {
-			return signalEnvelope{}, ErrInvalidProtocol
-		}
-		if envelope.Action.Succeeded && envelope.Action.Diagnostic != "" ||
-			!envelope.Action.Succeeded && !agent.ValidDiagnostic(envelope.Action.Diagnostic) {
-			return signalEnvelope{}, ErrInvalidProtocol
-		}
+	return envelope, nil
+}
+
+func (s signalEnvelope) valid() bool {
+	switch {
+	case s.HostError != "":
+		return agent.ValidDiagnostic(s.HostError) && s.Operation == "" && s.Sensing == nil && s.Action == nil
+	case s.Operation == operationSense:
+		return s.Sensing != nil && s.Action == nil && s.Sensing.valid()
+	case s.Operation == operationAction:
+		return s.Action != nil && s.Sensing == nil && s.Action.result().Valid()
+	default:
+		return false
+	}
+}
+
+// decodeSettlement accepts the single dispatcher settlement for expected, or
+// a host_error rejection of that operation.
+func decodeSettlement(signals []agent.Signal, expected operation) (signalEnvelope, error) {
+	signal, err := oneSignal(signals)
+	if err != nil {
+		return signalEnvelope{}, err
+	}
+	envelope, err := decodeSignal(signal.Payload())
+	if err != nil {
+		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal: %w", ErrInvalidProtocol, expected, err)
+	}
+	if envelope.HostError == "" && envelope.Operation != expected {
+		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal", ErrInvalidProtocol, expected)
 	}
 	return envelope, nil
 }
