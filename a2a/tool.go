@@ -24,7 +24,6 @@ type callArguments struct {
 }
 
 // remoteTool is immutable after construction and does not own its client.
-// Non-completed tasks return RemoteAgentError instead of a successful result.
 type remoteTool struct {
 	client            *a2aclient.Client
 	definition        corechat.ToolDefinition

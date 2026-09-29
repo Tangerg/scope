@@ -28,12 +28,12 @@ type Endpoint struct {
 	// resolved AgentCard.
 	Name string
 
-	// CardURL is the absolute HTTP(S) URL used to resolve the AgentCard.
+	// CardURL is the absolute HTTP(S) AgentCard URL.
 	CardURL string
 
-	// HTTPClient is the client used for both card resolution and RPC calls.
-	// Nil uses http.DefaultClient. The caller retains ownership; a restricted
-	// shallow copy is used internally.
+	// HTTPClient serves card resolution and RPC calls. Nil uses
+	// http.DefaultClient. The caller retains ownership; a restricted shallow
+	// copy is used internally.
 	HTTPClient *http.Client
 
 	// CardTimeout bounds AgentCard resolution only. Zero selects 30 seconds; it

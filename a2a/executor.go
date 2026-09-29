@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Agent is the text-only boundary served by [NewHTTPHandler].
 type Agent interface {
 	// Run handles one inbound A2A message, already flattened to text, and
 	// yields the reply as a sequence of text chunks. A single-shot agent

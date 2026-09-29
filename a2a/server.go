@@ -63,12 +63,11 @@ func newStaticAgentCardHandler(card *sdka2a.AgentCard) (http.Handler, error) {
 }
 
 func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
-	if len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0] == nil ||
-		card.SupportedInterfaces[0].ProtocolBinding != sdka2a.TransportProtocolJSONRPC ||
-		card.SupportedInterfaces[0].ProtocolVersion != sdka2a.Version {
-		return "", fmt.Errorf("%w: exactly one JSON-RPC interface using protocol %s is required", ErrInvalidRPCInterface, sdka2a.Version)
+	iface, err := servedRPCInterface(card)
+	if err != nil {
+		return "", err
 	}
-	endpoint, err := url.Parse(card.SupportedInterfaces[0].URL)
+	endpoint, err := url.Parse(iface.URL)
 	if err != nil {
 		return "", fmt.Errorf("%w: parse URL: %w", ErrInvalidRPCInterface, err)
 	}
@@ -80,4 +79,16 @@ func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
 		return "", fmt.Errorf("%w: URL requires a distinct RPC path without user info, query, or fragment", ErrInvalidRPCInterface)
 	}
 	return endpoint.Path, nil
+}
+
+func servedRPCInterface(card *sdka2a.AgentCard) (*sdka2a.AgentInterface, error) {
+	errServed := fmt.Errorf("%w: exactly one JSON-RPC interface using protocol %s is required", ErrInvalidRPCInterface, sdka2a.Version)
+	if len(card.SupportedInterfaces) != 1 {
+		return nil, errServed
+	}
+	iface := card.SupportedInterfaces[0]
+	if iface == nil || iface.ProtocolBinding != sdka2a.TransportProtocolJSONRPC || iface.ProtocolVersion != sdka2a.Version {
+		return nil, errServed
+	}
+	return iface, nil
 }
