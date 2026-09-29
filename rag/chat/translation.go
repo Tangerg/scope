@@ -24,8 +24,7 @@ type TranslationTransformerConfig struct {
 	// "English", "Chinese", "Spanish", etc. Required.
 	TargetLanguage string
 
-	// PromptTemplate is the LLM prompt. Defaults to
-	// [translationDefaultTemplate]. Custom templates must declare
+	// PromptTemplate replaces the built-in prompt and must declare
 	// {{.Target}} and {{.Query}}.
 	PromptTemplate *chatclient.Template
 }
@@ -51,8 +50,6 @@ func NewTranslationTransformer(config TranslationTransformerConfig) (*Translatio
 	return &TranslationTransformer{transformer: transformer}, nil
 }
 
-// Transform asks the LLM to translate the query and returns a clone with Text
-// replaced by the model output.
 func (t *TranslationTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	return t.transformer.transform(ctx, query)
 }

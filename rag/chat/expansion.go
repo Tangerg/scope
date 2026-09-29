@@ -30,15 +30,13 @@ type MultiQueryExpanderConfig struct {
 	Model corechat.Model
 
 	// IncludeOriginal prepends the original query to the variant list.
-	// Defaults to false.
 	IncludeOriginal bool
 
-	// NumberOfQueries is the variant count requested from the model.
-	// Defaults to [DefaultMultiQueryCount]. Must be ≥ 0.
+	// NumberOfQueries is the variant count requested from the model. Zero
+	// uses [DefaultMultiQueryCount]; negative values are invalid.
 	NumberOfQueries int
 
-	// PromptTemplate is the LLM prompt. Defaults to
-	// [multiExpanderDefaultTemplate]. Custom templates must declare
+	// PromptTemplate replaces the built-in prompt and must declare
 	// {{.Number}} and {{.Query}}.
 	PromptTemplate *chatclient.Template
 }
@@ -139,9 +137,9 @@ func NewMultiQueryExpander(config MultiQueryExpanderConfig) (*MultiQueryExpander
 	}, nil
 }
 
-// Expand asks the LLM for distinct variants and turns them into [rag.Query]
-// values. Empty, duplicate, and original-query entries do not consume the
-// configured result limit. No usable variant returns [rag.ErrEmptyExpansion].
+// Expand requires exactly NumberOfQueries distinct variants; empty, duplicate,
+// and original-query entries do not count toward it. No usable variant returns
+// [rag.ErrEmptyExpansion].
 func (m *MultiQueryExpander) Expand(ctx context.Context, query rag.Query) ([]rag.Query, error) {
 	if err := query.Validate(); err != nil {
 		return nil, err

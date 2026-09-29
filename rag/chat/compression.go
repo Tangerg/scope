@@ -25,8 +25,7 @@ Standalone query:`
 type CompressionTransformerConfig struct {
 	Model corechat.Model
 
-	// PromptTemplate is the LLM prompt. Defaults to
-	// [compressionDefaultTemplate]. Custom templates must declare
+	// PromptTemplate replaces the built-in prompt and must declare
 	// {{.History}} and {{.Query}}.
 	PromptTemplate *chatclient.Template
 }
@@ -57,8 +56,6 @@ func NewCompressionTransformer(config CompressionTransformerConfig) (*Compressio
 	return &CompressionTransformer{prompt: prompt}, nil
 }
 
-// Transform asks the LLM for a self-contained version of the query.
-// Returns a clone of the input with Text replaced by the LLM output.
 func (c *CompressionTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	if err := query.Validate(); err != nil {
 		return rag.Query{}, err

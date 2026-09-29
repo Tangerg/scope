@@ -23,8 +23,7 @@ type RewriteTransformerConfig struct {
 	// store", "web search engine", "database", etc. Required.
 	TargetSearchSystem string
 
-	// PromptTemplate is the LLM prompt. Defaults to
-	// [rewriteDefaultTemplate]. Custom templates must declare
+	// PromptTemplate replaces the built-in prompt and must declare
 	// {{.Target}} and {{.Query}}.
 	PromptTemplate *chatclient.Template
 }
@@ -50,8 +49,6 @@ func NewRewriteTransformer(config RewriteTransformerConfig) (*RewriteTransformer
 	return &RewriteTransformer{transformer: transformer}, nil
 }
 
-// Transform asks the LLM to rewrite the query and returns a clone with Text
-// replaced by the model output.
 func (r *RewriteTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
 	return r.transformer.transform(ctx, query)
 }

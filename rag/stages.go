@@ -54,7 +54,6 @@ func (c Candidate) Clone() Candidate {
 // receiver, preserving declaration and retrieval order where scores tie.
 type Candidates []Candidate
 
-// Clone returns an independently owned candidate sequence.
 func (c Candidates) Clone() Candidates {
 	if c == nil {
 		return nil
@@ -75,8 +74,6 @@ func (c Candidates) Validate() error {
 	return nil
 }
 
-// uniqueBest returns the highest-scoring candidate for each known document
-// identity. Identity-free documents remain distinct.
 func (c Candidates) uniqueBest() Candidates {
 	positions := make(map[string]int, len(c))
 	unique := make(Candidates, 0, len(c))
@@ -99,8 +96,7 @@ func (c Candidates) uniqueBest() Candidates {
 	return unique
 }
 
-// sortByScore sorts an owned result. Refiners detach borrowed
-// documents before handing them to this ordering step.
+// sortByScore sorts in place, so the caller must own the receiver.
 func (c Candidates) sortByScore() {
 	slices.SortStableFunc(c, func(left, right Candidate) int {
 		return cmp.Compare(right.Score, left.Score)
@@ -154,9 +150,6 @@ type Retriever interface {
 	Retrieve(ctx context.Context, query Query) (Candidates, error)
 }
 
-// RetrieverFunc adapts a function to Retriever. Like the other stage function
-// adapters, it forwards directly; the function must satisfy the stage contract.
-// Combinators validate results received from external stages.
 type RetrieverFunc func(context.Context, Query) (Candidates, error)
 
 func (r RetrieverFunc) Retrieve(ctx context.Context, query Query) (Candidates, error) {

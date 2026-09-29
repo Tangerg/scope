@@ -75,7 +75,7 @@ type Query struct {
 	values map[*valueKeyIdentity]any
 }
 
-// NewQuery trims surrounding whitespace and creates a valid retrieval query.
+// NewQuery trims surrounding whitespace.
 func NewQuery(text string) (Query, error) {
 	query := Query{text: strings.TrimSpace(text)}
 	if err := query.Validate(); err != nil {

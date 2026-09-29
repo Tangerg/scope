@@ -218,9 +218,8 @@ func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corech
 	return response, err
 }
 
-// Stream starts model work lazily. Evidence remains on the prepared request.
-// Preparation has already completed; stopping iteration synchronously
-// releases the downstream stream through its normal iterator contract.
+// Stream starts model work lazily and never retrieves again; stopping iteration
+// releases the downstream stream.
 func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		if p.request == nil {

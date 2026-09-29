@@ -1,26 +1,16 @@
 // Package rag provides small interfaces and combinators for
 // Retrieval-Augmented Generation.
 //
-// Quick start:
-//
-//	q, _ := rag.NewQuery("what is GOAP?")
-//	docs, err := retriever.Retrieve(ctx, q)
-//
 // The root package owns queries, candidates, citations, generation input,
 // stage contracts ([Transformer], [Expander], [Retriever], [Refiner], and
 // [Augmenter]), and deterministic retrieval composition. It depends on document
-// values rather than model, storage, or tool protocols.
-//
-// Adapters remain in this module and depend on these same domain contracts:
+// values rather than model, storage, or tool protocols. Adapters in this module
+// build on the same contracts:
 //   - [github.com/Tangerg/scope/rag/chat] owns model-backed query transforms,
-//     expansion, reranking, contextual prompts, and explicit chat request preparation.
+//     expansion, reranking, contextual prompts, and chat request preparation.
 //   - [github.com/Tangerg/scope/rag/vectorstore] adapts vector search to retrieval.
 //   - [github.com/Tangerg/scope/rag/rerank] adapts a dedicated rerank model to refinement.
 //   - [github.com/Tangerg/scope/rag/tool] exposes retrieval as a model-visible tool.
-//
-// [DocumentFormatter] and [TextFormatter] keep evidence rendering consistent
-// across adapters. Domain values own validation; adapters own external calls
-// and check results before passing them across the next boundary.
 //
 // Composition is explicit. Wrap a retriever with the stages you need:
 //
@@ -30,56 +20,38 @@
 //	r, err = rag.WithRefiners(r, top)
 //	docs, err := r.Retrieve(ctx, q)
 //
-// Function adapters forward calls without adding policy. A composed retriever
-// validates its query at entry and each external stage's output before the next
-// stage consumes it. Built-in stages also validate their own public inputs so
-// they can be used directly outside a composition.
-//
-// [IdentityAugmenter] preserves the query when contextual augmentation is
-// deliberately empty. Other optional stages are omitted from composition.
+// Function adapters such as [RetrieverFunc] forward calls without adding policy.
+// A composed retriever validates its query at entry and each external stage's
+// output before the next stage consumes it; built-in stages also validate their
+// own inputs so they can be used outside a composition.
 //
 // # Parallel retriever fan-out
 //
 // [ReciprocalRankFusion] combines independent rankings without comparing their
-// raw scores. [WithExpander] applies the same fusion to independent queries.
-// Both configure retrieval concurrency independently from [ReciprocalRankFusionConfig].
+// raw scores, and [WithExpander] applies the same fusion to expanded queries:
 //
-//	top, err := rag.TopK(topK)
 //	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, vectorR1, vectorR2)
-//	r, err := rag.WithRefiners(combined, top)
 //
-// [TopK] only sorts and caps a comparable result. [Dedup] independently keeps
-// the best candidate for each known document identity. Apply Dedup before
-// TopK when a source can return duplicate identities; RRF already fuses them.
+// [TopK] only sorts and caps a comparable result. [Dedup] keeps the best
+// candidate for each known document identity; apply it before TopK when a
+// single source can return duplicate identities. Fusion already merges them.
 //
-// # Agentic retrieval
+// # Routing and agentic retrieval
 //
-// [github.com/Tangerg/scope/rag/tool.NewRetrieval] adapts any composed Retriever to the ordinary core tool
-// contract. Agent runtimes can advertise it immediately or keep it in their
-// deferred tool set without introducing an agent-specific RAG API.
+// There is no router stage. Route a query by implementing [Retriever] and
+// switching on a value stored under a [ValueKey]:
 //
-// # Per-query retriever routing
-//
-// Likewise, there is no "QueryRouter" stage. To route a query to a
-// subset of retrievers (e.g. by topic, language, or metadata), wrap
-// your retrievers in a custom [Retriever] that switches on the query
-// internally:
-//
-//	type routingRetriever struct {
-//	    routeKey rag.ValueKey[string]
-//	    docsR, logsR rag.Retriever
-//	}
 //	func (r *routingRetriever) Retrieve(ctx context.Context, q rag.Query) (rag.Candidates, error) {
 //	    route, _, err := q.Value(r.routeKey)
 //	    if err != nil {
 //	        return nil, err
 //	    }
 //	    if route == "logs" {
-//	        return r.logsR.Retrieve(ctx, q)
+//	        return r.logs.Retrieve(ctx, q)
 //	    }
-//	    return r.docsR.Retrieve(ctx, q)
+//	    return r.docs.Retrieve(ctx, q)
 //	}
 //
-// Create routeKey once with [NewValueKey] and retain it in the retriever.
-// Callers stay oblivious; routing logic lives at the retriever boundary.
+// [github.com/Tangerg/scope/rag/tool.NewRetrieval] adapts any composed Retriever
+// to the ordinary core tool contract, so agents need no RAG-specific API.
 package rag

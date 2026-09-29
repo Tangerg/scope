@@ -40,19 +40,16 @@ const contextualEmptyContextTemplate = `The user query is outside your knowledge
 Politely inform the user that you can't answer it.`
 
 type ContextualAugmenterConfig struct {
-	// PromptTemplate is the augmentation template. Defaults to
-	// [contextualDefaultTemplate]. Custom templates must declare
+	// PromptTemplate replaces the built-in prompt and must declare
 	// {{.Context}} and {{.Query}}.
 	PromptTemplate *chatclient.Template
 
-	// EmptyContextPromptTemplate is the response template used when no
-	// documents are retrieved AND AllowEmptyContext is false. Defaults
-	// to [contextualEmptyContextTemplate].
+	// EmptyContextPromptTemplate replaces the built-in prompt used when no
+	// documents are retrieved and AllowEmptyContext is false.
 	EmptyContextPromptTemplate *chatclient.Template
 
-	// AllowEmptyContext, when true, returns the user's query unchanged
-	// if no documents were retrieved instead of synthesizing the
-	// empty-context fallback. Defaults to false.
+	// AllowEmptyContext returns the query unchanged when no documents are
+	// retrieved instead of rendering EmptyContextPromptTemplate.
 	AllowEmptyContext bool
 
 	// Formatter renders each retrieved document. The default [rag.TextFormatter]
@@ -65,10 +62,7 @@ type ContextualAugmenterConfig struct {
 	// are skipped so later candidates can still fit. If none fits, Augment returns
 	// ErrContextBudgetExceeded regardless of AllowEmptyContext.
 	MaxContextTokens int
-
-	// TokenCounter measures the exact encoded evidence block against
-	// MaxContextTokens.
-	TokenCounter tokenizer.TextCounter
+	TokenCounter     tokenizer.TextCounter
 }
 
 type contextBudget struct {
@@ -165,9 +159,6 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 	}, nil
 }
 
-// Augment keeps retrieved content in citation-labeled JSON so evidence remains
-// distinguishable from prompt instructions. A bounded context contains only
-// complete candidates; it never truncates a document into ambiguous evidence.
 func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Augmentation, error) {
 	if err := ctx.Err(); err != nil {
 		return rag.Augmentation{}, err

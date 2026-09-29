@@ -9,16 +9,13 @@ import (
 	"github.com/samber/lo"
 )
 
-// ErrInvalidRankConstant identifies a fusion policy that cannot preserve
-// monotonic rank contribution.
 var ErrInvalidRankConstant = errors.New("rag: reciprocal-rank constant must not be negative")
 
 // DefaultReciprocalRankConstant is the conventional RRF smoothing constant.
 const DefaultReciprocalRankConstant = 60
 
-// ReciprocalRankFusionConfig controls reciprocal-rank weighting.
-// RankConstant is added to each one-based rank before reciprocal weighting;
-// zero uses [DefaultReciprocalRankConstant].
+// ReciprocalRankFusionConfig sets the constant added to each one-based rank
+// before reciprocal weighting; zero uses [DefaultReciprocalRankConstant].
 type ReciprocalRankFusionConfig struct {
 	RankConstant int
 }

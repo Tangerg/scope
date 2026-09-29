@@ -32,7 +32,6 @@ type Citation struct {
 // retrieval candidates.
 type Citations []Citation
 
-// Clone returns an independently owned citation sequence.
 func (c Citations) Clone() Citations {
 	if c == nil {
 		return nil
@@ -71,7 +70,6 @@ func NewCitation(number int, candidate Candidate) (Citation, error) {
 	return citation, nil
 }
 
-// Clone returns an independently owned citation and candidate.
 func (c Citation) Clone() Citation {
 	c.Candidate = c.Candidate.Clone()
 	return c

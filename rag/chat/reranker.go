@@ -31,8 +31,8 @@ const chatRerankerOutputName = "rag_reranking"
 type RerankerConfig struct {
 	Model corechat.Model
 
-	// PromptTemplate defaults to [chatRerankerDefaultTemplate]. Custom
-	// templates must declare {{.Query}} and {{.Candidates}}.
+	// PromptTemplate replaces the built-in prompt and must declare
+	// {{.Query}} and {{.Candidates}}.
 	PromptTemplate *chatclient.Template
 
 	// Formatter renders candidate content. The default [rag.TextFormatter]
