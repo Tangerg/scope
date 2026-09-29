@@ -29,7 +29,7 @@ func MuxServer(routes ...Route) *httptest.Server {
 			route.Handle(w, r)
 			return
 		}
-		http.Error(w, "testutil.MuxServer: no route matched "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		http.Error(w, "modeltest.MuxServer: no route matched "+r.Method+" "+r.URL.Path, http.StatusNotFound)
 	}))
 }
 

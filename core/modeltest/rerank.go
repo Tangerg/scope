@@ -40,12 +40,14 @@ func RunRerankContract(t *testing.T, contract RerankContract) {
 		}
 		seen := make(chan observation, 1)
 		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
-			var decoded wireRequest
-			if err := jsonv2.UnmarshalRead(request.Body, &decoded); err != nil {
-				seen <- observation{path: request.URL.Path, err: fmt.Errorf("decode request: %w", err)}
-				return
+			observed := observation{path: request.URL.Path}
+			if err := jsonv2.UnmarshalRead(request.Body, &observed.request); err != nil {
+				observed.err = fmt.Errorf("decode request: %w", err)
 			}
-			seen <- observation{path: request.URL.Path, request: decoded}
+			select {
+			case seen <- observed:
+			default:
+			}
 		})
 		t.Cleanup(server.Close)
 
