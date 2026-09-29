@@ -228,7 +228,9 @@ func (r relevanceSet) ndcgAt(ranking []string, cutoff int) float64 {
 	for index, grade := range ideal[:min(cutoff, len(ideal))] {
 		idcg += discountedGain(grade/scale, index+1)
 	}
-	return dcg / idcg
+	// DCG cannot exceed IDCG, but when near-equal grades are misordered the
+	// rounded sums can, which would reject a valid ranking as an invalid Score.
+	return min(1, dcg/idcg)
 }
 
 func (m Metric) score(ranking []string, relevance relevanceSet, cutoff int) float64 {

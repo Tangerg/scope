@@ -147,6 +147,29 @@ func TestNDCGIsInvariantToGradeScale(t *testing.T) {
 	}
 }
 
+func TestNDCGRoundingCannotExceedOne(t *testing.T) {
+	evaluator, err := ranking.NewEvaluator(ranking.Config{Metric: ranking.MetricNDCG, Cutoff: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample, err := ranking.NewSample([]string{"b", "a", "c", "d"}, []ranking.Judgment{
+		{Identity: "a", Relevance: 2.0000000000000013},
+		{Identity: "b", Relevance: 3.0000000000000018},
+		{Identity: "c", Relevance: 2.0000000000000004},
+		{Identity: "d", Relevance: 2.000000000000001},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := evaluator.Evaluate(t.Context(), sample)
+	if err != nil {
+		t.Fatalf("nearly ideal ranking failed: %v", err)
+	}
+	if report.Score == nil || *report.Score != 1 {
+		t.Fatalf("NDCG=%v, want 1", report.Score)
+	}
+}
+
 func TestSampleOwnsAndValidatesRanking(t *testing.T) {
 	identities := []string{"a"}
 	judgments := []ranking.Judgment{{Identity: "a", Relevance: 1}}
