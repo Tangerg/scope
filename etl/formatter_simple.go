@@ -24,16 +24,6 @@ var _ Formatter = SimpleFormatter{}
 //	key2: value2
 //
 //	<document text>
-//
-// Metadata keys can be excluded when constructing the formatter. Use
-// independently configured formatters when different consumers need different
-// representations.
-//
-// Example:
-//
-//	f := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{
-//	    ExcludedMetadata: []string{"row_id", "internal"},
-//	})
 type SimpleFormatter struct {
 	excludedMetadata map[string]struct{}
 }
@@ -45,11 +35,9 @@ func NewSimpleFormatter(config SimpleFormatterConfig) SimpleFormatter {
 	})}
 }
 
-// Format renders doc by emitting filtered metadata as `key: value` lines
-// (sorted by key — map iteration order would make the rendered text,
-// and thus embedding inputs and token counts, non-deterministic)
-// followed by a blank line and the document text. With no metadata
-// (filtered empty), the output is just doc.Text — no leading newlines.
+// Format sorts metadata keys because map order would make rendered text, and
+// therefore embeddings and token counts, nondeterministic. Without rendered
+// metadata the output is the document text alone.
 func (s SimpleFormatter) Format(doc *document.Document) (string, error) {
 	if doc == nil {
 		return "", ErrNilDocument

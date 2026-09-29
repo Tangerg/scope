@@ -6,9 +6,8 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-// Formatter renders a document according to one frozen formatting policy.
-// Consumers that need different representations should use independently
-// configured formatters instead of passing consumer-specific modes per call.
+// Formatter renders a document under one frozen policy; consumers needing
+// different representations configure separate formatters.
 type Formatter interface {
 	// Format renders one valid document under the receiver's frozen policy. It
 	// must not mutate or retain the document and must be deterministic so the

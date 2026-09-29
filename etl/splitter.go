@@ -14,9 +14,7 @@ import (
 )
 
 var (
-	ErrInvalidTextEncoding = errors.New("etl: invalid text encoding")
-	// ErrUnsupportedDocumentMedia rejects media whose relationship to text
-	// chunks cannot be represented by a text splitting policy.
+	ErrInvalidTextEncoding      = errors.New("etl: invalid text encoding")
 	ErrUnsupportedDocumentMedia = errors.New("etl: text splitting does not support document media")
 )
 
@@ -34,7 +32,7 @@ const (
 )
 
 type SplitterConfig struct {
-	// SplitFunc is required and owns the text splitting policy.
+	// SplitFunc is required.
 	SplitFunc func(context.Context, string) ([]string, error)
 
 	// IDGenerator, when set, assigns an ID to each emitted chunk.
@@ -86,8 +84,7 @@ func validateTextEncoding(text string) error {
 	return nil
 }
 
-// Split emits chunks for every input document. Input order and per-document
-// chunk order are preserved.
+// Split preserves input order and per-document chunk order.
 func (s *Splitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

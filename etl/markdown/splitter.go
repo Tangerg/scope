@@ -124,8 +124,6 @@ func (s *Splitter) SplitText(ctx context.Context, source string) ([]string, erro
 	return chunks, nil
 }
 
-// Split preserves source metadata and stamps standard chunk-lineage
-// metadata through the base ETL splitter.
 func (s *Splitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
 	return s.base.Split(ctx, docs)
 }

@@ -21,15 +21,14 @@ const (
 	DefaultMaxSearchWork = 8 << 20
 )
 
-// ErrChunkLimitExceeded prevents token splitting from producing an unbounded
-// number of documents.
+// ErrChunkLimitExceeded reports that splitting would exceed the configured chunk count.
 var ErrChunkLimitExceeded = errors.New("etl: chunk limit exceeded")
 
 // ErrChunkBudgetTooSmall means no nonempty trimmed source prefix fits the token budget.
 var ErrChunkBudgetTooSmall = errors.New("etl: chunk token budget is too small")
 
 // ErrSearchBudgetExceeded means prefix search stopped before proving whether
-// a nonempty chunk fits. It is distinct from ErrChunkBudgetTooSmall.
+// a nonempty chunk fits.
 var ErrSearchBudgetExceeded = errors.New("etl: token window search budget exceeded")
 
 // TokenSplitterConfig configures token-aware chunking. Zero sizing values use
@@ -183,7 +182,6 @@ func (*TokenSplitter) lastSentenceBoundary(text string) int {
 	return boundary
 }
 
-// Split emits token-bounded document chunks with cloned metadata and lineage.
 func (t *TokenSplitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
 	return t.splitter.Split(ctx, docs)
 }

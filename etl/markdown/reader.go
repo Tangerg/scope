@@ -66,9 +66,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	return r, nil
 }
 
-// Read consumes the underlying reader and emits documents according to the
-// configuration. Context cancellation is honored around parsing and between
-// emitted sections.
+// Read consumes the source once. Blank input yields no documents.
 func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -91,9 +89,6 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	return r.sectionsToDocuments(ctx, sections)
 }
 
-// readWhole returns one document containing the entire markdown body.
-// Blank input yields no documents — the same contract as the html and
-// pdf readers, not an error.
 func (r *Reader) readWhole(raw []byte) ([]*document.Document, error) {
 	body := string(raw)
 	if strings.TrimSpace(body) == "" {
@@ -110,11 +105,7 @@ func (r *Reader) readWhole(raw []byte) ([]*document.Document, error) {
 	return []*document.Document{doc}, nil
 }
 
-// collectSections walks the top-level AST nodes and groups them into
-// sections: a new section opens at every heading of level
-// <= headingSplitLevel, while the heading-path stack tracks ancestry.
-// Body content before the first heading lands in an unnamed lead-in
-// section.
+// Content before the first split heading forms an unnamed lead-in section.
 func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, error) {
 	root := r.parser.Parser().Parse(text.NewReader(raw))
 	if err := ctx.Err(); err != nil {
@@ -266,9 +257,8 @@ func (s *section) document(metadata coremetadata.Map) (*document.Document, error
 	return doc, nil
 }
 
-// appendNodeSource copies the contiguous raw source range backing n. Using
-// top-level node boundaries preserves Markdown syntax and all whitespace
-// between adjacent nodes instead of reconstructing source from AST leaves.
+// Copying top-level node source ranges preserves Markdown syntax and the
+// whitespace between nodes, which AST leaves cannot reconstruct.
 func (s *section) appendNodeSource(raw []byte, n ast.Node) {
 	start, end := nodeBounds(n, raw)
 	if start < 0 || end <= start {

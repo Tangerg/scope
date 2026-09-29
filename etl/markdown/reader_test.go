@@ -85,8 +85,6 @@ func TestHeadingSplitH2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Expect 3 sections: Intro (H1), Section A (H2, includes A.1
-	// subsection at H3), Section B (H2).
 	if len(docs) != 3 {
 		t.Fatalf("split mode: want 3 docs, got %d", len(docs))
 	}
@@ -111,7 +109,6 @@ func TestHeadingSplitH2(t *testing.T) {
 		}
 	}
 
-	// Section A should contain A.1 subsection content.
 	if !strings.Contains(docs[1].Text, "Nested body") {
 		t.Errorf("section A missing nested H3 body; got: %q", docs[1].Text)
 	}

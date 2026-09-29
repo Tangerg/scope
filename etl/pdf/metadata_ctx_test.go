@@ -10,8 +10,6 @@ import (
 	"github.com/Tangerg/scope/etl/pdf"
 )
 
-// Read checks ctx before opening the PDF, so a canceled context errors
-// out regardless of the (here invalid) input — no fixture needed.
 func TestRead_HonorsContextCancellation(t *testing.T) {
 	metadata, err := coremetadata.FromValues(map[string]any{"source": "x.pdf"})
 	if err != nil {

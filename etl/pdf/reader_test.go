@@ -47,8 +47,6 @@ func TestNewReaderRejectsSourceBeyondBudget(t *testing.T) {
 }
 
 func TestNewReaderAcceptsConfig(t *testing.T) {
-	// Just verify configuration plumbing — no parsing here. Pass an empty
-	// reader so the constructor succeeds; Read() failing is fine.
 	src := bytes.NewReader([]byte("not really a pdf"))
 	if _, err := pdf.NewReader(src, int64(src.Len()),
 		pdf.ReaderConfig{PerPage: true, SourceName: "ignored.pdf", Password: "hunter2"},

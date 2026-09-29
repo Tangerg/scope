@@ -25,8 +25,7 @@ type FileWriterConfig struct {
 	Path string
 	// DocumentMarkers adds an index header before each document.
 	DocumentMarkers bool
-	// Append preserves existing file contents.
-	Append bool
+	Append          bool
 	// Formatter renders each document. Nil writes document text only.
 	Formatter etl.Formatter
 }
