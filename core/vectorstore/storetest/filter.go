@@ -47,47 +47,7 @@ func FilterConformance(t *testing.T, config FilterConfig) {
 		}
 	}
 	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			predicate, err := filter.Parse(test.source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			docs := test.documents(t)
-			var reference, want []string
-			for _, index := range test.want {
-				want = append(want, docs[index].ID)
-			}
-			for _, doc := range docs {
-				values, valuesErr := doc.Metadata.Values()
-				if valuesErr != nil {
-					t.Fatal(valuesErr)
-				}
-				match, matchErr := filter.Match(predicate, values)
-				if matchErr != nil {
-					t.Fatal(matchErr)
-				}
-				if match {
-					reference = append(reference, doc.ID)
-				}
-			}
-			if !slices.Equal(reference, want) {
-				t.Fatalf("filter.Match(%s) selected %v, want %v", predicate, reference, want)
-			}
-			got, err := config.Query(t.Context(), docs, predicate)
-			if unsupported, exists := config.Unsupported[test.name]; exists {
-				if !errors.Is(err, unsupported) || len(got) != 0 {
-					t.Fatalf("unsupported query selected %v, error %v; want no IDs and %v", got, err, unsupported)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			slices.Sort(got)
-			if !slices.Equal(got, reference) {
-				t.Errorf("backend query %s selected %v, reference selected %v", predicate, got, reference)
-			}
-		})
+		t.Run(test.name, func(t *testing.T) { test.run(t, config) })
 	}
 }
 
@@ -111,6 +71,54 @@ func (f filterCase) documents(t *testing.T) []*document.Document {
 		}
 	}
 	return docs
+}
+
+func (f filterCase) run(t *testing.T, config FilterConfig) {
+	predicate, err := filter.Parse(f.source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs := f.documents(t)
+	reference := f.reference(t, predicate, docs)
+	got, err := config.Query(t.Context(), docs, predicate)
+	if unsupported, exists := config.Unsupported[f.name]; exists {
+		if !errors.Is(err, unsupported) || len(got) != 0 {
+			t.Fatalf("unsupported query selected %v, error %v; want no IDs and %v", got, err, unsupported)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, reference) {
+		t.Errorf("backend query %s selected %v, reference selected %v", predicate, got, reference)
+	}
+}
+
+func (f filterCase) reference(t *testing.T, predicate filter.Predicate, docs []*document.Document) []string {
+	t.Helper()
+	var reference, want []string
+	for _, index := range f.want {
+		want = append(want, docs[index].ID)
+	}
+	for _, doc := range docs {
+		values, err := doc.Metadata.Values()
+		if err != nil {
+			t.Fatal(err)
+		}
+		match, err := filter.Match(predicate, values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if match {
+			reference = append(reference, doc.ID)
+		}
+	}
+	if !slices.Equal(reference, want) {
+		t.Fatalf("filter.Match(%s) selected %v, want %v", predicate, reference, want)
+	}
+	return reference
 }
 
 func filterCases() []filterCase {

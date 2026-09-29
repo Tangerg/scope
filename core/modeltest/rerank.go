@@ -25,68 +25,77 @@ type RerankContract struct {
 // RunRerankContract accepts top_n or top_k on the wire.
 func RunRerankContract(t *testing.T, contract RerankContract) {
 	t.Helper()
-	t.Run("Call_Mock", func(t *testing.T) {
-		type wireRequest struct {
-			Model     string   `json:"model"`
-			Query     string   `json:"query"`
-			Documents []string `json:"documents"`
-			TopN      *int     `json:"top_n"`
-			TopK      *int     `json:"top_k"`
-		}
-		type observation struct {
-			path    string
-			request wireRequest
-			err     error
-		}
-		seen := make(chan observation, 1)
-		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
-			observed := observation{path: request.URL.Path}
-			if err := jsonv2.UnmarshalRead(request.Body, &observed.request); err != nil {
-				observed.err = fmt.Errorf("decode request: %w", err)
-			}
-			select {
-			case seen <- observed:
-			default:
-			}
-		})
-		t.Cleanup(server.Close)
+	t.Run("Call_Mock", contract.runCall)
+}
 
-		model := contract.Build(t, server.URL)
-		request, err := rerank.NewRequest("capital of France", []string{"Paris", "Berlin", "Rome"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		request.Options.TopK = new(2)
-		response, err := model.Call(t.Context(), request)
-		if err != nil {
-			t.Fatalf("Call: %v", err)
+func (r RerankContract) runCall(t *testing.T) {
+	seen := make(chan rerankObservation, 1)
+	server := JSONServer(http.StatusOK, r.Response, func(request *http.Request) {
+		observed := rerankObservation{path: request.URL.Path}
+		if err := jsonv2.UnmarshalRead(request.Body, &observed.request); err != nil {
+			observed.err = fmt.Errorf("decode request: %w", err)
 		}
 		select {
-		case observation := <-seen:
-			if observation.err != nil {
-				t.Fatal(observation.err)
-			}
-			if observation.path != contract.ExpectedPath {
-				t.Errorf("URL = %q, want %q", observation.path, contract.ExpectedPath)
-			}
-			wireRequest := observation.request
-			if wireRequest.Model != contract.ModelID || wireRequest.Query != request.Query || len(wireRequest.Documents) != len(request.Documents) {
-				t.Fatalf("wire request = %#v", wireRequest)
-			}
-			limit := wireRequest.TopN
-			if limit == nil {
-				limit = wireRequest.TopK
-			}
-			if limit == nil || *limit != *request.Options.TopK {
-				t.Fatalf("wire top K = %v, want %d", limit, *request.Options.TopK)
-			}
+		case seen <- observed:
 		default:
-			t.Fatal("provider sent no decodable request")
-		}
-		if err := response.ValidateFor(request); err != nil {
-			t.Fatalf("response: %v", err)
 		}
 	})
+	t.Cleanup(server.Close)
+
+	model := r.Build(t, server.URL)
+	request, err := rerank.NewRequest("capital of France", []string{"Paris", "Berlin", "Rome"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Options.TopK = new(2)
+	response, err := model.Call(t.Context(), request)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	select {
+	case observed := <-seen:
+		observed.assert(t, r, request)
+	default:
+		t.Fatal("provider sent no decodable request")
+	}
+	if err := response.ValidateFor(request); err != nil {
+		t.Fatalf("response: %v", err)
+	}
+}
+
+type rerankWireRequest struct {
+	Model     string   `json:"model"`
+	Query     string   `json:"query"`
+	Documents []string `json:"documents"`
+	TopN      *int     `json:"top_n"`
+	TopK      *int     `json:"top_k"`
+}
+
+type rerankObservation struct {
+	path    string
+	request rerankWireRequest
+	err     error
+}
+
+func (r rerankObservation) assert(t *testing.T, contract RerankContract, request *rerank.Request) {
+	t.Helper()
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if r.path != contract.ExpectedPath {
+		t.Errorf("URL = %q, want %q", r.path, contract.ExpectedPath)
+	}
+	wire := r.request
+	if wire.Model != contract.ModelID || wire.Query != request.Query || len(wire.Documents) != len(request.Documents) {
+		t.Fatalf("wire request = %#v", wire)
+	}
+	limit := wire.TopN
+	if limit == nil {
+		limit = wire.TopK
+	}
+	if limit == nil || *limit != *request.Options.TopK {
+		t.Fatalf("wire top K = %v, want %d", limit, *request.Options.TopK)
+	}
 }
 
 type IntegrationRerankProbe struct {

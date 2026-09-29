@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -44,83 +46,88 @@ func RunChatBehaviorContract(t *testing.T, contract ChatBehaviorContract) {
 		t.Fatal("modeltest.ChatBehaviorContract requires every factory")
 	}
 
-	t.Run("call context cancellation", func(t *testing.T) {
-		test := contract.CallCancellation(t)
-		if test.Model == nil {
-			t.Fatal("CallCancellation returned nil Model")
-		}
-		request := contract.validRequest(t)
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		type result struct {
-			response *chat.Response
-			err      error
-		}
-		completed := make(chan result, 1)
-		go func() {
-			response, err := test.Model.Call(ctx, request)
-			completed <- result{response: response, err: err}
-		}()
-		waitSignal(t, test.Lifecycle.Started, "provider request start")
-		cancel()
-		outcome := waitValue(t, completed, "Call return")
-		if outcome.response != nil {
-			t.Fatalf("canceled Call response = %#v; want nil", outcome.response)
-		}
-		assertContextCanceled(t, outcome.err)
-		waitSignal(t, test.Lifecycle.Stopped, "provider request stop")
-	})
+	t.Run("call context cancellation", contract.runCallCancellation)
+	t.Run("stream context cancellation", contract.runStreamCancellation)
+	t.Run("caller early stop", contract.runEarlyStop)
+	t.Run("first error terminates", contract.runFirstError)
+}
 
-	t.Run("stream context cancellation", func(t *testing.T) {
-		test := contract.StreamCancellation(t)
-		if test.Streamer == nil {
-			t.Fatal("StreamCancellation returned nil Streamer")
-		}
-		request := contract.validRequest(t)
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		completed := make(chan []streamYield, 1)
-		go func() {
-			completed <- drainStream(test.Streamer.Stream(ctx, request))
-		}()
-		waitSignal(t, test.Lifecycle.Started, "provider stream start")
-		cancel()
-		outcome := waitValue(t, completed, "Stream return")
-		terminal := assertTerminalError(t, outcome, false)
-		assertContextCanceled(t, terminal)
-		waitSignal(t, test.Lifecycle.Stopped, "provider stream stop")
-	})
+func (c ChatBehaviorContract) runCallCancellation(t *testing.T) {
+	test := c.CallCancellation(t)
+	if lo.IsNil(test.Model) {
+		t.Fatal("CallCancellation returned nil Model")
+	}
+	request := c.validRequest(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	type result struct {
+		response *chat.Response
+		err      error
+	}
+	completed := make(chan result, 1)
+	go func() {
+		response, err := test.Model.Call(ctx, request)
+		completed <- result{response: response, err: err}
+	}()
+	waitSignal(t, test.Lifecycle.Started, "provider request start")
+	cancel()
+	outcome := waitValue(t, completed, "Call return")
+	if outcome.response != nil {
+		t.Fatalf("canceled Call response = %#v; want nil", outcome.response)
+	}
+	assertContextCanceled(t, outcome.err)
+	waitSignal(t, test.Lifecycle.Stopped, "provider request stop")
+}
 
-	t.Run("caller early stop", func(t *testing.T) {
-		test := contract.EarlyStop(t)
-		if test.Streamer == nil {
-			t.Fatal("EarlyStop returned nil Streamer")
-		}
-		request := contract.validRequest(t)
-		count := 0
-		for delta, err := range test.Streamer.Stream(t.Context(), request) {
-			if err != nil {
-				t.Fatalf("Stream before early stop: %v", err)
-			}
-			assertResponseDelta(t, delta)
-			count++
-			break
-		}
-		if count != 1 {
-			t.Fatalf("Stream successes before stop = %d; want 1", count)
-		}
-		waitSignal(t, test.Lifecycle.Started, "provider stream start")
-		waitSignal(t, test.Lifecycle.Stopped, "provider stream stop")
-	})
+func (c ChatBehaviorContract) runStreamCancellation(t *testing.T) {
+	test := c.StreamCancellation(t)
+	if lo.IsNil(test.Streamer) {
+		t.Fatal("StreamCancellation returned nil Streamer")
+	}
+	request := c.validRequest(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	completed := make(chan []streamYield, 1)
+	go func() {
+		completed <- drainStream(test.Streamer.Stream(ctx, request))
+	}()
+	waitSignal(t, test.Lifecycle.Started, "provider stream start")
+	cancel()
+	outcome := waitValue(t, completed, "Stream return")
+	terminal := assertTerminalError(t, outcome, false)
+	assertContextCanceled(t, terminal)
+	waitSignal(t, test.Lifecycle.Stopped, "provider stream stop")
+}
 
-	t.Run("first error terminates", func(t *testing.T) {
-		streamer := contract.FirstError(t)
-		if streamer == nil {
-			t.Fatal("FirstError returned nil Streamer")
+func (c ChatBehaviorContract) runEarlyStop(t *testing.T) {
+	test := c.EarlyStop(t)
+	if lo.IsNil(test.Streamer) {
+		t.Fatal("EarlyStop returned nil Streamer")
+	}
+	request := c.validRequest(t)
+	count := 0
+	for delta, err := range test.Streamer.Stream(t.Context(), request) {
+		if err != nil {
+			t.Fatalf("Stream before early stop: %v", err)
 		}
-		outcome := drainStream(streamer.Stream(t.Context(), contract.validRequest(t)))
-		_ = assertTerminalError(t, outcome, true)
-	})
+		assertResponseDelta(t, delta)
+		count++
+		break
+	}
+	if count != 1 {
+		t.Fatalf("Stream successes before stop = %d; want 1", count)
+	}
+	waitSignal(t, test.Lifecycle.Started, "provider stream start")
+	waitSignal(t, test.Lifecycle.Stopped, "provider stream stop")
+}
+
+func (c ChatBehaviorContract) runFirstError(t *testing.T) {
+	streamer := c.FirstError(t)
+	if lo.IsNil(streamer) {
+		t.Fatal("FirstError returned nil Streamer")
+	}
+	outcome := drainStream(streamer.Stream(t.Context(), c.validRequest(t)))
+	_ = assertTerminalError(t, outcome, true)
 }
 
 func (c ChatBehaviorContract) validRequest(t *testing.T) *chat.Request {

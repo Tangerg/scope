@@ -36,11 +36,6 @@ func Run(t *testing.T, store any, expected Capabilities) {
 		t.Fatal("conformance: store must not be nil")
 	}
 
-	indexer, hasIndexer := store.(vectorstore.Indexer)
-	searcher, hasSearcher := store.(vectorstore.Searcher)
-	idDeleter, hasIDDeleter := store.(vectorstore.IDDeleter)
-	filterDeleter, hasFilterDeleter := store.(vectorstore.FilterDeleter)
-
 	actual := CapabilitiesOf(store)
 	assertCapability(t, "Indexer", actual.Indexer, expected.Indexer)
 	assertCapability(t, "Searcher", actual.Searcher, expected.Searcher)
@@ -48,77 +43,88 @@ func Run(t *testing.T, store any, expected Capabilities) {
 	assertCapability(t, "FilterDeleter", actual.FilterDeleter, expected.FilterDeleter)
 	assertCapability(t, "Closer", actual.Closer, expected.Closer)
 
-	ctx := t.Context()
-	if expected.Indexer && hasIndexer {
-		indexCases := []struct {
-			name string
-			docs []*document.Document
-			want error
-		}{
-			{name: "empty documents", want: vectorstore.ErrEmptyDocuments},
-			{name: "nil document", docs: []*document.Document{nil}, want: vectorstore.ErrInvalidDocument},
-			{name: "missing document ID", docs: []*document.Document{{Text: "content"}}, want: vectorstore.ErrMissingDocumentID},
-			{
-				name: "duplicate document ID",
-				docs: []*document.Document{{ID: "duplicate", Text: "one"}, {ID: "duplicate", Text: "two"}},
-				want: vectorstore.ErrDuplicateDocumentID,
-			},
-		}
-		for _, test := range indexCases {
-			t.Run("IndexRejects"+test.name+"BeforeIO", func(t *testing.T) {
-				request := &vectorstore.IndexRequest{Documents: test.docs}
-				if err := indexer.Index(ctx, request); !errors.Is(err, test.want) {
-					t.Fatalf("Index() error = %v, want %v", err, test.want)
-				}
-			})
-		}
-		if !expected.MediaDocuments {
-			t.Run("IndexRejectsUnsupportedMediaBeforeIO", func(t *testing.T) {
-				content, err := media.NewURI("image/png", "https://example.com/image.png")
-				if err != nil {
-					t.Fatal(err)
-				}
-				request := &vectorstore.IndexRequest{Documents: []*document.Document{
-					{ID: "1", Text: "text-only document"},
-					{ID: "2", Text: "caption", Media: content},
-				}}
-				if indexErr := indexer.Index(ctx, request); !errors.Is(indexErr, vectorstore.ErrInvalidDocument) {
-					t.Fatalf("Index(mixed content) error = %v, want ErrInvalidDocument before I/O", indexErr)
-				}
-			})
-		}
+	if indexer, ok := store.(vectorstore.Indexer); ok && expected.Indexer {
+		runIndexerChecks(t, indexer, expected.MediaDocuments)
 	}
-	if expected.Searcher && hasSearcher {
-		t.Run("SearchRejectsInvalidRequestBeforeIO", func(t *testing.T) {
-			if _, err := searcher.Search(ctx, &vectorstore.SearchRequest{}); err == nil {
-				t.Fatal("Search(zero request) error = nil, want validation error")
-			}
-		})
-		if !expected.HybridSearch {
-			t.Run("SearchRejectsUnsupportedHybridBeforeIO", func(t *testing.T) {
-				request := &vectorstore.SearchRequest{
-					Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid},
-				}
-				if _, err := searcher.Search(ctx, request); !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
-					t.Fatalf("Search(hybrid) error = %v, want %v", err, vectorstore.ErrUnsupportedSearchMode)
-				}
-			})
-		}
+	if searcher, ok := store.(vectorstore.Searcher); ok && expected.Searcher {
+		runSearcherChecks(t, searcher, expected.HybridSearch)
 	}
-	if expected.IDDeleter && hasIDDeleter {
+	if deleter, ok := store.(vectorstore.IDDeleter); ok && expected.IDDeleter {
 		t.Run("DeleteIDsTreatsEmptyInputAsNoop", func(t *testing.T) {
-			if err := idDeleter.DeleteIDs(ctx, nil); err != nil {
+			if err := deleter.DeleteIDs(t.Context(), nil); err != nil {
 				t.Fatalf("DeleteIDs(nil) error = %v, want nil", err)
 			}
 		})
 	}
-	if expected.FilterDeleter && hasFilterDeleter {
+	if deleter, ok := store.(vectorstore.FilterDeleter); ok && expected.FilterDeleter {
 		t.Run("DeleteWhereRejectsMissingFilterBeforeIO", func(t *testing.T) {
-			if err := filterDeleter.DeleteWhere(ctx, nil); !errors.Is(err, vectorstore.ErrMissingFilter) {
+			if err := deleter.DeleteWhere(t.Context(), nil); !errors.Is(err, vectorstore.ErrMissingFilter) {
 				t.Fatalf("DeleteWhere(nil) error = %v, want %v", err, vectorstore.ErrMissingFilter)
 			}
 		})
 	}
+}
+
+func runIndexerChecks(t *testing.T, indexer vectorstore.Indexer, mediaDocuments bool) {
+	t.Helper()
+	indexCases := []struct {
+		name string
+		docs []*document.Document
+		want error
+	}{
+		{name: "empty documents", want: vectorstore.ErrEmptyDocuments},
+		{name: "nil document", docs: []*document.Document{nil}, want: vectorstore.ErrInvalidDocument},
+		{name: "missing document ID", docs: []*document.Document{{Text: "content"}}, want: vectorstore.ErrMissingDocumentID},
+		{
+			name: "duplicate document ID",
+			docs: []*document.Document{{ID: "duplicate", Text: "one"}, {ID: "duplicate", Text: "two"}},
+			want: vectorstore.ErrDuplicateDocumentID,
+		},
+	}
+	for _, test := range indexCases {
+		t.Run("IndexRejects"+test.name+"BeforeIO", func(t *testing.T) {
+			request := &vectorstore.IndexRequest{Documents: test.docs}
+			if err := indexer.Index(t.Context(), request); !errors.Is(err, test.want) {
+				t.Fatalf("Index() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+	if mediaDocuments {
+		return
+	}
+	t.Run("IndexRejectsUnsupportedMediaBeforeIO", func(t *testing.T) {
+		content, err := media.NewURI("image/png", "https://example.com/image.png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := &vectorstore.IndexRequest{Documents: []*document.Document{
+			{ID: "1", Text: "text-only document"},
+			{ID: "2", Text: "caption", Media: content},
+		}}
+		if indexErr := indexer.Index(t.Context(), request); !errors.Is(indexErr, vectorstore.ErrInvalidDocument) {
+			t.Fatalf("Index(mixed content) error = %v, want ErrInvalidDocument before I/O", indexErr)
+		}
+	})
+}
+
+func runSearcherChecks(t *testing.T, searcher vectorstore.Searcher, hybridSearch bool) {
+	t.Helper()
+	t.Run("SearchRejectsInvalidRequestBeforeIO", func(t *testing.T) {
+		if _, err := searcher.Search(t.Context(), &vectorstore.SearchRequest{}); err == nil {
+			t.Fatal("Search(zero request) error = nil, want validation error")
+		}
+	})
+	if hybridSearch {
+		return
+	}
+	t.Run("SearchRejectsUnsupportedHybridBeforeIO", func(t *testing.T) {
+		request := &vectorstore.SearchRequest{
+			Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid},
+		}
+		if _, err := searcher.Search(t.Context(), request); !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
+			t.Fatalf("Search(hybrid) error = %v, want %v", err, vectorstore.ErrUnsupportedSearchMode)
+		}
+	})
 }
 
 // CapabilitiesOf detects interface capabilities. Run probes HybridSearch and

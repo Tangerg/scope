@@ -29,66 +29,74 @@ type EmbeddingContract struct {
 
 func RunEmbeddingContract(t *testing.T, contract EmbeddingContract) {
 	t.Helper()
-	t.Run("Call_Mock", func(t *testing.T) {
-		if contract.ModelID == "" || contract.InputField == "" || len(contract.ExpectedEmbeddings) != 2 {
-			t.Fatal("contract requires a model, input field, and two expected embeddings")
-		}
-		type observation struct {
-			path, method string
-			body         map[string]json.RawMessage
-			err          error
-		}
-		seen := make(chan observation, 1)
-		server := JSONServer(http.StatusOK, contract.Response, func(request *http.Request) {
-			observed := observation{path: request.URL.Path, method: request.Method}
-			observed.err = jsonv2.UnmarshalRead(request.Body, &observed.body)
-			select {
-			case seen <- observed:
-			default:
-			}
-		})
-		t.Cleanup(server.Close)
-		model := contract.Build(t, server.URL)
-		request, err := embedding.NewRequest([]string{"foo", "bar"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		request.Options.Model = contract.ModelID
-		response, err := model.Call(t.Context(), request)
-		if err != nil {
-			t.Fatalf("Call: %v", err)
-		}
+	t.Run("Call_Mock", contract.runCall)
+}
+
+func (e EmbeddingContract) runCall(t *testing.T) {
+	if e.ModelID == "" || e.InputField == "" || len(e.ExpectedEmbeddings) != 2 {
+		t.Fatal("contract requires a model, input field, and two expected embeddings")
+	}
+	seen := make(chan embeddingObservation, 1)
+	server := JSONServer(http.StatusOK, e.Response, func(request *http.Request) {
+		observed := embeddingObservation{path: request.URL.Path, method: request.Method}
+		observed.err = jsonv2.UnmarshalRead(request.Body, &observed.body)
 		select {
-		case observed := <-seen:
-			if observed.err != nil {
-				t.Fatalf("decode request: %v", observed.err)
-			}
-			if observed.method != http.MethodPost {
-				t.Errorf("method = %q; want POST", observed.method)
-			}
-			if contract.ExpectedPath != "" && observed.path != contract.ExpectedPath {
-				t.Errorf("URL = %q; want %q", observed.path, contract.ExpectedPath)
-			}
-			var modelID string
-			if err := jsonv2.Unmarshal(observed.body["model"], &modelID); err != nil || modelID != contract.ModelID {
-				t.Errorf("wire model = %q, error = %v; want %q", modelID, err, contract.ModelID)
-			}
-			var texts []string
-			if err := jsonv2.Unmarshal(observed.body[contract.InputField], &texts); err != nil || !slices.Equal(texts, request.Texts) {
-				t.Errorf("wire texts = %q, error = %v; want %q", texts, err, request.Texts)
-			}
+		case seen <- observed:
 		default:
-			t.Fatal("provider sent no request")
-		}
-		if err := response.ValidateFor(request); err != nil {
-			t.Fatalf("response: %v", err)
-		}
-		for index, output := range response.Outputs {
-			if !slices.Equal(output.Embedding, contract.ExpectedEmbeddings[index]) {
-				t.Errorf("output %d = %v; want %v", index, output.Embedding, contract.ExpectedEmbeddings[index])
-			}
 		}
 	})
+	t.Cleanup(server.Close)
+	model := e.Build(t, server.URL)
+	request, err := embedding.NewRequest([]string{"foo", "bar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Options.Model = e.ModelID
+	response, err := model.Call(t.Context(), request)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	select {
+	case observed := <-seen:
+		observed.assert(t, e, request)
+	default:
+		t.Fatal("provider sent no request")
+	}
+	if err := response.ValidateFor(request); err != nil {
+		t.Fatalf("response: %v", err)
+	}
+	for index, output := range response.Outputs {
+		if !slices.Equal(output.Embedding, e.ExpectedEmbeddings[index]) {
+			t.Errorf("output %d = %v; want %v", index, output.Embedding, e.ExpectedEmbeddings[index])
+		}
+	}
+}
+
+type embeddingObservation struct {
+	path, method string
+	body         map[string]json.RawMessage
+	err          error
+}
+
+func (e embeddingObservation) assert(t *testing.T, contract EmbeddingContract, request *embedding.Request) {
+	t.Helper()
+	if e.err != nil {
+		t.Fatalf("decode request: %v", e.err)
+	}
+	if e.method != http.MethodPost {
+		t.Errorf("method = %q; want POST", e.method)
+	}
+	if contract.ExpectedPath != "" && e.path != contract.ExpectedPath {
+		t.Errorf("URL = %q; want %q", e.path, contract.ExpectedPath)
+	}
+	var modelID string
+	if err := jsonv2.Unmarshal(e.body["model"], &modelID); err != nil || modelID != contract.ModelID {
+		t.Errorf("wire model = %q, error = %v; want %q", modelID, err, contract.ModelID)
+	}
+	var texts []string
+	if err := jsonv2.Unmarshal(e.body[contract.InputField], &texts); err != nil || !slices.Equal(texts, request.Texts) {
+		t.Errorf("wire texts = %q, error = %v; want %q", texts, err, request.Texts)
+	}
 }
 
 type IntegrationEmbeddingProbe struct {

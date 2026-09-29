@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -26,63 +28,66 @@ func RunChatContract(t *testing.T, contract ChatContract) {
 		t.Fatal("modeltest.ChatContract.Request must not be nil")
 	}
 
-	t.Run("call", func(t *testing.T) {
-		model, _ := contract.New(t)
-		if model == nil {
-			t.Fatal("provider returned nil Model")
-		}
-		request := contract.validRequest(t)
-		before := requestWire(t, request)
-		response, err := model.Call(t.Context(), request)
-		if err != nil {
-			t.Fatalf("Call: %v", err)
-		}
-		assertResponse(t, response)
-		if after := requestWire(t, request); !bytes.Equal(before, after) {
-			t.Fatalf("Call mutated Request\nbefore: %s\nafter:  %s", before, after)
-		}
-		if contract.AssertCall != nil {
-			contract.AssertCall(t, response)
-		}
-	})
+	t.Run("call", contract.runCall)
+	t.Run("stream", contract.runStream)
+}
 
-	t.Run("stream", func(t *testing.T) {
-		_, streamer := contract.New(t)
-		if streamer == nil {
-			t.Fatal("provider returned nil Streamer")
-		}
-		request := contract.validRequest(t)
-		before := requestWire(t, request)
-		var deltas []*chat.ResponseDelta
-		var accumulator chat.ResponseAccumulator
-		for delta, err := range streamer.Stream(t.Context(), request) {
-			if err != nil {
-				t.Fatalf("Stream: %v", err)
-			}
-			assertResponseDelta(t, delta)
-			if err := accumulator.Add(delta); err != nil {
-				t.Fatalf("ResponseAccumulator.Add: %v", err)
-			}
-			deltas = append(deltas, delta)
-		}
-		if len(deltas) == 0 {
-			t.Fatal("Stream yielded no response deltas")
-		}
-		if after := requestWire(t, request); !bytes.Equal(before, after) {
-			t.Fatalf("Stream mutated Request\nbefore: %s\nafter:  %s", before, after)
-		}
-		if contract.AssertStream != nil {
-			contract.AssertStream(t, deltas)
-		}
-		aggregated, err := accumulator.Response()
+func (c ChatContract) runCall(t *testing.T) {
+	model, _ := c.New(t)
+	if lo.IsNil(model) {
+		t.Fatal("provider returned nil Model")
+	}
+	request := c.validRequest(t)
+	before := requestWire(t, request)
+	response, err := model.Call(t.Context(), request)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	assertResponse(t, response)
+	if after := requestWire(t, request); !bytes.Equal(before, after) {
+		t.Fatalf("Call mutated Request\nbefore: %s\nafter:  %s", before, after)
+	}
+	if c.AssertCall != nil {
+		c.AssertCall(t, response)
+	}
+}
+
+func (c ChatContract) runStream(t *testing.T) {
+	_, streamer := c.New(t)
+	if lo.IsNil(streamer) {
+		t.Fatal("provider returned nil Streamer")
+	}
+	request := c.validRequest(t)
+	before := requestWire(t, request)
+	var deltas []*chat.ResponseDelta
+	var accumulator chat.ResponseAccumulator
+	for delta, err := range streamer.Stream(t.Context(), request) {
 		if err != nil {
-			t.Fatalf("ResponseAccumulator.Response: %v", err)
+			t.Fatalf("Stream: %v", err)
 		}
-		assertResponse(t, aggregated)
-		if contract.AssertAggregated != nil {
-			contract.AssertAggregated(t, aggregated)
+		assertResponseDelta(t, delta)
+		if err := accumulator.Add(delta); err != nil {
+			t.Fatalf("ResponseAccumulator.Add: %v", err)
 		}
-	})
+		deltas = append(deltas, delta)
+	}
+	if len(deltas) == 0 {
+		t.Fatal("Stream yielded no response deltas")
+	}
+	if after := requestWire(t, request); !bytes.Equal(before, after) {
+		t.Fatalf("Stream mutated Request\nbefore: %s\nafter:  %s", before, after)
+	}
+	if c.AssertStream != nil {
+		c.AssertStream(t, deltas)
+	}
+	aggregated, err := accumulator.Response()
+	if err != nil {
+		t.Fatalf("ResponseAccumulator.Response: %v", err)
+	}
+	assertResponse(t, aggregated)
+	if c.AssertAggregated != nil {
+		c.AssertAggregated(t, aggregated)
+	}
 }
 
 func assertResponseDelta(t *testing.T, delta *chat.ResponseDelta) {

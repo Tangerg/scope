@@ -85,19 +85,13 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	failure := []struct {
 		name string
 		src  string
-		// Error hints are informational; providers may wrap errors with different wording.
-		hint string
 	}{
-		{"like_number", `title like 42`, ""},
+		{"like_number", `title like 42`},
 	}
 	for _, tc := range failure {
 		t.Run("Failure_"+tc.name, func(t *testing.T) {
-			err := build(tc.src)
-			if err == nil {
+			if err := build(tc.src); err == nil {
 				t.Fatalf("expected error on %q, got nil", tc.src)
-			}
-			if tc.hint != "" && !strings.Contains(err.Error(), tc.hint) {
-				t.Logf("err = %v (hint %q not in error — fine if vendor wraps)", err, tc.hint)
 			}
 		})
 	}
