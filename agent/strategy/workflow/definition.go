@@ -73,7 +73,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	state := executionState{Phase: phaseReady, CurrentValue: input.JSON()}
+	state := executionState{CurrentValue: input.JSON()}
 	return &execution{definition: d, state: state}, nil
 }
 

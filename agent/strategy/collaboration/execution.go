@@ -18,7 +18,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.Phase {
+	switch e.state.phase() {
 	case phaseReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidProtocol
@@ -66,7 +66,6 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	e.state.Turn = &turnExecution{Input: turn}
 	e.state.Mode = Undecided
 	e.state.WaitID = nil
-	e.state.Phase = phaseStartingTurn
 	return agent.Continue(consumed, effect)
 }
 
@@ -88,7 +87,6 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	}
 	e.state.recordStart(indices[0], started)
 	if failure, failed := started.Failure(); failed {
-		e.state.Phase = phaseFailed
 		return agent.Fail(1, failure)
 	}
 	return e.openWait(1)
@@ -108,7 +106,6 @@ func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseOpening
 	return agent.Continue(consumed, effect)
 }
 
@@ -133,7 +130,6 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	e.state.WaitID = &id
-	e.state.Phase = phaseWaiting
 	return agent.Wait(1, id)
 }
 
@@ -173,7 +169,6 @@ func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Trans
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
-		e.state.Phase = phaseFailed
 		return agent.Fail(consumed, failure)
 	}
 	if e.state.Mode == Wait {
@@ -181,7 +176,6 @@ func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Trans
 	}
 	result := e.state.Turn.Outcome.Result()
 	if failure, failed := result.Termination().Failure(); failed {
-		e.state.Phase = phaseFailed
 		return agent.Fail(consumed, failure)
 	}
 	output, present := result.Output()
@@ -304,14 +298,12 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
 	}
 	if decision.Mode == Complete {
-		e.state.Phase = phaseCompleted
 		e.state.Output = decision.Output
 		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {
 		return e.afterActions(consumed)
 	}
-	e.state.Phase = phaseApplying
 	return agent.Continue(consumed, effects...)
 }
 

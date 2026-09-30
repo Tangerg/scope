@@ -284,7 +284,6 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 				t.Fatalf("unsafe decision adopted: %s", state.Payload())
 			}
 			wire["mode"] = safetyValue(jsonv2.Marshal(mode))
-			wire["phase"] = json.RawMessage(`"completed"`)
 			wire["output"] = output.JSON()
 			forged := safetyValue(agent.ParseExecutionState(state.Kind(), safetyValue(jsonv2.Marshal(wire))))
 			if _, err := definition.Restore(t.Context(), forged); !errors.Is(err, collaboration.ErrInvalidExecutionState) {

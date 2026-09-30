@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -100,12 +101,6 @@ func TestConfigurationAndProtocolContracts(t *testing.T) {
 	if _, err := execution.Step(context.Background(), []agent.Signal{signal}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal(err)
 	}
-	for _, phase := range []phase{phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting, phaseCompleted, phaseFailed} {
-		execution.state.Phase = phase
-		if _, err := execution.Step(context.Background(), nil); !errors.Is(err, ErrInvalidProtocol) {
-			t.Fatal(err)
-		}
-	}
 }
 
 type tracedDefinition struct {
@@ -170,10 +165,16 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		cases[index].Name = string(state.Phase) + "-" + string(rune('a'+index))
-		phases[state.Phase] = true
+		current := state.phase()
+		cases[index].Name = fmt.Sprintf("phase%d-%c", current, 'a'+index)
+		phases[current] = true
+		if current != phaseReady {
+			restored := require(definition.Restore(t.Context(), cases[index].State))
+			if _, err := restored.Step(t.Context(), nil); !errors.Is(err, ErrInvalidProtocol) {
+				t.Fatalf("%s accepted a Step without its protocol Signal: %v", cases[index].Name, err)
+			}
+		}
 		mutations := map[string]func(*executionState){
-			"unknown phase": func(state *executionState) { state.Phase = "unknown" },
 			"excess turns":  func(state *executionState) { maximum, _ := definition.maxTurns.Maximum(); state.Number = maximum + 1 },
 			"changed state": func(state *executionState) { state.State = require(agent.EncodePayload(1)) },
 		}
@@ -224,7 +225,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	}
 	for _, phase := range []phase{phaseReady, phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting} {
 		if !phases[phase] {
-			t.Fatalf("phase %s untested", phase)
+			t.Fatalf("phase %d untested", phase)
 		}
 	}
 	for _, sample := range cases {

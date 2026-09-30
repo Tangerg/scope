@@ -11,16 +11,19 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
-type phase string
+// phase names the next protocol step. It is derived from the recorded turn,
+// decision, and child evidence, never persisted, so no stored phase can
+// contradict that evidence.
+type phase uint8
 
 const (
-	phaseReady        phase = "ready"
-	phaseStartingTurn phase = "starting_turn"
-	phaseApplying     phase = "applying"
-	phaseOpening      phase = "opening"
-	phaseWaiting      phase = "waiting"
-	phaseCompleted    phase = "completed"
-	phaseFailed       phase = "failed"
+	phaseReady phase = iota
+	phaseStartingTurn
+	phaseApplying
+	phaseOpening
+	phaseWaiting
+	phaseCompleted
+	phaseFailed
 )
 
 type turnExecution struct {
@@ -31,6 +34,12 @@ type turnExecution struct {
 
 func (t turnExecution) unresolved() bool {
 	return t.Outcome != nil && !t.Outcome.SubtreeResolved()
+}
+
+// ended reports a turn that failed to produce a usable decision.
+func (t turnExecution) ended() bool {
+	_, failed := t.failure()
+	return failed || t.unresolved()
 }
 
 func (t turnExecution) failure() (agent.Failure, bool) {
@@ -44,7 +53,6 @@ func (t turnExecution) failure() (agent.Failure, bool) {
 }
 
 type executionState struct {
-	Phase        phase            `json:"phase"`
 	Number       uint64           `json:"number"`
 	State        agent.Payload    `json:"state"`
 	Tasks        []Task           `json:"tasks,omitempty"`
@@ -54,6 +62,44 @@ type executionState struct {
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
 	Output       agent.Payload    `json:"output,omitzero"`
+}
+
+// phase derives the next protocol step. A turn fails, before any decision
+// applies, when its start fails or its drained outcome failed or retains
+// unresolved Effects.
+func (e executionState) phase() phase {
+	switch {
+	case e.Turn == nil:
+		return phaseReady
+	case e.Output.Valid():
+		return phaseCompleted
+	case e.Turn.Start == nil:
+		return phaseStartingTurn
+	case e.Mode == Undecided && e.Turn.ended():
+		return phaseFailed
+	case e.unapplied() != 0:
+		return phaseApplying
+	case e.WaitID != nil:
+		return phaseWaiting
+	default:
+		return phaseOpening
+	}
+}
+
+// unapplied counts decided actions whose Framework settlement is still owed.
+func (e executionState) unapplied() int {
+	count := 0
+	for _, task := range e.Tasks {
+		if task.Start == nil {
+			count++
+		}
+	}
+	for _, receipt := range e.Controls {
+		if receipt.Result == nil {
+			count++
+		}
+	}
+	return count
 }
 
 func (e executionState) taskIndex() map[agent.ChildKey]*Task {
@@ -204,17 +250,17 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err != nil {
 		return err
 	}
-	if e.Phase == phaseReady {
+	current := e.phase()
+	if current == phaseReady {
 		return e.validateReady()
 	}
-	if err := e.validateTurn(ctx, d, ids); err != nil {
+	if err := e.validateTurn(ctx, d, ids, current); err != nil {
 		return err
 	}
-	unapplied := pending + pendingControls
-	if err := e.validatePhaseCorrespondence(unapplied); err != nil {
+	if err := e.validatePhaseFacts(current, pending+pendingControls); err != nil {
 		return err
 	}
-	if err := e.validatePhaseProgress(d, unapplied); err != nil {
+	if err := e.validatePhaseProgress(d, current); err != nil {
 		return err
 	}
 	return ctx.Err()
@@ -237,54 +283,48 @@ func (e executionState) validateReady() error {
 	return nil
 }
 
-func (e executionState) validatePhaseCorrespondence(unapplied int) error {
-	if e.Phase != phaseApplying && unapplied != 0 {
-		return fmt.Errorf("%w: phase %q retains unapplied work", ErrInvalidExecutionState, e.Phase)
+// validatePhaseFacts rejects evidence the derived phase leaves unexplained:
+// owed settlements outside applying and a wait identity outside waiting.
+func (e executionState) validatePhaseFacts(current phase, unapplied int) error {
+	if current != phaseApplying && unapplied != 0 {
+		return fmt.Errorf("%w: settled turn retains unapplied work", ErrInvalidExecutionState)
 	}
-	if (e.Phase == phaseWaiting) != (e.WaitID != nil) || e.WaitID != nil && !e.WaitID.Valid() {
-		return fmt.Errorf("%w: wait identity does not match phase %q", ErrInvalidExecutionState, e.Phase)
-	}
-	if (e.Phase == phaseCompleted) != (e.Output.Valid()) {
-		return fmt.Errorf("%w: output does not match phase %q", ErrInvalidExecutionState, e.Phase)
+	if e.WaitID != nil && (current != phaseWaiting || !e.WaitID.Valid()) {
+		return fmt.Errorf("%w: wait identity without an open wait", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validatePhaseProgress(d *Definition, unapplied int) error {
-	switch e.Phase {
+func (e executionState) validatePhaseProgress(d *Definition, current phase) error {
+	switch current {
 	case phaseStartingTurn:
 		return e.validateStartingTurn()
 	case phaseApplying:
-		return e.validateApplying(unapplied)
+		return e.validateApplying()
 	case phaseOpening, phaseWaiting:
 		return e.validateWaitingTurn(d)
 	case phaseCompleted:
 		return e.validateCompleted(d)
-	case phaseFailed:
-		return e.validateFailed()
 	default:
-		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
+		return nil
 	}
 }
 
 func (e executionState) validateStartingTurn() error {
-	if e.Turn.Start != nil || e.Turn.Outcome != nil || e.Mode != Undecided {
+	if e.Turn.Outcome != nil || e.Mode != Undecided {
 		return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateApplying(unapplied int) error {
-	if e.Turn.Outcome == nil || unapplied == 0 || e.Mode != Continue && e.Mode != Wait {
+func (e executionState) validateApplying() error {
+	if e.Turn.Outcome == nil || e.Mode != Continue && e.Mode != Wait {
 		return fmt.Errorf("%w: applying phase requires a continuing decision and pending work", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateWaitingTurn(d *Definition) error {
-	if e.Turn.Start == nil {
-		return fmt.Errorf("%w: waiting requires a turn start", ErrInvalidExecutionState)
-	}
 	if e.Mode == Wait && e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
 	}
@@ -303,13 +343,6 @@ func (e executionState) validateCompleted(d *Definition) error {
 	}
 	if err := d.descriptor.ValidateOutput(e.Output); err != nil {
 		return fmt.Errorf("%w: completed output: %w", ErrInvalidExecutionState, err)
-	}
-	return nil
-}
-
-func (e executionState) validateFailed() error {
-	if _, failed := e.Turn.failure(); !failed && !e.Turn.unresolved() || e.Mode != Undecided {
-		return fmt.Errorf("%w: failed phase requires a failed or unresolved turn without a decision", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -391,7 +424,7 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 	return pendingControls, nil
 }
 
-func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}) error {
+func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -407,11 +440,11 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := e.validateTurnControls(ctx, d); err != nil {
 		return err
 	}
-	if err := e.validateTurnStart(d, ids); err != nil {
+	if err := e.validateTurnStart(d, ids, current); err != nil {
 		return err
 	}
 	if e.Mode == Undecided {
-		return e.validateUndecidedTurn()
+		return e.validateUndecidedTurn(current)
 	}
 	return e.validateAppliedDecision(ctx, d)
 }
@@ -480,7 +513,7 @@ func (e executionState) validateTurnControls(ctx context.Context, d *Definition)
 	return nil
 }
 
-func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}) error {
+func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
 	if e.Turn.Start == nil {
 		return nil
 	}
@@ -493,14 +526,14 @@ func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID
 	}
 	id, present := e.Turn.Start.ProcessID()
 	_, reused := ids[id]
-	if !present && e.Phase != phaseFailed || reused {
+	if !present && current != phaseFailed || reused {
 		return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateUndecidedTurn() error {
-	if e.Turn.Outcome != nil && e.Phase != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
+func (e executionState) validateUndecidedTurn(current phase) error {
+	if e.Turn.Outcome != nil && current != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
 		!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
 		return fmt.Errorf("%w: turn without a decision changed state, tasks, or controls", ErrInvalidExecutionState)
 	}

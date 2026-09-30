@@ -70,18 +70,22 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.Phase != "failed" {
-				t.Fatalf("failed turn was not retained: %s", decoded.Phase)
+			if decoded.phase() != phaseFailed {
+				t.Fatalf("failed turn was not retained: phase %d", decoded.phase())
 			}
 			if _, err := definition.Restore(t.Context(), state); err != nil {
 				t.Fatal(err)
 			}
-			for name, mutate := range map[string]func(*executionState){
-				"missing start":   func(state *executionState) { state.Turn.Start = nil },
-				"completed phase": func(state *executionState) { state.Phase = phaseCompleted },
-				"decision mode":   func(state *executionState) { state.Mode = Continue },
-				"changed state":   func(state *executionState) { state.State = input("forged") },
-			} {
+			mutations := map[string]func(*executionState){
+				"completed output": func(state *executionState) { state.Output = input("forged") },
+				"decision mode":    func(state *executionState) { state.Mode = Continue },
+				"changed state":    func(state *executionState) { state.State = input("forged") },
+			}
+			if mode != "start" {
+				// Without its outcome, a turn that never started is a valid fresh turn.
+				mutations["missing start"] = func(state *executionState) { state.Turn.Start = nil }
+			}
+			for name, mutate := range mutations {
 				t.Run(name, func(t *testing.T) {
 					var altered executionState
 					if err := jsonv2.Unmarshal(state.Payload(), &altered); err != nil {

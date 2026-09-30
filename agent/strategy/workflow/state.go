@@ -4,34 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
-type phase string
+// phase names the next protocol step. It is derived from the recorded
+// progress, never persisted, so no stored phase can contradict that progress.
+type phase uint8
 
 const (
-	phaseReady                  phase = "ready"
-	phaseChild                  phase = "child"
-	phaseAwaitingFanoutStarts   phase = "awaiting_fanout_starts"
-	phaseAwaitingFanoutWaitOpen phase = "awaiting_fanout_wait_open"
-	phaseWaitingFanout          phase = "waiting_fanout"
-	phaseCompleted              phase = "completed"
+	phaseReady phase = iota
+	phaseChild
+	phaseAwaitingFanoutStarts
+	phaseAwaitingFanoutWaitOpen
+	phaseWaitingFanout
+	phaseCompleted
 )
 
-func (p phase) valid() bool {
-	switch p {
-	case phaseReady, phaseChild, phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen,
-		phaseWaitingFanout, phaseCompleted:
-		return true
-	default:
-		return false
-	}
-}
-
 type executionState struct {
-	Phase                  phase              `json:"phase"`
 	StageIndex             uint32             `json:"stage_index"`
 	CurrentValue           json.RawMessage    `json:"current_value"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
@@ -67,12 +59,28 @@ func (f fanoutChildState) child(key agent.ChildKey, deployment agent.DeploymentR
 	return child
 }
 
+// phase derives the next protocol step of a Workflow with stageCount Stages.
+// Fan-out starts settle as one batch, so one settled member marks them all.
+func (e executionState) phase(stageCount uint32) phase {
+	switch {
+	case e.StageIndex == stageCount:
+		return phaseCompleted
+	case e.Child != nil:
+		return phaseChild
+	case e.FanoutWaitID != nil:
+		return phaseWaitingFanout
+	case e.ActiveFanoutWindow == nil:
+		return phaseReady
+	case slices.ContainsFunc(e.ActiveFanoutWindow, fanoutChildState.settled):
+		return phaseAwaitingFanoutWaitOpen
+	default:
+		return phaseAwaitingFanoutStarts
+	}
+}
+
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if !e.Phase.valid() {
-		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
 	}
 	if !definition.valid() {
 		return fmt.Errorf("%w: definition is invalid", ErrInvalidExecutionState)
@@ -98,25 +106,21 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	switch e.Phase {
-	case phaseReady:
-		if e.StageIndex >= uint32(len(definition.stages)) || !e.noProgress() {
-			return fmt.Errorf("%w: ready phase requires an unfinished stage without retained progress", ErrInvalidExecutionState)
+	switch current := e.phase(uint32(len(definition.stages))); current {
+	case phaseReady, phaseCompleted:
+		if !e.noProgress() {
+			return fmt.Errorf("%w: progress outside a child or fan-out step", ErrInvalidExecutionState)
 		}
 	case phaseChild:
-		if !e.singleChildStage(definition) || e.Child == nil || e.hasFanoutProgress() {
-			return fmt.Errorf("%w: child phase requires matching single-child progress", ErrInvalidExecutionState)
+		if !e.singleChildStage(definition) || e.hasFanoutProgress() {
+			return fmt.Errorf("%w: single-child progress does not match its Stage", ErrInvalidExecutionState)
 		}
-	case phaseAwaitingFanoutStarts, phaseAwaitingFanoutWaitOpen, phaseWaitingFanout:
+	default:
 		if e.hasSingleChildProgress() {
-			return fmt.Errorf("%w: fan-out phase retains single-child progress", ErrInvalidExecutionState)
+			return fmt.Errorf("%w: fan-out progress retains single-child progress", ErrInvalidExecutionState)
 		}
-		if err := e.validateFanout(ctx, definition); err != nil {
+		if err := e.validateFanout(ctx, definition, current); err != nil {
 			return err
-		}
-	case phaseCompleted:
-		if e.StageIndex != uint32(len(definition.stages)) || !e.noProgress() {
-			return fmt.Errorf("%w: completed phase requires all stages finished without retained progress", ErrInvalidExecutionState)
 		}
 	}
 	return ctx.Err()
@@ -153,7 +157,7 @@ func (e executionState) hasFanoutProgress() bool {
 	return e.FanoutWaitID != nil || e.ActiveFanoutWindow != nil || e.CompletedFanoutOutputs != nil
 }
 
-func (e executionState) validateFanout(ctx context.Context, definition *Definition) error {
+func (e executionState) validateFanout(ctx context.Context, definition *Definition, current phase) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -168,7 +172,7 @@ func (e executionState) validateFanout(ctx context.Context, definition *Definiti
 	if err := e.validateCompletedFanoutOutputs(ctx, stage); err != nil {
 		return err
 	}
-	if err := e.validateFanoutPhase(window); err != nil {
+	if err := validateFanoutWindow(current, window); err != nil {
 		return err
 	}
 	return ctx.Err()
@@ -260,25 +264,19 @@ func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stag
 	return ctx.Err()
 }
 
-func (e executionState) validateFanoutPhase(window fanoutWindowSummary) error {
-	switch e.Phase {
-	case phaseAwaitingFanoutStarts:
-		if e.FanoutWaitID != nil || window.settled && window.started != 0 {
-			return fmt.Errorf("%w: awaiting starts phase retains started children or a wait identity", ErrInvalidExecutionState)
-		}
+// validateFanoutWindow checks what the derived phase cannot: a started member
+// fails only after its wait opens, and only started children are awaited. A
+// window whose starts all failed is the state its failing Step commits.
+func validateFanoutWindow(current phase, window fanoutWindowSummary) error {
+	switch current {
 	case phaseAwaitingFanoutWaitOpen:
-		if e.FanoutWaitID != nil || !window.settled || window.started == 0 {
-			return fmt.Errorf("%w: awaiting wait phase requires settled starts and no wait identity", ErrInvalidExecutionState)
-		}
 		if window.failedAfterStart != 0 {
 			return fmt.Errorf("%w: fan-out child failed before its wait opened", ErrInvalidExecutionState)
 		}
 	case phaseWaitingFanout:
-		if e.FanoutWaitID == nil || !window.settled || window.started == 0 {
-			return fmt.Errorf("%w: waiting phase requires a wait identity and settled starts", ErrInvalidExecutionState)
+		if !window.settled || window.started == 0 {
+			return fmt.Errorf("%w: fan-out wait requires started children", ErrInvalidExecutionState)
 		}
-	default:
-		return fmt.Errorf("%w: phase %q cannot carry fan-out progress", ErrInvalidExecutionState, e.Phase)
 	}
 	return nil
 }
@@ -306,16 +304,12 @@ func (e executionState) fanoutHasStartedChildren() bool {
 	return false
 }
 
-func (e *executionState) finishStage(stageCount uint32) {
+func (e *executionState) finishStage() {
 	e.clearSingleChild()
 	e.ActiveFanoutWindow = nil
 	e.CompletedFanoutOutputs = nil
 	e.LoopIteration = 0
 	e.StageIndex++
-	e.Phase = phaseReady
-	if e.StageIndex == stageCount {
-		e.Phase = phaseCompleted
-	}
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

@@ -25,7 +25,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.Phase {
+	switch e.state.phase(uint32(len(e.definition.stages))) {
 	case phaseReady:
 		return e.advance(ctx, signals)
 	case phaseChild:
@@ -103,7 +103,6 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 		return agent.Transition{}, err
 	}
 	e.state.Child = &childcall.Single{}
-	e.state.Phase = phaseChild
 	return agent.Continue(consumedSignals, effect)
 }
 
@@ -213,8 +212,8 @@ func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.Chi
 }
 
 func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error) {
-	e.state.finishStage(uint32(len(e.definition.stages)))
-	if e.state.Phase == phaseReady {
+	e.state.finishStage()
+	if e.state.StageIndex < uint32(len(e.definition.stages)) {
 		return agent.Continue(consumedSignals)
 	}
 	output, err := agent.ParsePayload(e.state.CurrentValue)
@@ -324,7 +323,6 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		effects = append(effects, effect)
 	}
 	e.state.ActiveFanoutWindow = window
-	e.state.Phase = phaseAwaitingFanoutStarts
 	return agent.Continue(consumedSignals, effects...)
 }
 
@@ -391,7 +389,6 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseAwaitingFanoutWaitOpen
 	return agent.Continue(consumed, effect)
 }
 
@@ -416,7 +413,6 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	e.state.FanoutWaitID = &waitID
-	e.state.Phase = phaseWaitingFanout
 	return agent.Wait(1, waitID)
 }
 

@@ -17,10 +17,9 @@ type stateFixture struct {
 func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 	definition := stateTestDefinition(t)
 	for name, payload := range map[string]json.RawMessage{
-		"unknown field":            json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"unknown":true}`),
-		"finished as ready":        json.RawMessage(`{"phase":"ready","stage_index":1,"current_value":{"value":1}}`),
-		"child in transform":       json.RawMessage(`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{}}`),
-		"Loop cursor in Transform": json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"loop_iteration":1}`),
+		"unknown field":            json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"unknown":true}`),
+		"child in transform":       json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"child":{}}`),
+		"Loop cursor in Transform": json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"loop_iteration":1}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			state, err := agent.ParseExecutionState(executionStateKind, payload)
@@ -32,7 +31,7 @@ func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 			}
 		})
 	}
-	validPayload := json.RawMessage(`{"phase":"ready","stage_index":0,"current_value":{"value":1}}`)
+	validPayload := json.RawMessage(`{"stage_index":0,"current_value":{"value":1}}`)
 	state, err := agent.ParseExecutionState("other", validPayload)
 	if err != nil {
 		t.Fatal(err)
@@ -50,27 +49,27 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 	}{
 		"child start": {
 			definition: callDefinition,
-			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{}}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"child":{}}`,
 		},
 		"child wait opening": {
 			definition: callDefinition,
-			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"process_id":"child"}}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"child":{"process_id":"child"}}`,
 		},
 		"child completion": {
 			definition: callDefinition,
-			payload:    `{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"process_id":"child","wait_id":"wait"}}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"child":{"process_id":"child","wait_id":"wait"}}`,
 		},
 		"fan-out starts": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"awaiting_fanout_starts","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{}]}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"active_fanout_window":[{}]}`,
 		},
 		"fan-out wait opening": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"awaiting_fanout_wait_open","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{"child_process_id":"child"}]}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"active_fanout_window":[{"child_process_id":"child"}]}`,
 		},
 		"fan-out completion": {
 			definition: fanoutDefinition,
-			payload:    `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[{"child_process_id":"child"}]}`,
+			payload:    `{"stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[{"child_process_id":"child"}]}`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -98,10 +97,8 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 func TestRestoreRejectsContradictorySingleChildProgress(t *testing.T) {
 	definition, _ := protocolTestDefinitions(t)
 	for _, payload := range []string{
-		`{"phase":"child","stage_index":0,"current_value":{"value":1}}`,
-		`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{"wait_id":"wait"}}`,
-		`{"phase":"child","stage_index":0,"current_value":{"value":1},"child":{},"fanout_wait_id":"wait"}`,
-		`{"phase":"ready","stage_index":0,"current_value":{"value":1},"child":{}}`,
+		`{"stage_index":0,"current_value":{"value":1},"child":{"wait_id":"wait"}}`,
+		`{"stage_index":0,"current_value":{"value":1},"child":{},"fanout_wait_id":"wait"}`,
 	} {
 		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(payload))
 		if err != nil {
@@ -115,10 +112,10 @@ func TestRestoreRejectsContradictorySingleChildProgress(t *testing.T) {
 
 func FuzzWorkflowExecutionStateRestore(f *testing.F) {
 	definition := stateTestDefinition(f)
-	f.Add([]byte(`{"phase":"ready","stage_index":0,"current_value":{"value":1}}`))
-	f.Add([]byte(`{"phase":"completed","stage_index":1,"current_value":{"value":1}}`))
-	f.Add([]byte(`{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1}}`))
-	f.Add([]byte(`{"phase":"ready","stage_index":0,"current_value":{"value":1},"unknown":true}`))
+	f.Add([]byte(`{"stage_index":0,"current_value":{"value":1}}`))
+	f.Add([]byte(`{"stage_index":1,"current_value":{"value":1}}`))
+	f.Add([]byte(`{"stage_index":0,"current_value":{"value":1}}`))
+	f.Add([]byte(`{"stage_index":0,"current_value":{"value":1},"unknown":true}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		state, err := agent.ParseExecutionState(executionStateKind, payload)
 		if err != nil {
@@ -200,7 +197,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 
 func TestRestorePreservesOutputSchemaError(t *testing.T) {
 	state, err := agent.ParseExecutionState(executionStateKind,
-		json.RawMessage(`{"phase":"completed","stage_index":1,"current_value":{"value":"invalid"}}`))
+		json.RawMessage(`{"stage_index":1,"current_value":{"value":"invalid"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,12 +214,12 @@ func TestRestoreIdentifiesContradictoryFanoutProgress(t *testing.T) {
 		context string
 	}{
 		{
-			payload: `{"phase":"awaiting_fanout_starts","stage_index":0,"current_value":{"value":1}}`,
+			payload: `{"stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait"}`,
 			context: "active fan-out window does not match source boundaries",
 		},
 		{
-			payload: `{"phase":"waiting_fanout","stage_index":0,"current_value":{"value":1},"active_fanout_window":[{"child_process_id":"child"}]}`,
-			context: "waiting phase requires a wait identity and settled starts",
+			payload: `{"stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[{}]}`,
+			context: "fan-out wait requires started children",
 		},
 	} {
 		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(test.payload))

@@ -52,7 +52,7 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 				id := require(agent.ParseWaitID("unexpected"))
 				state.WaitID = &id
 			},
-			context: "wait identity does not match phase",
+			context: "wait identity without an open wait",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
