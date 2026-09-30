@@ -1,6 +1,6 @@
 // Package vectorstore adapts core vector search to the rag Retriever contract.
-// Search policy is fixed at construction; parsed per-query filters belong to
-// this adapter and travel through rag's typed query values.
+// Search policy is fixed at construction, and [RetrieverConfig.FilterFunc] is
+// the only source of a retrieval's metadata filter.
 package vectorstore
 
 import (
@@ -14,12 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/rag"
 )
-
-var vectorStoreFilterValueKey = lo.Must(rag.NewValueKey[filter.Predicate]("vector store filter"))
-
-// FilterValueKey returns the typed query slot for a parsed per-call
-// filter. Parse textual filter DSL with [filter.Parse] before attaching it.
-func FilterValueKey() rag.ValueKey[filter.Predicate] { return vectorStoreFilterValueKey }
 
 type RetrieverConfig struct {
 	VectorStore corevs.Searcher
@@ -37,8 +31,11 @@ type RetrieverConfig struct {
 	// semantic; a store that cannot honor hybrid returns a typed error.
 	SearchMode corevs.SearchMode
 
-	// FilterFunc dynamically builds a metadata filter from the complete query.
-	// Optional; when [FilterValueKey] is set, the per-query filter wins.
+	// FilterFunc builds each retrieval's metadata filter from the complete
+	// query and is the filter's only source. A per-query filter is a
+	// caller-owned [rag.ValueKey] read here, so it composes with fixed policy
+	// such as tenant isolation instead of replacing it. Nil applies no filter;
+	// an error fails the retrieval before the store is searched.
 	FilterFunc func(ctx context.Context, query rag.Query) (filter.Predicate, error)
 }
 
@@ -78,7 +75,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 		return nil, err
 	}
 
-	expr, err := r.resolveFilter(ctx, query)
+	expr, err := r.buildFilter(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -105,17 +102,13 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	return candidates, nil
 }
 
-func (r *Retriever) resolveFilter(ctx context.Context, query rag.Query) (filter.Predicate, error) {
-	expression, exists, err := query.Value(vectorStoreFilterValueKey)
+func (r *Retriever) buildFilter(ctx context.Context, query rag.Query) (filter.Predicate, error) {
+	if r.filterFunc == nil {
+		return nil, nil
+	}
+	expr, err := r.filterFunc(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("rag: read vector-store filter: %w", err)
+		return nil, fmt.Errorf("rag: build vector-store filter: %w", err)
 	}
-	if exists {
-		return expression, nil
-	}
-
-	if r.filterFunc != nil {
-		return r.filterFunc(ctx, query)
-	}
-	return nil, nil
+	return expr, nil
 }

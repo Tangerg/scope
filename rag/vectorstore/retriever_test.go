@@ -89,15 +89,36 @@ func TestRetrieverForwardsHybridMode(t *testing.T) {
 	}
 }
 
-func TestRetrieverPerQueryFilterOverridesFunc(t *testing.T) {
+func TestRetrieverWithoutFilterFuncSearchesUnfiltered(t *testing.T) {
 	store := &fakeVectorSearcher{}
-	funcCalls := 0
+	r, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{VectorStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	q, _ := rag.NewQuery("hi")
+	if _, err := r.Retrieve(t.Context(), q); err != nil {
+		t.Fatal(err)
+	}
+	if store.got.Options.Filter != nil {
+		t.Fatalf("filter = %v, want none", store.got.Options.Filter)
+	}
+}
+
+func TestRetrieverFilterFuncReadsQueryValues(t *testing.T) {
+	yearKey, err := rag.NewValueKey[int]("minimum year")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeVectorSearcher{}
 	r, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
 		VectorStore: store,
-		FilterFunc: func(_ context.Context, _ rag.Query) (filter.Predicate, error) {
-			funcCalls++
-			return nil, nil
+		FilterFunc: func(_ context.Context, query rag.Query) (filter.Predicate, error) {
+			year, found, valueErr := query.Value(yearKey)
+			if valueErr != nil || !found {
+				t.Fatalf("FilterFunc query value = %d, %t, %v", year, found, valueErr)
+			}
+			return filter.And(filter.EQ("tenant", "acme"), filter.GE("year", year)), nil
 		},
 	})
 	if err != nil {
@@ -105,47 +126,38 @@ func TestRetrieverPerQueryFilterOverridesFunc(t *testing.T) {
 	}
 
 	q, _ := rag.NewQuery("hi")
-	parsed, err := filter.Parse(`category == 'tech'`)
+	q, err = q.WithValue(yearKey, 2020)
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err = q.WithValue(ragvectorstore.FilterValueKey(), parsed)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	if _, err := r.Retrieve(t.Context(), q); err != nil {
 		t.Fatal(err)
 	}
-	if funcCalls != 0 {
-		t.Fatal("per-query filter must override FilterFunc")
-	}
-	if store.got.Options.Filter == nil {
-		t.Fatal("filter was not threaded into the retrieval request")
+	want := filter.And(filter.EQ("tenant", "acme"), filter.GE("year", 2020))
+	if store.got.Options.Filter == nil || !want.Equal(store.got.Options.Filter) {
+		t.Fatalf("filter = %v, want %v", store.got.Options.Filter, want)
 	}
 }
 
-func TestRetrieverUsesParsedQueryFilter(t *testing.T) {
+func TestRetrieverPropagatesFilterFuncError(t *testing.T) {
+	want := errors.New("filter unavailable")
 	store := &fakeVectorSearcher{}
-	r, _ := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
+	r, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
 		VectorStore: store,
+		FilterFunc: func(context.Context, rag.Query) (filter.Predicate, error) {
+			return nil, want
+		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	q, _ := rag.NewQuery("hi")
-	parsed, err := filter.Parse(`year >= 2020`)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := r.Retrieve(t.Context(), q); !errors.Is(err, want) {
+		t.Fatalf("Retrieve error = %v, want %v", err, want)
 	}
-	q, err = q.WithValue(ragvectorstore.FilterValueKey(), parsed)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := r.Retrieve(t.Context(), q); err != nil {
-		t.Fatal(err)
-	}
-	if store.got.Options.Filter == nil {
-		t.Fatal("string filter was not parsed and threaded through")
+	if store.got != nil {
+		t.Fatal("store was searched after FilterFunc failed")
 	}
 }
 
