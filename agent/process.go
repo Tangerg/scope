@@ -251,7 +251,7 @@ func (p *Process) submit(ctx context.Context, command processCommand) error {
 		return err
 	}
 	select {
-	case runtime.processCommands <- newTreeProcessCommand(p.handle.processID, command):
+	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID, command: command}:
 		return nil
 	case <-p.handle.outcomePublished:
 		return p.handle.closedRequestError()

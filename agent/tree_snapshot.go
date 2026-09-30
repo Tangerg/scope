@@ -493,9 +493,7 @@ type treeFreeze struct {
 func (t *treeFreeze) release() error {
 	response := make(chan error, 1)
 	select {
-	case t.runtime.freezeCommands <- treeCommand{
-		kind: treeCommandReleaseFreeze, freeze: t, response: response,
-	}:
+	case t.runtime.freezeCommands <- releaseFreezeCommand{freeze: t, response: response}:
 	case <-t.runtime.done:
 		return ErrEngineQuiescenceUnavailable
 	}

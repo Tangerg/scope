@@ -31,6 +31,8 @@ type childStartJobResult struct {
 	startedAt  time.Time
 }
 
+func (childStartJobResult) jobKind() processJobKind { return processJobChildStart }
+
 func (c childStartJobResult) started() bool {
 	_, failed := c.result.Failure()
 	return !failed && c.deployment.Valid() && c.execution != nil &&

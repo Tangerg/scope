@@ -216,7 +216,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 			} else {
 				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(1)
 			}
-			completion := treeJobCompletion{processID: runtime.rootID, kind: processJobDispatch, dispatch: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`null`)))}}
+			completion := treeJobCompletion{processID: runtime.rootID, result: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`null`)))}}
 			runtime.applyCompletion(completion)
 			runtime.applyCompletion(completion)
 			started, finished := 0, 0

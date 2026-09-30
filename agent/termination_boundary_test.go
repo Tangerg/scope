@@ -48,8 +48,8 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 					t.Fatal(settlementErr)
 				}
 				runtime.applyCompletion(treeJobCompletion{
-					processID: process.handle.processID, kind: processJobDispatch, attempt: 1,
-					dispatch: dispatchJobResult{effectID: record.ID, settlement: settlement},
+					processID: process.handle.processID, attempt: 1,
+					result: dispatchJobResult{effectID: record.ID, settlement: settlement},
 				})
 			}
 			if runtime.commit != nil {
@@ -135,8 +135,8 @@ func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 		t.Fatal("rejected removal changed Process ownership")
 	}
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, kind: processJobRestore, attempt: 1,
-		restore: restoreJobResult{execution: process.execution},
+		processID: process.handle.processID, attempt: 1,
+		result: restoreJobResult{execution: process.execution},
 	})
 	if len(runtime.jobs) != 0 || runtime.inFlightWork.Load() != 0 {
 		t.Fatal("completion did not release owned work")
@@ -162,7 +162,7 @@ func TestCompletionRejectsOrphanedOwnedWork(t *testing.T) {
 		}
 	}()
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, kind: job.kind, attempt: job.attempt,
+		processID: process.handle.processID, attempt: job.attempt, result: restoreJobResult{},
 	})
 }
 
@@ -171,7 +171,7 @@ func TestStaleCompletionPreservesCurrentOwnedWork(t *testing.T) {
 	job := &processJob{kind: processJobRestore, attempt: 2}
 	runtime.setProcessJob(process.handle.processID, job)
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, kind: processJobRestore, attempt: 1,
+		processID: process.handle.processID, attempt: 1, result: restoreJobResult{},
 	})
 	if runtime.jobs[process.handle.processID] != job || runtime.inFlightWork.Load() != 1 {
 		t.Fatal("stale completion released the current attempt")

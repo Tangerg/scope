@@ -16,7 +16,6 @@ func TestStableFailureVocabulary(t *testing.T) {
 		"engine.child.admission.rejected":                    failureCodeEngineChildAdmissionRejected,
 		"engine.child.budget_exhausted":                      failureCodeEngineChildBudgetExhausted,
 		"engine.child.capability_escalation":                 failureCodeEngineChildCapabilityEscalation,
-		"engine.child.control.invalid":                       failureCodeEngineChildControlInvalid,
 		"engine.child.control.not_owned":                     failureCodeEngineChildControlNotOwned,
 		"engine.child.control.settlement.invalid":            failureCodeEngineChildControlSettlementInvalid,
 		"engine.child.deployment_unavailable":                failureCodeEngineChildDeploymentUnavailable,

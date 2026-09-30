@@ -19,7 +19,6 @@ type frameworkOperation interface {
 	reserve(*preparedEffect, Failure) (uint64, error)
 	apply(*preparedStepFinalization, preparedEffect, Signal) error
 	validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error
-	dispatch(*treeRuntime, *processState, uint32, *preparedEffect, effectAttempt)
 }
 
 func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, error) {
@@ -50,44 +49,44 @@ type waitOperation struct {
 	payload json.RawMessage
 }
 
-func (w waitOperation) validate(p *preparedEffect) error {
-	if err := p.validateWait(); err != nil {
+func (w waitOperation) validate(effect *preparedEffect) error {
+	if err := effect.validateWait(); err != nil {
 		return err
 	}
-	if p.Settlement != nil && !bytes.Equal(p.Settlement.payload, w.payload) {
+	if effect.Settlement != nil && !bytes.Equal(effect.Settlement.payload, w.payload) {
 		return errors.New("wait Effect settlement differs from its request")
 	}
 	return nil
 }
-func (w waitOperation) settle(p *preparedEffect) error { return p.settleWait(w.payload) }
-func (w waitOperation) reserve(p *preparedEffect, _ Failure) (uint64, error) {
-	if p.Phase == effectPhasePlanned {
-		if err := p.begin(); err != nil {
+
+func (w waitOperation) settle(effect *preparedEffect) error { return effect.settleWait(w.payload) }
+func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
+	if effect.Phase == effectPhasePlanned {
+		if err := effect.begin(); err != nil {
 			return 0, err
 		}
 	}
-	return 0, w.settle(p)
+	return 0, w.settle(effect)
 }
-func (w waitOperation) apply(p *preparedStepFinalization, _ preparedEffect, signal Signal) error {
-	return p.mailbox.openWait(w.key, signal, WaitKindExternal)
+
+func (w waitOperation) apply(finalization *preparedStepFinalization, _ preparedEffect, signal Signal) error {
+	return finalization.mailbox.openWait(w.key, signal, WaitKindExternal)
 }
+
 func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error {
 	return nil
-}
-func (w waitOperation) dispatch(t *treeRuntime, p *processState, _ uint32, record *preparedEffect, observation effectAttempt) {
-	t.settleFramework(p, record, observation)
 }
 
 type childWaitOperation struct{ spec ChildWaitSpec }
 
-func (c childWaitOperation) validate(p *preparedEffect) error {
-	if err := p.validateWait(); err != nil {
+func (c childWaitOperation) validate(effect *preparedEffect) error {
+	if err := effect.validateWait(); err != nil {
 		return err
 	}
-	if p.Settlement == nil {
+	if effect.Settlement == nil {
 		return nil
 	}
-	opened, err := jsonwire.Decode[childWaitOpenedWire](p.Settlement.payload)
+	opened, err := jsonwire.Decode[childWaitOpenedWire](effect.Settlement.payload)
 	if err != nil {
 		return err
 	}
@@ -100,52 +99,53 @@ func (c childWaitOperation) validate(p *preparedEffect) error {
 	}
 	return nil
 }
-func (c childWaitOperation) settle(p *preparedEffect) error {
+
+func (c childWaitOperation) settle(effect *preparedEffect) error {
 	payload, err := encodeChildWaitOpened(c.spec)
 	if err != nil {
 		return err
 	}
-	return p.settleWait(payload)
+	return effect.settleWait(payload)
 }
-func (c childWaitOperation) reserve(p *preparedEffect, _ Failure) (uint64, error) {
-	if p.Phase == effectPhasePlanned {
-		if err := p.begin(); err != nil {
+
+func (c childWaitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
+	if effect.Phase == effectPhasePlanned {
+		if err := effect.begin(); err != nil {
 			return 0, err
 		}
 	}
-	return 0, c.settle(p)
+	return 0, c.settle(effect)
 }
-func (c childWaitOperation) apply(p *preparedStepFinalization, record preparedEffect, signal Signal) error {
+
+func (c childWaitOperation) apply(finalization *preparedStepFinalization, record preparedEffect, signal Signal) error {
 	if record.WaitID == nil {
 		return ErrInvalidChildWait
 	}
-	if err := p.mailbox.openWait(c.spec.Key, signal, WaitKindChildren); err != nil {
+	if err := finalization.mailbox.openWait(c.spec.Key, signal, WaitKindChildren); err != nil {
 		return err
 	}
-	p.openedChildWaits = append(p.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: c.spec})
+	finalization.openedChildWaits = append(finalization.openedChildWaits, ChildWaitOpened{waitID: *record.WaitID, spec: c.spec})
 	return nil
 }
+
 func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, _ preparedEffect) error {
 	if t.processes[parent].Status.Terminal() {
 		return nil
 	}
 	return c.spec.validateRelations(parent, t.processRelation)
 }
-func (c childWaitOperation) dispatch(t *treeRuntime, p *processState, _ uint32, record *preparedEffect, observation effectAttempt) {
-	t.settleFramework(p, record, observation)
-}
 
 type childStartOperation struct{ spec ChildSpec }
 
-func (c childStartOperation) validate(p *preparedEffect) error {
-	if p.WaitID != nil {
+func (c childStartOperation) validate(effect *preparedEffect) error {
+	if effect.WaitID != nil {
 		return ErrInvalidChildStart
 	}
-	if p.Settlement == nil {
+	if effect.Settlement == nil {
 		return nil
 	}
 	spec := c.spec
-	result, err := decodeChildStartResult(p.Settlement.Payload())
+	result, err := decodeChildStartResult(effect.Settlement.Payload())
 	if err != nil {
 		return err
 	}
@@ -154,12 +154,12 @@ func (c childStartOperation) validate(p *preparedEffect) error {
 	}
 	status := SettlementStatusFailed
 	if id, started := result.ProcessID(); started {
-		if id != p.ID.childProcessID() {
+		if id != effect.ID.childProcessID() {
 			return ErrInvalidChildStart
 		}
 		status = SettlementStatusSucceeded
 	}
-	if p.Settlement.Status() != status {
+	if effect.Settlement.Status() != status {
 		return ErrInvalidChildStart
 	}
 	return nil
@@ -168,18 +168,21 @@ func (c childStartOperation) validate(p *preparedEffect) error {
 func (c childStartOperation) settle(*preparedEffect) error {
 	return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
 }
-func (c childStartOperation) reserve(p *preparedEffect, failure Failure) (uint64, error) {
-	if p.Phase != effectPhasePending {
+
+func (c childStartOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
+	if effect.Phase != effectPhasePending {
 		return 0, nil
 	}
-	return snapshotFailureGrowth, p.settleChildStart(ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure})
+	return snapshotFailureGrowth, effect.settleChildStart(ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure})
 }
-func (c childStartOperation) apply(p *preparedStepFinalization, record preparedEffect, signal Signal) error {
+
+func (c childStartOperation) apply(finalization *preparedStepFinalization, record preparedEffect, signal Signal) error {
 	if record.WaitID != nil {
 		return ErrInvalidChildStart
 	}
-	return p.enqueueSettlement(signal)
+	return finalization.enqueueSettlement(signal)
 }
+
 func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
 	if !record.definitelySettled() {
 		return nil
@@ -220,20 +223,17 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	}
 	return nil
 }
-func (c childStartOperation) dispatch(t *treeRuntime, p *processState, _ uint32, record *preparedEffect, observation effectAttempt) {
-	t.startChild(p, record, observation)
-}
 
 type childControlOperation struct{ request childControlEffectWire }
 
-func (c childControlOperation) validate(p *preparedEffect) error {
-	if p.WaitID != nil {
+func (c childControlOperation) validate(effect *preparedEffect) error {
+	if effect.WaitID != nil {
 		return ErrInvalidChildControl
 	}
-	if p.Settlement == nil {
+	if effect.Settlement == nil {
 		return nil
 	}
-	result, err := decodeChildControlResult(p.Settlement.Payload())
+	result, err := decodeChildControlResult(effect.Settlement.Payload())
 	if err != nil || !result.matches(c.request) {
 		return ErrInvalidChildControl
 	}
@@ -241,7 +241,7 @@ func (c childControlOperation) validate(p *preparedEffect) error {
 	if result.failure.Valid() {
 		wantStatus = SettlementStatusFailed
 	}
-	if p.Settlement.Status() != wantStatus {
+	if effect.Settlement.Status() != wantStatus {
 		return ErrInvalidChildControl
 	}
 	return nil
@@ -250,20 +250,23 @@ func (c childControlOperation) validate(p *preparedEffect) error {
 func (c childControlOperation) settle(*preparedEffect) error {
 	return fmt.Errorf("%w: child control requires its recipient outcome", ErrInvalidEffect)
 }
-func (c childControlOperation) reserve(p *preparedEffect, failure Failure) (uint64, error) {
-	if p.Phase != effectPhasePending {
+
+func (c childControlOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
+	if effect.Phase != effectPhasePending {
 		return 0, nil
 	}
 	result := c.request.result()
 	result.failure = failure
-	return snapshotFailureGrowth, p.settleChildControl(result)
+	return snapshotFailureGrowth, effect.settleChildControl(result)
 }
-func (c childControlOperation) apply(p *preparedStepFinalization, record preparedEffect, signal Signal) error {
+
+func (c childControlOperation) apply(finalization *preparedStepFinalization, record preparedEffect, signal Signal) error {
 	if record.WaitID != nil {
 		return ErrInvalidChildControl
 	}
-	return p.enqueueSettlement(signal)
+	return finalization.enqueueSettlement(signal)
 }
+
 func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
 	if !record.definitelySettled() {
 		return nil
@@ -292,7 +295,4 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 		return nil
 	}
 	return ErrInvalidChildControl
-}
-func (c childControlOperation) dispatch(t *treeRuntime, p *processState, index uint32, record *preparedEffect, observation effectAttempt) {
-	t.controlChild(p, index, record, observation)
 }

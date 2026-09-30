@@ -33,8 +33,8 @@ type treeRuntime struct {
 	inFlightWork    atomic.Int64
 	freezeActive    atomic.Bool
 	context         context.Context
-	processCommands chan treeCommand
-	freezeCommands  chan treeCommand
+	processCommands chan processTreeCommand
+	freezeCommands  chan freezeCommand
 	completions     chan treeJobCompletion
 	inspections     chan chan TreeInspection
 
@@ -55,27 +55,26 @@ type treeRuntime struct {
 	finalInspection  TreeInspection
 }
 
-type treeCommandKind uint8
-
-const (
-	treeCommandInvalid treeCommandKind = iota
-	treeCommandProcess
-	treeCommandAcquireFreeze
-	treeCommandReleaseFreeze
-)
-
-type treeCommand struct {
-	kind        treeCommandKind
-	processID   ProcessID
-	process     processCommand
-	freeze      *treeFreeze
-	acquisition *treeFreezeAcquisition
-	response    chan error
+// processTreeCommand routes one Process control request to its tree owner.
+type processTreeCommand struct {
+	processID ProcessID
+	command   processCommand
 }
 
-func newTreeProcessCommand(processID ProcessID, command processCommand) treeCommand {
-	return treeCommand{kind: treeCommandProcess, processID: processID, process: command}
+// freezeCommand is sealed: only acquisition and release of the snapshot
+// barrier travel on the freeze lane.
+type freezeCommand interface{ freezeCommand() }
+
+type acquireFreezeCommand struct{ acquisition *treeFreezeAcquisition }
+
+func (acquireFreezeCommand) freezeCommand() {}
+
+type releaseFreezeCommand struct {
+	freeze   *treeFreeze
+	response chan error
 }
+
+func (releaseFreezeCommand) freezeCommand() {}
 
 type treeFreezeAcquisition struct {
 	response chan treeFreezeAcquisitionResult
@@ -131,14 +130,14 @@ type processJob struct {
 }
 
 type treeJobCompletion struct {
-	processID  ProcessID
-	attempt    processAttempt
-	kind       processJobKind
-	step       stepJobResult
-	restore    restoreJobResult
-	dispatch   dispatchJobResult
-	childStart childStartJobResult
+	processID ProcessID
+	attempt   processAttempt
+	result    jobResult
 }
+
+// jobResult is the outcome of one owned job. Its type names the job kind, so a
+// completion cannot carry the result of a different kind of work.
+type jobResult interface{ jobKind() processJobKind }
 
 type treeCommitKind uint8
 
@@ -200,10 +199,14 @@ type stepJobResult struct {
 	err              error
 }
 
+func (stepJobResult) jobKind() processJobKind { return processJobStep }
+
 type restoreJobResult struct {
 	execution Execution
 	err       error
 }
+
+func (restoreJobResult) jobKind() processJobKind { return processJobRestore }
 
 type stepJobStage uint8
 
@@ -221,6 +224,8 @@ type dispatchJobResult struct {
 	err        error
 }
 
+func (dispatchJobResult) jobKind() processJobKind { return processJobDispatch }
+
 func newTreeRuntime(
 	engine *Engine,
 	rootID ProcessID,
@@ -234,8 +239,8 @@ func newTreeRuntime(
 		treeLimits:       treeLimits,
 		incarnation:      newTreeIncarnationID(),
 		context:          context.WithoutCancel(RequireContext(ctx)),
-		processCommands:  make(chan treeCommand, treeCommandBufferCapacity),
-		freezeCommands:   make(chan treeCommand, treeCommandBufferCapacity),
+		processCommands:  make(chan processTreeCommand, treeCommandBufferCapacity),
+		freezeCommands:   make(chan freezeCommand, treeCommandBufferCapacity),
 		completions:      make(chan treeJobCompletion),
 		inspections:      make(chan chan TreeInspection, treeCommandBufferCapacity),
 		processes:        make(map[ProcessID]*processState, len(processes)),
@@ -311,10 +316,10 @@ func (t *treeRuntime) publishInitialProcessEvents() {
 func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() bool {
 	return context.AfterFunc(rootContext, func() {
 		select {
-		case t.processCommands <- newTreeProcessCommand(
-			t.rootID,
-			processCommand{kind: commandHostTerminated, hostErr: rootContext.Err()},
-		):
+		case t.processCommands <- processTreeCommand{
+			processID: t.rootID,
+			command:   processCommand{kind: commandHostTerminated, hostErr: rootContext.Err()},
+		}:
 		case <-t.done:
 		}
 	})
@@ -361,12 +366,12 @@ func (t *treeRuntime) waitForWork() {
 		case completion := <-commitDone:
 			t.applyTreeCommitCompletion(completion)
 		case command := <-freezeCommands:
-			t.applyCommand(command)
+			t.applyFreezeCommand(command)
 		case response := <-t.inspections:
 			t.replyInspection(response)
 			continue
 		case command := <-processCommands:
-			t.applyCommand(command)
+			t.routeProcessCommand(command)
 		case completion := <-completions:
 			t.applyCompletion(completion)
 		case <-freezeCancellation:
@@ -416,7 +421,7 @@ func (t *treeRuntime) tryFreezeCommand() bool {
 	}
 	select {
 	case command := <-t.freezeCommands:
-		t.applyCommand(command)
+		t.applyFreezeCommand(command)
 		return true
 	default:
 		return false
@@ -429,7 +434,7 @@ func (t *treeRuntime) tryProcessCommand() bool {
 	}
 	select {
 	case command := <-t.processCommands:
-		t.applyCommand(command)
+		t.routeProcessCommand(command)
 		return true
 	default:
 		return false
@@ -687,12 +692,13 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 
 // A tree-local control and its receipt change one authoritative cut. The target
 // cannot consume the new input before that cut is acknowledged.
-func (t *treeRuntime) controlChild(parent *processState, index uint32, record *preparedEffect, observation effectAttempt) {
-	request, err := decodeChildControlEffect(record.Effect.Payload())
-	if err != nil {
-		t.failProcessContract(parent, failureCodeEngineChildControlInvalid, err)
-		return
-	}
+func (t *treeRuntime) controlChild(
+	parent *processState,
+	index uint32,
+	record *preparedEffect,
+	request childControlEffectWire,
+	observation effectAttempt,
+) {
 	result := request.result()
 	child := t.processes[request.ChildID]
 	if child == nil || child.handle.relation.parentID != parent.handle.processID {
@@ -1177,28 +1183,22 @@ func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
 	t.inFlightWork.Add(1)
 }
 
-func (t *treeRuntime) applyCommand(command treeCommand) {
-	switch command.kind {
-	case treeCommandAcquireFreeze:
+func (t *treeRuntime) applyFreezeCommand(command freezeCommand) {
+	switch command := command.(type) {
+	case acquireFreezeCommand:
 		t.acquireFreeze(command.acquisition)
-		return
-	case treeCommandReleaseFreeze:
-		err := t.releaseFreeze(command.freeze)
-		command.response <- err
-		return
-	case treeCommandProcess:
-	default:
-		if command.response != nil {
-			command.response <- errors.New("agent: invalid tree command")
-		}
-		return
+	case releaseFreezeCommand:
+		command.response <- t.releaseFreeze(command.freeze)
 	}
+}
+
+func (t *treeRuntime) routeProcessCommand(command processTreeCommand) {
 	process := t.processes[command.processID]
 	if process == nil {
-		command.process.reply(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
+		command.command.reply(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
 		return
 	}
-	t.applyProcessCommand(process, command.process)
+	t.applyProcessCommand(process, command.command)
 }
 
 func (t *treeRuntime) applyProcessCommand(process *processState, command processCommand) {
@@ -1751,10 +1751,7 @@ func (t *treeRuntime) startStep(process *processState) {
 		result.finishedAt = time.Now()
 		result.workDuration = result.finishedAt.Sub(startedAt)
 		t.completions <- treeJobCompletion{
-			processID: processID,
-			attempt:   attempt,
-			kind:      processJobStep,
-			step:      result,
+			processID: processID, attempt: attempt, result: result,
 		}
 	}()
 }
@@ -1774,8 +1771,8 @@ func (t *treeRuntime) startRestore(process *processState) {
 	go func() {
 		execution, err := restoreExecution(restoreCtx, definition, state)
 		t.completions <- treeJobCompletion{
-			processID: processID, attempt: attempt, kind: processJobRestore,
-			restore: restoreJobResult{execution: execution, err: err},
+			processID: processID, attempt: attempt,
+			result: restoreJobResult{execution: execution, err: err},
 		}
 	}()
 }
@@ -1815,7 +1812,16 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 			t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 			return
 		}
-		operation.dispatch(t, process, uint32(index), record, observation)
+		switch operation := operation.(type) {
+		case waitOperation, childWaitOperation:
+			t.settleFramework(process, record, observation)
+		case childStartOperation:
+			t.startChild(process, record, operation.spec, observation)
+		case childControlOperation:
+			t.controlChild(process, uint32(index), record, operation.request, observation)
+		default:
+			panic("agent: unhandled framework operation")
+		}
 		return
 	}
 	t.startDispatch(process, uint32(index), *record, nil)
@@ -1887,15 +1893,10 @@ func (t *treeRuntime) recoverPendingEffect(
 func (t *treeRuntime) startChild(
 	process *processState,
 	record *preparedEffect,
+	spec ChildSpec,
 	observation effectAttempt,
 ) {
 	processID := process.handle.processID
-
-	spec, err := decodeChildStartEffect(record.Effect.Payload())
-	if err != nil {
-		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
-		return
-	}
 	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
@@ -1918,10 +1919,7 @@ func (t *treeRuntime) startChild(
 	go func() {
 		result := preparation.plan.execute(startCtx)
 		t.completions <- treeJobCompletion{
-			processID:  processID,
-			attempt:    attempt,
-			kind:       processJobChildStart,
-			childStart: result,
+			processID: processID, attempt: attempt, result: result,
 		}
 	}()
 }
@@ -1996,8 +1994,7 @@ func (t *treeRuntime) startDispatch(
 		t.completions <- treeJobCompletion{
 			processID: processID,
 			attempt:   attempt,
-			kind:      processJobDispatch,
-			dispatch: dispatchJobResult{
+			result: dispatchJobResult{
 				err:        err,
 				effectID:   record.ID,
 				settlement: settlement,
@@ -2013,7 +2010,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	if process == nil && job != nil {
 		panic("agent: owned work requires a tree member")
 	}
-	if job == nil || job.kind != completion.kind || job.attempt != completion.attempt {
+	if job == nil || job.kind != completion.result.jobKind() || job.attempt != completion.attempt {
 		return
 	}
 	delete(t.jobs, completion.processID)
@@ -2028,7 +2025,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 	defer t.completeFreeze()
 	if job.stale {
-		t.retireStaleJob(process, completion.kind)
+		t.retireStaleJob(process, completion.result.jobKind())
 		return
 	}
 	t.adoptJobResult(process, job, completion)
@@ -2044,11 +2041,11 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 // Attempt facts close even when the candidate is stale, cannot be committed,
 // or a sibling has already stopped the runtime.
 func (t *treeRuntime) publishJobFinished(process *processState, job *processJob, completion treeJobCompletion) {
-	switch completion.kind {
-	case processJobStep:
-		t.publishStepFinished(process, completion.step, job.stale || t.fault != nil)
-	case processJobDispatch:
-		t.publishDispatchFinished(process, job, completion.dispatch)
+	switch result := completion.result.(type) {
+	case stepJobResult:
+		t.publishStepFinished(process, result, job.stale || t.fault != nil)
+	case dispatchJobResult:
+		t.publishDispatchFinished(process, job, result)
 	}
 }
 
@@ -2064,19 +2061,19 @@ func (t *treeRuntime) retireStaleJob(process *processState, kind processJobKind)
 }
 
 func (t *treeRuntime) adoptJobResult(process *processState, job *processJob, completion treeJobCompletion) {
-	switch completion.kind {
-	case processJobStep:
-		t.applyStepCompletion(process, completion.step)
-	case processJobRestore:
-		if err := completion.restore.err; err != nil {
-			t.failProcess(process, failureKindForError(err, FailureKindExecution), failureCodeExecutionSnapshotUnrestorable, err)
+	switch result := completion.result.(type) {
+	case stepJobResult:
+		t.applyStepCompletion(process, result)
+	case restoreJobResult:
+		if result.err != nil {
+			t.failProcess(process, failureKindForError(result.err, FailureKindExecution), failureCodeExecutionSnapshotUnrestorable, result.err)
 			return
 		}
-		process.execution = completion.restore.execution
-	case processJobDispatch:
-		t.applyDispatchCompletion(process, job, completion.dispatch)
-	case processJobChildStart:
-		t.applyChildStartCompletion(process, job, completion.childStart)
+		process.execution = result.execution
+	case dispatchJobResult:
+		t.applyDispatchCompletion(process, job, result)
+	case childStartJobResult:
+		t.applyChildStartCompletion(process, job, result)
 	}
 }
 
@@ -2630,9 +2627,7 @@ func (t *treeRuntime) acquireTreeFreeze(
 		canceled: make(chan struct{}),
 	}
 	select {
-	case t.freezeCommands <- treeCommand{
-		kind: treeCommandAcquireFreeze, acquisition: acquisition,
-	}:
+	case t.freezeCommands <- acquireFreezeCommand{acquisition: acquisition}:
 	case <-t.done:
 		snapshot, _, err := t.captureStoppedTree()
 		return nil, snapshot, err

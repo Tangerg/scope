@@ -165,7 +165,6 @@ const (
 	failureCodeEngineChildAdmissionRejected                   = "engine.child.admission.rejected"
 	failureCodeEngineChildBudgetExhausted                     = "engine.child.budget_exhausted"
 	failureCodeEngineChildCapabilityEscalation                = "engine.child.capability_escalation"
-	failureCodeEngineChildControlInvalid                      = "engine.child.control.invalid"
 	failureCodeEngineChildControlNotOwned                     = "engine.child.control.not_owned"
 	failureCodeEngineChildControlSettlementInvalid            = "engine.child.control.settlement.invalid"
 	failureCodeEngineChildDeploymentUnavailable               = "engine.child.deployment_unavailable"
