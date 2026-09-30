@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 const invalidEnumName = "invalid"
@@ -200,7 +201,7 @@ func (s Stage) fanoutOutcome(
 	outcome agent.ChildOutcome,
 ) (*agent.Failure, json.RawMessage, error) {
 	if !outcome.SubtreeResolved() {
-		failure, err := agent.NewFailure(agent.FailureKindExternal, s.fanoutFailureCode(failureSuffixUnresolvedEffects), s.fanoutFailureMessage(index, "has unresolved subtree Effects"))
+		failure, err := stepfail.Failure(agent.FailureKindExternal, s.fanoutFailureCode(failureSuffixUnresolvedEffects), s.fanoutFailureMessage(index, "has unresolved subtree Effects"))
 		return &failure, nil, err
 	}
 	result := outcome.Result()
@@ -210,19 +211,19 @@ func (s Stage) fanoutOutcome(
 		}
 		code := s.fanoutFailureCode(failureSuffixNotCompleted)
 		message := s.fanoutFailureMessage(index, "terminated with status "+result.Status().String())
-		failure, err := agent.NewFailure(agent.FailureKindExternal, code, message)
+		failure, err := stepfail.Failure(agent.FailureKindExternal, code, message)
 		return &failure, nil, err
 	}
 	output, present := result.Output()
 	if !present {
-		failure, err := agent.NewFailure(
+		failure, err := stepfail.Failure(
 			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputMissing),
 			s.fanoutFailureMessage(index, "returned no Output"),
 		)
 		return &failure, nil, err
 	}
 	if err := s.fanout.outputSchema.Validate(output.JSON()); err != nil {
-		failure, failureErr := agent.NewFailure(
+		failure, failureErr := stepfail.Failure(
 			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputInvalid),
 			s.fanoutFailureMessage(index, "violated its Output contract"),
 		)

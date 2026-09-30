@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 type execution struct {
@@ -76,8 +77,8 @@ func (e *execution) advance(ctx context.Context, signals []agent.Signal) (agent.
 		}
 		binding, found := stage.switcher.binding(selected)
 		if !found {
-			return e.failContract(
-				0, stage.failureCode(failureSuffixCaseUnknown),
+			return stepfail.Transition(
+				0, agent.FailureKindContract, stage.failureCode(failureSuffixCaseUnknown),
 				"Switch Stage "+stage.id+" selected an undeclared case",
 			)
 		}
@@ -192,26 +193,25 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, wa
 
 func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.ChildOutcome) (agent.Transition, error) {
 	if !outcome.SubtreeResolved() {
-		return e.fail(1, e.stage().failureCode(failureSuffixUnresolvedEffects), "Child subtree has unresolved Effects", agent.FailureKindExternal)
+		return stepfail.Transition(1, agent.FailureKindExternal, e.stage().failureCode(failureSuffixUnresolvedEffects), "Child subtree has unresolved Effects")
 	}
 	result := outcome.Result()
 	if result.Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
 			return agent.Fail(1, failure)
 		}
-		return e.fail(
-			1,
+		return stepfail.Transition(
+			1, agent.FailureKindExternal,
 			e.stage().failureCode(failureSuffixChildNotCompleted),
 			"Child Process for Stage "+e.stageInvocationLabel()+" terminated with status "+result.Status().String(),
-			agent.FailureKindExternal,
 		)
 	}
 	output, present := result.Output()
 	if !present {
-		return e.failContract(1, e.stage().failureCode(failureSuffixOutputMissing), "Completed child Process returned no Output")
+		return stepfail.Transition(1, agent.FailureKindContract, e.stage().failureCode(failureSuffixOutputMissing), "Completed child Process returned no Output")
 	}
 	if err := e.singleChildOutputSchema().Validate(output.JSON()); err != nil {
-		return e.failContract(1, e.stage().failureCode(failureSuffixOutputInvalid), "Child Process Output violated the Stage contract")
+		return stepfail.Transition(1, agent.FailureKindContract, e.stage().failureCode(failureSuffixOutputInvalid), "Child Process Output violated the Stage contract")
 	}
 	if e.stage().kind == StageKindLoop {
 		return e.finishLoopIteration(ctx, 1, output)
@@ -230,23 +230,6 @@ func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error
 		return agent.Transition{}, err
 	}
 	return agent.Complete(consumedSignals, output)
-}
-
-func (e *execution) failContract(consumedSignals uint32, code, message string) (agent.Transition, error) {
-	return e.fail(consumedSignals, code, message, agent.FailureKindContract)
-}
-
-func (*execution) fail(
-	consumedSignals uint32,
-	code string,
-	message string,
-	kind agent.FailureKind,
-) (agent.Transition, error) {
-	failure, err := agent.NewFailure(kind, code, message)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	return agent.Fail(consumedSignals, failure)
 }
 
 func (e *execution) stage() Stage {
@@ -307,7 +290,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 	inputs, count, err := stage.fanout.source.windowInputs(ctx, e.state.CurrentValue, start, stage.fanout.windowSize)
 	if err != nil {
 		if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
-			return e.failContract(consumedSignals, stage.failureCode(failureSuffixMaxItemsExceeded),
+			return stepfail.Transition(consumedSignals, agent.FailureKindContract, stage.failureCode(failureSuffixMaxItemsExceeded),
 				"Map Stage "+stage.id+" input exceeds its configured maximum items")
 		}
 		return agent.Transition{}, err

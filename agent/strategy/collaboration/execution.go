@@ -6,6 +6,7 @@ import (
 	"math"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 type execution struct {
@@ -176,7 +177,7 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 
 func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Transition, error) {
 	if e.state.Turn.unresolved() {
-		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
+		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}

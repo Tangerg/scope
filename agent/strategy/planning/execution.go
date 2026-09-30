@@ -11,6 +11,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 const failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
@@ -77,10 +78,10 @@ func (e *execution) acceptSense(ctx context.Context, signals []agent.Signal) (ag
 		return agent.Transition{}, err
 	}
 	if envelope.HostError != "" {
-		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
+		return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
 	if envelope.Sensing.Error != "" {
-		return e.fail(1, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error)
+		return stepfail.Transition(1, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error)
 	}
 	e.state.WorldState = *envelope.Sensing.WorldState
 	if e.state.awaitingConfirmation() {
@@ -98,7 +99,7 @@ func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.T
 		return e.complete(ctx, consumedSignals)
 	}
 	if e.state.PlanningPasses == math.MaxUint64 {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals, agent.FailureKindExecution, failureCodePlanningLimitPlanningPasses,
 			"Planning exhausted its representable planning-pass count",
 		)
@@ -120,7 +121,7 @@ func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.T
 	}
 	binding, found := e.definition.binding(plan.actions[0].name)
 	if !found {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract,
 			"Planner selected an Action outside the Planning Definition",
 		)
@@ -133,7 +134,7 @@ func (e *execution) failPlanning(consumedSignals uint32, kind agent.FailureKind,
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return agent.Transition{}, err
 	}
-	return e.fail(consumedSignals, kind, code, err.Error())
+	return stepfail.Transition(consumedSignals, kind, code, err.Error())
 }
 
 func (e *execution) startAction(consumedSignals uint32, binding ActionBinding) (agent.Transition, error) {
@@ -164,11 +165,11 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 		var err error
 		childInput, err = binding.childInput(input, e.state.WorldState)
 		if err != nil {
-			return e.fail(consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
+			return stepfail.Transition(consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
 		}
 	}
 	if !childInput.Valid() {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals, agent.FailureKindContract, failureCodePlanningChildInputInvalid,
 			"Child input function returned an invalid Input",
 		)
@@ -194,7 +195,7 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 		return agent.Transition{}, err
 	}
 	if envelope.HostError != "" {
-		return e.fail(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
+		return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
 	if !envelope.Action.Succeeded {
 		e.state.recordFailedAction(envelope.Action.Diagnostic)
@@ -232,7 +233,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	}
 	if !outcome.SubtreeResolved() {
 		unresolved, _ := outcome.SubtreeUnresolvedEffects()
-		return e.fail(1, agent.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
+		return stepfail.Transition(1, agent.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
 	}
 	result := outcome.Result()
 	e.state.Child = nil
@@ -277,19 +278,6 @@ func (e *execution) complete(ctx context.Context, consumedSignals uint32) (agent
 		return agent.Transition{}, err
 	}
 	return agent.Complete(consumedSignals, erased)
-}
-
-func (e *execution) fail(
-	consumedSignals uint32,
-	kind agent.FailureKind,
-	code string,
-	message string,
-) (agent.Transition, error) {
-	failure, err := agent.NewFailure(kind, code, agent.NormalizeDiagnostic(message))
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	return agent.Fail(consumedSignals, failure)
 }
 
 func planningChildKey(action string, attempt uint64) (agent.ChildKey, error) {

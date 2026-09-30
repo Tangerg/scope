@@ -7,6 +7,7 @@ import (
 	"math"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -93,7 +94,7 @@ func (e *execution) requestModel(
 	appliedSteerSignalIDs []agent.SignalID,
 ) (agent.Transition, error) {
 	if !e.definition.maxModelCalls.Allows(e.state.ModelCallCount, 1) {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals,
 			agent.FailureKindExecution,
 			failureCodeInteractionLimitModelCalls,
@@ -132,7 +133,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return agent.Transition{}, err
 	}
 	if envelope.ModelResult.HostError != "" {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals,
 			agent.FailureKindExternal,
 			failureCodeInteractionHostFailed,
@@ -151,7 +152,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 	}
 	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
 		response.Output.FinishReason != chat.FinishReasonLength {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals,
 			agent.FailureKindExternal,
 			failureCodeInteractionModelToolCallsNotCompleted,
@@ -199,7 +200,7 @@ func (e *execution) acceptFinalModelResponse(
 // invalidModelResponse rejects the whole Step, so the response never enters
 // Interaction state.
 func invalidModelResponse(diagnostic string, cause error) error {
-	failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, agent.NormalizeDiagnostic(diagnostic))
+	failure, err := stepfail.Failure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, diagnostic)
 	if err != nil {
 		return err
 	}
@@ -240,7 +241,7 @@ func (e *execution) finishOrRetry(
 			return agent.Transition{}, cancelErr
 		}
 		if err != nil {
-			return e.fail(
+			return stepfail.Transition(
 				consumedSignals,
 				agent.FailureKindExecution,
 				failureCodeInteractionCompletionValidatorFailed,
@@ -249,7 +250,7 @@ func (e *execution) finishOrRetry(
 		}
 	}
 	if !decision.Valid() {
-		return e.fail(
+		return stepfail.Transition(
 			consumedSignals,
 			agent.FailureKindContract,
 			failureCodeInteractionCompletionDecisionInvalid,
@@ -407,20 +408,6 @@ func acceptModelResultSignal(signal agent.Signal, duplicate bool) error {
 		return fmt.Errorf("%w: %q Signal has invalid wait addressing", ErrInvalidExecutionState, operationModelCall)
 	}
 	return nil
-}
-
-func (e *execution) fail(
-	consumedSignals uint32,
-	kind agent.FailureKind,
-	code string,
-	message string,
-) (agent.Transition, error) {
-	message = agent.NormalizeDiagnostic(message)
-	failure, err := agent.NewFailure(kind, code, message)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	return agent.Fail(consumedSignals, failure)
 }
 
 func (e *execution) childBindings(calls []chat.ToolCall) ([]agent.DeploymentRef, error) {

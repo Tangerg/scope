@@ -6,6 +6,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -27,7 +28,7 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 			if !outcome.SubtreeResolved() {
 				unresolved, _ := outcome.SubtreeUnresolvedEffects()
 				diagnostic := fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved)
-				failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, agent.NormalizeDiagnostic(diagnostic))
+				failure, err := stepfail.Failure(agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, diagnostic)
 				return failure, true, err
 			}
 			continue
@@ -40,7 +41,7 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 			return failure, true, nil
 		}
 		diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
-		failure, err := agent.NewFailure(agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, agent.NormalizeDiagnostic(diagnostic))
+		failure, err := stepfail.Failure(agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, diagnostic)
 		return failure, true, err
 	}
 	return agent.Failure{}, false, nil

@@ -7,6 +7,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 const deadlineStateKind = "coordination.deadline"
@@ -156,7 +157,7 @@ func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transitio
 		return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
 	}
 	if !result.Reached {
-		failure, failureErr := agent.NewFailure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
+		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
