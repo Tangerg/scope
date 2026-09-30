@@ -133,3 +133,25 @@ func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deploy
 	}
 	return deployment, nil
 }
+
+// A Workflow's identity must follow its child bindings on its own: the Host
+// configuration below is identical, only the bound child differs.
+func TestDefinitionChildBindingsDistinguishDeployments(t *testing.T) {
+	identity := func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }
+	root := func(child agent.Deployment) agent.Deployment {
+		stage, err := workflow.Call(workflow.CallConfig{ID: "child", Deployment: child})
+		if err != nil {
+			t.Fatal(err)
+		}
+		definition := mustDefinition(t, "test.workflow.binding_root", stage)
+		if bindings := definition.ChildDeployments(); len(bindings) != 1 || bindings[0] != child.DeploymentRef() {
+			t.Fatalf("ChildDeployments = %v, want the Call binding", bindings)
+		}
+		return mustDeployment(t, definition, "binding-root")
+	}
+	first := mustDeployment(t, mustDefinition(t, "test.workflow.first_child", mustTransform(t, "identity", identity)), "first-child")
+	second := mustDeployment(t, mustDefinition(t, "test.workflow.second_child", mustTransform(t, "identity", identity)), "second-child")
+	if root(first).DeploymentRef() == root(second).DeploymentRef() {
+		t.Fatal("Workflows bound to different children share one Deployment identity")
+	}
+}

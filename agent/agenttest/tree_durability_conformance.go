@@ -488,6 +488,8 @@ func conformanceDescriptor(t *testing.T, name, description string) agent.Descrip
 
 func (c *conformanceDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
+func (*conformanceDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (c *conformanceDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[conformanceInput]()
 	if err != nil {

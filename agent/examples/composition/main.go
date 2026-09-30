@@ -128,6 +128,8 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 
 func (u *uppercaseDefinition) Descriptor() agent.Descriptor { return u.descriptor }
 
+func (*uppercaseDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := u.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -236,13 +238,17 @@ func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deploymen
 	return agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-implementation")),
-		ConfigurationDigest: agent.ComputeDigest([]byte(
-			"example-composition:" + local.Digest().String() + ":" + model.Digest().String(),
-		)),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example-composition-configuration")),
 	})
 }
 
 func (c *compositionDefinition) Descriptor() agent.Descriptor { return c.descriptor }
+
+// ChildDeployments names both children, so the composition's identity changes
+// whenever either binding does.
+func (c *compositionDefinition) ChildDeployments() []agent.DeploymentRef {
+	return []agent.DeploymentRef{c.local, c.model}
+}
 
 func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := c.descriptor.ValidateInput(input); err != nil {

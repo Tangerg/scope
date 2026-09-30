@@ -28,6 +28,8 @@ type echoState struct {
 
 func (e echoDefinition) Descriptor() agent.Descriptor { return e.descriptor }
 
+func (echoDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (e echoDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := e.descriptor.ValidateInput(input); err != nil {
 		return nil, err

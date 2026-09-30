@@ -13,6 +13,8 @@ type descriptorBoundaryDefinition struct {
 
 func (d *descriptorBoundaryDefinition) Descriptor() Descriptor { return d.descriptor() }
 
+func (*descriptorBoundaryDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func TestDeploymentValidityUsesFrozenContract(t *testing.T) {
 	for _, scenario := range []string{"changed descriptor", "panicking descriptor"} {
 		t.Run(scenario, func(t *testing.T) {

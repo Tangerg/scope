@@ -16,7 +16,7 @@ coverage_budget=(
   "./examples/evaluator_optimizer 75.7"
   "./examples/orchestrator_workers 70.2"
   "./examples/workflow 70.4"
-  "./examples/workflow_patterns 73.3"
+  "./examples/workflow_patterns 73.2"
   "./strategy/interaction 84.2"
   "./strategy/internal/childcall 95.3"
   "./strategy/internal/restore 100.0"

@@ -129,10 +129,7 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-orchestrator-workers-implementation")),
-		ConfigurationDigest: agent.ComputeDigest([]byte(
-			"example-orchestrator-workers:" + children.decomposer.DeploymentRef().Digest().String() + ":" +
-				children.worker.DeploymentRef().Digest().String() + ":" + children.synthesizer.DeploymentRef().Digest().String(),
-		)),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("example-orchestrator-workers-configuration")),
 	})
 	if err != nil {
 		return agent.Deployment{}, nil, err

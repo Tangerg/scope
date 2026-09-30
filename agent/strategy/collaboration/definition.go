@@ -65,7 +65,8 @@ func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildS
 // with exactly their SchemaFor contracts. It may itself be any Strategy.
 // MaxTasks counts all attempts, including rejected starts. MaxConcurrentTasks
 // counts admitted tasks until their drained outcomes have been observed.
-// The Deployment configuration digest must cover every field and child binding.
+// The Deployment configuration digest must cover every field; the coordinator
+// and worker bindings enter the Deployment identity through ChildDeployments.
 type DefinitionConfig struct {
 	Name         string
 	Description  string
@@ -138,6 +139,18 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 		workers = append(workers, child)
 	}
 	return workers, nil
+}
+
+// ChildDeployments reports the coordinator and every worker binding.
+func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+	if d == nil {
+		return nil
+	}
+	children := []agent.DeploymentRef{d.coordinator.deploymentRef}
+	for _, worker := range d.workers {
+		children = append(children, worker.deploymentRef)
+	}
+	return children
 }
 
 func (d *Definition) Descriptor() agent.Descriptor {

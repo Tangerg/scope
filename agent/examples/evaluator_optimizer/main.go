@@ -364,14 +364,8 @@ func newIterationDeployment(
 		iterationDefinition,
 		"evaluator-optimizer-iteration",
 		struct {
-			Optimizer    string       `json:"optimizer"`
-			Evaluator    string       `json:"evaluator"`
 			WorkerBudget agent.Budget `json:"worker_budget"`
-		}{
-			Optimizer:    optimizer.DeploymentRef().Digest().String(),
-			Evaluator:    evaluator.DeploymentRef().Digest().String(),
-			WorkerBudget: workerBudget,
-		},
+		}{WorkerBudget: workerBudget},
 	)
 }
 
@@ -445,12 +439,10 @@ func newOptimizationRoot(
 		rootDefinition,
 		"evaluator-optimizer-root",
 		struct {
-			Iteration       string       `json:"iteration"`
 			IterationBudget agent.Budget `json:"iteration_budget"`
 			Threshold       float64      `json:"threshold"`
 			MaxIterations   agent.Quota  `json:"max_iterations"`
 		}{
-			Iteration:       iteration.DeploymentRef().Digest().String(),
 			IterationBudget: iterationBudget,
 			Threshold:       threshold,
 			MaxIterations:   agent.NewQuota(uint64(maxIterations)),

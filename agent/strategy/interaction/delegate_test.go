@@ -550,6 +550,8 @@ func (p *pausingDelegateDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
+func (*pausingDelegateDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (*pausingDelegateDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[delegateRequest]()
 	if err != nil {

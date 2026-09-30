@@ -44,6 +44,8 @@ func (d *definitionConformanceDefinition) Descriptor() agent.Descriptor {
 	return d.descriptor
 }
 
+func (*definitionConformanceDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (d *definitionConformanceDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[definitionConformanceInput]()
 	if err != nil {
@@ -300,6 +302,8 @@ func newRejectingDefinition(t *testing.T, err error) *rejectingDefinition {
 }
 
 func (r *rejectingDefinition) Descriptor() agent.Descriptor { return r.descriptor }
+
+func (*rejectingDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
 
 func (r *rejectingDefinition) Start(agent.Payload) (agent.Execution, error) {
 	return &rejectingExecution{err: r.err}, nil

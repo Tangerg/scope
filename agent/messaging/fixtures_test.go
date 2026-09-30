@@ -116,6 +116,8 @@ func newSender(t testing.TB) senderDefinition {
 }
 
 func (s senderDefinition) Descriptor() agent.Descriptor { return s.descriptor }
+
+func (senderDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
 func (s senderDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	message, err := input.Decode[messaging.Message]()
 	if err != nil {

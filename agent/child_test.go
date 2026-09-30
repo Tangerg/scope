@@ -701,7 +701,7 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) D
 	}
 	implementation := ComputeDigest([]byte("child-test-implementation"))
 	configuration := ComputeDigest([]byte("child-test-configuration"))
-	reference, err := newDeploymentRef(descriptor, implementation, configuration)
+	reference, err := newDeploymentRef(descriptor, implementation, configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,6 +717,8 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) D
 }
 
 func (c *childTestDefinition) Descriptor() Descriptor { return c.descriptor }
+
+func (*childTestDefinition) ChildDeployments() []DeploymentRef { return nil }
 
 func (c *childTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[childTestInput]()

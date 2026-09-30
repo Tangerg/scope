@@ -364,6 +364,8 @@ func (p *pausingBranchDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
+func (*pausingBranchDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (p *pausingBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()
 	if err != nil {

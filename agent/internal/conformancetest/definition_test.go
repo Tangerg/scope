@@ -11,6 +11,8 @@ import (
 type recordingFailureDefinition struct{ cause error }
 
 func (r recordingFailureDefinition) Descriptor() agent.Descriptor { return agent.Descriptor{} }
+
+func (recordingFailureDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
 func (r recordingFailureDefinition) Start(agent.Payload) (agent.Execution, error) {
 	return nil, r.cause
 }

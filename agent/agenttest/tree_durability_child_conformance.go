@@ -291,6 +291,8 @@ type crashTreeDefinition struct {
 
 func (c *crashTreeDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
+func (*crashTreeDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (c *crashTreeDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[crashTreeInput]()
 	if err != nil {

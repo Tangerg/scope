@@ -4,6 +4,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -20,10 +22,11 @@ type DeploymentRef struct {
 	contractDigest       Digest
 	implementationDigest Digest
 	configurationDigest  Digest
+	bindingsDigest       Digest
 	digest               Digest
 }
 
-func newDeploymentRef(descriptor Descriptor, implementationDigest, configurationDigest Digest) (DeploymentRef, error) {
+func newDeploymentRef(descriptor Descriptor, implementationDigest, configurationDigest, bindingsDigest Digest) (DeploymentRef, error) {
 	if !descriptor.Valid() {
 		return DeploymentRef{}, fmt.Errorf("%w: %w", ErrInvalidDeploymentRef, ErrInvalidDescriptor)
 	}
@@ -33,11 +36,15 @@ func newDeploymentRef(descriptor Descriptor, implementationDigest, configuration
 	if !configurationDigest.Valid() {
 		return DeploymentRef{}, fmt.Errorf("%w: configuration: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
 	}
+	if !bindingsDigest.Valid() {
+		return DeploymentRef{}, fmt.Errorf("%w: bindings: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
+	}
 	reference := DeploymentRef{
 		name:                 descriptor.Name(),
 		contractDigest:       descriptor.Digest(),
 		implementationDigest: implementationDigest,
 		configurationDigest:  configurationDigest,
+		bindingsDigest:       bindingsDigest,
 	}
 	digest, err := reference.computeDigest()
 	if err != nil {
@@ -56,6 +63,10 @@ func (d DeploymentRef) ImplementationDigest() Digest { return d.implementationDi
 // ConfigurationDigest returns the frozen behavior-affecting configuration
 // identity, including dispatcher configuration.
 func (d DeploymentRef) ConfigurationDigest() Digest { return d.configurationDigest }
+
+// BindingsDigest identifies the child Deployments the definition binds, as
+// reported by Definition.ChildDeployments.
+func (d DeploymentRef) BindingsDigest() Digest { return d.bindingsDigest }
 
 func (d DeploymentRef) Digest() Digest { return d.digest }
 
@@ -93,10 +104,11 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 		contractDigest:       wire.ContractDigest,
 		implementationDigest: wire.ImplementationDigest,
 		configurationDigest:  wire.ConfigurationDigest,
+		bindingsDigest:       wire.BindingsDigest,
 		digest:               wire.Digest,
 	}
 	if !ValidQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
-		!value.configurationDigest.Valid() || !value.digest.Valid() {
+		!value.configurationDigest.Valid() || !value.bindingsDigest.Valid() || !value.digest.Valid() {
 		return fmt.Errorf("%w: identity components are required", ErrInvalidDeploymentRef)
 	}
 	want, err := value.computeDigest()
@@ -115,6 +127,7 @@ type deploymentIdentityWire struct {
 	ContractDigest       Digest `json:"contract_digest"`
 	ImplementationDigest Digest `json:"implementation_digest"`
 	ConfigurationDigest  Digest `json:"configuration_digest"`
+	BindingsDigest       Digest `json:"bindings_digest"`
 }
 
 type deploymentRefWire struct {
@@ -130,11 +143,39 @@ func (d DeploymentRef) identityWire() deploymentIdentityWire {
 		ContractDigest:       d.contractDigest,
 		ImplementationDigest: d.implementationDigest,
 		ConfigurationDigest:  d.configurationDigest,
+		BindingsDigest:       d.bindingsDigest,
 	}
 }
 
 func (d DeploymentRef) computeDigest() (Digest, error) {
 	data, err := jsonv2.Marshal(d.identityWire())
+	if err != nil {
+		return Digest{}, err
+	}
+	return digestBytes(data), nil
+}
+
+// canonicalChildDeployments orders bindings by digest and removes repeats, so
+// equal binding sets always produce the same bindings digest.
+func canonicalChildDeployments(children []DeploymentRef) ([]DeploymentRef, error) {
+	canonical := slices.Clone(children)
+	for _, child := range canonical {
+		if !child.Valid() {
+			return nil, fmt.Errorf("%w: child binding: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
+		}
+	}
+	slices.SortFunc(canonical, func(left, right DeploymentRef) int {
+		return strings.Compare(left.digest.String(), right.digest.String())
+	})
+	return slices.CompactFunc(canonical, func(left, right DeploymentRef) bool { return left.digest == right.digest }), nil
+}
+
+func childBindingsDigest(canonical []DeploymentRef) (Digest, error) {
+	digests := make([]Digest, len(canonical))
+	for index, child := range canonical {
+		digests[index] = child.digest
+	}
+	data, err := jsonv2.Marshal(digests)
 	if err != nil {
 		return Digest{}, err
 	}

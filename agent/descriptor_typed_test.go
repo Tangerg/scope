@@ -18,6 +18,8 @@ type typedFixtureDefinition struct {
 
 func (t *typedFixtureDefinition) Descriptor() Descriptor { return t.descriptor }
 
+func (*typedFixtureDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func (t *typedFixtureDefinition) Start(input Payload) (Execution, error) {
 	t.starts++
 	return &typedFixtureExecution{state: input.JSON()}, nil

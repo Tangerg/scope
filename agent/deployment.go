@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 )
@@ -25,6 +26,8 @@ type DeploymentConfig struct {
 	// ConfigurationDigest identifies all frozen behavior-affecting Definition
 	// and Dispatcher configuration, including each finite or unlimited Strategy
 	// quota. Quota JSON preserves that distinction for configuration hashing.
+	// Child bindings are not restated here: NewDeployment folds the ones the
+	// Definition reports through ChildDeployments into the DeploymentRef.
 	ConfigurationDigest Digest
 }
 
@@ -35,6 +38,7 @@ type Deployment struct {
 	descriptor Descriptor
 	definition Definition
 	dispatcher Dispatcher
+	children   []DeploymentRef
 }
 
 // NewDeployment freezes a Definition and Dispatcher under explicit
@@ -51,7 +55,11 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 	if err != nil {
 		return Deployment{}, err
 	}
-	reference, err := newDeploymentRef(descriptor, config.ImplementationDigest, config.ConfigurationDigest)
+	children, bindings, err := definitionBindings(config.Definition)
+	if err != nil {
+		return Deployment{}, err
+	}
+	reference, err := newDeploymentRef(descriptor, config.ImplementationDigest, config.ConfigurationDigest, bindings)
 	if err != nil {
 		return Deployment{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
 	}
@@ -60,6 +68,7 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 		descriptor: descriptor,
 		definition: config.Definition,
 		dispatcher: config.Dispatcher,
+		children:   children,
 	}, nil
 }
 
@@ -68,6 +77,10 @@ func (d Deployment) DeploymentRef() DeploymentRef { return d.reference }
 func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 
 func (d Deployment) Definition() Definition { return d.definition }
+
+// ChildDeployments returns the child bindings folded into DeploymentRef, in
+// digest order.
+func (d Deployment) ChildDeployments() []DeploymentRef { return slices.Clone(d.children) }
 
 // Valid checks the frozen binding without invoking user code. The Engine checks
 // the live Definition contract at startup and restoration boundaries.
@@ -88,7 +101,32 @@ func (d Deployment) validateDefinition() error {
 	if descriptor.Digest() != d.descriptor.Digest() {
 		return fmt.Errorf("%w: definition Descriptor differs from its frozen contract", ErrInvalidDeployment)
 	}
+	_, bindings, err := definitionBindings(d.definition)
+	if err != nil {
+		return err
+	}
+	if bindings != d.reference.BindingsDigest() {
+		return fmt.Errorf("%w: definition child bindings differ from its frozen identity", ErrInvalidDeployment)
+	}
 	return nil
+}
+
+func definitionBindings(definition Definition) ([]DeploymentRef, Digest, error) {
+	reported, err := invokeCallback("Definition.ChildDeployments", func() ([]DeploymentRef, error) {
+		return definition.ChildDeployments(), nil
+	})
+	if err != nil {
+		return nil, Digest{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
+	}
+	children, err := canonicalChildDeployments(reported)
+	if err != nil {
+		return nil, Digest{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
+	}
+	bindings, err := childBindingsDigest(children)
+	if err != nil {
+		return nil, Digest{}, fmt.Errorf("%w: bindings digest: %w", ErrInvalidDeployment, err)
+	}
+	return children, bindings, nil
 }
 
 func definitionDescriptor(definition Definition) (Descriptor, error) {

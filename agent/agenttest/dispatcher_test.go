@@ -166,6 +166,8 @@ func (s *scriptedEffectDefinition) Descriptor() agent.Descriptor {
 	return s.descriptor
 }
 
+func (*scriptedEffectDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (s *scriptedEffectDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := s.descriptor.ValidateInput(input); err != nil {
 		return nil, err

@@ -244,6 +244,8 @@ type treeRecoveryBenchmarkDefinition struct {
 
 func (t *treeRecoveryBenchmarkDefinition) Descriptor() Descriptor { return t.descriptor }
 
+func (*treeRecoveryBenchmarkDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func (t *treeRecoveryBenchmarkDefinition) Start(input Payload) (Execution, error) {
 	state, err := input.Decode[executionReplayBenchmarkState]()
 	if err != nil {

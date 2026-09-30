@@ -16,6 +16,8 @@ type resolverTestDefinition struct{ descriptor agent.Descriptor }
 
 func (r resolverTestDefinition) Descriptor() agent.Descriptor { return r.descriptor }
 
+func (resolverTestDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (r resolverTestDefinition) Start(agent.Payload) (agent.Execution, error) {
 	return nil, errors.New("agenttest: resolver fixture does not execute")
 }

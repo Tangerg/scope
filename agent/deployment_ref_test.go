@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -10,7 +11,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 	descriptor := testDescriptor(t)
 	implementation := digestBytes([]byte("interaction implementation"))
 	configuration := digestBytes([]byte("model and dispatcher configuration"))
-	reference, err := newDeploymentRef(descriptor, implementation, configuration)
+	reference, err := newDeploymentRef(descriptor, implementation, configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,11 +23,11 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 		t.Fatalf("DeploymentRef text = %q, invalid = %q", reference.String(), (DeploymentRef{}).String())
 	}
 
-	changedImplementation, err := newDeploymentRef(descriptor, digestBytes([]byte("changed interaction implementation")), configuration)
+	changedImplementation, err := newDeploymentRef(descriptor, digestBytes([]byte("changed interaction implementation")), configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedConfiguration, err := newDeploymentRef(descriptor, implementation, digestBytes([]byte("changed model and dispatcher configuration")))
+	changedConfiguration, err := newDeploymentRef(descriptor, implementation, digestBytes([]byte("changed model and dispatcher configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 }
 
 func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
-	reference, err := newDeploymentRef(testDescriptor(t), digestBytes([]byte("implementation")), digestBytes([]byte("configuration")))
+	reference, err := newDeploymentRef(testDescriptor(t), digestBytes([]byte("implementation")), digestBytes([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
 }
 
 func FuzzDeploymentRefJSONRoundTrip(f *testing.F) {
-	reference, err := newDeploymentRef(testDescriptorForFuzz(f), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")))
+	reference, err := newDeploymentRef(testDescriptorForFuzz(f), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func testDescriptorForFuzz(f *testing.F) Descriptor {
 }
 
 func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
-	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")))
+	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,5 +137,24 @@ func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
 		if decoded != reference {
 			t.Fatal("rejected identity changed the existing reference")
 		}
+	}
+}
+
+// noChildBindings is the bindings digest of a leaf definition.
+func noChildBindings() Digest { return controlValue(childBindingsDigest(nil)) }
+
+func TestDeploymentRefDecodingRequiresItsBindingsDigest(t *testing.T) {
+	reference := newChildTestDeployment(t).DeploymentRef()
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(reference)), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := fields["bindings_digest"]; !present {
+		t.Fatal("encoded DeploymentRef omits its bindings digest")
+	}
+	delete(fields, "bindings_digest")
+	var decoded DeploymentRef
+	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(fields)), &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
+		t.Fatalf("DeploymentRef without bindings digest decoded: %v", err)
 	}
 }

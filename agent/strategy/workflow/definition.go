@@ -95,6 +95,17 @@ func (d *Definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
+// ChildDeployments reports the exact child binding of every Stage.
+func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+	var children []agent.DeploymentRef
+	for _, stage := range d.Topology().Stages {
+		for _, binding := range stage.Bindings {
+			children = append(children, binding.DeploymentRef)
+		}
+	}
+	return children
+}
+
 // Topology returns a fresh, function-free projection of this Definition. An
 // invalid or nil Definition returns the zero Topology.
 func (d *Definition) Topology() Topology {

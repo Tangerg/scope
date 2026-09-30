@@ -130,6 +130,8 @@ func newExecutionReplayBenchmarkDefinition(b *testing.B) executionReplayBenchmar
 
 func (e executionReplayBenchmarkDefinition) Descriptor() Descriptor { return e.descriptor }
 
+func (executionReplayBenchmarkDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func (executionReplayBenchmarkDefinition) Start(input Payload) (Execution, error) {
 	state, err := input.Decode[executionReplayBenchmarkState]()
 	if err != nil {

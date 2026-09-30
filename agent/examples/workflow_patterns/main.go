@@ -348,14 +348,10 @@ func newPatternRoot(
 		return agent.Deployment{}, err
 	}
 	configuration := struct {
-		Children      []string     `json:"children"`
 		Budget        agent.Budget `json:"budget"`
 		SectionWindow uint32       `json:"section_window"`
 		VoteWindow    uint32       `json:"vote_window"`
 	}{Budget: budget, SectionWindow: sectionWindowSize, VoteWindow: voteWindowSize}
-	for _, child := range children {
-		configuration.Children = append(configuration.Children, child.DeploymentRef().Digest().String())
-	}
 	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
 		return agent.Deployment{}, err

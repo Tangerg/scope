@@ -10,8 +10,9 @@ import (
 
 type panickingCallbacks struct{ cause error }
 
-func (p panickingCallbacks) Descriptor() Descriptor           { panic(p.cause) }
-func (p panickingCallbacks) Start(Payload) (Execution, error) { panic(p.cause) }
+func (p panickingCallbacks) Descriptor() Descriptor            { panic(p.cause) }
+func (p panickingCallbacks) ChildDeployments() []DeploymentRef { panic(p.cause) }
+func (p panickingCallbacks) Start(Payload) (Execution, error)  { panic(p.cause) }
 func (p panickingCallbacks) Restore(context.Context, ExecutionState) (Execution, error) {
 	panic(p.cause)
 }
@@ -45,6 +46,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		call      func() error
 	}{
 		{"Definition.Descriptor", func() error { _, err := definitionDescriptor(callbacks); return err }},
+		{"Definition.ChildDeployments", func() error { _, _, err := definitionBindings(callbacks); return err }},
 		{"Definition.Start", func() error { _, err := startExecution(callbacks, Payload{}); return err }},
 		{"Definition.Restore", func() error { _, err := restoreExecution(t.Context(), callbacks, ExecutionState{}); return err }},
 		{"Execution.Step", func() error { _, err := stepExecution(t.Context(), callbacks, nil); return err }},

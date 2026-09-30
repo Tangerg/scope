@@ -492,6 +492,8 @@ type childControlDefinition struct {
 
 func (c *childControlDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
+func (*childControlDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (c *childControlDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	child, err := input.Decode[bool]()
 	if err != nil {

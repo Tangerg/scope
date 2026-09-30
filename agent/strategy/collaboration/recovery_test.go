@@ -20,6 +20,8 @@ func pausedWorker() agent.Deployment {
 	return binding(&pausedDefinition{descriptor: require(agent.NewDescriptor(agent.DescriptorConfig{Name: "test.paused", Description: "Pause before consuming a signal.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema}))})
 }
 func (p *pausedDefinition) Descriptor() agent.Descriptor { return p.descriptor }
+
+func (*pausedDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
 func (p *pausedDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := p.descriptor.ValidateInput(input); err != nil {
 		return nil, err

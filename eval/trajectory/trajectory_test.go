@@ -348,6 +348,8 @@ type fixtureDefinition struct{ descriptor agent.Descriptor }
 
 func (f fixtureDefinition) Descriptor() agent.Descriptor { return f.descriptor }
 
+func (fixtureDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[fixtureInput]()
 	if err != nil {

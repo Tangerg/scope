@@ -51,6 +51,8 @@ type safetyCompetition struct {
 }
 
 func (s *safetyCompetition) Descriptor() agent.Descriptor { return s.descriptor }
+
+func (*safetyCompetition) ChildDeployments() []agent.DeploymentRef { return nil }
 func (s *safetyCompetition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := s.descriptor.ValidateInput(input); err != nil {
 		return nil, err

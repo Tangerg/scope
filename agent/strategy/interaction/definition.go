@@ -143,6 +143,22 @@ func indexDelegates(delegates []Delegate, tools toolManifest) (map[string]int, e
 	return names, nil
 }
 
+// ChildDeployments reports the Tool child binding, when Tools are configured,
+// and every Delegate binding.
+func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+	if d == nil {
+		return nil
+	}
+	var children []agent.DeploymentRef
+	if d.tools.deploymentRef.Valid() {
+		children = append(children, d.tools.deploymentRef)
+	}
+	for _, delegate := range d.delegates {
+		children = append(children, delegate.deploymentRef)
+	}
+	return children
+}
+
 func (d *Definition) Descriptor() agent.Descriptor {
 	if d == nil {
 		return agent.Descriptor{}

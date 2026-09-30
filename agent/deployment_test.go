@@ -184,3 +184,57 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 	}
 	_ = awaitResult(t, process)
 }
+
+// boundDefinition reports configurable child bindings over a leaf definition.
+type boundDefinition struct {
+	Definition
+	children []DeploymentRef
+}
+
+func (b *boundDefinition) ChildDeployments() []DeploymentRef { return b.children }
+
+func TestDeploymentIdentityCoversChildBindings(t *testing.T) {
+	leaf := newEngineTestDefinition(t, "test.binding.leaf", "complete")
+	first := newChildTestDeployment(t).DeploymentRef()
+	second := engineTestDeployment(t, leaf, nil).DeploymentRef()
+	deploy := func(children ...DeploymentRef) (Deployment, error) {
+		return NewDeployment(DeploymentConfig{
+			Definition:           &boundDefinition{Definition: leaf, children: children},
+			ImplementationDigest: ComputeDigest([]byte("binding implementation")),
+			ConfigurationDigest:  ComputeDigest([]byte("binding configuration")),
+		})
+	}
+	unbound := controlValue(deploy())
+	one := controlValue(deploy(first))
+	both := controlValue(deploy(first, second))
+	if unbound.DeploymentRef() == one.DeploymentRef() || one.DeploymentRef() == both.DeploymentRef() {
+		t.Fatal("different child bindings produced the same Deployment identity")
+	}
+	if unbound.DeploymentRef().ConfigurationDigest() != both.DeploymentRef().ConfigurationDigest() {
+		t.Fatal("child bindings leaked into the Host configuration digest")
+	}
+	reordered := controlValue(deploy(second, first, second))
+	if reordered.DeploymentRef() != both.DeploymentRef() || len(reordered.ChildDeployments()) != 2 {
+		t.Fatal("binding order or repetition changed the Deployment identity")
+	}
+	if _, err := deploy(first, DeploymentRef{}); !errors.Is(err, ErrInvalidDeployment) {
+		t.Fatalf("invalid child binding error = %v", err)
+	}
+}
+
+func TestDeploymentRejectsChildBindingsThatChangeAfterConstruction(t *testing.T) {
+	leaf := newEngineTestDefinition(t, "test.binding.drift", "complete")
+	definition := &boundDefinition{Definition: leaf}
+	deployment := controlValue(NewDeployment(DeploymentConfig{
+		Definition:           definition,
+		ImplementationDigest: ComputeDigest([]byte("drift implementation")),
+		ConfigurationDigest:  ComputeDigest([]byte("drift configuration")),
+	}))
+	if err := deployment.validateDefinition(); err != nil {
+		t.Fatal(err)
+	}
+	definition.children = []DeploymentRef{newChildTestDeployment(t).DeploymentRef()}
+	if err := deployment.validateDefinition(); !errors.Is(err, ErrInvalidDeployment) {
+		t.Fatalf("changed child bindings were accepted: %v", err)
+	}
+}

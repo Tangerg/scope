@@ -308,6 +308,8 @@ func (m *managedBranchDefinition) Descriptor() agent.Descriptor {
 	return m.descriptor
 }
 
+func (*managedBranchDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+
 func (m *managedBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()
 	if err != nil {

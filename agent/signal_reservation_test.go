@@ -14,6 +14,8 @@ type fixtureReservationDefinition struct {
 }
 
 func (f *fixtureReservationDefinition) Descriptor() Descriptor { return f.base.Descriptor() }
+
+func (*fixtureReservationDefinition) ChildDeployments() []DeploymentRef { return nil }
 func (f *fixtureReservationDefinition) Start(input Payload) (Execution, error) {
 	value, err := f.base.Start(input)
 	if err != nil {

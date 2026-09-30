@@ -168,6 +168,8 @@ func newCrossParentDeployment(t *testing.T, target DeploymentRef) Deployment {
 
 func (c *crossParentDefinition) Descriptor() Descriptor { return c.descriptor }
 
+func (*crossParentDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func (c *crossParentDefinition) Start(Payload) (Execution, error) {
 	return &crossParentExecution{target: c.target}, nil
 }

@@ -93,6 +93,8 @@ func newCapabilityTestDefinition(t *testing.T, required Capability) *capabilityT
 
 func (c *capabilityTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
+func (*capabilityTestDefinition) ChildDeployments() []DeploymentRef { return nil }
+
 func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
 	return &capabilityTestExecution{required: c.required}, nil
 }

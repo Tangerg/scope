@@ -128,6 +128,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		descriptor,
 		ComputeDigest([]byte("event fuzz implementation")),
 		ComputeDigest([]byte("event fuzz configuration")),
+		noChildBindings(),
 	)
 	if err != nil {
 		f.Fatal(err)
