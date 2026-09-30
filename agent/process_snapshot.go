@@ -288,7 +288,7 @@ type processSnapshotWire struct {
 // failure codes need no escaping. Only the byte count grows, never a buffer.
 const (
 	snapshotReservationText = "x"
-	snapshotFailureGrowth   = uint64(maxFailureCodeBytes - len(snapshotReservationText) + 6*MaxDiagnosticBytes - len(snapshotReservationText))
+	snapshotFailureGrowth   = uint64(maxQualifiedNameBytes - len(snapshotReservationText) + 6*MaxDiagnosticBytes - len(snapshotReservationText))
 )
 
 // Finite byte quotas reserve mandatory lifecycle growth and Framework settlements.

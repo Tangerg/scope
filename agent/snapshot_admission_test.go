@@ -17,7 +17,7 @@ import (
 func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64, error) {
 	var pendingSize int
 	if !p.Status.Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
-		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
+		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxQualifiedNameBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
 		var unresolved []EffectID
 		if p.Prepared != nil {
 			prepared := p.Prepared.clone()

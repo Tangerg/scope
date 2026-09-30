@@ -2,8 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"strings"
-	"unicode/utf8"
 )
 
 const maxPauseReasonBytes = 4096
@@ -13,7 +11,7 @@ const maxPauseReasonBytes = 4096
 type pause struct{ reason string }
 
 func newPause(reason string) (pause, error) {
-	if reason == "" || !utf8.ValidString(reason) || strings.TrimSpace(reason) != reason || len(reason) > maxPauseReasonBytes {
+	if !validBoundedText(reason, maxPauseReasonBytes) {
 		return pause{}, fmt.Errorf("pause reason must be non-empty, trimmed UTF-8, and at most %d bytes", maxPauseReasonBytes)
 	}
 	return pause{reason: reason}, nil

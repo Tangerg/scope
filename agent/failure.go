@@ -8,8 +8,6 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-const maxFailureCodeBytes = 128
-
 var ErrInvalidFailure = errors.New("agent: invalid failure")
 
 // FailureKind stays independent of retryability so classifying a failure
@@ -60,10 +58,6 @@ func (f FailureKind) terminationCause() TerminationCause {
 	}
 }
 
-func validFailureCode(code string) bool {
-	return ValidQualifiedName(code) && len(code) <= maxFailureCodeBytes
-}
-
 // Failure separates stable codes from diagnostic text so wording changes cannot
 // alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
 // must exclude secrets.
@@ -78,8 +72,8 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !kind.Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)
 	}
-	if !validFailureCode(code) {
-		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxFailureCodeBytes)
+	if !ValidQualifiedName(code) {
+		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
 	}
 	if !ValidDiagnostic(message) {
 		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, MaxDiagnosticBytes)

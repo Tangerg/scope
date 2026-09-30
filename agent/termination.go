@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -259,7 +257,7 @@ type Termination struct {
 }
 
 func validateTerminationReason(reason string) error {
-	if reason == "" || strings.TrimSpace(reason) != reason || !utf8.ValidString(reason) || len(reason) > maxTerminationReasonBytes {
+	if !validBoundedText(reason, maxTerminationReasonBytes) {
 		return fmt.Errorf("%w: reason must be non-empty, trimmed UTF-8 within %d bytes", errInvalidTermination, maxTerminationReasonBytes)
 	}
 	return nil

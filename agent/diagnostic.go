@@ -8,9 +8,13 @@ import (
 // MaxDiagnosticBytes bounds persistable failure messages and strategy diagnostics.
 const MaxDiagnosticBytes = 4096
 
-func ValidDiagnostic(message string) bool {
-	return message != "" && len(message) <= MaxDiagnosticBytes &&
-		utf8.ValidString(message) && strings.TrimSpace(message) == message
+func ValidDiagnostic(message string) bool { return validBoundedText(message, MaxDiagnosticBytes) }
+
+// validBoundedText is the one rule for persisted human-readable text:
+// diagnostics, descriptions, and control reasons are non-empty, trimmed
+// UTF-8 within their own byte limit.
+func validBoundedText(text string, limit int) bool {
+	return text != "" && len(text) <= limit && utf8.ValidString(text) && strings.TrimSpace(text) == text
 }
 
 // NormalizeDiagnostic makes arbitrary external text non-empty, trimmed UTF-8

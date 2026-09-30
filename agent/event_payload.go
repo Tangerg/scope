@@ -144,7 +144,7 @@ func (p ProcessFinishedFact) Valid() bool {
 	if p.Status() != StatusFailed {
 		return p.failureKind == FailureKindInvalid && p.failureCode == ""
 	}
-	return p.failureKind.Valid() && validFailureCode(p.failureCode) &&
+	return p.failureKind.Valid() && ValidQualifiedName(p.failureCode) &&
 		p.cause == p.failureKind.terminationCause()
 }
 
@@ -161,7 +161,7 @@ func (r RuntimeStoppedFact) FailureKind() FailureKind { return r.failureKind }
 func (r RuntimeStoppedFact) FailureCode() string { return r.failureCode }
 
 func (r RuntimeStoppedFact) Valid() bool {
-	return r.failureKind.Valid() && validFailureCode(r.failureCode)
+	return r.failureKind.Valid() && ValidQualifiedName(r.failureCode)
 }
 
 func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
@@ -261,7 +261,7 @@ func (e EffectFinishedFact) Valid() bool {
 		return true
 	}
 	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown &&
-		e.failureKind.Valid() && validFailureCode(e.failureCode)
+		e.failureKind.Valid() && ValidQualifiedName(e.failureCode)
 }
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect

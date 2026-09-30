@@ -303,7 +303,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			}
 			diagnostic := *record.Diagnostic
 			message := strings.Repeat("<", MaxDiagnosticBytes)
-			process.recordFailure(FailureKindExecution, strings.Repeat("x", maxFailureCodeBytes), errors.New(message))
+			process.recordFailure(FailureKindExecution, strings.Repeat("x", maxQualifiedNameBytes), errors.New(message))
 			runtime.terminatePreparedProcess(process)
 			tree, err := runtime.captureTree()
 			if err != nil {

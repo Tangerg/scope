@@ -5,8 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -16,7 +14,7 @@ const MaxDescriptionBytes = 4096
 
 // ValidDescription checks descriptive text without repairing or reinterpreting it.
 func ValidDescription(description string) bool {
-	return description != "" && len(description) <= MaxDescriptionBytes && utf8.ValidString(description) && strings.TrimSpace(description) == description
+	return validBoundedText(description, MaxDescriptionBytes)
 }
 
 var ErrInvalidDescriptor = errors.New("agent: invalid descriptor")
