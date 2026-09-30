@@ -43,22 +43,13 @@
 // real storage call to a Host deadline and shutdown signal.
 //
 // Start commits the initial head and writer identity before publishing the
-// Process. Every [TreeSnapshot] carries that identity. RestoreTree validates the
-// exact Deployment binding and atomically activates a new writer against the
-// supplied head; missing heads, stale digests, and superseded writers fail.
-// Recovery retains captured authority, limits, budgets, and usage. The Host
-// authorizes that captured authority under current policy before restoration.
-// [Engine.ValidateRestorableTree] answers whether a snapshot is restorable
-// using that same validation, without admission, reservation, or writer
-// activation, so asking does not fence the current writer.
+// Process, and every [TreeSnapshot] carries that identity. [Engine.RestoreTree]
+// activates a new writer against the supplied head; missing heads, stale
+// digests, and superseded writers fail.
 //
 // The runtime may hold a newer private candidate than its acknowledged head.
 // Signal admission, child publication, committed Events, terminal results, and
 // inspection snapshots become visible only after their tree commit succeeds.
-// [Engine.CaptureTree] freezes a safe cut and acknowledges it before returning;
-// it cannot manufacture recovery state after a runtime failure.
-// [Engine.InspectTree] combines acknowledged Process snapshots with current job,
-// commit, and freeze facts. Those work facts may be newer than the snapshots.
 //
 // A failed acknowledgment stops the writer with a [RuntimeError], without
 // inventing a logical termination or overwriting an already published result.
@@ -93,24 +84,14 @@
 // child waits carry explicit identities; stale continuation input is rejected.
 // Candidate failure cannot permanently consume an input.
 //
-// Terminal intent cancels owned Step, Dispatch, and child-admission contexts;
-// it still joins started work and required acknowledgments. A late successful
-// child initialization joins under that intent before running a Step.
-// [Process.Await] returns an acknowledged result; [Process.Join] additionally
-// waits for descendant work and bookkeeping. [Engine.Run] combines Start, Join,
-// and Await. Terminal Unknown settlements remain evidence of remote uncertainty.
-//
-// [Engine.ReleaseTree] removes a drained tree from Engine lookup without
-// deleting storage or invalidating existing handles. [Engine.Close] requires
-// publication, bookkeeping, owned work, and separately acquired freezes to finish.
-// Host cancellation does not abandon required acknowledgments. Engine and Process
-// operations require non-nil contexts; nil is a programming error.
+// Terminal intent still joins started work and required acknowledgments; a late
+// successful child initialization joins under that intent before running a
+// Step. Host cancellation never abandons a required acknowledgment. Terminal
+// Unknown settlements remain evidence of remote uncertainty.
 //
 // Each Process carries its own cumulative [Budget]; one [TreeLimits] per root
-// tree owns mailbox, snapshot, and structural capacity for every member. Zero
-// Quota is unlimited, including during recovery. Finite parents
-// permanently charge child grants; unlimited grants do not debit a finite
-// counter. Captured quotas survive restoration without new Engine defaults.
+// tree owns mailbox, snapshot, and structural capacity for every member.
+// Captured quotas survive restoration without new Engine defaults.
 // Unlimited execution still retains history and checks numeric identity overflow;
 // the Host chooses retention and resource policy. Default depth and active-child
 // bounds do not bound retained tree size or lifetime work. Hosts requiring bounded
@@ -136,13 +117,8 @@
 // Events describe attempts or committed facts; [Delta] is best-effort observation.
 // Neither substitutes for an acknowledged head. Event sequences restart with
 // each activation and do not impose ordering across writers. Wall timestamps
-// are diagnostic, not causal proofs. Listener callbacks must return in bounded
-// time and avoid reentrant control or cyclic waits; see [EventListener],
-// [DeltaListener], and [ErrListenerReentrancy]. Events run on the tree owner
-// critical path; a blocked callback also blocks control and shutdown of that tree.
-// Slow Event exporters need a Host-owned bounded queue with explicit drop and
-// drain policy. Delta listeners receive Strategy increments, not a substitute
-// stream of Framework Events, and their delivery worker must also remain bounded.
+// are diagnostic, not causal proofs. [EventListener] and [DeltaListener] own
+// their callback bounds and reentrancy rules.
 //
 // # Strategies
 //
