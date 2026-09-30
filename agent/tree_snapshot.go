@@ -47,12 +47,6 @@ func newTreeSnapshot(wire treeSnapshotWire) (TreeSnapshot, error) {
 	return treeSnapshotFromWire(wire.clone())
 }
 
-// The codec borrows already validated Process bytes during tree encoding, and
-// reusing it avoids rebuilding a marshaler on every capture.
-var treeSnapshotMarshalers = jsonv2.MarshalFunc(func(snapshot ProcessSnapshot) ([]byte, error) {
-	return snapshot.data, nil
-})
-
 func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	wire.normalize()
 	validation, err := newTreeSnapshotValidation(wire)
@@ -62,7 +56,7 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true), jsonv2.WithMarshalers(treeSnapshotMarshalers))
+	normalized, err := wire.encode()
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -158,6 +152,53 @@ type treeSnapshotWire struct {
 	TreeLimits       TreeLimits              `json:"tree_limits"`
 	ProcessSnapshots []ProcessSnapshot       `json:"process_snapshots"`
 	ChildWaits       []childWaitSnapshotWire `json:"child_waits,omitempty"`
+}
+
+// treeSnapshotHeaderWire carries the members treeSnapshotWire encodes before
+// its Process snapshots, in the same order and under the same names.
+type treeSnapshotHeaderWire struct {
+	RootID        ProcessID         `json:"root_id"`
+	IncarnationID TreeIncarnationID `json:"incarnation_id"`
+	TreeLimits    TreeLimits        `json:"tree_limits"`
+}
+
+// encode produces the canonical compact encoding of the wire. Every Process
+// snapshot is already validated canonical JSON, so its bytes are spliced in
+// verbatim: routing them through the encoder would re-parse and re-format
+// every Process on every capture. The result is byte-identical to marshaling
+// the wire with each snapshot's bytes as its value.
+func (t treeSnapshotWire) encode() ([]byte, error) {
+	header, err := jsonv2.Marshal(treeSnapshotHeaderWire{
+		RootID: t.RootID, IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits,
+	}, jsonv2.Deterministic(true))
+	if err != nil {
+		return nil, err
+	}
+	var waits []byte
+	if len(t.ChildWaits) != 0 {
+		if waits, err = jsonv2.Marshal(t.ChildWaits, jsonv2.Deterministic(true)); err != nil {
+			return nil, err
+		}
+	}
+	size := len(header) + len(`,"process_snapshots":[]`) + len(`,"child_waits":`) + len(waits)
+	for _, snapshot := range t.ProcessSnapshots {
+		size += len(snapshot.data) + 1
+	}
+	encoded := make([]byte, 0, size)
+	encoded = append(encoded, header[:len(header)-1]...)
+	encoded = append(encoded, `,"process_snapshots":[`...)
+	for index, snapshot := range t.ProcessSnapshots {
+		if index > 0 {
+			encoded = append(encoded, ',')
+		}
+		encoded = append(encoded, snapshot.data...)
+	}
+	encoded = append(encoded, ']')
+	if len(waits) != 0 {
+		encoded = append(encoded, `,"child_waits":`...)
+		encoded = append(encoded, waits...)
+	}
+	return append(encoded, '}'), nil
 }
 
 func (t treeSnapshotWire) clone() treeSnapshotWire {

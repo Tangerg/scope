@@ -180,7 +180,7 @@ func TestTreeSnapshotRejectsDepthBeyondCapturedLimit(t *testing.T) {
 	}
 	wire := snapshot.state.clone()
 	wire.TreeLimits.MaxDepth = 15
-	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire, jsonv2.WithMarshalers(treeSnapshotMarshalers)))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := ParseTreeSnapshot(controlValue(wire.encode())); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("over-depth tree accepted: %v", err)
 	}
 }

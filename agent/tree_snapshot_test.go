@@ -783,3 +783,28 @@ func TestTreeSnapshotEffectRequestPreservesFrozenEvidence(t *testing.T) {
 		}
 	}
 }
+
+// The spliced encoding is the canonical form every digest depends on, so it
+// must stay byte-identical to marshaling the wire through the encoder.
+func TestTreeSnapshotEncodingMatchesTheEncoder(t *testing.T) {
+	processBytes := jsonv2.MarshalFunc(func(snapshot ProcessSnapshot) ([]byte, error) { return snapshot.data, nil })
+	fixtures := map[string]TreeSnapshot{
+		"single waiting":  controlValue(newWaitingSnapshotTree(t, 1).captureTree()),
+		"waiting tree":    controlValue(newWaitingSnapshotTree(t, 40).captureTree()),
+		"drained subtree": drainedSnapshotFixture(t, 8),
+		"deep subtree":    deepDrainedSnapshotFixture(t),
+		"retained waits":  retainedWaitsSnapshotFixture(t, 6),
+	}
+	for name, snapshot := range fixtures {
+		want := controlValue(jsonv2.Marshal(snapshot.state, jsonv2.Deterministic(true), jsonv2.WithMarshalers(processBytes)))
+		if got := controlValue(snapshot.state.encode()); !bytes.Equal(got, want) {
+			t.Fatalf("%s: spliced encoding differs from the encoder:\n got %s\nwant %s", name, got, want)
+		}
+		if !bytes.Equal(snapshot.JSON(), want) {
+			t.Fatalf("%s: captured snapshot bytes differ from the encoder", name)
+		}
+	}
+	if len(fixtures["retained waits"].state.ChildWaits) == 0 {
+		t.Fatal("fixture set does not exercise child-wait registrations")
+	}
+}
