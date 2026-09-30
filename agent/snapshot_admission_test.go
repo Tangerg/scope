@@ -119,7 +119,7 @@ func materializeSnapshotSettlement(p *preparedEffect, failure Failure) error {
 
 func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	payload := json.RawMessage(`{"text":"<>&\n\"\\\u2028世界"}`)
 	key := controlValue(ParseWaitKey("capacity"))
 	child := newProcessID()
@@ -180,7 +180,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 	}
 	limits := runtime.treeLimits
 	limits.MaxSnapshotBytes = NewQuota(1 << 30)
-	for _, process := range runtime.processes {
+	for _, process := range runtime.members.all() {
 		wire := process.snapshotWire()
 		for _, status := range []Status{StatusRunning, StatusWaiting, StatusPaused} {
 			wire.Status = status
@@ -201,7 +201,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 
 func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 1)
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	wire := root.snapshotWire()
 	limits := runtime.treeLimits
 	limits.MaxSnapshotBytes = NewQuota(1 << 30)
@@ -222,7 +222,7 @@ func TestSnapshotReservationAllocation(t *testing.T) {
 	measure := func() int64 {
 		result := testing.Benchmark(func(b *testing.B) {
 			for b.Loop() {
-				for _, process := range runtime.processes {
+				for _, process := range runtime.members.all() {
 					if _, err := process.snapshotWire().admissionSize(runtime.treeLimits); err != nil {
 						b.Fatal(err)
 					}

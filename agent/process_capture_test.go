@@ -8,7 +8,7 @@ import (
 
 func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
-	process := runtime.processes[runtime.rootID]
+	process := runtime.members.get(runtime.rootID)
 	before, err := process.capture()
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
 	runtime.writer.committer = &recordingTreeCommitter{}
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	acknowledged, err := root.capture()
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	runtime.writer.establish(head)
 	cause := errors.New("child checkpoint was not acknowledged")
 	runtime.failRuntime(cause, ProcessID{}, EffectID{})
-	if len(runtime.processes) != 1 || runtime.processes[runtime.rootID] != root {
+	if runtime.members.len() != 1 || runtime.members.get(runtime.rootID) != root {
 		t.Fatal("prospective child retained a published lifecycle")
 	}
 	_, err = root.handle.outcome()

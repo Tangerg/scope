@@ -141,7 +141,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
 	}
-	if snapshot, err := runtime.processes[handle.processID].capture(); err != nil || !snapshot.Valid() {
+	if snapshot, err := runtime.members.get(handle.processID).capture(); err != nil || !snapshot.Valid() {
 		t.Fatalf("terminal snapshot = %v, error = %v", snapshot.Valid(), err)
 	}
 }

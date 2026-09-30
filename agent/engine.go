@@ -595,7 +595,7 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if e.trees[rootID] != runtime {
 		return ErrTreeNotFound
 	}
-	for processID, process := range runtime.processes {
+	for processID, process := range runtime.members.all() {
 		handle := process.handle
 		if identity, child := handle.relation.childIdentity(); child {
 			delete(e.children, identity)
@@ -741,7 +741,7 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 		restoration.runtime.propagateProcessTermination(entry.state)
 		restoration.runtime.finishProcessBookkeeping(entry.state)
 	}
-	root := restoration.runtime.processes[restoration.wire.RootID].handle
+	root := restoration.runtime.members.get(restoration.wire.RootID).handle
 	go restoration.runtime.run(RequireContext(ctx))
 	return &Process{handle: root}
 }

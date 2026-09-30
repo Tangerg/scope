@@ -204,7 +204,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 	for _, mode := range []string{"capacity", "sibling fault"} {
 		t.Run(mode, func(t *testing.T) {
 			runtime, request, head := effectBoundaryFixture(t, 1, 16)
-			process := runtime.processes[runtime.rootID]
+			process := runtime.members.get(runtime.rootID)
 			runtime.writer.establish(head)
 			listener := &recordingEventListener{}
 			runtime.engine.observation.events = []EventListener{listener}

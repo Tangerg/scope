@@ -355,7 +355,7 @@ func BenchmarkTreeSnapshotSize(b *testing.B) {
 	for _, size := range []int{1 << 10, 8 << 20, 30 << 20} {
 		b.Run(fmt.Sprintf("state_%d", size), func(b *testing.B) {
 			owner := newWaitingSnapshotTree(b, 1)
-			owner.processes[owner.rootID].committedExecutionState = controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(size)))
+			owner.members.get(owner.rootID).committedExecutionState = controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(size)))
 			snapshot := controlValue(owner.captureTree())
 			b.Run("json_size", func(b *testing.B) {
 				b.ReportAllocs()

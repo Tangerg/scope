@@ -119,12 +119,12 @@ func capturedProcess(t *testing.T, snapshot TreeSnapshot, id ProcessID) ProcessS
 func assertTreeMembership(t *testing.T, runtime *treeRuntime) {
 	t.Helper()
 	seen := make(map[ProcessID]bool)
-	for parentID, children := range runtime.childrenByParent {
-		if runtime.processes[parentID] == nil || len(children) == 0 {
+	for parentID, children := range runtime.members.children {
+		if runtime.members.get(parentID) == nil || len(children) == 0 {
 			t.Fatal("child index retained an absent parent or an empty entry")
 		}
 		for _, childID := range children {
-			child := runtime.processes[childID]
+			child := runtime.members.get(childID)
 			if child == nil || seen[childID] {
 				t.Fatal("child index contains an absent or duplicate Process")
 			}
@@ -135,7 +135,7 @@ func assertTreeMembership(t *testing.T, runtime *treeRuntime) {
 			seen[childID] = true
 		}
 	}
-	if len(seen) != len(runtime.processes)-1 {
+	if len(seen) != runtime.members.len()-1 {
 		t.Fatal("child index omits a tree member")
 	}
 }

@@ -120,7 +120,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if _, exists := engine.Process(prepared.plan.childID); exists {
 		t.Fatal("rejected child settlement published the child")
 	}
-	if parent.effectiveAllocations() != (resourceAmounts{}) || len(runtime.processes) != 1 {
+	if parent.effectiveAllocations() != (resourceAmounts{}) || runtime.members.len() != 1 {
 		t.Fatal("rejected child settlement retained its budget or prospective Process")
 	}
 	assertTreeMembership(t, runtime)
@@ -137,9 +137,9 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 
 func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
-	root := runtime.processes[runtime.rootID]
-	children := runtime.childrenByParent[runtime.rootID]
-	first, second := runtime.processes[children[0]], runtime.processes[children[1]]
+	root := runtime.members.get(runtime.rootID)
+	children := runtime.members.childrenOf(runtime.rootID)
+	first, second := runtime.members.get(children[0]), runtime.members.get(children[1])
 	limits := TreeLimits{MaxPendingSignals: runtime.treeLimits.MaxPendingSignals, MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4)}
 	runtime.treeLimits = limits
 	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {

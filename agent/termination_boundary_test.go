@@ -131,7 +131,7 @@ func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 		}()
 		runtime.removeProcess(process.handle.processID)
 	}()
-	if runtime.processes[process.handle.processID] != process || runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
+	if runtime.members.get(process.handle.processID) != process || runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("rejected removal changed Process ownership")
 	}
 	runtime.applyCompletion(treeJobCompletion{
@@ -155,7 +155,7 @@ func TestCompletionRejectsOrphanedOwnedWork(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	job := &processJob{kind: processJobRestore, attempt: 1}
 	runtime.setProcessJob(process.handle.processID, job)
-	delete(runtime.processes, process.handle.processID)
+	runtime.members.remove(process.handle.processID)
 	defer func() {
 		if recover() == nil {
 			t.Fatal("orphaned work was silently retained")

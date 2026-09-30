@@ -64,14 +64,14 @@ func TestUnlimitedExecutionExceedsFormerDefaultSteps(t *testing.T) {
 
 func TestUnlimitedTreeQuotasDoNotDisableConcurrency(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	runtime.treeLimits.MaxChildren = Quota{}
 	runtime.treeLimits.MaxTreeProcesses = Quota{}
 	runtime.treeLimits.MaxActiveChildren = 1
 	if runtime.canStartChild(root) {
 		t.Fatal("active child capacity was disabled")
 	}
-	child := runtime.processes[runtime.childrenByParent[root.handle.processID][0]]
+	child := runtime.members.get(runtime.members.childrenOf(root.handle.processID)[0])
 	child.status = StatusCompleted
 	if !runtime.canStartChild(root) {
 		t.Fatal("completed child still consumed concurrent capacity")

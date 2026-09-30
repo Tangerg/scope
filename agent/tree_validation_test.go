@@ -188,8 +188,8 @@ func TestTreeSnapshotRejectsDepthBeyondCapturedLimit(t *testing.T) {
 func TestPreparedChildWaitRecoveryRequiresDirectChildren(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
 		runtime := newWaitingSnapshotTree(t, 2)
-		root := runtime.processes[runtime.rootID]
-		child := runtime.childrenByParent[runtime.rootID][0]
+		root := runtime.members.get(runtime.rootID)
+		child := runtime.members.childrenOf(runtime.rootID)[0]
 		if invalid {
 			child = newProcessID()
 		}

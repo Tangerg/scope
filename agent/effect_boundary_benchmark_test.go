@@ -37,7 +37,7 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 	runtime := newWaitingSnapshotTree(t, count)
 	runtime.writer.committer = effectBenchmarkDurability{}
 	runtime.writer.identity = newTreeIncarnationID()
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	effect, err := NewDispatcherEffect([]byte(`{"text":"` + strings.Repeat("x", size) + `"}`))
 	if err != nil {
 		t.Fatal(err)

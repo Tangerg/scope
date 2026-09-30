@@ -46,7 +46,7 @@ func BenchmarkTreeAdmission(b *testing.B) {
 					runtime := newWaitingSnapshotTree(b, count)
 					runtime.treeLimits.MaxProcessSnapshotBytes = quota.process
 					runtime.treeLimits.MaxSnapshotBytes = quota.tree
-					root := runtime.processes[runtime.rootID]
+					root := runtime.members.get(runtime.rootID)
 					signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
 					b.Run("signal", func(b *testing.B) {
 						b.ReportAllocs()
@@ -93,7 +93,7 @@ func BenchmarkTreeCommitterFailure(b *testing.B) {
 				runtime.fault = nil
 				runtime.writer.acknowledged = snapshot
 				clear(runtime.joinCandidates)
-				for _, process := range runtime.processes {
+				for _, process := range runtime.members.all() {
 					process.handle.outcomePublished = make(chan struct{})
 					process.handle.bookkeepingDone = make(chan struct{})
 				}
@@ -183,7 +183,7 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 	for _, count := range []int{1, 100, 1000} {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
-			root := runtime.processes[runtime.rootID]
+			root := runtime.members.get(runtime.rootID)
 			root.status, root.pause = StatusPaused, pause{reason: "inspection benchmark"}
 			runtime.writer.committer = &recordingTreeCommitter{}
 			incarnation := newTreeIncarnationID()
@@ -230,7 +230,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 				for _, limited := range []bool{false, true} {
 					b.Run(fmt.Sprintf("members_%d/state_%d/history_%d/tree_quota_%t", count, stateBytes, history, limited), func(b *testing.B) {
 						runtime := newWaitingSnapshotTree(b, count)
-						for _, process := range runtime.processes {
+						for _, process := range runtime.members.all() {
 							process.committedExecutionState = controlValue(EncodeExecutionState("benchmark", strings.Repeat("x", stateBytes)))
 							process.status = StatusPaused
 							process.pause = pause{reason: "benchmark"}
@@ -247,7 +247,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 								runtime.treeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
 							}
 						}
-						root := runtime.processes[runtime.rootID]
+						root := runtime.members.get(runtime.rootID)
 						b.ReportAllocs()
 						for b.Loop() {
 							if err := runtime.validateSnapshotCapacity(root); err != nil {

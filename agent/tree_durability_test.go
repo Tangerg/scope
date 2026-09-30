@@ -499,7 +499,7 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	if string(before.JSON()) != string(after.JSON()) {
 		t.Fatal("late child admission changed the acknowledged head after a fault")
 	}
-	parent := stopped.processes[root.ID()]
+	parent := stopped.members.get(root.ID())
 	_, record := parent.prepared.pendingEffect(runtimeErr.UnresolvedEffectIDs()[0])
 	if record == nil || record.Settlement != nil {
 		t.Fatal("late child admission replaced pending evidence after a fault")

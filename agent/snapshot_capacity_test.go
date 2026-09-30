@@ -173,7 +173,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
 	runtime.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`"` + strings.Repeat("x", 53<<14) + `"`)))
-	for _, process := range runtime.processes {
+	for _, process := range runtime.members.all() {
 		process.status, process.currentWaitID = StatusRunning, WaitID{}
 		process.counters.PreparedEffects = 2
 		process.prepared = &preparedStep{StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(process.committedExecutionState.digest()), SignalCursor: process.mailbox.committedSignalCursor(), Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
@@ -184,7 +184,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 			t.Fatalf("individual process exceeds capacity: %v", err)
 		}
 	}
-	if err := runtime.validateSnapshotCapacity(runtime.processes[runtime.rootID]); !errors.Is(err, ErrResourceLimitExceeded) {
+	if err := runtime.validateSnapshotCapacity(runtime.members.get(runtime.rootID)); !errors.Is(err, ErrResourceLimitExceeded) {
 		t.Fatalf("aggregate tree capacity = %v", err)
 	}
 }
@@ -211,7 +211,7 @@ func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 
 func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
-	root := runtime.processes[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
 	state := controlValue(ParseExecutionState("engine.effect", controlValue(jsonv2.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 44<<14)}))))
@@ -221,7 +221,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		MaxPendingSignals: runtime.treeLimits.MaxPendingSignals,
 		MaxDepth:          1, MaxChildren: NewQuota(5), MaxActiveChildren: 5, MaxTreeProcesses: NewQuota(6),
 	}
-	for _, process := range runtime.processes {
+	for _, process := range runtime.members.all() {
 		process.deployment = deployment
 		process.handle.deploymentRef = deployment.DeploymentRef()
 		process.status, process.currentWaitID = StatusRunning, WaitID{}
@@ -262,8 +262,8 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	}
 	runtime.discardChildStart(preparation.plan)
 	failure, failed := pending.result.result.Failure()
-	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || len(runtime.processes) != 5 {
-		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, len(runtime.processes))
+	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
+		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
 	if root.allocatedResources != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
 		t.Fatal("rejection retained child resources or lost the failed start fact")
@@ -278,7 +278,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 	for _, mode := range []string{"committed", "commit_failed", "capture_failed"} {
 		t.Run(mode, func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
-			root := runtime.processes[runtime.rootID]
+			root := runtime.members.get(runtime.rootID)
 			limits := TreeLimits{
 				MaxSnapshotBytes: NewQuota(512 << 14), MaxPendingSignals: runtime.treeLimits.MaxPendingSignals,
 				MaxDepth: 1, MaxChildren: NewQuota(1), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(2),
@@ -314,7 +314,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
-			if root.provisionalChildBudget != nil || root.allocatedResources != (resourceAmounts{}) || len(runtime.processes) != 1 {
+			if root.provisionalChildBudget != nil || root.allocatedResources != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")
 			}
 			assertNoPendingProcessStarts(t, runtime.engine)

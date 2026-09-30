@@ -8,13 +8,13 @@ import (
 func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	t.Helper()
 	runtime := newWaitingSnapshotTree(t, count+1)
-	root := runtime.processes[runtime.rootID]
-	children := runtime.childrenByParent[runtime.rootID]
+	root := runtime.members.get(runtime.rootID)
+	children := runtime.members.childrenOf(runtime.rootID)
 	outcomes := make([]ChildOutcome, 0, len(children))
 	termination := controlValue((terminationFacts{outcome: completedOutcome()}).resolve())
 	output := controlValue(EncodePayload(childTestOutput{}))
 	for _, id := range children {
-		child := runtime.processes[id]
+		child := runtime.members.get(id)
 		child.mailbox = newSignalMailbox()
 		child.installTermination(termination, output, child.startedAt)
 		key, _ := child.handle.relation.ChildKey()
@@ -124,7 +124,7 @@ func benchmarkMutableSnapshotTree(b *testing.B, count, stateBytes int) (*treeRun
 	b.Helper()
 	owner := newWaitingSnapshotTree(b, count)
 	state := controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(stateBytes)))
-	for _, process := range owner.processes {
+	for _, process := range owner.members.all() {
 		process.committedExecutionState = state
 		process.status, process.pause = StatusPaused, pause{reason: "before"}
 		process.currentWaitID = WaitID{}
@@ -133,9 +133,9 @@ func benchmarkMutableSnapshotTree(b *testing.B, count, stateBytes int) (*treeRun
 	if _, err := owner.captureTree(); err != nil {
 		b.Fatal(err)
 	}
-	leaf := owner.processes[owner.rootID]
+	leaf := owner.members.get(owner.rootID)
 	if count > 1 {
-		leaf = owner.processes[owner.childrenByParent[owner.rootID][0]]
+		leaf = owner.members.get(owner.members.childrenOf(owner.rootID)[0])
 	}
 	return owner, leaf
 }
@@ -174,7 +174,7 @@ func BenchmarkTreeCaptureGrowthReduction(b *testing.B) {
 func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 	owner := newWaitingSnapshotTree(b, 1)
 	initial := controlValue(owner.captureTree())
-	root := owner.processes[owner.rootID]
+	root := owner.members.get(owner.rootID)
 	root.status, root.pause = StatusPaused, pause{reason: "first"}
 	first := controlValue(owner.captureTree())
 	root.pause = pause{reason: "second"}

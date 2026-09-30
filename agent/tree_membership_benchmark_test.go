@@ -20,19 +20,19 @@ func BenchmarkTreeOwnerTraversal(b *testing.B) {
 			b.Run("stop", func(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
-					runtime.stopProcessTree(runtime.processes[runtime.rootID])
+					runtime.stopProcessTree(runtime.members.get(runtime.rootID))
 				}
 			})
 			b.Run("join", func(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
 					b.StopTimer()
-					for _, process := range runtime.processes {
+					for _, process := range runtime.members.all() {
 						process.handle.joined = make(chan struct{})
 						runtime.queueJoin(process)
 					}
 					b.StartTimer()
-					if !runtime.publishJoins() || !runtime.processes[runtime.rootID].handle.joinDone() {
+					if !runtime.publishJoins() || !runtime.members.get(runtime.rootID).handle.joinDone() {
 						b.Fatal("owner did not publish the complete tree join")
 					}
 				}
@@ -86,7 +86,7 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 			close(runtime.done)
 			for range count {
 				id := newProcessID()
-				root := runtime.processes[runtime.rootID]
+				root := runtime.members.get(runtime.rootID)
 				handle := newProcessHandle(rootProcessRelation(id), root.handle.deploymentRef,
 					root.handle.budget, root.handle.capabilities, root.startedAt)
 				result := root.result()
@@ -99,9 +99,9 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				b.StopTimer()
-				runtime.processes[runtime.rootID].handle.runtime.Store(runtime)
+				runtime.members.get(runtime.rootID).handle.runtime.Store(runtime)
 				engine.trees[runtime.rootID] = runtime
-				engine.processes[runtime.rootID] = runtime.processes[runtime.rootID].handle
+				engine.processes[runtime.rootID] = runtime.members.get(runtime.rootID).handle
 				b.StartTimer()
 				if err := engine.ReleaseTree(b.Context(), runtime.rootID); err != nil {
 					b.Fatal(err)
@@ -157,7 +157,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
-			for _, process := range orderedProcesses(runtime.processes) {
+			for _, process := range runtime.members.ordered() {
 				restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 			}
 			if err := runtime.engine.reserveRestoredTree(restoration); err != nil {
@@ -166,7 +166,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 			b.Cleanup(func() { runtime.engine.discardRestoredTree(restoration) })
 			id := newProcessID()
 			relation := rootProcessRelation(id)
-			ref := runtime.processes[runtime.rootID].handle.deploymentRef
+			ref := runtime.members.get(runtime.rootID).handle.deploymentRef
 			b.ReportAllocs()
 			for b.Loop() {
 				if err := runtime.engine.reserveProcessStart(relation, ref, Digest{}); err != nil {

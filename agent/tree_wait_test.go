@@ -11,7 +11,7 @@ import (
 func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 	runtime, first := waitingOwnerFixture(t, 1)
 	parentID, _ := first.handle.relation.ParentID()
-	parent := runtime.processes[parentID]
+	parent := runtime.members.get(parentID)
 	waitID := parent.currentWaitID
 	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
 		t.Fatalf("pause child wait: %v", err)
@@ -22,7 +22,7 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
 		t.Fatalf("pause child wait: %v", err)
 	}
-	second := runtime.processes[runtime.childrenByParent[parentID][1]]
+	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
 	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
 	runtime.finishIfTerminal(second)
 	if parent.status != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
@@ -36,13 +36,13 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	runtime, first := waitingOwnerFixture(t, 3)
 	parentID, _ := first.handle.relation.ParentID()
-	parent := runtime.processes[parentID]
+	parent := runtime.members.get(parentID)
 	waitID := parent.currentWaitID
-	second := runtime.processes[runtime.childrenByParent[parentID][1]]
+	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
 	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
 	runtime.finishIfTerminal(second)
 	for ownerID := range runtime.childWaits {
-		owner := runtime.processes[ownerID]
+		owner := runtime.members.get(ownerID)
 		if ownerID != parentID {
 			if owner.mailbox.pendingCount() != 0 || owner.status != StatusWaiting {
 				t.Fatal("child completion changed an unrelated parent's wait")
@@ -79,7 +79,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 		t.Fatal("consuming one parent's completion removed another wait")
 	}
 	for ownerID := range runtime.childWaits {
-		owner := runtime.processes[ownerID]
+		owner := runtime.members.get(ownerID)
 		owner.installTermination(first.termination, first.finalOutput, first.finishedAt)
 		runtime.finishIfTerminal(owner)
 		if len(runtime.childWaits) != 1 {

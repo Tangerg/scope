@@ -43,10 +43,10 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 
 func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
-	parent := runtime.processes[runtime.rootID]
+	parent := runtime.members.get(runtime.rootID)
 	parent.handle.budget.Signals = NewQuota(23)
 	var effects []Effect
-	for _, child := range orderedProcesses(runtime.processes) {
+	for _, child := range runtime.members.ordered() {
 		if child == parent {
 			continue
 		}

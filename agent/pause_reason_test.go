@@ -134,7 +134,7 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 
 func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 1)
-	process := runtime.processes[runtime.rootID]
+	process := runtime.members.get(runtime.rootID)
 	process.status, process.pause = StatusPaused, pause{reason: strings.Repeat("\x00", 4096)}
 	process.pendingControl.pause = pause{reason: strings.Repeat("\x01", 4096)}
 	snapshot := controlValue(ParseProcessSnapshot(controlValue(process.capture()).JSON()))

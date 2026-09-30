@@ -99,7 +99,7 @@ func TestTreeSnapshotEncodedSizeAndJSONOwnership(t *testing.T) {
 		t.Fatalf("zero snapshot size=%d, want 0", size)
 	}
 	owner := newWaitingSnapshotTree(t, 1)
-	root := owner.processes[owner.rootID]
+	root := owner.members.get(owner.rootID)
 	root.committedExecutionState = controlValue(EncodeExecutionState("size", "界🙂\n\"\\\x00"))
 	tree := controlValue(owner.captureTree())
 	data := tree.JSON()
@@ -124,7 +124,7 @@ func TestTreeSnapshotEncodedSizeAndJSONOwnership(t *testing.T) {
 func TestTreeEncodingPreservesCanonicalBytes(t *testing.T) {
 	for _, count := range []int{1, 3} {
 		owner := newWaitingSnapshotTree(t, count)
-		root := owner.processes[owner.rootID]
+		root := owner.members.get(owner.rootID)
 		root.committedExecutionState = controlValue(ParseExecutionState("encoding", []byte(`{"z":"界🙂\n\"\\\u0000","a":[1,{},[]]}`)))
 		tree := controlValue(owner.captureTree())
 		wire := controlValue(tree.wire())
@@ -665,7 +665,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 	runtime := newWaitingSnapshotTree(t, 3)
 	engine := runtime.engine
 	restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
-	for _, process := range orderedProcesses(runtime.processes) {
+	for _, process := range runtime.members.ordered() {
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
 	conflict := restoration.wire.ProcessSnapshots[1]

@@ -140,9 +140,9 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 	for _, treeQuota := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tree=%t", treeQuota), func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 2)
-			parent := runtime.processes[runtime.rootID]
+			parent := runtime.members.get(runtime.rootID)
 			var child *processState
-			for _, member := range runtime.processes {
+			for _, member := range runtime.members.all() {
 				if treeQuota {
 					runtime.treeLimits.MaxSnapshotBytes = NewQuota(528 << 10)
 				} else {
@@ -192,7 +192,7 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 		for _, treeQuota := range []bool{false, true} {
 			t.Run(fmt.Sprintf("recording=%t/tree=%t", recording, treeQuota), func(t *testing.T) {
 				runtime := newWaitingSnapshotTree(t, 1)
-				root := runtime.processes[runtime.rootID]
+				root := runtime.members.get(runtime.rootID)
 				if treeQuota {
 					runtime.treeLimits.MaxSnapshotBytes = NewQuota(10_000)
 				} else {
@@ -231,7 +231,7 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 				TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(64 << 10), MaxProcessSnapshotBytes: NewQuota(64 << 10)},
 			}
 			runtime := newWaitingSnapshotTree(t, 1)
-			root := runtime.processes[runtime.rootID]
+			root := runtime.members.get(runtime.rootID)
 			runtime.treeLimits.MaxProcessSnapshotBytes = config.TreeLimits.MaxProcessSnapshotBytes
 			runtime.treeLimits.MaxSnapshotBytes = config.TreeLimits.MaxSnapshotBytes
 			root.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
@@ -266,7 +266,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 	for _, treeQuota := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tree=%t", treeQuota), func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
-			process := runtime.processes[runtime.rootID]
+			process := runtime.members.get(runtime.rootID)
 			if treeQuota {
 				runtime.treeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
 			} else {

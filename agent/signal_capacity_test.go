@@ -5,8 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -66,7 +64,7 @@ func TestTreeAdmissionSizeMatchesPersistedEncoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := len(header)
-	for index, process := range slices.Collect(maps.Values(runtime.processes)) {
+	for index, process := range runtime.members.ordered() {
 		data, encodeErr := jsonv2.Marshal(process.snapshotWire())
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
