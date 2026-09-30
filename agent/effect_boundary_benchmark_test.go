@@ -16,8 +16,10 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 		for _, size := range []int{1024, 64 << 10} {
 			b.Run(fmt.Sprintf("processes_%d/bytes_%d", count, size), func(b *testing.B) {
 				runtime, request, snapshot := effectBoundaryFixture(b, count, size)
+				previous := runtime.writer.head()
 				b.ReportAllocs()
 				for b.Loop() {
+					runtime.writer.establish(previous)
 					commit := &treeCommit{processID: request.ProcessID(), snapshot: snapshot}
 					if err := runtime.writer.commitEffect(b.Context(), commit, EffectBoundaryKindPending, request, Settlement{}); err != nil {
 						b.Fatal(err)
@@ -38,6 +40,11 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 	runtime.writer.committer = effectBenchmarkDurability{}
 	runtime.writer.identity = newTreeIncarnationID()
 	root := runtime.members.get(runtime.rootID)
+	previous, err := runtime.captureTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.writer.establish(previous)
 	effect, err := NewDispatcherEffect([]byte(`{"text":"` + strings.Repeat("x", size) + `"}`))
 	if err != nil {
 		t.Fatal(err)
