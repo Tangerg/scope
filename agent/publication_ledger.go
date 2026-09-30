@@ -20,8 +20,8 @@ func (p publicationLedger) owesTerminal(processID ProcessID) bool {
 }
 
 func (p publicationLedger) stageTerminal(event eventFact) {
+	p.stage(event)
 	publication := p[event.processID]
-	publication.events = append(publication.events, event)
 	publication.terminal = true
 	p[event.processID] = publication
 }

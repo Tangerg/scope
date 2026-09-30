@@ -954,7 +954,7 @@ func (t *treeRuntime) failRuntime(
 			t.removeProcess(memberID)
 			continue
 		}
-		t.stopProcessRuntime(process, cause, unresolvedByProcess[memberID])
+		t.stopProcessRuntime(process, unresolvedByProcess[memberID])
 	}
 	if t.freeze.engaged() {
 		// An answered acquisition needs no second reply; releaseFreeze reports
@@ -990,20 +990,25 @@ func (t *treeRuntime) abandonJobs() {
 	}
 }
 
-func (t *treeRuntime) stopProcessRuntime(process *processState, cause error, unresolved []EffectID) {
-	processID := process.handle.processID
-	if !process.handle.publishRuntimeFailure(&RuntimeError{
-		processID: processID, incarnationID: t.writer.incarnation(), headDigest: t.writer.head().Digest(),
-		unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: cause,
-	}) {
+func (t *treeRuntime) stopProcessRuntime(process *processState, unresolved []EffectID) {
+	if !process.handle.publishRuntimeFailure(t.runtimeError(process.handle.processID, unresolved)) {
 		return
 	}
-	failure := newTreeRuntimeFailure(cause)
+	failure := newTreeRuntimeFailure(t.fault)
 	payload := marshalEventPayload(runtimeStoppedEventPayload{
 		FailureKind: failure.Kind(), FailureCode: failure.Code(),
 	})
 	t.events.emit(process, EventRuntimeStopped, 0, EffectID{}, payload)
 	t.finishProcessBookkeeping(process)
+}
+
+// runtimeError reports this instance's fault for one Process against the last
+// head the writer acknowledged.
+func (t *treeRuntime) runtimeError(processID ProcessID, unresolved []EffectID) *RuntimeError {
+	return &RuntimeError{
+		processID: processID, incarnationID: t.writer.incarnation(), headDigest: t.writer.head().Digest(),
+		unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
+	}
 }
 
 func (t *treeRuntime) abandonChildStartJob(job *processJob) {
@@ -2004,10 +2009,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	}
 	var joinErr *RuntimeError
 	if failed {
-		joinErr = &RuntimeError{
-			processID: process.handle.processID, incarnationID: t.writer.incarnation(),
-			headDigest: t.writer.head().Digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
-		}
+		joinErr = t.runtimeError(process.handle.processID, unresolved)
 	}
 	if !process.handle.finishJoin(joinErr) {
 		return true

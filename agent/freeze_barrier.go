@@ -88,3 +88,24 @@ func (f *freezeBarrier) end() *activeTreeFreeze {
 	f.engagedFlag.Store(false)
 	return ended
 }
+
+// treeFreeze identifies the active snapshot barrier. Only CaptureTree receives
+// it, and releasing it lets the same tree owner resume scheduling.
+type treeFreeze struct {
+	runtime *treeRuntime
+}
+
+func (t *treeFreeze) release() error {
+	response := make(chan error, 1)
+	select {
+	case t.runtime.freezeCommands <- releaseFreezeCommand{freeze: t, response: response}:
+	case <-t.runtime.done:
+		return ErrEngineQuiescenceUnavailable
+	}
+	select {
+	case err := <-response:
+		return err
+	case <-t.runtime.done:
+		return ErrEngineQuiescenceUnavailable
+	}
+}
