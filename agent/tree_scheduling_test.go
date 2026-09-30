@@ -13,16 +13,16 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	runtime.completions = make(chan treeJobCompletion, 1)
 	responses := make(chan TreeInspection, treeCommandBufferCapacity)
-	commandResponses := make(chan processResponse, treeCommandBufferCapacity)
+	commandResponses := make(processReply, treeCommandBufferCapacity)
 	answered, commandsAnswered := 0, 0
 	refill := func() {
 		for len(runtime.inspections) < cap(runtime.inspections) {
 			runtime.inspections <- responses
 		}
 		for len(runtime.processCommands) < cap(runtime.processCommands) {
-			runtime.processCommands <- processTreeCommand{processID: process.handle.processID, command: processCommand{
-				kind: commandResume, response: commandResponses,
-			}}
+			runtime.processCommands <- processTreeCommand{
+				processID: process.handle.processID, request: resumeRequest{}, reply: commandResponses,
+			}
 		}
 	}
 	refill()
@@ -81,10 +81,10 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	runtime.startStep(process)
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
 	runtime.completions <- completion
-	response := make(chan processResponse, 1)
-	runtime.processCommands <- processTreeCommand{processID: process.handle.processID, command: processCommand{
-		kind: commandKill, reason: "stop before adopting the ready Step", response: response,
-	}}
+	response := make(processReply, 1)
+	runtime.processCommands <- processTreeCommand{
+		processID: process.handle.processID, request: killRequest{reason: "stop before adopting the ready Step"}, reply: response,
+	}
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
 		if runtime.writer.committing() {

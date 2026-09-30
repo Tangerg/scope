@@ -27,7 +27,7 @@ type processJob struct {
 	effectID      EffectID
 	childStart    *childStartPlan
 	effectAttempt effectAttempt
-	response      chan processResponse
+	reply         processReply
 }
 
 // computation reports whether the job only computes a candidate. Such work

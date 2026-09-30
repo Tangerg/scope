@@ -48,7 +48,8 @@ type treeRuntime struct {
 // processTreeCommand routes one Process control request to its tree owner.
 type processTreeCommand struct {
 	processID ProcessID
-	command   processCommand
+	request   processRequest
+	reply     processReply
 }
 
 // freezeCommand is sealed: only acquisition and release of the snapshot
@@ -83,15 +84,9 @@ type treeCommit struct {
 	processID ProcessID
 	effectID  EffectID
 	snapshot  TreeSnapshot
-	response  chan processResponse
+	reply     processReply
 	events    []eventFact
 	child     *pendingChildStartPublication
-}
-
-func (t *treeCommit) reply(response processResponse) {
-	if t.response != nil {
-		t.response <- response
-	}
 }
 
 type pendingChildStartPublication struct {
@@ -225,7 +220,7 @@ func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() b
 		select {
 		case t.processCommands <- processTreeCommand{
 			processID: t.rootID,
-			command:   processCommand{kind: commandHostTerminated, hostErr: rootContext.Err()},
+			request:   hostTerminationRequest{cause: rootContext.Err()},
 		}:
 		case <-t.done:
 		}
@@ -684,7 +679,7 @@ func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint
 }
 
 // commitEffect captures the prospective tree and starts the Effect boundary
-// of kind for record; response, when present, answers the requesting caller.
+// of kind for record; reply, when present, answers the requesting caller.
 func (t *treeRuntime) commitEffect(
 	process *processState,
 	commitKind treeCommitKind,
@@ -692,7 +687,7 @@ func (t *treeRuntime) commitEffect(
 	batchIndex uint32,
 	record preparedEffect,
 	settlement Settlement,
-	response chan processResponse,
+	reply processReply,
 ) error {
 	snapshot, err := t.captureTree()
 	if err != nil {
@@ -700,18 +695,19 @@ func (t *treeRuntime) commitEffect(
 	}
 	commit := &treeCommit{
 		kind: commitKind, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot, response: response,
+		effectID: record.ID, snapshot: snapshot, reply: reply,
 	}
 	return t.writer.commitEffect(t.context, commit, boundaryKind, t.effectRequestFor(process, batchIndex, record), settlement)
 }
 
 func (t *treeRuntime) startUnknownResolutionCommit(
 	process *processState,
-	command processCommand,
 	index int,
+	settlement Settlement,
+	reply processReply,
 ) error {
 	return t.commitEffect(process, treeCommitEffectResolved, EffectBoundaryKindResolved,
-		uint32(index), process.prepared.Effects[index], command.settlement, command.response)
+		uint32(index), process.prepared.Effects[index], settlement, reply)
 }
 
 func (t *treeRuntime) startCheckpointCommit(
@@ -721,14 +717,14 @@ func (t *treeRuntime) startCheckpointCommit(
 	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, kind)
 }
 
-func (t *treeRuntime) startSignalCommit(process *processState, command processCommand, events []eventFact) error {
+func (t *treeRuntime) startSignalCommit(process *processState, reply processReply, events []eventFact) error {
 	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
 	}
 	return t.startCheckpoint(&treeCommit{
 		kind: treeCommitSignals, processID: process.handle.processID,
-		snapshot: snapshot, response: command.response, events: events,
+		snapshot: snapshot, reply: reply, events: events,
 	}, TreeCheckpointKindSignals)
 }
 
@@ -749,7 +745,7 @@ func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion)
 }
 
 func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error) {
-	commit.reply(processResponse{err: commitErr})
+	commit.reply.send(processResponse{err: commitErr})
 	unresolvedEffectID := commit.effectID
 	if commit.kind == treeCommitEffectPending {
 		unresolvedEffectID = EffectID{}
@@ -771,7 +767,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	case treeCommitEffectPending, treeCommitEffectSettled:
 		t.enqueueProcess(commit.processID)
 	case treeCommitEffectResolved:
-		commit.reply(processResponse{})
+		commit.reply.send(processResponse{})
 		t.enqueueProcess(commit.processID)
 	case treeCommitChildStart:
 		if err := t.publishChildStart(commit.child); err != nil {
@@ -782,7 +778,7 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 		t.enqueueProcess(commit.processID)
 	case treeCommitCheckpoint:
 	case treeCommitSignals:
-		commit.reply(processResponse{accepted: true})
+		commit.reply.send(processResponse{accepted: true})
 		t.enqueueProcess(commit.processID)
 	}
 }
@@ -1040,52 +1036,58 @@ func (t *treeRuntime) applyFreezeCommand(command freezeCommand) {
 func (t *treeRuntime) routeProcessCommand(command processTreeCommand) {
 	process := t.members.get(command.processID)
 	if process == nil {
-		command.command.reply(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
+		command.reply.send(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
 		return
 	}
-	t.applyProcessCommand(process, command.command)
+	t.applyProcessCommand(process, command.request, command.reply)
 }
 
-func (t *treeRuntime) applyProcessCommand(process *processState, command processCommand) {
+func (t *treeRuntime) applyProcessCommand(process *processState, request processRequest, reply processReply) {
 	if t.fault != nil {
-		command.reply(processResponse{err: process.handle.closedRequestError()})
+		reply.send(processResponse{err: process.handle.closedRequestError()})
 		return
 	}
-	if command.kind == commandHostTerminated {
+	if termination, ok := request.(hostTerminationRequest); ok {
 		if !process.status.Terminal() {
-			process.recordHostTermination(command.hostErr)
+			process.recordHostTermination(termination.cause)
 			t.stopProcessTree(process)
 		}
 		return
 	}
 	if process.status.Terminal() {
-		command.reply(processResponse{err: ErrProcessFinished})
+		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
-	switch command.kind {
-	case commandDeliverBatch:
-		t.deliverSignals(process, command)
-	case commandPause:
-		command.reply(processResponse{err: process.requestPause(command.reason)})
-	case commandResume:
+	switch request := request.(type) {
+	case deliverSignalsRequest:
+		t.deliverSignals(process, request.requests, reply)
+	case pauseRequest:
+		reply.send(processResponse{err: process.requestPause(request.reason)})
+	case resumeRequest:
 		err := process.resume()
 		if err == nil {
 			t.stageEvent(process, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 		}
-		command.reply(processResponse{err: err})
-	case commandCancel:
-		process.requestCancellation(command.cancellationIntent)
-	case commandKill:
-		command.reply(processResponse{err: process.requestKill(command.reason)})
-	case commandResolveUnknownEffect:
-		t.resolveUnknownEffect(process, command)
+		reply.send(processResponse{err: err})
+	case cancelRequest:
+		process.requestCancellation(request.intent)
+	case killRequest:
+		reply.send(processResponse{err: process.requestKill(request.reason)})
+	case resolveUnknownEffectRequest:
+		t.resolveUnknownEffect(process, request.settlement, reply)
 		return
-	case commandReplayUnknownEffect:
-		t.replayUnknownEffect(process, command)
+	case replayUnknownEffectRequest:
+		t.replayUnknownEffect(process, request.effectID, reply)
 		return
 	default:
-		command.reply(processResponse{err: ErrInvalidProcessControl})
+		panic("agent: unhandled Process request")
 	}
+	t.scheduleControl(process)
+}
+
+// A recorded control intent stops or pauses owned work before the Process is
+// scheduled again.
+func (t *treeRuntime) scheduleControl(process *processState) {
 	if process.pendingControl.hasTerminalIntent() {
 		t.stopProcessTree(process)
 	} else if process.pendingControl.pause.valid() {
@@ -1097,64 +1099,64 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	}
 }
 
-func (t *treeRuntime) resolveUnknownEffect(process *processState, command processCommand) {
+func (t *treeRuntime) resolveUnknownEffect(process *processState, settlement Settlement, reply processReply) {
 	if process.status.Terminal() || process.pendingControl.hasTerminalIntent() {
-		command.reply(processResponse{err: ErrProcessFinished})
+		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
 	if t.jobs.get(process.handle.processID) != nil {
-		command.reply(processResponse{err: ErrEffectNotPending})
+		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	t.commitResolution(process, command)
+	t.commitResolution(process, settlement, reply)
 }
 
-func (t *treeRuntime) commitResolution(process *processState, command processCommand) {
-	candidate, index, err := process.prepareResolution(command.settlement, t.treeLimits)
+func (t *treeRuntime) commitResolution(process *processState, settlement Settlement, reply processReply) {
+	candidate, index, err := process.prepareResolution(settlement, t.treeLimits)
 	if err == nil {
 		err = t.validateSnapshotCapacity(candidate)
 	}
 	if err != nil {
-		command.reply(processResponse{err: err})
+		reply.send(processResponse{err: err})
 		return
 	}
 	process.adoptCandidate(candidate)
 	record := process.prepared.Effects[index]
 	payload := marshalEventPayload(effectResolvedEventPayload{
-		EffectTarget: record.Effect.Target(), SettlementStatus: command.settlement.Status(),
+		EffectTarget: record.Effect.Target(), SettlementStatus: settlement.Status(),
 	})
 	t.stageEvent(process, EventEffectResolved, EventPhaseCommitted,
 		process.prepared.StepSequence, record.ID, payload)
 
-	if err := t.startUnknownResolutionCommit(process, command, index); err != nil {
-		command.reply(processResponse{err: err})
-		t.failRuntime(err, process.handle.processID, command.settlement.EffectID())
+	if err := t.startUnknownResolutionCommit(process, index, settlement, reply); err != nil {
+		reply.send(processResponse{err: err})
+		t.failRuntime(err, process.handle.processID, settlement.EffectID())
 	}
 }
 
-func (t *treeRuntime) replayUnknownEffect(process *processState, command processCommand) {
+func (t *treeRuntime) replayUnknownEffect(process *processState, effectID EffectID, reply processReply) {
 	if process.pendingControl.hasTerminalIntent() {
-		command.reply(processResponse{err: ErrProcessFinished})
+		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
 	if process.prepared == nil || t.jobs.get(process.handle.processID) != nil {
-		command.reply(processResponse{err: ErrEffectNotPending})
+		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
 	index, record, err := process.prepared.nextEffect()
-	if err != nil || record == nil || record.ID != command.effectID || !record.unknown() {
-		command.reply(processResponse{err: ErrEffectNotPending})
+	if err != nil || record == nil || record.ID != effectID || !record.unknown() {
+		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
 	policy, err := dispatcherReplayPolicy(process.deployment.dispatcher, record.Effect)
 	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy != ReplayPolicySameIdentity {
-		command.reply(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
+		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
 		return
 	}
 	// The committed Unknown already retains the exact uncertain operation.
 	// Keep it intact while the same logical operation is reconciled: revoking
 	// an unused new attempt must never erase evidence of an earlier attempt.
-	t.startDispatch(process, uint32(index), *record, command.response)
+	t.startDispatch(process, uint32(index), *record, reply)
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
@@ -1303,28 +1305,24 @@ func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Si
 	return len(events) > 0 || process.mailbox.contains(signal.ID())
 }
 
-func (t *treeRuntime) deliverSignals(process *processState, command processCommand) {
-	if len(command.signalRequests) == 0 {
-		command.reply(processResponse{err: ErrInvalidSignalRequest})
-		return
-	}
-	signals := make([]Signal, 0, len(command.signalRequests))
-	for _, request := range command.signalRequests {
+func (t *treeRuntime) deliverSignals(process *processState, requests []SignalRequest, reply processReply) {
+	signals := make([]Signal, 0, len(requests))
+	for _, request := range requests {
 		signal, err := request.signal()
 		if err != nil {
-			command.reply(processResponse{err: err})
+			reply.send(processResponse{err: err})
 			return
 		}
 		signals = append(signals, signal)
 	}
 	events, err := t.admitSignals(process, signals, signalSourceExternal)
 	if err != nil || len(events) == 0 {
-		command.reply(processResponse{err: err})
+		reply.send(processResponse{err: err})
 		return
 	}
 
-	if err := t.startSignalCommit(process, command, events); err != nil {
-		command.reply(processResponse{err: err})
+	if err := t.startSignalCommit(process, reply, events); err != nil {
+		reply.send(processResponse{err: err})
 		t.failRuntime(err, process.handle.processID, EffectID{})
 	}
 }
@@ -1622,7 +1620,7 @@ func (t *treeRuntime) startDispatch(
 	process *processState,
 	batchIndex uint32,
 	record preparedEffect,
-	response chan processResponse,
+	reply processReply,
 ) {
 	processID := process.handle.processID
 	dispatcher := process.deployment.dispatcher
@@ -1641,7 +1639,7 @@ func (t *treeRuntime) startDispatch(
 		cancel:        cancel,
 		effectID:      record.ID,
 		effectAttempt: observation,
-		response:      response,
+		reply:         reply,
 	}
 	t.setProcessJob(processID, job)
 	var deltaMu sync.Mutex
@@ -1979,12 +1977,11 @@ func (t *treeRuntime) applyDispatchCompletion(
 	}
 	settlement := result.settlement
 	if record.unknown() {
-		command := processCommand{settlement: settlement, response: job.response}
 		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
-			command.reply(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
+			job.reply.send(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
 		}
-		t.commitResolution(process, command)
+		t.commitResolution(process, settlement, job.reply)
 		return
 	}
 

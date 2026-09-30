@@ -86,7 +86,7 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 		return false, ErrInvalidSignalRequest
 	}
 	owned := slices.Clone(requests)
-	response, err := p.request(ctx, processCommand{kind: commandDeliverBatch, signalRequests: owned})
+	response, err := p.request(ctx, deliverSignalsRequest{requests: owned})
 	return response.accepted, err
 }
 
@@ -98,7 +98,7 @@ func (p *Process) DeliverSignals(ctx context.Context, requests ...SignalRequest)
 // Signals. A nil error acknowledges the local intent; [Engine.InspectTree]
 // reports StatusPaused only after a tree commit acknowledges it.
 func (p *Process) Pause(ctx context.Context, reason string) error {
-	_, err := p.request(ctx, processCommand{kind: commandPause, reason: reason})
+	_, err := p.request(ctx, pauseRequest{reason: reason})
 	return err
 }
 
@@ -108,7 +108,7 @@ func (p *Process) Pause(ctx context.Context, reason string) error {
 // ErrInvalidProcessControl. A nil error acknowledges local resumption; later
 // durable boundaries publish the resumed state.
 func (p *Process) Resume(ctx context.Context) error {
-	_, err := p.request(ctx, processCommand{kind: commandResume})
+	_, err := p.request(ctx, resumeRequest{})
 	return err
 }
 
@@ -128,7 +128,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	return p.submit(ctx, processCommand{kind: commandCancel, cancellationIntent: intent})
+	return p.submit(ctx, cancelRequest{intent: intent}, nil)
 }
 
 // Kill records the Engine control plane's highest-priority terminal intent.
@@ -137,7 +137,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 // A nil error acknowledges the local intent. Await establishes whether the
 // resulting termination committed or this instance stopped with a RuntimeError.
 func (p *Process) Kill(ctx context.Context, reason string) error {
-	_, err := p.request(ctx, processCommand{kind: commandKill, reason: reason})
+	_, err := p.request(ctx, killRequest{reason: reason})
 	return err
 }
 
@@ -150,7 +150,7 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 // Terminal intent or a committed terminal result returns ErrProcessFinished;
 // retained interrupted-batch evidence cannot resume a terminated execution.
 func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlement) error {
-	_, err := p.request(ctx, processCommand{kind: commandResolveUnknownEffect, settlement: settlement})
+	_, err := p.request(ctx, resolveUnknownEffectRequest{settlement: settlement})
 	return err
 }
 
@@ -168,7 +168,7 @@ func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlemen
 // Terminal intent rejects new attempts, and concurrent replay or resolution
 // returns ErrEffectNotPending.
 func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) error {
-	_, err := p.request(ctx, processCommand{kind: commandReplayUnknownEffect, effectID: effectID})
+	_, err := p.request(ctx, replayUnknownEffectRequest{effectID: effectID})
 	return err
 }
 
@@ -216,17 +216,17 @@ func (p *Process) Join(ctx context.Context) error {
 	}
 }
 
-func (p *Process) request(ctx context.Context, command processCommand) (processResponse, error) {
-	command.response = make(chan processResponse, 1)
-	if err := p.submit(ctx, command); err != nil {
+func (p *Process) request(ctx context.Context, request processRequest) (processResponse, error) {
+	reply := make(processReply, 1)
+	if err := p.submit(ctx, request, reply); err != nil {
 		return processResponse{}, err
 	}
 	select {
-	case response := <-command.response:
+	case response := <-reply:
 		return response, response.err
 	case <-p.handle.outcomePublished:
 		select {
-		case response := <-command.response:
+		case response := <-reply:
 			return response, response.err
 		default:
 			return processResponse{}, p.handle.closedRequestError()
@@ -236,9 +236,9 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 	}
 }
 
-// submit is the only path into the owning runtime's command lane; commands
-// without a response channel are accepted once they enter that lane.
-func (p *Process) submit(ctx context.Context, command processCommand) error {
+// submit is the only path into the owning runtime's command lane; requests
+// without a reply are accepted once they enter that lane.
+func (p *Process) submit(ctx context.Context, request processRequest, reply processReply) error {
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -251,7 +251,7 @@ func (p *Process) submit(ctx context.Context, command processCommand) error {
 		return err
 	}
 	select {
-	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID, command: command}:
+	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID, request: request, reply: reply}:
 		return nil
 	case <-p.handle.outcomePublished:
 		return p.handle.closedRequestError()
@@ -310,41 +310,57 @@ func (p *Process) Capabilities() CapabilitySet {
 	return p.handle.capabilities
 }
 
-type commandKind uint8
+// processRequest is sealed: each Process control operation carries exactly
+// its own inputs to the tree owner.
+type processRequest interface{ processRequest() }
 
-const (
-	commandInvalid commandKind = iota
-	commandDeliverBatch
-	commandPause
-	commandResume
-	commandCancel
-	commandKill
-	commandResolveUnknownEffect
-	commandReplayUnknownEffect
-	commandHostTerminated
-)
+type deliverSignalsRequest struct{ requests []SignalRequest }
 
-type processCommand struct {
-	kind               commandKind
-	signalRequests     []SignalRequest
-	settlement         Settlement
-	effectID           EffectID
-	hostErr            error
-	cancellationIntent cancellationIntent
-	reason             string
-	response           chan processResponse
-}
+func (deliverSignalsRequest) processRequest() {}
+
+type pauseRequest struct{ reason string }
+
+func (pauseRequest) processRequest() {}
+
+type resumeRequest struct{}
+
+func (resumeRequest) processRequest() {}
+
+type cancelRequest struct{ intent cancellationIntent }
+
+func (cancelRequest) processRequest() {}
+
+type killRequest struct{ reason string }
+
+func (killRequest) processRequest() {}
+
+type resolveUnknownEffectRequest struct{ settlement Settlement }
+
+func (resolveUnknownEffectRequest) processRequest() {}
+
+type replayUnknownEffectRequest struct{ effectID EffectID }
+
+func (replayUnknownEffectRequest) processRequest() {}
+
+// hostTerminationRequest carries the root context's end into the tree owner.
+type hostTerminationRequest struct{ cause error }
+
+func (hostTerminationRequest) processRequest() {}
 
 type processResponse struct {
 	accepted bool
 	err      error
 }
 
-func (p processCommand) reply(response processResponse) {
-	if p.response == nil {
-		return
+// processReply answers one request. It must be buffered so the tree owner
+// never waits for a caller that stopped listening. A nil reply belongs to a
+// request whose submission is its acceptance.
+type processReply chan processResponse
+
+func (p processReply) send(response processResponse) {
+	if p != nil {
+		p <- response
 	}
-	p.response <- response
 }
 
 // RequireContext enforces the non-nil Context contract shared by Agent boundaries.

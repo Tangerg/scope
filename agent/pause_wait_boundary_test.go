@@ -118,8 +118,8 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 		t.Fatal("test did not reach the prepared Wait boundary")
 	}
 	waitID, _ := process.prepared.Intent.WaitID()
-	response := make(chan processResponse, 1)
-	runtime.applyProcessCommand(process, processCommand{kind: commandPause, reason: "inspect", response: response})
+	response := make(processReply, 1)
+	runtime.applyProcessCommand(process, pauseRequest{reason: "inspect"}, response)
 	if err := (<-response).err; err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	if _, err := runtime.captureTree(); err != nil {
 		t.Fatalf("paused tree is not restorable: %v", err)
 	}
-	runtime.applyProcessCommand(process, processCommand{kind: commandResume, response: response})
+	runtime.applyProcessCommand(process, resumeRequest{}, response)
 	if err := (<-response).err; err != nil {
 		t.Fatal(err)
 	}
