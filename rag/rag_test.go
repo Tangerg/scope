@@ -3,7 +3,6 @@ package rag_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
@@ -340,32 +339,17 @@ func TestFusionAcceptsEmptySuccessfulResults(t *testing.T) {
 	}
 }
 
-func TestFusionOwnsConfigurationAndOrdersFailuresByDeclaration(t *testing.T) {
-	firstFailure := errors.New("first failure")
-	secondFailure := errors.New("second failure")
-	secondFinished := make(chan struct{})
-	first := rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
-		<-secondFinished
-		return nil, firstFailure
-	})
-	second := rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
-		close(secondFinished)
-		return nil, secondFailure
-	})
-	retrievers := []rag.Retriever{first, second}
+func TestFusionOwnsConfiguredRetrievers(t *testing.T) {
+	failure := errors.New("configured failure")
+	retrievers := []rag.Retriever{&fakeRetriever{err: failure}}
 	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, retrievers...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	retrievers[0] = &fakeRetriever{}
 
-	_, err = combined.Retrieve(t.Context(), mustQuery(t, "hi"))
-	if !errors.Is(err, firstFailure) || !errors.Is(err, secondFailure) {
-		t.Fatalf("ReciprocalRankFusion error = %v, want both failures", err)
-	}
-	message := err.Error()
-	if strings.Index(message, firstFailure.Error()) > strings.Index(message, secondFailure.Error()) {
-		t.Fatalf("failure order followed completion order: %v", err)
+	if _, err := combined.Retrieve(t.Context(), mustQuery(t, "hi")); !errors.Is(err, failure) {
+		t.Fatalf("ReciprocalRankFusion error = %v, want configured failure", err)
 	}
 }
 

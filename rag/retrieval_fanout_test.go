@@ -111,6 +111,59 @@ func TestRetrievalFanoutHonorsConfiguredLimit(t *testing.T) {
 	}
 }
 
+func TestRetrievalFanoutCancelsSiblingsAfterFirstFailure(t *testing.T) {
+	for _, expansion := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expansion=%t", expansion), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				failure := errors.New("retrieval failed")
+				blockedStarted := make(chan struct{})
+				blockedCanceled := make(chan struct{})
+				blocked := rag.RetrieverFunc(func(ctx context.Context, _ rag.Query) (rag.Candidates, error) {
+					close(blockedStarted)
+					<-ctx.Done()
+					close(blockedCanceled)
+					return nil, ctx.Err()
+				})
+				failing := rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
+					<-blockedStarted
+					return nil, failure
+				})
+
+				var retriever rag.Retriever
+				var err error
+				if expansion {
+					retriever, err = rag.WithExpander(rag.ExpansionConfig{
+						Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
+							return []rag.Query{mustQuery(t, "blocked"), mustQuery(t, "failing")}, nil
+						}),
+						Retriever: rag.RetrieverFunc(func(ctx context.Context, query rag.Query) (rag.Candidates, error) {
+							if query.Text() == "blocked" {
+								return blocked(ctx, query)
+							}
+							return failing(ctx, query)
+						}),
+					})
+				} else {
+					retriever, err = rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, blocked, failing)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				_, err = retriever.Retrieve(t.Context(), mustQuery(t, "source"))
+				if !errors.Is(err, failure) || errors.Is(err, context.Canceled) {
+					t.Fatalf("Retrieve error = %v, want only the first failure", err)
+				}
+				select {
+				case <-blockedCanceled:
+				default:
+					t.Fatal("Retrieve returned before the canceled sibling finished")
+				}
+			})
+		})
+	}
+}
+
 func TestRetrievalFanoutRejectsNegativeLimit(t *testing.T) {
 	config := rag.FusionRetrieverConfig{MaxConcurrentRetrievals: -1}
 	base := &fakeRetriever{}

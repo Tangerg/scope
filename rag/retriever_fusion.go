@@ -41,7 +41,8 @@ type FusionRetrieverConfig struct {
 // input retriever and fuses their ordered results using reciprocal-rank
 // fusion. Raw candidate scores are deliberately ignored because independent
 // retrievers commonly use incomparable score scales. Every retriever must
-// succeed; failures are reported in declaration order without partial results.
+// succeed; the first failure cancels the remaining retrievals and is returned
+// without partial results.
 func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (Retriever, error) {
 	fusion, err := config.Fusion.normalize()
 	if err != nil {

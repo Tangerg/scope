@@ -91,7 +91,8 @@ type ExpansionConfig struct {
 
 // WithExpander returns a [Retriever] that retrieves each expanded query under
 // the configured concurrency bound and combines rankings with reciprocal-rank
-// fusion. Every query must succeed; raw scores never cross query boundaries.
+// fusion. Every query must succeed; the first failure cancels the remaining
+// retrievals and is returned. Raw scores never cross query boundaries.
 func WithExpander(config ExpansionConfig) (Retriever, error) {
 	if lo.IsNil(config.Retriever) {
 		return nil, ErrNilRetriever
@@ -240,41 +241,60 @@ func parallelResults[Item, Out any](
 		return nil, err
 	}
 
-	// Indexed results preserve ranking and failure order independently of
-	// completion order. Acquire a slot before starting a goroutine so expanded
-	// query count cannot determine the number of active goroutines.
+	// Any failure fails the whole call, so the first one cancels the rest of the
+	// fan-out instead of letting siblings spend work on a discarded result.
+	fanout, stop := context.WithCancel(ctx)
+	defer stop()
+
+	// Indexed results preserve ranking order independently of completion order.
+	// Acquire a slot before starting a goroutine so expanded query count cannot
+	// determine the number of active goroutines.
 	results := make([]Out, len(items))
-	failures := make([]error, len(items))
+	var (
+		failureMu sync.Mutex
+		failure   error
+	)
 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, min(maxConcurrent, len(items)))
 admission:
 	for index, item := range items {
-		if ctx.Err() != nil {
+		if fanout.Err() != nil {
 			break
 		}
 		select {
-		case <-ctx.Done():
+		case <-fanout.Done():
 			break admission
 		case slots <- struct{}{}:
 		}
-		if ctx.Err() != nil {
+		if fanout.Err() != nil {
 			<-slots
 			break
 		}
 		wg.Go(func() {
 			defer func() { <-slots }()
-			result, err := fn(ctx, index, item)
-			if err != nil {
-				failures[index] = fmt.Errorf("%s #%d: %w", itemLabel, index, err)
+			result, err := fn(fanout, index, item)
+			if err == nil {
+				results[index] = result
 				return
 			}
-			results[index] = result
+			failureMu.Lock()
+			defer failureMu.Unlock()
+			// Once the fan-out is canceled, by an earlier failure or by the
+			// caller, later errors are consequences of that cancellation and
+			// must not mask its cause.
+			if fanout.Err() == nil {
+				failure = fmt.Errorf("%s #%d: %w", itemLabel, index, err)
+				stop()
+			}
 		})
 	}
 	wg.Wait()
 
-	if err := errors.Join(append(failures, ctx.Err())...); err != nil {
+	if failure != nil {
+		return nil, fmt.Errorf("%s: %w", op, failure)
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
