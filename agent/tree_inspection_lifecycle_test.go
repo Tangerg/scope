@@ -122,7 +122,7 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 			// without depending on Go's scheduling of an unlimited query loop.
 			for index := range inspectionsPerReader {
 				inspection, inspectErr := engine.InspectTree(ctx, root.ID())
-				if errors.Is(inspectErr, ErrInvalidProcessRelation) {
+				if errors.Is(inspectErr, ErrTreeNotFound) {
 					finished <- nil
 					return
 				}
@@ -160,7 +160,7 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 		t.Fatalf("queries delayed release: %v", releaseErr)
 	}
-	if _, inspectErr := engine.InspectTree(ctx, root.ID()); !errors.Is(inspectErr, ErrInvalidProcessRelation) {
+	if _, inspectErr := engine.InspectTree(ctx, root.ID()); !errors.Is(inspectErr, ErrTreeNotFound) {
 		t.Fatalf("released tree inspection error=%v", inspectErr)
 	}
 	for range readers {
@@ -190,10 +190,10 @@ func TestInspectTreeCancellationAndBoundedAdmission(t *testing.T) {
 	if _, err := (&Engine{}).InspectTree(ctx, ProcessID{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled public inspection error=%v", err)
 	}
-	if _, err := (&Engine{}).InspectTree(t.Context(), ProcessID{}); !errors.Is(err, ErrInvalidProcessRelation) {
+	if _, err := (&Engine{}).InspectTree(t.Context(), ProcessID{}); !errors.Is(err, ErrTreeNotFound) {
 		t.Fatalf("unknown root inspection error=%v", err)
 	}
-	if _, err := (*Engine)(nil).InspectTree(t.Context(), ProcessID{}); !errors.Is(err, ErrEngineClosed) {
+	if _, err := (*Engine)(nil).InspectTree(t.Context(), ProcessID{}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("nil Engine inspection error=%v", err)
 	}
 }

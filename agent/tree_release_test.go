@@ -31,7 +31,7 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		}
 		handles = append(handles, child)
 	}
-	if releaseErr := engine.ReleaseTree(t.Context(), handles[1].ID()); !errors.Is(releaseErr, ErrInvalidProcessRelation) {
+	if releaseErr := engine.ReleaseTree(t.Context(), handles[1].ID()); !errors.Is(releaseErr, ErrTreeNotFound) {
 		t.Fatalf("release child error = %v", releaseErr)
 	}
 	otherInput, _ := EncodePayload(childTestInput{Mode: "leaf"})
@@ -55,10 +55,10 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 			t.Fatalf("released handle Kill error = %v", err)
 		}
 	}
-	if _, err := engine.InspectTree(t.Context(), root.ID()); !errors.Is(err, ErrInvalidProcessRelation) {
+	if _, err := engine.InspectTree(t.Context(), root.ID()); !errors.Is(err, ErrTreeNotFound) {
 		t.Fatalf("released tree inspection error = %v", err)
 	}
-	if _, err := engine.CaptureTree(t.Context(), root.ID()); !errors.Is(err, ErrInvalidProcessRelation) {
+	if _, err := engine.CaptureTree(t.Context(), root.ID()); !errors.Is(err, ErrTreeNotFound) {
 		t.Fatalf("released tree capture error = %v", err)
 	}
 	engine.mu.RLock()

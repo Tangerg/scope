@@ -213,7 +213,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 				t.Fatal(releaseErr)
 			}
-			if _, inspectErr := engine.InspectTree(t.Context(), root.ID()); !errors.Is(inspectErr, ErrInvalidProcessRelation) {
+			if _, inspectErr := engine.InspectTree(t.Context(), root.ID()); !errors.Is(inspectErr, ErrTreeNotFound) {
 				t.Fatalf("released inspection error=%v", inspectErr)
 			}
 		})

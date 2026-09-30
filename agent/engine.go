@@ -16,6 +16,9 @@ var (
 	ErrEngineQuiescenceUnavailable = errors.New("agent: engine cannot become quiescent")
 	ErrEngineHasActiveProcesses    = errors.New("agent: engine has active processes")
 	ErrProcessAlreadyExists        = errors.New("agent: process identity already exists")
+	// ErrTreeNotFound reports that this Engine has no registered root tree with
+	// the requested identity, including after ReleaseTree removed it.
+	ErrTreeNotFound = errors.New("agent: tree not found")
 )
 
 // EngineConfig keeps scheduling and authority policy outside Deployments so a
@@ -70,7 +73,8 @@ type EngineConfig struct {
 // resource reservations and recoverable tree state must describe the same
 // lifecycle. Construct it with NewEngine; its zero value is not usable. An
 // Engine must not be copied because doing so shares its registries while
-// duplicating their synchronization.
+// duplicating their synchronization. Operations on a nil Engine report
+// ErrInvalidEngineConfig; read accessors return zero values.
 type Engine struct {
 	committer                         TreeCommitter
 	initializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
@@ -106,7 +110,6 @@ type Engine struct {
 
 // ObservationFailures returns consistent panic counts and the latest bounded
 // diagnostic for each listener kind. Listener failures cannot veto execution.
-// A nil Engine has no observations and returns zero counts and diagnostics.
 func (e *Engine) ObservationFailures() ObservationFailures {
 	if e == nil || e.observation == nil {
 		return ObservationFailures{}
@@ -121,7 +124,7 @@ func (e *Engine) ObservationFailures() ObservationFailures {
 // already admitted may race with Close, even with no listeners configured.
 func (e *Engine) FlushDeltas(ctx context.Context) error {
 	if e == nil {
-		return ErrEngineClosed
+		return ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -305,8 +308,7 @@ func (e *Engine) Run(ctx context.Context, deployment Deployment, input Payload) 
 	return process.Await(waitContext)
 }
 
-// Process finds a published Process. A nil Engine contains no Processes and
-// returns nil, false.
+// Process finds a published Process.
 func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	if e == nil || !id.Valid() {
 		return nil, false
@@ -328,8 +330,7 @@ func (e *Engine) Process(id ProcessID) (*Process, bool) {
 // Once closing begins, the Engine drains accepted Delta delivery and stops
 // observation workers. Canceling ctx stops only this caller's wait; it does not
 // interrupt that owned shutdown, which later and concurrent callers join.
-// Existing handles retain results and RuntimeErrors for later reads. A nil
-// Engine returns ErrInvalidEngineConfig.
+// Existing handles retain results and RuntimeErrors for later reads.
 func (e *Engine) Close(ctx context.Context) error {
 	if e == nil {
 		return ErrInvalidEngineConfig
@@ -522,7 +523,7 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 // failures are reported through ProcessInspection.RuntimeError.
 func (e *Engine) InspectTree(ctx context.Context, rootID ProcessID) (TreeInspection, error) {
 	if e == nil {
-		return TreeInspection{}, ErrEngineClosed
+		return TreeInspection{}, ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -577,11 +578,12 @@ func (e *Engine) acquireTreeOperation(
 // in-memory registry entries and execution state. It does not cancel work or
 // delete Host persistence. Capture any required TreeSnapshot before releasing.
 // Existing Process handles retain their Result or RuntimeError;
-// Engine.Process and tree operations no longer find the released identities.
+// Engine.Process no longer finds the released identities, and tree operations
+// return ErrTreeNotFound.
 // Canceling ctx before settlement leaves the tree registered and usable.
 func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if e == nil {
-		return ErrEngineClosed
+		return ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -612,7 +614,7 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.trees[rootID] != runtime {
-		return ErrInvalidProcessRelation
+		return ErrTreeNotFound
 	}
 	for processID, process := range runtime.processes {
 		handle := process.handle
@@ -856,11 +858,11 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 // the Host's commit store; unacknowledged runtime state is never recoverable.
 func (e *Engine) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
 	if e == nil {
-		return TreeSnapshot{}, ErrInvalidProcessRelation
+		return TreeSnapshot{}, ErrInvalidEngineConfig
 	}
 	ctx = RequireContext(ctx)
 	if !rootID.Valid() {
-		return TreeSnapshot{}, ErrInvalidProcessRelation
+		return TreeSnapshot{}, ErrTreeNotFound
 	}
 
 	operation, err := e.acquireTreeOperation(ctx, rootID)
@@ -891,7 +893,7 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 	runtime := e.trees[rootID]
 	if root == nil || runtime == nil || !root.relation.IsRoot() ||
 		root.relation.RootID() != rootID || root.runtime.Load() != runtime {
-		return nil, ErrInvalidProcessRelation
+		return nil, ErrTreeNotFound
 	}
 	return runtime, nil
 }
