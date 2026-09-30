@@ -126,7 +126,7 @@ Source identity inside a payload is a claim until an authorized boundary validat
 
 A Deployment binds a Definition and its optional Dispatcher under exact implementation and configuration digests. Recovery resolves that binding rather than selecting whatever implementation currently has the same display name. See [Deployment](../agent/deployment.go).
 
-A strategy that composes a child retains the immutable reference, schemas, and grants needed to declare and validate that child. The Engine's resolver owns the executable binding. Retaining another Definition or Dispatcher inside orchestration state would couple resource ownership without adding a composition guarantee.
+A strategy configured with a child Deployment reports it through `Definition.ChildDeployments`, and the parent Deployment owns that binding: its references enter the parent's identity, and the Engine starts and restores those children from it. Only children named by runtime input, such as competition candidates, are resolved through the Host's `DeploymentResolver`. Orchestration state keeps only the references, schemas, and grants it declares; retaining a Definition or Dispatcher in Execution state would couple resource ownership to recoverable state without adding a composition guarantee.
 
 The Execution snapshot must contain the strategy state needed for continuation. Engine-owned snapshots retain mailbox, wait, effect, and child facts. Mutable globals, live handles, and hidden registration order cannot substitute for either representation.
 
