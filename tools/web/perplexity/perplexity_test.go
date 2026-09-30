@@ -46,7 +46,7 @@ func TestSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Results) != 1 || response.Results[0].PublishedTime.IsZero() {
+	if response.Query != "scope" || len(response.Results) != 1 || response.Results[0].PublishedTime.IsZero() {
 		t.Fatalf("response = %#v", response)
 	}
 }

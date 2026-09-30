@@ -90,13 +90,8 @@ type webResults struct {
 	Results []*searchResult `json:"results"`
 }
 
-type queryInfo struct {
-	Original string `json:"original"`
-}
-
 type searchResponse struct {
-	Query queryInfo   `json:"query"`
-	Web   *webResults `json:"web,omitzero"`
+	Web *webResults `json:"web,omitzero"`
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -145,7 +140,7 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			})
 		}
 	}
-	return &web.SearchResponse{Query: cmp.Or(s.Query.Original, query), Results: results}
+	return &web.SearchResponse{Query: query, Results: results}
 }
 
 func parseAge(s string) time.Time {

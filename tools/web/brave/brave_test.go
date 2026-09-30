@@ -27,7 +27,7 @@ func TestSearch(t *testing.T) {
 			t.Errorf("count = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"query":{"original":"scope"},"web":{"results":[{"title":"Scope","url":"https://example.com","description":"cat","page_age":"2026-08-03T00:00:00Z"}]}}`))
+		_, _ = w.Write([]byte(`{"query":{"original":"scope (site:example.com OR site:example.org)"},"web":{"results":[{"title":"Scope","url":"https://example.com","description":"cat","page_age":"2026-08-03T00:00:00Z"}]}}`))
 	}))
 	t.Cleanup(server.Close)
 

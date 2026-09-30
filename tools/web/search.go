@@ -183,6 +183,9 @@ type SearchResult struct {
 }
 
 type SearchResponse struct {
+	// Query is the caller's prepared query, never a provider's echo of it:
+	// providers may receive rewritten text such as appended site: operators
+	// for domain filters.
 	Query   string          `json:"query"`
 	Results []*SearchResult `json:"results"`
 }

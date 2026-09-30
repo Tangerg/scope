@@ -80,7 +80,6 @@ type searchResult struct {
 }
 
 type searchResponse struct {
-	Query   string          `json:"query"`
 	Results []*searchResult `json:"results"`
 }
 
@@ -97,7 +96,7 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			FaviconURL: searchResult.Favicon,
 		})
 	}
-	return &web.SearchResponse{Query: cmp.Or(s.Query, query), Results: results}
+	return &web.SearchResponse{Query: query, Results: results}
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {

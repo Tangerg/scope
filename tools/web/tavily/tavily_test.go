@@ -36,7 +36,7 @@ func TestSearch(t *testing.T) {
 			t.Errorf("body = %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"query":"scope","results":[{"title":"Scope","url":"https://example.com","content":"cat","favicon":"https://example.com/favicon.ico"}]}`))
+		_, _ = w.Write([]byte(`{"query":"scope site:example.com","results":[{"title":"Scope","url":"https://example.com","content":"cat","favicon":"https://example.com/favicon.ico"}]}`))
 	}))
 	t.Cleanup(server.Close)
 

@@ -61,10 +61,6 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 	}
 }
 
-type searchParameters struct {
-	Q string `json:"q"`
-}
-
 type organicResult struct {
 	Title   string `json:"title"`
 	Link    string `json:"link"`
@@ -73,8 +69,7 @@ type organicResult struct {
 }
 
 type searchResponse struct {
-	SearchParameters searchParameters `json:"searchParameters"`
-	Organic          []*organicResult `json:"organic"`
+	Organic []*organicResult `json:"organic"`
 }
 
 func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
@@ -90,7 +85,7 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			PublishedTime: parseDate(searchResult.Date),
 		})
 	}
-	return &web.SearchResponse{Query: cmp.Or(s.SearchParameters.Q, query), Results: results}
+	return &web.SearchResponse{Query: query, Results: results}
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {

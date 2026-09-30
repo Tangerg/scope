@@ -34,7 +34,7 @@ func TestSearch(t *testing.T) {
 			t.Errorf("body = %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"searchParameters":{"q":"scope"},"organic":[{"title":"Scope","link":"https://example.com","snippet":"cat","date":"2026-08-03"}]}`))
+		_, _ = w.Write([]byte(`{"searchParameters":{"q":"scope (site:example.com OR site:example.org)"},"organic":[{"title":"Scope","link":"https://example.com","snippet":"cat","date":"2026-08-03"}]}`))
 	}))
 	t.Cleanup(server.Close)
 

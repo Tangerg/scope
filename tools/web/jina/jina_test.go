@@ -55,7 +55,7 @@ func TestSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Results) != 1 || response.Results[0].Snippet != "cat" {
+	if response.Query != "scope agent" || len(response.Results) != 1 || response.Results[0].Snippet != "cat" {
 		t.Fatalf("response = %#v", response)
 	}
 	for _, request := range []*web.SearchRequest{
