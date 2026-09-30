@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 )
 
 const stateKind = "collaboration"
@@ -147,7 +148,7 @@ func (d *Definition) Descriptor() agent.Descriptor {
 }
 
 func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
-	if d == nil || !d.descriptor.Valid() {
+	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
@@ -157,27 +158,20 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if d == nil || !d.descriptor.Valid() {
+	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := state.Decode[executionState](stateKind)
+	decoded, err := restore.Decode(ctx, state, stateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
+		return decoded.validate(ctx, d)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(ctx, d); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil
+}
+
+func (d *Definition) valid() bool {
+	return d != nil && d.descriptor.Valid()
 }
 
 func (d *Definition) worker(name string) (childBinding, bool) {

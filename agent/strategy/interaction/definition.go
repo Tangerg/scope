@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -176,23 +177,13 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 // Restore recreates an Interaction solely from its opaque state. It accepts
 // the current Interaction state schema and rejects unknown fields.
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if !d.valid() {
+	if !(d.valid()) {
 		return nil, ErrInvalidDefinitionConfig
 	}
-	decoded, err := state.Decode[executionState](executionStateKind)
+	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
+		return decoded.validate(ctx, d)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(ctx, d); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil

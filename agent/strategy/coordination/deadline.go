@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 )
 
 const deadlineStateKind = "coordination.deadline"
@@ -44,7 +45,7 @@ func (d *Deadline) Descriptor() agent.Descriptor {
 }
 
 func (d *Deadline) Start(input agent.Payload) (agent.Execution, error) {
-	if d == nil || !d.descriptor.Valid() {
+	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
@@ -61,27 +62,20 @@ func (d *Deadline) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if d == nil || !d.descriptor.Valid() {
+	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := state.Decode[deadlineState](deadlineStateKind)
+	decoded, err := restore.Decode(ctx, state, deadlineStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded deadlineState) error {
+		return decoded.validate()
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &deadlineExecution{state: decoded}, nil
+}
+
+func (d *Deadline) valid() bool {
+	return d != nil && d.descriptor.Valid()
 }
 
 type deadlinePhase string

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 )
 
 const firstSuccessStateKind = "coordination.first_success"
@@ -89,24 +90,13 @@ func (f *FirstSuccess) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (f *FirstSuccess) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if !f.valid() {
+	if !(f.valid()) {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := state.Decode[firstSuccessState](firstSuccessStateKind)
+	decoded, err := restore.Decode(ctx, state, firstSuccessStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded firstSuccessState) error {
+		return decoded.validate(ctx, f.maxCandidates)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(ctx, f.maxCandidates); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &firstSuccessExecution{definition: f, state: decoded}, nil

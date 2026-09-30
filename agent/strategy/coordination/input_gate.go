@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 )
 
 const (
@@ -68,24 +69,13 @@ func (i *InputGate) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (i *InputGate) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if !i.valid() {
+	if !(i.valid()) {
 		return nil, ErrInvalidConfig
 	}
-	decoded, err := state.Decode[inputGateState](inputGateStateKind)
+	decoded, err := restore.Decode(ctx, state, inputGateStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded inputGateState) error {
+		return decoded.validate(ctx, i)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(ctx, i); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &inputGateExecution{definition: i, state: decoded}, nil

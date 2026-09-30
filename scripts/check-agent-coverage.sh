@@ -19,6 +19,7 @@ coverage_budget=(
   "./examples/workflow_patterns 73.3"
   "./strategy/interaction 84.2"
   "./strategy/internal/childcall 95.3"
+  "./strategy/internal/restore 100.0"
   "./internal/conformancetest 81.6"
   "./internal/jsonwire 100.0"
   "./internal/panicinfo 100.0"

@@ -7,6 +7,7 @@ import (
 	"math"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 )
 
 const toolExecutionStateKind = "interaction.tool_call"
@@ -101,29 +102,20 @@ func (t *toolDefinition) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (t *toolDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	decoded, err := decodeToolState(state)
+	decoded, err := restore.Decode(ctx, state, toolExecutionStateKind, ErrInvalidExecutionState, validateToolState)
 	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &toolExecution{state: decoded}, nil
 }
 
+// decodeToolState reads a retained child state outside Restore; it applies
+// the same decoding and validation without a cancellation point.
 func decodeToolState(state agent.ExecutionState) (toolExecutionState, error) {
-	decoded, err := state.Decode[toolExecutionState](toolExecutionStateKind)
-	if err != nil {
-		return toolExecutionState{}, fmt.Errorf("%w: Tool state: %w", ErrInvalidExecutionState, err)
-	}
-	if err := decoded.validate(); err != nil {
-		return toolExecutionState{}, err
-	}
-	return decoded, nil
+	return restore.Decode(context.Background(), state, toolExecutionStateKind, ErrInvalidExecutionState, validateToolState)
 }
+
+func validateToolState(_ context.Context, state toolExecutionState) error { return state.validate() }
 
 type toolExecution struct{ state toolExecutionState }
 
