@@ -59,6 +59,14 @@ func (c ChildControlResult) Failure() (Failure, bool) { return c.failure, c.fail
 
 // Matches checks the operation and concrete recipient of the declared Effect.
 // The enclosing settlement Signal retains the Engine-owned effect identity.
+// settlementStatus is the status of the child-control Effect that returns c.
+func (c ChildControlResult) settlementStatus() SettlementStatus {
+	if c.failure.Valid() {
+		return SettlementStatusFailed
+	}
+	return SettlementStatusSucceeded
+}
+
 func (c ChildControlResult) Matches(effect Effect) bool {
 	if !c.Valid() || !effect.Valid() || effect.Target() != EffectTargetFramework {
 		return false

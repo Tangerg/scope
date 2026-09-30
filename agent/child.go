@@ -87,6 +87,14 @@ func (c ChildStartResult) Valid() bool {
 		(c.processID.Valid() != c.failure.Valid())
 }
 
+// settlementStatus is the status of the child-start Effect that returns c.
+func (c ChildStartResult) settlementStatus() SettlementStatus {
+	if c.failure.Valid() {
+		return SettlementStatusFailed
+	}
+	return SettlementStatusSucceeded
+}
+
 func (c ChildStartResult) Matches(key ChildKey, deployment DeploymentRef) bool {
 	return c.Valid() && c.key == key && c.deploymentRef == deployment
 }

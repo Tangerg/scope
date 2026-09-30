@@ -181,11 +181,7 @@ func (p *preparedEffect) settleChildControl(result ChildControlResult) error {
 	if err != nil {
 		return err
 	}
-	status := SettlementStatusSucceeded
-	if result.failure.Valid() {
-		status = SettlementStatusFailed
-	}
-	settlement, err := NewSettlement(p.ID, status, payload)
+	settlement, err := NewSettlement(p.ID, result.settlementStatus(), payload)
 	if err != nil {
 		return err
 	}
@@ -275,11 +271,7 @@ func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
 	if err != nil {
 		return err
 	}
-	status := SettlementStatusSucceeded
-	if _, failed := result.Failure(); failed {
-		status = SettlementStatusFailed
-	}
-	settlement, err := NewSettlement(p.ID, status, payload)
+	settlement, err := NewSettlement(p.ID, result.settlementStatus(), payload)
 	if err != nil {
 		return err
 	}

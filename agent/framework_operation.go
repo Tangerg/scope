@@ -152,14 +152,10 @@ func (c childStartOperation) validate(effect *preparedEffect) error {
 	if result.Key() != spec.Key || result.DeploymentRef() != spec.DeploymentRef {
 		return ErrInvalidChildStart
 	}
-	status := SettlementStatusFailed
-	if id, started := result.ProcessID(); started {
-		if id != effect.ID.childProcessID() {
-			return ErrInvalidChildStart
-		}
-		status = SettlementStatusSucceeded
+	if id, started := result.ProcessID(); started && id != effect.ID.childProcessID() {
+		return ErrInvalidChildStart
 	}
-	if effect.Settlement.Status() != status {
+	if effect.Settlement.Status() != result.settlementStatus() {
 		return ErrInvalidChildStart
 	}
 	return nil
@@ -237,11 +233,7 @@ func (c childControlOperation) validate(effect *preparedEffect) error {
 	if err != nil || !result.matches(c.request) {
 		return ErrInvalidChildControl
 	}
-	wantStatus := SettlementStatusSucceeded
-	if result.failure.Valid() {
-		wantStatus = SettlementStatusFailed
-	}
-	if effect.Settlement.Status() != wantStatus {
+	if effect.Settlement.Status() != result.settlementStatus() {
 		return ErrInvalidChildControl
 	}
 	return nil

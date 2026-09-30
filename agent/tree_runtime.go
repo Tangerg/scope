@@ -97,13 +97,6 @@ type pendingChildStartPublication struct {
 	event         eventFact
 }
 
-func (p *pendingChildStartPublication) childSettlementStatus() SettlementStatus {
-	if _, failed := p.result.result.Failure(); failed {
-		return SettlementStatusFailed
-	}
-	return SettlementStatusSucceeded
-}
-
 type stepJobResult struct {
 	finishedAt       time.Time
 	workDuration     time.Duration
@@ -820,7 +813,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		t.events.publish(parent, pending.event)
 	} else {
 		t.events.publishSettlement(parent, pending.effectID, EffectTargetFramework,
-			pending.childSettlementStatus(), pending.effectAttempt, nil,
+			pending.result.result.settlementStatus(), pending.effectAttempt, nil,
 		)
 	}
 	return nil
@@ -1751,7 +1744,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 
 	pending.event = t.events.settlement(parent,
 		job.effectID, EffectTargetFramework,
-		pending.childSettlementStatus(), job.effectAttempt, nil,
+		pending.result.result.settlementStatus(), job.effectAttempt, nil,
 	)
 	snapshot, err := t.captureTree()
 	if err == nil {
