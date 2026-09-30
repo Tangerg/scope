@@ -161,3 +161,33 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		runtime.childWaits.remove(parent.handle.processID, waitID)
 	}
 }
+
+func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
+	runtime, parent := newChildCompletionTestProcess(t)
+	childID := parent.handle.processID.effectID(1, 0).childProcessID()
+	childKey := controlValue(ParseChildKey("worker"))
+	handle := newProcessHandle(
+		childProcessRelation(childID, parent.handle.relation, childKey),
+		parent.deployment.DeploymentRef(), parent.handle.budget, parent.handle.capabilities, parent.startedAt)
+	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
+		parent.committedExecutionState, parent.startedAt))
+	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("worker-result")), Children: []ProcessID{childID},
+		Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
+	record := preparedEffect{
+		ID: parent.handle.processID.effectID(2, 0), Effect: controlValue(NewChildWaitEffect(spec)), Phase: effectPhasePending,
+	}
+	if err := record.settleFramework(); err != nil {
+		t.Fatal(err)
+	}
+	parent.prepared = &preparedStep{Intent: controlValue(Continue(0, record.Effect)), Effects: preparedEffects{record}}
+	waitID := *record.WaitID
+	if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
+		t.Fatal(err)
+	}
+	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrInvalidChildWait) {
+		t.Fatalf("duplicate child wait finalization = %+v", failure)
+	}
+	if runtime.childWaits[parent.handle.processID][waitID] == nil {
+		t.Fatal("rejected finalization removed a registration it did not create")
+	}
+}

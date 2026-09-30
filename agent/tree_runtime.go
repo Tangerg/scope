@@ -2663,75 +2663,75 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 // Only immediate child-wait answers and the resulting snapshot can exceed a
 // bound here, so each failure is classified where it arises.
 func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFailure {
-	invalid := func(err error) *stepPreparationFailure {
-		return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
-	}
-	limited := func(code string, err error) *stepPreparationFailure {
-		if !errors.Is(err, ErrResourceLimitExceeded) {
-			return invalid(err)
-		}
-		return &stepPreparationFailure{kind: FailureKindExecution, code: code, cause: err}
-	}
+	processID := process.handle.processID
 	finalization, err := newPreparedStepFinalization(process, process.prepared)
+	if err == nil {
+		err = finalization.prepareSettlements()
+	}
 	if err != nil {
-		return invalid(err)
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	if err := finalization.prepareSettlements(); err != nil {
-		return invalid(err)
+	immediate, err := t.registerOpenedChildWaits(processID, finalization)
+	if err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	var registered []WaitID
-	var immediate []Signal
 	adopted := false
 	defer func() {
 		if !adopted {
-			for _, waitID := range registered {
-				t.childWaits.remove(process.handle.processID, waitID)
+			for _, opened := range finalization.openedChildWaits {
+				t.childWaits.remove(processID, opened.WaitID())
 			}
 		}
 	}()
-	for _, opened := range finalization.openedChildWaits {
-		signal, satisfied, err := t.registerChildWait(process.handle.processID, opened.WaitID(), opened.Spec())
-		if err != nil {
-			return invalid(err)
-		}
-		registered = append(registered, opened.WaitID())
-		if satisfied {
-			immediate = append(immediate, signal)
-		}
+	if err = finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	if err := finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
-		return invalid(err)
-	}
+	limitCode := failureCodeEngineLimitSnapshot
 	candidate := process.candidate()
 	candidate.adopt(finalization)
 	if len(immediate) != 0 {
-		admitted, admissionErr := candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits)
-		if admissionErr != nil {
-			return limited(failureCodeEngineLimitChildWaitSignal, admissionErr)
+		limitCode = failureCodeEngineLimitChildWaitSignal
+		if candidate, err = candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits); err != nil {
+			return newFinalizationFailure(limitCode, err)
 		}
-		candidate = admitted
 	}
-	if err := t.validateSnapshotCapacity(candidate); err != nil {
-		if len(immediate) != 0 {
-			return limited(failureCodeEngineLimitChildWaitSignal, err)
-		}
-		return limited(failureCodeEngineLimitSnapshot, err)
+	if err = t.validateSnapshotCapacity(candidate); err != nil {
+		return newFinalizationFailure(limitCode, err)
 	}
 	process.adoptCandidate(candidate)
 	adopted = true
 	for _, waitID := range finalization.consumedChildWaits {
-		t.childWaits.remove(process.handle.processID, waitID)
+		t.childWaits.remove(processID, waitID)
 	}
 	for _, waitID := range finalization.commit.closedChildWaits {
-		t.childWaits.remove(process.handle.processID, waitID)
+		t.childWaits.remove(processID, waitID)
 	}
-
 	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status})
 	t.stageEvent(process, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status == StatusPaused {
 		t.stageEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	}
 	return nil
+}
+
+// registerOpenedChildWaits atomically registers every wait the prepared Step
+// opens and returns the answers the current tree already satisfies. A failure
+// removes only its own registrations, never a pre-existing one.
+func (t *treeRuntime) registerOpenedChildWaits(processID ProcessID, finalization *preparedStepFinalization) ([]Signal, error) {
+	var immediate []Signal
+	for index, opened := range finalization.openedChildWaits {
+		signal, satisfied, err := t.registerChildWait(processID, opened.WaitID(), opened.Spec())
+		if err != nil {
+			for _, registered := range finalization.openedChildWaits[:index] {
+				t.childWaits.remove(processID, registered.WaitID())
+			}
+			return nil, err
+		}
+		if satisfied {
+			immediate = append(immediate, signal)
+		}
+	}
+	return immediate, nil
 }
 
 func (t *treeRuntime) terminatePreparedProcess(process *processState) {

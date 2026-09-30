@@ -11,6 +11,15 @@ type stepPreparationFailure struct {
 	cause error
 }
 
+// newFinalizationFailure attributes an exhausted bound to limitCode; any other
+// finalization error is a contract violation of the prepared Step.
+func newFinalizationFailure(limitCode string, err error) *stepPreparationFailure {
+	if errors.Is(err, ErrResourceLimitExceeded) {
+		return &stepPreparationFailure{kind: FailureKindExecution, code: limitCode, cause: err}
+	}
+	return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
+}
+
 type preparedStepFinalization struct {
 	process            *processState
 	prepared           *preparedStep
