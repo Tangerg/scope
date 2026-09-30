@@ -35,7 +35,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			treeWire := treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: invalid.ProcessID(), ProcessSnapshots: []ProcessSnapshot{invalid}}
+			treeWire := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: invalid.ProcessID(), ProcessSnapshots: []ProcessSnapshot{invalid}}
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 			committer := &recordingTreeCommitter{}
 			if test.recording {
@@ -154,7 +154,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 				t.Fatal(err)
 			}
 			incarnation := newTreeIncarnationID()
-			tree, err := newTreeSnapshot(treeSnapshotWire{
+			tree, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(),
 				RootID: prepared.ProcessID(), IncarnationID: incarnation,
 				ProcessSnapshots: []ProcessSnapshot{prepared},
 			})

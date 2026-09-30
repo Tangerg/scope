@@ -776,8 +776,9 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.wait", "wait")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	limits := Limits{MaxPendingSignals: 2, Budget: Budget{Steps: NewQuota(3), Effects: NewQuota(1), Signals: NewQuota(2)}}
-	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
+	budget := Budget{Steps: NewQuota(3), Effects: NewQuota(1), Signals: NewQuota(2)}
+	treeLimits := TreeLimits{MaxPendingSignals: 2}
+	engine, _ := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Budget: budget, TreeLimits: treeLimits})
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	input, _ := EncodePayload(engineTestInput{Value: "question"})
 	process, err := engine.Start(context.Background(), deployment, input)
@@ -792,7 +793,8 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	listener := &recordingEventListener{}
 	restoredEngine, _ := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree),
-		Limits:         limits,
+		Budget:         budget,
+		TreeLimits:     treeLimits,
 		EventListeners: []EventListener{listener},
 	})
 	t.Cleanup(func() { _ = restoredEngine.Close(context.WithoutCancel(t.Context())) })
@@ -1088,9 +1090,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
-	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{
-		MaxPendingSignals: 1, Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)},
-	}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, TreeLimits: TreeLimits{MaxPendingSignals: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1114,8 +1114,8 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 
 func TestEngineSeparatesCapacityFromCumulativeQuota(t *testing.T) {
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		Limits:     Limits{MaxPendingSignals: 2, Budget: Budget{Signals: NewQuota(1)}},
-		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2},
+		Budget:     Budget{Signals: NewQuota(1)},
+		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2, MaxPendingSignals: 2},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1424,7 +1424,7 @@ func waitForUnknownSettlementContext(ctx context.Context, t testing.TB, process 
 
 func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
 	t.Helper()
-	tree, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(),
+	tree, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
 		RootID:           snapshot.ProcessID(),
 		ProcessSnapshots: []ProcessSnapshot{snapshot},
 	})

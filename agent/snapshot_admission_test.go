@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +14,9 @@ import (
 
 // The oracle deliberately materializes worst-case strings through the wire codec.
 // It must remain independent of the arithmetic used by production admission.
-func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
+func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64, error) {
 	var pendingSize int
-	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
+	if !p.Status.Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxFailureCodeBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
 		var unresolved []EffectID
 		if p.Prepared != nil {
@@ -64,7 +65,7 @@ func materializedAdmissionSize(p processSnapshotWire) (uint64, error) {
 		return 0, err
 	}
 	size := uint64(max(pendingSize, len(encoded)))
-	if !p.Limits.MaxSnapshotBytes.Allows(size) {
+	if !limits.MaxProcessSnapshotBytes.Allows(size) {
 		return 0, ErrResourceLimitExceeded
 	}
 	return size, nil
@@ -136,10 +137,11 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 			for _, phase := range []effectPhase{effectPhasePlanned, effectPhasePending, effectPhaseSettled} {
 				t.Run(fmt.Sprintf("tree_%t/effect_%d/%s", treeQuota, effectIndex, phase), func(t *testing.T) {
 					wire := root.snapshotWire()
+					limits := runtime.treeLimits
 					if treeQuota {
-						wire.TreeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
+						limits.MaxSnapshotBytes = NewQuota(1 << 30)
 					} else {
-						wire.Limits.MaxSnapshotBytes = NewQuota(1 << 30)
+						limits.MaxProcessSnapshotBytes = NewQuota(1 << 30)
 					}
 					record := preparedEffect{ID: root.handle.processID.effectID(1, 0), Effect: effect, Phase: phase}
 					if phase == effectPhaseSettled {
@@ -154,36 +156,36 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 					}
 					wire.Prepared = &preparedStep{StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()), CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)), Effects: preparedEffects{record}}
 					before := controlValue(jsonv2.Marshal(wire))
-					want := controlValue(materializedAdmissionSize(wire))
-					got := controlValue(wire.admissionSize())
+					want := controlValue(materializedAdmissionSize(wire, limits))
+					got := controlValue(wire.admissionSize(limits))
 					if got != want {
 						t.Fatalf("size = %d, materialized = %d", got, want)
 					}
 					if after := controlValue(jsonv2.Marshal(wire)); !bytes.Equal(before, after) {
 						t.Fatal("admission mutated source wire")
 					}
-					// The quota's decimal width participates in its own encoded size.
-					wire.Limits.MaxSnapshotBytes = NewQuota(999999)
-					exact := controlValue(materializedAdmissionSize(wire))
-					wire.Limits.MaxSnapshotBytes = NewQuota(exact)
-					if _, err := wire.admissionSize(); err != nil {
+					limits.MaxProcessSnapshotBytes = NewQuota(math.MaxUint64)
+					exact := controlValue(materializedAdmissionSize(wire, limits))
+					limits.MaxProcessSnapshotBytes = NewQuota(exact)
+					if _, err := wire.admissionSize(limits); err != nil {
 						t.Fatalf("exact quota: %v", err)
 					}
-					wire.Limits.MaxSnapshotBytes = NewQuota(exact - 1)
-					if _, err := wire.admissionSize(); !errors.Is(err, ErrResourceLimitExceeded) {
+					limits.MaxProcessSnapshotBytes = NewQuota(exact - 1)
+					if _, err := wire.admissionSize(limits); !errors.Is(err, ErrResourceLimitExceeded) {
 						t.Fatalf("one byte short: %v", err)
 					}
 				})
 			}
 		}
 	}
+	limits := runtime.treeLimits
+	limits.MaxSnapshotBytes = NewQuota(1 << 30)
 	for _, process := range runtime.processes {
 		wire := process.snapshotWire()
-		wire.TreeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
 		for _, status := range []Status{StatusRunning, StatusWaiting, StatusPaused} {
 			wire.Status = status
 			wire.PauseReason = "<paused>"
-			if got, want := controlValue(wire.admissionSize()), controlValue(materializedAdmissionSize(wire)); got != want {
+			if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
 				t.Fatalf("%s: %d != %d", status, got, want)
 			}
 		}
@@ -191,7 +193,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 		termination := controlValue(NewFailure(FailureKindExecution, "test.failure", "done")).termination()
 		wire.Termination = &termination
 		wire.FinishedAt = new(time.Now().UTC())
-		if got, want := controlValue(wire.admissionSize()), uint64(len(controlValue(jsonv2.Marshal(wire)))); got != want {
+		if got, want := controlValue(wire.admissionSize(limits)), uint64(len(controlValue(jsonv2.Marshal(wire)))); got != want {
 			t.Fatalf("terminal: %d != %d", got, want)
 		}
 	}
@@ -201,7 +203,8 @@ func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 1)
 	root := runtime.processes[runtime.rootID]
 	wire := root.snapshotWire()
-	wire.TreeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
+	limits := runtime.treeLimits
+	limits.MaxSnapshotBytes = NewQuota(1 << 30)
 	wire.Prepared = &preparedStep{StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()), CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0))}
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	for index := range 3000 {
@@ -209,7 +212,7 @@ func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
 		settlement := controlValue(NewSettlement(id, SettlementStatusUnknown, json.RawMessage(`null`)))
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled, Settlement: &settlement})
 	}
-	if got, want := controlValue(wire.admissionSize()), controlValue(materializedAdmissionSize(wire)); got != want {
+	if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
 		t.Fatalf("unresolved termination: %d != %d", got, want)
 	}
 }
@@ -220,7 +223,7 @@ func TestSnapshotReservationAllocation(t *testing.T) {
 		result := testing.Benchmark(func(b *testing.B) {
 			for b.Loop() {
 				for _, process := range runtime.processes {
-					if _, err := process.snapshotWire().admissionSize(); err != nil {
+					if _, err := process.snapshotWire().admissionSize(runtime.treeLimits); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -231,9 +234,7 @@ func TestSnapshotReservationAllocation(t *testing.T) {
 	// Compare encoding with and without reservation, independently of the
 	// unlimited admission fast path, which intentionally performs no encoding.
 	unlimited := measure()
-	for _, process := range runtime.processes {
-		process.limits.MaxSnapshotBytes = NewQuota(1 << 20)
-	}
+	runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(1 << 20)
 	limited := measure()
 	// Reservation may encode two lifecycle envelopes, but must not allocate
 	// the worst-case diagnostic contents represented by their byte counts.

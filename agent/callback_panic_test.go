@@ -38,7 +38,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 	admission := newProcessAdmission(relation, deployment, Budget{}, CapabilitySet{})
 	snapshot := preparedEngineTestSnapshot(t)
 	incarnation := newTreeIncarnationID()
-	tree := controlValue(newTreeSnapshot(treeSnapshotWire{RootID: snapshot.ProcessID(), IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
+	tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), RootID: snapshot.ProcessID(), IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
 	activation := controlValue(newTreeActivation(newTreeIncarnationID(), ComputeDigest([]byte("old head")), incarnation, tree))
 	for _, test := range []struct {
 		operation string

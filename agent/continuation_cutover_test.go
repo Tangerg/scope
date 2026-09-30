@@ -126,9 +126,11 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		treeLimits := agent.DefaultTreeLimits()
+		treeLimits.MaxPendingSignals = 8
 		request := successorRequest{
 			Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
-			Limits: agent.Limits{MaxPendingSignals: 8, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}}, TreeLimits: agent.DefaultTreeLimits(),
+			Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}, TreeLimits: treeLimits,
 		}
 		host := &episodeHost{store: store}
 		next, err := host.start(t.Context(), deployment, request)

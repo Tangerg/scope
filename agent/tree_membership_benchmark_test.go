@@ -74,7 +74,7 @@ func benchmarkRestoredOwner(b *testing.B, snapshot TreeSnapshot) *treeRuntime {
 		handle.finishBookkeeping()
 		processes = append(processes, process)
 	}
-	return newTreeRuntime(engine, snapshot.RootID(), b.Context(), processes...)
+	return newTreeRuntime(engine, snapshot.RootID(), engine.treeLimits, b.Context(), processes...)
 }
 
 func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
@@ -88,7 +88,7 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 				id := newProcessID()
 				root := runtime.processes[runtime.rootID]
 				handle := newProcessHandle(rootProcessRelation(id), root.handle.deploymentRef,
-					root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
+					root.handle.budget, root.handle.capabilities, root.startedAt)
 				result := root.result()
 				result.processID = id
 				handle.publishResult(result)
@@ -127,11 +127,11 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 				}
 			})
 			engine.processes[parent.handle.processID] = parent.handle
-			runtime := newTreeRuntime(engine, parent.handle.processID, b.Context(), parent)
+			runtime := newTreeRuntime(engine, parent.handle.processID, engine.treeLimits, b.Context(), parent)
 			for range retained {
 				id := newProcessID()
 				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deploymentRef,
-					parent.limits.Budget, parent.capabilities, parent.treeLimits, parent.startedAt)
+					parent.handle.budget, parent.handle.capabilities, parent.startedAt)
 				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
 				engine.processes[id] = handle
@@ -156,7 +156,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 	for _, count := range []int{1, 128, 1024} {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
-			restoration := &treeRestoration{wire: treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
+			restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
 			for _, process := range orderedProcesses(runtime.processes) {
 				restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 			}
@@ -169,7 +169,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 			ref := runtime.processes[runtime.rootID].handle.deploymentRef
 			b.ReportAllocs()
 			for b.Loop() {
-				if err := runtime.engine.reserveProcessStart(relation, ref, runtime.engine.treeLimits, Digest{}); err != nil {
+				if err := runtime.engine.reserveProcessStart(relation, ref, Digest{}); err != nil {
 					b.Fatal(err)
 				}
 				runtime.engine.discardProcessStart(id)

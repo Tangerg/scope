@@ -16,14 +16,13 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	handle := newProcessHandle(
 		rootProcessRelation(processID), DeploymentRef{},
 		Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
-		CapabilitySet{}, DefaultTreeLimits(), time.Now())
+		CapabilitySet{}, time.Now())
 	process := &processState{
 		handle:             handle,
 		status:             StatusRunning,
 		committedSteps:     maxUint64 - 1,
 		allocatedResources: resourceAmounts{Steps: 1, Effects: 1, Signals: 1},
 		mailbox:            newSignalMailbox(),
-		limits:             Limits{MaxPendingSignals: maxUint64, Budget: Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)}},
 	}
 
 	schedulingFailure := process.stepSchedulingFailure()
@@ -45,7 +44,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
 	parent := runtime.processes[runtime.rootID]
-	parent.limits.Budget.Signals = NewQuota(23)
+	parent.handle.budget.Signals = NewQuota(23)
 	var effects []Effect
 	for _, child := range orderedProcesses(runtime.processes) {
 		if child == parent {
@@ -59,7 +58,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
 		})))
 	}
-	failure := prepareTestStep(parent, stepJobResult{
+	failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
 		transition: controlValue(Continue(0, effects...)), candidate: parent.execution, candidateState: parent.committedExecutionState,
 	})
 	if failure != nil {
@@ -115,10 +114,9 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment.DeploymentRef(), parent.limits.Budget, parent.capabilities,
-		parent.treeLimits, parent.startedAt)
+		parent.deployment.DeploymentRef(), parent.handle.budget, parent.handle.capabilities, parent.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt, parent.limits))
+		parent.committedExecutionState, parent.startedAt))
 	missingID, _ := ParseProcessID("process:missing-child")
 	var specs []ChildWaitSpec
 	var effects []Effect

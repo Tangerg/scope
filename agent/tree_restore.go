@@ -41,7 +41,7 @@ func (t *treeRestoration) prepareRuntime(ctx context.Context, incarnation TreeIn
 	for index := range t.processes {
 		states = append(states, t.processes[index].state)
 	}
-	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, ctx, states...)
+	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, t.wire.TreeLimits, ctx, states...)
 	t.runtime.incarnation = incarnation
 	t.runtime.childWaits = t.childWaits
 	return t.runtime.validateSnapshotCapacity()

@@ -20,8 +20,6 @@ type childStartPlan struct {
 	spec             ChildSpec
 	childID          ProcessID
 	relation         ProcessRelation
-	limits           Limits
-	treeLimits       TreeLimits
 	requestDigest    Digest
 }
 

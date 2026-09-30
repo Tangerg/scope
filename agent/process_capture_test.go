@@ -56,7 +56,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 		t.Fatal("resume is absent")
 	}
 	signal := mustMailboxSignal(t, "signal:capture", WaitID{}, []byte(`{"value":"new"}`))
-	if accepted, err := admitTestSignals(process, []Signal{signal}, signalSourceExternal); err != nil || !accepted {
+	if accepted, err := admitTestSignals(process, runtime.treeLimits, []Signal{signal}, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("signal admission = %t, %v", accepted, err)
 	}
 	if wire := captureChange(); wire.usage().AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
@@ -103,7 +103,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	incarnation := newTreeIncarnationID()
-	head, err := newTreeSnapshot(treeSnapshotWire{RootID: runtime.rootID, IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
+	head, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: runtime.treeLimits, RootID: runtime.rootID, IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 }
 
 func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
-	_, process := newChildCompletionTestProcess(t)
+	runtime, process := newChildCompletionTestProcess(t)
 	effect, err := NewDispatcherEffect([]byte(`{"operation":"capture"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := prepareTestStep(process, stepJobResult{
+	if failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{
 		transition: transition, candidate: process.execution, candidateState: process.committedExecutionState,
 	}); failure != nil {
 		t.Fatal(failure.cause)
@@ -177,7 +177,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 
 func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
 	original := resourceAmounts{Steps: 3, Effects: 2, Signals: 1}
-	process := &processState{allocatedResources: original, limits: Limits{Budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}}
+	process := &processState{allocatedResources: original, handle: &processHandle{budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("budget underflow was silently accepted")
@@ -189,16 +189,16 @@ func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
 	process.releaseCommittedChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(3), Signals: NewQuota(1)})
 }
 
-func prepareTestStep(process *processState, result stepJobResult) *stepPreparationFailure {
-	candidate, failure := process.prepareStep(result)
+func prepareTestStep(process *processState, limits TreeLimits, result stepJobResult) *stepPreparationFailure {
+	candidate, failure := process.prepareStep(result, limits)
 	if failure == nil {
 		process.adoptCandidate(candidate)
 	}
 	return failure
 }
 
-func admitTestSignals(process *processState, signals []Signal, source signalSource) (bool, error) {
-	candidate, err := process.prepareSignals(signals, source)
+func admitTestSignals(process *processState, limits TreeLimits, signals []Signal, source signalSource) (bool, error) {
+	candidate, err := process.prepareSignals(signals, source, limits)
 	if err != nil || candidate == nil {
 		return false, err
 	}
@@ -207,10 +207,10 @@ func admitTestSignals(process *processState, signals []Signal, source signalSour
 }
 
 func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
-	_, process := newChildCompletionTestProcess(t)
+	runtime, process := newChildCompletionTestProcess(t)
 	before := controlValue(process.capture())
 	signal := mustMailboxSignal(t, "signal:candidate", WaitID{}, []byte(`{}`))
-	candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal)
+	candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
 	if err != nil || candidate == nil {
 		t.Fatalf("candidate: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 		t.Fatal("candidate adoption lost the signal")
 	}
 	transition := controlValue(Continue(0, controlValue(NewDispatcherEffect([]byte(`{}`)))))
-	step, failure := process.prepareStep(stepJobResult{transition: transition, candidateState: process.committedExecutionState})
+	step, failure := process.prepareStep(stepJobResult{transition: transition, candidateState: process.committedExecutionState}, runtime.treeLimits)
 	if failure != nil {
 		t.Fatal(failure.cause)
 	}

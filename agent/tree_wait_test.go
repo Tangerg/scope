@@ -145,11 +145,11 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			b.Fatal(err)
 		}
 		handle := newProcessHandle(relation, deployment.DeploymentRef(),
-			engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
-		return newProcessState(handle, deployment, execution, state, now, engine.limits)
+			engine.budget, engine.capabilities, now)
+		return newProcessState(handle, deployment, execution, state, now)
 	}
 	root := makeProcess(nil, "root")
-	runtime := newTreeRuntime(engine, root.handle.processID, b.Context(), root)
+	runtime := newTreeRuntime(engine, root.handle.processID, engine.treeLimits, b.Context(), root)
 	var notified *processState
 	for index := range parents {
 		parent := makeProcess(root, fmt.Sprintf("parent-%d", index))

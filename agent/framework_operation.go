@@ -209,7 +209,7 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	if child.DeploymentRef != c.spec.DeploymentRef {
 		return fmt.Errorf("%w: child Deployment disagrees with start", ErrInvalidChildStart)
 	}
-	if child.Limits.Budget != c.spec.Budget {
+	if child.Budget != c.spec.Budget {
 		return fmt.Errorf("%w: child budget disagrees with start", ErrInvalidChildStart)
 	}
 	if !slices.Equal(child.Capabilities.Values(), c.spec.Capabilities.Values()) {

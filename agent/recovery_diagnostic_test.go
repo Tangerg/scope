@@ -21,9 +21,7 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 		{"start", func(p *processSnapshotWire) { p.StartedAt = time.Time{} }, "Process start time is missing"},
 		{"status", func(p *processSnapshotWire) { p.Status = StatusInvalid }, "Process status is invalid"},
 		{"state", func(p *processSnapshotWire) { p.CommittedExecutionState = ExecutionState{} }, "committed Execution state is invalid"},
-		{"limits", func(p *processSnapshotWire) { p.Limits.MaxPendingSignals = 0 }, "Limits: MaxPendingSignals must be greater than zero"},
-		{"tree limits", func(p *processSnapshotWire) { p.TreeLimits.MaxDepth = 0 }, "TreeLimits: MaxDepth must be greater than zero"},
-		{"budget", func(p *processSnapshotWire) { p.Limits.Budget.Steps = NewQuota(0); p.CommittedSteps = 1 }, "usage and child allocations exceed the Process budget"},
+		{"budget", func(p *processSnapshotWire) { p.Budget.Steps = NewQuota(0); p.CommittedSteps = 1 }, "usage and child allocations exceed the Process budget"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			wire := valid.clone()
@@ -31,6 +29,27 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 			err := wire.validateContract()
 			if !errors.Is(err, ErrInvalidSnapshot) || !strings.Contains(err.Error(), test.detail) {
 				t.Fatalf("snapshot rejection=%v, want %q", err, test.detail)
+			}
+		})
+	}
+}
+
+func TestTreeSnapshotReportsTheContradictedTreeLimit(t *testing.T) {
+	valid := controlValue(controlValue(newWaitingSnapshotTree(t, 1).captureTree()).wire())
+	for _, test := range []struct {
+		name   string
+		mutate func(*TreeLimits)
+		detail string
+	}{
+		{"pending signals", func(l *TreeLimits) { l.MaxPendingSignals = 0 }, "TreeLimits: MaxPendingSignals must be greater than zero"},
+		{"depth", func(l *TreeLimits) { l.MaxDepth = 0 }, "TreeLimits: MaxDepth must be greater than zero"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire := valid.clone()
+			test.mutate(&wire.TreeLimits)
+			_, err := newTreeSnapshot(wire)
+			if !errors.Is(err, ErrInvalidTreeSnapshot) || !strings.Contains(err.Error(), test.detail) {
+				t.Fatalf("tree rejection=%v, want %q", err, test.detail)
 			}
 		})
 	}

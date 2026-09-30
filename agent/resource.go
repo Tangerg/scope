@@ -24,74 +24,6 @@ const (
 	defaultMaxActiveChildren uint32 = 16
 )
 
-// Limits separates cumulative work quotas from current mailbox capacity.
-// Zero quotas are unlimited. Only MaxPendingSignals inherits a finite default.
-// Snapshots retain the effective contract independently of Engine configuration.
-type Limits struct {
-	// MaxSnapshotBytes bounds the encoded Process snapshot, including retained
-	// history. Admission of a live Process also reserves worst-case control,
-	// termination, diagnostic, and Framework settlement growth; control strings
-	// alone reserve about 144 KiB after JSON escaping. Terminal Processes need
-	// only their encoded size. A finite zero denies every new admission.
-	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
-
-	// Budget bounds cumulative work and grants child allocations.
-	Budget Budget `json:"budget"`
-
-	// MaxPendingSignals bounds the current unconsumed mailbox suffix and the
-	// suffix after the prepared Step consumes inputs and appends settlements.
-	// Every arriving Signal preserves both bounds regardless of its source.
-	// Capacity must fit the uint32 consumed-Signal count in one Transition.
-	MaxPendingSignals uint64 `json:"max_pending_signals"`
-}
-
-func (l *Limits) UnmarshalJSON(data []byte) error {
-	if l == nil {
-		return errors.New("agent: nil limits receiver")
-	}
-	type wire Limits
-	value, err := jsonwire.Decode[wire](data, "budget", "max_snapshot_bytes", "max_pending_signals")
-	if err != nil {
-		return err
-	}
-	*l = Limits(value)
-	return nil
-}
-
-// DefaultLimits leaves cumulative work and snapshot size unlimited and bounds pending Signals.
-func DefaultLimits() Limits {
-	return Limits{
-		MaxPendingSignals: defaultMaxPendingSignals,
-	}
-}
-
-func (l Limits) Valid() bool {
-	return l.validate() == nil
-}
-
-func (l Limits) resolve() (Limits, error) {
-	effective := l
-	defaults := DefaultLimits()
-	if effective.MaxPendingSignals == 0 {
-		effective.MaxPendingSignals = defaults.MaxPendingSignals
-	}
-	if err := effective.validate(); err != nil {
-		return Limits{}, fmt.Errorf("%w: limits: %w", ErrInvalidEngineConfig, err)
-	}
-	return effective, nil
-}
-
-func (l Limits) validate() error {
-	switch {
-	case l.MaxPendingSignals == 0:
-		return errors.New("MaxPendingSignals must be greater than zero")
-	case l.MaxPendingSignals > math.MaxUint32:
-		return errors.New("MaxPendingSignals exceeds the representable Transition capacity")
-	default:
-		return nil
-	}
-}
-
 // Usage contains monotonic Framework-owned counters. It deliberately excludes
 // provider pricing and Strategy-specific concepts such as tokens or tool calls.
 type Usage struct {
@@ -197,16 +129,31 @@ func saturatingCountAdd(value, increment uint64) uint64 {
 	return value + increment
 }
 
-// TreeLimits bounds structural expansion independently of per-Process work
-// limits. Cumulative counts and snapshot bytes default to unlimited; zero
-// depth and active-child capacity inherit DefaultTreeLimits.
+// TreeLimits is the capacity policy shared by every Process of one root tree.
+// Cumulative counts and snapshot bytes default to unlimited; zero depth,
+// active-child capacity, and pending-Signal capacity inherit DefaultTreeLimits.
+// A tree snapshot carries exactly one TreeLimits, so recovery cannot give
+// members different bounds.
 type TreeLimits struct {
 	// MaxSnapshotBytes bounds the encoded tree, including completed descendants.
 	// Admission includes each live Process's lifecycle and Framework reservations.
-	// The per-Process overhead described by Limits.MaxSnapshotBytes accumulates
+	// The per-Process overhead described by MaxProcessSnapshotBytes accumulates
 	// across live members; terminal members contribute only their encoded size.
 	// A finite zero denies every new tree snapshot admission.
 	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
+
+	// MaxProcessSnapshotBytes bounds each encoded Process snapshot, including
+	// retained history. Admission of a live Process also reserves worst-case
+	// control, termination, diagnostic, and Framework settlement growth; control
+	// strings alone reserve about 144 KiB after JSON escaping. Terminal Processes
+	// need only their encoded size. A finite zero denies every new admission.
+	MaxProcessSnapshotBytes Quota `json:"max_process_snapshot_bytes"`
+
+	// MaxPendingSignals bounds each Process's unconsumed mailbox suffix and the
+	// suffix after its prepared Step consumes inputs and appends settlements.
+	// Every arriving Signal preserves both bounds regardless of its source.
+	// Capacity must fit the uint32 consumed-Signal count in one Transition.
+	MaxPendingSignals uint64 `json:"max_pending_signals"`
 
 	// MaxDepth bounds the root-relative depth of any Process.
 	MaxDepth uint32 `json:"max_depth"`
@@ -225,7 +172,10 @@ func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil tree limits receiver")
 	}
 	type wire TreeLimits
-	value, err := jsonwire.Decode[wire](data, "max_children", "max_tree_processes", "max_snapshot_bytes")
+	value, err := jsonwire.Decode[wire](data,
+		"max_snapshot_bytes", "max_process_snapshot_bytes", "max_pending_signals",
+		"max_depth", "max_children", "max_active_children", "max_tree_processes",
+	)
 	if err != nil {
 		return err
 	}
@@ -233,9 +183,11 @@ func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// DefaultTreeLimits returns conservative structured-concurrency bounds.
+// DefaultTreeLimits returns conservative structured-concurrency and mailbox
+// bounds; cumulative counts and snapshot bytes remain unlimited.
 func DefaultTreeLimits() TreeLimits {
 	return TreeLimits{
+		MaxPendingSignals: defaultMaxPendingSignals,
 		MaxDepth:          defaultMaxDepth,
 		MaxActiveChildren: defaultMaxActiveChildren,
 	}
@@ -248,6 +200,9 @@ func (t TreeLimits) Valid() bool {
 func (t TreeLimits) resolve() (TreeLimits, error) {
 	effective := t
 	defaults := DefaultTreeLimits()
+	if effective.MaxPendingSignals == 0 {
+		effective.MaxPendingSignals = defaults.MaxPendingSignals
+	}
 	if effective.MaxDepth == 0 {
 		effective.MaxDepth = defaults.MaxDepth
 	}
@@ -264,6 +219,10 @@ func (t TreeLimits) validate() error {
 	switch {
 	case !t.MaxTreeProcesses.Allows(1):
 		return errors.New("MaxTreeProcesses must admit the root Process")
+	case t.MaxPendingSignals == 0:
+		return errors.New("MaxPendingSignals must be greater than zero")
+	case t.MaxPendingSignals > math.MaxUint32:
+		return errors.New("MaxPendingSignals exceeds the representable Transition capacity")
 	case t.MaxDepth == 0:
 		return errors.New("MaxDepth must be greater than zero")
 	case t.MaxActiveChildren == 0:
@@ -272,6 +231,9 @@ func (t TreeLimits) validate() error {
 		return nil
 	}
 }
+
+// admitsDepth reports whether a Process at depth may exist in this tree.
+func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
 // Only counters without an authoritative lifecycle record are stored separately.
 // PreparedEffects counts identities independently of quota policy; overflow is an error.

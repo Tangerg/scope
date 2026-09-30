@@ -44,17 +44,14 @@ func BenchmarkTreeAdmission(b *testing.B) {
 			} {
 				b.Run(quota.name, func(b *testing.B) {
 					runtime := newWaitingSnapshotTree(b, count)
-					for _, process := range runtime.processes {
-						process.limits.MaxSnapshotBytes = quota.process
-						process.treeLimits.MaxSnapshotBytes = quota.tree
-						process.handle.treeLimits = process.treeLimits
-					}
+					runtime.treeLimits.MaxProcessSnapshotBytes = quota.process
+					runtime.treeLimits.MaxSnapshotBytes = quota.tree
 					root := runtime.processes[runtime.rootID]
 					signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:benchmark-admission")), WaitID{}, []byte(`{"value":"input"}`)))
 					b.Run("signal", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
-							candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal)
+							candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
 							if err != nil {
 								b.Fatal(err)
 							}
@@ -64,9 +61,9 @@ func BenchmarkTreeAdmission(b *testing.B) {
 						}
 					})
 					relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
-					handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.limits.Budget, root.capabilities, root.treeLimits, root.startedAt)
+					handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.handle.budget, root.handle.capabilities, root.startedAt)
 					handle.childRequestDigest = ComputeDigest([]byte("benchmark-child"))
-					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt, root.limits)
+					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt)
 					b.Run("child_publication_capacity", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
@@ -110,8 +107,8 @@ func BenchmarkTreeCommitterFailure(b *testing.B) {
 func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	t.Helper()
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		Limits:     Limits{MaxPendingSignals: 1000, Budget: Budget{Steps: NewQuota(uint64(count)*10 + 100), Effects: NewQuota(uint64(count)*10 + 100), Signals: NewQuota(uint64(count)*10 + 100)}},
-		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(count)), MaxActiveChildren: uint32(count), MaxTreeProcesses: NewQuota(uint64(count))},
+		Budget:     Budget{Steps: NewQuota(uint64(count)*10 + 100), Effects: NewQuota(uint64(count)*10 + 100), Signals: NewQuota(uint64(count)*10 + 100)},
+		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(count)), MaxActiveChildren: uint32(count), MaxTreeProcesses: NewQuota(uint64(count)), MaxPendingSignals: 1000},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,8 +129,8 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	}
 	rootID := newProcessID()
 	now := time.Now().Round(0).UTC()
-	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.limits.Budget, engine.capabilities, engine.treeLimits, now)
-	root := newProcessState(handle, deployment, execution, state, now, engine.limits)
+	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.budget, engine.capabilities, now)
+	root := newProcessState(handle, deployment, execution, state, now)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
 		id := newProcessID()
@@ -142,11 +139,9 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		budget := Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}
-		limits := engine.limits
-		limits.Budget = budget
-		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, engine.treeLimits, now)
+		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, now)
 		handle.childRequestDigest = ComputeDigest([]byte(key.String()))
-		child := newProcessState(handle, deployment, execution, state, now, limits)
+		child := newProcessState(handle, deployment, execution, state, now)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:waiting-%d", index))
 		if err != nil {
 			t.Fatal(err)
@@ -167,7 +162,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		child.status, child.currentWaitID = StatusWaiting, waitID
-		debit, ok := root.limits.Budget.allocation(budget)
+		debit, ok := root.handle.budget.allocation(budget)
 		if !ok {
 			t.Fatal("invalid allocation")
 		}
@@ -177,7 +172,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		}
 		processes = append(processes, child)
 	}
-	runtime := newTreeRuntime(engine, rootID, t.Context(), processes...)
+	runtime := newTreeRuntime(engine, rootID, engine.treeLimits, t.Context(), processes...)
 	if _, err := runtime.captureTree(); err != nil {
 		t.Fatal(err)
 	}
@@ -248,8 +243,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 								b.Fatal(err)
 							}
 							if limited {
-								process.treeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
-								process.handle.treeLimits = process.treeLimits
+								runtime.treeLimits.MaxSnapshotBytes = NewQuota(1 << 30)
 							}
 						}
 						root := runtime.processes[runtime.rootID]

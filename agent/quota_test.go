@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"testing"
 )
 
@@ -23,36 +25,24 @@ func TestTreeQuotaMustAdmitRoot(t *testing.T) {
 }
 
 func TestMailboxCapacityFitsTransitionConsumption(t *testing.T) {
-	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxPendingSignals: uint64(^uint32(0)) + 1}}); !errors.Is(err, ErrInvalidEngineConfig) {
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxPendingSignals: uint64(^uint32(0)) + 1}}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("unrepresentable mailbox capacity accepted: %v", err)
 	}
-	wire := controlValue(preparedEngineTestSnapshot(t).wire())
-	wire.Limits.MaxPendingSignals = uint64(^uint32(0)) + 1
-	if _, err := processSnapshotFromWire(wire); !errors.Is(err, ErrInvalidSnapshot) {
+	wire := controlValue(controlValue(newWaitingSnapshotTree(t, 1).captureTree()).wire())
+	wire.TreeLimits.MaxPendingSignals = math.MaxUint32 + 1
+	if _, err := newTreeSnapshot(wire); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("unrepresentable restored capacity accepted: %v", err)
 	}
 }
 
-func TestRestoredChildPreservesInheritedCapacityAndParentAuthority(t *testing.T) {
-	runtime := newWaitingSnapshotTree(t, 2)
-	for _, test := range []struct {
-		name   string
-		mutate func(*processSnapshotWire)
-	}{
-		{"mailbox capacity", func(wire *processSnapshotWire) { wire.Limits.MaxPendingSignals++ }},
-		{"snapshot capacity", func(wire *processSnapshotWire) { wire.Limits.MaxSnapshotBytes = NewQuota(100000) }},
-		{"unlimited grant under finite parent", func(wire *processSnapshotWire) { wire.Limits.Budget = Budget{} }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			snapshot := controlValue(runtime.captureTree())
-			wire := controlValue(snapshot.wire())
-			child := wire.ProcessSnapshots[1].state
-			test.mutate(&child)
-			wire.ProcessSnapshots[1] = controlValue(processSnapshotFromWire(child))
-			if _, err := newTreeSnapshot(wire); !errors.Is(err, ErrInvalidTreeSnapshot) {
-				t.Fatalf("invalid child authority accepted: %v", err)
-			}
-		})
+func TestRestoredChildCannotExceedParentAuthority(t *testing.T) {
+	snapshot := controlValue(newWaitingSnapshotTree(t, 2).captureTree())
+	wire := controlValue(snapshot.wire())
+	child := wire.ProcessSnapshots[1].state
+	child.Budget = Budget{}
+	wire.ProcessSnapshots[1] = controlValue(processSnapshotFromWire(child))
+	if _, err := newTreeSnapshot(wire); !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("unlimited grant under finite parent accepted: %v", err)
 	}
 }
 
@@ -129,7 +119,7 @@ func TestBudgetAllocationIsIndependentPerDimension(t *testing.T) {
 
 func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	if err := runtime.engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), parent.treeLimits, Digest{}); err != nil {
+	if err := runtime.engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(parent.handle)
@@ -151,9 +141,9 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || parent.provisionalChildBudget != nil {
 		t.Fatalf("finite parent admitted unlimited grant: %+v", rejected)
 	}
-	parent.limits.Budget = Budget{}
+	parent.handle.budget = Budget{}
 	accepted := runtime.prepareChildStart(parent, effectID, spec)
-	if accepted.plan == nil || accepted.plan.limits.Budget != (Budget{}) {
+	if accepted.plan == nil || accepted.plan.spec.Budget != (Budget{}) {
 		t.Fatalf("unlimited parent rejected grant: %+v", accepted)
 	}
 	runtime.discardChildStart(accepted.plan)
@@ -179,7 +169,7 @@ func TestQuotaConfigurationIdentityDistinguishesAllModes(t *testing.T) {
 }
 
 func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing.T) {
-	parent := &processState{limits: Limits{Budget: Budget{Effects: NewQuota(10)}}}
+	parent := &processState{handle: &processHandle{budget: Budget{Effects: NewQuota(10)}}}
 	first := Budget{Effects: NewQuota(3)}
 	second := Budget{Effects: NewQuota(4)}
 	for _, child := range []Budget{first, second} {
@@ -207,8 +197,8 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 }
 
 func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
-	_, process := newChildCompletionTestProcess(t)
-	process.limits.Budget = Budget{}
+	runtime, process := newChildCompletionTestProcess(t)
+	process.handle.budget = Budget{}
 	process.committedSteps = ^uint64(0)
 	if failure := process.stepSchedulingFailure(); failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) {
 		t.Fatalf("step overflow=%+v", failure)
@@ -219,15 +209,15 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 	process.committedSteps = 0
 	process.counters.PreparedEffects = ^uint64(0)
 	effect := controlValue(NewWaitEffect(controlValue(ParseWaitKey("counter")), json.RawMessage(`{}`)))
-	failure := prepareTestStep(process, stepJobResult{transition: controlValue(Continue(0, effect)), candidate: process.execution, candidateState: process.committedExecutionState})
+	failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{transition: controlValue(Continue(0, effect)), candidate: process.execution, candidateState: process.committedExecutionState})
 	if failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) || process.prepared != nil || process.counters.PreparedEffects != ^uint64(0) {
 		t.Fatalf("effect overflow mutated state: %+v", failure)
 	}
 }
 
-func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
+func TestSnapshotRejectsMissingAndRetiredQuotaAuthority(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
-	for _, name := range []string{"limits", "allocated_resources"} {
+	for _, name := range []string{"budget", "allocated_resources"} {
 		var fields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 			t.Fatal(err)
@@ -235,6 +225,16 @@ func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
 		delete(fields, name)
 		if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Fatalf("missing %s accepted: %v", name, err)
+		}
+	}
+	for _, name := range []string{"limits", "tree_limits"} {
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields[name] = controlValue(jsonv2.Marshal(DefaultTreeLimits()))
+		if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+			t.Fatalf("retired per-Process %s accepted: %v", name, err)
 		}
 	}
 	for _, data := range []string{`{}`, `{"steps":1,"effects":1,"signals":1}`, `{"steps":{"maximum":null},"effects":{"maximum":null}}`} {
@@ -245,55 +245,46 @@ func TestSnapshotRejectsMissingAndLegacyQuotaAuthority(t *testing.T) {
 	}
 }
 
-func TestSnapshotRequiresCompleteLimitsAuthority(t *testing.T) {
-	snapshot := preparedEngineTestSnapshot(t)
-	for _, name := range []string{"budget", "max_snapshot_bytes", "max_pending_signals"} {
+func TestTreeSnapshotRequiresCompleteTreeLimits(t *testing.T) {
+	snapshot := controlValue(newWaitingSnapshotTree(t, 1).captureTree())
+	var tree map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &tree); err != nil {
+		t.Fatal(err)
+	}
+	withoutLimits := maps.Clone(tree)
+	delete(withoutLimits, "tree_limits")
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(withoutLimits))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("tree without TreeLimits accepted: %v", err)
+	}
+	var limits map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(tree["tree_limits"], &limits); err != nil {
+		t.Fatal(err)
+	}
+	for name := range limits {
 		for _, replacement := range []json.RawMessage{nil, json.RawMessage(`null`)} {
 			t.Run(name+"/"+string(replacement), func(t *testing.T) {
-				var fields map[string]json.RawMessage
-				if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
-					t.Fatal(err)
-				}
-				var limits map[string]json.RawMessage
-				if err := jsonv2.Unmarshal(fields["limits"], &limits); err != nil {
-					t.Fatal(err)
-				}
+				mutated := maps.Clone(limits)
 				if replacement == nil {
-					delete(limits, name)
+					delete(mutated, name)
 				} else {
-					limits[name] = replacement
+					mutated[name] = replacement
 				}
-				fields["limits"] = controlValue(jsonv2.Marshal(limits))
-				if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				fields := maps.Clone(tree)
+				fields["tree_limits"] = controlValue(jsonv2.Marshal(mutated))
+				if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 					t.Fatalf("missing/null %s accepted: %v", name, err)
 				}
 			})
 		}
 	}
-	var fields map[string]json.RawMessage
-	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
-		t.Fatal(err)
-	}
-	var limits map[string]json.RawMessage
-	if err := jsonv2.Unmarshal(fields["limits"], &limits); err != nil {
-		t.Fatal(err)
-	}
-	delete(fields, "limits")
-	for name, value := range limits {
-		fields[name] = value
-	}
-	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
-		t.Fatalf("retired flat snapshot accepted: %v", err)
-	}
 }
 
-func TestLimitsUseOneStrictBudgetRepresentation(t *testing.T) {
-	limits := DefaultLimits()
-	limits.Budget = Budget{Steps: NewQuota(5), Effects: NewQuota(7), Signals: NewQuota(9)}
-	encoded := controlValue(jsonv2.Marshal(limits))
-	var decoded Limits
-	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil || decoded != limits {
-		t.Fatalf("limits round trip=%+v, %v", decoded, err)
+func TestBudgetUsesOneStrictRepresentation(t *testing.T) {
+	budget := Budget{Steps: NewQuota(5), Effects: NewQuota(7), Signals: NewQuota(9)}
+	encoded := controlValue(jsonv2.Marshal(budget))
+	var decoded Budget
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil || decoded != budget {
+		t.Fatalf("budget round trip=%+v, %v", decoded, err)
 	}
 	for _, field := range []string{"max_steps", "max_effects", "max_signals"} {
 		var fields map[string]json.RawMessage

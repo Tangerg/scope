@@ -106,9 +106,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 			t.Fatal(err)
 		}
 		definition.base.reference = deployment.DeploymentRef()
-		limits := DefaultLimits()
-		limits.MaxPendingSignals = 1
-		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxPendingSignals: 1}})
 		if err != nil {
 			t.Fatal(err)
 		}

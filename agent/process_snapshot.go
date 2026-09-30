@@ -48,7 +48,8 @@ func (w WaitKind) String() string {
 // An interrupted terminal Process retains its prepared batch as evidence:
 // settled operations keep their actual results, planned operations never run,
 // and the candidate state and input cursor were not adopted.
-// Parsing validates the captured state, not storage acknowledgment.
+// Parsing validates the captured state, not storage acknowledgment or tree
+// capacity; the enclosing [TreeSnapshot] owns the TreeLimits it must satisfy.
 // [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
 	data  json.RawMessage
@@ -65,14 +66,11 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	// reset usage, authority, mailbox history, or pending control intent.
 	wire, err := jsonwire.Decode[processSnapshotWire](data,
 		"process_id", "relation", "deployment_ref", "started_at", "status", "committed_steps",
-		"limits", "tree_limits", "allocated_resources", "capabilities", "counters",
+		"budget", "allocated_resources", "capabilities", "counters",
 		"committed_execution_state", "mailbox", "pending_control",
 	)
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
-	}
-	if !wire.Limits.MaxSnapshotBytes.Allows(uint64(len(data))) {
-		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return processSnapshotFromWire(wire)
 }
@@ -90,9 +88,6 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
-	}
-	if !wire.Limits.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
-		return ProcessSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return ProcessSnapshot{data: normalized, state: wire}, nil
 }
@@ -125,7 +120,7 @@ func (p ProcessSnapshot) Relation() ProcessRelation {
 }
 
 func (p ProcessSnapshot) Budget() Budget {
-	return p.state.Limits.Budget
+	return p.state.Budget
 }
 
 func (p ProcessSnapshot) Capabilities() CapabilitySet {
@@ -286,8 +281,7 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitzero"`
 	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
-	Limits                  Limits              `json:"limits"`
-	TreeLimits              TreeLimits          `json:"tree_limits"`
+	Budget                  Budget              `json:"budget"`
 	AllocatedResources      resourceAmounts     `json:"allocated_resources"`
 	Capabilities            CapabilitySet       `json:"capabilities"`
 	Counters                processCounters     `json:"counters"`
@@ -312,9 +306,9 @@ const (
 // Finite byte quotas reserve mandatory lifecycle growth and Framework settlements.
 // These projections measure bytes only; they never become lifecycle facts.
 // Dispatcher payloads are external outcomes, not predictable admission facts.
-func (p processSnapshotWire) admissionSize() (uint64, error) {
+func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 	var pendingSize, terminalGrowth, effectGrowth uint64
-	if !p.Status.Terminal() && (p.Limits.MaxSnapshotBytes.limited || p.TreeLimits.MaxSnapshotBytes.limited) {
+	if !p.Status.Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		reservation := snapshotTextReservation{}
 		failure := reservation.failure()
 		var unresolved []EffectID
@@ -373,7 +367,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		return 0, ErrCounterExhausted
 	}
 	size += effectGrowth
-	if !p.Limits.MaxSnapshotBytes.Allows(size) {
+	if !limits.MaxProcessSnapshotBytes.Allows(size) {
 		return 0, ErrResourceLimitExceeded
 	}
 	return size, nil
@@ -438,14 +432,8 @@ func (p processSnapshotWire) validateContract() error {
 	if !p.Capabilities.Valid() {
 		return fmt.Errorf("%w: capability set is invalid", ErrInvalidSnapshot)
 	}
-	if !p.Limits.Budget.contains(p.usage(), p.AllocatedResources) {
+	if !p.Budget.contains(p.usage(), p.AllocatedResources) {
 		return fmt.Errorf("%w: usage and child allocations exceed the Process budget", ErrInvalidSnapshot)
-	}
-	if err := p.Limits.validate(); err != nil {
-		return fmt.Errorf("%w: Limits: %w", ErrInvalidSnapshot, err)
-	}
-	if err := p.TreeLimits.validate(); err != nil {
-		return fmt.Errorf("%w: TreeLimits: %w", ErrInvalidSnapshot, err)
 	}
 	return nil
 }
@@ -454,9 +442,6 @@ func (p processSnapshotWire) validateRelation() error {
 	relation, err := processRelationFromWire(p.ProcessID, p.Relation)
 	if err != nil {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
-	}
-	if relation.Depth() > p.TreeLimits.MaxDepth {
-		return fmt.Errorf("%w: relation depth exceeds captured MaxDepth", ErrInvalidSnapshot)
 	}
 	if relation.IsRoot() != (p.ChildRequestDigest == nil) ||
 		p.ChildRequestDigest != nil && !p.ChildRequestDigest.Valid() {
@@ -469,20 +454,41 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	if err := p.validatePrepared(mailbox); err != nil {
 		return err
 	}
-	remainingPending := mailbox.pendingCount()
-	var reserved, preparedSteps uint64
+	_, reserved, preparedSteps := p.pendingSignals()
+	if !p.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
+		!p.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
+		return fmt.Errorf("%w: execution capacity exceeds budget", ErrInvalidSnapshot)
+	}
+	return nil
+}
+
+// pendingSignals derives mailbox occupancy after the prepared Step, if any.
+// Callers validate the mailbox and prepared cursor first, so the prepared
+// consumption cannot exceed the pending suffix.
+func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedSteps uint64) {
+	remaining = uint64(len(p.Mailbox.Signals)) - p.Mailbox.SignalCursor
 	if p.Prepared != nil && !p.Status.Terminal() {
-		// Prepared validation bounds its cursor by accepted Signals and anchors
-		// consumption at the mailbox committed cursor, so this cannot underflow.
-		remainingPending -= p.Prepared.consumedSignals()
+		remaining -= p.Prepared.consumedSignals()
 		reserved = p.Prepared.settlementSignalCount()
 		preparedSteps = 1
 	}
-	if !resourceQuantitiesFit(p.Limits.MaxPendingSignals, mailbox.pendingCount()) ||
-		!resourceQuantitiesFit(p.Limits.MaxPendingSignals, remainingPending, reserved) ||
-		!p.Limits.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
-		!p.Limits.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
-		return fmt.Errorf("%w: execution capacity exceeds limits or budget", ErrInvalidSnapshot)
+	return remaining, reserved, preparedSteps
+}
+
+// validateCapacity checks this validated capture against the tree policy that
+// owns its depth, mailbox, and encoded-size bounds.
+func (p ProcessSnapshot) validateCapacity(limits TreeLimits) error {
+	if !limits.admitsDepth(p.state.Relation.Depth) {
+		return fmt.Errorf("%w: relation depth exceeds MaxDepth", ErrInvalidSnapshot)
+	}
+	pending := uint64(len(p.state.Mailbox.Signals)) - p.state.Mailbox.SignalCursor
+	remaining, reserved, _ := p.state.pendingSignals()
+	if !resourceQuantitiesFit(limits.MaxPendingSignals, pending) ||
+		!resourceQuantitiesFit(limits.MaxPendingSignals, remaining, reserved) {
+		return fmt.Errorf("%w: pending Signals exceed MaxPendingSignals", ErrInvalidSnapshot)
+	}
+	if !limits.MaxProcessSnapshotBytes.Allows(uint64(len(p.data))) {
+		return fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidSnapshot)
 	}
 	return nil
 }

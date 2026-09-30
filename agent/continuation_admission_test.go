@@ -36,9 +36,11 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	if !present {
 		t.Fatal("previous episode has no output")
 	}
+	treeLimits := agent.DefaultTreeLimits()
+	treeLimits.MaxPendingSignals = 8
 	return engine, previous, deployment, successorRequest{
 		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: output,
-		Limits: agent.Limits{MaxPendingSignals: 8, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}}, TreeLimits: agent.DefaultTreeLimits(),
+		Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}, TreeLimits: treeLimits,
 	}
 }
 
@@ -62,7 +64,7 @@ func assertEpisodeResult(t testing.TB, process *agent.Process, request successor
 	if state != (episodeState{Revision: revision, Summary: "explicit state"}) || result.Usage() != (agent.Usage{CommittedSteps: 1}) {
 		t.Fatalf("state=%+v usage=%+v", state, result.Usage())
 	}
-	if process.Budget() != request.Limits.Budget || process.DeploymentRef() != request.DeploymentRef {
+	if process.Budget() != request.Budget || process.DeploymentRef() != request.DeploymentRef {
 		t.Fatal("successor changed its allocation or binding")
 	}
 }
@@ -205,7 +207,7 @@ func TestSuccessorRequestCannotChangeAfterAdmission(t *testing.T) {
 		t.Fatalf("changed state=%v", claimErr)
 	}
 	changed = request
-	changed.Limits.Budget.Steps = agent.NewQuota(9)
+	changed.Budget.Steps = agent.NewQuota(9)
 	if _, _, claimErr := store.claim(changed); !errors.Is(claimErr, errSuccessorConflict) {
 		t.Fatalf("changed budget=%v", claimErr)
 	}

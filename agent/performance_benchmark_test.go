@@ -63,14 +63,10 @@ func BenchmarkTreeSnapshotBoundary(b *testing.B) {
 func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) TreeSnapshot {
 	b.Helper()
 	deployment := newChildTestDeployment(b)
-	limits := DefaultLimits()
-	limits.Budget.Steps = NewQuota(100_000)
-	limits.Budget.Effects = NewQuota(100_000)
-	limits.Budget.Signals = NewQuota(100_000)
-	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		Limits: limits,
+		Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)},
 		TreeLimits: TreeLimits{
+			MaxPendingSignals: 100_000,
 			MaxDepth:          sample.maxDepth,
 			MaxChildren:       NewQuota(2),
 			MaxActiveChildren: 2,

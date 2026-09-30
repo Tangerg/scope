@@ -137,11 +137,9 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 				close(paused)
 			}
 		})},
-		Limits: Limits{MaxPendingSignals: 100_000, Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)}},
-		TreeLimits: TreeLimits{
-			MaxDepth: 1, MaxChildren: NewQuota(uint64(processCount)),
-			MaxActiveChildren: uint32(processCount), MaxTreeProcesses: NewQuota(uint64(processCount)),
-		},
+		Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)},
+		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(processCount)),
+			MaxActiveChildren: uint32(processCount), MaxTreeProcesses: NewQuota(uint64(processCount)), MaxPendingSignals: 100_000},
 	}
 	engine, err := NewEngine(config)
 	if err != nil {

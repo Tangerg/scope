@@ -677,7 +677,8 @@ func startChildControlTree(t *testing.T, committer agent.TreeCommitter, reader T
 	t.Helper()
 	engine, err := agent.NewEngine(agent.EngineConfig{
 		TreeCommitter: committer,
-		Limits:        agent.Limits{MaxPendingSignals: childControlMailboxSize, Budget: agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(100)}},
+		Budget:        agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(100)},
+		TreeLimits:    agent.TreeLimits{MaxPendingSignals: childControlMailboxSize},
 	})
 	if err != nil {
 		t.Fatal(err)

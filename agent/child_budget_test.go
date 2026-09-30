@@ -16,20 +16,24 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 		{name: "recording", recording: true},
 	} {
 		for _, test := range []struct {
-			name         string
-			limits       Limits
-			wantChildren int
+			name              string
+			budget            Budget
+			maxPendingSignals uint64
+			wantChildren      int
 		}{
-			{name: "steps reserved", limits: Limits{Budget: Budget{Steps: NewQuota(20)}}},
-			{name: "effects charged", limits: Limits{Budget: Budget{Effects: NewQuota(20)}}},
-			{name: "signals reserved", limits: Limits{MaxPendingSignals: 40, Budget: Budget{Signals: NewQuota(40)}}},
+			{name: "steps reserved", budget: Budget{Steps: NewQuota(20)}},
+			{name: "effects charged", budget: Budget{Effects: NewQuota(20)}},
+			{name: "signals reserved", budget: Budget{Signals: NewQuota(40)}, maxPendingSignals: 40},
 			{
-				name: "exact fit", limits: Limits{MaxPendingSignals: 41, Budget: Budget{Steps: NewQuota(22), Effects: NewQuota(21), Signals: NewQuota(41)}},
+				name: "exact fit", budget: Budget{Steps: NewQuota(22), Effects: NewQuota(21), Signals: NewQuota(41)}, maxPendingSignals: 41,
 				wantChildren: 1,
 			},
 		} {
 			t.Run(committer.name+"/"+test.name, func(t *testing.T) {
-				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: test.limits}
+				config := EngineConfig{
+					TreeCommitter: NewMemoryTreeCommitter(), Budget: test.budget,
+					TreeLimits: TreeLimits{MaxPendingSignals: test.maxPendingSignals},
+				}
 				if committer.recording {
 					config.TreeCommitter = &recordingTreeCommitter{}
 				}
@@ -77,7 +81,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.AllocatedResources.Steps = wire.Limits.Budget.Steps.maximum - wire.CommittedSteps
+	wire.AllocatedResources.Steps = wire.Budget.Steps.maximum - wire.CommittedSteps
 	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +94,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	engine := runtime.engine
-	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), parent.treeLimits, Digest{}); err != nil {
+	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
@@ -121,7 +125,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	}
 	assertTreeMembership(t, runtime)
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef, parent.treeLimits, prepared.plan.requestDigest); err != nil {
+	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef, prepared.plan.requestDigest); err != nil {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)
 	}
 	engine.discardProcessStart(prepared.plan.childID)
@@ -136,10 +140,8 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	root := runtime.processes[runtime.rootID]
 	children := runtime.childrenByParent[runtime.rootID]
 	first, second := runtime.processes[children[0]], runtime.processes[children[1]]
-	limits := TreeLimits{MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4)}
-	for _, process := range runtime.processes {
-		process.treeLimits = limits
-	}
+	limits := TreeLimits{MaxPendingSignals: runtime.treeLimits.MaxPendingSignals, MaxDepth: 2, MaxChildren: NewQuota(2), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(4)}
+	runtime.treeLimits = limits
 	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("free tree slot was rejected")
 	}
@@ -149,14 +151,12 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(second) {
 		t.Fatal("sibling start ignored the last in-flight tree slot")
 	}
-	for _, process := range runtime.processes {
-		process.treeLimits.MaxTreeProcesses = NewQuota(5)
-	}
+	runtime.treeLimits.MaxTreeProcesses = NewQuota(5)
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.limits.Budget, first.capabilities, first.treeLimits, root.startedAt)
-	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt, runtime.engine.limits)
+	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.handle.budget, first.handle.capabilities, root.startedAt)
+	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")

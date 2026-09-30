@@ -25,7 +25,7 @@ func TestStartRejectsUnrepresentableSnapshotBeforePublication(t *testing.T) {
 					if treeQuota {
 						config.TreeLimits.MaxSnapshotBytes = NewQuota(maximum)
 					} else {
-						config.Limits.MaxSnapshotBytes = NewQuota(maximum)
+						config.TreeLimits.MaxProcessSnapshotBytes = NewQuota(maximum)
 					}
 					engine := controlValue(NewEngine(config))
 					defer mustCloseEngine(t, engine)
@@ -60,7 +60,7 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 					if treeQuota {
 						config.TreeLimits.MaxSnapshotBytes = NewQuota(256 << 10)
 					} else {
-						config.Limits.MaxSnapshotBytes = NewQuota(256 << 10)
+						config.TreeLimits.MaxProcessSnapshotBytes = NewQuota(256 << 10)
 					}
 					engine := controlValue(NewEngine(config))
 					defer mustCloseEngine(t, engine)
@@ -144,10 +144,9 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 			var child *processState
 			for _, member := range runtime.processes {
 				if treeQuota {
-					member.treeLimits.MaxSnapshotBytes = NewQuota(528 << 10)
-					member.handle.treeLimits = member.treeLimits
+					runtime.treeLimits.MaxSnapshotBytes = NewQuota(528 << 10)
 				} else {
-					member.limits.MaxSnapshotBytes = NewQuota(320 << 10)
+					runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(320 << 10)
 				}
 				if member != parent {
 					child = member
@@ -164,7 +163,7 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 				Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
 				Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
 			}))
-			if failure := prepareTestStep(parent, stepJobResult{
+			if failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
 				transition: controlValue(Continue(0, effect)), candidate: parent.execution, candidateState: parent.committedExecutionState,
 			}); failure != nil {
 				t.Fatalf("preparation: %+v", failure)
@@ -195,9 +194,9 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 				runtime := newWaitingSnapshotTree(t, 1)
 				root := runtime.processes[runtime.rootID]
 				if treeQuota {
-					root.treeLimits.MaxSnapshotBytes = NewQuota(10_000)
+					runtime.treeLimits.MaxSnapshotBytes = NewQuota(10_000)
 				} else {
-					root.limits.MaxSnapshotBytes = NewQuota(10_000)
+					runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(10_000)
 				}
 				store := &recordingTreeCommitter{}
 				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
@@ -228,14 +227,13 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 	for _, recording := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recording=%t", recording), func(t *testing.T) {
 			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-				Limits:     Limits{MaxSnapshotBytes: NewQuota(64 << 10)},
-				TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(64 << 10)},
+
+				TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(64 << 10), MaxProcessSnapshotBytes: NewQuota(64 << 10)},
 			}
 			runtime := newWaitingSnapshotTree(t, 1)
 			root := runtime.processes[runtime.rootID]
-			root.limits.MaxSnapshotBytes = config.Limits.MaxSnapshotBytes
-			root.treeLimits.MaxSnapshotBytes = config.TreeLimits.MaxSnapshotBytes
-			root.handle.treeLimits = root.treeLimits
+			runtime.treeLimits.MaxProcessSnapshotBytes = config.TreeLimits.MaxProcessSnapshotBytes
+			runtime.treeLimits.MaxSnapshotBytes = config.TreeLimits.MaxSnapshotBytes
 			root.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{})), root.startedAt)
 			if recording {
@@ -270,13 +268,13 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
 			process := runtime.processes[runtime.rootID]
 			if treeQuota {
-				process.treeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
+				runtime.treeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
 			} else {
-				process.limits.MaxSnapshotBytes = NewQuota(512 << 10)
+				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(512 << 10)
 			}
 			dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 			wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("after-dispatch")), json.RawMessage(`{}`)))
-			if failure := prepareTestStep(process, stepJobResult{
+			if failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{
 				transition: controlValue(Continue(0, dispatch, wait)), candidate: process.execution, candidateState: process.committedExecutionState,
 			}); failure != nil {
 				t.Fatalf("preparation: %+v", failure)
@@ -339,7 +337,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				if treeQuota {
 					config.TreeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
 				} else {
-					config.Limits.MaxSnapshotBytes = NewQuota(512 << 10)
+					config.TreeLimits.MaxProcessSnapshotBytes = NewQuota(512 << 10)
 				}
 				var calls atomic.Int32
 				payload := controlValue(jsonv2.Marshal(engineTestMessage{Kind: "result", Value: strings.Repeat("x", 400<<10)}))
@@ -423,7 +421,7 @@ func TestDispatchPermissionRequiresUncertainOutcomeCapacity(t *testing.T) {
 				if treeQuota {
 					config.TreeLimits.MaxSnapshotBytes = NewQuota(512 << 10)
 				} else {
-					config.Limits.MaxSnapshotBytes = NewQuota(512 << 10)
+					config.TreeLimits.MaxProcessSnapshotBytes = NewQuota(512 << 10)
 				}
 				effect := controlValue(NewDispatcherEffect(controlValue(jsonv2.Marshal(strings.Repeat("x", 350<<10)))))
 				definition := &capacityDefinition{

@@ -48,13 +48,13 @@ type successorRequest struct {
 	Predecessor   agent.ProcessID     `json:"predecessor"`
 	DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
 	Input         agent.Payload       `json:"input"`
-	Limits        agent.Limits        `json:"limits"`
+	Budget        agent.Budget        `json:"budget"`
 	TreeLimits    agent.TreeLimits    `json:"tree_limits"`
 	Capabilities  agent.CapabilitySet `json:"capabilities"`
 }
 
 func (s successorRequest) identity() (agent.Digest, error) {
-	if !s.Predecessor.Valid() || !s.DeploymentRef.Valid() || !s.Input.Valid() || !s.Limits.Valid() || !s.TreeLimits.Valid() || !s.Capabilities.Valid() {
+	if !s.Predecessor.Valid() || !s.DeploymentRef.Valid() || !s.Input.Valid() || !s.TreeLimits.Valid() || !s.Capabilities.Valid() {
 		return agent.Digest{}, errors.New("invalid successor request")
 	}
 	encoded, err := agent.EncodePayload(s)
@@ -108,10 +108,12 @@ func ExampleEngine_Start_successiveEpisodes() {
 	if err != nil {
 		panic(err)
 	}
+	treeLimits := agent.DefaultTreeLimits()
+	treeLimits.MaxPendingSignals = 8
 	request := successorRequest{
 		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
-		Limits:     agent.Limits{MaxPendingSignals: 8, Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}},
-		TreeLimits: agent.DefaultTreeLimits(),
+		Budget:     agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
+		TreeLimits: treeLimits,
 	}
 	host := &episodeHost{store: store}
 	defer func() {
@@ -182,7 +184,7 @@ func (e *episodeHost) start(ctx context.Context, deployment agent.Deployment, re
 func (e *episodeHost) activate(ctx context.Context, deployment agent.Deployment, request successorRequest, attempt *episodeAttempt, existing agent.ProcessID) (*agent.Process, error) {
 	engine, err := agent.NewEngine(agent.EngineConfig{
 		TreeCommitter: attempt, ProcessAdmitter: attempt,
-		Limits: request.Limits, TreeLimits: request.TreeLimits, Capabilities: request.Capabilities,
+		Budget: request.Budget, TreeLimits: request.TreeLimits, Capabilities: request.Capabilities,
 	})
 	if err != nil {
 		return nil, err

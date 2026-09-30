@@ -240,9 +240,11 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	}{
 		{
 			name: "budget", budget: largeBudget,
-			engine: agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), Limits: agent.Limits{
-				MaxPendingSignals: 16, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)},
-			}},
+			engine: agent.EngineConfig{
+				TreeCommitter: agent.NewMemoryTreeCommitter(),
+				Budget:        agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)},
+				TreeLimits:    agent.TreeLimits{MaxPendingSignals: 16},
+			},
 			wantCause: "engine.child.budget_exhausted",
 			wantKind:  agent.FailureKindExecution,
 		},

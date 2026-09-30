@@ -65,7 +65,7 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 	for _, recording := range []bool{false, true} {
 		t.Run(fmt.Sprint(recording), func(t *testing.T) {
 			store := &recordingTreeCommitter{}
-			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14), MaxProcessSnapshotBytes: NewQuota(128 << 14)}}
 			if recording {
 				config.TreeCommitter = store
 			}
@@ -98,7 +98,7 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 	for _, recording := range []bool{false, true} {
 		t.Run(fmt.Sprint(recording), func(t *testing.T) {
 			store := &recordingTreeCommitter{}
-			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}, TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14)}}
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14), MaxProcessSnapshotBytes: NewQuota(128 << 14)}}
 			if recording {
 				config.TreeCommitter = store
 			}
@@ -170,11 +170,8 @@ func TestPreparedSnapshotHasOneEffectRepresentation(t *testing.T) {
 
 func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
-	for _, process := range runtime.processes {
-		process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
-		process.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
-		process.handle.treeLimits = process.treeLimits
-	}
+	runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
+	runtime.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`"` + strings.Repeat("x", 53<<14) + `"`)))
 	for _, process := range runtime.processes {
 		process.status, process.currentWaitID = StatusRunning, WaitID{}
@@ -183,7 +180,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 			{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePlanned},
 			{ID: process.handle.processID.effectID(1, 1), Effect: effect, Phase: effectPhasePlanned},
 		}}
-		if _, err := process.snapshotAdmissionSize(); err != nil {
+		if _, err := process.snapshotAdmissionSize(runtime.treeLimits); err != nil {
 			t.Fatalf("individual process exceeds capacity: %v", err)
 		}
 	}
@@ -194,14 +191,15 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 
 func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 	process := admissionTestProcess(t, 0)
-	process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
+	limits := admissionTestLimits()
+	limits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
 	payload := json.RawMessage(`"` + strings.Repeat("x", 33<<14) + `"`)
 	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first")), payload))
 	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second")), payload))
 	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	before := controlValue(process.capture())
 	transition := controlValue(Continue(0, dispatch, first, second))
-	failure := prepareTestStep(process, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState})
+	failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState})
 	if failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) || process.prepared != nil {
 		t.Fatalf("known settlement capacity was not reserved: %+v", failure)
 	}
@@ -213,21 +211,19 @@ func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 
 func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
-	for _, process := range runtime.processes {
-		process.limits.MaxSnapshotBytes = NewQuota(128 << 14)
-		process.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
-		process.handle.treeLimits = process.treeLimits
-	}
 	root := runtime.processes[runtime.rootID]
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
 	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
 	state := controlValue(ParseExecutionState("engine.effect", controlValue(jsonv2.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 44<<14)}))))
 	execution := controlValue(definition.Restore(t.Context(), state))
-	limits := TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14), MaxDepth: 1, MaxChildren: NewQuota(5), MaxActiveChildren: 5, MaxTreeProcesses: NewQuota(6)}
+	runtime.treeLimits = TreeLimits{
+		MaxSnapshotBytes: NewQuota(512 << 14), MaxProcessSnapshotBytes: NewQuota(128 << 14),
+		MaxPendingSignals: runtime.treeLimits.MaxPendingSignals,
+		MaxDepth:          1, MaxChildren: NewQuota(5), MaxActiveChildren: 5, MaxTreeProcesses: NewQuota(6),
+	}
 	for _, process := range runtime.processes {
 		process.deployment = deployment
 		process.handle.deploymentRef = deployment.DeploymentRef()
-		process.treeLimits, process.handle.treeLimits = limits, limits
 		process.status, process.currentWaitID = StatusRunning, WaitID{}
 		process.committedExecutionState = state
 		process.execution = execution
@@ -246,7 +242,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("parent and existing tree must fit before initialization: %v", err)
 	}
-	if err := runtime.engine.reserveProcessStart(root.handle.relation, deployment.DeploymentRef(), limits, Digest{}); err != nil {
+	if err := runtime.engine.reserveProcessStart(root.handle.relation, deployment.DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(root.handle)
@@ -283,8 +279,11 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
 			root := runtime.processes[runtime.rootID]
-			limits := TreeLimits{MaxSnapshotBytes: NewQuota(512 << 14), MaxDepth: 1, MaxChildren: NewQuota(1), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(2)}
-			root.treeLimits, root.handle.treeLimits = limits, limits
+			limits := TreeLimits{
+				MaxSnapshotBytes: NewQuota(512 << 14), MaxPendingSignals: runtime.treeLimits.MaxPendingSignals,
+				MaxDepth: 1, MaxChildren: NewQuota(1), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(2),
+			}
+			runtime.treeLimits = limits
 			effectID := root.handle.processID.effectID(1, 0)
 			spec := ChildSpec{
 				Key: controlValue(ParseChildKey("rejected")), DeploymentRef: root.deployment.DeploymentRef(),
@@ -296,7 +295,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}},
 			}
 			root.counters.PreparedEffects = 1
-			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment.DeploymentRef(), limits, Digest{}); err != nil {
+			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment.DeploymentRef(), Digest{}); err != nil {
 				t.Fatal(err)
 			}
 			runtime.engine.publishProcessStart(root.handle)

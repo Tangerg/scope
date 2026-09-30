@@ -52,9 +52,7 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
-	handle := newProcessHandle(
-		relation, wire.DeploymentRef, wire.Limits.Budget, wire.Capabilities, wire.TreeLimits,
-		wire.StartedAt)
+	handle := newProcessHandle(relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.StartedAt)
 	process, err := restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
@@ -74,9 +72,7 @@ func restoreProcessState(
 		handle: handle, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		treeLimits:         wire.TreeLimits,
-		allocatedResources: wire.AllocatedResources,
-		capabilities:       wire.Capabilities, counters: wire.Counters, limits: wire.Limits,
+		allocatedResources: wire.AllocatedResources, counters: wire.Counters,
 	}
 	if wire.ChildRequestDigest != nil {
 		handle.childRequestDigest = *wire.ChildRequestDigest

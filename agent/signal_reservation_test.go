@@ -101,9 +101,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 				t.Fatal(err)
 			}
 			definition.base.reference = deployment.DeploymentRef()
-			limits := DefaultLimits()
-			limits.MaxPendingSignals = test.limit
-			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxPendingSignals: test.limit}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,13 +173,9 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 		name   string
 		modify func(*processSnapshotWire)
 	}{
-		{name: "pending mailbox", modify: func(wire *processSnapshotWire) { wire.Limits.MaxPendingSignals = 1 }},
-		{name: "lifetime signals", modify: func(wire *processSnapshotWire) {
-			wire.Limits.MaxPendingSignals = 1
-			wire.Limits.Budget.Signals = NewQuota(1)
-		}},
+		{name: "lifetime signals", modify: func(wire *processSnapshotWire) { wire.Budget.Signals = NewQuota(1) }},
 		{name: "child allocation", modify: func(wire *processSnapshotWire) {
-			wire.AllocatedResources.Signals = wire.Limits.Budget.Signals.maximum - 1
+			wire.AllocatedResources.Signals = wire.Budget.Signals.maximum - 1
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -212,5 +206,27 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 				t.Fatalf("unfunded reservation error=%v", parseErr)
 			}
 		})
+	}
+}
+
+func TestTreeLimitsRejectUnfundedPendingSignalReservations(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	wire := controlValue(snapshot.wire())
+	mailbox := controlValue(restoreSignalMailbox(wire.Mailbox, wire.Status))
+	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:unfunded-reservation")), WaitID{}, []byte(`{}`)))
+	if accepted, err := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil || !accepted {
+		t.Fatalf("enqueue=%t error=%v", accepted, err)
+	}
+	wire.Mailbox = mailbox.wire()
+	pending := controlValue(processSnapshotFromWire(wire))
+	remaining, reserved, _ := wire.pendingSignals()
+	limits := DefaultTreeLimits()
+	limits.MaxPendingSignals = remaining + reserved
+	if err := pending.validateCapacity(limits); err != nil {
+		t.Fatalf("exactly funded reservation rejected: %v", err)
+	}
+	limits.MaxPendingSignals--
+	if err := pending.validateCapacity(limits); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("unfunded reservation error=%v", err)
 	}
 }

@@ -171,8 +171,8 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			key := controlValue(ParseChildKey("worker"))
 			child.handle.relation = childProcessRelation(child.handle.processID, parent.handle.relation, key)
 			child.handle.childRequestDigest = ComputeDigest([]byte("control fixture"))
-			child.limits.Budget = Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}
-			parent.allocatedResources, _ = parent.limits.Budget.allocation(child.limits.Budget)
+			child.handle.budget = Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}
+			parent.allocatedResources, _ = parent.handle.budget.allocation(child.handle.budget)
 			runtime.addProcess(child)
 			recipient := child.handle.processID
 			switch target {
@@ -186,7 +186,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`"steer"`)))
 			effect := controlValue(NewChildSignalEffect(recipient, request))
 			transition := controlValue(Continue(0, effect))
-			if failure := prepareTestStep(parent, stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
+			if failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{transition: transition, candidate: parent.execution, candidateState: parent.committedExecutionState}); failure != nil {
 				t.Fatal(failure.cause)
 			}
 			if err := parent.prepared.Effects[0].begin(); err != nil {

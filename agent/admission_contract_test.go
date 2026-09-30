@@ -74,7 +74,7 @@ func TestSignalBatchIdentityContract(t *testing.T) {
 		if repeated {
 			signals = []Signal{previous, previous, fresh}
 		}
-		accepted, err := admitTestSignals(process, signals, signalSourceExternal)
+		accepted, err := admitTestSignals(process, admissionTestLimits(), signals, signalSourceExternal)
 		if repeated {
 			if accepted || !errors.Is(err, ErrSignalConflict) || process.mailbox.acceptedCount() != 1 {
 				t.Fatalf("repeated identity: accepted=%t error=%v count=%d", accepted, err, process.mailbox.acceptedCount())
@@ -84,7 +84,7 @@ func TestSignalBatchIdentityContract(t *testing.T) {
 		if !accepted || err != nil || process.mailbox.acceptedCount() != 2 {
 			t.Fatalf("mixed history: accepted=%t error=%v count=%d", accepted, err, process.mailbox.acceptedCount())
 		}
-		if accepted, err := admitTestSignals(process, signals, signalSourceExternal); accepted || err != nil {
+		if accepted, err := admitTestSignals(process, admissionTestLimits(), signals, signalSourceExternal); accepted || err != nil {
 			t.Fatalf("replay: accepted=%t error=%v", accepted, err)
 		}
 	}

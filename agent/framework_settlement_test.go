@@ -123,7 +123,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 		})
 	}
 	snapshot := controlValue(newProcessSnapshot(wire))
-	if _, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("successful start without a child accepted: %v", err)
 	}
 	execution, state, _, err := initializeExecution(t.Context(), deployment.Definition(), spec.Input)
@@ -131,13 +131,13 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
-	handle := newProcessHandle(relation, spec.DeploymentRef, spec.Budget, spec.Capabilities, wire.TreeLimits, wire.StartedAt)
+	handle := newProcessHandle(relation, spec.DeploymentRef, spec.Budget, spec.Capabilities, wire.StartedAt)
 	handle.childRequestDigest = controlValue(spec.digest())
-	child := newProcessState(handle, deployment, execution, state, wire.StartedAt, Limits{Budget: spec.Budget, MaxPendingSignals: wire.Limits.MaxPendingSignals, MaxSnapshotBytes: wire.Limits.MaxSnapshotBytes})
-	wire.AllocatedResources, _ = wire.Limits.Budget.allocation(spec.Budget)
+	child := newProcessState(handle, deployment, execution, state, wire.StartedAt)
+	wire.AllocatedResources, _ = wire.Budget.allocation(spec.Budget)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
-	if _, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
+	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
 		t.Fatalf("matching child rejected: %v", err)
 	}
 	for _, mutation := range []string{"allocation", "deployment", "request"} {
@@ -146,14 +146,14 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			childWire := controlValue(childSnapshot.wire())
 			switch mutation {
 			case "allocation":
-				childWire.Limits.Budget.Steps = NewQuota(childWire.Limits.Budget.Steps.maximum + 1)
+				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
 				parentWire.AllocatedResources.Steps++
 			case "deployment":
 				childWire.DeploymentRef = parentWire.DeploymentRef
 			case "request":
 				childWire.ChildRequestDigest = new(ComputeDigest([]byte("different input")))
 			}
-			tree := treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), controlValue(newProcessSnapshot(childWire))}}
+			tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), controlValue(newProcessSnapshot(childWire))}}
 			if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) {
 				t.Fatalf("contradictory captured child accepted: %v", err)
 			}
@@ -172,7 +172,7 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	}
 	wire.Counters.PreparedEffects = uint64(len(effects))
 	snapshot := controlValue(newProcessSnapshot(wire))
-	tree := controlValue(newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
+	tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
 	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)}))

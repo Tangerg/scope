@@ -5,7 +5,7 @@ import "testing"
 func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 	for _, barrier := range []string{"commit", "freeze"} {
 		t.Run(barrier, func(t *testing.T) {
-			runtime := newTreeRuntime(&Engine{}, ProcessID{}, t.Context())
+			runtime := newTreeRuntime(&Engine{}, ProcessID{}, DefaultTreeLimits(), t.Context())
 			if barrier == "commit" {
 				runtime.commit = &treeCommit{}
 			} else {

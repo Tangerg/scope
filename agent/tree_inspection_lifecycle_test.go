@@ -173,7 +173,7 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 }
 
 func TestInspectTreeCancellationAndBoundedAdmission(t *testing.T) {
-	owner := newTreeRuntime(&Engine{}, ProcessID{}, t.Context())
+	owner := newTreeRuntime(&Engine{}, ProcessID{}, DefaultTreeLimits(), t.Context())
 	for range treeCommandBufferCapacity {
 		owner.inspections <- make(chan TreeInspection, 1)
 	}

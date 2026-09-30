@@ -106,8 +106,9 @@
 // Host cancellation does not abandon required acknowledgments. Engine and Process
 // operations require non-nil contexts; nil is a programming error.
 //
-// [Limits] separates cumulative Budget authority from mailbox and snapshot
-// capacity. Zero Quota is unlimited, including during recovery. Finite parents
+// Each Process carries its own cumulative [Budget]; one [TreeLimits] per root
+// tree owns mailbox, snapshot, and structural capacity for every member. Zero
+// Quota is unlimited, including during recovery. Finite parents
 // permanently charge child grants; unlimited grants do not debit a finite
 // counter. Captured quotas survive restoration without new Engine defaults.
 // Unlimited execution still retains history and checks numeric identity overflow;

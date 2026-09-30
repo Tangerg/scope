@@ -7,10 +7,9 @@ import (
 )
 
 func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
-	limits := DefaultLimits()
-	limits.Budget.Signals = NewQuota(2)
-	limits.MaxPendingSignals = 2
-	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limits})
+	engine, err := NewEngine(EngineConfig{
+		TreeCommitter: NewMemoryTreeCommitter(), Budget: Budget{Signals: NewQuota(2)}, TreeLimits: TreeLimits{MaxPendingSignals: 2},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

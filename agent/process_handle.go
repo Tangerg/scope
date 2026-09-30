@@ -17,7 +17,6 @@ type processHandle struct {
 	childRequestDigest Digest
 	budget             Budget
 	capabilities       CapabilitySet
-	treeLimits         TreeLimits
 	startedAt          time.Time
 	runtime            atomic.Pointer[treeRuntime]
 
@@ -41,12 +40,11 @@ func newProcessHandle(
 	deploymentRef DeploymentRef,
 	budget Budget,
 	capabilities CapabilitySet,
-	treeLimits TreeLimits,
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
 		processID: relation.ProcessID(), deploymentRef: deploymentRef, relation: relation,
-		budget: budget, capabilities: capabilities, treeLimits: treeLimits, startedAt: startedAt,
+		budget: budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}

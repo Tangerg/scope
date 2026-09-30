@@ -53,11 +53,11 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	t.Helper()
 	wire := drainedSnapshotFixture(t, 16).state.clone()
+	wire.TreeLimits.MaxDepth = 16
 	parent := wire.ProcessSnapshots[0].Relation()
 	for index, snapshot := range wire.ProcessSnapshots {
 		process := snapshot.state
-		process.TreeLimits.MaxDepth = 16
-		process.Limits.Budget = Budget{}
+		process.Budget = Budget{}
 		process.AllocatedResources = resourceAmounts{}
 		if index > 0 {
 			key, _ := snapshot.Relation().ChildKey()
@@ -105,7 +105,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	original := wire.ChildWaits[0]
 	originalSignal := root.Mailbox.Signals[1]
 	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.WaitID, originalSignal.Payload)))).Outcomes()
-	root.Limits.Budget, root.AllocatedResources = Budget{}, resourceAmounts{}
+	root.Budget, root.AllocatedResources = Budget{}, resourceAmounts{}
 	mailbox := newSignalMailbox()
 	wire.ChildWaits = nil
 	for index := range count {
@@ -179,16 +179,9 @@ func TestTreeSnapshotRejectsDepthBeyondCapturedLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire := snapshot.state.clone()
-	for i := range wire.ProcessSnapshots {
-		wire.ProcessSnapshots[i].state.TreeLimits.MaxDepth = 15
-		wire.ProcessSnapshots[i].data = controlValue(jsonv2.Marshal(wire.ProcessSnapshots[i].state))
-	}
-	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	wire.TreeLimits.MaxDepth = 15
+	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire, jsonv2.WithMarshalers(treeSnapshotMarshalers)))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("over-depth tree accepted: %v", err)
-	}
-	leaf := wire.ProcessSnapshots[len(wire.ProcessSnapshots)-1]
-	if _, err := ParseProcessSnapshot(leaf.JSON()); !errors.Is(err, ErrInvalidSnapshot) {
-		t.Fatalf("over-depth process accepted: %v", err)
 	}
 }
 
@@ -202,7 +195,7 @@ func TestPreparedChildWaitRecoveryRequiresDirectChildren(t *testing.T) {
 		}
 		effect := controlValue(NewChildWaitEffect(ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: []ProcessID{child}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}))
 		transition := controlValue(Continue(0, effect))
-		if failure := prepareTestStep(root, stepJobResult{transition: transition, candidateState: root.committedExecutionState}); failure != nil {
+		if failure := prepareTestStep(root, runtime.treeLimits, stepJobResult{transition: transition, candidateState: root.committedExecutionState}); failure != nil {
 			t.Fatal(failure.cause)
 		}
 		_, err := runtime.captureTree()

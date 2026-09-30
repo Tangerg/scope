@@ -20,7 +20,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if failure := prepareTestStep(process, stepJobResult{
+			if failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{
 				transition: transition, candidate: process.execution, candidateState: process.committedExecutionState,
 			}); failure != nil {
 				t.Fatal(failure.cause)

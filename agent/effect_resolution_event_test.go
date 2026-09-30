@@ -214,7 +214,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 			if mode == "sibling fault" {
 				runtime.failRuntime(errors.New("sibling storage failed"), runtime.rootID, EffectID{})
 			} else {
-				process.limits.MaxSnapshotBytes = NewQuota(1)
+				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(1)
 			}
 			completion := treeJobCompletion{processID: runtime.rootID, kind: processJobDispatch, dispatch: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`null`)))}}
 			runtime.applyCompletion(completion)

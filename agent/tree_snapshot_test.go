@@ -86,7 +86,7 @@ func TestTreeSnapshotDigestIsCanonicalAndStable(t *testing.T) {
 	if err := jsonv2.Unmarshal(tree.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := slices.Sorted(maps.Keys(fields)), []string{"incarnation_id", "process_snapshots", "root_id"}; !slices.Equal(got, want) {
+	if got, want := slices.Sorted(maps.Keys(fields)), []string{"incarnation_id", "process_snapshots", "root_id", "tree_limits"}; !slices.Equal(got, want) {
 		t.Fatalf("tree fields = %v, want %v", got, want)
 	}
 	if !tree.IncarnationID().Valid() {
@@ -594,7 +594,7 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, err := newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(),
+	tree, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
 		RootID: forged.ProcessID(), ProcessSnapshots: []ProcessSnapshot{forged},
 	})
 	if err != nil {
@@ -664,12 +664,12 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
 	engine := runtime.engine
-	restoration := &treeRestoration{wire: treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
+	restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
 	for _, process := range orderedProcesses(runtime.processes) {
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
 	conflict := restoration.wire.ProcessSnapshots[1]
-	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef(), engine.treeLimits, Digest{}); err != nil {
+	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
@@ -680,7 +680,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		t.Helper()
 		for _, process := range restoration.wire.ProcessSnapshots {
 			id := process.ProcessID()
-			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef(), engine.treeLimits, Digest{})
+			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef(), Digest{})
 			if !errors.Is(err, want) {
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
 			}
@@ -733,14 +733,14 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], foreignSnapshot, orphanSnapshot}, "Process belongs to another tree contract"},
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "Process belongs to another tree contract"},
 	} {
-		data, err := jsonv2.Marshal(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+		data, err := jsonv2.Marshal(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, capture := range []func() (TreeSnapshot, error){
 			func() (TreeSnapshot, error) { return ParseTreeSnapshot(data) },
 			func() (TreeSnapshot, error) {
-				return newTreeSnapshot(treeSnapshotWire{IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
+				return newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: tree.RootID(), ProcessSnapshots: test.snapshots})
 			},
 		} {
 			_, err := capture()

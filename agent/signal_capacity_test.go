@@ -13,7 +13,7 @@ import (
 
 func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 	store := &recordingTreeCommitter{}
-	engine, err := NewEngine(EngineConfig{TreeCommitter: store, Limits: Limits{MaxSnapshotBytes: NewQuota(128 << 14)}})
+	engine, err := NewEngine(EngineConfig{TreeCommitter: store, TreeLimits: TreeLimits{MaxProcessSnapshotBytes: NewQuota(128 << 14)}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ type treeRuntime struct {
 	// advancing the current tree.
 	engine         *Engine
 	rootID         ProcessID
+	treeLimits     TreeLimits
 	incarnation    TreeIncarnationID
 	head           TreeSnapshot
 	commitSequence uint64
@@ -229,12 +230,14 @@ type dispatchJobResult struct {
 func newTreeRuntime(
 	engine *Engine,
 	rootID ProcessID,
+	treeLimits TreeLimits,
 	ctx context.Context,
 	processes ...*processState,
 ) *treeRuntime {
 	runtime := &treeRuntime{
 		engine:              engine,
 		rootID:              rootID,
+		treeLimits:          treeLimits,
 		incarnation:         newTreeIncarnationID(),
 		context:             context.WithoutCancel(RequireContext(ctx)),
 		processCommands:     make(chan treeCommand, treeCommandBufferCapacity),
@@ -615,7 +618,7 @@ func (t *treeRuntime) prepareChildStart(
 			spec, FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart,
 		)}
 	}
-	if !process.capabilities.Allows(spec.Capabilities) {
+	if !process.handle.capabilities.Allows(spec.Capabilities) {
 		return childStartPreparation{result: failedChildStart(
 			spec, FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability,
 		)}
@@ -636,10 +639,8 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget(spec.Budget)
 		}
 	}()
-	childLimits := process.limits
-	childLimits.Budget = spec.Budget
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
-		relation, spec.DeploymentRef, process.treeLimits, requestDigest,
+		relation, spec.DeploymentRef, requestDigest,
 	); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(
@@ -660,7 +661,6 @@ func (t *treeRuntime) prepareChildStart(
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationOutcomeAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment,
 		spec: spec, childID: childID, relation: relation,
-		limits: childLimits, treeLimits: process.treeLimits,
 		requestDigest: requestDigest,
 	}}
 }
@@ -669,8 +669,8 @@ func (t *treeRuntime) prepareChildStart(
 // installs its child before scheduling resumes; durable publication blocks that
 // scheduling lane until acknowledgment. No parallel reservation counter exists.
 func (t *treeRuntime) canStartChild(parent *processState) bool {
-	limits := parent.treeLimits
-	if parent.handle.relation.Depth() >= limits.MaxDepth {
+	limits := t.treeLimits
+	if !limits.admitsDepth(parent.handle.relation.Depth() + 1) {
 		return false
 	}
 	children := t.childrenByParent[parent.handle.processID]
@@ -1291,7 +1291,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 }
 
 func (t *treeRuntime) commitResolution(process *processState, command processCommand) {
-	candidate, index, err := process.prepareResolution(command.settlement)
+	candidate, index, err := process.prepareResolution(command.settlement, t.treeLimits)
 	if err == nil {
 		err = t.validateSnapshotCapacity(candidate)
 	}
@@ -1412,7 +1412,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 }
 
 func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
-	wire := treeSnapshotWire{RootID: t.rootID, ProcessSnapshots: []ProcessSnapshot{}}
+	wire := treeSnapshotWire{RootID: t.rootID, TreeLimits: t.treeLimits, ProcessSnapshots: []ProcessSnapshot{}}
 	wire.IncarnationID = t.incarnation
 
 	for parentID, registrations := range t.childWaits {
@@ -2177,12 +2177,11 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 			pending.result.deployment.DeploymentRef(),
 			pending.plan.spec.Budget,
 			pending.plan.spec.Capabilities,
-			pending.plan.treeLimits,
 			pending.result.startedAt)
 		handle.childRequestDigest = pending.plan.requestDigest
 		child := newProcessState(
 			handle, pending.result.deployment, pending.result.execution,
-			pending.result.state, pending.result.startedAt, pending.plan.limits,
+			pending.result.state, pending.result.startedAt,
 		)
 		if _, err := t.applyChildStartSettlement(candidate, pending.effectID, pending.result.result); err != nil {
 			return err
@@ -2265,7 +2264,7 @@ func (t *treeRuntime) applyStepCompletion(
 		t.failStep(process, result)
 		return
 	}
-	candidate, failure := process.prepareStep(result)
+	candidate, failure := process.prepareStep(result, t.treeLimits)
 	if failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
 		return
@@ -2757,7 +2756,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 	candidate := process.candidate()
 	candidate.adopt(finalization)
 	if len(immediate) != 0 {
-		admitted, admissionErr := candidate.prepareSignals(immediate, signalSourceChildWait)
+		admitted, admissionErr := candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits)
 		if admissionErr != nil {
 			return limited(failureCodeEngineLimitChildWaitSignal, admissionErr)
 		}
@@ -2838,7 +2837,7 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
 
 func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventFact, error) {
-	candidate, err := process.prepareSignals(signals, source)
+	candidate, err := process.prepareSignals(signals, source, t.treeLimits)
 	if err != nil || candidate == nil {
 		return nil, err
 	}
@@ -2851,7 +2850,7 @@ func (t *treeRuntime) admitSignals(process *processState, signals []Signal, sour
 }
 
 func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {
-	quota := t.processes[t.rootID].treeLimits.MaxSnapshotBytes
+	quota := t.treeLimits.MaxSnapshotBytes
 	if !quota.limited {
 		// Without an aggregate quota, existing members already passed their own
 		// admission and only candidates can change a Process quota. Start and
@@ -2861,7 +2860,7 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 			checked = slices.Collect(maps.Values(t.processes))
 		}
 		for _, member := range checked {
-			if _, err := member.snapshotAdmissionSize(); err != nil {
+			if _, err := member.snapshotAdmissionSize(t.treeLimits); err != nil {
 				return err
 			}
 		}
@@ -2882,7 +2881,7 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 		members[candidate.handle.processID] = candidate
 	}
 	for _, member := range members {
-		memberSize, err := member.snapshotAdmissionSize()
+		memberSize, err := member.snapshotAdmissionSize(t.treeLimits)
 		if err != nil {
 			return err
 		}

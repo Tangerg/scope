@@ -341,15 +341,11 @@ func testTreeProcessLimit(t *testing.T) {
 
 func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	deployment := newChildTestDeployment(t)
-	limits := DefaultLimits()
-	limits.Budget.Steps = NewQuota(100_000)
-	limits.Budget.Effects = NewQuota(100_000)
-	limits.Budget.Signals = NewQuota(100_000)
-	limits.MaxPendingSignals = 100_000
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		Limits: limits,
+		Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)},
 		TreeLimits: TreeLimits{
-			MaxDepth: 8, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(15),
+			MaxPendingSignals: 100_000,
+			MaxDepth:          8, MaxChildren: NewQuota(2), MaxActiveChildren: 2, MaxTreeProcesses: NewQuota(15),
 		},
 	})
 	if err != nil {
@@ -387,7 +383,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 
 	t.Run("subset", func(t *testing.T) {
-		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
+		engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -417,7 +413,7 @@ func TestEngineAttenuatesChildBudgetAndCapabilities(t *testing.T) {
 		{name: "budget escalation", mode: "budget_escalation", code: "engine.child.budget_exhausted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Limits: Limits{Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}}})
+			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: rootCapabilities, Budget: Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(1000)}})
 			if err != nil {
 				t.Fatal(err)
 			}

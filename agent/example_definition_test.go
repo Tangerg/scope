@@ -176,13 +176,11 @@ func ExampleDefinition() {
 	// The ledger lifetime is this invocation; ReleaseTree does not erase it.
 	engine, err := agent.NewEngine(agent.EngineConfig{
 		TreeCommitter: agent.NewMemoryTreeCommitter(),
-		Limits: agent.Limits{
-			MaxPendingSignals: 64, MaxSnapshotBytes: agent.NewQuota(1 << 20),
-			Budget: agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(200)},
-		},
+		Budget:        agent.Budget{Steps: agent.NewQuota(100), Effects: agent.NewQuota(100), Signals: agent.NewQuota(200)},
 		TreeLimits: agent.TreeLimits{
 			MaxDepth: 4, MaxActiveChildren: 4, MaxChildren: agent.NewQuota(16),
 			MaxTreeProcesses: agent.NewQuota(32), MaxSnapshotBytes: agent.NewQuota(32 << 20),
+			MaxProcessSnapshotBytes: agent.NewQuota(1 << 20), MaxPendingSignals: 64,
 		},
 	})
 	if err != nil {

@@ -14,11 +14,12 @@ import (
 
 func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 	for _, limit := range []struct {
-		name   string
-		limits Limits
+		name              string
+		budget            Budget
+		maxPendingSignals uint64
 	}{
-		{name: "pending mailbox", limits: Limits{MaxPendingSignals: 1}},
-		{name: "allocated child budget", limits: Limits{MaxPendingSignals: 52, Budget: Budget{Signals: NewQuota(52)}}},
+		{name: "pending mailbox", maxPendingSignals: 1},
+		{name: "allocated child budget", budget: Budget{Signals: NewQuota(52)}, maxPendingSignals: 52},
 	} {
 		for _, recording := range []bool{false, true} {
 			mode := "memory"
@@ -36,7 +37,10 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 					defer release()
 					deployment := engineTestDeployment(t, definition, childTestDispatcher{})
 					definition.reference = deployment.DeploymentRef()
-					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Limits: limit.limits}
+					config := EngineConfig{
+						TreeCommitter: NewMemoryTreeCommitter(), Budget: limit.budget,
+						TreeLimits: TreeLimits{MaxPendingSignals: limit.maxPendingSignals},
+					}
 					if recording {
 						config.TreeCommitter = &recordingTreeCommitter{}
 					}

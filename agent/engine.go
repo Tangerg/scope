@@ -22,7 +22,7 @@ var (
 )
 
 // EngineConfig keeps scheduling and authority policy outside Deployments so a
-// strategy cannot change its constraints through its behavior binding. Limits,
+// strategy cannot change its constraints through its behavior binding. Budget,
 // TreeLimits, and Capabilities apply to newly started root trees. RestoreTree
 // retains their captured values; the Host authorizes snapshots before recovery.
 type EngineConfig struct {
@@ -56,12 +56,13 @@ type EngineConfig struct {
 	// Zero selects the library default; negative capacities are invalid.
 	DeltaBufferCapacity int
 
-	// Cumulative work and snapshot quotas default to unlimited. Pending Signal
-	// capacity retains its independent finite default.
-	Limits Limits
+	// Budget grants cumulative work authority to each new root; zero quotas are
+	// unlimited.
+	Budget Budget
 
-	// TreeLimits separates optional lifetime quotas from depth and active-child
-	// capacity. Only the latter inherit finite defaults.
+	// TreeLimits is the capacity policy of each new root tree. Lifetime quotas
+	// and snapshot bytes default to unlimited; depth, active-child, and
+	// pending-Signal capacity inherit finite defaults.
 	TreeLimits TreeLimits
 
 	// Capabilities grants authority to new roots. Children receive only subsets
@@ -81,7 +82,7 @@ type Engine struct {
 	resolver                          DeploymentResolver
 	admitter                          ProcessAdmitter
 	observation                       *observationBus
-	limits                            Limits
+	budget                            Budget
 	treeLimits                        TreeLimits
 	capabilities                      CapabilitySet
 
@@ -179,10 +180,6 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if capacity == 0 {
 		capacity = defaultDeltaBuffer
 	}
-	limits, err := config.Limits.resolve()
-	if err != nil {
-		return nil, err
-	}
 	treeLimits, err := config.TreeLimits.resolve()
 	if err != nil {
 		return nil, err
@@ -196,7 +193,7 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		resolver:                          config.DeploymentResolver,
 		admitter:                          config.ProcessAdmitter,
 		observation:                       newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
-		limits:                            limits,
+		budget:                            config.Budget,
 		treeLimits:                        treeLimits,
 		capabilities:                      config.Capabilities,
 		treeOperations:                    make(map[ProcessID]*treeOperation),
@@ -234,12 +231,9 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	}
 	id := newProcessID()
 	relation := rootProcessRelation(id)
-	budget := e.limits.Budget
-	admission := newProcessAdmission(relation, deployment, budget, e.capabilities)
-	if reserveProcessStartErr := e.reserveProcessStart(
-		relation, deployment.DeploymentRef(), e.treeLimits, Digest{},
-	); reserveProcessStartErr != nil {
-		return nil, reserveProcessStartErr
+	admission := newProcessAdmission(relation, deployment, e.budget, e.capabilities)
+	if err := e.reserveProcessStart(relation, deployment.DeploymentRef(), Digest{}); err != nil {
+		return nil, err
 	}
 	published := false
 	defer func() {
@@ -259,12 +253,9 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
-	handle := newProcessHandle(
-		relation, deployment.DeploymentRef(), budget, e.capabilities,
-		e.treeLimits,
-		startedAt)
-	process := newProcessState(handle, deployment, execution, state, startedAt, e.limits)
-	runtime := newTreeRuntime(e, relation.RootID(), ctx, process)
+	handle := newProcessHandle(relation, deployment.DeploymentRef(), e.budget, e.capabilities, startedAt)
+	process := newProcessState(handle, deployment, execution, state, startedAt)
+	runtime := newTreeRuntime(e, relation.RootID(), e.treeLimits, ctx, process)
 
 	if capacityErr := runtime.validateSnapshotCapacity(); capacityErr != nil {
 		return nil, capacityErr
@@ -395,16 +386,14 @@ func (e *Engine) startClose() (<-chan struct{}, error) {
 func (e *Engine) reserveProcessStart(
 	relation ProcessRelation,
 	deploymentRef DeploymentRef,
-	treeLimits TreeLimits,
 	childRequestDigest Digest,
 ) error {
-	if !relation.Valid() || !deploymentRef.Valid() || !treeLimits.Valid() {
+	if !relation.Valid() || !deploymentRef.Valid() {
 		return ErrInvalidProcessRelation
 	}
 	reservation := processStartReservation{
 		relation:           relation,
 		deploymentRef:      deploymentRef,
-		treeLimits:         treeLimits,
 		childRequestDigest: childRequestDigest,
 	}
 	e.mu.Lock()
@@ -444,7 +433,8 @@ func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 	return nil
 }
 
-// The tree owner admits resources; e.mu reserves global identities atomically.
+// The tree owner admits resources and depth; e.mu reserves global identities
+// atomically.
 func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	relation := reservation.relation
 	identity, isChild := relation.childIdentity()
@@ -454,12 +444,8 @@ func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	if e.childIdentityTaken(identity) {
 		return ErrInvalidChildStart
 	}
-	parent := e.processes[identity.parent]
-	if parent == nil {
+	if e.processes[identity.parent] == nil {
 		return ErrInvalidProcessRelation
-	}
-	if reservation.treeLimits != parent.treeLimits || relation.depth > reservation.treeLimits.MaxDepth {
-		return ErrResourceLimitExceeded
 	}
 	processID := relation.ProcessID()
 	e.startReservations[processID] = reservation
@@ -485,8 +471,7 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	defer e.mu.Unlock()
 	reservation, exists := e.startReservations[handle.processID]
 	if !exists || reservation.relation != handle.relation ||
-		reservation.deploymentRef != handle.deploymentRef ||
-		reservation.treeLimits != handle.treeLimits || e.closeDone != nil ||
+		reservation.deploymentRef != handle.deploymentRef || e.closeDone != nil ||
 		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
@@ -901,6 +886,5 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 type processStartReservation struct {
 	relation           ProcessRelation
 	deploymentRef      DeploymentRef
-	treeLimits         TreeLimits
 	childRequestDigest Digest
 }

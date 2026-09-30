@@ -637,9 +637,9 @@ func newCrashEngine(
 	recorder *ObservationRecorder,
 ) *agent.Engine {
 	t.Helper()
-	config := agent.EngineConfig{TreeCommitter: committer, Limits: agent.Limits{Budget: agent.Budget{
+	config := agent.EngineConfig{TreeCommitter: committer, Budget: agent.Budget{
 		Steps: agent.NewQuota(10000), Effects: agent.NewQuota(10000), Signals: agent.NewQuota(100000),
-	}}}
+	}}
 	if recorder != nil {
 		config.EventListeners = []agent.EventListener{recorder}
 	}

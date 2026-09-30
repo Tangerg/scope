@@ -5,6 +5,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 )
@@ -145,18 +146,17 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 		t.Fatal("restoration changed concurrent current and pending Pause reasons")
 	}
 	signal := mustMailboxSignal(t, "signal:pause-capacity", WaitID{}, []byte(`{"value":"input"}`))
-	prospective, err := process.prepareSignals([]Signal{signal}, signalSourceExternal)
+	prospective, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
 	if err != nil || prospective == nil {
 		t.Fatalf("prepare capacity witness: %v", err)
 	}
-	wire := prospective.snapshotWire()
-	// Keep the quota's decimal width fixed while measuring its own encoding.
-	wire.Limits.MaxSnapshotBytes = NewQuota(999999)
-	exact := controlValue(materializedAdmissionSize(wire))
+	limits := runtime.treeLimits
+	limits.MaxProcessSnapshotBytes = NewQuota(math.MaxUint64)
+	exact := controlValue(materializedAdmissionSize(prospective.snapshotWire(), limits))
 	for _, maximum := range []uint64{exact, exact - 1} {
-		process.limits.MaxSnapshotBytes = NewQuota(maximum)
+		runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(maximum)
 		before := controlValue(process.capture())
-		candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal)
+		candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
 		if maximum == exact {
 			if err != nil || candidate == nil {
 				t.Fatalf("exact Pause reservation quota: %v", err)
