@@ -17,7 +17,7 @@ type treeRestoration struct {
 	wire        treeSnapshotWire
 	deployments map[DeploymentRef]Deployment
 	processes   []restoredTreeProcess
-	childWaits  map[ProcessID]map[WaitID]*childWaitRegistration
+	childWaits  childWaitRegistry
 	runtime     *treeRuntime
 }
 
@@ -90,16 +90,15 @@ func (t *treeRestoration) deployment(reference DeploymentRef) (Deployment, error
 }
 
 func (t *treeRestoration) prepareChildWaits() error {
-	t.childWaits = make(map[ProcessID]map[WaitID]*childWaitRegistration)
+	t.childWaits = childWaitRegistry{}
 	for _, encoded := range t.wire.ChildWaits {
 		spec, err := encoded.Spec.value()
 		if err != nil {
 			return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 		}
-		if t.childWaits[encoded.ParentProcessID] == nil {
-			t.childWaits[encoded.ParentProcessID] = make(map[WaitID]*childWaitRegistration)
+		if !t.childWaits.add(encoded.ParentProcessID, &childWaitRegistration{waitID: encoded.WaitID, spec: spec}) {
+			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
 		}
-		t.childWaits[encoded.ParentProcessID][encoded.WaitID] = &childWaitRegistration{waitID: encoded.WaitID, spec: spec}
 	}
 	return nil
 }

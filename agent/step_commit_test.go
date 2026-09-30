@@ -158,6 +158,6 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
 			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
 		}
-		runtime.unregisterChildWait(parent.handle.processID, waitID)
+		runtime.childWaits.remove(parent.handle.processID, waitID)
 	}
 }

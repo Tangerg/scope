@@ -620,12 +620,17 @@ func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
 	waitC, _ := ParseWaitID("wait:c")
 	waitA, _ := ParseWaitID("wait:a")
 	waitB, _ := ParseWaitID("wait:b")
-	registrations := map[WaitID]*childWaitRegistration{
-		waitC: {waitID: waitC},
-		waitA: {waitID: waitA},
-		waitB: {waitID: waitB},
+	parentID := newProcessID()
+	registry := childWaitRegistry{}
+	for _, waitID := range []WaitID{waitC, waitA, waitB} {
+		if !registry.add(parentID, &childWaitRegistration{waitID: waitID}) {
+			t.Fatalf("registration %s rejected", waitID)
+		}
 	}
-	ordered := orderedChildWaitRegistrations(registrations)
+	if registry.add(parentID, &childWaitRegistration{waitID: waitA}) {
+		t.Fatal("duplicate WaitID registered twice")
+	}
+	ordered := registry.ordered(parentID)
 	want := []WaitID{waitA, waitB, waitC}
 	for index, registration := range ordered {
 		if registration.waitID != want[index] {
@@ -633,6 +638,12 @@ func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
 				"delivery %d WaitID = %s, want %s", index, registration.waitID, want[index],
 			)
 		}
+	}
+	for _, waitID := range want {
+		registry.remove(parentID, waitID)
+	}
+	if len(registry) != 0 {
+		t.Fatal("empty parent group outlived its last registration")
 	}
 }
 

@@ -40,20 +40,19 @@ type treeRuntime struct {
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
-	processes           map[ProcessID]*processState
-	childrenByParent    map[ProcessID][]ProcessID
-	childWaits          map[ProcessID]map[WaitID]*childWaitRegistration
-	joinCandidates      map[ProcessID]*processState
-	processQueue        []ProcessID
-	queued              map[ProcessID]struct{}
-	jobs                map[ProcessID]*processJob
-	commit              *treeCommit
-	commitDone          chan treeCommitCompletion
-	fault               error
-	pendingPublications map[ProcessID]pendingProcessPublication
-	freeze              *activeTreeFreeze
-	done                chan struct{}
-	finalInspection     TreeInspection
+	processes        map[ProcessID]*processState
+	childrenByParent map[ProcessID][]ProcessID
+	childWaits       childWaitRegistry
+	joinCandidates   map[ProcessID]*processState
+	runQueue         runQueue
+	jobs             map[ProcessID]*processJob
+	commit           *treeCommit
+	commitDone       chan treeCommitCompletion
+	fault            error
+	publications     publicationLedger
+	freeze           *activeTreeFreeze
+	done             chan struct{}
+	finalInspection  TreeInspection
 }
 
 type treeCommandKind uint8
@@ -190,11 +189,6 @@ type treeCommitCompletion struct {
 	err    error
 }
 
-type pendingProcessPublication struct {
-	events   []eventFact
-	terminal bool
-}
-
 type stepJobResult struct {
 	finishedAt       time.Time
 	workDuration     time.Duration
@@ -235,24 +229,24 @@ func newTreeRuntime(
 	processes ...*processState,
 ) *treeRuntime {
 	runtime := &treeRuntime{
-		engine:              engine,
-		rootID:              rootID,
-		treeLimits:          treeLimits,
-		incarnation:         newTreeIncarnationID(),
-		context:             context.WithoutCancel(RequireContext(ctx)),
-		processCommands:     make(chan treeCommand, treeCommandBufferCapacity),
-		freezeCommands:      make(chan treeCommand, treeCommandBufferCapacity),
-		completions:         make(chan treeJobCompletion),
-		inspections:         make(chan chan TreeInspection, treeCommandBufferCapacity),
-		processes:           make(map[ProcessID]*processState, len(processes)),
-		childrenByParent:    make(map[ProcessID][]ProcessID),
-		childWaits:          make(map[ProcessID]map[WaitID]*childWaitRegistration),
-		joinCandidates:      make(map[ProcessID]*processState),
-		queued:              make(map[ProcessID]struct{}, len(processes)),
-		jobs:                make(map[ProcessID]*processJob, len(processes)),
-		commitDone:          make(chan treeCommitCompletion),
-		pendingPublications: make(map[ProcessID]pendingProcessPublication),
-		done:                make(chan struct{}),
+		engine:           engine,
+		rootID:           rootID,
+		treeLimits:       treeLimits,
+		incarnation:      newTreeIncarnationID(),
+		context:          context.WithoutCancel(RequireContext(ctx)),
+		processCommands:  make(chan treeCommand, treeCommandBufferCapacity),
+		freezeCommands:   make(chan treeCommand, treeCommandBufferCapacity),
+		completions:      make(chan treeJobCompletion),
+		inspections:      make(chan chan TreeInspection, treeCommandBufferCapacity),
+		processes:        make(map[ProcessID]*processState, len(processes)),
+		childrenByParent: make(map[ProcessID][]ProcessID),
+		childWaits:       childWaitRegistry{},
+		joinCandidates:   make(map[ProcessID]*processState),
+		runQueue:         newRunQueue(len(processes)),
+		jobs:             make(map[ProcessID]*processJob, len(processes)),
+		commitDone:       make(chan treeCommitCompletion),
+		publications:     publicationLedger{},
+		done:             make(chan struct{}),
 	}
 	for _, process := range processes {
 		runtime.addProcess(process)
@@ -466,24 +460,20 @@ func (t *treeRuntime) enqueueProcess(processID ProcessID) {
 	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs[processID] != nil {
 		return
 	}
-	if _, exists := t.queued[processID]; exists {
-		return
-	}
-	t.queued[processID] = struct{}{}
-	t.processQueue = append(t.processQueue, processID)
+	t.runQueue.push(processID)
 }
 
 func (t *treeRuntime) dequeueProcess() *processState {
-	for len(t.processQueue) > 0 {
-		processID := t.processQueue[0]
-		t.processQueue = t.processQueue[1:]
-		delete(t.queued, processID)
+	for {
+		processID, queued := t.runQueue.pop()
+		if !queued {
+			return nil
+		}
 		process := t.processes[processID]
 		if process != nil && !process.status.Terminal() && t.jobs[processID] == nil {
 			return process
 		}
 	}
-	return nil
 }
 
 func (t *treeRuntime) advanceOne() bool {
@@ -578,7 +568,7 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 
 func (t *treeRuntime) canStop() bool {
 	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
-		len(t.pendingPublications) != 0 {
+		len(t.publications) != 0 {
 		return false
 	}
 	for _, process := range t.processes {
@@ -949,14 +939,8 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	} else if parent != nil {
 		parent.releaseProvisionalChildBudget(plan.spec.Budget)
 	}
-	delete(t.queued, plan.childID)
-	delete(t.pendingPublications, plan.childID)
-	for index, processID := range t.processQueue {
-		if processID == plan.childID {
-			t.processQueue = append(t.processQueue[:index], t.processQueue[index+1:]...)
-			break
-		}
-	}
+	t.runQueue.remove(plan.childID)
+	delete(t.publications, plan.childID)
 	t.engine.discardProcessStart(plan.childID)
 }
 
@@ -996,7 +980,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 	if snapshot.Digest() == t.head.Digest() {
 		// Control changes can return to the acknowledged state without changing
 		// its recovery cut. Publishing those facts must not require another write.
-		published := len(t.pendingPublications) != 0
+		published := len(t.publications) != 0
 		t.publishAcknowledgedChanges()
 		return published
 	}
@@ -1009,10 +993,10 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 // An idle tree checkpoints at once. Busy trees still publish a staged fact of
 // a Process that will not advance on its own: terminal, waiting, or paused.
 func (t *treeRuntime) readyForCheckpoint() bool {
-	if len(t.jobs) == 0 && len(t.processQueue) == 0 {
+	if len(t.jobs) == 0 && t.runQueue.empty() {
 		return true
 	}
-	for processID := range t.pendingPublications {
+	for processID := range t.publications {
 		status := t.processes[processID].status
 		if status.Terminal() || status == StatusWaiting || status == StatusPaused {
 			return true
@@ -1040,19 +1024,14 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		return
 	default:
 	}
-	processID := process.handle.processID
-	publication := t.pendingPublications[processID]
-	if publication.terminal {
+	if t.publications.owesTerminal(process.handle.processID) {
 		return
 	}
-	payload := process.terminalEventPayload()
 	event := t.prepareEvent(process,
-		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, payload,
+		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, process.terminalEventPayload(),
 	)
 	t.propagateProcessTermination(process)
-	publication.events = append(publication.events, event)
-	publication.terminal = true
-	t.pendingPublications[processID] = publication
+	t.publications.stageTerminal(event)
 }
 
 func (t *treeRuntime) stageCommittedEvent(event eventFact) {
@@ -1060,25 +1039,21 @@ func (t *treeRuntime) stageCommittedEvent(event eventFact) {
 		t.processes[event.processID] == nil {
 		panic("agent: invalid committed Event")
 	}
-	processID := event.processID
-	publication := t.pendingPublications[processID]
-	publication.events = append(publication.events, event)
-	t.pendingPublications[processID] = publication
+	t.publications.stage(event)
 }
 
 // The acknowledged head supplies publication order and outcomes;
-// pendingPublications owns what is still owed. Every staged fact belongs to a
+// publications owns what is still owed. Every staged fact belongs to a
 // Process the same cut captured, so draining the head must leave nothing owed.
 // A leftover entry would silently make scheduling ready forever, so it stops the
 // writer instead.
 func (t *treeRuntime) publishAcknowledgedChanges() {
 	for _, snapshot := range t.head.state.ProcessSnapshots {
 		processID := snapshot.ProcessID()
-		publication, pending := t.pendingPublications[processID]
+		publication, pending := t.publications.take(processID)
 		if !pending {
 			continue
 		}
-		delete(t.pendingPublications, processID)
 		process := t.processes[processID]
 		for _, event := range publication.events {
 			t.publishPreparedEvent(process, event)
@@ -1093,7 +1068,7 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 		process.handle.publishResult(result)
 		t.finishProcessBookkeeping(process)
 	}
-	if len(t.pendingPublications) != 0 {
+	if len(t.publications) != 0 {
 		panic("agent: staged facts outlived the acknowledged tree cut")
 	}
 }
@@ -1112,9 +1087,8 @@ func (t *treeRuntime) failRuntime(
 	t.fault = cause
 	unresolvedByProcess := t.unresolvedEffectsAtFailure(processID, effectID)
 	t.abandonJobs()
-	clear(t.pendingPublications)
-	clear(t.queued)
-	t.processQueue = nil
+	clear(t.publications)
+	t.runQueue.clear()
 	acknowledged := make(map[ProcessID]struct{}, len(t.head.state.ProcessSnapshots))
 	for _, snapshot := range t.head.state.ProcessSnapshots {
 		acknowledged[snapshot.ProcessID()] = struct{}{}
@@ -1414,12 +1388,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 	wire := treeSnapshotWire{RootID: t.rootID, TreeLimits: t.treeLimits, ProcessSnapshots: []ProcessSnapshot{}}
 	wire.IncarnationID = t.incarnation
-
-	for parentID, registrations := range t.childWaits {
-		for _, registration := range registrations {
-			wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{ParentProcessID: parentID, WaitID: registration.waitID, Spec: registration.spec.wire()})
-		}
-	}
+	wire.ChildWaits = t.childWaits.wire()
 	return wire
 }
 
@@ -1728,7 +1697,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 			case processJobChildStart:
 				report.Work = ProcessWorkChildStart
 			}
-		} else if _, queued := t.queued[processID]; queued && !process.status.Terminal() {
+		} else if t.runQueue.contains(processID) && !process.status.Terminal() {
 			report.Work = ProcessWorkQueued
 		}
 		inspection.Processes = append(inspection.Processes, report)
@@ -2509,7 +2478,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 		return
 	}
 	parent := t.processes[parentID]
-	for _, registration := range orderedChildWaitRegistrations(t.childWaits[parentID]) {
+	for _, registration := range t.childWaits.ordered(parentID) {
 		if registration.spec.Boundary != boundary || !slices.Contains(registration.spec.Children, processID) {
 			continue
 		}
@@ -2580,38 +2549,23 @@ func (t *treeRuntime) registerChildWait(
 	if !parentID.Valid() || !waitID.Valid() || !spec.Valid() || t.processes[parentID] == nil {
 		return Signal{}, false, ErrInvalidChildWait
 	}
-	if t.childWaits[parentID][waitID] != nil {
-		return Signal{}, false, ErrInvalidChildWait
-	}
 	if err := spec.validateRelations(parentID, t.processRelation); err != nil {
 		return Signal{}, false, err
 	}
-	registration := &childWaitRegistration{
-		waitID: waitID,
-		spec:   spec.clone(),
+	registration := &childWaitRegistration{waitID: waitID, spec: spec.clone()}
+	if !t.childWaits.add(parentID, registration) {
+		return Signal{}, false, ErrInvalidChildWait
 	}
-	if t.childWaits[parentID] == nil {
-		t.childWaits[parentID] = make(map[WaitID]*childWaitRegistration)
-	}
-	t.childWaits[parentID][waitID] = registration
 	outcomes, satisfied := t.childWaitOutcomes(registration)
 	if !satisfied {
 		return Signal{}, false, nil
 	}
 	signal, err := encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)
 	if err != nil {
-		t.unregisterChildWait(parentID, waitID)
+		t.childWaits.remove(parentID, waitID)
 		return Signal{}, false, err
 	}
 	return signal, true, nil
-}
-
-func (t *treeRuntime) unregisterChildWait(parentID ProcessID, waitID WaitID) {
-	registrations := t.childWaits[parentID]
-	delete(registrations, waitID)
-	if len(registrations) == 0 {
-		delete(t.childWaits, parentID)
-	}
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
@@ -2736,7 +2690,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 	defer func() {
 		if !adopted {
 			for _, waitID := range registered {
-				t.unregisterChildWait(process.handle.processID, waitID)
+				t.childWaits.remove(process.handle.processID, waitID)
 			}
 		}
 	}()
@@ -2771,10 +2725,10 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 	process.adoptCandidate(candidate)
 	adopted = true
 	for _, waitID := range finalization.consumedChildWaits {
-		t.unregisterChildWait(process.handle.processID, waitID)
+		t.childWaits.remove(process.handle.processID, waitID)
 	}
 	for _, waitID := range finalization.commit.closedChildWaits {
-		t.unregisterChildWait(process.handle.processID, waitID)
+		t.childWaits.remove(process.handle.processID, waitID)
 	}
 
 	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status})
@@ -2830,7 +2784,7 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 	termination := process.resolveStepTermination(outcome)
 	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, time.Now().Round(0).UTC())
 	for _, waitID := range process.mailbox.closeAllWaits() {
-		t.unregisterChildWait(process.handle.processID, waitID)
+		t.childWaits.remove(process.handle.processID, waitID)
 	}
 }
 

@@ -146,7 +146,7 @@ func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 func TestSignalCommitWithoutCallerStillCompletes(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	runtime.applySuccessfulTreeCommit(&treeCommit{kind: treeCommitSignals, processID: process.handle.processID})
-	if _, queued := runtime.queued[process.handle.processID]; !queued {
+	if !runtime.runQueue.contains(process.handle.processID) {
 		t.Fatal("acknowledgment did not schedule the Process")
 	}
 }

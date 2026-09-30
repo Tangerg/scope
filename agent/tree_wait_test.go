@@ -73,7 +73,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, waitID := range closed {
-		runtime.unregisterChildWait(parentID, waitID)
+		runtime.childWaits.remove(parentID, waitID)
 	}
 	if len(runtime.childWaits) != 2 {
 		t.Fatal("consuming one parent's completion removed another wait")
