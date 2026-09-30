@@ -208,7 +208,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 			runtime.writer.establish(head)
 			listener := &recordingEventListener{}
 			runtime.engine.observation.events = []EventListener{listener}
-			attempt := runtime.beginEffectAttempt(process, process.prepared.StepSequence, request.ID(), EffectTargetDispatcher)
+			attempt := runtime.events.beginEffectAttempt(process, process.prepared.StepSequence, request.ID(), EffectTargetDispatcher)
 			job := &processJob{kind: processJobDispatch, effectID: request.ID(), effectAttempt: attempt}
 			runtime.setProcessJob(runtime.rootID, job)
 			if mode == "sibling fault" {

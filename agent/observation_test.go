@@ -392,7 +392,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 		deployment: deployment,
 	}
 
-	runtime := &treeRuntime{engine: engine, context: context.Background(), writer: newHeadWriter(engine.committer)}
+	runtime := newTreeRuntime(engine, process.handle.processID, DefaultTreeLimits(), context.Background())
 	process.processEventSequence = 7
 	func() {
 		defer func() {
@@ -400,7 +400,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 				t.Error("invalid kernel fact was silently omitted")
 			}
 		}()
-		runtime.publishEvent(process, "invalid event name", EventPhaseAttempt,
+		runtime.events.emit(process, "invalid event name", EventPhaseAttempt,
 			0, EffectID{}, emptyEventPayload(),
 		)
 	}()
@@ -408,24 +408,24 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 		t.Fatalf("invalid Event changed sequence to %d or published %d facts", process.processEventSequence, len(events))
 	}
 
-	runtime.publishEvent(process, EventProcessStarted, EventPhaseCommitted,
+	runtime.events.emit(process, EventProcessStarted, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
 	if process.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
 		t.Fatalf("valid Event sequence = %d, events = %#v", process.processEventSequence, events)
 	}
-	paused := runtime.prepareEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	paused := runtime.events.prepare(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
 	if process.processEventSequence != 8 {
 		t.Error("preparing an unpublished Event advanced publication order")
 	}
-	runtime.publishEvent(process, EventStepStarted, EventPhaseAttempt, 1, EffectID{}, emptyEventPayload())
-	runtime.publishPreparedEvent(process, paused)
+	runtime.events.emit(process, EventStepStarted, EventPhaseAttempt, 1, EffectID{}, emptyEventPayload())
+	runtime.events.publish(process, paused)
 	if len(events) != 3 || events[1].ProcessSequence() != 9 || events[2].ProcessSequence() != 10 {
 		t.Fatalf("delayed committed Event broke publication order: %v", events)
 	}
 
 	process.processEventSequence = math.MaxUint64
-	runtime.publishEvent(process, EventProcessResumed, EventPhaseCommitted,
+	runtime.events.emit(process, EventProcessResumed, EventPhaseCommitted,
 		0, EffectID{}, emptyEventPayload(),
 	)
 	if process.processEventSequence != math.MaxUint64 || len(events) != 3 || engine.ObservationFailures().DroppedEvents() != 1 {
