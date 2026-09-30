@@ -544,7 +544,7 @@ func (t *treeRuntime) prepareChildStart(
 	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationOutcomeAcknowledger,
-		resolver: t.engine.resolver, parentDeployment: process.deployment,
+		resolver: t.engine.resolver, parentDeployment: process.deployment(),
 		spec: spec, childID: childID, relation: relation,
 		requestDigest: requestDigest,
 	}}
@@ -641,7 +641,7 @@ func (t *treeRuntime) effectRequestFor(
 ) EffectRequest {
 	return newEffectRequest(
 		t.writer.incarnation(),
-		process.handle.deploymentRef,
+		process.handle.deploymentRef(),
 		process.handle.relation,
 		process.prepared.StepSequence,
 		batchIndex,
@@ -1142,7 +1142,7 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, effectID Effect
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	policy, err := dispatcherReplayPolicy(process.deployment.dispatcher, record.Effect)
+	policy, err := dispatcherReplayPolicy(process.deployment().dispatcher, record.Effect)
 	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy != ReplayPolicySameIdentity {
 		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
 		return
@@ -1401,7 +1401,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 
 func (t *treeRuntime) startStep(process *processState) {
 	processID := process.handle.processID
-	definition := process.deployment.Definition()
+	definition := process.deployment().Definition()
 
 	if failure := process.stepSchedulingFailure(); failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
@@ -1456,7 +1456,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 		return
 	}
 	processID := process.handle.processID
-	definition := process.deployment.Definition()
+	definition := process.deployment().Definition()
 	state := process.committedExecutionState
 	restoreCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(processID, &processJob{
@@ -1605,7 +1605,7 @@ func (t *treeRuntime) startDispatch(
 	reply processReply,
 ) {
 	processID := process.handle.processID
-	dispatcher := process.deployment.dispatcher
+	dispatcher := process.deployment().dispatcher
 
 	attempt, ok := t.allocateAttempt(process)
 	if !ok {
@@ -1781,12 +1781,12 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		}
 		handle := newProcessHandle(
 			pending.plan.relation,
-			pending.result.deployment.DeploymentRef(),
+			pending.result.deployment,
 			pending.plan.requestDigest,
 			pending.plan.spec.Budget,
 			pending.plan.spec.Capabilities,
 			pending.result.startedAt)
-		child := newProcessState(handle, pending.result.deployment, pending.result.execution, pending.result.state)
+		child := newProcessState(handle, pending.result.execution, pending.result.state)
 		if _, err := t.applyChildStartSettlement(candidate, pending.effectID, pending.result.result); err != nil {
 			return err
 		}

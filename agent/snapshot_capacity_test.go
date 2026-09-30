@@ -222,8 +222,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		MaxDepth:          1, MaxChildren: NewQuota(5), MaxActiveChildren: 5, MaxTreeProcesses: NewQuota(6),
 	}
 	for _, process := range runtime.members.all() {
-		process.deployment = deployment
-		process.handle.deploymentRef = deployment.DeploymentRef()
+		process.handle.deployment = deployment
 		process.status, process.currentWaitID = StatusRunning, WaitID{}
 		process.committedExecutionState = state
 		process.execution = execution
@@ -286,7 +285,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			runtime.treeLimits = limits
 			effectID := root.handle.processID.effectID(1, 0)
 			spec := ChildSpec{
-				Key: controlValue(ParseChildKey("rejected")), DeploymentRef: root.deployment.DeploymentRef(),
+				Key: controlValue(ParseChildKey("rejected")), DeploymentRef: root.deployment().DeploymentRef(),
 				Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
 			}
 			root.prepared = &preparedStep{
@@ -295,7 +294,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}},
 			}
 			root.counters.PreparedEffects = 1
-			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment.DeploymentRef(), Digest{}); err != nil {
+			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment().DeploymentRef(), Digest{}); err != nil {
 				t.Fatal(err)
 			}
 			runtime.engine.publishProcessStart(root.handle)

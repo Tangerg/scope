@@ -80,7 +80,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer mustCloseEngine(t, restoredEngine)
-			restored, err := restoredEngine.RestoreTree(t.Context(), process.deployment, snapshot)
+			restored, err := restoredEngine.RestoreTree(t.Context(), process.deployment(), snapshot)
 			if err != nil {
 				t.Fatal(err)
 			}

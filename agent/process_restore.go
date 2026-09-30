@@ -54,20 +54,19 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
-	handle := newProcessHandle(relation, wire.DeploymentRef, lo.FromPtr(wire.ChildRequestDigest), wire.Budget, wire.Capabilities, wire.StartedAt)
-	return restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
+	handle := newProcessHandle(relation, deployment, lo.FromPtr(wire.ChildRequestDigest), wire.Budget, wire.Capabilities, wire.StartedAt)
+	return restoreProcessState(ctx, handle, execution, mailbox, wire)
 }
 
 func restoreProcessState(
 	ctx context.Context,
 	handle *processHandle,
-	deployment Deployment,
 	execution Execution,
 	mailbox signalMailbox,
 	wire processSnapshotWire,
 ) (*processState, error) {
 	process := &processState{
-		handle: handle, deployment: deployment, execution: execution,
+		handle: handle, execution: execution,
 		status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		allocatedResources: wire.AllocatedResources, counters: wire.Counters,

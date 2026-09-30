@@ -87,7 +87,7 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 			for range count {
 				id := newProcessID()
 				root := runtime.members.get(runtime.rootID)
-				handle := newProcessHandle(rootProcessRelation(id), root.handle.deploymentRef, Digest{},
+				handle := newProcessHandle(rootProcessRelation(id), root.handle.deployment, Digest{},
 					root.handle.budget, root.handle.capabilities, root.handle.startedAt)
 				result := root.result()
 				result.processID = id
@@ -130,7 +130,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			runtime := newTreeRuntime(engine, parent.handle.processID, engine.treeLimits, b.Context(), parent)
 			for range retained {
 				id := newProcessID()
-				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deploymentRef, Digest{},
+				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deployment, Digest{},
 					parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
@@ -138,7 +138,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			}
 			key := controlValue(ParseChildKey("worker"))
 			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))
-			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment.DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
+			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment().DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
 			effectID := parent.handle.processID.effectID(1, 0)
 			b.ReportAllocs()
 			for b.Loop() {
@@ -166,7 +166,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 			b.Cleanup(func() { runtime.engine.discardRestoredTree(restoration) })
 			id := newProcessID()
 			relation := rootProcessRelation(id)
-			ref := runtime.members.get(runtime.rootID).handle.deploymentRef
+			ref := runtime.members.get(runtime.rootID).handle.deploymentRef()
 			b.ReportAllocs()
 			for b.Loop() {
 				if err := runtime.engine.reserveProcessStart(relation, ref, Digest{}); err != nil {

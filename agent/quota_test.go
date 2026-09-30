@@ -119,7 +119,7 @@ func TestBudgetAllocationIsIndependentPerDimension(t *testing.T) {
 
 func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	if err := runtime.engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
+	if err := runtime.engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(parent.handle)
@@ -133,7 +133,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		}
 		runtime.publishJoins()
 	})
-	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment.DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
+	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment().DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
 	spec.Budget = Budget{}
 	effectID := parent.handle.processID.effectID(1, 0)
 	rejected := runtime.prepareChildStart(parent, effectID, spec)

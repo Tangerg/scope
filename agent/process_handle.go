@@ -12,7 +12,7 @@ type processHandle struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
 	// so callers can inspect them without contending with the runtime owner goroutine.
 	processID          ProcessID
-	deploymentRef      DeploymentRef
+	deployment         Deployment
 	relation           ProcessRelation
 	childRequestDigest Digest
 	budget             Budget
@@ -39,20 +39,22 @@ type processHandle struct {
 // the rest; a root has none.
 func newProcessHandle(
 	relation ProcessRelation,
-	deploymentRef DeploymentRef,
+	deployment Deployment,
 	childRequestDigest Digest,
 	budget Budget,
 	capabilities CapabilitySet,
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
-		processID: relation.ProcessID(), deploymentRef: deploymentRef, relation: relation,
+		processID: relation.ProcessID(), deployment: deployment, relation: relation,
 		childRequestDigest: childRequestDigest,
 		budget:             budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}
 }
+
+func (p *processHandle) deploymentRef() DeploymentRef { return p.deployment.DeploymentRef() }
 
 func (p *processHandle) publishResult(result Result) bool {
 	return p.publishOutcome(result, nil)

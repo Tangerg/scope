@@ -124,7 +124,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 		controlValue(NewDispatcherEffect(payload)),
 		controlValue(NewWaitEffect(key, payload)),
 		controlValue(NewChildWaitEffect(ChildWaitSpec{Key: key, Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child}, Condition: AllChildren()})),
-		controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("capacity")), DeploymentRef: root.deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: NewQuota(1)}})),
+		controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("capacity")), DeploymentRef: root.deployment().DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: NewQuota(1)}})),
 		controlValue(NewChildSignalEffect(child, request)),
 		controlValue(NewChildCancelEffect(child, "stop")),
 	}

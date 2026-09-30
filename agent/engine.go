@@ -256,8 +256,8 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
-	handle := newProcessHandle(relation, deployment.DeploymentRef(), Digest{}, e.budget, e.capabilities, startedAt)
-	process := newProcessState(handle, deployment, execution, state)
+	handle := newProcessHandle(relation, deployment, Digest{}, e.budget, e.capabilities, startedAt)
+	process := newProcessState(handle, execution, state)
 	runtime := newTreeRuntime(e, relation.RootID(), e.treeLimits, ctx, process)
 
 	if capacityErr := runtime.validateSnapshotCapacity(); capacityErr != nil {
@@ -468,7 +468,7 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	defer e.mu.Unlock()
 	reservation, exists := e.startReservations[handle.processID]
 	if !exists || reservation.relation != handle.relation ||
-		reservation.deploymentRef != handle.deploymentRef ||
+		reservation.deploymentRef != handle.deploymentRef() ||
 		reservation.childRequestDigest != handle.childRequestDigest || e.closeDone != nil ||
 		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")

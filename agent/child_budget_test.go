@@ -94,14 +94,14 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	engine := runtime.engine
-	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
+	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
 	effectID := parent.handle.processID.effectID(1, 0)
 	key, _ := ParseChildKey("worker")
 	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
-	spec := childTestSpec(key, parent.deployment.DeploymentRef(), input)
+	spec := childTestSpec(key, parent.deployment().DeploymentRef(), input)
 	prepared := runtime.prepareChildStart(parent, effectID, spec)
 	if prepared.plan == nil {
 		t.Fatalf("prepare child failed: %+v", prepared.result)
@@ -155,8 +155,8 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), Digest{}, first.handle.budget, first.handle.capabilities, root.handle.startedAt)
-	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState)
+	handle := newProcessHandle(relation, first.deployment(), Digest{}, first.handle.budget, first.handle.capabilities, root.handle.startedAt)
+	child := newProcessState(handle, first.execution, first.committedExecutionState)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")
@@ -194,18 +194,18 @@ func TestProvisionalBudgetReleaseRequiresExactReservation(t *testing.T) {
 func TestChildPublicationRequiresTheReservedRequestDigest(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	engine := runtime.engine
-	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
+	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef(), Digest{}); err != nil {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
 	key := controlValue(ParseChildKey("worker"))
 	relation := childProcessRelation(newProcessID(), parent.handle.relation, key)
 	reserved := ComputeDigest([]byte("reserved request"))
-	if err := engine.reserveProcessStart(relation, parent.deployment.DeploymentRef(), reserved); err != nil {
+	if err := engine.reserveProcessStart(relation, parent.deployment().DeploymentRef(), reserved); err != nil {
 		t.Fatal(err)
 	}
 	for _, digest := range []Digest{ComputeDigest([]byte("another request")), reserved} {
-		handle := newProcessHandle(relation, parent.deployment.DeploymentRef(), digest,
+		handle := newProcessHandle(relation, parent.deployment(), digest,
 			parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 		handle.runtime.Store(runtime)
 		published := func() (published bool) {

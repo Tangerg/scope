@@ -120,7 +120,7 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	cause := errors.New("dispatch cause")
-	process.deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"),
+	process.handle.deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"),
 		effectFailureTestDispatcher{dispatch: func(EffectRequest) (Settlement, error) {
 			return Settlement{}, fmt.Errorf("dispatch: %w", cause)
 		}})
@@ -195,7 +195,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 		t.Fatal(err)
 	}
 	defer mustCloseEngine(t, restoredEngine)
-	restored, err := restoredEngine.RestoreTree(t.Context(), process.deployment, snapshot)
+	restored, err := restoredEngine.RestoreTree(t.Context(), process.deployment(), snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

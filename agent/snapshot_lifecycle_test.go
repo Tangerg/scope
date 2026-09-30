@@ -207,7 +207,7 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 				tree := controlValue(runtime.captureTree())
 				engine := controlValue(NewEngine(config))
 				defer mustCloseEngine(t, engine)
-				process, err := engine.RestoreTree(t.Context(), root.deployment, tree)
+				process, err := engine.RestoreTree(t.Context(), root.deployment(), tree)
 				if process != nil {
 					_ = process.Kill(t.Context(), "test complete")
 					_ = process.Join(context.WithoutCancel(t.Context()))
@@ -244,11 +244,11 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 			config.TreeCommitter = newSnapshotTestCommitter(tree)
 			engine := controlValue(NewEngine(config))
 			defer mustCloseEngine(t, engine)
-			started, err := engine.Start(t.Context(), root.deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
+			started, err := engine.Start(t.Context(), root.deployment(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
 			if started != nil || !errors.Is(err, ErrResourceLimitExceeded) {
 				t.Fatalf("live Start below reservation = %v, %v", started, err)
 			}
-			restored := controlValue(engine.RestoreTree(t.Context(), root.deployment, tree))
+			restored := controlValue(engine.RestoreTree(t.Context(), root.deployment(), tree))
 			if err := restored.Join(t.Context()); err != nil {
 				t.Fatal(err)
 			}

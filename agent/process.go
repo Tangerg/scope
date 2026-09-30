@@ -45,7 +45,7 @@ func (p *Process) ID() ProcessID {
 }
 
 func (p *Process) DeploymentRef() DeploymentRef {
-	return p.handle.deploymentRef
+	return p.handle.deploymentRef()
 }
 
 // Relation returns the immutable parent/root/depth location assigned by the

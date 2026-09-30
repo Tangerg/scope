@@ -15,8 +15,7 @@ import (
 type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
-	handle     *processHandle
-	deployment Deployment
+	handle *processHandle
 
 	// Only treeRuntime's owner goroutine mutates protocol and recovery state, keeping
 	// snapshots and externally visible transitions in one deterministic order.
@@ -69,12 +68,11 @@ type pendingControl struct {
 
 func newProcessState(
 	handle *processHandle,
-	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
 ) *processState {
 	return &processState{
-		handle: handle, deployment: deployment, execution: execution,
+		handle: handle, execution: execution,
 		status: StatusRunning, committedExecutionState: state,
 		mailbox: newSignalMailbox(),
 	}
@@ -91,6 +89,9 @@ func (p *processState) candidate() *processState {
 	}
 	return &candidate
 }
+
+// deployment is the exact binding the Process's handle owns.
+func (p *processState) deployment() Deployment { return p.handle.deployment }
 
 func (p *processState) adoptCandidate(candidate *processState) {
 	if candidate.handle != p.handle {
@@ -136,7 +137,7 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 			if _, addressed := signal.WaitID(); addressed {
 				continue
 			}
-			if err := p.deployment.Descriptor().ValidateSignal(Payload{data: signal.Payload()}); err != nil {
+			if err := p.deployment().Descriptor().ValidateSignal(Payload{data: signal.Payload()}); err != nil {
 				return nil, err
 			}
 		}
@@ -341,21 +342,21 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		return fmt.Errorf("%w: prepared waits: %w", ErrInvalidSnapshot, err)
 	}
 	if output, completes := prepared.Intent.Output(); completes {
-		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
+		if err := p.deployment().Descriptor().ValidateOutput(output); err != nil {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
 		}
 	}
 	var candidate Execution
 	if !p.status.Terminal() {
 		var err error
-		candidate, err = restoreExecution(ctx, p.deployment.Definition(), prepared.CandidateState)
+		candidate, err = restoreExecution(ctx, p.deployment().Definition(), prepared.CandidateState)
 		if err != nil {
 			return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
 		}
 	}
 	for index := range prepared.Effects {
 		record := &prepared.Effects[index]
-		if err := p.deployment.validateEffect(record.Effect); err != nil {
+		if err := p.deployment().validateEffect(record.Effect); err != nil {
 			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
 		}
 		if record.Phase != effectPhasePending {
@@ -372,7 +373,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 			}
 		} else if !p.pendingControl.hasTerminalIntent() {
 			var err error
-			policy, err = dispatcherReplayPolicy(p.deployment.dispatcher, record.Effect)
+			policy, err = dispatcherReplayPolicy(p.deployment().dispatcher, record.Effect)
 			if err != nil {
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}
@@ -409,7 +410,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 	}
 	effects := transition.Effects()
 	for _, effect := range effects {
-		if err := p.deployment.validateEffect(effect); err != nil {
+		if err := p.deployment().validateEffect(effect); err != nil {
 			return nil, &stepPreparationFailure{
 				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
@@ -438,7 +439,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 		}
 	}
 	if output, completes := transition.Output(); completes {
-		if validateOutputErr := p.deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
+		if validateOutputErr := p.deployment().Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, &stepPreparationFailure{
 				kind: FailureKindContract, code: failureCodeExecutionOutputInvalid, cause: validateOutputErr,
 			}
@@ -664,7 +665,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 	wire := processSnapshotWire{
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
-		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.handle.startedAt,
+		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
 		Status: p.status, CommittedSteps: p.committedSteps,
 		AllocatedResources: p.allocatedResources,
 		Budget:             p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,
