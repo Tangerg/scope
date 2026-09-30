@@ -32,7 +32,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	if _, err := root.mailbox.enqueue(StatusWaiting, controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)), signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
-	root.status, root.pauseReason = StatusPaused, "retain child outcomes"
+	root.status, root.pause = StatusPaused, pause{reason: "retain child outcomes"}
 	runtime.childWaits[root.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	snapshot, err := runtime.captureTree()
 	if err != nil {
@@ -98,9 +98,9 @@ func BenchmarkTreeCaptureLeafMutation(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				if appendState {
-					leaf.committedExecutionState, leaf.pauseReason = after, "after"
+					leaf.committedExecutionState, leaf.pause = after, pause{reason: "after"}
 				} else {
-					leaf.committedExecutionState, leaf.pauseReason = before, "before"
+					leaf.committedExecutionState, leaf.pause = before, pause{reason: "before"}
 				}
 				appendState = !appendState
 				var err error
@@ -126,7 +126,7 @@ func benchmarkMutableSnapshotTree(b *testing.B, count, stateBytes int) (*treeRun
 	state := controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(stateBytes)))
 	for _, process := range owner.processes {
 		process.committedExecutionState = state
-		process.status, process.pauseReason = StatusPaused, "before"
+		process.status, process.pause = StatusPaused, pause{reason: "before"}
 		process.currentWaitID = WaitID{}
 		process.mailbox = newSignalMailbox()
 	}
@@ -175,9 +175,9 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 	owner := newWaitingSnapshotTree(b, 1)
 	initial := controlValue(owner.captureTree())
 	root := owner.processes[owner.rootID]
-	root.status, root.pauseReason = StatusPaused, "first"
+	root.status, root.pause = StatusPaused, pause{reason: "first"}
 	first := controlValue(owner.captureTree())
-	root.pauseReason = "second"
+	root.pause = pause{reason: "second"}
 	second := controlValue(owner.captureTree())
 	start := controlValue(newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, initial))
 	for _, count := range []int{1, 100, 1000, 10000} {

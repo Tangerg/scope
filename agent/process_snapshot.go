@@ -547,8 +547,8 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	if err := p.validateCurrentWait(mailbox); err != nil {
 		return err
 	}
-	if p.Status == StatusPaused && !validPauseReason(p.PauseReason) {
-		return fmt.Errorf("%w: invalid pause reason", ErrInvalidSnapshot)
+	if _, err := newPause(p.PauseReason); p.Status == StatusPaused && err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
 	if p.Status != StatusPaused && p.PauseReason != "" {
 		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)

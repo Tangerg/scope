@@ -74,7 +74,7 @@ func restoreProcessState(
 		handle: handle, deployment: deployment, execution: execution,
 		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		pauseReason: wire.PauseReason, treeLimits: wire.TreeLimits,
+		treeLimits:         wire.TreeLimits,
 		allocatedResources: wire.AllocatedResources,
 		capabilities:       wire.Capabilities, counters: wire.Counters, limits: wire.Limits,
 	}
@@ -87,6 +87,11 @@ func restoreProcessState(
 	if wire.CurrentWaitID != nil {
 		process.currentWaitID = *wire.CurrentWaitID
 	}
+	current, err := parsePause(wire.PauseReason)
+	if err != nil {
+		return nil, fmt.Errorf("%w: pause: %w", ErrInvalidSnapshot, err)
+	}
+	process.pause = current
 	process.finalOutput = wire.Output
 	if wire.Termination != nil {
 		process.termination = *wire.Termination
@@ -105,8 +110,11 @@ func restoreProcessState(
 // Each intent is absent only when all of its wire members are; a partial
 // intent fails its constructor.
 func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
-	control := pendingControl{pauseReason: wire.PauseReason}
+	var control pendingControl
 	var err error
+	if control.pause, err = parsePause(wire.PauseReason); err != nil {
+		return pendingControl{}, err
+	}
 	if wire.Failure != nil {
 		if !wire.Failure.Valid() {
 			return pendingControl{}, ErrInvalidFailure
@@ -127,9 +135,6 @@ func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
 		if control.cancellation, err = newCancellationIntent(wire.CancellationOwner, wire.CancellationReason); err != nil {
 			return pendingControl{}, err
 		}
-	}
-	if wire.PauseReason != "" && !validPauseReason(wire.PauseReason) {
-		return pendingControl{}, fmt.Errorf("pause reason must be non-empty, trimmed UTF-8 within %d bytes", maxPauseReasonBytes)
 	}
 	return control, nil
 }

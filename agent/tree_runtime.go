@@ -517,7 +517,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.finishIfTerminal(process)
 		return
 	}
-	if process.pendingControl.pauseReason != "" && process.prepared.Intent.Kind() == TransitionKindWait {
+	if process.pendingControl.pause.valid() && process.prepared.Intent.Kind() == TransitionKindWait {
 		process.prepared = nil
 		process.preparedExecution = nil
 		t.startRestore(process)
@@ -1269,7 +1269,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, command process
 	}
 	if process.pendingControl.hasTerminalIntent() {
 		t.stopProcessTree(process)
-	} else if process.pendingControl.pauseReason != "" {
+	} else if process.pendingControl.pause.valid() {
 		t.invalidateStep(process)
 	}
 	t.finishIfTerminal(process)

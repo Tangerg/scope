@@ -23,7 +23,7 @@ type preparedStepFinalization struct {
 type preparedStepCommit struct {
 	status           Status
 	currentWaitID    WaitID
-	pauseReason      string
+	pause            pause
 	finalOutput      Payload
 	termination      Termination
 	finishedAt       time.Time
@@ -90,7 +90,7 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 		return p.prepareWaitTransition(transition)
 	case TransitionKindPause:
 		p.commit.status = StatusPaused
-		p.commit.pauseReason, _ = transition.Reason()
+		p.commit.pause = transition.pause
 	case TransitionKindComplete:
 		output, _ := transition.Output()
 		p.prepareTermination(completedOutcome(), finishedAt)

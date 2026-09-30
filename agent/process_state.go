@@ -31,7 +31,7 @@ type processState struct {
 	mailbox                 signalMailbox
 	prepared                *preparedStep
 	currentWaitID           WaitID
-	pauseReason             string
+	pause                   pause
 	pendingControl          pendingControl
 	finalOutput             Payload
 	termination             Termination
@@ -69,7 +69,7 @@ type pendingControl struct {
 	kill         killIntent
 	deadline     deadlineIntent
 	cancellation cancellationIntent
-	pauseReason  string
+	pause        pause
 }
 
 func newProcessState(
@@ -181,25 +181,24 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource) (*p
 }
 
 func (p *processState) requestPause(reason string) error {
-	if !validPauseReason(reason) {
-		return fmt.Errorf("%w: pause reason must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidProcessControl, maxPauseReasonBytes)
+	requested, err := newPause(reason)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
 	if p.status != StatusRunning && p.status != StatusWaiting {
 		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status)
 	}
-	if p.pendingControl.pauseReason == "" {
-		p.pendingControl.pauseReason = reason
-	}
+	p.pendingControl.recordPause(requested)
 	return nil
 }
 
 func (p *processState) applyPendingPause() bool {
-	if p.pendingControl.pauseReason == "" || (p.status != StatusRunning && p.status != StatusWaiting) {
+	if !p.pendingControl.pause.valid() || (p.status != StatusRunning && p.status != StatusWaiting) {
 		return false
 	}
 	p.status = StatusPaused
-	p.pauseReason = p.pendingControl.pauseReason
-	p.pendingControl.pauseReason = ""
+	p.pause = p.pendingControl.pause
+	p.pendingControl.pause = pause{}
 	return true
 }
 
@@ -211,8 +210,8 @@ func (p *processState) resume() error {
 	if p.currentWaitID.Valid() {
 		p.status = StatusWaiting
 	}
-	p.pauseReason = ""
-	p.pendingControl.pauseReason = ""
+	p.pause = pause{}
+	p.pendingControl.pause = pause{}
 	return nil
 }
 
@@ -511,7 +510,7 @@ func (p *processState) installTermination(termination Termination, output Payloa
 	p.status = termination.Status()
 	p.finishedAt = finishedAt
 	p.currentWaitID = WaitID{}
-	p.pauseReason = ""
+	p.pause = pause{}
 	p.pendingControl = pendingControl{}
 	p.finalOutput = Payload{}
 	if p.status == StatusCompleted {
@@ -569,12 +568,18 @@ func (p *pendingControl) recordCancellation(intent cancellationIntent) {
 	}
 }
 
+func (p *pendingControl) recordPause(requested pause) {
+	if !p.pause.valid() {
+		p.pause = requested
+	}
+}
+
 func (p pendingControl) hasTerminalIntent() bool {
 	return p.failure.Valid() || p.kill.valid() || p.deadline.valid() || p.cancellation.valid()
 }
 
 func (p pendingControl) wire() pendingControlWire {
-	wire := pendingControlWire{PauseReason: p.pauseReason}
+	wire := pendingControlWire{PauseReason: p.pause.reason}
 	if p.failure.Valid() {
 		failure := p.failure
 		wire.Failure = &failure
@@ -640,7 +645,7 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	} else {
 		p.status = finalization.commit.status
 		p.currentWaitID = finalization.commit.currentWaitID
-		p.pauseReason = finalization.commit.pauseReason
+		p.pause = finalization.commit.pause
 	}
 }
 
@@ -654,7 +659,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		AllocatedResources: p.allocatedResources,
 		Capabilities:       p.capabilities, Counters: p.counters,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),
-		PauseReason: p.pauseReason, PendingControl: p.pendingControl.wire(), Limits: p.limits,
+		PauseReason: p.pause.reason, PendingControl: p.pendingControl.wire(), Limits: p.limits,
 	}
 	if p.handle.childRequestDigest.Valid() {
 		digest := p.handle.childRequestDigest

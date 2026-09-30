@@ -20,7 +20,7 @@ func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.
 		}
 		runtime.establishHead(incarnation, initial)
 		process.status = StatusPaused
-		process.pauseReason = "checkpoint preparation"
+		process.pause = pause{reason: "checkpoint preparation"}
 		// Inject an unencodable prospective state after a valid acknowledged
 		// head. Capture failure must drain the same lifecycle as storage failure.
 		process.committedExecutionState = ExecutionState{}

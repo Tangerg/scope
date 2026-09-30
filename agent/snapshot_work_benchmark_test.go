@@ -189,7 +189,7 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			root := runtime.processes[runtime.rootID]
-			root.status, root.pauseReason = StatusPaused, "inspection benchmark"
+			root.status, root.pause = StatusPaused, pause{reason: "inspection benchmark"}
 			runtime.engine.committer = &recordingTreeCommitter{}
 			incarnation := newTreeIncarnationID()
 			runtime.incarnation = incarnation
@@ -237,7 +237,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 						for _, process := range runtime.processes {
 							process.committedExecutionState = controlValue(EncodeExecutionState("benchmark", strings.Repeat("x", stateBytes)))
 							process.status = StatusPaused
-							process.pauseReason = "benchmark"
+							process.pause = pause{reason: "benchmark"}
 							process.currentWaitID = WaitID{}
 							process.mailbox = newSignalMailbox()
 							for index := range history {

@@ -124,7 +124,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	}
 	runtime.establishHead(incarnation, initial)
 	process.status = StatusPaused
-	process.pauseReason = "wait for explicit resumption"
+	process.pause = pause{reason: "wait for explicit resumption"}
 	runtime.dequeueProcess()
 	response := make(chan TreeInspection, 1)
 	for range schedulingProgressTurns {
@@ -153,7 +153,7 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.status = StatusPaused
-	process.pauseReason = "wait for explicit resumption"
+	process.pause = pause{reason: "wait for explicit resumption"}
 
 	runtime.dequeueProcess()
 	runtime.tryStartCheckpoint()

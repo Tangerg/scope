@@ -9,7 +9,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 	runtime, process := newChildCompletionTestProcess(t)
 	store := runtime.engine.committer.(*MemoryTreeCommitter)
 	initial := runtime.head
-	process.status, process.pauseReason = StatusPaused, "review"
+	process.status, process.pause = StatusPaused, pause{reason: "review"}
 	paused := controlValue(runtime.captureTree())
 	checkpoint := controlValue(newTreeCheckpoint(2, TreeCheckpointKindParked, initial.Digest(), paused))
 	skipped := checkpoint

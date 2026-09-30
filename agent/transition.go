@@ -6,13 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
-
-const maxPauseReasonBytes = 4096
 
 var ErrInvalidTransition = errors.New("agent: invalid transition")
 
@@ -53,7 +49,7 @@ type Transition struct {
 	consumedSignals uint32
 	effects         []Effect
 	waitID          WaitID
-	reason          string
+	pause           pause
 	output          Payload
 	failure         Failure
 }
@@ -85,10 +81,11 @@ func Wait(consumedSignals uint32, waitID WaitID) (Transition, error) {
 }
 
 func Pause(consumedSignals uint32, reason string) (Transition, error) {
-	if !validPauseReason(reason) {
-		return Transition{}, fmt.Errorf("%w: pause reason must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidTransition, maxPauseReasonBytes)
+	requested, err := newPause(reason)
+	if err != nil {
+		return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
 	}
-	return Transition{kind: TransitionKindPause, consumedSignals: consumedSignals, reason: reason}, nil
+	return Transition{kind: TransitionKindPause, consumedSignals: consumedSignals, pause: requested}, nil
 }
 
 // Complete supplies the final semantic Output. The Engine must validate it
@@ -118,7 +115,7 @@ func (t Transition) Effects() []Effect { return cloneEffectsUnchecked(t.effects)
 
 func (t Transition) WaitID() (WaitID, bool) { return t.waitID, t.kind == TransitionKindWait }
 
-func (t Transition) Reason() (string, bool) { return t.reason, t.kind == TransitionKindPause }
+func (t Transition) Reason() (string, bool) { return t.pause.reason, t.kind == TransitionKindPause }
 
 func (t Transition) Output() (Payload, bool) { return t.output, t.kind == TransitionKindComplete }
 
@@ -126,14 +123,14 @@ func (t Transition) Failure() (Failure, bool) { return t.failure, t.kind == Tran
 
 // Valid requires each kind to carry exactly its own payload field.
 func (t Transition) Valid() bool {
-	if !t.kind.Valid() || t.kind == TransitionKindPause && !validPauseReason(t.reason) {
+	if !t.kind.Valid() {
 		return false
 	}
 	if len(t.effects) != 0 && (t.kind != TransitionKindContinue || !validEffects(t.effects)) {
 		return false
 	}
 	return t.waitID.Valid() == (t.kind == TransitionKindWait) &&
-		(t.reason != "") == (t.kind == TransitionKindPause) &&
+		t.pause.valid() == (t.kind == TransitionKindPause) &&
 		t.output.Valid() == (t.kind == TransitionKindComplete) &&
 		t.failure.Valid() == (t.kind == TransitionKindFail)
 }
@@ -175,7 +172,7 @@ func (t Transition) MarshalJSON() ([]byte, error) {
 	case TransitionKindWait:
 		wire.WaitID = &t.waitID
 	case TransitionKindPause:
-		wire.Reason = t.reason
+		wire.Reason = t.pause.reason
 	case TransitionKindComplete:
 		wire.Output = t.output.JSON()
 	case TransitionKindFail:
@@ -201,8 +198,12 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 }
 
 func transitionFromWire(wire transitionWire) (Transition, error) {
+	requested, err := parsePause(wire.Reason)
+	if err != nil {
+		return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
+	}
 	value := Transition{kind: wire.Kind, consumedSignals: wire.ConsumedSignals,
-		effects: wire.Effects, reason: wire.Reason}
+		effects: wire.Effects, pause: requested}
 	if wire.WaitID != nil {
 		value.waitID = *wire.WaitID
 	}
@@ -220,10 +221,6 @@ func transitionFromWire(wire transitionWire) (Transition, error) {
 		return Transition{}, fmt.Errorf("%w: invalid kind or field set", ErrInvalidTransition)
 	}
 	return value, nil
-}
-
-func validPauseReason(reason string) bool {
-	return reason != "" && utf8.ValidString(reason) && strings.TrimSpace(reason) == reason && len(reason) <= maxPauseReasonBytes
 }
 
 type transitionWire struct {

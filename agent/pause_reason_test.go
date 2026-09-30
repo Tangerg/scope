@@ -134,8 +134,8 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 1)
 	process := runtime.processes[runtime.rootID]
-	process.status, process.pauseReason = StatusPaused, strings.Repeat("\x00", 4096)
-	process.pendingControl.pauseReason = strings.Repeat("\x01", 4096)
+	process.status, process.pause = StatusPaused, pause{reason: strings.Repeat("\x00", 4096)}
+	process.pendingControl.pause = pause{reason: strings.Repeat("\x01", 4096)}
 	snapshot := controlValue(ParseProcessSnapshot(controlValue(process.capture()).JSON()))
 	_, restored, _, err := prepareRestoredProcess(t.Context(), process.deployment, snapshot)
 	if err != nil {
@@ -161,7 +161,7 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 			if err != nil || candidate == nil {
 				t.Fatalf("exact Pause reservation quota: %v", err)
 			}
-			if candidate.pauseReason != process.pauseReason || candidate.pendingControl.pauseReason != process.pendingControl.pauseReason {
+			if candidate.pause != process.pause || candidate.pendingControl.pause != process.pendingControl.pause {
 				t.Fatal("admitted Signal changed concurrent Pause reasons")
 			}
 		} else if candidate != nil || !errors.Is(err, ErrResourceLimitExceeded) {
