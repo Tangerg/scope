@@ -632,7 +632,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 }
 
 func (p *processState) usage() Usage {
-	return Usage{CommittedSteps: p.committedSteps, AcceptedSignals: p.mailbox.acceptedCount(), PreparedEffects: p.counters.PreparedEffects, DroppedDeltas: p.counters.DroppedDeltas}
+	return p.counters.usage(p.committedSteps, p.mailbox.acceptedCount())
 }
 
 // An unadopted candidate and the executable instance restored for it live

@@ -195,15 +195,7 @@ func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
 
 // Result returns the captured immutable terminal outcome, when present. Its
 // persistence authority is that of the enclosing TreeSnapshot transaction.
-func (p ProcessSnapshot) Result() (Result, bool) {
-	if !p.Status().Terminal() {
-		return Result{}, false
-	}
-	return Result{
-		processID: p.state.ProcessID, startedAt: p.state.StartedAt, finishedAt: *p.state.FinishedAt,
-		output: p.state.Output, termination: *p.state.Termination, usage: p.state.usage(),
-	}, true
-}
+func (p ProcessSnapshot) Result() (Result, bool) { return p.state.result() }
 
 // WaitID returns the current unanswered Engine-minted wait identity, including
 // while the captured Process is Paused.
@@ -612,6 +604,18 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 	return nil
 }
 
+// result requires a validated capture, whose terminal status guarantees its
+// finish time and termination.
+func (p processSnapshotWire) result() (Result, bool) {
+	if !p.Status.Terminal() {
+		return Result{}, false
+	}
+	return Result{
+		processID: p.ProcessID, startedAt: p.StartedAt, finishedAt: *p.FinishedAt,
+		output: p.Output, termination: *p.Termination, usage: p.usage(),
+	}, true
+}
+
 func (p processSnapshotWire) usage() Usage {
-	return Usage{CommittedSteps: p.CommittedSteps, AcceptedSignals: uint64(len(p.Mailbox.Signals)), PreparedEffects: p.Counters.PreparedEffects, DroppedDeltas: p.Counters.DroppedDeltas}
+	return p.Counters.usage(p.CommittedSteps, uint64(len(p.Mailbox.Signals)))
 }

@@ -427,14 +427,14 @@ func (t *treeSnapshotValidation) validateChildWaitSatisfaction(record signalReco
 
 func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, boundary ChildWaitBoundary) bool {
 	child, exists := t.processes[outcome.result.ProcessID()]
-	if !exists || !child.Status.Terminal() || child.Relation.ChildKey == nil || *child.Relation.ChildKey != outcome.key {
+	if !exists || child.Relation.ChildKey == nil || *child.Relation.ChildKey != outcome.key {
 		return false
 	}
-	expected := resultWire{
-		ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt,
-		Output: child.Output, Termination: *child.Termination, Usage: child.usage(),
+	result, terminal := child.result()
+	if !terminal {
+		return false
 	}
-	expectedJSON, expectedErr := jsonv2.Marshal(expected, jsonv2.Deterministic(true))
+	expectedJSON, expectedErr := jsonv2.Marshal(result.wire(), jsonv2.Deterministic(true))
 	actualJSON, actualErr := jsonv2.Marshal(outcome.result.wire(), jsonv2.Deterministic(true))
 	if expectedErr != nil || actualErr != nil || !bytes.Equal(expectedJSON, actualJSON) {
 		return false

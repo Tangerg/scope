@@ -243,6 +243,15 @@ type processCounters struct {
 	DroppedDeltas   uint64 `json:"dropped_deltas"`
 }
 
+// usage combines the stored counters with the two counts whose lifecycle
+// records own them: committed Steps and admitted mailbox entries.
+func (p processCounters) usage(committedSteps, acceptedSignals uint64) Usage {
+	return Usage{
+		CommittedSteps: committedSteps, AcceptedSignals: acceptedSignals,
+		PreparedEffects: p.PreparedEffects, DroppedDeltas: p.DroppedDeltas,
+	}
+}
+
 func (p *processCounters) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return errors.New("agent: nil process counters receiver")
