@@ -38,7 +38,7 @@ func TestVisitorConformanceAgreesWithCanonicalParser(t *testing.T) {
 	storetest.VisitorConformance(t, func(source string) error {
 		_, err := filter.Parse(source)
 		return err
-	})
+	}, storetest.Options{})
 }
 
 type validatingCapabilities struct{ allCapabilities }

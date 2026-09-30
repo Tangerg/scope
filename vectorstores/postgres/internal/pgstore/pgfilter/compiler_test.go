@@ -22,7 +22,7 @@ func TestCompiler_Conformance(t *testing.T) {
 		}
 		compiler := pgfilter.NewCompiler("metadata")
 		return expr.Accept(compiler)
-	})
+	}, storetest.Options{})
 }
 
 // build is the test driver — parse src, visit, return (sql, args, err).

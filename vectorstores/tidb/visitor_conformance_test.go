@@ -19,5 +19,5 @@ func TestVisitor_Conformance(t *testing.T) {
 			return err
 		}
 		return expr.Accept(newVisitor("metadata"))
-	})
+	}, storetest.Options{})
 }

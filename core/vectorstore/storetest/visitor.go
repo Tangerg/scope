@@ -30,13 +30,8 @@ type Options struct {
 	NumericDomainIsFloat64 bool
 }
 
-func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
+func VisitorConformance(t *testing.T, build BuildFn, options Options) {
 	t.Helper()
-
-	var opt Options
-	if len(options) > 0 {
-		opt = options[0]
-	}
 
 	success := []struct {
 		name string
@@ -68,7 +63,7 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	}
 	for _, tc := range success {
 		t.Run("Success_"+tc.name, func(t *testing.T) {
-			unsupported := slices.Contains(opt.Unsupported, tc.name)
+			unsupported := slices.Contains(options.Unsupported, tc.name)
 			err := build(tc.src)
 			if unsupported {
 				if err == nil {
@@ -108,7 +103,7 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 	for _, tc := range unnameable {
 		t.Run("UnnameableKey_"+tc.name, func(t *testing.T) {
 			err := build(tc.src)
-			if opt.InterpolatesKeyPaths {
+			if options.InterpolatesKeyPaths {
 				if err == nil {
 					t.Fatalf("expected %q to be refused: this compiler writes keys into query text", tc.src)
 				}
@@ -120,8 +115,8 @@ func VisitorConformance(t *testing.T, build BuildFn, options ...Options) {
 		})
 	}
 
-	if opt.CompileText != nil {
-		runNumeralCases(t, opt.CompileText, opt.NumericDomainIsFloat64)
+	if options.CompileText != nil {
+		runNumeralCases(t, options.CompileText, options.NumericDomainIsFloat64)
 	}
 }
 

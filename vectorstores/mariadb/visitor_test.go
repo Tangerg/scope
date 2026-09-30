@@ -17,7 +17,7 @@ func TestVisitor_Conformance(t *testing.T) {
 		}
 		v := newVisitor("metadata")
 		return expr.Accept(v)
-	})
+	}, storetest.Options{})
 }
 
 // build is the test driver — parse src, visit, return (sql, args, err).
