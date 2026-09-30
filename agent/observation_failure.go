@@ -51,6 +51,20 @@ func (o ObservationFailures) LastDeltaPanic() (ListenerPanic, bool) {
 	return *o.lastDeltaPanic, true
 }
 
+func (o *ObservationFailures) recordDroppedEvent() {
+	o.droppedEvents = saturatingCountAdd(o.droppedEvents, 1)
+}
+
+func (o *ObservationFailures) recordEventPanic(failure *ListenerPanic) {
+	o.eventListenerPanics = saturatingCountAdd(o.eventListenerPanics, 1)
+	o.lastEventPanic = failure
+}
+
+func (o *ObservationFailures) recordDeltaPanic(failure *ListenerPanic) {
+	o.deltaListenerPanics = saturatingCountAdd(o.deltaListenerPanics, 1)
+	o.lastDeltaPanic = failure
+}
+
 func captureListenerPanic(index int, listener any, processID ProcessID, value any) *ListenerPanic {
 	message, stack := panicinfo.Capture(value)
 	return &ListenerPanic{

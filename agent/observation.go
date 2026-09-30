@@ -89,18 +89,19 @@ func newObservationBus(events []EventListener, deltas []DeltaListener, capacity 
 }
 
 func (o *observationBus) recordDroppedEvent() {
+	o.recordFailure((*ObservationFailures).recordDroppedEvent)
+}
+
+func (o *observationBus) recordFailure(record func(*ObservationFailures)) {
 	o.failureMu.Lock()
 	defer o.failureMu.Unlock()
-	o.failures.droppedEvents = saturatingCountAdd(o.failures.droppedEvents, 1)
+	record(&o.failures)
 }
 
 func (o *observationBus) publishEvent(ctx context.Context, event Event) {
 	for index, listener := range o.events {
 		if failure := o.callEventListener(ctx, index, listener, event); failure != nil {
-			o.failureMu.Lock()
-			o.failures.eventListenerPanics = saturatingCountAdd(o.failures.eventListenerPanics, 1)
-			o.failures.lastEventPanic = failure
-			o.failureMu.Unlock()
+			o.recordFailure(func(failures *ObservationFailures) { failures.recordEventPanic(failure) })
 		}
 	}
 }
@@ -152,10 +153,7 @@ func (o *observationBus) deliverDeltas() {
 		}
 		for index, listener := range o.deltas {
 			if failure := o.callDeltaListener(observation.ctx, index, listener, observation.delta); failure != nil {
-				o.failureMu.Lock()
-				o.failures.deltaListenerPanics = saturatingCountAdd(o.failures.deltaListenerPanics, 1)
-				o.failures.lastDeltaPanic = failure
-				o.failureMu.Unlock()
+				o.recordFailure(func(failures *ObservationFailures) { failures.recordDeltaPanic(failure) })
 			}
 		}
 	}
