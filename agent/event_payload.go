@@ -120,29 +120,28 @@ type deltaDroppedEventPayload struct {
 // ProcessFinishedFact is the immutable terminal fact carried by a finished
 // Process Event. Usage is the authoritative Framework-owned terminal usage.
 type ProcessFinishedFact struct {
-	status      Status
 	cause       TerminationCause
 	failureKind FailureKind
 	failureCode string
 	usage       Usage
 }
 
-func (p ProcessFinishedFact) Status() Status { return p.status }
+func (p ProcessFinishedFact) Status() Status { return p.cause.status() }
 
 func (p ProcessFinishedFact) Cause() TerminationCause { return p.cause }
 
 // FailureClassification contains stable kind and code without diagnostic text.
 func (p ProcessFinishedFact) FailureClassification() (FailureKind, string, bool) {
-	return p.failureKind, p.failureCode, p.status == StatusFailed
+	return p.failureKind, p.failureCode, p.Status() == StatusFailed
 }
 
 func (p ProcessFinishedFact) Usage() Usage { return p.usage }
 
 func (p ProcessFinishedFact) Valid() bool {
-	if !p.status.Terminal() || p.cause.status() != p.status {
+	if !p.Status().Terminal() {
 		return false
 	}
-	if p.status != StatusFailed {
+	if p.Status() != StatusFailed {
 		return p.failureKind == FailureKindInvalid && p.failureCode == ""
 	}
 	return p.failureKind.Valid() && validFailureCode(p.failureCode) &&
@@ -284,11 +283,11 @@ func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, er
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event payload")
 	}
 	fact := ProcessFinishedFact{
-		status: wire.ProcessStatus, cause: wire.TerminationCause,
+		cause:       wire.TerminationCause,
 		failureKind: wire.FailureKind, failureCode: wire.FailureCode,
 		usage: *wire.Usage,
 	}
-	if !fact.Valid() {
+	if !fact.Valid() || wire.ProcessStatus != fact.Status() {
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event fact")
 	}
 	return fact, nil

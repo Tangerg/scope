@@ -120,3 +120,16 @@ func TestStatusRejectsUnoccupiedLifecycleState(t *testing.T) {
 		t.Fatal("invalid status changed a valid receiver or entered the lifecycle")
 	}
 }
+
+func TestProcessFinishedFactRejectsAStatusItsCauseDoesNotDetermine(t *testing.T) {
+	usage := Usage{CommittedSteps: 1}
+	for status, wantValid := range map[Status]bool{StatusCompleted: true, StatusFailed: false} {
+		payload := marshalEventPayload(processFinishedEventPayload{
+			ProcessStatus: status, TerminationCause: TerminationCauseCompletion, Usage: &usage,
+		})
+		fact, err := decodeProcessFinishedFact(payload)
+		if (err == nil) != wantValid || wantValid && fact.Status() != StatusCompleted {
+			t.Fatalf("status %s with completion cause: fact=%+v err=%v", status, fact, err)
+		}
+	}
+}

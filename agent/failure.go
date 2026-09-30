@@ -157,7 +157,7 @@ type failureWire struct {
 func (Failure) JSONSchemaAlias() any { return failureWire{} }
 
 func (f Failure) termination() Termination {
-	return Termination{status: StatusFailed, cause: f.kind.terminationCause(), reason: f.message, failure: f}
+	return Termination{cause: f.kind.terminationCause(), reason: f.message, failure: f}
 }
 
 const (

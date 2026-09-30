@@ -96,7 +96,7 @@ func (d deadlineIntent) termination() Termination {
 	default:
 		panic("agent: invalid deadline owner")
 	}
-	return Termination{status: StatusTimedOut, cause: cause, reason: d.reason}
+	return Termination{cause: cause, reason: d.reason}
 }
 
 type cancellationIntent struct {
@@ -123,7 +123,7 @@ func (c cancellationIntent) termination() Termination {
 	if c.owner == cancellationOwnerHost {
 		cause = TerminationCauseHostCancellation
 	}
-	return Termination{status: StatusCanceled, cause: cause, reason: c.reason}
+	return Termination{cause: cause, reason: c.reason}
 }
 
 // stepOutcomeKind describes the valid terminal result of a Step. A zero outcome
@@ -173,7 +173,7 @@ func (t terminationFacts) resolve() (Termination, error) {
 		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)
 	}
 	if t.kill.valid() {
-		return Termination{status: StatusKilled, cause: TerminationCauseEngineKill, reason: t.kill.reason}, nil
+		return Termination{cause: TerminationCauseEngineKill, reason: t.kill.reason}, nil
 	}
 	if t.deadline.valid() {
 		return t.deadline.termination(), nil
@@ -183,7 +183,7 @@ func (t terminationFacts) resolve() (Termination, error) {
 	}
 	switch t.outcome.kind {
 	case stepOutcomeCompleted:
-		return Termination{status: StatusCompleted, cause: TerminationCauseCompletion}, nil
+		return Termination{cause: TerminationCauseCompletion}, nil
 	case stepOutcomeFailed:
 		return t.outcome.failure.termination(), nil
 	default:
@@ -250,8 +250,8 @@ func (t TerminationCause) status() Status {
 // Termination is the immutable result of applying the terminal priority matrix.
 // Only the Engine creates terminal facts from validated control intents and
 // Step outcomes; callers obtain this observation from Result or decode it.
+// Its cause determines its status, so the status is never stored separately.
 type Termination struct {
-	status              Status
 	cause               TerminationCause
 	reason              string
 	failure             Failure
@@ -265,7 +265,7 @@ func validateTerminationReason(reason string) error {
 	return nil
 }
 
-func (t Termination) Status() Status { return t.status }
+func (t Termination) Status() Status { return t.cause.status() }
 
 func (t Termination) Cause() TerminationCause { return t.cause }
 
@@ -274,7 +274,7 @@ func (t Termination) Reason() string { return t.reason }
 
 // Failure returns the classified failure for StatusFailed.
 func (t Termination) Failure() (Failure, bool) {
-	return t.failure, t.status == StatusFailed
+	return t.failure, t.Status() == StatusFailed
 }
 
 // UnresolvedEffectIDs returns the canonical identities of external operations
@@ -297,16 +297,17 @@ func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 }
 
 func (t Termination) Valid() bool {
-	if !t.status.Terminal() || t.cause.status() != t.status || !t.canonicalUnresolvedEffectIDs() {
+	status := t.Status()
+	if !status.Terminal() || !t.canonicalUnresolvedEffectIDs() {
 		return false
 	}
-	if t.status == StatusCompleted {
+	if status == StatusCompleted {
 		return t.reason == "" && !t.failure.Valid() && len(t.unresolvedEffectIDs) == 0
 	}
 	if validateTerminationReason(t.reason) != nil {
 		return false
 	}
-	if t.status == StatusFailed {
+	if status == StatusFailed {
 		return t.failure.Valid() && t.reason == t.failure.Message() &&
 			t.cause == t.failure.Kind().terminationCause()
 	}
@@ -328,7 +329,7 @@ func (t Termination) MarshalJSON() ([]byte, error) {
 		return nil, errInvalidTermination
 	}
 	wire := terminationWire{
-		Status:              t.status,
+		Status:              t.Status(),
 		Cause:               t.cause,
 		Reason:              t.reason,
 		UnresolvedEffectIDs: t.UnresolvedEffectIDs(),
@@ -348,13 +349,13 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", errInvalidTermination, err)
 	}
 	value := Termination{
-		status: wire.Status, cause: wire.Cause, reason: wire.Reason,
+		cause: wire.Cause, reason: wire.Reason,
 		unresolvedEffectIDs: slices.Clone(wire.UnresolvedEffectIDs),
 	}
 	if wire.Failure != nil {
 		value.failure = *wire.Failure
 	}
-	if !value.Valid() {
+	if !value.Valid() || wire.Status != value.Status() {
 		return errInvalidTermination
 	}
 	*t = value
