@@ -70,21 +70,17 @@ func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetr
 	return nil
 }
 
-func (m *MetricExporter) ForceFlush(ctx context.Context) error {
-	if m.shutdown.Load() {
-		return sdkmetric.ErrExporterShutdown
-	}
-	return ctx.Err()
-}
+func (m *MetricExporter) ForceFlush(ctx context.Context) error { return ctx.Err() }
 
+// Shutdown returns [sdkmetric.ErrExporterShutdown] when the exporter is
+// already shut down, as the sdkmetric.Exporter contract requires.
 func (m *MetricExporter) Shutdown(ctx context.Context) error {
-	if m.shutdown.Load() {
-		return nil
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	m.shutdown.Store(true)
+	if !m.shutdown.CompareAndSwap(false, true) {
+		return sdkmetric.ErrExporterShutdown
+	}
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/Tangerg/scope/otel/slog"
 )
@@ -181,7 +182,8 @@ func TestExporter_Shutdown_ReturnsNil(t *testing.T) {
 }
 
 func TestSpanExporterLifecycle(t *testing.T) {
-	exporter := slog.NewSpanExporter(stdslog.New(&captureHandler{}))
+	capture := &captureHandler{}
+	exporter := slog.NewSpanExporter(stdslog.New(capture))
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -194,7 +196,16 @@ func TestSpanExporterLifecycle(t *testing.T) {
 	if err := exporter.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := exporter.ExportSpans(canceled, nil); err != nil {
-		t.Fatalf("ExportSpans after shutdown = %v, want nil", err)
+	spans := []sdktrace.ReadOnlySpan{tracetest.SpanStub{Name: "must not be exported"}.Snapshot()}
+	for _, ctx := range []context.Context{t.Context(), canceled} {
+		if err := exporter.ExportSpans(ctx, spans); err != nil {
+			t.Fatalf("ExportSpans after shutdown = %v, want nil", err)
+		}
+		if err := exporter.Shutdown(ctx); err != nil {
+			t.Fatalf("Shutdown after shutdown = %v, want nil", err)
+		}
+	}
+	if records := capture.Records(); len(records) != 0 {
+		t.Fatalf("ExportSpans after shutdown wrote %d records", len(records))
 	}
 }

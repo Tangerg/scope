@@ -76,4 +76,12 @@ func TestLogExporterLifecycle(t *testing.T) {
 	if output.Len() != 0 {
 		t.Fatalf("Export after shutdown wrote %q", output.String())
 	}
+	for _, ctx := range []context.Context{t.Context(), canceled} {
+		if err := exporter.ForceFlush(ctx); err != nil {
+			t.Fatalf("ForceFlush after shutdown = %v, want nil", err)
+		}
+		if err := exporter.Shutdown(ctx); err != nil {
+			t.Fatalf("Shutdown after shutdown = %v, want nil", err)
+		}
+	}
 }

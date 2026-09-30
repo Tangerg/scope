@@ -78,4 +78,13 @@ func TestMetricExporterLifecycle(t *testing.T) {
 	if err := exporter.Export(t.Context(), &metricdata.ResourceMetrics{}); !errors.Is(err, sdkmetric.ErrExporterShutdown) {
 		t.Fatalf("Export after shutdown = %v, want ErrExporterShutdown", err)
 	}
+	if err := exporter.ForceFlush(t.Context()); err != nil {
+		t.Fatalf("ForceFlush after shutdown = %v, want nil", err)
+	}
+	if err := exporter.ForceFlush(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ForceFlush canceled after shutdown = %v, want context.Canceled", err)
+	}
+	if err := exporter.Shutdown(t.Context()); !errors.Is(err, sdkmetric.ErrExporterShutdown) {
+		t.Fatalf("Shutdown after shutdown = %v, want ErrExporterShutdown", err)
+	}
 }
