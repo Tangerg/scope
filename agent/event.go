@@ -76,6 +76,7 @@ type Event struct {
 }
 
 // eventFact is validated before staging; publication alone assigns its sequence.
+// Its phase is not stored: frameworkEventContracts fixes it for each name.
 type eventFact struct {
 	processID     ProcessID
 	deploymentRef DeploymentRef
@@ -84,79 +85,55 @@ type eventFact struct {
 	stepSequence  uint64
 	effectID      EffectID
 	name          string
-	phase         EventPhase
 	occurredAt    time.Time
 	payload       json.RawMessage
 }
 
-type eventSpec struct {
-	processSequence uint64
-	processID       ProcessID
-	deploymentRef   DeploymentRef
-	relation        ProcessRelation
-	incarnationID   TreeIncarnationID
-	stepSequence    uint64
-	effectID        EffectID
-	name            string
-	phase           EventPhase
-	occurredAt      time.Time
-	payload         json.RawMessage
-}
-
-func newEvent(spec eventSpec) (Event, error) {
-	if spec.processSequence == 0 {
+func newEvent(fact eventFact, processSequence uint64) (Event, error) {
+	if processSequence == 0 {
 		return Event{}, fmt.Errorf("%w: Process sequence must be greater than zero", ErrInvalidEvent)
 	}
-	fact, err := newEventFact(spec)
+	validated, err := newEventFact(fact)
 	if err != nil {
 		return Event{}, err
 	}
-	return fact.publish(spec.processSequence), nil
+	return validated.publish(processSequence), nil
 }
 
-func newEventFact(spec eventSpec) (eventFact, error) {
-	if !spec.processID.Valid() {
+// newEventFact validates fact against its Framework contract and returns it
+// with a normalized payload and UTC occurrence time.
+func newEventFact(fact eventFact) (eventFact, error) {
+	if !fact.processID.Valid() {
 		return eventFact{}, fmt.Errorf("%w: process ID: %w", ErrInvalidEvent, ErrInvalidIdentity)
 	}
-	if !spec.deploymentRef.Valid() {
+	if !fact.deploymentRef.Valid() {
 		return eventFact{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
 	}
-	if !spec.relation.Valid() || spec.relation.ProcessID() != spec.processID {
+	if !fact.relation.Valid() || fact.relation.ProcessID() != fact.processID {
 		return eventFact{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
 	}
-	if spec.incarnationID != (TreeIncarnationID{}) && !spec.incarnationID.Valid() {
+	if fact.incarnationID != (TreeIncarnationID{}) && !fact.incarnationID.Valid() {
 		return eventFact{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
 	}
-	if !ValidQualifiedName(spec.name) {
+	if !ValidQualifiedName(fact.name) {
 		return eventFact{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
 	}
-	if !spec.phase.Valid() {
-		return eventFact{}, fmt.Errorf("%w: phase is required", ErrInvalidEvent)
-	}
-	if spec.occurredAt.IsZero() {
+	if fact.occurredAt.IsZero() {
 		return eventFact{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
 	}
-	normalized, err := normalizeJSON(spec.payload, maxEventBytes)
+	normalized, err := normalizeJSON(fact.payload, maxEventBytes)
 	if err != nil {
 		return eventFact{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
-	event := eventFact{
-		processID:     spec.processID,
-		deploymentRef: spec.deploymentRef,
-		relation:      spec.relation,
-		incarnationID: spec.incarnationID,
-		stepSequence:  spec.stepSequence,
-		effectID:      spec.effectID,
-		name:          spec.name,
-		phase:         spec.phase,
-		occurredAt:    spec.occurredAt.Round(0).UTC(),
-		payload:       normalized,
-	}
-	if err := event.validateContract(); err != nil {
+	fact.occurredAt = fact.occurredAt.Round(0).UTC()
+	fact.payload = normalized
+	if err := fact.validateContract(); err != nil {
 		return eventFact{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 	}
-	return event, nil
+	return fact, nil
 }
+
+func (e eventFact) phase() EventPhase { return frameworkEventContracts[e.name].phase }
 
 func (e eventFact) publish(sequence uint64) Event {
 	if sequence == 0 || e.name == "" {
@@ -192,7 +169,7 @@ func (e Event) EffectID() (EffectID, bool) { return e.effectID, e.effectID.Valid
 
 func (e Event) Name() string { return e.name }
 
-func (e Event) Phase() EventPhase { return e.phase }
+func (e Event) Phase() EventPhase { return e.phase() }
 
 func (e Event) OccurredAt() time.Time { return e.occurredAt }
 
@@ -286,7 +263,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Relation:        e.relation.wire(),
 		StepSequence:    e.stepSequence,
 		Name:            e.name,
-		Phase:           e.phase,
+		Phase:           e.phase(),
 		OccurredAt:      e.occurredAt,
 		Payload:         e.payload,
 	}
@@ -315,21 +292,22 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidEvent, err)
 	}
-	value, err := newEvent(eventSpec{
-		processSequence: wire.ProcessSequence,
-		processID:       wire.ProcessID,
-		deploymentRef:   wire.DeploymentRef,
-		relation:        relation,
-		incarnationID:   lo.FromPtr(wire.IncarnationID),
-		stepSequence:    wire.StepSequence,
-		effectID:        effectID,
-		name:            wire.Name,
-		phase:           wire.Phase,
-		occurredAt:      wire.OccurredAt,
-		payload:         wire.Payload,
-	})
+	value, err := newEvent(eventFact{
+		processID:     wire.ProcessID,
+		deploymentRef: wire.DeploymentRef,
+		relation:      relation,
+		incarnationID: lo.FromPtr(wire.IncarnationID),
+		stepSequence:  wire.StepSequence,
+		effectID:      effectID,
+		name:          wire.Name,
+		occurredAt:    wire.OccurredAt,
+		payload:       wire.Payload,
+	}, wire.ProcessSequence)
 	if err != nil {
 		return err
+	}
+	if wire.Phase != value.Phase() {
+		return fmt.Errorf("%w: phase does not match its Framework fact", ErrInvalidEvent)
 	}
 	*e = value
 	return nil
@@ -378,16 +356,13 @@ func (e eventFact) validateContract() error {
 	if !known {
 		return errors.New("unknown Framework event name")
 	}
-	if err := e.validateIdentity(contract.phase, contract.scope); err != nil {
+	if err := e.validateIdentity(contract.scope); err != nil {
 		return err
 	}
 	return contract.validatePayload(e.payload)
 }
 
-func (e eventFact) validateIdentity(wantPhase EventPhase, scope eventIdentityScope) error {
-	if e.phase != wantPhase {
-		return errors.New("event phase does not match its Framework fact")
-	}
+func (e eventFact) validateIdentity(scope eventIdentityScope) error {
 	switch scope {
 	case eventIdentityProcess:
 		if e.stepSequence != 0 || e.effectID.Valid() {

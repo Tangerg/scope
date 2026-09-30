@@ -207,9 +207,9 @@ func (t *treeRuntime) publishInitialProcessEvents() {
 			continue
 		}
 		if process.restored {
-			t.events.emit(process, EventProcessRestored, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.events.emit(process, EventProcessRestored, 0, EffectID{}, emptyEventPayload())
 		} else {
-			t.events.emit(process, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.events.emit(process, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
 		}
 	}
 }
@@ -813,7 +813,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 			return errors.New("started child is missing from prospective tree")
 		}
 		t.engine.publishProcessStart(child.handle)
-		t.events.emit(child, EventProcessStarted, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+		t.events.emit(child, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
 	}
 	parent := t.members.get(pending.parentID)
 	if pending.event.processID.Valid() {
@@ -887,14 +887,14 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		return
 	}
 	event := t.events.prepare(process,
-		EventProcessFinished, EventPhaseCommitted, 0, EffectID{}, process.terminalEventPayload(),
+		EventProcessFinished, 0, EffectID{}, process.terminalEventPayload(),
 	)
 	t.propagateProcessTermination(process)
 	t.publications.stageTerminal(event)
 }
 
 func (t *treeRuntime) stageCommittedEvent(event eventFact) {
-	if event.phase != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
+	if event.phase() != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
 		t.members.get(event.processID) == nil {
 		panic("agent: invalid committed Event")
 	}
@@ -1009,7 +1009,7 @@ func (t *treeRuntime) stopProcessRuntime(process *processState, cause error, unr
 	payload := marshalEventPayload(runtimeStoppedEventPayload{
 		FailureKind: failure.Kind(), FailureCode: failure.Code(),
 	})
-	t.events.emit(process, EventRuntimeStopped, EventPhaseAttempt, 0, EffectID{}, payload)
+	t.events.emit(process, EventRuntimeStopped, 0, EffectID{}, payload)
 	t.finishProcessBookkeeping(process)
 }
 
@@ -1065,7 +1065,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, request process
 	case resumeRequest:
 		err := process.resume()
 		if err == nil {
-			t.stageEvent(process, EventProcessResumed, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+			t.stageEvent(process, EventProcessResumed, 0, EffectID{}, emptyEventPayload())
 		}
 		reply.send(processResponse{err: err})
 	case cancelRequest:
@@ -1124,7 +1124,7 @@ func (t *treeRuntime) commitResolution(process *processState, settlement Settlem
 	payload := marshalEventPayload(effectResolvedEventPayload{
 		EffectTarget: record.Effect.Target(), SettlementStatus: settlement.Status(),
 	})
-	t.stageEvent(process, EventEffectResolved, EventPhaseCommitted,
+	t.stageEvent(process, EventEffectResolved,
 		process.prepared.StepSequence, record.ID, payload)
 
 	if err := t.startUnknownResolutionCommit(process, index, settlement, reply); err != nil {
@@ -1284,7 +1284,7 @@ func (t *treeRuntime) applyPendingControl(process *processState) bool {
 		return false
 	}
 
-	t.stageEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	t.stageEvent(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
 	return true
 }
 
@@ -1329,12 +1329,11 @@ func (t *treeRuntime) deliverSignals(process *processState, requests []SignalReq
 func (t *treeRuntime) stageEvent(
 	process *processState,
 	name string,
-	phase EventPhase,
 	step uint64,
 	effectID EffectID,
 	payload json.RawMessage,
 ) {
-	event := t.events.prepare(process, name, phase, step, effectID, payload)
+	event := t.events.prepare(process, name, step, effectID, payload)
 	t.stageCommittedEvent(event)
 }
 
@@ -1419,7 +1418,7 @@ func (t *treeRuntime) startStep(process *processState) {
 		return
 	}
 	sequence := process.committedSteps + 1
-	t.events.emit(process, EventStepStarted, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
+	t.events.emit(process, EventStepStarted, sequence, EffectID{}, emptyEventPayload())
 	execution := process.execution
 	process.execution = nil
 	signals := process.mailbox.pending()
@@ -1876,7 +1875,7 @@ func (t *treeRuntime) applyStepCompletion(
 	}
 	process.adoptCandidate(candidate)
 
-	t.events.emit(process, EventStepPrepared, EventPhaseAttempt, sequence, EffectID{}, emptyEventPayload())
+	t.events.emit(process, EventStepPrepared, sequence, EffectID{}, emptyEventPayload())
 }
 
 // A Strategy's StepError keeps its own classification only when Step itself
@@ -2214,9 +2213,9 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 		t.childWaits.remove(processID, waitID)
 	}
 	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status})
-	t.stageEvent(process, EventStepCommitted, EventPhaseCommitted, process.committedSteps, EffectID{}, payload)
+	t.stageEvent(process, EventStepCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status == StatusPaused {
-		t.stageEvent(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+		t.stageEvent(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
 	}
 	return nil
 }

@@ -16,18 +16,16 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 	effectID, _ := ParseEffectID("process:1:step:2:effect:0")
 	deployment := newChildTestDeployment(t)
 	relation := rootProcessRelation(processID)
-	event, err := newEvent(eventSpec{
-		processSequence: 7,
-		processID:       processID,
-		deploymentRef:   deployment.DeploymentRef(),
-		relation:        relation,
-		stepSequence:    2,
-		effectID:        effectID,
-		name:            EventEffectStarted,
-		phase:           EventPhaseAttempt,
-		occurredAt:      time.Unix(20, 0),
-		payload:         marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
-	})
+	event, err := newEvent(eventFact{
+		processID:     processID,
+		deploymentRef: deployment.DeploymentRef(),
+		relation:      relation,
+		stepSequence:  2,
+		effectID:      effectID,
+		name:          EventEffectStarted,
+		occurredAt:    time.Unix(20, 0),
+		payload:       marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
+	}, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,61 +52,75 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 	processID, _ := ParseProcessID("process:event-contract")
 	effectID, _ := ParseEffectID("process:event-contract:step:1:effect:0")
 	deployment := newChildTestDeployment(t)
-	base := eventSpec{
-		processSequence: 1,
-		processID:       processID,
-		deploymentRef:   deployment.DeploymentRef(),
-		relation:        rootProcessRelation(processID),
-		occurredAt:      time.Unix(20, 0),
-	}
 	tests := []struct {
 		name string
-		spec eventSpec
+		fact eventFact
 	}{
 		{
 			name: "unknown name",
-			spec: eventSpec{name: "agent.unknown.fact", phase: EventPhaseCommitted, payload: emptyEventPayload()},
-		},
-		{
-			name: "wrong phase",
-			spec: eventSpec{name: EventProcessStarted, phase: EventPhaseAttempt, payload: emptyEventPayload()},
+			fact: eventFact{name: "agent.unknown.fact", payload: emptyEventPayload()},
 		},
 		{
 			name: "missing Effect identity",
-			spec: eventSpec{
-				name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1,
+			fact: eventFact{
+				name: EventEffectStarted, stepSequence: 1,
 				payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
 			},
 		},
 		{
-			name: "runtime stop is not a committed Process outcome",
-			spec: eventSpec{name: EventRuntimeStopped, phase: EventPhaseCommitted,
-				payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.committer_failed"}`)},
-		},
-		{
 			name: "runtime stop requires a classification",
-			spec: eventSpec{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: emptyEventPayload()},
+			fact: eventFact{name: EventRuntimeStopped, payload: emptyEventPayload()},
 		},
 		{
 			name: "invalid payload",
-			spec: eventSpec{
-				name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1,
+			fact: eventFact{
+				name: EventEffectStarted, stepSequence: 1,
 				effectID: effectID, payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetInvalid, AttemptID: newEffectAttemptID()}),
 			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			spec := test.spec
-			spec.processSequence = base.processSequence
-			spec.processID = base.processID
-			spec.deploymentRef = base.deploymentRef
-			spec.relation = base.relation
-			spec.occurredAt = base.occurredAt
-			if _, err := newEvent(spec); !errors.Is(err, ErrInvalidEvent) {
+			fact := test.fact
+			fact.processID = processID
+			fact.deploymentRef = deployment.DeploymentRef()
+			fact.relation = rootProcessRelation(processID)
+			fact.occurredAt = time.Unix(20, 0)
+			if _, err := newEvent(fact, 1); !errors.Is(err, ErrInvalidEvent) {
 				t.Fatalf("newEvent() error = %v, want ErrInvalidEvent", err)
 			}
 		})
+	}
+}
+
+// A decoded phase is a projection of the event name's contract; a wire value
+// that disagrees with it is rejected rather than trusted.
+func TestEventDecodingRejectsAPhaseItsNameDoesNotFix(t *testing.T) {
+	processID, _ := ParseProcessID("process:event-phase")
+	deployment := newChildTestDeployment(t)
+	for _, fact := range []eventFact{
+		{name: EventProcessStarted, payload: emptyEventPayload()},
+		{name: EventRuntimeStopped, payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.committer_failed"}`)},
+	} {
+		fact.processID, fact.deploymentRef = processID, deployment.DeploymentRef()
+		fact.relation, fact.occurredAt = rootProcessRelation(processID), time.Unix(20, 0)
+		event, err := newEvent(fact, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := controlValue(jsonv2.Marshal(event))
+		wrong := EventPhaseAttempt
+		if event.Phase() == EventPhaseAttempt {
+			wrong = EventPhaseCommitted
+		}
+		tampered := bytes.Replace(data, []byte(`"phase":"`+event.Phase().String()+`"`), []byte(`"phase":"`+wrong.String()+`"`), 1)
+		if bytes.Equal(tampered, data) {
+			t.Fatal("fixture did not encode its phase")
+		}
+		var decoded Event
+		if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidEvent) {
+			t.Fatalf("%s decoded with phase %s: %v", fact.name, wrong, err)
+		}
 	}
 }
 
@@ -134,41 +146,40 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 	usage := Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedSignals: 1}
 	payloads := []struct {
 		name         string
-		phase        EventPhase
 		stepSequence uint64
 		effectID     EffectID
 		payload      any
 	}{
-		{name: EventProcessStarted, phase: EventPhaseCommitted, payload: struct{}{}},
-		{name: EventProcessFinished, phase: EventPhaseCommitted, payload: processFinishedEventPayload{
+		{name: EventProcessStarted, payload: struct{}{}},
+		{name: EventProcessFinished, payload: processFinishedEventPayload{
 			ProcessStatus: StatusCompleted, TerminationCause: TerminationCauseCompletion, Usage: &usage,
 		}},
-		{name: EventSignalAccepted, phase: EventPhaseCommitted, payload: signalAcceptedEventPayload{
+		{name: EventSignalAccepted, payload: signalAcceptedEventPayload{
 			SignalID: "signal:event-fuzz",
 		}},
-		{name: EventRuntimeStopped, phase: EventPhaseAttempt, payload: runtimeStoppedEventPayload{
+		{name: EventRuntimeStopped, payload: runtimeStoppedEventPayload{
 			FailureKind: FailureKindExternal, FailureCode: failureCodeEngineTreeCommitterFailed,
 		}},
-		{name: EventStepFinished, phase: EventPhaseAttempt, stepSequence: 1, payload: stepFinishedEventPayload{
+		{name: EventStepFinished, stepSequence: 1, payload: stepFinishedEventPayload{
 			StepStatus: StepStatusSucceeded, WorkDurationNS: &durationMS, AdoptionDelayNS: new(int64),
 		}},
-		{name: EventStepCommitted, phase: EventPhaseCommitted, stepSequence: 1, payload: stepCommittedEventPayload{
+		{name: EventStepCommitted, stepSequence: 1, payload: stepCommittedEventPayload{
 			ProcessStatus: StatusRunning,
 		}},
-		{name: EventEffectStarted, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectStartedEventPayload{AttemptID: newEffectAttemptID(),
+		{name: EventEffectStarted, stepSequence: 1, effectID: effectID, payload: effectStartedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher,
 		}},
-		{name: EventEffectResolved, phase: EventPhaseCommitted, stepSequence: 1, effectID: effectID, payload: effectResolvedEventPayload{
+		{name: EventEffectResolved, stepSequence: 1, effectID: effectID, payload: effectResolvedEventPayload{
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded,
 		}},
-		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
+		{name: EventEffectFinished, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusSucceeded, DurationMS: &durationMS,
 		}},
-		{name: EventEffectFinished, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
+		{name: EventEffectFinished, stepSequence: 1, effectID: effectID, payload: effectFinishedEventPayload{AttemptID: newEffectAttemptID(),
 			EffectTarget: EffectTargetDispatcher, SettlementStatus: SettlementStatusUnknown, DurationMS: &durationMS,
 			FailureKind: FailureKindExternal, FailureCode: "engine.dispatch.failed",
 		}},
-		{name: EventDeltaDropped, phase: EventPhaseAttempt, stepSequence: 1, effectID: effectID, payload: deltaDroppedEventPayload{AttemptID: newEffectAttemptID(),
+		{name: EventDeltaDropped, stepSequence: 1, effectID: effectID, payload: deltaDroppedEventPayload{AttemptID: newEffectAttemptID(),
 			DroppedDeltaCount: 1,
 		}},
 	}
@@ -177,12 +188,11 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		if marshalErr != nil {
 			f.Fatal(marshalErr)
 		}
-		event, eventErr := newEvent(eventSpec{
-			processSequence: uint64(index + 1), processID: processID,
-			deploymentRef: reference, relation: rootProcessRelation(processID),
+		event, eventErr := newEvent(eventFact{
+			processID: processID, deploymentRef: reference, relation: rootProcessRelation(processID),
 			stepSequence: fixture.stepSequence, effectID: fixture.effectID,
-			name: fixture.name, phase: fixture.phase, occurredAt: time.Unix(20, 0), payload: payload,
-		})
+			name: fixture.name, occurredAt: time.Unix(20, 0), payload: payload,
+		}, uint64(index+1))
 		if eventErr != nil {
 			f.Fatal(eventErr)
 		}
@@ -400,7 +410,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 				t.Error("invalid kernel fact was silently omitted")
 			}
 		}()
-		runtime.events.emit(process, "invalid event name", EventPhaseAttempt,
+		runtime.events.emit(process, "invalid event name",
 			0, EffectID{}, emptyEventPayload(),
 		)
 	}()
@@ -408,24 +418,24 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 		t.Fatalf("invalid Event changed sequence to %d or published %d facts", process.processEventSequence, len(events))
 	}
 
-	runtime.events.emit(process, EventProcessStarted, EventPhaseCommitted,
+	runtime.events.emit(process, EventProcessStarted,
 		0, EffectID{}, emptyEventPayload(),
 	)
 	if process.processEventSequence != 8 || len(events) != 1 || events[0].ProcessSequence() != 8 {
 		t.Fatalf("valid Event sequence = %d, events = %#v", process.processEventSequence, events)
 	}
-	paused := runtime.events.prepare(process, EventProcessPaused, EventPhaseCommitted, 0, EffectID{}, emptyEventPayload())
+	paused := runtime.events.prepare(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
 	if process.processEventSequence != 8 {
 		t.Error("preparing an unpublished Event advanced publication order")
 	}
-	runtime.events.emit(process, EventStepStarted, EventPhaseAttempt, 1, EffectID{}, emptyEventPayload())
+	runtime.events.emit(process, EventStepStarted, 1, EffectID{}, emptyEventPayload())
 	runtime.events.publish(process, paused)
 	if len(events) != 3 || events[1].ProcessSequence() != 9 || events[2].ProcessSequence() != 10 {
 		t.Fatalf("delayed committed Event broke publication order: %v", events)
 	}
 
 	process.processEventSequence = math.MaxUint64
-	runtime.events.emit(process, EventProcessResumed, EventPhaseCommitted,
+	runtime.events.emit(process, EventProcessResumed,
 		0, EffectID{}, emptyEventPayload(),
 	)
 	if process.processEventSequence != math.MaxUint64 || len(events) != 3 || engine.ObservationFailures().DroppedEvents() != 1 {

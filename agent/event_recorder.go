@@ -22,12 +22,11 @@ type eventRecorder struct {
 func (e eventRecorder) prepare(
 	process *processState,
 	name string,
-	phase EventPhase,
 	step uint64,
 	effectID EffectID,
 	payload json.RawMessage,
 ) eventFact {
-	event, err := newEventFact(eventSpec{
+	event, err := newEventFact(eventFact{
 		processID:     process.handle.processID,
 		deploymentRef: process.deployment.DeploymentRef(),
 		relation:      process.handle.relation,
@@ -35,7 +34,6 @@ func (e eventRecorder) prepare(
 		stepSequence:  step,
 		effectID:      effectID,
 		name:          name,
-		phase:         phase,
 		occurredAt:    time.Now(),
 		payload:       payload,
 	})
@@ -60,18 +58,17 @@ func (e eventRecorder) publish(process *processState, event eventFact) {
 func (e eventRecorder) emit(
 	process *processState,
 	name string,
-	phase EventPhase,
 	step uint64,
 	effectID EffectID,
 	payload json.RawMessage,
 ) {
-	e.publish(process, e.prepare(process, name, phase, step, effectID, payload))
+	e.publish(process, e.prepare(process, name, step, effectID, payload))
 }
 
 func (e eventRecorder) beginEffectAttempt(process *processState, step uint64, effectID EffectID, target EffectTarget) effectAttempt {
 	attempt := effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}
 	payload := marshalEventPayload(effectStartedEventPayload{EffectTarget: target, AttemptID: attempt.id})
-	e.emit(process, EventEffectStarted, EventPhaseAttempt, step, effectID, payload)
+	e.emit(process, EventEffectStarted, step, effectID, payload)
 	return attempt
 }
 
@@ -102,7 +99,7 @@ func (e eventRecorder) settlement(
 		EffectTarget: target, SettlementStatus: status, AttemptID: observation.id,
 		DurationMS: &durationMS, FailureKind: failure.Kind(), FailureCode: failure.Code(),
 	})
-	return e.prepare(process, EventEffectFinished, EventPhaseAttempt, process.prepared.StepSequence, effectID, payload)
+	return e.prepare(process, EventEffectFinished, process.prepared.StepSequence, effectID, payload)
 }
 
 func (e eventRecorder) publishSettlement(
@@ -120,7 +117,7 @@ func (e eventRecorder) signalsAccepted(process *processState, records []signalRe
 	var events []eventFact
 	for _, record := range records {
 		payload := marshalEventPayload(signalAcceptedEventPayload{SignalID: record.id.String(), WaitID: record.waitID.String()})
-		events = append(events, e.prepare(process, EventSignalAccepted, EventPhaseCommitted, 0, EffectID{}, payload))
+		events = append(events, e.prepare(process, EventSignalAccepted, 0, EffectID{}, payload))
 	}
 	return events
 }
@@ -135,13 +132,13 @@ func (e eventRecorder) stepFinished(process *processState, result stepJobResult,
 	}
 	work, delay := int64(result.workDuration), int64(time.Since(result.finishedAt))
 	payload := marshalEventPayload(stepFinishedEventPayload{StepStatus: status, WorkDurationNS: &work, AdoptionDelayNS: &delay})
-	e.emit(process, EventStepFinished, EventPhaseAttempt, process.committedSteps+1, EffectID{}, payload)
+	e.emit(process, EventStepFinished, process.committedSteps+1, EffectID{}, payload)
 }
 
 func (e eventRecorder) dispatchFinished(process *processState, attempt effectAttempt, result dispatchJobResult) {
 	if result.dropped > 0 {
 		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: attempt.id})
-		e.emit(process, EventDeltaDropped, EventPhaseAttempt, process.prepared.StepSequence, result.effectID, payload)
+		e.emit(process, EventDeltaDropped, process.prepared.StepSequence, result.effectID, payload)
 	}
 	e.publishSettlement(process, result.effectID, EffectTargetDispatcher, result.settlement.Status(), attempt, result.err)
 }
