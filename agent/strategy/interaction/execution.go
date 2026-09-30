@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
@@ -186,9 +187,9 @@ func (e *execution) acceptFinalModelResponse(
 			ModelCalls:    e.state.ModelCallCount,
 		}, []chat.Message{modelOutput.Message.Clone()})
 	}
-	request := e.state.WorkingContext.Clone()
-	request.Messages = append(request.Messages, modelOutput.Message.Clone())
-	e.state.WorkingContext = request
+	if err := e.state.appendToContext("steered final response", *modelOutput.Message); err != nil {
+		return agent.Transition{}, err
+	}
 	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
 	if err != nil {
 		return agent.Transition{}, err
@@ -260,13 +261,10 @@ func (e *execution) finishOrRetry(
 	if decision.Accepted {
 		return e.complete(consumedSignals, output)
 	}
-	request := e.state.WorkingContext.Clone()
-	request.Messages = append(request.Messages, cloneMessages(completionContext)...)
-	request.Messages = append(request.Messages, chat.NewUserMessage(chat.NewTextPart(decision.Feedback)))
-	if err := request.Validate(); err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: completion retry request: %w", ErrInvalidExecutionState, err)
+	feedback := chat.NewUserMessage(chat.NewTextPart(decision.Feedback))
+	if err := e.state.appendToContext("completion retry request", slices.Concat(completionContext, []chat.Message{feedback})...); err != nil {
+		return agent.Transition{}, err
 	}
-	e.state.WorkingContext = request
 	e.state.ToolRound = nil
 	e.state.PendingSteer = nil
 	e.state.Phase = phaseReadyModel
@@ -291,15 +289,11 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 	}
 	call := calls[e.state.ToolRound.nextCallIndex()]
 	if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
-		e.state.ToolRound.reject(call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
-		e.state.Phase = phaseAdvancingTools
-		return agent.Checkpoint(consumedSignals)
+		return e.rejectCall(consumedSignals, call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
 	}
 	if delegate, delegated := e.definition.delegate(call.Name); delegated {
 		if _, err := delegate.prepareInput(call); err != nil {
-			e.state.ToolRound.reject(call, err.Error())
-			e.state.Phase = phaseAdvancingTools
-			return agent.Checkpoint(consumedSignals)
+			return e.rejectCall(consumedSignals, call, err.Error())
 		}
 		effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
 		if prepareErr != nil {
@@ -309,11 +303,17 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		return agent.Continue(consumedSignals, effects...)
 	}
 	if _, found := e.definition.tools.entries[call.Name]; !found {
-		e.state.ToolRound.reject(call, fmt.Sprintf("tool %q is not available", call.Name))
-		e.state.Phase = phaseAdvancingTools
-		return agent.Checkpoint(consumedSignals)
+		return e.rejectCall(consumedSignals, call, fmt.Sprintf("tool %q is not available", call.Name))
 	}
 	return e.startToolChildren(ctx, consumedSignals, calls)
+}
+
+// rejectCall answers call with a model-visible rejection and keeps advancing
+// the round, so the next Step takes the following call.
+func (e *execution) rejectCall(consumedSignals uint32, call chat.ToolCall, reason string) (agent.Transition, error) {
+	e.state.ToolRound.reject(call, reason)
+	e.state.Phase = phaseAdvancingTools
+	return agent.Checkpoint(consumedSignals)
 }
 
 func (e *execution) finishToolCallBatch(
@@ -337,15 +337,12 @@ func (e *execution) finishToolCallBatch(
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)
 	}
-	request := e.state.WorkingContext.Clone()
-	request.Messages = append(request.Messages, completionContext...)
-	e.state.WorkingContext = request
+	if err := e.state.appendToContext("continuation request", completionContext...); err != nil {
+		return agent.Transition{}, err
+	}
 	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
 	if err != nil {
 		return agent.Transition{}, err
-	}
-	if err := e.state.WorkingContext.Validate(); err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: continuation request: %w", ErrInvalidExecutionState, err)
 	}
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }

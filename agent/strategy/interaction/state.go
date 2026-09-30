@@ -204,6 +204,18 @@ func (e *executionState) replaceModelContext(messages []chat.Message) error {
 	return nil
 }
 
+// appendToContext keeps WorkingContext a valid model request: messages join
+// it only when the extended request still validates.
+func (e *executionState) appendToContext(purpose string, messages ...chat.Message) error {
+	request := e.WorkingContext.Clone()
+	request.Messages = append(request.Messages, cloneMessages(messages)...)
+	if err := request.Validate(); err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrInvalidExecutionState, purpose, err)
+	}
+	e.WorkingContext = request
+	return nil
+}
+
 func (e *executionState) addSteer(batch steerBatch) error {
 	if batch.empty() {
 		return nil
@@ -237,13 +249,10 @@ func (e *executionState) applyPendingSteer() ([]agent.SignalID, error) {
 	if err := e.PendingSteer.validate(); err != nil {
 		return nil, fmt.Errorf("%w: pending steer: %w", ErrInvalidExecutionState, err)
 	}
-	request := e.WorkingContext.Clone()
-	request.Messages = append(request.Messages, cloneMessages(e.PendingSteer.Messages)...)
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: steered model request: %w", ErrInvalidExecutionState, err)
+	if err := e.appendToContext("steered model request", e.PendingSteer.Messages...); err != nil {
+		return nil, err
 	}
 	appliedSignalIDs := slices.Clone(e.PendingSteer.SignalIDs)
-	e.WorkingContext = request
 	e.PendingSteer = nil
 	return appliedSignalIDs, nil
 }
