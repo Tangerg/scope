@@ -121,7 +121,7 @@ func newEventFact(fact eventFact) (eventFact, error) {
 	if err != nil {
 		return eventFact{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
-	fact.occurredAt = fact.occurredAt.Round(0).UTC()
+	fact.occurredAt = canonicalTime(fact.occurredAt)
 	fact.payload = normalized
 	if err := fact.validateContract(); err != nil {
 		return eventFact{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)

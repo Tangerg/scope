@@ -2181,7 +2181,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 			}
 		}
 	}()
-	if err = finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
+	if err = finalization.prepareTransition(canonicalTime(time.Now())); err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
 	limitCode := failureCodeEngineLimitSnapshot
@@ -2275,7 +2275,7 @@ func (t *treeRuntime) installTermination(process *processState, outcome stepOutc
 
 func (t *treeRuntime) installTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
 	termination := process.resolveStepTermination(outcome)
-	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, time.Now().Round(0).UTC())
+	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, canonicalTime(time.Now()))
 	for _, waitID := range process.mailbox.closeAllWaits() {
 		t.childWaits.remove(process.handle.processID, waitID)
 	}

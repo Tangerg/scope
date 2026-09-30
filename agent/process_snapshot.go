@@ -78,6 +78,13 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 // The caller transfers the wire's mutable containers. After validation, state
 // is immutable and data is its encoded projection; neither is updated in place.
 func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) {
+	// A decoded instant may carry any offset; the canonical encoding, and so
+	// the digest, must not depend on how a store rendered it.
+	wire.StartedAt = canonicalTime(wire.StartedAt)
+	if wire.FinishedAt != nil {
+		finishedAt := canonicalTime(*wire.FinishedAt)
+		wire.FinishedAt = &finishedAt
+	}
 	if err := wire.validate(); err != nil {
 		return ProcessSnapshot{}, err
 	}

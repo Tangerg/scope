@@ -247,7 +247,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if requestProcessAdmissionErr := requestProcessAdmission(ctx, e.admitter, admission); requestProcessAdmissionErr != nil {
 		return nil, requestProcessAdmissionErr
 	}
-	startedAt := time.Now().Round(0).UTC()
+	startedAt := canonicalTime(time.Now())
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, failedProcessInitializationOutcome(admission, failure))

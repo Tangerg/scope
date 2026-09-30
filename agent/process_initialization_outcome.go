@@ -107,7 +107,7 @@ func (p ProcessInitializationOutcomeAcknowledgerFunc) AcknowledgeProcessInitiali
 }
 
 func initializedProcessOutcome(admission ProcessAdmission, startedAt time.Time) ProcessInitializationOutcome {
-	return ProcessInitializationOutcome{admission: admission, startedAt: startedAt.Round(0).UTC()}
+	return ProcessInitializationOutcome{admission: admission, startedAt: canonicalTime(startedAt)}
 }
 
 func failedProcessInitializationOutcome(admission ProcessAdmission, failure Failure) ProcessInitializationOutcome {

@@ -491,7 +491,7 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 
 func (r resultWire) value() (Result, error) {
 	result := Result{
-		processID: r.ProcessID, startedAt: r.StartedAt, finishedAt: r.FinishedAt,
+		processID: r.ProcessID, startedAt: canonicalTime(r.StartedAt), finishedAt: canonicalTime(r.FinishedAt),
 		output: r.Output, termination: r.Termination, usage: r.Usage,
 	}
 	if !result.Valid() {

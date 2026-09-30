@@ -61,7 +61,7 @@ func newDelta(
 		attemptID:      attemptID,
 		incarnationID:  incarnationID,
 		effectSequence: effectSequence,
-		emittedAt:      emittedAt.Round(0).UTC(),
+		emittedAt:      canonicalTime(emittedAt),
 		payload:        normalized,
 	}, nil
 }

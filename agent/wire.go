@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -22,6 +23,10 @@ import (
 const MaxPayloadBytes = 64 << 20
 
 const nullJSON = "null"
+
+// canonicalTime is the recorded form of an instant: UTC without a monotonic
+// reading, so equal instants encode, and therefore digest, identically.
+func canonicalTime(instant time.Time) time.Time { return instant.Round(0).UTC() }
 
 var ErrInvalidPayload = errors.New("agent: invalid payload")
 

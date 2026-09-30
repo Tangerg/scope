@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 )
 
 // newProcessSnapshot validates a copy of wire, so tests may keep editing the
@@ -29,6 +30,33 @@ func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	}
 	if _, err := ParseProcessSnapshot(data); err == nil {
 		t.Fatal("ParseSnapshot accepted an unknown application field")
+	}
+}
+
+func TestSnapshotCanonicalizesRecordedInstants(t *testing.T) {
+	snapshot := completedEngineTestSnapshot(t)
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	offset := time.FixedZone("offset", 8*60*60)
+	for _, name := range []string{"started_at", "finished_at"} {
+		var instant time.Time
+		if err := jsonv2.Unmarshal(fields[name], &instant); err != nil {
+			t.Fatal(err)
+		}
+		fields[name] = controlValue(jsonv2.Marshal(instant.In(offset)))
+	}
+	rendered := controlValue(jsonv2.Marshal(fields))
+	if bytes.Equal(rendered, snapshot.JSON()) {
+		t.Fatal("fixture did not change the rendered offset")
+	}
+	parsed, err := ParseProcessSnapshot(rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(parsed.JSON(), snapshot.JSON()) {
+		t.Fatalf("an offset rendering changed the canonical snapshot:\n%s\n%s", parsed.JSON(), snapshot.JSON())
 	}
 }
 
