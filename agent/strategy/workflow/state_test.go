@@ -86,9 +86,9 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 			if !errors.Is(stepErr, ErrInvalidProtocol) {
 				t.Fatalf("Step error = %v", stepErr)
 			}
-			classified, ok := errors.AsType[*agent.StepError](stepErr)
-			if !ok || classified.Failure.Kind() != agent.FailureKindContract ||
-				classified.Failure.Code() != "workflow.protocol.invalid" {
+			failure, ok := agent.StepFailure(stepErr)
+			if !ok || failure.Kind() != agent.FailureKindContract ||
+				failure.Code() != "workflow.protocol.invalid" {
 				t.Fatalf("rejection classification = %v", stepErr)
 			}
 		})

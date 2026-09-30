@@ -33,7 +33,8 @@ func restoreExecution(ctx context.Context, definition Definition, state Executio
 
 func stepExecution(ctx context.Context, execution Execution, signals []Signal) (Transition, error) {
 	return invokeCallback("Execution.Step", func() (Transition, error) {
-		return execution.Step(ctx, signals)
+		transition, err := execution.Step(ctx, signals)
+		return transition, classifyStepError(err)
 	})
 }
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -86,13 +85,12 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			_, stepErr := sample.execution.Step(t.Context(), []agent.Signal{unsolicited})
-			classified, ok := errors.AsType[*agent.StepError](stepErr)
+			failure, ok := agent.StepFailure(stepErr)
 			if !ok {
 				t.Fatalf("unclassified rejection: %v", stepErr)
 			}
-			if classified.Failure.Kind() != agent.FailureKindContract ||
-				classified.Failure.Code() != "interaction.state.invalid" {
-				t.Fatalf("classification = %s/%s", classified.Failure.Kind(), classified.Failure.Code())
+			if failure.Kind() != agent.FailureKindContract || failure.Code() != "interaction.state.invalid" {
+				t.Fatalf("classification = %s/%s", failure.Kind(), failure.Code())
 			}
 		})
 	}

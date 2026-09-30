@@ -172,24 +172,18 @@ func verifyRejectedStep(
 				sample.Name, attempt, transition,
 			)
 		}
-		sealed, classified := errors.AsType[*agent.StepError](stepErr)
+		failure, classified := agent.StepFailure(stepErr)
 		if !classified {
 			return fmt.Errorf(
 				"agenttest: rejected case %q attempt %d returned an unclassified error, which the Engine records as execution.step.failed: %w",
 				sample.Name, attempt, stepErr,
 			)
 		}
-		if lo.IsNil(sealed) || !sealed.Failure.Valid() {
-			return fmt.Errorf(
-				"agenttest: rejected case %q attempt %d carries an invalid Failure",
-				sample.Name, attempt,
-			)
-		}
-		if sealed.Failure.Kind() != sample.FailureKind || sealed.Failure.Code() != sample.FailureCode {
+		if failure.Kind() != sample.FailureKind || failure.Code() != sample.FailureCode {
 			return fmt.Errorf(
 				"agenttest: rejected case %q attempt %d classified as %s/%s, want %s/%s",
 				sample.Name, attempt,
-				sealed.Failure.Kind(), sealed.Failure.Code(),
+				failure.Kind(), failure.Code(),
 				sample.FailureKind, sample.FailureCode,
 			)
 		}

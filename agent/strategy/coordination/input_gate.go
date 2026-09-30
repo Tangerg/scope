@@ -156,14 +156,6 @@ type inputGateExecution struct {
 }
 
 func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	transition, err := i.step(ctx, signals)
-	if err != nil {
-		return agent.Transition{}, agent.ClassifyStepError(err)
-	}
-	return transition, nil
-}
-
-func (i *inputGateExecution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}

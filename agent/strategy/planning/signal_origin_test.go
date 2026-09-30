@@ -53,9 +53,9 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 			if !errors.Is(stepErr, ErrInvalidProtocol) {
 				t.Fatalf("external settlement was accepted: %v", stepErr)
 			}
-			classified, ok := errors.AsType[*agent.StepError](stepErr)
-			if !ok || classified.Failure.Kind() != agent.FailureKindContract ||
-				classified.Failure.Code() != "planning.protocol.invalid" {
+			failure, ok := agent.StepFailure(stepErr)
+			if !ok || failure.Kind() != agent.FailureKindContract ||
+				failure.Code() != "planning.protocol.invalid" {
 				t.Fatalf("rejection classification = %v", stepErr)
 			}
 			after, err := execution.Snapshot()

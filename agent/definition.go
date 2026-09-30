@@ -41,10 +41,10 @@ type Execution interface {
 	// Step reduces the current private state and the supplied ordered Signal
 	// prefix into one candidate Transition. It must honor ctx for bounded CPU
 	// work, perform no I/O, consume no hidden input, and never retain signals.
-	// A *StepError discards the candidate and preserves its Failure; an ordinary
-	// error discards it with execution.step.failed. Fail instead commits the
-	// candidate and consumption. Return domain sentinels declared with
-	// NewClassifiedError through ClassifyStepError.
+	// A *StepError discards the candidate and preserves its Failure. An error
+	// wrapping a sentinel declared with NewClassifiedError does the same with
+	// that sentinel's kind and code; any other error discards it with
+	// execution.step.failed. Fail instead commits the candidate and consumption.
 	Step(ctx context.Context, signals []Signal) (Transition, error)
 	// Snapshot returns a complete, independently owned state from
 	// which Definition.Restore can reproduce the current Execution exactly. It

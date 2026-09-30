@@ -39,9 +39,9 @@ type ClassifiedError struct {
 }
 
 // NewClassifiedError declares one sentinel together with the Failure the Engine
-// persists for it; ClassifyStepError replaces message with the complete wrapped
-// diagnostic. An invalid kind, code, or message is a programming error and
-// panics.
+// persists when Execution.Step returns an error wrapping it; the persisted
+// message is the complete wrapped diagnostic. An invalid kind, code, or
+// message is a programming error and panics.
 func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError {
 	failure, err := NewFailure(kind, code, message)
 	if err != nil {
@@ -52,12 +52,13 @@ func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError
 
 func (c *ClassifiedError) Error() string { return c.failure.Message() }
 
-// ClassifyStepError returns the error Execution.Step must return for err. An
-// error wrapping a ClassifiedError becomes a *StepError carrying that
-// classification and the complete diagnostic; every other error is returned
-// unchanged and recorded as execution.step.failed. Cancellation, contained
-// panics, and an existing *StepError outrank Strategy classification.
-func ClassifyStepError(err error) error {
+// classifyStepError is applied by the Engine to every error Execution.Step
+// returns, so no Strategy can forget it. An error wrapping a ClassifiedError
+// becomes a *StepError carrying that classification and the complete
+// diagnostic; every other error is returned unchanged and recorded as
+// execution.step.failed. Cancellation, contained panics, and an existing
+// *StepError outrank Strategy classification.
+func classifyStepError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -80,4 +81,16 @@ func ClassifyStepError(err error) error {
 		Failure: newEngineFailure(classified.failure.Kind(), classified.failure.Code(), err),
 		Cause:   err,
 	}
+}
+
+// StepFailure reports the Failure the Engine persists when Execution.Step
+// returns err. It reports false for an error the Engine records as
+// execution.step.failed, and for cancellation and contained panics, whose
+// classifications the Engine owns.
+func StepFailure(err error) (Failure, bool) {
+	sealed, ok := errors.AsType[*StepError](classifyStepError(err))
+	if !ok || sealed == nil || !sealed.Failure.Valid() {
+		return Failure{}, false
+	}
+	return sealed.Failure, true
 }

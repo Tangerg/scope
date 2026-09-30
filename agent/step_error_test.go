@@ -101,9 +101,9 @@ func (r *rejectedStepExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("rejected_step", r.phase)
 }
 
-func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
+func TestStepErrorClassificationOwnsSentinelClassification(t *testing.T) {
 	sentinel := NewClassifiedError(FailureKindContract, "test.sentinel.invalid", "test: sentinel rejected")
-	if classified := ClassifyStepError(nil); classified != nil {
+	if classified := classifyStepError(nil); classified != nil {
 		t.Fatalf("nil error became %v", classified)
 	}
 	for _, test := range []struct {
@@ -114,7 +114,7 @@ func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
 		{"wrapped sentinel", fmt.Errorf("step: %w", sentinel)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			sealed, ok := errors.AsType[*StepError](ClassifyStepError(test.err))
+			sealed, ok := errors.AsType[*StepError](classifyStepError(test.err))
 			if !ok {
 				t.Fatal("sentinel reached the Engine unclassified")
 			}
@@ -142,7 +142,7 @@ func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
 		{"unclassified", errors.New("plain execution failure")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, sealed := errors.AsType[*StepError](ClassifyStepError(test.err)); sealed {
+			if _, sealed := errors.AsType[*StepError](classifyStepError(test.err)); sealed {
 				t.Fatalf("Strategy classification overrode the Engine-owned outcome of %v", test.err)
 			}
 		})
@@ -151,7 +151,7 @@ func TestClassifyStepErrorOwnsSentinelClassification(t *testing.T) {
 	// An already classified error keeps its own Failure instead of acquiring
 	// the sentinel its chain still carries.
 	declared := controlValue(NewFailure(FailureKindExecution, "test.declared", "declared"))
-	classified := ClassifyStepError(fmt.Errorf("step: %w", &StepError{Failure: declared, Cause: sentinel}))
+	classified := classifyStepError(fmt.Errorf("step: %w", &StepError{Failure: declared, Cause: sentinel}))
 	sealed, ok := errors.AsType[*StepError](classified)
 	if !ok || sealed.Failure.Code() != "test.declared" {
 		t.Fatalf("already classified error = %v", classified)

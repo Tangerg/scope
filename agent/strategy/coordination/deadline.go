@@ -109,14 +109,6 @@ func (d deadlineState) validate() error {
 type deadlineExecution struct{ state deadlineState }
 
 func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	transition, err := d.step(ctx, signals)
-	if err != nil {
-		return agent.Transition{}, agent.ClassifyStepError(err)
-	}
-	return transition, nil
-}
-
-func (d *deadlineExecution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}

@@ -15,14 +15,6 @@ type execution struct {
 }
 
 func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	transition, err := e.step(ctx, signals)
-	if err != nil {
-		return agent.Transition{}, agent.ClassifyStepError(err)
-	}
-	return transition, nil
-}
-
-func (e *execution) step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
