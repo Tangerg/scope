@@ -113,3 +113,14 @@ func (j *jobTable) finish(completion treeJobCompletion) (*processJob, bool) {
 }
 
 func (j *jobTable) all() iter.Seq2[ProcessID, *processJob] { return maps.All(j.jobs) }
+
+// hasExternal reports work whose external effects must settle before the
+// tree can freeze.
+func (j *jobTable) hasExternal() bool {
+	for _, job := range j.jobs {
+		if !job.computation() {
+			return true
+		}
+	}
+	return false
+}

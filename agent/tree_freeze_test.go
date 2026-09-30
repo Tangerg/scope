@@ -9,12 +9,12 @@ func TestCanceledCaptureReleasesQueuedFreezeResult(t *testing.T) {
 		canceled: make(chan struct{}),
 	}
 	runtime.acquireFreeze(acquisition)
-	if len(acquisition.response) != 1 || !runtime.freezeActive.Load() {
+	if len(acquisition.response) != 1 || !runtime.freeze.engagedFlag.Load() {
 		t.Fatal("capture did not queue its acquired freeze")
 	}
 	// The caller can select cancellation while its answer is still buffered.
 	close(acquisition.canceled)
-	if !runtime.tryFreezeCancellation() || runtime.freezeActive.Load() {
+	if !runtime.tryFreezeCancellation() || runtime.freeze.engagedFlag.Load() {
 		t.Fatal("canceled capture retained the queued freeze")
 	}
 	if !runtime.advanceOne() || process.attemptSequence == 0 {

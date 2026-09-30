@@ -100,3 +100,12 @@ func (t *treeMembers) substituted(candidates []*processState) iter.Seq[*processS
 		}
 	}
 }
+
+func (t *treeMembers) allTerminal() bool {
+	for _, process := range t.byID {
+		if !process.status.Terminal() {
+			return false
+		}
+	}
+	return true
+}

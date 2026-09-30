@@ -155,7 +155,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	}
 	for index, spec := range specs[:2] {
 		waitID := *prepared.Effects[index].WaitID
-		if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
+		if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
 			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
 		}
 		runtime.childWaits.remove(parent.handle.processID, waitID)
@@ -181,7 +181,7 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	}
 	parent.prepared = &preparedStep{Intent: controlValue(Continue(0, record.Effect)), Effects: preparedEffects{record}}
 	waitID := *record.WaitID
-	if _, _, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil {
+	if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
 		t.Fatal(err)
 	}
 	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrInvalidChildWait) {

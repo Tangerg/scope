@@ -604,10 +604,11 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	grandchildID, _ := ParseProcessID(childOutput.ChildIDs[0])
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
-	_, _, err = root.handle.runtime.Load().registerChildWait(root.ID(), waitID, ChildWaitSpec{
+	owner := root.handle.runtime.Load()
+	_, _, err = owner.childWaits.register(root.ID(), waitID, ChildWaitSpec{
 		Boundary: ChildWaitBoundaryResult,
 		Key:      waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
-	})
+	}, &owner.members)
 	if !errors.Is(err, ErrInvalidChildWait) {
 		t.Fatalf("ancestor wait error = %v, want %v", err, ErrInvalidChildWait)
 	}

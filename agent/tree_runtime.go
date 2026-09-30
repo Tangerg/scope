@@ -9,7 +9,6 @@ import (
 	"math"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -25,7 +24,6 @@ type treeRuntime struct {
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
 	// one mutation owner.
-	freezeActive    atomic.Bool
 	context         context.Context
 	processCommands chan processTreeCommand
 	freezeCommands  chan freezeCommand
@@ -41,7 +39,7 @@ type treeRuntime struct {
 	jobs            *jobTable
 	fault           error
 	publications    publicationLedger
-	freeze          *activeTreeFreeze
+	freeze          freezeBarrier
 	done            chan struct{}
 	finalInspection TreeInspection
 }
@@ -66,36 +64,6 @@ type releaseFreezeCommand struct {
 }
 
 func (releaseFreezeCommand) freezeCommand() {}
-
-type treeFreezeAcquisition struct {
-	response chan treeFreezeAcquisitionResult
-	canceled chan struct{}
-}
-
-type treeFreezeAcquisitionResult struct {
-	freeze   *treeFreeze
-	snapshot TreeSnapshot
-	err      error
-}
-
-// Cancellation remains observable after answering: the caller may select its
-// canceled context while the acquisition result is still buffered.
-type activeTreeFreeze struct {
-	acquisition *treeFreezeAcquisition
-	freeze      *treeFreeze
-	canceled    <-chan struct{}
-}
-
-func (a *activeTreeFreeze) answered() bool { return a.acquisition == nil }
-
-func (a *activeTreeFreeze) answer(result treeFreezeAcquisitionResult) {
-	if a.acquisition == nil {
-		return
-	}
-	acquisition := a.acquisition
-	a.acquisition = nil
-	acquisition.response <- result
-}
 
 type treeCommitKind uint8
 
@@ -284,7 +252,7 @@ func (t *treeRuntime) waitForWork() {
 	freezeCommands := t.freezeCommands
 	processCommands := t.processCommands
 	completions := t.completions
-	freezeCancellation := t.freezeCancellation()
+	freezeCancellation := t.freeze.cancellation()
 	if t.mutationsBlocked() {
 		processCommands = nil
 		completions = nil
@@ -329,15 +297,8 @@ func (t *treeRuntime) tryCommitCompletion() bool {
 	}
 }
 
-func (t *treeRuntime) freezeCancellation() <-chan struct{} {
-	if t.freeze == nil {
-		return nil
-	}
-	return t.freeze.canceled
-}
-
 func (t *treeRuntime) tryFreezeCancellation() bool {
-	canceled := t.freezeCancellation()
+	canceled := t.freeze.cancellation()
 	if canceled == nil {
 		return false
 	}
@@ -392,7 +353,7 @@ func (t *treeRuntime) tryCompletion() bool {
 func (t *treeRuntime) mutationsBlocked() bool {
 	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
 	// command to drain. Only the completed snapshot barrier blocks both lanes.
-	return t.writer.committing() || t.freeze != nil && t.freeze.answered()
+	return t.writer.committing() || t.freeze.held()
 }
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
@@ -417,7 +378,7 @@ func (t *treeRuntime) dequeueProcess() *processState {
 }
 
 func (t *treeRuntime) advanceOne() bool {
-	if t.writer.committing() || t.fault != nil || t.freeze != nil {
+	if t.writer.committing() || t.fault != nil || t.freeze.engaged() {
 		return false
 	}
 	process := t.dequeueProcess()
@@ -508,11 +469,11 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 // ownsActiveWork is the lock-free view Engine.Close uses: jobs, the in-flight
 // commit, and a held freeze each keep the tree busy.
 func (t *treeRuntime) ownsActiveWork() bool {
-	return t.jobs.active.Load() != 0 || t.writer.busy.Load() || t.freezeActive.Load()
+	return t.jobs.active.Load() != 0 || t.writer.busy.Load() || t.freeze.engagedFlag.Load()
 }
 
 func (t *treeRuntime) canStop() bool {
-	if t.freeze != nil || t.writer.committing() || !t.jobs.empty() ||
+	if t.freeze.engaged() || t.writer.committing() || !t.jobs.empty() ||
 		len(t.publications) != 0 {
 		return false
 	}
@@ -868,7 +829,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 }
 
 func (t *treeRuntime) tryStartCheckpoint() bool {
-	if t.fault != nil || t.writer.committing() || t.freeze != nil || !t.readyForCheckpoint() {
+	if t.fault != nil || t.writer.committing() || t.freeze.engaged() || !t.readyForCheckpoint() {
 		return false
 	}
 	kind := t.checkpointKind()
@@ -1004,12 +965,10 @@ func (t *treeRuntime) failRuntime(
 		}
 		t.stopProcessRuntime(process, cause, unresolvedByProcess[memberID])
 	}
-	if t.freeze != nil {
-		freeze := t.freeze
-		t.releaseCurrentFreeze()
+	if t.freeze.engaged() {
 		// An answered acquisition needs no second reply; releaseFreeze reports
 		// the fault to its holder.
-		freeze.answer(treeFreezeAcquisitionResult{err: cause})
+		t.releaseCurrentFreeze().answer(treeFreezeAcquisitionResult{err: cause})
 	}
 }
 
@@ -1196,7 +1155,7 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, command process
 }
 
 func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
-	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil || t.freeze != nil {
+	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil || t.freeze.engaged() {
 		if acquisition != nil && acquisition.response != nil {
 			acquisition.response <- treeFreezeAcquisitionResult{err: ErrEngineQuiescenceUnavailable}
 		}
@@ -1206,21 +1165,17 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 		acquisition.response <- treeFreezeAcquisitionResult{err: t.fault}
 		return
 	}
-	freeze := &treeFreeze{runtime: t}
-	t.freeze = &activeTreeFreeze{acquisition: acquisition, freeze: freeze, canceled: acquisition.canceled}
-	t.freezeActive.Store(true)
+	t.freeze.begin(acquisition, &treeFreeze{runtime: t})
 	t.completeFreeze()
 }
 
 func (t *treeRuntime) completeFreeze() {
-	if t.freeze == nil || t.freeze.answered() || t.writer.committing() || t.freezeBlockedByJob() {
+	if !t.freeze.engaged() || t.freeze.held() || t.writer.committing() || t.freezeBlockedByJob() {
 		return
 	}
 	snapshot, err := t.captureTree()
 	if err != nil {
-		freeze := t.freeze
-		t.releaseCurrentFreeze()
-		freeze.answer(treeFreezeAcquisitionResult{err: err})
+		t.releaseCurrentFreeze().answer(treeFreezeAcquisitionResult{err: err})
 		return
 	}
 	if snapshot.Digest() != t.writer.head().Digest() {
@@ -1229,31 +1184,19 @@ func (t *treeRuntime) completeFreeze() {
 		}
 		return
 	}
-	t.freeze.answer(treeFreezeAcquisitionResult{
-		freeze: t.freeze.freeze, snapshot: snapshot,
-	})
+	t.freeze.grant(snapshot)
 }
 
+// Computation can be discarded under a freeze, but external work must settle;
+// once every Process is terminal, no job may remain.
 func (t *treeRuntime) freezeBlockedByJob() bool {
-	if t.freeze == nil {
+	if !t.freeze.engaged() {
 		return false
 	}
-	allTerminal := true
-	for _, process := range t.members.all() {
-		if !process.status.Terminal() {
-			allTerminal = false
-			break
-		}
-	}
-	if allTerminal {
+	if t.members.allTerminal() {
 		return !t.jobs.empty()
 	}
-	for _, job := range t.jobs.all() {
-		if !job.computation() {
-			return true
-		}
-	}
-	return false
+	return t.jobs.hasExternal()
 }
 
 func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
@@ -1276,7 +1219,7 @@ func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 }
 
 func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
-	if t.freeze == nil || freeze == nil || t.freeze.freeze != freeze {
+	if !t.freeze.owns(freeze) {
 		if t.fault != nil {
 			// A runtime failure already released this barrier. Its holder needs
 			// the cause, not the absence it produced.
@@ -1291,14 +1234,14 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 // releaseCurrentFreeze is used only by the tree owner after it has selected
 // the active freeze. External capabilities still pass through releaseFreeze so
 // stale or foreign authority is rejected rather than silently accepted.
-func (t *treeRuntime) releaseCurrentFreeze() {
-	t.freeze = nil
-	t.freezeActive.Store(false)
+func (t *treeRuntime) releaseCurrentFreeze() *activeTreeFreeze {
+	ended := t.freeze.end()
 	for _, process := range t.members.all() {
 		if !process.status.Terminal() {
 			t.enqueueProcess(process.handle.processID)
 		}
 	}
+	return ended
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
@@ -1543,13 +1486,7 @@ func (t *treeRuntime) replyInspection(response chan TreeInspection) {
 func (t *treeRuntime) buildInspection() TreeInspection {
 	inspection := TreeInspection{
 		RootID: t.rootID, IncarnationID: t.writer.incarnation(), HeadDigest: t.writer.head().Digest(),
-		CommitPending: t.writer.committing(), Freeze: TreeFreezePhaseNone,
-	}
-	if t.freeze != nil {
-		inspection.Freeze = TreeFreezePhaseAcquiring
-		if t.freeze.answered() {
-			inspection.Freeze = TreeFreezePhaseHeld
-		}
+		CommitPending: t.writer.committing(), Freeze: t.freeze.phase(),
 	}
 	snapshots := t.writer.head().ProcessSnapshots()
 	for _, snapshot := range snapshots {
@@ -1907,7 +1844,7 @@ func (t *treeRuntime) retireStaleJob(process *processState, kind processJobKind)
 	if kind == processJobStep && !process.pendingControl.hasTerminalIntent() {
 		t.startRestore(process)
 	}
-	if t.freeze == nil {
+	if !t.freeze.engaged() {
 		t.enqueueProcess(process.handle.processID)
 	}
 }
@@ -2195,7 +2132,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 // A result can precede descendant cleanup. Publish each join once, from leaves
 // upward, only after acknowledged outcomes and the owned calls have returned.
 func (t *treeRuntime) publishJoins() bool {
-	if t.writer.committing() || t.freeze != nil {
+	if t.writer.committing() || t.freeze.engaged() {
 		return false
 	}
 	changed := false
@@ -2309,22 +2246,18 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 		return
 	}
 	parent := t.members.get(parentID)
-	for _, registration := range t.childWaits.ordered(parentID) {
-		if registration.spec.Boundary != boundary || !slices.Contains(registration.spec.Children, processID) {
-			continue
-		}
+	for registration := range t.childWaits.awaiting(parentID, processID, boundary) {
 		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
 			parent.mailbox.contains(registration.waitID.childWaitSignalID()) {
 			continue
 		}
-		outcomes, satisfied := t.childWaitOutcomes(registration)
-		if !satisfied {
-			continue
-		}
-		signal, err := encodeChildWaitSatisfied(registration.waitID, registration.spec.Key, boundary, outcomes)
+		signal, satisfied, err := registration.satisfaction(&t.members)
 		if err != nil {
 			parent.recordFailure(FailureKindExecution, failureCodeEngineChildWaitSatisfactionEncodingFailed, err)
 			t.stopProcessTree(parent)
+			continue
+		}
+		if !satisfied {
 			continue
 		}
 		if t.deliverChildWaitSatisfied(parent, signal) {
@@ -2333,57 +2266,6 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 			t.stopProcessTree(parent)
 		}
 	}
-}
-
-func (t *treeRuntime) childWaitOutcomes(
-	registration *childWaitRegistration,
-) ([]ChildOutcome, bool) {
-	outcomes := make([]ChildOutcome, 0, len(registration.spec.Children))
-	for _, childID := range registration.spec.Children {
-		// Registration proves membership; children stay retained until tree release.
-		child := t.members.get(childID)
-		ready := child.status.Terminal()
-		if registration.spec.Boundary == ChildWaitBoundaryDrained {
-			ready = child.handle.joinDone() && child.handle.joinError() == nil
-		}
-		if !ready {
-			continue
-		}
-		key, _ := child.handle.relation.ChildKey()
-		outcome := ChildOutcome{key: key, result: child.result(), boundary: registration.spec.Boundary}
-		if registration.spec.Boundary == ChildWaitBoundaryDrained {
-			outcome.subtreeUnresolvedEffects = t.members.subtreeUnresolvedEffects(childID)
-		}
-		outcomes = append(outcomes, outcome)
-	}
-	return outcomes, uint32(len(outcomes)) >= registration.spec.required()
-}
-
-func (t *treeRuntime) registerChildWait(
-	parentID ProcessID,
-	waitID WaitID,
-	spec ChildWaitSpec,
-) (Signal, bool, error) {
-	if !parentID.Valid() || !waitID.Valid() || !spec.Valid() || t.members.get(parentID) == nil {
-		return Signal{}, false, ErrInvalidChildWait
-	}
-	if err := spec.validateRelations(parentID, t.members.relation); err != nil {
-		return Signal{}, false, err
-	}
-	registration := &childWaitRegistration{waitID: waitID, spec: spec.clone()}
-	if !t.childWaits.add(parentID, registration) {
-		return Signal{}, false, ErrInvalidChildWait
-	}
-	outcomes, satisfied := t.childWaitOutcomes(registration)
-	if !satisfied {
-		return Signal{}, false, nil
-	}
-	signal, err := encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)
-	if err != nil {
-		t.childWaits.remove(parentID, waitID)
-		return Signal{}, false, err
-	}
-	return signal, true, nil
 }
 
 func (t *treeRuntime) addProcess(process *processState) {
@@ -2516,7 +2398,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFa
 func (t *treeRuntime) registerOpenedChildWaits(processID ProcessID, finalization *preparedStepFinalization) ([]Signal, error) {
 	var immediate []Signal
 	for index, opened := range finalization.openedChildWaits {
-		signal, satisfied, err := t.registerChildWait(processID, opened.WaitID(), opened.Spec())
+		signal, satisfied, err := t.childWaits.register(processID, opened.WaitID(), opened.Spec(), &t.members)
 		if err != nil {
 			for _, registered := range finalization.openedChildWaits[:index] {
 				t.childWaits.remove(processID, registered.WaitID())

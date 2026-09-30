@@ -2,6 +2,7 @@ package agent
 
 import (
 	"cmp"
+	"iter"
 	"slices"
 )
 
@@ -57,4 +58,72 @@ func (c childWaitRegistry) wire() []childWaitSnapshotWire {
 		}
 	}
 	return waits
+}
+
+// register validates spec against the tree's relations, records it, and
+// returns the answer when the tree already satisfies it. A registration whose
+// answer cannot be encoded is withdrawn.
+func (c childWaitRegistry) register(parentID ProcessID, waitID WaitID, spec ChildWaitSpec, members *treeMembers) (Signal, bool, error) {
+	if !parentID.Valid() || !waitID.Valid() || !spec.Valid() || members.get(parentID) == nil {
+		return Signal{}, false, ErrInvalidChildWait
+	}
+	if err := spec.validateRelations(parentID, members.relation); err != nil {
+		return Signal{}, false, err
+	}
+	registration := &childWaitRegistration{waitID: waitID, spec: spec.clone()}
+	if !c.add(parentID, registration) {
+		return Signal{}, false, ErrInvalidChildWait
+	}
+	signal, satisfied, err := registration.satisfaction(members)
+	if err != nil {
+		c.remove(parentID, waitID)
+	}
+	return signal, satisfied, err
+}
+
+// awaiting yields parentID's registrations that wait for childID at boundary,
+// in WaitID order.
+func (c childWaitRegistry) awaiting(parentID, childID ProcessID, boundary ChildWaitBoundary) iter.Seq[*childWaitRegistration] {
+	return func(yield func(*childWaitRegistration) bool) {
+		for _, registration := range c.ordered(parentID) {
+			if registration.spec.Boundary != boundary || !slices.Contains(registration.spec.Children, childID) {
+				continue
+			}
+			if !yield(registration) {
+				return
+			}
+		}
+	}
+}
+
+// satisfaction returns the answer Signal once enough watched children have
+// reached the registration's boundary. Registration proves membership, and
+// children stay retained until tree release.
+func (c *childWaitRegistration) satisfaction(members *treeMembers) (Signal, bool, error) {
+	spec := c.spec
+	outcomes := make([]ChildOutcome, 0, len(spec.Children))
+	for _, childID := range spec.Children {
+		child := members.get(childID)
+		ready := child.status.Terminal()
+		if spec.Boundary == ChildWaitBoundaryDrained {
+			ready = child.handle.joinDone() && child.handle.joinError() == nil
+		}
+		if !ready {
+			continue
+		}
+		key, _ := child.handle.relation.ChildKey()
+		outcome := ChildOutcome{key: key, result: child.result(), boundary: spec.Boundary}
+		if spec.Boundary == ChildWaitBoundaryDrained {
+			outcome.subtreeUnresolvedEffects = members.subtreeUnresolvedEffects(childID)
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	if uint32(len(outcomes)) < spec.required() {
+		return Signal{}, false, nil
+	}
+	signal, err := encodeChildWaitSatisfied(c.waitID, spec.Key, spec.Boundary, outcomes)
+	if err != nil {
+		return Signal{}, false, err
+	}
+	return signal, true, nil
 }

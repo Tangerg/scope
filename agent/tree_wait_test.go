@@ -96,13 +96,13 @@ func TestJoinReadinessSurvivesCommitAndFreeze(t *testing.T) {
 			if barrier == "commit" {
 				runtime.writer.inFlight = &treeCommit{}
 			} else {
-				runtime.freeze = &activeTreeFreeze{}
+				runtime.freeze.active = &activeTreeFreeze{}
 			}
 			if runtime.publishJoins() || completed.handle.joinDone() {
 				t.Fatal("join crossed a publication barrier")
 			}
 			runtime.writer.inFlight = nil
-			runtime.freeze = nil
+			runtime.freeze.active = nil
 			if !runtime.publishJoins() || !completed.handle.joinDone() || completed.handle.joinError() != nil {
 				t.Fatal("releasing the barrier lost a ready join")
 			}
@@ -194,7 +194,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		}
 		parent.currentWaitID = waitID
 		parent.status = StatusWaiting
-		if _, satisfied, err := runtime.registerChildWait(parent.handle.processID, waitID, spec); err != nil || satisfied {
+		if _, satisfied, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil || satisfied {
 			b.Fatalf("register wait satisfied=%t error=%v", satisfied, err)
 		}
 		notified = first

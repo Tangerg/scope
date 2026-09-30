@@ -11,7 +11,7 @@ func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 			} else {
 				// A delivered freeze retains no acquisition: its acquirer already
 				// holds the barrier and is owed no further answer.
-				runtime.freeze = &activeTreeFreeze{freeze: &treeFreeze{runtime: runtime}}
+				runtime.freeze.active = &activeTreeFreeze{freeze: &treeFreeze{runtime: runtime}}
 			}
 			for range treeCommandBufferCapacity {
 				runtime.processCommands <- processTreeCommand{}
@@ -26,9 +26,9 @@ func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 			}
 			if barrier == "freeze" {
 				response := make(chan error, 1)
-				runtime.freezeCommands <- releaseFreezeCommand{freeze: runtime.freeze.freeze, response: response}
+				runtime.freezeCommands <- releaseFreezeCommand{freeze: runtime.freeze.active.freeze, response: response}
 				runtime.waitForWork()
-				if err := <-response; err != nil || runtime.freeze != nil {
+				if err := <-response; err != nil || runtime.freeze.engaged() {
 					t.Fatalf("full Process queue prevented freeze release: %v", err)
 				}
 			}
