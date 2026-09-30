@@ -35,11 +35,7 @@ func TestCaptureWaitsForAcknowledgmentAndRejectsFailedCut(t *testing.T) {
 				t.Fatal("candidate outcome published before acknowledgment")
 			default:
 			}
-			inspection, inspectErr := runtime.buildInspection()
-			if inspectErr != nil {
-				t.Fatal(inspectErr)
-			}
-			if inspection.HeadDigest != base.Digest() {
+			if inspection := runtime.buildInspection(); inspection.HeadDigest != base.Digest() {
 				t.Fatal("inspection exposed the candidate cut")
 			}
 			close(gate.release)

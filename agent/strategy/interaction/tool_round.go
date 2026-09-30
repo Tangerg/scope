@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -31,7 +32,7 @@ func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error
 		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
 	}
 	calls, err := validatedToolCalls(t.Response)
-	if err != nil || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
+	if err != nil || len(calls) == 0 || uint64(len(calls)) > math.MaxUint32 {
 		return nil, fmt.Errorf("%w: tool round has no bounded unambiguous tool calls", ErrInvalidExecutionState)
 	}
 	if t.Response.Output.FinishReason != chat.FinishReasonToolCalls {

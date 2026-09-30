@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -381,7 +382,7 @@ func decodeDeltaDroppedFact(payload json.RawMessage) (DeltaDroppedFact, error) {
 }
 
 func durationFromMilliseconds(milliseconds int64) (time.Duration, bool) {
-	const maxMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
+	const maxMilliseconds = math.MaxInt64 / int64(time.Millisecond)
 	if milliseconds < 0 || milliseconds > maxMilliseconds {
 		return 0, false
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 
@@ -239,7 +240,7 @@ func (e effectEnvelope) validateToolCall() error {
 	if err := resume.Checkpoint.validate(); err != nil {
 		return err
 	}
-	if resume.Checkpoint.PauseCount == ^uint64(0) {
+	if resume.Checkpoint.PauseCount == math.MaxUint64 {
 		return fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidProtocol)
 	}
 	_, err := resume.Checkpoint.InputRequest.validateResponse(resume.InputResponse)

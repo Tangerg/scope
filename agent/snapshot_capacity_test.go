@@ -279,7 +279,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 }
 
 func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
-	for _, mode := range []string{"committed", "commit_failed", "capture_failed", "checkpoint_failed"} {
+	for _, mode := range []string{"committed", "commit_failed", "capture_failed"} {
 		t.Run(mode, func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
 			root := runtime.processes[runtime.rootID]
@@ -313,9 +313,6 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if mode == "capture_failed" {
 				root.committedExecutionState = ExecutionState{}
 			}
-			if mode == "checkpoint_failed" {
-				runtime.commit = &treeCommit{kind: treeCommitCheckpoint}
-			}
 			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
 			if root.provisionalChildBudget != nil || root.allocatedResources != (resourceAmounts{}) || len(runtime.processes) != 1 {
@@ -332,7 +329,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				}
 				runtime.applyTreeCommitCompletion(completion)
 			}
-			if wantFault := mode == "commit_failed" || mode == "capture_failed" || mode == "checkpoint_failed"; (runtime.fault != nil) != wantFault {
+			if wantFault := mode == "commit_failed" || mode == "capture_failed"; (runtime.fault != nil) != wantFault {
 				t.Fatalf("runtime fault = %v, want failure %t", runtime.fault, wantFault)
 			}
 			if root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {

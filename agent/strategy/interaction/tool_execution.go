@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"math"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -238,7 +239,7 @@ func (t *toolExecution) openInputWait(checkpoint toolCheckpoint) (agent.Transiti
 	if t.state.Checkpoint != nil {
 		previous = t.state.Checkpoint.PauseCount
 	}
-	if previous == ^uint64(0) || checkpoint.PauseCount != previous+1 {
+	if previous == math.MaxUint64 || checkpoint.PauseCount != previous+1 {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))

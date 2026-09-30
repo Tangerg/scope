@@ -69,8 +69,9 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 		runtime.advancePrepared(parent)
 	}
 	before := controlValue(runtime.captureTree())
-	if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrResourceLimitExceeded) {
-		t.Fatalf("immediate child Signals = %v, want %v", err, ErrResourceLimitExceeded)
+	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) ||
+		failure.kind != FailureKindExecution || failure.code != failureCodeEngineLimitChildWaitSignal {
+		t.Fatalf("immediate child Signals = %+v, want %v", failure, ErrResourceLimitExceeded)
 	}
 	after := controlValue(runtime.captureTree())
 	if before.Digest() != after.Digest() {
@@ -147,8 +148,9 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		prepared.Effects = append(prepared.Effects, record)
 	}
 	parent.prepared = prepared
-	if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrInvalidChildWait) {
-		t.Fatalf("invalid child wait finalization error = %v", err)
+	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrInvalidChildWait) ||
+		failure.kind != FailureKindContract || failure.code != failureCodeEngineFinalizeInvalid {
+		t.Fatalf("invalid child wait finalization = %+v", failure)
 	}
 	if parent.prepared != prepared || parent.committedSteps != 0 || parent.mailbox.pendingCount() != 0 {
 		t.Fatal("rejected finalization adopted candidate state")

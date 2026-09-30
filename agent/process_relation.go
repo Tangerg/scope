@@ -1,6 +1,9 @@
 package agent
 
-import "errors"
+import (
+	"cmp"
+	"errors"
+)
 
 var ErrInvalidProcessRelation = errors.New("agent: invalid process relation")
 
@@ -72,6 +75,15 @@ func (p ProcessRelation) Valid() bool {
 type childIdentity struct {
 	parent ProcessID
 	key    ChildKey
+}
+
+// compareTreeOrder is the canonical tree order: parents precede descendants,
+// and identities break ties so snapshot bytes and publication order are stable.
+func (p ProcessRelation) compareTreeOrder(other ProcessRelation) int {
+	if order := cmp.Compare(p.depth, other.depth); order != 0 {
+		return order
+	}
+	return cmp.Compare(p.processID.String(), other.processID.String())
 }
 
 func (p ProcessRelation) childIdentity() (childIdentity, bool) {

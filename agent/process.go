@@ -128,27 +128,7 @@ func (p *Process) RequestCancellation(ctx context.Context, reason string) error 
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	runtime := p.handle.runtime.Load()
-	if runtime == nil {
-		return p.handle.closedRequestError()
-	}
-	if err := runtime.checkEventListenerReentrancy(ctx, "RequestCancellation"); err != nil {
-		return err
-	}
-	select {
-	case runtime.processCommands <- newTreeProcessCommand(
-		p.handle.processID,
-		processCommand{kind: commandCancel, cancellationIntent: intent},
-	):
-		return nil
-	case <-p.handle.outcomePublished:
-		return p.handle.closedRequestError()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return p.submit(ctx, processCommand{kind: commandCancel, cancellationIntent: intent})
 }
 
 // Kill records the Engine control plane's highest-priority terminal intent.
@@ -237,24 +217,9 @@ func (p *Process) Join(ctx context.Context) error {
 }
 
 func (p *Process) request(ctx context.Context, command processCommand) (processResponse, error) {
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return processResponse{}, err
-	}
-	runtime := p.handle.runtime.Load()
-	if runtime == nil {
-		return processResponse{}, p.handle.closedRequestError()
-	}
-	if err := runtime.checkEventListenerReentrancy(ctx, "process control"); err != nil {
-		return processResponse{}, err
-	}
 	command.response = make(chan processResponse, 1)
-	select {
-	case runtime.processCommands <- newTreeProcessCommand(p.handle.processID, command):
-	case <-p.handle.outcomePublished:
-		return processResponse{}, p.handle.closedRequestError()
-	case <-ctx.Done():
-		return processResponse{}, ctx.Err()
+	if err := p.submit(ctx, command); err != nil {
+		return processResponse{}, err
 	}
 	select {
 	case response := <-command.response:
@@ -268,6 +233,30 @@ func (p *Process) request(ctx context.Context, command processCommand) (processR
 		}
 	case <-ctx.Done():
 		return processResponse{}, ctx.Err()
+	}
+}
+
+// submit is the only path into the owning runtime's command lane; commands
+// without a response channel are accepted once they enter that lane.
+func (p *Process) submit(ctx context.Context, command processCommand) error {
+	ctx = RequireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	runtime := p.handle.runtime.Load()
+	if runtime == nil {
+		return p.handle.closedRequestError()
+	}
+	if err := runtime.checkEventListenerReentrancy(ctx, "process control"); err != nil {
+		return err
+	}
+	select {
+	case runtime.processCommands <- newTreeProcessCommand(p.handle.processID, command):
+		return nil
+	case <-p.handle.outcomePublished:
+		return p.handle.closedRequestError()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -104,7 +106,7 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 		EffectSequence: d.effectSequence,
 		EmittedAt:      d.emittedAt,
 		Payload:        d.payload,
-		IncarnationID:  optionalTreeIncarnationID(d.incarnationID),
+		IncarnationID:  lo.EmptyableToPtr(d.incarnationID),
 	})
 }
 
@@ -117,7 +119,7 @@ func (d *Delta) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDelta, err)
 	}
 	value, err := newDelta(
-		wire.ProcessID, wire.EffectID, treeIncarnationOrZero(wire.IncarnationID), wire.AttemptID,
+		wire.ProcessID, wire.EffectID, lo.FromPtr(wire.IncarnationID), wire.AttemptID,
 		wire.EffectSequence, wire.EmittedAt, wire.Payload,
 	)
 	if err != nil {
@@ -135,11 +137,4 @@ type deltaWire struct {
 	EffectSequence uint64             `json:"effect_sequence"`
 	EmittedAt      time.Time          `json:"emitted_at"`
 	Payload        json.RawMessage    `json:"payload"`
-}
-
-func optionalTreeIncarnationID(value TreeIncarnationID) *TreeIncarnationID {
-	if !value.Valid() {
-		return nil
-	}
-	return &value
 }

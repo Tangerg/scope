@@ -77,10 +77,14 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 		<-definition.entered
-		inspected := make(chan treeInspectionResponse, 1)
+		type inspectionResult struct {
+			inspection TreeInspection
+			err        error
+		}
+		inspected := make(chan inspectionResult, 1)
 		go func() {
 			inspection, inspectionErr := engine.InspectTree(t.Context(), root.ID())
-			inspected <- treeInspectionResponse{inspection: inspection, err: inspectionErr}
+			inspected <- inspectionResult{inspection: inspection, err: inspectionErr}
 		}()
 		releaseFast()
 		completed := make(chan Result, 1)

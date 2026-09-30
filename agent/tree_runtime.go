@@ -35,7 +35,7 @@ type treeRuntime struct {
 	processCommands chan treeCommand
 	freezeCommands  chan treeCommand
 	completions     chan treeJobCompletion
-	inspections     chan chan treeInspectionResponse
+	inspections     chan chan TreeInspection
 
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
@@ -52,7 +52,7 @@ type treeRuntime struct {
 	pendingPublications map[ProcessID]pendingProcessPublication
 	freeze              *activeTreeFreeze
 	done                chan struct{}
-	finalInspection     treeInspectionResponse
+	finalInspection     TreeInspection
 }
 
 type treeCommandKind uint8
@@ -240,7 +240,7 @@ func newTreeRuntime(
 		processCommands:     make(chan treeCommand, treeCommandBufferCapacity),
 		freezeCommands:      make(chan treeCommand, treeCommandBufferCapacity),
 		completions:         make(chan treeJobCompletion),
-		inspections:         make(chan chan treeInspectionResponse, treeCommandBufferCapacity),
+		inspections:         make(chan chan TreeInspection, treeCommandBufferCapacity),
 		processes:           make(map[ProcessID]*processState, len(processes)),
 		childrenByParent:    make(map[ProcessID][]ProcessID),
 		childWaits:          make(map[ProcessID]map[WaitID]*childWaitRegistration),
@@ -293,9 +293,8 @@ func (t *treeRuntime) run(rootContext context.Context) {
 }
 
 func (t *treeRuntime) finishRun() {
-	inspection, err := t.buildInspection()
-	inspection.Stopped = true
-	t.finalInspection = treeInspectionResponse{inspection: inspection, err: err}
+	t.finalInspection = t.buildInspection()
+	t.finalInspection.Stopped = true
 	close(t.done)
 }
 
@@ -533,12 +532,8 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		return
 	}
 	checkpoint := process.prepared.Intent.Kind() == TransitionKindCheckpoint
-	if err := t.finalizePrepared(process); err != nil {
-		if errors.Is(err, ErrResourceLimitExceeded) {
-			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
-		} else {
-			process.recordFailure(FailureKindContract, failureCodeEngineFinalizeInvalid, err)
-		}
+	if failure := t.finalizePrepared(process); failure != nil {
+		process.recordFailure(failure.kind, failure.code, failure.cause)
 		t.terminatePreparedProcess(process)
 	}
 	t.finishIfTerminal(process)
@@ -814,9 +809,8 @@ func (t *treeRuntime) startEffectCommit(
 	commit *treeCommit,
 	boundary EffectBoundary,
 ) {
-	if t.commit != nil || !boundary.kind.Valid() ||
-		commit == nil || !commit.processID.Valid() {
-		panic("agent: invalid concurrent tree commit")
+	if !boundary.kind.Valid() || commit == nil || !commit.processID.Valid() {
+		panic("agent: invalid tree Effect commit")
 	}
 	t.setTreeCommit(commit)
 	go func() {
@@ -873,9 +867,6 @@ func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKin
 	checkpoint, err := newTreeCheckpoint(t.commitSequence+1, kind, t.head.Digest(), commit.snapshot)
 	if err != nil {
 		return err
-	}
-	if t.commit != nil {
-		return errors.New("invalid concurrent tree checkpoint")
 	}
 	t.setTreeCommit(commit)
 	go func() {
@@ -1129,15 +1120,15 @@ func (t *treeRuntime) failRuntime(
 		acknowledged[snapshot.ProcessID()] = struct{}{}
 	}
 	for _, process := range orderedProcesses(t.processes) {
-		processID := process.handle.processID
-		if _, published := acknowledged[processID]; !published {
+		memberID := process.handle.processID
+		if _, published := acknowledged[memberID]; !published {
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.
-			t.engine.discardProcessStart(processID)
-			t.removeProcess(processID)
+			t.engine.discardProcessStart(memberID)
+			t.removeProcess(memberID)
 			continue
 		}
-		t.stopProcessRuntime(process, cause, unresolvedByProcess[processID])
+		t.stopProcessRuntime(process, cause, unresolvedByProcess[memberID])
 	}
 	if t.freeze != nil {
 		freeze := t.freeze
@@ -1518,7 +1509,6 @@ func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Si
 		t.stageCommittedEvent(event)
 	}
 	return len(events) > 0 || process.mailbox.contains(signal.ID())
-
 }
 
 func (t *treeRuntime) deliverSignals(process *processState, command processCommand) {
@@ -1669,22 +1659,22 @@ func (t *treeRuntime) checkEventListenerReentrancy(ctx context.Context, operatio
 func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
 	select {
 	case <-t.done:
-		return t.finalInspection.inspection.clone(), t.finalInspection.err
+		return t.finalInspection.clone(), nil
 	default:
 	}
-	response := make(chan treeInspectionResponse, 1)
+	response := make(chan TreeInspection, 1)
 	select {
 	case t.inspections <- response:
 	case <-t.done:
-		return t.finalInspection.inspection.clone(), t.finalInspection.err
+		return t.finalInspection.clone(), nil
 	case <-ctx.Done():
 		return TreeInspection{}, ctx.Err()
 	}
 	select {
-	case result := <-response:
-		return result.inspection, result.err
+	case inspection := <-response:
+		return inspection, nil
 	case <-t.done:
-		return t.finalInspection.inspection.clone(), t.finalInspection.err
+		return t.finalInspection.clone(), nil
 	case <-ctx.Done():
 		return TreeInspection{}, ctx.Err()
 	}
@@ -1700,12 +1690,11 @@ func (t *treeRuntime) tryInspection() bool {
 	}
 }
 
-func (t *treeRuntime) replyInspection(response chan treeInspectionResponse) {
-	inspection, err := t.buildInspection()
-	response <- treeInspectionResponse{inspection: inspection, err: err}
+func (t *treeRuntime) replyInspection(response chan TreeInspection) {
+	response <- t.buildInspection()
 }
 
-func (t *treeRuntime) buildInspection() (TreeInspection, error) {
+func (t *treeRuntime) buildInspection() TreeInspection {
 	inspection := TreeInspection{
 		RootID: t.rootID, IncarnationID: t.incarnation, HeadDigest: t.head.Digest(),
 		CommitPending: t.commit != nil, Freeze: TreeFreezePhaseNone,
@@ -1744,7 +1733,7 @@ func (t *treeRuntime) buildInspection() (TreeInspection, error) {
 		}
 		inspection.Processes = append(inspection.Processes, report)
 	}
-	return inspection, nil
+	return inspection
 }
 
 func (t *treeRuntime) startStep(process *processState) {
@@ -1859,7 +1848,6 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		}
 		operation.dispatch(t, process, uint32(index), record, observation)
 		return
-
 	}
 	t.startDispatch(process, uint32(index), *record, nil)
 }
@@ -2350,7 +2338,6 @@ func (t *treeRuntime) publishDispatchFinished(process *processState, job *proces
 			EventDeltaDropped, EventPhaseAttempt,
 			process.prepared.StepSequence, result.effectID, payload,
 		))
-
 	}
 	t.publishSettlementEvent(process, result.effectID, EffectTargetDispatcher, result.settlement.Status(), job.effectAttempt, result.err)
 }
@@ -2725,13 +2712,24 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 
 // The tree owner installs wait registrations around one candidate adoption.
 // A rejected local transition cannot leave a live registration behind.
-func (t *treeRuntime) finalizePrepared(process *processState) error {
+// Only immediate child-wait answers and the resulting snapshot can exceed a
+// bound here, so each failure is classified where it arises.
+func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFailure {
+	invalid := func(err error) *stepPreparationFailure {
+		return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
+	}
+	limited := func(code string, err error) *stepPreparationFailure {
+		if !errors.Is(err, ErrResourceLimitExceeded) {
+			return invalid(err)
+		}
+		return &stepPreparationFailure{kind: FailureKindExecution, code: code, cause: err}
+	}
 	finalization, err := newPreparedStepFinalization(process, process.prepared)
 	if err != nil {
-		return err
+		return invalid(err)
 	}
 	if err := finalization.prepareSettlements(); err != nil {
-		return err
+		return invalid(err)
 	}
 	var registered []WaitID
 	var immediate []Signal
@@ -2746,7 +2744,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 	for _, opened := range finalization.openedChildWaits {
 		signal, satisfied, err := t.registerChildWait(process.handle.processID, opened.WaitID(), opened.Spec())
 		if err != nil {
-			return err
+			return invalid(err)
 		}
 		registered = append(registered, opened.WaitID())
 		if satisfied {
@@ -2754,19 +2752,22 @@ func (t *treeRuntime) finalizePrepared(process *processState) error {
 		}
 	}
 	if err := finalization.prepareTransition(time.Now().Round(0).UTC()); err != nil {
-		return err
+		return invalid(err)
 	}
 	candidate := process.candidate()
 	candidate.adopt(finalization)
 	if len(immediate) != 0 {
 		admitted, admissionErr := candidate.prepareSignals(immediate, signalSourceChildWait)
 		if admissionErr != nil {
-			return admissionErr
+			return limited(failureCodeEngineLimitChildWaitSignal, admissionErr)
 		}
 		candidate = admitted
 	}
 	if err := t.validateSnapshotCapacity(candidate); err != nil {
-		return err
+		if len(immediate) != 0 {
+			return limited(failureCodeEngineLimitChildWaitSignal, err)
+		}
+		return limited(failureCodeEngineLimitSnapshot, err)
 	}
 	process.adoptCandidate(candidate)
 	adopted = true
@@ -2889,7 +2890,7 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 		if index > 0 {
 			separator = 1
 		}
-		if !resourceQuantitiesFit(^uint64(0), size, memberSize, separator) {
+		if !resourceQuantitiesFit(math.MaxUint64, size, memberSize, separator) {
 			return ErrCounterExhausted
 		}
 		size += memberSize + separator

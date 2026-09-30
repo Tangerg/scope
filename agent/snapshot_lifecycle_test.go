@@ -171,8 +171,8 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 			}
 			runtime.advancePrepared(parent)
 			before := controlValue(runtime.captureTree())
-			if err := runtime.finalizePrepared(parent); !errors.Is(err, ErrResourceLimitExceeded) {
-				t.Fatalf("oversized immediate result = %v", err)
+			if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) {
+				t.Fatalf("oversized immediate result = %+v", failure)
 			}
 			after := controlValue(runtime.captureTree())
 			if before.Digest() != after.Digest() || len(runtime.childWaits) != 0 {

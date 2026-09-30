@@ -109,8 +109,3 @@ func (t TreeInspection) clone() TreeInspection {
 	}
 	return t
 }
-
-type treeInspectionResponse struct {
-	inspection TreeInspection
-	err        error
-}

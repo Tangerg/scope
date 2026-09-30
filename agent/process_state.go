@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"time"
@@ -404,7 +405,7 @@ func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
 			kind: FailureKindExecution, code: failureCodeEngineLimitSteps, cause: ErrResourceLimitExceeded,
 		}
 	}
-	if p.committedSteps == ^uint64(0) {
+	if p.committedSteps == math.MaxUint64 {
 		return &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	return nil
@@ -437,7 +438,7 @@ func (p *processState) prepareStep(result stepJobResult) (*processState, *stepPr
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
 	}
-	if !resourceQuantitiesFit(^uint64(0), p.counters.PreparedEffects, effectCount) {
+	if !resourceQuantitiesFit(math.MaxUint64, p.counters.PreparedEffects, effectCount) {
 		return nil, &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
@@ -680,21 +681,9 @@ func (p *processState) snapshotWire() processSnapshotWire {
 }
 
 func orderedProcesses(values map[ProcessID]*processState) []*processState {
-	processes := make([]*processState, 0, len(values))
-	for _, process := range values {
-		processes = append(processes, process)
-	}
+	processes := slices.Collect(maps.Values(values))
 	slices.SortFunc(processes, func(left, right *processState) int {
-		if order := cmp.Compare(
-			left.handle.relation.Depth(),
-			right.handle.relation.Depth(),
-		); order != 0 {
-			return order
-		}
-		return cmp.Compare(
-			left.handle.processID.String(),
-			right.handle.processID.String(),
-		)
+		return left.handle.relation.compareTreeOrder(right.handle.relation)
 	})
 	return processes
 }

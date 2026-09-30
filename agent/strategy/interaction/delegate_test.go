@@ -149,7 +149,6 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	}); !errors.Is(err, interaction.ErrInvalidDefinitionConfig) {
 		t.Fatalf("name collision error=%v", err)
 	}
-
 }
 
 func TestDelegateDescriptionContract(t *testing.T) {

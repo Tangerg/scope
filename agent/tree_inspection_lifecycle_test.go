@@ -175,10 +175,10 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 func TestInspectTreeCancellationAndBoundedAdmission(t *testing.T) {
 	owner := newTreeRuntime(&Engine{}, ProcessID{}, t.Context())
 	for range treeCommandBufferCapacity {
-		owner.inspections <- make(chan treeInspectionResponse, 1)
+		owner.inspections <- make(chan TreeInspection, 1)
 	}
 	select {
-	case owner.inspections <- make(chan treeInspectionResponse, 1):
+	case owner.inspections <- make(chan TreeInspection, 1):
 		t.Fatal("inspection admission exceeded its bounded lane")
 	default:
 	}

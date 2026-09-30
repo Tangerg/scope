@@ -93,7 +93,7 @@ func (s *search) run(ctx context.Context) (searchNode, bool, error) {
 		if !s.maxExpansions.Allows(s.expansions, 1) {
 			return searchNode{}, false, ErrExpansionLimitReached
 		}
-		if s.expansions == ^uint64(0) {
+		if s.expansions == math.MaxUint64 {
 			return searchNode{}, false, agent.ErrCounterExhausted
 		}
 		s.expansions++
@@ -147,7 +147,7 @@ func (s *search) relax(action planning.Action, fromKey string, state planning.Wo
 	if !s.maxGeneratedNodes.Allows(s.nextOrder, 1) {
 		return ErrGenerationLimitReached
 	}
-	if s.nextOrder == ^uint64(0) {
+	if s.nextOrder == math.MaxUint64 {
 		return agent.ErrCounterExhausted
 	}
 	planned, err := planning.NewPlannedAction(action.Name())

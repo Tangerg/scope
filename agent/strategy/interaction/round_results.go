@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"math"
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -137,7 +138,7 @@ func pendingRound(process agent.ProcessSnapshot) (*executionState, []chat.ToolCa
 	if err != nil {
 		return nil, nil, err
 	}
-	if state.ModelCallCount == 0 || len(calls) == 0 || uint64(len(calls)) > uint64(^uint32(0)) {
+	if state.ModelCallCount == 0 || len(calls) == 0 || uint64(len(calls)) > math.MaxUint32 {
 		return nil, nil, ErrInvalidExecutionState
 	}
 	if validationErr := state.ToolRound.validateResults(context.Background(), calls); validationErr != nil {

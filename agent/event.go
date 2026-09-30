@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -318,7 +320,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		processID:       wire.ProcessID,
 		deploymentRef:   wire.DeploymentRef,
 		relation:        relation,
-		incarnationID:   treeIncarnationOrZero(wire.IncarnationID),
+		incarnationID:   lo.FromPtr(wire.IncarnationID),
 		stepSequence:    wire.StepSequence,
 		effectID:        effectID,
 		name:            wire.Name,
@@ -417,13 +419,6 @@ type eventWire struct {
 	Phase           EventPhase          `json:"phase"`
 	OccurredAt      time.Time           `json:"occurred_at"`
 	Payload         json.RawMessage     `json:"payload"`
-}
-
-func treeIncarnationOrZero(value *TreeIncarnationID) TreeIncarnationID {
-	if value == nil {
-		return TreeIncarnationID{}
-	}
-	return *value
 }
 
 type eventIdentityScope uint8

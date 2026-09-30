@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -293,7 +294,7 @@ func (e *execution) finishLoopIteration(
 		return e.finishStage(consumedSignals)
 	}
 	e.state.clearSingleChild()
-	if e.state.LoopIteration == ^uint64(0) {
+	if e.state.LoopIteration == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	e.state.LoopIteration++

@@ -3,6 +3,7 @@ package collaboration
 import (
 	"context"
 	"fmt"
+	"math"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -47,7 +48,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	if !e.definition.maxTurns.Allows(e.state.Number, 1) {
 		return agent.Transition{}, ErrTurnLimit
 	}
-	if e.state.Number == ^uint64(0) {
+	if e.state.Number == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	e.state.Number++
@@ -101,7 +102,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 }
 
 func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
-	if e.state.WaitSequence == ^uint64(0) {
+	if e.state.WaitSequence == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	e.state.WaitSequence++

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/samber/lo"
 )
 
 var (
@@ -334,7 +336,7 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	receipts := make([]SignalReceipt, 0, len(m.Signals))
 	for _, record := range m.Signals {
 		receipt := SignalReceipt{
-			id: record.ID, waitID: snapshotWaitID(record.WaitID), payloadDigest: record.PayloadDigest,
+			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: record.PayloadDigest,
 			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= m.SignalCursor,
 			external: record.Source == signalSourceExternal,
 		}
@@ -521,7 +523,7 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 		return signalRecord{}, err
 	}
 	record := signalRecord{
-		arrivalSequence: sequence, id: s.ID, waitID: snapshotWaitID(s.WaitID),
+		arrivalSequence: sequence, id: s.ID, waitID: lo.FromPtr(s.WaitID),
 		payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,
 	}
 	if sequence <= cursor {

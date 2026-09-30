@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -84,7 +85,7 @@ func (l Limits) validate() error {
 	switch {
 	case l.MaxPendingSignals == 0:
 		return errors.New("MaxPendingSignals must be greater than zero")
-	case l.MaxPendingSignals > uint64(^uint32(0)):
+	case l.MaxPendingSignals > math.MaxUint32:
 		return errors.New("MaxPendingSignals exceeds the representable Transition capacity")
 	default:
 		return nil
@@ -170,10 +171,9 @@ type resourceAmounts struct {
 }
 
 func (r resourceAmounts) add(other resourceAmounts) (resourceAmounts, bool) {
-	const maximum = ^uint64(0)
-	if !resourceQuantitiesFit(maximum, r.Steps, other.Steps) ||
-		!resourceQuantitiesFit(maximum, r.Effects, other.Effects) ||
-		!resourceQuantitiesFit(maximum, r.Signals, other.Signals) {
+	if !resourceQuantitiesFit(math.MaxUint64, r.Steps, other.Steps) ||
+		!resourceQuantitiesFit(math.MaxUint64, r.Effects, other.Effects) ||
+		!resourceQuantitiesFit(math.MaxUint64, r.Signals, other.Signals) {
 		return resourceAmounts{}, false
 	}
 	return resourceAmounts{Steps: r.Steps + other.Steps, Effects: r.Effects + other.Effects, Signals: r.Signals + other.Signals}, true
@@ -191,9 +191,8 @@ func resourceQuantitiesFit(limit uint64, quantities ...uint64) bool {
 }
 
 func saturatingCountAdd(value, increment uint64) uint64 {
-	const maxUint64 = ^uint64(0)
-	if increment > maxUint64-value {
-		return maxUint64
+	if increment > math.MaxUint64-value {
+		return math.MaxUint64
 	}
 	return value + increment
 }

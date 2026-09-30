@@ -12,7 +12,7 @@ const schedulingProgressTurns = 8
 func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	runtime.completions = make(chan treeJobCompletion, 1)
-	responses := make(chan treeInspectionResponse, treeCommandBufferCapacity)
+	responses := make(chan TreeInspection, treeCommandBufferCapacity)
 	commandResponses := make(chan processResponse, treeCommandBufferCapacity)
 	answered, commandsAnswered := 0, 0
 	refill := func() {
@@ -34,9 +34,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 		}
 		runtime.tryInspection()
 		for len(responses) != 0 {
-			response := <-responses
-			if response.err != nil || response.inspection.RootID != runtime.rootID {
-				t.Fatalf("ready query failed: %v", response.err)
+			if inspection := <-responses; inspection.RootID != runtime.rootID {
+				t.Fatalf("ready query answered tree %s", inspection.RootID)
 			}
 			answered++
 		}
@@ -127,14 +126,12 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	process.status = StatusPaused
 	process.pauseReason = "wait for explicit resumption"
 	runtime.dequeueProcess()
-	response := make(chan treeInspectionResponse, 1)
+	response := make(chan TreeInspection, 1)
 	for range schedulingProgressTurns {
 		runtime.inspections <- response
 		runtime.advanceReadyWork()
 		runtime.tryInspection()
-		if reply := <-response; reply.err != nil {
-			t.Fatal(reply.err)
-		}
+		<-response
 		if runtime.commit != nil {
 			break
 		}
@@ -161,14 +158,12 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime.dequeueProcess()
 	runtime.tryStartCheckpoint()
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
-	response := make(chan treeInspectionResponse, 1)
+	response := make(chan TreeInspection, 1)
 	runtime.inspections <- response
 	if !runtime.tryInspection() {
 		t.Fatal("ready inspection was not served")
 	}
-	if reply := <-response; reply.err != nil {
-		t.Fatal(reply.err)
-	}
+	<-response
 	if runtime.advanceReadyWork() {
 		t.Fatal("read-only query introduced execution work for a paused Process")
 	}
@@ -176,16 +171,12 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 
 func inspectionStatus(t *testing.T, runtime *treeRuntime, processID ProcessID) Status {
 	t.Helper()
-	response := make(chan treeInspectionResponse, 1)
+	response := make(chan TreeInspection, 1)
 	runtime.inspections <- response
 	if !runtime.tryInspection() {
 		t.Fatal("inspection was not served")
 	}
-	reply := <-response
-	if reply.err != nil {
-		t.Fatal(reply.err)
-	}
-	process, ok := reply.inspection.Process(processID)
+	process, ok := (<-response).Process(processID)
 	if !ok {
 		t.Fatal("Process missing from inspection")
 	}

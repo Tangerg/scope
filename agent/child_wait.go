@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -89,7 +90,7 @@ func (c ChildWaitSpec) Valid() bool {
 	if !c.Key.Valid() || !c.Boundary.Valid() {
 		return false
 	}
-	if !c.Condition.Valid() || len(c.Children) == 0 || uint64(len(c.Children)) > uint64(^uint32(0)) || c.required() > uint32(len(c.Children)) {
+	if !c.Condition.Valid() || len(c.Children) == 0 || uint64(len(c.Children)) > math.MaxUint32 || c.required() > uint32(len(c.Children)) {
 		return false
 	}
 	seen := make(map[ProcessID]struct{}, len(c.Children))

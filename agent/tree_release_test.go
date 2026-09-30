@@ -77,7 +77,6 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	if loadErr != nil || !exists || !head.Valid() || head.state.processSnapshot(root.ID()).Status() != StatusCompleted {
 		t.Fatalf("Engine release or close removed stored recovery facts: exists=%t error=%v", exists, loadErr)
 	}
-
 }
 
 func TestReleaseTreeCancellationLeavesWaitingTreeUsable(t *testing.T) {

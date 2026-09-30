@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -211,7 +213,7 @@ func (p ProcessSnapshot) Result() (Result, bool) {
 // WaitID returns the current unanswered Engine-minted wait identity, including
 // while the captured Process is Paused.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	waitID := snapshotWaitID(p.state.CurrentWaitID)
+	waitID := lo.FromPtr(p.state.CurrentWaitID)
 	return waitID, waitID.Valid()
 }
 
@@ -237,13 +239,6 @@ func mustProcessRelation(processID ProcessID, wire processRelationWire) ProcessR
 		panic(err)
 	}
 	return relation
-}
-
-func snapshotWaitID(waitID *WaitID) WaitID {
-	if waitID == nil {
-		return WaitID{}
-	}
-	return *waitID
 }
 
 func (p ProcessSnapshot) MarshalJSON() ([]byte, error) {
@@ -336,7 +331,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 				if err != nil {
 					return 0, err
 				}
-				if !resourceQuantitiesFit(^uint64(0), effectGrowth, growth) {
+				if !resourceQuantitiesFit(math.MaxUint64, effectGrowth, growth) {
 					return 0, ErrCounterExhausted
 				}
 				prepared.Effects[index] = projection
@@ -347,7 +342,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		// a Step pause racing a Host pause.
 		p.PauseReason = reservation.reason(maxPauseReasonBytes)
 		p.Status = StatusRunning
-		p.Counters.DroppedDeltas = ^uint64(0)
+		p.Counters.DroppedDeltas = math.MaxUint64
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reservation.reason(maxTerminationReasonBytes), PauseReason: reservation.reason(maxPauseReasonBytes),
 			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(maxTerminationReasonBytes),
@@ -374,7 +369,7 @@ func (p processSnapshotWire) admissionSize() (uint64, error) {
 		return 0, err
 	}
 	size := max(pendingSize, uint64(len(encoded))+terminalGrowth)
-	if !resourceQuantitiesFit(^uint64(0), size, effectGrowth) {
+	if !resourceQuantitiesFit(math.MaxUint64, size, effectGrowth) {
 		return 0, ErrCounterExhausted
 	}
 	size += effectGrowth

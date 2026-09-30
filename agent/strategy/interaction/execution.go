@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"math"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -99,7 +100,7 @@ func (e *execution) requestModel(
 			"Interaction reached its configured model-call limit before a final response",
 		)
 	}
-	if e.state.ModelCallCount == ^uint64(0) {
+	if e.state.ModelCallCount == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
 	modelCallSequence := e.state.ModelCallCount + 1
@@ -273,7 +274,7 @@ func (e *execution) finishOrRetry(
 
 func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
 	calls, err := validatedToolCalls(e.state.ToolRound.Response)
-	if err != nil || uint64(len(calls)) > uint64(^uint32(0)) ||
+	if err != nil || uint64(len(calls)) > math.MaxUint32 ||
 		uint64(e.state.ToolRound.nextCallIndex()) > uint64(len(calls)) {
 		return agent.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
 	}

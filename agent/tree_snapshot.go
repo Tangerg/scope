@@ -185,17 +185,12 @@ func (t treeSnapshotWire) processSnapshot(id ProcessID) ProcessSnapshot {
 }
 
 func (t *treeSnapshotWire) normalize() {
-	slices.SortFunc(t.ProcessSnapshots, compareSnapshots)
+	slices.SortFunc(t.ProcessSnapshots, func(left, right ProcessSnapshot) int {
+		return left.Relation().compareTreeOrder(right.Relation())
+	})
 	slices.SortFunc(t.ChildWaits, func(left, right childWaitSnapshotWire) int {
 		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
 	})
-}
-
-func compareSnapshots(left, right ProcessSnapshot) int {
-	if order := cmp.Compare(left.Relation().Depth(), right.Relation().Depth()); order != 0 {
-		return order
-	}
-	return cmp.Compare(left.ProcessID().String(), right.ProcessID().String())
 }
 
 type treeSnapshotValidation struct {
