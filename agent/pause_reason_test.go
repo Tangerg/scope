@@ -138,7 +138,7 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 	process.status, process.pause = StatusPaused, pause{reason: strings.Repeat("\x00", 4096)}
 	process.pendingControl.pause = pause{reason: strings.Repeat("\x01", 4096)}
 	snapshot := controlValue(ParseProcessSnapshot(controlValue(process.capture()).JSON()))
-	_, restored, _, err := prepareRestoredProcess(t.Context(), process.deployment, snapshot)
+	restored, err := prepareRestoredProcess(t.Context(), process.deployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}

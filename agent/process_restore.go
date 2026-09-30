@@ -11,32 +11,32 @@ func prepareRestoredProcess(
 	ctx context.Context,
 	deployment Deployment,
 	snapshot ProcessSnapshot,
-) (*processHandle, *processState, processSnapshotWire, error) {
+) (*processState, error) {
 	wire, err := snapshot.wire()
 	if err != nil {
-		return nil, nil, processSnapshotWire{}, err
+		return nil, err
 	}
 	if wire.DeploymentRef != deployment.DeploymentRef() {
-		return nil, nil, processSnapshotWire{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: exact Deployment does not match", ErrInvalidSnapshot,
 		)
 	}
 	if wire.Output.Valid() {
 		if validateOutputErr := deployment.Descriptor().ValidateOutput(wire.Output); validateOutputErr != nil {
-			return nil, nil, processSnapshotWire{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: output schema: %w", ErrInvalidSnapshot, validateOutputErr,
 			)
 		}
 	}
 	execution, err := restoreExecution(ctx, deployment.Definition(), wire.CommittedExecutionState)
 	if err != nil {
-		return nil, nil, processSnapshotWire{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: restore Execution: %w", ErrInvalidSnapshot, err,
 		)
 	}
 	mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.Status)
 	if err != nil {
-		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
+		return nil, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
 	for _, receipt := range snapshot.SignalReceipts() {
 		signal, pending := receipt.PendingSignal()
@@ -47,19 +47,15 @@ func prepareRestoredProcess(
 			continue
 		}
 		if signalErr := deployment.Descriptor().ValidateSignal(Payload{data: signal.Payload()}); signalErr != nil {
-			return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: pending Signal: %w", ErrInvalidSnapshot, signalErr)
+			return nil, fmt.Errorf("%w: pending Signal: %w", ErrInvalidSnapshot, signalErr)
 		}
 	}
 	relation, err := processRelationFromWire(wire.ProcessID, wire.Relation)
 	if err != nil {
-		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
+		return nil, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
 	handle := newProcessHandle(relation, wire.DeploymentRef, lo.FromPtr(wire.ChildRequestDigest), wire.Budget, wire.Capabilities, wire.StartedAt)
-	process, err := restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
-	if err != nil {
-		return nil, nil, processSnapshotWire{}, err
-	}
-	return handle, process, wire, nil
+	return restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
 }
 
 func restoreProcessState(

@@ -66,12 +66,12 @@ func benchmarkRestoredOwner(b *testing.B, snapshot TreeSnapshot) *treeRuntime {
 	deployment := newChildTestDeployment(b)
 	processes := make([]*processState, 0, len(snapshot.ProcessSnapshots()))
 	for _, captured := range snapshot.ProcessSnapshots() {
-		handle, process, _, restoreErr := prepareRestoredProcess(b.Context(), deployment, captured)
+		process, restoreErr := prepareRestoredProcess(b.Context(), deployment, captured)
 		if restoreErr != nil {
 			b.Fatal(restoreErr)
 		}
-		handle.publishResult(process.result())
-		handle.finishBookkeeping()
+		process.handle.publishResult(process.result())
+		process.handle.finishBookkeeping()
 		processes = append(processes, process)
 	}
 	return newTreeRuntime(engine, snapshot.RootID(), engine.treeLimits, b.Context(), processes...)

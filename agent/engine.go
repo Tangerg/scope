@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -727,22 +728,21 @@ func (e *Engine) newRestoration(
 }
 
 func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestoration) *Process {
-	for index := range restoration.processes {
-		entry := &restoration.processes[index]
-		if entry.wire.Status.Terminal() {
-			entry.handle.publishResult(entry.state.result())
+	runtime := restoration.runtime
+	processes := runtime.members.ordered()
+	for _, process := range processes {
+		if process.status.Terminal() {
+			process.handle.publishResult(process.result())
 		}
 	}
-	for index := len(restoration.processes) - 1; index >= 0; index-- {
-		entry := &restoration.processes[index]
-		if !entry.wire.Status.Terminal() {
-			continue
+	for _, process := range slices.Backward(processes) {
+		if process.status.Terminal() {
+			runtime.propagateProcessTermination(process)
+			runtime.finishProcessBookkeeping(process)
 		}
-		restoration.runtime.propagateProcessTermination(entry.state)
-		restoration.runtime.finishProcessBookkeeping(entry.state)
 	}
-	root := restoration.runtime.members.get(restoration.wire.RootID).handle
-	go restoration.runtime.run(RequireContext(ctx))
+	root := runtime.members.get(runtime.rootID).handle
+	go runtime.run(RequireContext(ctx))
 	return &Process{handle: root}
 }
 
@@ -803,11 +803,11 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	if e.closeDone != nil || e.treeRestoreReservations[rootID] != restoration {
 		panic("agent: invalid restored tree reservation")
 	}
-	runtime := restoration.processes[0].handle.runtime.Load()
+	runtime := restoration.runtime
 	if runtime == nil || runtime.rootID != rootID || e.trees[rootID] != nil {
 		panic("agent: invalid restored tree runtime")
 	}
-	for _, process := range restoration.processes {
+	for _, process := range runtime.members.all() {
 		handle := process.handle
 		if e.processes[handle.processID] != nil ||
 			e.startReservations[handle.processID].relation.Valid() {
