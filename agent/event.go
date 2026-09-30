@@ -78,7 +78,6 @@ type Event struct {
 // eventFact is validated before staging; publication alone assigns its sequence.
 // Its phase is not stored: frameworkEventContracts fixes it for each name.
 type eventFact struct {
-	processID     ProcessID
 	deploymentRef DeploymentRef
 	relation      ProcessRelation
 	incarnationID TreeIncarnationID
@@ -103,13 +102,10 @@ func newEvent(fact eventFact, processSequence uint64) (Event, error) {
 // newEventFact validates fact against its Framework contract and returns it
 // with a normalized payload and UTC occurrence time.
 func newEventFact(fact eventFact) (eventFact, error) {
-	if !fact.processID.Valid() {
-		return eventFact{}, fmt.Errorf("%w: process ID: %w", ErrInvalidEvent, ErrInvalidIdentity)
-	}
 	if !fact.deploymentRef.Valid() {
 		return eventFact{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
 	}
-	if !fact.relation.Valid() || fact.relation.ProcessID() != fact.processID {
+	if !fact.relation.Valid() {
 		return eventFact{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
 	}
 	if fact.incarnationID != (TreeIncarnationID{}) && !fact.incarnationID.Valid() {
@@ -133,6 +129,8 @@ func newEventFact(fact eventFact) (eventFact, error) {
 	return fact, nil
 }
 
+func (e eventFact) processID() ProcessID { return e.relation.ProcessID() }
+
 func (e eventFact) phase() EventPhase { return frameworkEventContracts[e.name].phase }
 
 func (e eventFact) publish(sequence uint64) Event {
@@ -147,7 +145,7 @@ func (e eventFact) publish(sequence uint64) Event {
 // publication progress is observation state and is not part of a TreeSnapshot.
 func (e Event) ProcessSequence() uint64 { return e.processSequence }
 
-func (e Event) ProcessID() ProcessID { return e.processID }
+func (e Event) ProcessID() ProcessID { return e.processID() }
 
 func (e Event) DeploymentRef() DeploymentRef { return e.deploymentRef }
 
@@ -258,7 +256,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	}
 	wire := eventWire{
 		ProcessSequence: e.processSequence,
-		ProcessID:       e.processID,
+		ProcessID:       e.processID(),
 		DeploymentRef:   e.deploymentRef,
 		Relation:        e.relation.wire(),
 		StepSequence:    e.stepSequence,
@@ -293,7 +291,6 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidEvent, err)
 	}
 	value, err := newEvent(eventFact{
-		processID:     wire.ProcessID,
 		deploymentRef: wire.DeploymentRef,
 		relation:      relation,
 		incarnationID: lo.FromPtr(wire.IncarnationID),

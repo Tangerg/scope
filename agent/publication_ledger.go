@@ -10,9 +10,9 @@ type pendingProcessPublication struct {
 }
 
 func (p publicationLedger) stage(event eventFact) {
-	publication := p[event.processID]
+	publication := p[event.processID()]
 	publication.events = append(publication.events, event)
-	p[event.processID] = publication
+	p[event.processID()] = publication
 }
 
 func (p publicationLedger) owesTerminal(processID ProcessID) bool {
@@ -21,9 +21,9 @@ func (p publicationLedger) owesTerminal(processID ProcessID) bool {
 
 func (p publicationLedger) stageTerminal(event eventFact) {
 	p.stage(event)
-	publication := p[event.processID]
+	publication := p[event.processID()]
 	publication.terminal = true
-	p[event.processID] = publication
+	p[event.processID()] = publication
 }
 
 // take removes and returns what processID is owed, if anything.

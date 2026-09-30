@@ -642,7 +642,6 @@ func (t *treeRuntime) effectRequestFor(
 	record preparedEffect,
 ) EffectRequest {
 	return newEffectRequest(
-		process.handle.processID,
 		t.writer.incarnation(),
 		process.handle.deploymentRef,
 		process.handle.relation,
@@ -809,7 +808,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		t.events.emit(child, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
 	}
 	parent := t.members.get(pending.parentID)
-	if pending.event.processID.Valid() {
+	if pending.event.processID().Valid() {
 		t.events.publish(parent, pending.event)
 	} else {
 		t.events.publishSettlement(parent, pending.effectID, EffectTargetFramework,
@@ -888,7 +887,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 
 func (t *treeRuntime) stageCommittedEvent(event eventFact) {
 	if event.phase() != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
-		t.members.get(event.processID) == nil {
+		t.members.get(event.processID()) == nil {
 		panic("agent: invalid committed Event")
 	}
 	t.publications.stage(event)

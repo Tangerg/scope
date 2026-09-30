@@ -17,7 +17,6 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	relation := rootProcessRelation(processID)
 	event, err := newEvent(eventFact{
-		processID:     processID,
 		deploymentRef: deployment.DeploymentRef(),
 		relation:      relation,
 		stepSequence:  2,
@@ -82,7 +81,6 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fact := test.fact
-			fact.processID = processID
 			fact.deploymentRef = deployment.DeploymentRef()
 			fact.relation = rootProcessRelation(processID)
 			fact.occurredAt = time.Unix(20, 0)
@@ -102,7 +100,7 @@ func TestEventDecodingRejectsAPhaseItsNameDoesNotFix(t *testing.T) {
 		{name: EventProcessStarted, payload: emptyEventPayload()},
 		{name: EventRuntimeStopped, payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.committer_failed"}`)},
 	} {
-		fact.processID, fact.deploymentRef = processID, deployment.DeploymentRef()
+		fact.deploymentRef = deployment.DeploymentRef()
 		fact.relation, fact.occurredAt = rootProcessRelation(processID), time.Unix(20, 0)
 		event, err := newEvent(fact, 1)
 		if err != nil {
@@ -189,7 +187,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 			f.Fatal(marshalErr)
 		}
 		event, eventErr := newEvent(eventFact{
-			processID: processID, deploymentRef: reference, relation: rootProcessRelation(processID),
+			deploymentRef: reference, relation: rootProcessRelation(processID),
 			stepSequence: fixture.stepSequence, effectID: fixture.effectID,
 			name: fixture.name, occurredAt: time.Unix(20, 0), payload: payload,
 		}, uint64(index+1))

@@ -44,7 +44,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 	}
 	relation := rootProcessRelation(processID)
 	request := newEffectRequest(
-		processID, TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
+		TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
 	)
 	if incarnationID, durable := request.TreeIncarnationID(); durable || incarnationID.Valid() {
 		t.Fatal("unbound request carries a writer identity")
