@@ -35,38 +35,45 @@ func (p ProcessInitializationOutcomeStatus) String() string {
 // persistence can still fail after an initialized outcome is accepted.
 type ProcessInitializationOutcome struct {
 	admission ProcessAdmission
-	status    ProcessInitializationOutcomeStatus
 	startedAt time.Time
 	failure   Failure
 }
 
 func (p ProcessInitializationOutcome) Admission() ProcessAdmission { return p.admission }
 
-func (p ProcessInitializationOutcome) Status() ProcessInitializationOutcomeStatus { return p.status }
+// Status is determined by which fact the outcome carries: a failure or the
+// time initialization succeeded.
+func (p ProcessInitializationOutcome) Status() ProcessInitializationOutcomeStatus {
+	switch {
+	case p.failure.Valid():
+		return ProcessInitializationOutcomeStatusFailed
+	case !p.startedAt.IsZero():
+		return ProcessInitializationOutcomeStatusInitialized
+	default:
+		return ProcessInitializationOutcomeStatusInvalid
+	}
+}
 
 // StartedAt returns the observed UTC lifecycle start time recorded before
 // initialization. It is available only after successful initialization and does
 // not identify the later Process publication boundary.
 func (p ProcessInitializationOutcome) StartedAt() (time.Time, bool) {
-	if p.status != ProcessInitializationOutcomeStatusInitialized || p.startedAt.IsZero() {
-		return time.Time{}, false
-	}
-	return p.startedAt, true
+	return p.startedAt, p.Status() == ProcessInitializationOutcomeStatusInitialized
 }
 
 func (p ProcessInitializationOutcome) Failure() (Failure, bool) {
-	return p.failure, p.status == ProcessInitializationOutcomeStatusFailed
+	return p.failure, p.Status() == ProcessInitializationOutcomeStatusFailed
 }
 
 func (p ProcessInitializationOutcome) Valid() bool {
 	if !p.admission.Valid() {
 		return false
 	}
-	switch p.status {
+	switch p.Status() {
 	case ProcessInitializationOutcomeStatusInitialized:
-		return !p.startedAt.IsZero() && p.startedAt.Location() == time.UTC && !p.failure.Valid()
+		return p.startedAt.Location() == time.UTC
 	case ProcessInitializationOutcomeStatusFailed:
-		return p.startedAt.IsZero() && p.failure.Valid()
+		return p.startedAt.IsZero()
 	default:
 		return false
 	}
@@ -100,18 +107,11 @@ func (p ProcessInitializationOutcomeAcknowledgerFunc) AcknowledgeProcessInitiali
 }
 
 func initializedProcessOutcome(admission ProcessAdmission, startedAt time.Time) ProcessInitializationOutcome {
-	return ProcessInitializationOutcome{
-		admission: admission, status: ProcessInitializationOutcomeStatusInitialized,
-		startedAt: startedAt.Round(0).UTC(),
-	}
+	return ProcessInitializationOutcome{admission: admission, startedAt: startedAt.Round(0).UTC()}
 }
 
 func failedProcessInitializationOutcome(admission ProcessAdmission, failure Failure) ProcessInitializationOutcome {
-	return ProcessInitializationOutcome{
-		admission: admission,
-		status:    ProcessInitializationOutcomeStatusFailed,
-		failure:   failure,
-	}
+	return ProcessInitializationOutcome{admission: admission, failure: failure}
 }
 
 func acknowledgeProcessInitializationOutcome(

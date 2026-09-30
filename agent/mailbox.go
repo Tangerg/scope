@@ -337,10 +337,9 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	for _, record := range m.Signals {
 		receipt := SignalReceipt{
 			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: record.PayloadDigest,
-			arrivalSequence: record.ArrivalSequence, consumed: record.ArrivalSequence <= m.SignalCursor,
-			external: record.Source == signalSourceExternal,
+			arrivalSequence: record.ArrivalSequence, external: record.Source == signalSourceExternal,
 		}
-		if !receipt.consumed {
+		if record.ArrivalSequence > m.SignalCursor {
 			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
 		}
 		receipts = append(receipts, receipt)

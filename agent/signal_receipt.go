@@ -10,7 +10,6 @@ type SignalReceipt struct {
 	payloadDigest   Digest
 	arrivalSequence uint64
 	external        bool
-	consumed        bool
 	pending         Signal
 }
 
@@ -23,7 +22,7 @@ func (s SignalReceipt) PayloadDigest() Digest { return s.payloadDigest }
 func (s SignalReceipt) ArrivalSequence() uint64 { return s.arrivalSequence }
 
 // Consumed reports committed consumption, not delivery to a candidate Step.
-func (s SignalReceipt) Consumed() bool { return s.consumed }
+func (s SignalReceipt) Consumed() bool { return !s.pending.Valid() }
 
 // PendingSignal returns the retained input only while it remains unconsumed.
 func (s SignalReceipt) PendingSignal() (Signal, bool) { return s.pending, s.pending.Valid() }
