@@ -84,19 +84,18 @@ type signalEnvelope struct {
 type modelCallResult struct {
 	Response            *chat.Response `json:"response,omitzero"`
 	ReplacementMessages []chat.Message `json:"replacement_messages,omitempty"`
-	Error               string         `json:"error,omitempty"`
 	HostError           string         `json:"host_error,omitempty"`
 }
 
 func (m modelCallResult) validate() error {
 	modes := 0
-	for _, present := range []bool{m.Response != nil, m.Error != "", m.HostError != ""} {
+	for _, present := range []bool{m.Response != nil, m.HostError != ""} {
 		if present {
 			modes++
 		}
 	}
 	if modes != 1 {
-		return fmt.Errorf("%w: model_result requires exactly one response, provider error, or host error", ErrInvalidProtocol)
+		return fmt.Errorf("%w: model_result requires exactly one response or host error", ErrInvalidProtocol)
 	}
 	if m.Response == nil {
 		if m.ReplacementMessages != nil {

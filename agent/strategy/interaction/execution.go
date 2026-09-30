@@ -138,14 +138,6 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 			envelope.ModelResult.HostError,
 		)
 	}
-	if envelope.ModelResult.Error != "" {
-		return e.fail(
-			consumedSignals,
-			agent.FailureKindExternal,
-			failureCodeInteractionModelFailed,
-			envelope.ModelResult.Error,
-		)
-	}
 	if replacement := envelope.ModelResult.ReplacementMessages; replacement != nil {
 		if replaceErr := e.state.replaceModelContext(replacement); replaceErr != nil {
 			return agent.Transition{}, replaceErr
@@ -743,7 +735,6 @@ const (
 	failureCodeInteractionHostFailed                 = "interaction.host.failed"
 	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
 	failureCodeInteractionModelInvalidResponse       = "interaction.model.invalid_response"
-	failureCodeInteractionModelFailed                = "interaction.model.failed"
 	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
 	failureCodeInteractionToolProcessFailed          = "interaction.tool.process_failed"
 )

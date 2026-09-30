@@ -120,6 +120,13 @@ func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 	}
 }
 
+func TestModelResultRejectsProviderErrorMember(t *testing.T) {
+	_, err := decodeSignal(json.RawMessage(`{"operation":"model_call","model_result":{"error":"provider unavailable"}}`))
+	if !errors.Is(err, ErrInvalidProtocol) || !errors.Is(err, jsonv2.ErrUnknownName) {
+		t.Fatalf("decodeSignal = %v, want ErrInvalidProtocol wrapping an unknown member", err)
+	}
+}
+
 func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
 	request, err := newToolInputRequest(
 		json.RawMessage(`"provide another value"`),
