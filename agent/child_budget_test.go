@@ -147,7 +147,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	}
 	childID := first.handle.processID.effectID(1, 0).childProcessID()
 	relation := childProcessRelation(childID, first.handle.relation, controlValue(ParseChildKey("worker")))
-	runtime.jobs[first.handle.processID] = &processJob{kind: processJobChildStart, childStart: &childStartPlan{childID: childID, relation: relation}}
+	runtime.jobs.start(first.handle.processID, &processJob{kind: processJobChildStart, childStart: &childStartPlan{childID: childID, relation: relation}})
 	if runtime.canStartChild(second) {
 		t.Fatal("sibling start ignored the last in-flight tree slot")
 	}
@@ -161,7 +161,9 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")
 	}
-	delete(runtime.jobs, first.handle.processID)
+	if _, finished := runtime.jobs.finish(treeJobCompletion{processID: first.handle.processID, result: childStartJobResult{}}); !finished {
+		t.Fatal("in-flight child start was not retired")
+	}
 	runtime.removeProcess(childID)
 	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("discarded child retained a resource reservation")

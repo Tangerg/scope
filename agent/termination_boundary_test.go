@@ -131,14 +131,14 @@ func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 		}()
 		runtime.removeProcess(process.handle.processID)
 	}()
-	if runtime.processes[process.handle.processID] != process || runtime.jobs[process.handle.processID] != job || runtime.inFlightWork.Load() != 1 {
+	if runtime.processes[process.handle.processID] != process || runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("rejected removal changed Process ownership")
 	}
 	runtime.applyCompletion(treeJobCompletion{
 		processID: process.handle.processID, attempt: 1,
 		result: restoreJobResult{execution: process.execution},
 	})
-	if len(runtime.jobs) != 0 || runtime.inFlightWork.Load() != 0 {
+	if !runtime.jobs.empty() || runtime.jobs.active.Load() != 0 {
 		t.Fatal("completion did not release owned work")
 	}
 }
@@ -173,7 +173,7 @@ func TestStaleCompletionPreservesCurrentOwnedWork(t *testing.T) {
 	runtime.applyCompletion(treeJobCompletion{
 		processID: process.handle.processID, attempt: 1, result: restoreJobResult{},
 	})
-	if runtime.jobs[process.handle.processID] != job || runtime.inFlightWork.Load() != 1 {
+	if runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("stale completion released the current attempt")
 	}
 }

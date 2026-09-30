@@ -26,7 +26,6 @@ type treeRuntime struct {
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
 	// one mutation owner.
-	inFlightWork    atomic.Int64
 	freezeActive    atomic.Bool
 	context         context.Context
 	processCommands chan processTreeCommand
@@ -41,7 +40,7 @@ type treeRuntime struct {
 	childWaits       childWaitRegistry
 	joinCandidates   map[ProcessID]*processState
 	runQueue         runQueue
-	jobs             map[ProcessID]*processJob
+	jobs             *jobTable
 	fault            error
 	publications     publicationLedger
 	freeze           *activeTreeFreeze
@@ -99,39 +98,6 @@ func (a *activeTreeFreeze) answer(result treeFreezeAcquisitionResult) {
 	a.acquisition = nil
 	acquisition.response <- result
 }
-
-type processAttempt uint64
-
-type processJobKind uint8
-
-const (
-	processJobInvalid processJobKind = iota
-	processJobStep
-	processJobRestore
-	processJobDispatch
-	processJobChildStart
-)
-
-type processJob struct {
-	kind          processJobKind
-	attempt       processAttempt
-	cancel        context.CancelFunc
-	stale         bool
-	effectID      EffectID
-	childStart    *childStartPlan
-	effectAttempt effectAttempt
-	response      chan processResponse
-}
-
-type treeJobCompletion struct {
-	processID ProcessID
-	attempt   processAttempt
-	result    jobResult
-}
-
-// jobResult is the outcome of one owned job. Its type names the job kind, so a
-// completion cannot carry the result of a different kind of work.
-type jobResult interface{ jobKind() processJobKind }
 
 type treeCommitKind uint8
 
@@ -237,7 +203,7 @@ func newTreeRuntime(
 		childWaits:       childWaitRegistry{},
 		joinCandidates:   make(map[ProcessID]*processState),
 		runQueue:         newRunQueue(len(processes)),
-		jobs:             make(map[ProcessID]*processJob, len(processes)),
+		jobs:             newJobTable(len(processes)),
 		publications:     publicationLedger{},
 		done:             make(chan struct{}),
 	}
@@ -434,7 +400,7 @@ func (t *treeRuntime) mutationsBlocked() bool {
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
 	process := t.processes[processID]
-	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs[processID] != nil {
+	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs.get(processID) != nil {
 		return
 	}
 	t.runQueue.push(processID)
@@ -447,7 +413,7 @@ func (t *treeRuntime) dequeueProcess() *processState {
 			return nil
 		}
 		process := t.processes[processID]
-		if process != nil && !process.status.Terminal() && t.jobs[processID] == nil {
+		if process != nil && !process.status.Terminal() && t.jobs.get(processID) == nil {
 			return process
 		}
 	}
@@ -536,21 +502,20 @@ func (t *treeRuntime) allocateAttempt(process *processState) (processAttempt, bo
 }
 
 func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
-	if !processID.Valid() || t.processes[processID] == nil || job == nil || t.jobs[processID] != nil {
-		panic("agent: invalid concurrent Process job")
+	if t.processes[processID] == nil {
+		panic("agent: owned work requires a tree member")
 	}
-	t.jobs[processID] = job
-	t.inFlightWork.Add(1)
+	t.jobs.start(processID, job)
 }
 
 // ownsActiveWork is the lock-free view Engine.Close uses: jobs, the in-flight
 // commit, and a held freeze each keep the tree busy.
 func (t *treeRuntime) ownsActiveWork() bool {
-	return t.inFlightWork.Load() != 0 || t.writer.busy.Load() || t.freezeActive.Load()
+	return t.jobs.active.Load() != 0 || t.writer.busy.Load() || t.freezeActive.Load()
 }
 
 func (t *treeRuntime) canStop() bool {
-	if t.freeze != nil || t.writer.committing() || len(t.jobs) != 0 ||
+	if t.freeze != nil || t.writer.committing() || !t.jobs.empty() ||
 		len(t.publications) != 0 {
 		return false
 	}
@@ -654,7 +619,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 			active++
 		}
 	}
-	for _, job := range t.jobs {
+	for _, job := range t.jobs.all() {
 		if job.childStart == nil || t.processes[job.childStart.childID] != nil {
 			continue
 		}
@@ -931,7 +896,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 // An idle tree checkpoints at once. Busy trees still publish a staged fact of
 // a Process that will not advance on its own: terminal, waiting, or paused.
 func (t *treeRuntime) readyForCheckpoint() bool {
-	if len(t.jobs) == 0 && t.runQueue.empty() {
+	if t.jobs.empty() && t.runQueue.empty() {
 		return true
 	}
 	for processID := range t.publications {
@@ -1061,20 +1026,17 @@ func (t *treeRuntime) unresolvedEffectsAtFailure(processID ProcessID, effectID E
 	if processID.Valid() && effectID.Valid() {
 		unresolved[processID] = append(unresolved[processID], effectID)
 	}
-	for candidateID, job := range t.jobs {
-		if (job.kind == processJobDispatch || job.kind == processJobChildStart) && job.effectID.Valid() {
-			unresolved[candidateID] = append(unresolved[candidateID], job.effectID)
+	for candidateID, job := range t.jobs.all() {
+		if effectID, uncertain := job.uncertainEffect(); uncertain {
+			unresolved[candidateID] = append(unresolved[candidateID], effectID)
 		}
 	}
 	return unresolved
 }
 
 func (t *treeRuntime) abandonJobs() {
-	for _, job := range t.jobs {
-		job.stale = true
-		if job.cancel != nil {
-			job.cancel()
-		}
+	for _, job := range t.jobs.all() {
+		job.abandon()
 		if job.kind == processJobChildStart {
 			t.abandonChildStartJob(job)
 		}
@@ -1181,7 +1143,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, command proces
 		command.reply(processResponse{err: ErrProcessFinished})
 		return
 	}
-	if t.jobs[process.handle.processID] != nil {
+	if t.jobs.get(process.handle.processID) != nil {
 		command.reply(processResponse{err: ErrEffectNotPending})
 		return
 	}
@@ -1216,7 +1178,7 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, command process
 		command.reply(processResponse{err: ErrProcessFinished})
 		return
 	}
-	if process.prepared == nil || t.jobs[process.handle.processID] != nil {
+	if process.prepared == nil || t.jobs.get(process.handle.processID) != nil {
 		command.reply(processResponse{err: ErrEffectNotPending})
 		return
 	}
@@ -1287,10 +1249,10 @@ func (t *treeRuntime) freezeBlockedByJob() bool {
 		}
 	}
 	if allTerminal {
-		return len(t.jobs) != 0
+		return !t.jobs.empty()
 	}
-	for _, job := range t.jobs {
-		if job.kind != processJobStep && job.kind != processJobRestore {
+	for _, job := range t.jobs.all() {
+		if !job.computation() {
 			return true
 		}
 	}
@@ -1343,12 +1305,11 @@ func (t *treeRuntime) releaseCurrentFreeze() {
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
-	job := t.jobs[process.handle.processID]
+	job := t.jobs.get(process.handle.processID)
 	if job == nil || job.kind != processJobStep || job.stale {
 		return
 	}
-	job.stale = true
-	job.cancel()
+	job.interrupt()
 }
 
 // Stopping owned work cannot wait for an ancestor's external call to return.
@@ -1356,13 +1317,8 @@ func (t *treeRuntime) invalidateStep(process *processState) {
 func (t *treeRuntime) stopProcessTree(process *processState) {
 	termination := process.effectiveTermination()
 	if !process.status.Terminal() {
-		if job := t.jobs[process.handle.processID]; job != nil {
-			if job.kind == processJobStep || job.kind == processJobRestore {
-				job.stale = true
-			}
-			if job.cancel != nil {
-				job.cancel()
-			}
+		if job := t.jobs.get(process.handle.processID); job != nil {
+			job.interrupt()
 		}
 		t.enqueueProcess(process.handle.processID)
 	}
@@ -1608,7 +1564,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 		report := ProcessInspection{Snapshot: snapshot, Work: ProcessWorkIdle}
 		_, runtimeErr := process.handle.outcome()
 		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
-		if job := t.jobs[processID]; job != nil {
+		if job := t.jobs.get(processID); job != nil {
 			report.Stale = job.stale
 			report.EffectID = job.effectID
 			switch job.kind {
@@ -1910,19 +1866,14 @@ func (t *treeRuntime) startDispatch(
 
 func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	process := t.processes[completion.processID]
-	job := t.jobs[completion.processID]
-	if process == nil && job != nil {
+	if process == nil && t.jobs.get(completion.processID) != nil {
 		panic("agent: owned work requires a tree member")
 	}
-	if job == nil || job.kind != completion.result.jobKind() || job.attempt != completion.attempt {
+	job, current := t.jobs.finish(completion)
+	if !current {
 		return
 	}
-	delete(t.jobs, completion.processID)
-	t.inFlightWork.Add(-1)
 	t.queueJoin(process)
-	if job.cancel != nil {
-		job.cancel()
-	}
 	t.publishJobFinished(process, job, completion)
 	if t.fault != nil {
 		return
@@ -2266,7 +2217,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	if process.handle.joinDone() {
 		return false
 	}
-	if t.jobs[process.handle.processID] != nil {
+	if t.jobs.get(process.handle.processID) != nil {
 		return false
 	}
 	select {
@@ -2478,7 +2429,7 @@ func (t *treeRuntime) removeProcess(processID ProcessID) {
 	if process == nil {
 		return
 	}
-	if t.jobs[processID] != nil {
+	if t.jobs.get(processID) != nil {
 		panic("agent: cannot remove a Process with owned work")
 	}
 	if parentID, child := process.handle.relation.ParentID(); child {
@@ -2621,7 +2572,7 @@ func (t *treeRuntime) registerOpenedChildWaits(processID ProcessID, finalization
 }
 
 func (t *treeRuntime) terminatePreparedProcess(process *processState) {
-	if t.jobs[process.handle.processID] != nil {
+	if t.jobs.get(process.handle.processID) != nil {
 		t.stopProcessTree(process)
 		return
 	}
