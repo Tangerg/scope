@@ -5,3 +5,6 @@
 
 # Claude permission decisions are machine-local and accumulate absolute paths.
 .claude/settings.local.json
+
+# Compiled test binaries from `go test -c` and profiling runs.
+*.test
