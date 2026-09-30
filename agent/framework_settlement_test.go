@@ -202,6 +202,9 @@ func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
 			if !restored.Valid() || restored.Boundary() != boundary || len(unresolved) != 0 || known != (boundary == ChildWaitBoundaryDrained) {
 				t.Fatalf("lost boundary: %s, known=%t", data, known)
 			}
+			if restored.SubtreeResolved() != (boundary == ChildWaitBoundaryDrained) {
+				t.Fatalf("%s outcome with an empty subtree reports resolved=%t", boundary, restored.SubtreeResolved())
+			}
 			wire := outcome.wire()
 			wire.Boundary = ChildWaitBoundaryInvalid
 			if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidChildWait) {
@@ -216,5 +219,11 @@ func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
 		subtreeUnresolvedEffects: []UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}}}
 	if outcome.Valid() {
 		t.Fatal("result boundary accepted subtree evidence")
+	}
+	descendant := controlValue(ParseProcessID("grandchild"))
+	outcome.boundary = ChildWaitBoundaryDrained
+	outcome.subtreeUnresolvedEffects = []UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}}
+	if !outcome.Valid() || outcome.SubtreeResolved() {
+		t.Fatal("a drained subtree with retained Unknown settlements reported resolved")
 	}
 }

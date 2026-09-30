@@ -230,7 +230,8 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
-	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
+	if !outcome.SubtreeResolved() {
+		unresolved, _ := outcome.SubtreeUnresolvedEffects()
 		return e.fail(1, agent.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
 	}
 	result := outcome.Result()

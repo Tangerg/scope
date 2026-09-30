@@ -30,11 +30,7 @@ type turnExecution struct {
 }
 
 func (t turnExecution) unresolved() bool {
-	if t.Outcome == nil {
-		return false
-	}
-	effects, known := t.Outcome.SubtreeUnresolvedEffects()
-	return !known || len(effects) != 0
+	return t.Outcome != nil && !t.Outcome.SubtreeResolved()
 }
 
 func (t turnExecution) failure() (agent.Failure, bool) {

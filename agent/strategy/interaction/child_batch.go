@@ -24,7 +24,8 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 	for _, outcome := range outcomes {
 		result := outcome.Result()
 		if c == childCallsDelegate {
-			if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) > 0 {
+			if !outcome.SubtreeResolved() {
+				unresolved, _ := outcome.SubtreeUnresolvedEffects()
 				diagnostic := fmt.Sprintf("Delegate subtree %s ended with unresolved Effects %v", result.ProcessID(), unresolved)
 				failure, err := agent.NewFailure(agent.FailureKindExternal, failureCodeInteractionDelegateUnresolvedEffects, agent.NormalizeDiagnostic(diagnostic))
 				return failure, true, err

@@ -199,7 +199,7 @@ func (s Stage) fanoutOutcome(
 	index uint32,
 	outcome agent.ChildOutcome,
 ) (*agent.Failure, json.RawMessage, error) {
-	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
+	if !outcome.SubtreeResolved() {
 		failure, err := agent.NewFailure(agent.FailureKindExternal, s.fanoutFailureCode(failureSuffixUnresolvedEffects), s.fanoutFailureMessage(index, "has unresolved subtree Effects"))
 		return &failure, nil, err
 	}

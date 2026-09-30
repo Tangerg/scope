@@ -242,6 +242,13 @@ func (c ChildOutcome) SubtreeUnresolvedEffects() ([]UnresolvedEffect, bool) {
 	return slices.Clone(c.subtreeUnresolvedEffects), c.boundary == ChildWaitBoundaryDrained
 }
 
+// SubtreeResolved reports whether this outcome proves that the child and all
+// of its descendants drained without retained Unknown settlements. A
+// terminal-result outcome proves nothing about the subtree and reports false.
+func (c ChildOutcome) SubtreeResolved() bool {
+	return c.boundary == ChildWaitBoundaryDrained && len(c.subtreeUnresolvedEffects) == 0
+}
+
 func (c ChildOutcome) Valid() bool {
 	if !c.key.Valid() || !c.result.Valid() || !c.boundary.Valid() {
 		return false

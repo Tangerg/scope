@@ -191,7 +191,7 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, wa
 }
 
 func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.ChildOutcome) (agent.Transition, error) {
-	if unresolved, known := outcome.SubtreeUnresolvedEffects(); !known || len(unresolved) != 0 {
+	if !outcome.SubtreeResolved() {
 		return e.fail(1, e.stage().failureCode(failureSuffixUnresolvedEffects), "Child subtree has unresolved Effects", agent.FailureKindExternal)
 	}
 	result := outcome.Result()
