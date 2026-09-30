@@ -15,9 +15,21 @@ type StepError struct {
 	Cause   error
 }
 
-func (s *StepError) Error() string { return s.Failure.Message() }
+// A typed-nil *StepError is an invalid classification, not a crash: its
+// methods stay nil-safe so error inspection reaches the contract check.
+func (s *StepError) Error() string {
+	if s == nil {
+		return "agent: nil StepError"
+	}
+	return s.Failure.Message()
+}
 
-func (s *StepError) Unwrap() error { return s.Cause }
+func (s *StepError) Unwrap() error {
+	if s == nil {
+		return nil
+	}
+	return s.Cause
+}
 
 // ClassifiedError is a sentinel that owns the Failure kind and code persisted
 // when an error wrapping it leaves Execution.Step, so no separate mapping can
