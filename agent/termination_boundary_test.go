@@ -52,12 +52,12 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 					result: dispatchJobResult{effectID: record.ID, settlement: settlement},
 				})
 			}
-			if runtime.commit != nil {
-				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			if runtime.writer.committing() {
+				runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 			}
 			runtime.advanceOne()
-			if runtime.commit != nil {
-				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			if runtime.writer.committing() {
+				runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 				runtime.advanceOne()
 			}
 			record = &process.prepared.Effects[0]
@@ -100,7 +100,7 @@ func TestTerminalOutcomeCannotBeReplacedOrRepublished(t *testing.T) {
 	if !runtime.tryStartCheckpoint() {
 		t.Fatal("terminal outcome did not require a checkpoint")
 	}
-	runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	before, err := runtime.captureTree()
 	if err != nil {
 		t.Fatal(err)

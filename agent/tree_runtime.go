@@ -18,14 +18,10 @@ import (
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
 type treeRuntime struct {
-	// Incarnation and head travel together to prevent a retired writer from
-	// advancing the current tree.
-	engine         *Engine
-	rootID         ProcessID
-	treeLimits     TreeLimits
-	incarnation    TreeIncarnationID
-	head           TreeSnapshot
-	commitSequence uint64
+	engine     *Engine
+	rootID     ProcessID
+	treeLimits TreeLimits
+	writer     *headWriter
 
 	// External readers need scheduling liveness without acquiring execution
 	// state. Atomics expose that view while commands and completions preserve
@@ -46,8 +42,6 @@ type treeRuntime struct {
 	joinCandidates   map[ProcessID]*processState
 	runQueue         runQueue
 	jobs             map[ProcessID]*processJob
-	commit           *treeCommit
-	commitDone       chan treeCommitCompletion
 	fault            error
 	publications     publicationLedger
 	freeze           *activeTreeFreeze
@@ -183,11 +177,6 @@ func (p *pendingChildStartPublication) childSettlementStatus() SettlementStatus 
 	return SettlementStatusSucceeded
 }
 
-type treeCommitCompletion struct {
-	commit *treeCommit
-	err    error
-}
-
 type stepJobResult struct {
 	finishedAt       time.Time
 	workDuration     time.Duration
@@ -237,7 +226,7 @@ func newTreeRuntime(
 		engine:           engine,
 		rootID:           rootID,
 		treeLimits:       treeLimits,
-		incarnation:      newTreeIncarnationID(),
+		writer:           newHeadWriter(engine.committer),
 		context:          context.WithoutCancel(RequireContext(ctx)),
 		processCommands:  make(chan processTreeCommand, treeCommandBufferCapacity),
 		freezeCommands:   make(chan freezeCommand, treeCommandBufferCapacity),
@@ -249,7 +238,6 @@ func newTreeRuntime(
 		joinCandidates:   make(map[ProcessID]*processState),
 		runQueue:         newRunQueue(len(processes)),
 		jobs:             make(map[ProcessID]*processJob, len(processes)),
-		commitDone:       make(chan treeCommitCompletion),
 		publications:     publicationLedger{},
 		done:             make(chan struct{}),
 	}
@@ -257,22 +245,6 @@ func newTreeRuntime(
 		runtime.addProcess(process)
 	}
 	return runtime
-}
-
-func (t *treeRuntime) establishHead(
-	incarnation TreeIncarnationID,
-	snapshot TreeSnapshot,
-) {
-	if t == nil || !incarnation.Valid() || !snapshot.Valid() ||
-		snapshot.RootID() != t.rootID {
-		panic("agent: invalid durable tree head")
-	}
-	snapshotIncarnation := snapshot.IncarnationID()
-	if snapshotIncarnation != incarnation {
-		panic("agent: durable tree head incarnation mismatch")
-	}
-	t.incarnation = incarnation
-	t.head = snapshot
 }
 
 func (t *treeRuntime) run(rootContext context.Context) {
@@ -345,7 +317,7 @@ func (t *treeRuntime) advanceReadyWork() bool {
 func (t *treeRuntime) waitForWork() {
 	// Nil channels disable blocked lanes without duplicating event dispatch.
 	// These are local selections; only the owner changes the actual barriers.
-	commitDone := t.commitDone
+	commitDone := t.writer.done
 	freezeCommands := t.freezeCommands
 	processCommands := t.processCommands
 	completions := t.completions
@@ -354,7 +326,7 @@ func (t *treeRuntime) waitForWork() {
 		processCommands = nil
 		completions = nil
 	}
-	if t.commit != nil {
+	if t.writer.committing() {
 		freezeCommands = nil
 		freezeCancellation = nil
 	} else {
@@ -382,11 +354,11 @@ func (t *treeRuntime) waitForWork() {
 }
 
 func (t *treeRuntime) tryCommitCompletion() bool {
-	if t.commit == nil {
+	if !t.writer.committing() {
 		return false
 	}
 	select {
-	case completion := <-t.commitDone:
+	case completion := <-t.writer.done:
 		t.applyTreeCommitCompletion(completion)
 		return true
 	default:
@@ -416,7 +388,7 @@ func (t *treeRuntime) tryFreezeCancellation() bool {
 }
 
 func (t *treeRuntime) tryFreezeCommand() bool {
-	if t.commit != nil {
+	if t.writer.committing() {
 		return false
 	}
 	select {
@@ -457,7 +429,7 @@ func (t *treeRuntime) tryCompletion() bool {
 func (t *treeRuntime) mutationsBlocked() bool {
 	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
 	// command to drain. Only the completed snapshot barrier blocks both lanes.
-	return t.commit != nil || t.freeze != nil && t.freeze.answered()
+	return t.writer.committing() || t.freeze != nil && t.freeze.answered()
 }
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
@@ -482,7 +454,7 @@ func (t *treeRuntime) dequeueProcess() *processState {
 }
 
 func (t *treeRuntime) advanceOne() bool {
-	if t.commit != nil || t.fault != nil || t.freeze != nil {
+	if t.writer.committing() || t.fault != nil || t.freeze != nil {
 		return false
 	}
 	process := t.dequeueProcess()
@@ -571,8 +543,14 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 	t.inFlightWork.Add(1)
 }
 
+// ownsActiveWork is the lock-free view Engine.Close uses: jobs, the in-flight
+// commit, and a held freeze each keep the tree busy.
+func (t *treeRuntime) ownsActiveWork() bool {
+	return t.inFlightWork.Load() != 0 || t.writer.busy.Load() || t.freezeActive.Load()
+}
+
 func (t *treeRuntime) canStop() bool {
-	if t.freeze != nil || t.commit != nil || len(t.jobs) != 0 ||
+	if t.freeze != nil || t.writer.committing() || len(t.jobs) != 0 ||
 		len(t.publications) != 0 {
 		return false
 	}
@@ -713,22 +691,7 @@ func (t *treeRuntime) controlChild(
 	}
 	t.publishSettlementEvent(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), observation, nil)
 	t.enqueueProcess(parent.handle.processID)
-
-	snapshot, err := t.captureTree()
-	if err != nil {
-		t.failRuntime(err, parent.handle.processID, record.ID)
-		return
-	}
-	boundary, err := newEffectBoundary(t.commitSequence+1, EffectBoundaryKindSettled, t.effectRequestFor(parent, index, *record),
-		*record.Settlement, t.head.Digest(), snapshot)
-	if err != nil {
-		t.failRuntime(err, parent.handle.processID, record.ID)
-		return
-	}
-	t.startEffectCommit(&treeCommit{
-		kind: treeCommitEffectSettled, processID: parent.handle.processID,
-		effectID: record.ID, snapshot: snapshot,
-	}, boundary)
+	t.commitSettledEffect(parent, index, *record)
 }
 
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
@@ -767,7 +730,7 @@ func (t *treeRuntime) effectRequestFor(
 ) EffectRequest {
 	return newEffectRequest(
 		process.handle.processID,
-		t.incarnation,
+		t.writer.incarnation(),
 		process.handle.deploymentRef,
 		process.handle.relation,
 		process.prepared.StepSequence,
@@ -782,37 +745,38 @@ func (t *treeRuntime) startPendingEffectCommit(
 	batchIndex uint32,
 	record preparedEffect,
 ) error {
-	request := t.effectRequestFor(process, batchIndex, record)
+	return t.commitEffect(process, treeCommitEffectPending, EffectBoundaryKindPending, batchIndex, record, Settlement{}, nil)
+}
+
+// commitSettledEffect makes record's adopted settlement durable. A settlement
+// that cannot be committed stops the writer with record left unresolved.
+func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint32, record preparedEffect) {
+	err := t.commitEffect(process, treeCommitEffectSettled, EffectBoundaryKindSettled, batchIndex, record, *record.Settlement, nil)
+	if err != nil {
+		t.failRuntime(err, process.handle.processID, record.ID)
+	}
+}
+
+// commitEffect captures the prospective tree and starts the Effect boundary
+// of kind for record; response, when present, answers the requesting caller.
+func (t *treeRuntime) commitEffect(
+	process *processState,
+	commitKind treeCommitKind,
+	boundaryKind EffectBoundaryKind,
+	batchIndex uint32,
+	record preparedEffect,
+	settlement Settlement,
+	response chan processResponse,
+) error {
 	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
 	}
-	boundary, err := newEffectBoundary(t.commitSequence+1,
-		EffectBoundaryKindPending, request, Settlement{}, t.head.Digest(), snapshot,
-	)
-	if err != nil {
-		return err
-	}
 	commit := &treeCommit{
-		kind: treeCommitEffectPending, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot,
+		kind: commitKind, processID: process.handle.processID,
+		effectID: record.ID, snapshot: snapshot, response: response,
 	}
-	t.startEffectCommit(commit, boundary)
-	return nil
-}
-
-func (t *treeRuntime) startEffectCommit(
-	commit *treeCommit,
-	boundary EffectBoundary,
-) {
-	if !boundary.kind.Valid() || commit == nil || !commit.processID.Valid() {
-		panic("agent: invalid tree Effect commit")
-	}
-	t.setTreeCommit(commit)
-	go func() {
-		err := commitEffectBoundary(t.context, t.engine.committer, boundary)
-		t.commitDone <- treeCommitCompletion{commit: commit, err: err}
-	}()
+	return t.writer.commitEffect(t.context, commit, boundaryKind, t.effectRequestFor(process, batchIndex, record), settlement)
 }
 
 func (t *treeRuntime) startUnknownResolutionCommit(
@@ -820,25 +784,8 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	command processCommand,
 	index int,
 ) error {
-	record := &process.prepared.Effects[index]
-	snapshot, err := t.captureTree()
-	if err != nil {
-		return err
-	}
-	request := t.effectRequestFor(process, uint32(index), *record)
-	boundary, err := newEffectBoundary(t.commitSequence+1,
-		EffectBoundaryKindResolved, request, command.settlement, t.head.Digest(), snapshot,
-	)
-	if err != nil {
-		return err
-	}
-	commit := &treeCommit{
-		kind: treeCommitEffectResolved, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot,
-		response: command.response,
-	}
-	t.startEffectCommit(commit, boundary)
-	return nil
+	return t.commitEffect(process, treeCommitEffectResolved, EffectBoundaryKindResolved,
+		uint32(index), process.prepared.Effects[index], command.settlement, command.response)
 }
 
 func (t *treeRuntime) startCheckpointCommit(
@@ -860,25 +807,14 @@ func (t *treeRuntime) startSignalCommit(process *processState, command processCo
 }
 
 func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
-	checkpoint, err := newTreeCheckpoint(t.commitSequence+1, kind, t.head.Digest(), commit.snapshot)
-	if err != nil {
-		return err
-	}
-	t.setTreeCommit(commit)
-	go func() {
-		err := commitTreeCheckpoint(t.context, t.engine.committer, checkpoint)
-		t.commitDone <- treeCommitCompletion{commit: commit, err: err}
-	}()
-	return nil
+	return t.writer.commitCheckpoint(t.context, commit, kind)
 }
 
 func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion) {
-	commit := t.commit
-	if commit == nil || completion.commit != commit {
+	commit, current := t.writer.settle(completion)
+	if !current {
 		return
 	}
-	t.commit = nil
-	t.inFlightWork.Add(-1)
 	if completion.err != nil {
 		t.applyFailedTreeCommit(commit, completion.err)
 		return
@@ -900,11 +836,7 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 
 func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	defer t.completeFreeze()
-	if commit.snapshot.Valid() {
-		t.head = commit.snapshot
-		t.commitSequence++
-		t.publishAcknowledgedChanges()
-	}
+	t.publishAcknowledgedChanges()
 	process := t.processes[commit.processID]
 	for _, event := range commit.events {
 		t.publishPreparedEvent(process, event)
@@ -974,7 +906,7 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 }
 
 func (t *treeRuntime) tryStartCheckpoint() bool {
-	if t.fault != nil || t.commit != nil || t.freeze != nil || !t.readyForCheckpoint() {
+	if t.fault != nil || t.writer.committing() || t.freeze != nil || !t.readyForCheckpoint() {
 		return false
 	}
 	kind := t.checkpointKind()
@@ -983,7 +915,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		t.failRuntime(err, ProcessID{}, EffectID{})
 		return true
 	}
-	if snapshot.Digest() == t.head.Digest() {
+	if snapshot.Digest() == t.writer.head().Digest() {
 		// Control changes can return to the acknowledged state without changing
 		// its recovery cut. Publishing those facts must not require another write.
 		published := len(t.publications) != 0
@@ -1054,7 +986,7 @@ func (t *treeRuntime) stageCommittedEvent(event eventFact) {
 // A leftover entry would silently make scheduling ready forever, so it stops the
 // writer instead.
 func (t *treeRuntime) publishAcknowledgedChanges() {
-	for _, snapshot := range t.head.state.ProcessSnapshots {
+	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
 		processID := snapshot.ProcessID()
 		publication, pending := t.publications.take(processID)
 		if !pending {
@@ -1087,7 +1019,7 @@ func (t *treeRuntime) failRuntime(
 	if t.fault != nil {
 		return
 	}
-	if !t.head.Valid() {
+	if !t.writer.head().Valid() {
 		panic("agent: committer failure requires an acknowledged tree")
 	}
 	t.fault = cause
@@ -1095,8 +1027,8 @@ func (t *treeRuntime) failRuntime(
 	t.abandonJobs()
 	clear(t.publications)
 	t.runQueue.clear()
-	acknowledged := make(map[ProcessID]struct{}, len(t.head.state.ProcessSnapshots))
-	for _, snapshot := range t.head.state.ProcessSnapshots {
+	acknowledged := make(map[ProcessID]struct{}, len(t.writer.head().state.ProcessSnapshots))
+	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
 		acknowledged[snapshot.ProcessID()] = struct{}{}
 	}
 	for _, process := range orderedProcesses(t.processes) {
@@ -1152,7 +1084,7 @@ func (t *treeRuntime) abandonJobs() {
 func (t *treeRuntime) stopProcessRuntime(process *processState, cause error, unresolved []EffectID) {
 	processID := process.handle.processID
 	if !process.handle.publishRuntimeFailure(&RuntimeError{
-		processID: processID, incarnationID: t.incarnation, headDigest: t.head.Digest(),
+		processID: processID, incarnationID: t.writer.incarnation(), headDigest: t.writer.head().Digest(),
 		unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: cause,
 	}) {
 		return
@@ -1173,14 +1105,6 @@ func (t *treeRuntime) abandonChildStartJob(job *processJob) {
 	// A runtime fault prevents completion adoption; only job collection remains.
 	job.childStart = nil
 	t.discardChildStart(plan)
-}
-
-func (t *treeRuntime) setTreeCommit(commit *treeCommit) {
-	if commit == nil || t.commit != nil {
-		panic("agent: invalid concurrent tree commit")
-	}
-	t.commit = commit
-	t.inFlightWork.Add(1)
 }
 
 func (t *treeRuntime) applyFreezeCommand(command freezeCommand) {
@@ -1330,7 +1254,7 @@ func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
 }
 
 func (t *treeRuntime) completeFreeze() {
-	if t.freeze == nil || t.freeze.answered() || t.commit != nil || t.freezeBlockedByJob() {
+	if t.freeze == nil || t.freeze.answered() || t.writer.committing() || t.freezeBlockedByJob() {
 		return
 	}
 	snapshot, err := t.captureTree()
@@ -1340,7 +1264,7 @@ func (t *treeRuntime) completeFreeze() {
 		freeze.answer(treeFreezeAcquisitionResult{err: err})
 		return
 	}
-	if snapshot.Digest() != t.head.Digest() {
+	if snapshot.Digest() != t.writer.head().Digest() {
 		if err := t.startCheckpointCommit(t.checkpointKind(), snapshot); err != nil {
 			t.failRuntime(err, ProcessID{}, EffectID{})
 		}
@@ -1387,7 +1311,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 
 func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 	wire := treeSnapshotWire{RootID: t.rootID, TreeLimits: t.treeLimits, ProcessSnapshots: []ProcessSnapshot{}}
-	wire.IncarnationID = t.incarnation
+	wire.IncarnationID = t.writer.incarnation()
 	wire.ChildWaits = t.childWaits.wire()
 	return wire
 }
@@ -1542,7 +1466,7 @@ func (t *treeRuntime) prepareEvent(
 		processID:     process.handle.processID,
 		deploymentRef: process.deployment.DeploymentRef(),
 		relation:      process.handle.relation,
-		incarnationID: t.incarnation,
+		incarnationID: t.writer.incarnation(),
 		stepSequence:  step,
 		effectID:      effectID,
 		name:          name,
@@ -1665,8 +1589,8 @@ func (t *treeRuntime) replyInspection(response chan TreeInspection) {
 
 func (t *treeRuntime) buildInspection() TreeInspection {
 	inspection := TreeInspection{
-		RootID: t.rootID, IncarnationID: t.incarnation, HeadDigest: t.head.Digest(),
-		CommitPending: t.commit != nil, Freeze: TreeFreezePhaseNone,
+		RootID: t.rootID, IncarnationID: t.writer.incarnation(), HeadDigest: t.writer.head().Digest(),
+		CommitPending: t.writer.committing(), Freeze: TreeFreezePhaseNone,
 	}
 	if t.freeze != nil {
 		inspection.Freeze = TreeFreezePhaseAcquiring
@@ -1674,7 +1598,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 			inspection.Freeze = TreeFreezePhaseHeld
 		}
 	}
-	snapshots := t.head.ProcessSnapshots()
+	snapshots := t.writer.head().ProcessSnapshots()
 	for _, snapshot := range snapshots {
 		processID := snapshot.ProcessID()
 		process := t.processes[processID]
@@ -1862,27 +1786,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			return
 		}
 
-		settlement := *record.Settlement
-		snapshot, err := t.captureTree()
-		if err != nil {
-			t.failRuntime(err, process.handle.processID, record.ID)
-			return
-		}
-		boundary, err := newEffectBoundary(t.commitSequence+1,
-			EffectBoundaryKindSettled,
-			t.effectRequestFor(process, batchIndex, *record),
-			settlement,
-			t.head.Digest(),
-			snapshot,
-		)
-		if err != nil {
-			t.failRuntime(err, process.handle.processID, record.ID)
-			return
-		}
-		t.startEffectCommit(&treeCommit{
-			kind: treeCommitEffectSettled, processID: process.handle.processID,
-			effectID: record.ID, snapshot: snapshot,
-		}, boundary)
+		t.commitSettledEffect(process, batchIndex, *record)
 	default:
 		t.failProcessContract(
 			process, failureCodeEngineEffectRecoveryInvalid, errInvalidReplayPolicy,
@@ -1963,7 +1867,7 @@ func (t *treeRuntime) startDispatch(
 			}
 			deltaSequence++
 			delta, err := newDelta(
-				processID, record.ID, t.incarnation, observation.id,
+				processID, record.ID, t.writer.incarnation(), observation.id,
 				deltaSequence, time.Now(), payload,
 			)
 			if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
@@ -2029,7 +1933,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		return
 	}
 	t.adoptJobResult(process, job, completion)
-	if t.commit != nil {
+	if t.writer.committing() {
 		return
 	}
 	t.finishIfTerminal(process)
@@ -2337,31 +2241,13 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	process.adoptCandidate(candidate)
-	record = &process.prepared.Effects[index]
-	snapshot, err := t.captureTree()
-	if err != nil {
-		t.failRuntime(err, process.handle.processID, record.ID)
-		return
-	}
-	request := t.effectRequestFor(process, uint32(index), *record)
-	boundary, err := newEffectBoundary(t.commitSequence+1,
-		EffectBoundaryKindSettled, request, settlement, t.head.Digest(), snapshot,
-	)
-	if err != nil {
-		t.failRuntime(err, process.handle.processID, record.ID)
-		return
-	}
-	commit := &treeCommit{
-		kind: treeCommitEffectSettled, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot,
-	}
-	t.startEffectCommit(commit, boundary)
+	t.commitSettledEffect(process, uint32(index), process.prepared.Effects[index])
 }
 
 // A result can precede descendant cleanup. Publish each join once, from leaves
 // upward, only after acknowledged outcomes and the owned calls have returned.
 func (t *treeRuntime) publishJoins() bool {
-	if t.commit != nil || t.freeze != nil {
+	if t.writer.committing() || t.freeze != nil {
 		return false
 	}
 	changed := false
@@ -2413,8 +2299,8 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	var joinErr *RuntimeError
 	if failed {
 		joinErr = &RuntimeError{
-			processID: process.handle.processID, incarnationID: t.incarnation,
-			headDigest: t.head.Digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
+			processID: process.handle.processID, incarnationID: t.writer.incarnation(),
+			headDigest: t.writer.head().Digest(), unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
 		}
 	}
 	if !process.handle.finishJoin(joinErr) {
@@ -2652,7 +2538,7 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 		if t.fault != nil {
 			return TreeSnapshot{}, true, t.fault
 		}
-		return t.head, true, nil
+		return t.writer.head(), true, nil
 	default:
 		return TreeSnapshot{}, false, nil
 	}

@@ -8,7 +8,7 @@ import (
 func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	store := runtime.engine.committer.(*MemoryTreeCommitter)
-	initial := runtime.head
+	initial := runtime.writer.head()
 	process.status, process.pause = StatusPaused, pause{reason: "review"}
 	paused := controlValue(runtime.captureTree())
 	checkpoint := controlValue(newTreeCheckpoint(2, TreeCheckpointKindParked, initial.Digest(), paused))
@@ -61,7 +61,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 func TestCommitSequenceValidation(t *testing.T) {
 	runtime, _ := newChildCompletionTestProcess(t)
 	for _, sequence := range []uint64{0, 2} {
-		if _, err := newTreeCheckpoint(sequence, TreeCheckpointKindStart, Digest{}, runtime.head); err == nil {
+		if _, err := newTreeCheckpoint(sequence, TreeCheckpointKindStart, Digest{}, runtime.writer.head()); err == nil {
 			t.Fatalf("start accepted sequence %d", sequence)
 		}
 	}
@@ -98,10 +98,10 @@ func TestEffectBoundaryContentRejectsMismatchedProcessRelation(t *testing.T) {
 func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
 	runtime, _ := newChildCompletionTestProcess(t)
 	store := runtime.engine.committer.(*MemoryTreeCommitter)
-	wire := controlValue(runtime.head.wire())
+	wire := controlValue(runtime.writer.head().wire())
 	wire.IncarnationID = newTreeIncarnationID()
 	prospective := controlValue(newTreeSnapshot(wire))
-	activation := controlValue(newTreeActivation(runtime.head.IncarnationID(), runtime.head.Digest(), wire.IncarnationID, prospective))
+	activation := controlValue(newTreeActivation(runtime.writer.head().IncarnationID(), runtime.writer.head().Digest(), wire.IncarnationID, prospective))
 	for range 2 {
 		if err := store.ActivateTree(t.Context(), activation); err != nil {
 			t.Fatal(err)

@@ -197,8 +197,8 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			if runtime.fault != nil {
 				t.Fatal(runtime.fault)
 			}
-			if runtime.commit != nil {
-				runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			if runtime.writer.committing() {
+				runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 			}
 			if !record.definitelySettled() {
 				t.Fatal("control not settled")

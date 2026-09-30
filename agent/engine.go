@@ -265,15 +265,9 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if captureErr != nil {
 		return nil, captureErr
 	}
-	checkpoint, err := newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, baseSnapshot)
-	if err != nil {
+	if err := runtime.writer.commitStart(ctx, baseSnapshot); err != nil {
 		return nil, err
 	}
-	if err := commitTreeCheckpoint(ctx, e.committer, checkpoint); err != nil {
-		return nil, err
-	}
-	runtime.establishHead(runtime.incarnation, baseSnapshot)
-	runtime.commitSequence = checkpoint.Sequence()
 
 	e.publishProcessStart(handle)
 	published = true
@@ -365,7 +359,7 @@ func (e *Engine) startClose() (<-chan struct{}, error) {
 		}
 	}
 	for rootID, runtime := range e.trees {
-		if runtime.inFlightWork.Load() != 0 || runtime.freezeActive.Load() {
+		if runtime.ownsActiveWork() {
 			return nil, fmt.Errorf(
 				"%w: tree %s still owns active work",
 				ErrEngineHasActiveProcesses, rootID,
@@ -651,7 +645,6 @@ func (e *Engine) RestoreTree(
 		return nil, err
 	}
 	defer operation.release()
-	previousIncarnation, previousDigest := snapshot.IncarnationID(), snapshot.Digest()
 	// Admission precedes the prepare pass so a closed Engine or a taken
 	// identity refuses without running Host Definition code.
 	if err = e.reserveRestoredTree(restoration); err != nil {
@@ -663,27 +656,20 @@ func (e *Engine) RestoreTree(
 			e.discardRestoredTree(restoration)
 		}
 	}()
-	incarnation, err := restoration.prepare(ctx)
+	if err = restoration.prepare(ctx); err != nil {
+		return nil, err
+	}
+	writer := restoration.runtime.writer
+	wire := restoration.wire
+	wire.IncarnationID = writer.incarnation()
+	prospectiveSnapshot, err := newTreeSnapshot(wire)
 	if err != nil {
 		return nil, err
 	}
-	wire := restoration.wire
-	wire.IncarnationID = incarnation
-	prospectiveSnapshot, snapshotErr := newTreeSnapshot(wire)
-	if snapshotErr != nil {
-		return nil, snapshotErr
-	}
-	activation, activationErr := newTreeActivation(
-		previousIncarnation, previousDigest, incarnation, prospectiveSnapshot,
-	)
-	if activationErr != nil {
-		return nil, activationErr
-	}
-	if activationErr = activateTree(ctx, e.committer, activation); activationErr != nil {
-		return nil, activationErr
+	if err = writer.activate(ctx, snapshot, prospectiveSnapshot); err != nil {
+		return nil, err
 	}
 	restoration.wire = wire
-	restoration.runtime.establishHead(incarnation, prospectiveSnapshot)
 
 	e.publishRestoredTree(restoration)
 	published = true
@@ -715,8 +701,7 @@ func (e *Engine) ValidateRestorableTree(
 	if err != nil {
 		return err
 	}
-	_, err = restoration.prepare(ctx)
-	return err
+	return restoration.prepare(ctx)
 }
 
 func (e *Engine) newRestoration(

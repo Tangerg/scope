@@ -87,7 +87,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 
 func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 2)
-	runtime.engine.committer = &recordingTreeCommitter{}
+	runtime.writer.committer = &recordingTreeCommitter{}
 	root := runtime.processes[runtime.rootID]
 	acknowledged, err := root.capture()
 	if err != nil {
@@ -107,7 +107,8 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.establishHead(incarnation, head)
+	runtime.writer.identity = incarnation
+	runtime.writer.establish(head)
 	cause := errors.New("child checkpoint was not acknowledged")
 	runtime.failRuntime(cause, ProcessID{}, EffectID{})
 	if len(runtime.processes) != 1 || runtime.processes[runtime.rootID] != root {

@@ -128,8 +128,8 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		runtime.installTermination(parent, stepOutcome{})
 		runtime.finishIfTerminal(parent)
 		runtime.tryStartCheckpoint()
-		if runtime.commit != nil {
-			runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+		if runtime.writer.committing() {
+			runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 		}
 		runtime.publishJoins()
 	})

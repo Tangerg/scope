@@ -201,7 +201,7 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 				store := &recordingTreeCommitter{}
 				config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 				if recording {
-					runtime.incarnation = newTreeIncarnationID()
+					runtime.writer.identity = newTreeIncarnationID()
 					config.TreeCommitter = store
 				}
 				tree := controlValue(runtime.captureTree())
@@ -237,7 +237,7 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 			root.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{})), root.startedAt)
 			if recording {
-				runtime.incarnation = newTreeIncarnationID()
+				runtime.writer.identity = newTreeIncarnationID()
 				config.TreeCommitter = &recordingTreeCommitter{}
 			}
 			tree := controlValue(ParseTreeSnapshot(controlValue(runtime.captureTree()).JSON()))

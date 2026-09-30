@@ -7,7 +7,7 @@ func TestTreeCommandCapacityAppliesDuringCommitAndFreeze(t *testing.T) {
 		t.Run(barrier, func(t *testing.T) {
 			runtime := newTreeRuntime(&Engine{}, ProcessID{}, DefaultTreeLimits(), t.Context())
 			if barrier == "commit" {
-				runtime.commit = &treeCommit{}
+				runtime.writer.inFlight = &treeCommit{}
 			} else {
 				// A delivered freeze retains no acquisition: its acquirer already
 				// holds the barrier and is owed no further answer.

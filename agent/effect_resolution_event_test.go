@@ -205,7 +205,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 		t.Run(mode, func(t *testing.T) {
 			runtime, request, head := effectBoundaryFixture(t, 1, 16)
 			process := runtime.processes[runtime.rootID]
-			runtime.establishHead(runtime.incarnation, head)
+			runtime.writer.establish(head)
 			listener := &recordingEventListener{}
 			runtime.engine.observation.events = []EventListener{listener}
 			attempt := runtime.beginEffectAttempt(process, process.prepared.StepSequence, request.ID(), EffectTargetDispatcher)

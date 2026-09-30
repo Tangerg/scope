@@ -16,18 +16,14 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 		for _, size := range []int{1024, 64 << 10} {
 			b.Run(fmt.Sprintf("processes_%d/bytes_%d", count, size), func(b *testing.B) {
 				runtime, request, snapshot := effectBoundaryFixture(b, count, size)
-				previous := ComputeDigest([]byte("previous tree"))
 				b.ReportAllocs()
 				for b.Loop() {
-					boundary, err := newEffectBoundary(1, EffectBoundaryKindPending, request, Settlement{}, previous, snapshot)
-					if err != nil {
+					commit := &treeCommit{processID: request.ProcessID(), snapshot: snapshot}
+					if err := runtime.writer.commitEffect(b.Context(), commit, EffectBoundaryKindPending, request, Settlement{}); err != nil {
 						b.Fatal(err)
 					}
-					runtime.startEffectCommit(&treeCommit{processID: request.ProcessID()}, boundary)
-					completed := <-runtime.commitDone
-					runtime.commit = nil
-					runtime.inFlightWork.Add(-1)
-					if completed.err != nil {
+					completed := <-runtime.writer.done
+					if _, current := runtime.writer.settle(completed); !current || completed.err != nil {
 						b.Fatal(completed.err)
 					}
 				}
@@ -39,8 +35,8 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectRequest, TreeSnapshot) {
 	t.Helper()
 	runtime := newWaitingSnapshotTree(t, count)
-	runtime.engine.committer = effectBenchmarkDurability{}
-	runtime.incarnation = newTreeIncarnationID()
+	runtime.writer.committer = effectBenchmarkDurability{}
+	runtime.writer.identity = newTreeIncarnationID()
 	root := runtime.processes[runtime.rootID]
 	effect, err := NewDispatcherEffect([]byte(`{"text":"` + strings.Repeat("x", size) + `"}`))
 	if err != nil {

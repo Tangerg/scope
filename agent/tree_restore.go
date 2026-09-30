@@ -22,27 +22,25 @@ type treeRestoration struct {
 }
 
 // Validation and restoration share this pure pass without invoking admission policy.
-func (t *treeRestoration) prepare(ctx context.Context) (TreeIncarnationID, error) {
+func (t *treeRestoration) prepare(ctx context.Context) error {
 	if err := t.prepareProcesses(ctx); err != nil {
-		return TreeIncarnationID{}, err
+		return err
 	}
 	if err := t.prepareChildWaits(); err != nil {
-		return TreeIncarnationID{}, err
+		return err
 	}
-	incarnation := newTreeIncarnationID()
-	if err := t.prepareRuntime(ctx, incarnation); err != nil {
-		return TreeIncarnationID{}, fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
+	if err := t.prepareRuntime(ctx); err != nil {
+		return fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
 	}
-	return incarnation, nil
+	return nil
 }
 
-func (t *treeRestoration) prepareRuntime(ctx context.Context, incarnation TreeIncarnationID) error {
+func (t *treeRestoration) prepareRuntime(ctx context.Context) error {
 	states := make([]*processState, 0, len(t.processes))
 	for index := range t.processes {
 		states = append(states, t.processes[index].state)
 	}
 	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, t.wire.TreeLimits, ctx, states...)
-	t.runtime.incarnation = incarnation
 	t.runtime.childWaits = t.childWaits
 	return t.runtime.validateSnapshotCapacity()
 }

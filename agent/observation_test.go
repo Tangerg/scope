@@ -392,7 +392,7 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 		deployment: deployment,
 	}
 
-	runtime := &treeRuntime{engine: engine, context: context.Background()}
+	runtime := &treeRuntime{engine: engine, context: context.Background(), writer: newHeadWriter(engine.committer)}
 	process.processEventSequence = 7
 	func() {
 		defer func() {

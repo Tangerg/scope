@@ -14,13 +14,13 @@ func TestCaptureWaitsForAcknowledgmentAndRejectsFailedCut(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			runtime, process := newChildCompletionTestProcess(t)
-			base := runtime.head
+			base := runtime.writer.head()
 			store := runtime.engine.committer.(*MemoryTreeCommitter)
 			gate := &captureCheckpointCommitter{MemoryTreeCommitter: store, entered: make(chan struct{}), release: make(chan struct{})}
 			if reject {
 				gate.err = errors.New("capture checkpoint rejected")
 			}
-			runtime.engine.committer = gate
+			runtime.writer.committer = gate
 			runtime.failProcessContract(process, "engine.capture.test", errors.New("candidate termination"))
 			acquisition := &treeFreezeAcquisition{response: make(chan treeFreezeAcquisitionResult, 1), canceled: make(chan struct{})}
 			runtime.acquireFreeze(acquisition)
@@ -39,7 +39,7 @@ func TestCaptureWaitsForAcknowledgmentAndRejectsFailedCut(t *testing.T) {
 				t.Fatal("inspection exposed the candidate cut")
 			}
 			close(gate.release)
-			runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+			runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 			captured := <-acquisition.response
 			head, exists, err := store.LoadTree(t.Context(), runtime.rootID)
 			if err != nil || !exists {

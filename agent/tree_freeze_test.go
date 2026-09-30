@@ -23,8 +23,8 @@ func TestCanceledCaptureReleasesQueuedFreezeResult(t *testing.T) {
 	runtime.applyCompletion(receiveTreeRuntimeProbe(t, runtime.completions))
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
-		if runtime.commit != nil {
-			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+		if runtime.writer.committing() {
+			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 		}
 	}
 	result, err := process.handle.outcome()

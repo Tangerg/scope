@@ -104,12 +104,12 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
-	if runtime.commit != nil {
-		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	if runtime.writer.committing() {
+		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
 	runtime.advancePrepared(process)
-	if runtime.commit != nil {
-		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	if runtime.writer.committing() {
+		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
 	before := controlValue(process.capture())
 	runtime.startStep(process)
@@ -124,8 +124,8 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.advancePrepared(process)
-	if runtime.commit != nil {
-		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	if runtime.writer.committing() {
+		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
 	if process.status != StatusPaused || process.prepared != nil || process.currentWaitID.Valid() {
 		t.Fatal("accepted Pause was trapped behind Wait")
@@ -145,8 +145,8 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
-	if runtime.commit != nil {
-		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	if runtime.writer.committing() {
+		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
 	if process.status != StatusWaiting || process.currentWaitID != waitID {
 		t.Fatal("Resume did not re-establish the same wait")
@@ -158,8 +158,8 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime.startStep(process)
 	runtime.applyCompletion(<-runtime.completions)
 	runtime.advancePrepared(process)
-	if runtime.commit != nil {
-		runtime.applyTreeCommitCompletion(<-runtime.commitDone)
+	if runtime.writer.committing() {
+		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
 	if process.status != StatusCompleted || controlValue(process.finalOutput.Decode[engineTestOutput]()).Value != "approved" {
 		t.Fatal("resumed wait lost its answer")

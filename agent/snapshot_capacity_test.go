@@ -301,9 +301,9 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			runtime.engine.publishProcessStart(root.handle)
 			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
 			{
-				runtime.engine.committer = &recordingTreeCommitter{}
-				runtime.incarnation = newTreeIncarnationID()
-				runtime.head = controlValue(runtime.captureTree())
+				runtime.writer.committer = &recordingTreeCommitter{}
+				runtime.writer.identity = newTreeIncarnationID()
+				runtime.writer.acknowledged = controlValue(runtime.captureTree())
 			}
 			preparation := runtime.prepareChildStart(root, effectID, spec)
 			if preparation.plan == nil {
@@ -319,7 +319,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			assertNoPendingProcessStarts(t, runtime.engine)
 			if mode == "committed" || mode == "commit_failed" {
-				completion := <-runtime.commitDone
+				completion := <-runtime.writer.done
 				if completion.commit.child != nil {
 					t.Fatal("rejected start transferred child reservation ownership")
 				}

@@ -91,7 +91,7 @@ func BenchmarkTreeCommitterFailure(b *testing.B) {
 			for b.Loop() {
 				b.StopTimer()
 				runtime.fault = nil
-				runtime.head = snapshot
+				runtime.writer.acknowledged = snapshot
 				clear(runtime.joinCandidates)
 				for _, process := range runtime.processes {
 					process.handle.outcomePublished = make(chan struct{})
@@ -185,14 +185,15 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			root := runtime.processes[runtime.rootID]
 			root.status, root.pause = StatusPaused, pause{reason: "inspection benchmark"}
-			runtime.engine.committer = &recordingTreeCommitter{}
+			runtime.writer.committer = &recordingTreeCommitter{}
 			incarnation := newTreeIncarnationID()
-			runtime.incarnation = incarnation
+			runtime.writer.identity = incarnation
 			snapshot, err := runtime.captureTree()
 			if err != nil {
 				b.Fatal(err)
 			}
-			runtime.establishHead(incarnation, snapshot)
+			runtime.writer.identity = incarnation
+			runtime.writer.establish(snapshot)
 			ctx, cancel := context.WithCancel(b.Context())
 			go runtime.run(ctx)
 			b.Cleanup(func() { cancel(); <-runtime.done })

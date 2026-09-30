@@ -11,14 +11,15 @@ import (
 func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		runtime, process := newChildCompletionTestProcess(t)
-		runtime.engine.committer = &recordingTreeCommitter{}
+		runtime.writer.committer = &recordingTreeCommitter{}
 		incarnation := newTreeIncarnationID()
-		runtime.incarnation = incarnation
+		runtime.writer.identity = incarnation
 		initial, err := runtime.captureTree()
 		if err != nil {
 			t.Fatal(err)
 		}
-		runtime.establishHead(incarnation, initial)
+		runtime.writer.identity = incarnation
+		runtime.writer.establish(initial)
 		process.status = StatusPaused
 		process.pause = pause{reason: "checkpoint preparation"}
 		// Inject an unencodable prospective state after a valid acknowledged
@@ -44,7 +45,7 @@ func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.
 
 func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	runtime.engine.committer = &recordingTreeCommitter{}
+	runtime.writer.committer = &recordingTreeCommitter{}
 	childID := newProcessID()
 	key, _ := ParseChildKey("completed")
 	relation := childProcessRelation(childID, parent.handle.relation, key)

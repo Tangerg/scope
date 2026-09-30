@@ -29,8 +29,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	advance := func() {
 		t.Helper()
 		runtime.advanceReadyWork()
-		if runtime.commit != nil {
-			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+		if runtime.writer.committing() {
+			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 		}
 		runtime.tryInspection()
 		for len(responses) != 0 {
@@ -87,8 +87,8 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	}}
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
-		if runtime.commit != nil {
-			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+		if runtime.writer.committing() {
+			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 		}
 		select {
 		case <-process.handle.outcomePublished:
@@ -114,15 +114,16 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	committer := &recordingTreeCommitter{}
-	runtime.engine.committer = committer
-	runtime.commitDone = make(chan treeCommitCompletion, 1)
+	runtime.writer.committer = committer
+	runtime.writer.done = make(chan treeCommitCompletion, 1)
 	incarnation := newTreeIncarnationID()
-	runtime.incarnation = incarnation
+	runtime.writer.identity = incarnation
 	initial, err := runtime.captureTree()
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.establishHead(incarnation, initial)
+	runtime.writer.identity = incarnation
+	runtime.writer.establish(initial)
 	process.status = StatusPaused
 	process.pause = pause{reason: "wait for explicit resumption"}
 	runtime.dequeueProcess()
@@ -132,17 +133,17 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 		runtime.advanceReadyWork()
 		runtime.tryInspection()
 		<-response
-		if runtime.commit != nil {
+		if runtime.writer.committing() {
 			break
 		}
 	}
-	if runtime.commit == nil {
+	if !runtime.writer.committing() {
 		t.Fatal("continuous queries prevented a safe checkpoint")
 	}
 	if inspectionStatus(t, runtime, process.handle.processID) != StatusRunning {
 		t.Fatal("parked state was published before checkpoint acknowledgment")
 	}
-	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 	checkpoints := committer.treeCheckpoints()
 	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointKindParked ||
 		inspectionStatus(t, runtime, process.handle.processID) != StatusPaused {
@@ -157,7 +158,7 @@ func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 
 	runtime.dequeueProcess()
 	runtime.tryStartCheckpoint()
-	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.commitDone))
+	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 	response := make(chan TreeInspection, 1)
 	runtime.inspections <- response
 	if !runtime.tryInspection() {
