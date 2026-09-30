@@ -13,7 +13,8 @@ import (
 type eventRecorder struct {
 	observation *observationBus
 	writer      *headWriter
-	context     context.Context
+	// context is detached from caller cancellation: observation outlives requests.
+	context context.Context
 }
 
 // prepare builds a kernel fact. Every kernel fact is well formed by
@@ -53,7 +54,7 @@ func (e eventRecorder) publish(process *processState, event eventFact) {
 		return
 	}
 	process.processEventSequence++
-	e.observation.publishEvent(context.WithoutCancel(e.context), event.publish(process.processEventSequence))
+	e.observation.publishEvent(e.context, event.publish(process.processEventSequence))
 }
 
 func (e eventRecorder) emit(
@@ -72,6 +73,19 @@ func (e eventRecorder) beginEffectAttempt(process *processState, step uint64, ef
 	payload := marshalEventPayload(effectStartedEventPayload{EffectTarget: target, AttemptID: attempt.id})
 	e.emit(process, EventEffectStarted, EventPhaseAttempt, step, effectID, payload)
 	return attempt
+}
+
+// deltas opens the Delta stream of one dispatch attempt; it is nil when no
+// DeltaListener is configured.
+func (e eventRecorder) deltas(process *processState, effectID EffectID, attempt effectAttempt) *deltaStream {
+	if len(e.observation.deltas) == 0 {
+		return nil
+	}
+	return &deltaStream{
+		observation: e.observation, context: e.context,
+		processID: process.handle.processID, effectID: effectID,
+		incarnationID: e.writer.incarnation(), attemptID: attempt.id,
+	}
 }
 
 func (e eventRecorder) settlement(

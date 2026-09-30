@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sync"
 	"time"
 )
 
@@ -1642,39 +1641,11 @@ func (t *treeRuntime) startDispatch(
 		reply:         reply,
 	}
 	t.setProcessJob(processID, job)
-	var deltaMu sync.Mutex
-	var deltaSequence, dropped uint64
-	acceptingDeltas := true
-	var emit DeltaEmitter
-	if len(t.engine.observation.deltas) > 0 {
-		emit = func(payload json.RawMessage) {
-			deltaMu.Lock()
-			defer deltaMu.Unlock()
-			if !acceptingDeltas {
-				return
-			}
-			deltaSequence++
-			delta, err := newDelta(
-				processID, record.ID, t.writer.incarnation(), observation.id,
-				deltaSequence, time.Now(), payload,
-			)
-			if err != nil || !t.engine.observation.offerDelta(t.context, delta) {
-				dropped++
-			}
-		}
-	}
+	deltas := t.events.deltas(process, record.ID, observation)
 
 	go func() {
-		settlement, err := dispatchEffect(
-			dispatchCtx,
-			dispatcher,
-			request,
-			emit,
-		)
-		deltaMu.Lock()
-		acceptingDeltas = false
-		droppedCount := dropped
-		deltaMu.Unlock()
+		settlement, err := dispatchEffect(dispatchCtx, dispatcher, request, deltas.emitter())
+		dropped := deltas.close()
 		if err == nil && (!settlement.Valid() || settlement.EffectID() != record.ID) {
 			err = ErrInvalidSettlement
 		}
@@ -1690,7 +1661,7 @@ func (t *treeRuntime) startDispatch(
 				err:        err,
 				effectID:   record.ID,
 				settlement: settlement,
-				dropped:    droppedCount,
+				dropped:    dropped,
 			},
 		}
 	}()
