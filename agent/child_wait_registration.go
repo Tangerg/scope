@@ -36,7 +36,7 @@ func (c childWaitRegistry) remove(parentID ProcessID, waitID WaitID) {
 }
 
 // ordered returns parentID's registrations in WaitID order so notification
-// and encoding do not depend on map iteration.
+// does not depend on map iteration.
 func (c childWaitRegistry) ordered(parentID ProcessID) []*childWaitRegistration {
 	ordered := make([]*childWaitRegistration, 0, len(c[parentID]))
 	for _, registration := range c[parentID] {
@@ -48,10 +48,12 @@ func (c childWaitRegistry) ordered(parentID ProcessID) []*childWaitRegistration 
 	return ordered
 }
 
+// wire leaves ordering to treeSnapshotWire.normalize, which owns the
+// canonical encoding.
 func (c childWaitRegistry) wire() []childWaitSnapshotWire {
 	var waits []childWaitSnapshotWire
-	for parentID := range c {
-		for _, registration := range c.ordered(parentID) {
+	for parentID, registrations := range c {
+		for _, registration := range registrations {
 			waits = append(waits, childWaitSnapshotWire{
 				ParentProcessID: parentID, WaitID: registration.waitID, Spec: registration.spec.wire(),
 			})

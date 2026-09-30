@@ -1396,18 +1396,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 		_, runtimeErr := process.handle.outcome()
 		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
 		if job := t.jobs.get(processID); job != nil {
-			report.Stale = job.stale
-			report.EffectID = job.effectID
-			switch job.kind {
-			case processJobStep:
-				report.Work = ProcessWorkStep
-			case processJobRestore:
-				report.Work = ProcessWorkRestore
-			case processJobDispatch:
-				report.Work = ProcessWorkDispatch
-			case processJobChildStart:
-				report.Work = ProcessWorkChildStart
-			}
+			report.Work, report.Stale, report.EffectID = job.kind.work(), job.stale, job.effectID
 		} else if t.runQueue.contains(processID) && !process.status.Terminal() {
 			report.Work = ProcessWorkQueued
 		}

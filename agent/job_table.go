@@ -19,6 +19,22 @@ const (
 	processJobChildStart
 )
 
+// work is the inspection vocabulary for a job of this kind.
+func (p processJobKind) work() ProcessWork {
+	switch p {
+	case processJobStep:
+		return ProcessWorkStep
+	case processJobRestore:
+		return ProcessWorkRestore
+	case processJobDispatch:
+		return ProcessWorkDispatch
+	case processJobChildStart:
+		return ProcessWorkChildStart
+	default:
+		return ProcessWorkInvalid
+	}
+}
+
 type processJob struct {
 	kind          processJobKind
 	attempt       processAttempt
