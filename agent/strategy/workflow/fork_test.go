@@ -35,10 +35,8 @@ func TestForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	tracker := newBranchTracker("first", "second", "third")
 	branches := make([]workflow.ForkBranch, 0, 3)
-	resolver := deploymentResolver{}
 	for _, id := range []string{"first", "second", "third"} {
 		deployment := newManagedBranchDeployment(t, id, tracker)
-		resolver[deployment.DeploymentRef()] = deployment
 		branches = append(branches, workflow.ForkBranch{
 			ID: id, Deployment: deployment, Budget: mustBudget(t),
 		})
@@ -61,7 +59,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 		t.Fatalf("Fork Stage = %#v", stage)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork", stage), "fork")
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +106,6 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 
 func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 	branches := make([]workflow.ForkBranch, 0, 2)
-	resolver := deploymentResolver{}
 	for _, id := range []string{"first", "second"} {
 		branchID := id
 		child := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure_"+id,
@@ -116,7 +113,6 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
-		resolver[child.DeploymentRef()] = child
 		branches = append(branches, workflow.ForkBranch{ID: id, Deployment: child, Budget: mustBudget(t)})
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
@@ -127,7 +123,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure", stage), "fork-failure")
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, _ := agent.EncodePayload(forkInput{Value: 1})
 	result, err := engine.Run(context.Background(), deployment, input)
 	if err != nil {
@@ -154,16 +150,12 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			branches := make([]workflow.ForkBranch, 0, 2)
-			resolver := deploymentResolver{}
-			for _, id := range []string{"unavailable", "available"} {
+			for _, id := range []string{"refused", "available"} {
 				child := mustDeployment(t, mustDefinition(t, "test.workflow.admission_"+id,
 					mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 						return numberOutput(input), nil
 					}),
 				), "admission-"+id)
-				if id == "available" && test.admitSibling {
-					resolver[child.DeploymentRef()] = child
-				}
 				branches = append(branches, workflow.ForkBranch{ID: id, Deployment: child, Budget: mustBudget(t)})
 			}
 			stage, err := workflow.Fork(workflow.ForkConfig[forkInput, numberOutput, numberOutput]{
@@ -176,7 +168,16 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{
+				TreeCommitter: agent.NewMemoryTreeCommitter(),
+				ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+					name := admission.DeploymentRef().Name()
+					if name == "test.workflow.admission_refused" || name == "test.workflow.admission_available" && !test.admitSibling {
+						return errors.New("branch refused")
+					}
+					return nil
+				}),
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -195,8 +196,8 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, failed := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.deployment_unavailable" ||
-				failure.Message() != "deployment not found" {
+			if result.Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" ||
+				failure.Message() != "agent: process admission rejected: branch refused" {
 				t.Fatalf("failed admission lost its cause: %#v", failure)
 			}
 			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
@@ -308,7 +309,7 @@ func (m *managedBranchDefinition) Descriptor() agent.Descriptor {
 	return m.descriptor
 }
 
-func (*managedBranchDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*managedBranchDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (m *managedBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()

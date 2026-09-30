@@ -109,7 +109,7 @@ type recordingDefinition struct {
 
 func (r *recordingDefinition) Descriptor() agent.Descriptor { return r.definition.Descriptor() }
 
-func (r *recordingDefinition) ChildDeployments() []agent.DeploymentRef {
+func (r *recordingDefinition) ChildDeployments() []agent.Deployment {
 	return r.definition.ChildDeployments()
 }
 

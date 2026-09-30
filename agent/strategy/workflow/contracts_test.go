@@ -21,18 +21,15 @@ func TestWaitingForkTreeRestoresWithoutDuplicateChildren(t *testing.T) {
 }
 
 type restorableForkFixture struct {
-	store    *agent.MemoryTreeCommitter
-	root     agent.Deployment
-	resolver deploymentResolver
+	store *agent.MemoryTreeCommitter
+	root  agent.Deployment
 }
 
 func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 	t.Helper()
 	branches := make([]workflow.ForkBranch, 0, 3)
-	resolver := deploymentResolver{}
 	for _, id := range []string{"first", "second", "third"} {
 		deployment := newPausingBranchDeployment(t, id)
-		resolver[deployment.DeploymentRef()] = deployment
 		branches = append(branches, workflow.ForkBranch{
 			ID: id, Deployment: deployment, Budget: mustBudget(t),
 		})
@@ -52,7 +49,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 		t.Fatal(err)
 	}
 	rootDeployment := mustDeployment(t, mustDefinition(t, "test.workflow.restorable_fork", stage), "restorable-fork")
-	return restorableForkFixture{store: agent.NewMemoryTreeCommitter(), root: rootDeployment, resolver: resolver}
+	return restorableForkFixture{store: agent.NewMemoryTreeCommitter(), root: rootDeployment}
 }
 
 func captureWaitingForkTree(
@@ -60,7 +57,7 @@ func captureWaitingForkTree(
 	fixture restorableForkFixture,
 ) (agent.TreeSnapshot, []agent.ProcessID) {
 	t.Helper()
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store})
 	input, _ := agent.EncodePayload(forkInput{Value: 7})
 	root, err := engine.Start(context.Background(), fixture.root, input)
 	if err != nil {
@@ -90,7 +87,7 @@ func completeRestoredForkTree(
 	initialChildren []agent.ProcessID,
 ) {
 	t.Helper()
-	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
+	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store})
 	restoredRoot, err := restoredEngine.RestoreTree(context.Background(), fixture.root, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -183,9 +180,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootDeployment := mustDeployment(t, mustDefinition(t, "test.workflow.cancel", call), "cancel")
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: deploymentResolver{childDeployment.DeploymentRef(): childDeployment},
-	})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, _ := agent.EncodePayload(forkInput{Value: 1})
 	root, err := engine.Start(context.Background(), rootDeployment, input)
 	if err != nil {
@@ -364,7 +359,7 @@ func (p *pausingBranchDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
-func (*pausingBranchDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*pausingBranchDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (p *pausingBranchDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[forkInput]()

@@ -35,31 +35,19 @@ func workerConfig(deployment agent.Deployment) WorkerConfig {
 	return WorkerConfig{Deployment: deployment, Budget: agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(16), Signals: agent.NewQuota(32)}}
 }
 
-func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (*Definition, resolver) {
-	config, deployments := fixtureConfig(coordinator, workers...)
-	return require(NewDefinition(config)), deployments
+func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) *Definition {
+	return require(NewDefinition(fixtureConfig(coordinator, workers...)))
 }
 
-func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) (DefinitionConfig, resolver) {
+func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) DefinitionConfig {
 	decision := transformed("test.coordinator", coordinator)
 	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate tasks.", Coordinator: workerConfig(decision),
 		StateSchema: require(agent.SchemaFor[string]()), OutputSchema: require(agent.SchemaFor[string]()),
 		MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
-	deployments := resolver{decision.DeploymentRef(): decision}
 	for _, worker := range workers {
 		config.Workers = append(config.Workers, workerConfig(worker))
-		deployments[worker.DeploymentRef()] = worker
 	}
-	return config, deployments
-}
-
-type resolver map[agent.DeploymentRef]agent.Deployment
-
-func (r resolver) Resolve(ref agent.DeploymentRef) (agent.Deployment, error) {
-	if deployment, found := r[ref]; found {
-		return deployment, nil
-	}
-	return agent.Deployment{}, errors.New("deployment unavailable")
+	return config
 }
 
 func input(value string) agent.Payload { return require(agent.EncodePayload(value)) }
@@ -77,9 +65,25 @@ func gate() agent.Deployment {
 	schema := require(agent.SchemaFor[string]())
 	return binding(require(coordination.NewInputGate(coordination.InputGateConfig{Name: "test.gate", Description: "Receive input.", RequestSchema: schema, AnswerSchema: schema})))
 }
-func run(t *testing.T, definition *Definition, deployments resolver, committer agent.TreeCommitter) (*agent.Engine, *agent.Process) {
+func run(t *testing.T, definition *Definition, committer agent.TreeCommitter) (*agent.Engine, *agent.Process) {
 	t.Helper()
-	engine := require(agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployments, TreeCommitter: committer}))
+	return runWith(t, definition, agent.EngineConfig{TreeCommitter: committer})
+}
+
+// refuseChildren rejects the admission of every child running a Deployment
+// named name, the way a Host refuses a start it cannot serve.
+func refuseChildren(name string) agent.ProcessAdmitter {
+	return agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+		if !admission.Relation().IsRoot() && admission.DeploymentRef().Name() == name {
+			return errors.New(name + " refused")
+		}
+		return nil
+	})
+}
+
+func runWith(t *testing.T, definition *Definition, config agent.EngineConfig) (*agent.Engine, *agent.Process) {
+	t.Helper()
+	engine := require(agent.NewEngine(config))
 	t.Cleanup(func() {
 		if err := engine.Close(context.Background()); err != nil {
 			t.Error(err)
@@ -103,7 +107,7 @@ func completed(t *testing.T, process *agent.Process) string {
 
 func TestBackgroundContinueControlAndDrain(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			switch turn.Number {
 			case 1:
 				return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
@@ -130,7 +134,7 @@ func TestBackgroundContinueControlAndDrain(t *testing.T) {
 			}
 		}, gate())
 		var committer agent.TreeCommitter = agent.NewMemoryTreeCommitter()
-		_, process := run(t, definition, deployments, committer)
+		_, process := run(t, definition, committer)
 		if got := completed(t, process); got != "continued, controlled, drained" {
 			t.Fatal(got)
 		}
@@ -138,7 +142,7 @@ func TestBackgroundContinueControlAndDrain(t *testing.T) {
 }
 
 func TestCompletedTaskFollowUp(t *testing.T) {
-	definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
 			return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("draft", "test.echo", "draft")}}, nil
@@ -155,7 +159,7 @@ func TestCompletedTaskFollowUp(t *testing.T) {
 			return Decision{}, errors.New("unexpected turn")
 		}
 	}, echo())
-	_, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
+	_, process := run(t, definition, agent.NewMemoryTreeCommitter())
 	if got := completed(t, process); got != "echo: echo: draft revised" {
 		t.Fatal(got)
 	}
@@ -163,7 +167,7 @@ func TestCompletedTaskFollowUp(t *testing.T) {
 
 func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			if turn.Number == 1 {
 				return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("input", "test.gate", "instruction")}}, nil
 			}
@@ -175,7 +179,7 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 			return finish(turn, signal.ID().String()+":"+string(signal.Payload())), nil
 		}, gate())
 		store := agent.NewMemoryTreeCommitter()
-		engine, process := run(t, definition, deployments, store)
+		engine, process := run(t, definition, store)
 		synctest.Wait()
 		tree := require(engine.InspectTree(t.Context(), process.ID()))
 		var recipient agent.ProcessID
@@ -204,7 +208,7 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 }
 
 func TestDefinitionConformance(t *testing.T) {
-	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	initial := input("initial")
 	state := require(require(definition.Start(initial)).Snapshot())
 	var unsolicited agent.Signal
@@ -224,13 +228,13 @@ func TestDefinitionConformance(t *testing.T) {
 }
 
 func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
-	config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
+	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 		return Decision{Mode: Complete, State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
 	}, echo())
 	config.OutputSchema = require(agent.ParseSchema([]byte(`{"type":"null"}`)))
 	definition := require(NewDefinition(config))
 	store := agent.NewMemoryTreeCommitter()
-	engine, process := run(t, definition, deployments, store)
+	engine, process := run(t, definition, store)
 	result := require(process.Await(t.Context()))
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("termination = %+v", result.Termination())
@@ -240,7 +244,7 @@ func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	if err := engine.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
+	restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store}))
 	defer func() {
 		if err := restoredEngine.Close(t.Context()); err != nil {
 			t.Error(err)

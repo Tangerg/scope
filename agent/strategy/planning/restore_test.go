@@ -228,7 +228,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		executors: map[string]planning.ActionExecutor{"finish": world.apply(action)}, sensor: world,
 	})
 	binding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: action, DeploymentRef: child.DeploymentRef(), Budget: agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)},
+		Action: action, Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)},
 	})
 	if err != nil {
 		t.Fatal(err)

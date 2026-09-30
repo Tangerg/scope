@@ -91,14 +91,14 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 }
 
 // ChildDeployments reports the child binding of every child Action.
-func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+func (d *Definition) ChildDeployments() []agent.Deployment {
 	if d == nil {
 		return nil
 	}
-	var children []agent.DeploymentRef
+	var children []agent.Deployment
 	for _, binding := range d.bindings {
 		if binding.target == bindingTargetChild {
-			children = append(children, binding.child.DeploymentRef)
+			children = append(children, binding.childDeployment)
 		}
 	}
 	return children

@@ -101,6 +101,14 @@ func (f forkSource) member(index uint32) (fanoutMember, bool) {
 	return f.branches[index], true
 }
 
+func (f forkSource) bindings() []childBinding {
+	bindings := make([]childBinding, len(f.branches))
+	for index, branch := range f.branches {
+		bindings[index] = branch.binding
+	}
+	return bindings
+}
+
 func (f forkSource) topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
 	bindings := make([]BindingTopology, len(f.branches))
 	for index, branch := range f.branches {

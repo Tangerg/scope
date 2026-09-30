@@ -39,7 +39,7 @@ func newScopeJoinDeployment(t *testing.T, boundary ChildWaitBoundary, dispatcher
 
 func (s *scopeJoinDefinition) Descriptor() Descriptor { return s.descriptor }
 
-func (*scopeJoinDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*scopeJoinDefinition) ChildDeployments() []Deployment { return nil }
 
 func (s *scopeJoinDefinition) Start(input Payload) (Execution, error) {
 	role, err := input.Decode[string]()

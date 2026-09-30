@@ -284,7 +284,7 @@ func (p *publicationDatabase) recordPublication(id agent.Digest, payload json.Ra
 
 func publicationEngine(t *testing.T, deployment interactionDeployment, store agent.TreeCommitter) *agent.Engine {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolver, TreeCommitter: store})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -96,7 +96,7 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 		return agent.Transition{}, err
 	}
 	effect, err := agent.NewChildStartEffect(agent.ChildSpec{
-		Key: key, DeploymentRef: binding.deploymentRef, Input: input,
+		Key: key, DeploymentRef: binding.deploymentRef(), Input: input,
 		Budget: binding.budget, Capabilities: binding.capabilities,
 	})
 	if err != nil {
@@ -169,7 +169,7 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, wa
 	if !bound {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	result, err := e.state.Child.AcceptStart(signal, key, binding.deploymentRef)
+	result, err := e.state.Child.AcceptStart(signal, key, binding.deploymentRef())
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: Stage %q child start: %w", ErrInvalidProtocol, e.stage().id, err)
 	}
@@ -315,7 +315,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 			return agent.Transition{}, err
 		}
 		effect, err := agent.NewChildStartEffect(agent.ChildSpec{
-			Key: key, DeploymentRef: member.binding.deploymentRef, Input: input,
+			Key: key, DeploymentRef: member.binding.deploymentRef(), Input: input,
 			Budget: member.binding.budget, Capabilities: member.binding.capabilities,
 		})
 		if err != nil {
@@ -343,7 +343,7 @@ func (e *execution) fanoutBatch() (childcall.Batch, error) {
 		if err != nil {
 			return childcall.Batch{}, err
 		}
-		batch.Children[offset] = progress.child(key, member.binding.deploymentRef)
+		batch.Children[offset] = progress.child(key, member.binding.deploymentRef())
 	}
 	return batch, nil
 }

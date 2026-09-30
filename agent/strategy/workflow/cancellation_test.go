@@ -64,9 +64,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 					t.Fatal(err)
 				}
 				deployment := mustDeployment(t, mustDefinition(t, "test.workflow.cancel_"+test.name, stage), test.name)
-				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-					DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
-				})
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}

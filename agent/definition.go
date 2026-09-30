@@ -13,14 +13,15 @@ type Definition interface {
 	// return an equivalent value; runtime configuration and mutable state do not
 	// belong in the descriptor.
 	Descriptor() Descriptor
-	// ChildDeployments reports every Deployment this definition binds in its
-	// own configuration to start as a child. The bindings are part of its
-	// identity: NewDeployment folds them into the DeploymentRef, so a
-	// definition bound to different children is a different Deployment.
-	// Children started from runtime input are recorded by their own ChildSpec
-	// and are not listed. Repeated and concurrent calls must return the same
+	// ChildDeployments returns every Deployment this definition binds in its
+	// own configuration to start as a child. The Deployment owns these
+	// bindings: NewDeployment folds their references into the DeploymentRef,
+	// so a definition bound to different children is a different Deployment,
+	// and the Engine starts and restores these children from the bindings
+	// themselves. Only children named by runtime input are left to the
+	// DeploymentResolver. Repeated and concurrent calls must return the same
 	// set; a leaf definition returns none.
-	ChildDeployments() []DeploymentRef
+	ChildDeployments() []Deployment
 	// Start validates input against Descriptor and creates a fresh, isolated
 	// Execution without performing external I/O. It takes no context because it
 	// only initializes local state and must return promptly.

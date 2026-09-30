@@ -116,11 +116,11 @@ func execute(
 	ctx context.Context,
 	request patternRequest,
 ) (_ patternReport, _ executionEvidence, err error) {
-	root, resolver, err := newWorkflowPatterns()
+	root, err := newWorkflowPatterns()
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
@@ -155,10 +155,10 @@ func execute(
 	return report, evidence, nil
 }
 
-func newWorkflowPatterns() (agent.Deployment, deploymentResolver, error) {
+func newWorkflowPatterns() (agent.Deployment, error) {
 	children, err := newPatternChildren()
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	budget := agent.Budget{
 		Steps: agent.NewQuota(patternChildBudgetSteps), Effects: agent.NewQuota(patternChildBudgetEffects),
@@ -166,13 +166,13 @@ func newWorkflowPatterns() (agent.Deployment, deploymentResolver, error) {
 	}
 	stages, err := newPatternStages(children, budget)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
-	root, err := newPatternRoot(stages, children.deployments(), budget)
+	root, err := newPatternRoot(stages, budget)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
-	return root, children.resolver(), nil
+	return root, nil
 }
 
 type patternChildren struct {
@@ -336,7 +336,6 @@ func reduceFindings(_ context.Context, findings []finding) (findingBundle, error
 
 func newPatternRoot(
 	stages []workflow.Stage,
-	children []agent.Deployment,
 	budget agent.Budget,
 ) (agent.Deployment, error) {
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
@@ -365,22 +364,6 @@ func newPatternRoot(
 		return agent.Deployment{}, err
 	}
 	return root, nil
-}
-
-func (p patternChildren) deployments() []agent.Deployment {
-	return []agent.Deployment{
-		p.normalizer, p.summarizer, p.urgent, p.standard, p.facts, p.risks,
-		p.approveFirst, p.rejectFirst, p.rejectSecond, p.approveSecond,
-	}
-}
-
-func (p patternChildren) resolver() deploymentResolver {
-	children := p.deployments()
-	resolver := make(deploymentResolver, len(children))
-	for _, child := range children {
-		resolver[child.DeploymentRef()] = child
-	}
-	return resolver
 }
 
 func routeDeployment(route string) (agent.Deployment, error) {
@@ -517,16 +500,4 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 		return zero, errors.New("completed Process has no Output")
 	}
 	return output.Decode[T]()
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(
-	reference agent.DeploymentRef,
-) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not registered", reference.Digest())
-	}
-	return deployment, nil
 }

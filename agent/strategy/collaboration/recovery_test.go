@@ -21,7 +21,7 @@ func pausedWorker() agent.Deployment {
 }
 func (p *pausedDefinition) Descriptor() agent.Descriptor { return p.descriptor }
 
-func (*pausedDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*pausedDefinition) ChildDeployments() []agent.Deployment { return nil }
 func (p *pausedDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := p.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 	for _, operation := range []string{"signal_child", "cancel_child"} {
 		t.Run(operation, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+				definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 					switch turn.Number {
 					case 1:
 						return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("receiver", "test.paused", "work")}}, nil
@@ -114,7 +114,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				store := &heldControlDurability{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), operation: operation, entered: make(chan agent.EffectBoundary, 1), release: make(chan struct{})}
 				release := sync.OnceFunc(func() { close(store.release) })
 				defer release()
-				engine, process := run(t, definition, deployments, store)
+				engine, process := run(t, definition, store)
 				boundary := <-store.entered
 				synctest.Wait()
 				if boundary.Kind() != agent.EffectBoundaryKindSettled {
@@ -137,7 +137,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				if err != nil || !present || head.Digest() != boundary.TreeSnapshot().Digest() {
 					t.Fatalf("head: %t %v", present, err)
 				}
-				restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
+				restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store}))
 				t.Cleanup(func() {
 					if err := restoredEngine.Close(context.Background()); err != nil {
 						t.Error(err)

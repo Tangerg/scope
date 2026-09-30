@@ -7,9 +7,11 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+	"weak"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -383,6 +385,48 @@ type panickingClassifierTool struct{ tool.Tool }
 
 func (panickingClassifierTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	return func(tool.Invocation) (string, bool) { panic("classifier failed") }
+}
+
+// retainedTool is addressable so a weak pointer can observe whether the
+// scheduling manifest keeps it alive.
+type retainedTool struct{ tool.Tool }
+
+func (*retainedTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
+	return func(tool.Invocation) (string, bool) { return "stable", true }
+}
+
+func TestToolManifestDoesNotRetainExecutableTools(t *testing.T) {
+	manifest, executable := isolatedToolManifest(t)
+	runtime.GC()
+	runtime.GC()
+	if executable.Value() != nil {
+		t.Fatal("scheduling manifest retained the executable Tool")
+	}
+	calls := []chat.ToolCall{{ID: "call", Name: "retained", Arguments: `{"task":"run"}`}}
+	if end, err := manifest.concurrentBatchEnd(t.Context(), calls); err != nil || end != 1 {
+		t.Fatalf("frozen classifier = %d, %v", end, err)
+	}
+}
+
+func isolatedToolManifest(t *testing.T) (toolManifest, weak.Pointer[retainedTool]) {
+	t.Helper()
+	executable, err := tool.NewFunc(tool.FuncConfig{
+		Name: "retained", Description: "Exercise scheduling isolation.",
+	}, func(context.Context, fuzzDelegateInput) (string, error) { return "done", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := &retainedTool{executable}
+	tools, err := NewToolSet(ToolSetConfig{
+		Name: "interaction.retention.tools", Description: "Exercise scheduling isolation.",
+		Tools:                []tool.Tool{retained},
+		ImplementationDigest: agent.ComputeDigest([]byte("retention-tool")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("retention-config")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tools.manifest, weak.Make(retained)
 }
 
 func TestConcurrencyClassifierPanicFailsScheduling(t *testing.T) {

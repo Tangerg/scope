@@ -32,7 +32,7 @@ func (brokenMessageError) Error() string { panic("error failed") }
 type returningErrorCallbacks struct{ err error }
 
 func (r returningErrorCallbacks) Descriptor() Descriptor           { return Descriptor{} }
-func (returningErrorCallbacks) ChildDeployments() []DeploymentRef  { return nil }
+func (returningErrorCallbacks) ChildDeployments() []Deployment     { return nil }
 func (r returningErrorCallbacks) Start(Payload) (Execution, error) { return nil, r.err }
 func (r returningErrorCallbacks) Restore(context.Context, ExecutionState) (Execution, error) {
 	return nil, r.err

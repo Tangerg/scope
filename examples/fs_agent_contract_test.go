@@ -71,9 +71,8 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				}
 				return contractText("repair the arguments"), nil
 			}))
-			resolver := contractResolver{tools.Deployment().DeploymentRef(): tools.Deployment()}
 			events := &agenttest.ObservationRecorder{}
-			engine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver, EventListeners: []agent.EventListener{events}}))
+			engine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{events}}))
 			defer engine.Close(context.WithoutCancel(ctx))
 			input := contractValue(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
 			process := contractValue(engine.Start(ctx, root, input))

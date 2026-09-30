@@ -360,7 +360,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
 	var inputCalls int
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: delegate, DeploymentRef: childDeployment.DeploymentRef(), Budget: budget,
+		Action: delegate, Deployment: childDeployment, Budget: budget,
 		Input: func(input agent.Payload, observed planning.WorldState) (agent.Payload, error) {
 			inputCalls++
 			if !input.Valid() || observed.Truth("world.done") != planning.Unknown {
@@ -376,8 +376,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 		name: "planning.parent", goal: mustGoal(t, done),
 		bindings: []planning.ActionBinding{childBinding}, sensor: world,
 	})
-	resolver := managedResolver{childDeployment.DeploymentRef(): childDeployment}
-	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver}, parentDeployment)
+	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, parentDeployment)
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeAchieved || inputCalls != 1 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptSucceeded {
@@ -388,14 +387,14 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 	done := mustCondition(t, "world.done", planning.True)
 	world := newManagedWorld(t)
-	unresolved := newManagedDeployment(t, managedDeploymentConfig{name: "planning.unresolved", goal: mustGoal(t, done)})
+	rejected := newManagedDeployment(t, managedDeploymentConfig{name: "planning.rejected", goal: mustGoal(t, done)})
 	delegate := mustAction(t, planning.ActionConfig{
-		Name: "action.delegate", Description: "Delegate completion to an unresolvable child Deployment.",
+		Name: "action.delegate", Description: "Delegate completion to a child the Host refuses to admit.",
 		Effects: []planning.Condition{done},
 	})
 	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: delegate, DeploymentRef: unresolved.DeploymentRef(), Budget: budget,
+		Action: delegate, Deployment: rejected, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -404,11 +403,19 @@ func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 		name: "planning.parent", goal: mustGoal(t, done),
 		bindings: []planning.ActionBinding{childBinding}, sensor: world,
 	})
-	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: managedResolver{}}, parent)
+	result := runManaged(t, agent.EngineConfig{
+		TreeCommitter: agent.NewMemoryTreeCommitter(),
+		ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+			if admission.Relation().IsRoot() {
+				return nil
+			}
+			return errors.New("child refused")
+		}),
+	}, parent)
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses != 2 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptFailed ||
-		output.Attempts[0].Diagnostic != "engine.child.deployment_unavailable: deployment not found" || world.truth("world.done") != planning.Unknown {
+		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: agent: process admission rejected: child refused" || world.truth("world.done") != planning.Unknown {
 		t.Fatalf("output = %#v", output)
 	}
 }
@@ -663,14 +670,4 @@ func attemptNames(attempts []planning.Attempt) []string {
 		names[index] = attempt.ActionName
 	}
 	return names
-}
-
-type managedResolver map[agent.DeploymentRef]agent.Deployment
-
-func (m managedResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := m[reference]
-	if !found {
-		return agent.Deployment{}, errors.New("deployment not found")
-	}
-	return deployment, nil
 }

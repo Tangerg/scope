@@ -111,7 +111,15 @@ func TestRoundResultsCoversMixedToolAndDelegatePaths(t *testing.T) {
 		return textResponse("done"), nil
 	})
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "publication.mixed", Description: "Commit all known result producers.", MaxModelCalls: agent.NewQuota(2), Delegates: delegates}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{Tools: tools})
-	engine, err := agent.NewEngine(agent.EngineConfig{DeploymentResolver: deployment.resolveWith(worker), TreeCommitter: store})
+	engine, err := agent.NewEngine(agent.EngineConfig{
+		TreeCommitter: store,
+		ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+			if admission.DeploymentRef().Name() == "publication.unavailable" {
+				return errors.New("worker unavailable")
+			}
+			return nil
+		}),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,10 +172,6 @@ func TestDelegatePublicationSurvivesUnresolvedSibling(t *testing.T) {
 		models.Add(1)
 		return publicationResponse(chat.ToolCall{ID: "known-child", Name: "known", Arguments: string(input.JSON())}, chat.ToolCall{ID: "unknown-child", Name: "unknown", Arguments: string(input.JSON())}), nil
 	})}, interaction.ToolSetConfig{})
-	parent.resolver = nested.resolveWith(nested.Deployment, sibling.Deployment)
-	for ref, deployment := range sibling.resolver {
-		parent.resolver[ref] = deployment
-	}
 	store.after = func(_ agent.TreeSnapshot, publications []interaction.RoundResults) error {
 		for _, publication := range publications {
 			if publication.Relation().IsRoot() && len(publication.Entries()) == 1 && publication.Entries()[0].Call.ID == "known-child" {

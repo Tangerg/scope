@@ -83,6 +83,9 @@ func (c *childStartPlan) resolveDeployment() (Deployment, error) {
 	if reference == c.parentDeployment.DeploymentRef() {
 		return c.parentDeployment, c.parentDeployment.validateDefinition()
 	}
+	if bound, found := c.parentDeployment.boundChild(reference); found {
+		return bound, bound.validateDefinition()
+	}
 	if c.resolver == nil {
 		return Deployment{}, fmt.Errorf("%w: no resolver for %s", ErrInvalidDeployment, reference.Name())
 	}

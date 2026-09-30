@@ -17,8 +17,8 @@ type DelegateConfig struct {
 
 	Description string
 
-	// Deployment is the exact child behavior binding. The Delegate retains only
-	// its immutable reference and Descriptor schemas.
+	// Deployment is the exact child behavior binding. An Interaction
+	// configured with this Delegate owns it as one of its ChildDeployments.
 	Deployment agent.Deployment
 
 	// Budget is permanently allocated from the parent for each invocation.
@@ -31,12 +31,12 @@ type DelegateConfig struct {
 // Deployment. It is a composition value owned by Interaction, not an
 // executable Tool or a second Process-start entry point.
 type Delegate struct {
-	definition    chat.ToolDefinition
-	deploymentRef agent.DeploymentRef
-	inputSchema   agent.Schema
-	outputSchema  agent.Schema
-	budget        agent.Budget
-	capabilities  agent.CapabilitySet
+	definition   chat.ToolDefinition
+	deployment   agent.Deployment
+	inputSchema  agent.Schema
+	outputSchema agent.Schema
+	budget       agent.Budget
+	capabilities agent.CapabilitySet
 }
 
 // NewDelegate fixes the target at construction; model selection cannot change
@@ -55,7 +55,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 		return Delegate{}, fmt.Errorf("%w: model contract: %w", ErrInvalidDelegate, err)
 	}
 	return Delegate{
-		definition: definition, deploymentRef: config.Deployment.DeploymentRef(),
+		definition: definition, deployment: config.Deployment,
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(), budget: config.Budget,
 		capabilities: config.Capabilities,
 	}, nil
@@ -63,7 +63,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 
 func (d Delegate) Valid() bool {
 	return d.definition.Validate() == nil && agent.ValidDescription(d.definition.Description) &&
-		d.deploymentRef.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
+		d.deployment.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
 		d.capabilities.Valid()
 }
 

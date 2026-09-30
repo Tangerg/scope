@@ -23,8 +23,8 @@ type DefinitionConfig struct {
 	// unlimited; a finite zero is rejected because an Interaction needs a model call.
 	MaxModelCalls agent.Quota
 
-	// Tools is the frozen ordinary Tool authority. Its Deployment must be
-	// available through Engine's exact DeploymentResolver.
+	// Tools is the frozen ordinary Tool authority. The Interaction owns its
+	// Deployment as one of its ChildDeployments.
 	Tools ToolSet
 
 	// ToolBudget is allocated from the parent for each ordinary Tool child.
@@ -51,9 +51,10 @@ type DefinitionConfig struct {
 	CompletionValidator CompletionValidator
 }
 
-// Definition is an immutable managed model/Tool-loop definition. It contains
-// no model client or executable Tool; those external capabilities belong to
-// the model Dispatcher and ToolSet child Deployment.
+// Definition is an immutable managed model/Tool-loop definition. It never
+// calls a model client or an executable Tool: the model Dispatcher owns model
+// I/O, and the ToolSet's child Deployment, which the Definition holds only as
+// its binding, owns Tool execution.
 type Definition struct {
 	descriptor             agent.Descriptor
 	maxModelCalls          agent.Quota
@@ -61,6 +62,7 @@ type Definition struct {
 	delegatesByName        map[string]int
 	completionValidator    CompletionValidator
 	tools                  toolManifest
+	toolDeployment         agent.Deployment
 	toolBudget             agent.Budget
 	toolCapabilities       agent.CapabilitySet
 	maxConcurrentToolCalls int
@@ -93,6 +95,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		delegatesByName:        names,
 		completionValidator:    config.CompletionValidator,
 		tools:                  config.Tools.manifest,
+		toolDeployment:         config.Tools.deployment,
 		toolBudget:             config.ToolBudget,
 		toolCapabilities:       config.ToolCapabilities,
 		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
@@ -145,16 +148,16 @@ func indexDelegates(delegates []Delegate, tools toolManifest) (map[string]int, e
 
 // ChildDeployments reports the Tool child binding, when Tools are configured,
 // and every Delegate binding.
-func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+func (d *Definition) ChildDeployments() []agent.Deployment {
 	if d == nil {
 		return nil
 	}
-	var children []agent.DeploymentRef
-	if d.tools.deploymentRef.Valid() {
-		children = append(children, d.tools.deploymentRef)
+	var children []agent.Deployment
+	if d.toolDeployment.Valid() {
+		children = append(children, d.toolDeployment)
 	}
 	for _, delegate := range d.delegates {
-		children = append(children, delegate.deploymentRef)
+		children = append(children, delegate.deployment)
 	}
 	return children
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
-	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	for name, decision := range map[string]Decision{
 		"mode":               {Mode: "invalid", State: input("x")},
 		"state schema":       {Mode: Continue, State: require(agent.EncodePayload(1))},
@@ -52,7 +52,7 @@ func requireOutput[T any](value T) agent.Payload {
 }
 
 func TestConfigurationAndProtocolContracts(t *testing.T) {
-	validConfig, _ := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	validConfig := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	definition := require(NewDefinition(validConfig))
 	for name, mutate := range map[string]func(*DefinitionConfig){
 		"zero concurrency":           func(config *DefinitionConfig) { config.MaxConcurrentTasks = 0 },
@@ -143,7 +143,7 @@ func (t *tracedExecution) Step(ctx context.Context, signals []agent.Signal) (age
 }
 
 func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
-	config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
+	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
 			return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("a", "test.gate", "wait")}}, nil
@@ -157,7 +157,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	config.MaxTurns = agent.NewQuota(8)
 	definition := require(NewDefinition(config))
 	trace := &tracedDefinition{Definition: definition}
-	engine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployments}))
+	engine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}))
 	defer engine.Close(t.Context())
 	process := require(engine.Start(t.Context(), binding(trace), input("initial")))
 	completed(t, process)
@@ -234,13 +234,13 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 }
 
 func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
-	definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		if turn.Number == 1 {
 			return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("work", "test.echo", "value")}}, nil
 		}
 		return finish(turn, "done"), nil
 	}, echo())
-	engine, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
+	engine, process := run(t, definition, agent.NewMemoryTreeCommitter())
 	completed(t, process)
 	tree := require(engine.InspectTree(t.Context(), process.ID()))
 	root, _ := tree.Process(process.ID())
@@ -282,7 +282,7 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 }
 
 func TestRestoreStopsBetweenTasks(t *testing.T) {
-	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	state := executionState{Tasks: []Task{{Request: request("work", "test.echo", "x")}, {}}}
 	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
 	defer cancel()

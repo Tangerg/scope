@@ -79,7 +79,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 		if !child || parentID != result.ProcessID() || invocation.Relation().Depth() != 1 || invocation.Relation().RootID() != result.ProcessID() {
 			t.Fatalf("Tool relation=%#v", invocation.Relation())
 		}
-		if _, bound := deployment.resolver[invocation.DeploymentRef()]; !bound {
+		if invocation.DeploymentRef() != deployment.tools.DeploymentRef() {
 			t.Fatal("Tool invocation references a different deployment")
 		}
 		if invocation.ModelCallSequence() != uint64(index+1) || invocation.ToolCallIndex() != 0 ||
@@ -548,7 +548,7 @@ func newDeferredDeployment(t *testing.T, model chat.Model, initial []tool.Tool, 
 
 func startDeferredInteraction(t *testing.T, deployment interactionDeployment) (*agent.Process, *agent.Engine) {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

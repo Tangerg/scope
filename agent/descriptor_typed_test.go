@@ -18,7 +18,7 @@ type typedFixtureDefinition struct {
 
 func (t *typedFixtureDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (*typedFixtureDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*typedFixtureDefinition) ChildDeployments() []Deployment { return nil }
 
 func (t *typedFixtureDefinition) Start(input Payload) (Execution, error) {
 	t.starts++

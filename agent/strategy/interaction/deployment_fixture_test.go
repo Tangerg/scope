@@ -2,7 +2,6 @@ package interaction_test
 
 import (
 	"context"
-	"maps"
 	"runtime"
 	"testing"
 	"time"
@@ -10,14 +9,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 )
-
-func (i interactionDeployment) resolveWith(children ...agent.Deployment) delegateResolver {
-	resolver := maps.Clone(i.resolver)
-	for _, child := range children {
-		resolver[child.DeploymentRef()] = child
-	}
-	return resolver
-}
 
 func captureToolInput(t *testing.T, engine *agent.Engine, root *agent.Process) (agent.TreeSnapshot, interaction.PendingToolInput) {
 	t.Helper()
@@ -67,7 +58,8 @@ func pendingToolProcess(t *testing.T, engine *agent.Engine, pending interaction.
 
 type interactionDeployment struct {
 	agent.Deployment
-	resolver delegateResolver
+	// tools is the Tool child binding of the Interaction, when configured.
+	tools agent.Deployment
 }
 
 func configuredInteraction(t *testing.T, definitionConfig interaction.DefinitionConfig, dispatcherConfig interaction.DispatcherConfig, toolConfig interaction.ToolSetConfig) interactionDeployment {
@@ -112,12 +104,7 @@ func testToolSet(t *testing.T, config interaction.ToolSetConfig) interaction.Too
 }
 
 func toolInteractionDeployment(deployment agent.Deployment, toolSet interaction.ToolSet) interactionDeployment {
-	fixture := interactionDeployment{Deployment: deployment, resolver: make(delegateResolver)}
-	if toolSet.Configured() {
-		child := toolSet.Deployment()
-		fixture.resolver[child.DeploymentRef()] = child
-	}
-	return fixture
+	return interactionDeployment{Deployment: deployment, tools: toolSet.Deployment()}
 }
 
 func inspectProcessSnapshot(t *testing.T, engine *agent.Engine, process *agent.Process) agent.ProcessSnapshot {

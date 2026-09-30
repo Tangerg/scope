@@ -28,7 +28,7 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
-	root, resolver, err := newManagedWorkflow()
+	root, err := newManagedWorkflow()
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return errors.New("root does not contain a Workflow Definition")
 	}
 	topology := definition.Topology()
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ type reviewReport struct {
 	Reviews []review `json:"reviews"`
 }
 
-func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
+func newManagedWorkflow() (agent.Deployment, error) {
 	normalizer, err := transformDeployment(
 		"example.workflow.normalizer",
 		"Normalize one review request.",
@@ -109,15 +109,15 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		},
 	)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	clarity, err := reviewerDeployment("clarity")
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	safety, err := reviewerDeployment("safety")
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	budget := agent.Budget{
 		Steps: agent.NewQuota(workflowChildBudgetUnits), Effects: agent.NewQuota(workflowChildBudgetUnits), Signals: agent.NewQuota(workflowChildBudgetUnits),
@@ -126,7 +126,7 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		ID: "normalize", Deployment: normalizer, Budget: budget,
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	reviewers, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, review, reviewReport]{
 		ID: "review",
@@ -143,14 +143,14 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		},
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.workflow.review", Description: "Normalize and review one request with managed child Processes.",
 		Stages: []workflow.Stage{normalize, reviewers},
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
@@ -158,13 +158,9 @@ func newManagedWorkflow() (agent.Deployment, deploymentResolver, error) {
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example-workflow-review-configuration")),
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
-	return root, deploymentResolver{
-		normalizer.DeploymentRef(): normalizer,
-		clarity.DeploymentRef():    clarity,
-		safety.DeploymentRef():     safety,
-	}, nil
+	return root, nil
 }
 
 func reviewerDeployment(reviewer string) (agent.Deployment, error) {
@@ -197,16 +193,4 @@ func transformDeployment[I, O any](
 		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
 	})
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(
-	reference agent.DeploymentRef,
-) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not registered", reference.Digest())
-	}
-	return deployment, nil
 }

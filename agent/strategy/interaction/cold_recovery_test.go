@@ -160,7 +160,7 @@ func persistUnknownForColdRecovery(t *testing.T, modelRecovery bool) string {
 	}
 	var calls atomic.Int32
 	deployment, _, _, executable := coldRecoveryDeployment(t, modelRecovery, &calls)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

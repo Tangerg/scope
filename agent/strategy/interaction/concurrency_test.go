@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"weak"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
@@ -74,19 +72,6 @@ func TestConcurrentToolsRespectLimitAndCommitInModelOrder(t *testing.T) {
 	}
 }
 
-func TestDefinitionDoesNotRetainConcurrentTool(t *testing.T) {
-	definition, executable := isolatedSchedulingDefinition(t)
-	runtime.GC()
-	runtime.GC()
-	if executable.Value() != nil {
-		t.Fatal("Definition retained the executable through its scheduling policy")
-	}
-	if !definition.Descriptor().Valid() {
-		t.Fatal("Definition lost its pure contract")
-	}
-	runtime.KeepAlive(definition)
-}
-
 func TestToolSetRejectsPanickingConcurrencyDeclaration(t *testing.T) {
 	_, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{
 		panickingConcurrencyTool{scheduledTool: &scheduledTool{name: "read"}},
@@ -100,20 +85,6 @@ type panickingConcurrencyTool struct{ *scheduledTool }
 
 func (p panickingConcurrencyTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	panic("policy unavailable")
-}
-
-func isolatedSchedulingDefinition(t *testing.T) (*interaction.Definition, weak.Pointer[scheduledTool]) {
-	t.Helper()
-	executable := &scheduledTool{name: "read", key: "stable", call: func(context.Context, string) (string, error) { return "read", nil }}
-	tools := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "interaction.isolated", Description: "Retain pure scheduling policy only.",
-		MaxModelCalls: agent.NewQuota(2), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(8), Signals: agent.NewQuota(8)}, MaxConcurrentToolCalls: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return definition, weak.Make(executable)
 }
 
 func TestConcurrentToolsWithSameKeyDoNotOverlap(t *testing.T) {
@@ -422,7 +393,7 @@ func startConcurrentInteraction(
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{
 		Name: "interaction.concurrent", Description: "Verify bounded Tool concurrency.", MaxModelCalls: agent.NewQuota(3), MaxConcurrentToolCalls: maxConcurrent,
 	}, interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: tools})
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

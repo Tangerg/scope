@@ -16,7 +16,7 @@ type fixtureCompletionDefinition struct {
 
 func (f *fixtureCompletionDefinition) Descriptor() Descriptor { return f.base.Descriptor() }
 
-func (*fixtureCompletionDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*fixtureCompletionDefinition) ChildDeployments() []Deployment { return nil }
 func (f *fixtureCompletionDefinition) Start(input Payload) (Execution, error) {
 	e, err := f.base.Start(input)
 	if err != nil {

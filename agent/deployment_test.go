@@ -188,16 +188,16 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 // boundDefinition reports configurable child bindings over a leaf definition.
 type boundDefinition struct {
 	Definition
-	children []DeploymentRef
+	children []Deployment
 }
 
-func (b *boundDefinition) ChildDeployments() []DeploymentRef { return b.children }
+func (b *boundDefinition) ChildDeployments() []Deployment { return b.children }
 
 func TestDeploymentIdentityCoversChildBindings(t *testing.T) {
 	leaf := newEngineTestDefinition(t, "test.binding.leaf", "complete")
-	first := newChildTestDeployment(t).DeploymentRef()
-	second := engineTestDeployment(t, leaf, nil).DeploymentRef()
-	deploy := func(children ...DeploymentRef) (Deployment, error) {
+	first := newChildTestDeployment(t)
+	second := engineTestDeployment(t, leaf, nil)
+	deploy := func(children ...Deployment) (Deployment, error) {
 		return NewDeployment(DeploymentConfig{
 			Definition:           &boundDefinition{Definition: leaf, children: children},
 			ImplementationDigest: ComputeDigest([]byte("binding implementation")),
@@ -214,10 +214,10 @@ func TestDeploymentIdentityCoversChildBindings(t *testing.T) {
 		t.Fatal("child bindings leaked into the Host configuration digest")
 	}
 	reordered := controlValue(deploy(second, first, second))
-	if reordered.DeploymentRef() != both.DeploymentRef() || len(reordered.ChildDeployments()) != 2 {
+	if reordered.DeploymentRef() != both.DeploymentRef() || len(reordered.children) != 2 {
 		t.Fatal("binding order or repetition changed the Deployment identity")
 	}
-	if _, err := deploy(first, DeploymentRef{}); !errors.Is(err, ErrInvalidDeployment) {
+	if _, err := deploy(first, Deployment{}); !errors.Is(err, ErrInvalidDeployment) {
 		t.Fatalf("invalid child binding error = %v", err)
 	}
 }
@@ -233,7 +233,7 @@ func TestDeploymentRejectsChildBindingsThatChangeAfterConstruction(t *testing.T)
 	if err := deployment.validateDefinition(); err != nil {
 		t.Fatal(err)
 	}
-	definition.children = []DeploymentRef{newChildTestDeployment(t).DeploymentRef()}
+	definition.children = []Deployment{newChildTestDeployment(t)}
 	if err := deployment.validateDefinition(); !errors.Is(err, ErrInvalidDeployment) {
 		t.Fatalf("changed child bindings were accepted: %v", err)
 	}

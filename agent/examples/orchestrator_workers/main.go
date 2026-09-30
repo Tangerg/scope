@@ -36,11 +36,11 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
-	root, resolver, err := newOrchestratorWorkers()
+	root, err := newOrchestratorWorkers()
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return err
 	}
@@ -110,21 +110,21 @@ type orchestrationReport struct {
 	Results   []workerResult `json:"results"`
 }
 
-func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
+func newOrchestratorWorkers() (agent.Deployment, error) {
 	children, err := newOrchestratorChildren()
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	stages, err := children.stages()
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.orchestrator_workers", Description: "Decompose, execute, and synthesize with managed child Processes.",
 		Stages: stages,
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	root, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
@@ -132,13 +132,9 @@ func newOrchestratorWorkers() (agent.Deployment, deploymentResolver, error) {
 		ConfigurationDigest:  agent.ComputeDigest([]byte("example-orchestrator-workers-configuration")),
 	})
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
-	return root, deploymentResolver{
-		children.decomposer.DeploymentRef():  children.decomposer,
-		children.worker.DeploymentRef():      children.worker,
-		children.synthesizer.DeploymentRef(): children.synthesizer,
-	}, nil
+	return root, nil
 }
 
 type orchestratorChildren struct {
@@ -359,16 +355,4 @@ func jsonResponse(value any) (*chat.Response, error) {
 	return chat.NewResponse(&chat.Output{
 		Message: &message, FinishReason: chat.FinishReasonStop,
 	}, nil)
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(
-	reference agent.DeploymentRef,
-) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not registered", reference.Digest())
-	}
-	return deployment, nil
 }

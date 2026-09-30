@@ -15,6 +15,7 @@ type fanoutSource interface {
 	windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) (inputs []agent.Payload, count uint32, err error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32)
+	bindings() []childBinding
 }
 
 type fanoutMember struct {

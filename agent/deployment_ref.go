@@ -4,8 +4,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -153,21 +151,6 @@ func (d DeploymentRef) computeDigest() (Digest, error) {
 		return Digest{}, err
 	}
 	return digestBytes(data), nil
-}
-
-// canonicalChildDeployments orders bindings by digest and removes repeats, so
-// equal binding sets always produce the same bindings digest.
-func canonicalChildDeployments(children []DeploymentRef) ([]DeploymentRef, error) {
-	canonical := slices.Clone(children)
-	for _, child := range canonical {
-		if !child.Valid() {
-			return nil, fmt.Errorf("%w: child binding: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
-		}
-	}
-	slices.SortFunc(canonical, func(left, right DeploymentRef) int {
-		return strings.Compare(left.digest.String(), right.digest.String())
-	})
-	return slices.CompactFunc(canonical, func(left, right DeploymentRef) bool { return left.digest == right.digest }), nil
 }
 
 func childBindingsDigest(canonical []DeploymentRef) (Digest, error) {

@@ -46,15 +46,11 @@ func newCompositionFixture(t *testing.T, model agent.Deployment) compositionFixt
 			t.Fatal(err)
 		}
 	}
-	composition, err := newCompositionDeployment(local.DeploymentRef(), model.DeploymentRef())
+	composition, err := newCompositionDeployment(local, model)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return compositionFixture{local: local, model: model, composition: composition}
-}
-
-func (c compositionFixture) resolver() deploymentResolver {
-	return deploymentResolver{c.local.DeploymentRef(): c.local, c.model.DeploymentRef(): c.model}
 }
 
 func newCompositionEngine(t *testing.T, config agent.EngineConfig) *agent.Engine {
@@ -72,7 +68,7 @@ func newCompositionEngine(t *testing.T, config agent.EngineConfig) *agent.Engine
 }
 
 func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
-	if _, err := newCompositionDeployment(agent.DeploymentRef{}, agent.DeploymentRef{}); !errors.Is(err, agent.ErrInvalidDeploymentRef) {
+	if _, err := newCompositionDeployment(agent.Deployment{}, agent.Deployment{}); !errors.Is(err, agent.ErrInvalidDeployment) {
 		t.Fatalf("invalid child bindings: %v", err)
 	}
 	fixture := newCompositionFixture(t, agent.Deployment{})
@@ -119,9 +115,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	model, dispatcher := newUncertainModelDeployment(t)
 	fixture := newCompositionFixture(t, model)
 	observations := &agenttest.ObservationRecorder{}
-	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store,
-		DeploymentResolver: fixture.resolver(), EventListeners: []agent.EventListener{observations},
-	})
+	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{observations}})
 	input, err := fixture.composition.Descriptor().EncodeInput(compositionInput{Prompt: "recovered"})
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +141,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatalf("captured Processes=%d, want one root and two children", len(tree.ProcessSnapshots()))
 	}
 
-	restoredEngine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store, DeploymentResolver: fixture.resolver()})
+	restoredEngine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store})
 	restored, err := restoredEngine.RestoreTree(ctx, fixture.composition, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +328,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: fixture.resolver()})
+	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "boundaries"})
 	if err != nil {
 		t.Fatal(err)
@@ -459,23 +453,25 @@ func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (
 func TestCompositionPreservesChildFailures(t *testing.T) {
 	for _, test := range []struct {
 		name     string
-		failStep bool
+		refuse   bool
 		wantCode string
 	}{
-		{name: "start failure true", wantCode: "engine.child.deployment_unavailable"},
-		{name: "start failure false", failStep: true, wantCode: "example.child.failed"},
+		{name: "start failure", refuse: true, wantCode: "engine.child.admission.rejected"},
+		{name: "step failure", wantCode: "example.child.failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			model := agent.Deployment{}
-			if test.failStep {
-				model = newFailingModelDeployment(t)
+			fixture := newCompositionFixture(t, newFailingModelDeployment(t))
+			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
+			if test.refuse {
+				refused := fixture.model.DeploymentRef()
+				config.ProcessAdmitter = agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+					if admission.DeploymentRef() == refused {
+						return errors.New("model child refused")
+					}
+					return nil
+				})
 			}
-			fixture := newCompositionFixture(t, model)
-			resolver := deploymentResolver{fixture.local.DeploymentRef(): fixture.local}
-			if test.failStep {
-				resolver[fixture.model.DeploymentRef()] = fixture.model
-			}
-			engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+			engine := newCompositionEngine(t, config)
 			input, err := fixture.composition.Descriptor().EncodeInput(compositionInput{Prompt: "failure"})
 			if err != nil {
 				t.Fatal(err)
@@ -550,5 +546,5 @@ func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
 		Definition:           base.Definition(),
 		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
 		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
-	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: fixture.resolver()}, input)
+	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input)
 }

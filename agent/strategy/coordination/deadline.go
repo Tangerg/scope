@@ -39,7 +39,7 @@ func NewDeadline(config DeadlineConfig) (*Deadline, error) {
 }
 
 // ChildDeployments is empty: Deadline starts no children.
-func (*Deadline) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*Deadline) ChildDeployments() []agent.Deployment { return nil }
 
 func (d *Deadline) Descriptor() agent.Descriptor {
 	if d == nil {

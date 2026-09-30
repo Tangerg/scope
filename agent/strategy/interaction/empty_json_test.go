@@ -36,7 +36,7 @@ func TestToolEmptyJSONSurvivesExecution(t *testing.T) {
 					return textResponse("done"), nil
 				})
 				deployment := newDeployment(t, model, []tool.Tool{bound}, 2)
-				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -86,7 +86,7 @@ func TestEmptyToolAnswersSurviveWaitingRecovery(t *testing.T) {
 			model := &singleToolCallModel{call: chat.ToolCall{ID: "call", Name: "answer", Arguments: `{}`}}
 			deployment := newDeployment(t, model, []tool.Tool{directTool{Tool: executable}}, 1)
 			store := agent.NewMemoryTreeCommitter()
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,7 +99,7 @@ func TestEmptyToolAnswersSurviveWaitingRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +150,7 @@ func TestDelegateEmptyJSONPreservesArtifact(t *testing.T) {
 				return textResponse("done"), nil
 			})
 			deployment := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolveWith(child)})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -151,7 +151,7 @@ func startRecordedInteractionModel(t *testing.T, recorder *trajectory.Recorder, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}, DeploymentResolver: trajectoryDeploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ type fixtureDefinition struct{ descriptor agent.Descriptor }
 
 func (f fixtureDefinition) Descriptor() agent.Descriptor { return f.descriptor }
 
-func (fixtureDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (fixtureDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[fixtureInput]()
@@ -536,16 +536,6 @@ func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory 
 		t.Fatal(err)
 	}
 	return recorded
-}
-
-type trajectoryDeploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (t trajectoryDeploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := t[reference]
-	if !found {
-		return agent.Deployment{}, errors.New("trajectory Tool deployment is not bound")
-	}
-	return deployment, nil
 }
 
 func rawOutputProjection(output agent.Payload) (json.RawMessage, error) { return output.JSON(), nil }

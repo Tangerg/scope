@@ -89,7 +89,7 @@ func newToolDefinition(name, description string) (*toolDefinition, error) {
 
 func (t *toolDefinition) Descriptor() agent.Descriptor { return t.descriptor }
 
-func (*toolDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*toolDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (t *toolDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	call, err := input.Decode[toolCall]()

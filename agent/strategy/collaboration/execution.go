@@ -49,7 +49,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...),
 		Workers: make([]agent.Descriptor, 0, len(e.definition.workers))}
 	for _, worker := range e.definition.workers {
-		turn.Workers = append(turn.Workers, worker.descriptor)
+		turn.Workers = append(turn.Workers, worker.deployment.Descriptor())
 	}
 	input, err := agent.EncodePayload(turn)
 	if err != nil {

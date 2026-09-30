@@ -718,7 +718,7 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) D
 
 func (c *childTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (*childTestDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*childTestDefinition) ChildDeployments() []Deployment { return nil }
 
 func (c *childTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[childTestInput]()

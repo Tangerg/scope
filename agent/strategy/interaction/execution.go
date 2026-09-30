@@ -403,14 +403,14 @@ func (e *execution) childBindings(calls []chat.ToolCall) ([]agent.DeploymentRef,
 	bindings := make([]agent.DeploymentRef, len(calls))
 	for index, call := range calls {
 		if e.state.ToolRound.ChildBatch.Kind == childCallsTool {
-			bindings[index] = e.definition.tools.deploymentRef
+			bindings[index] = e.definition.toolDeployment.DeploymentRef()
 			continue
 		}
 		delegate, found := e.definition.delegate(call.Name)
 		if !found {
 			return nil, ErrInvalidExecutionState
 		}
-		bindings[index] = delegate.deploymentRef
+		bindings[index] = delegate.deployment.DeploymentRef()
 	}
 	return bindings, nil
 }
@@ -605,7 +605,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 			return nil, err
 		}
 		effect, err := agent.NewChildStartEffect(agent.ChildSpec{
-			Key: key, DeploymentRef: delegate.deploymentRef, Input: input,
+			Key: key, DeploymentRef: delegate.deployment.DeploymentRef(), Input: input,
 			Budget: delegate.budget, Capabilities: delegate.capabilities,
 		})
 		if err != nil {
@@ -679,7 +679,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 			return agent.Transition{}, inputErr
 		}
 		effect, effectErr := agent.NewChildStartEffect(agent.ChildSpec{
-			Key: key, DeploymentRef: e.definition.tools.deploymentRef, Input: input,
+			Key: key, DeploymentRef: e.definition.toolDeployment.DeploymentRef(), Input: input,
 			Budget: e.definition.toolBudget, Capabilities: e.definition.toolCapabilities,
 		})
 		if effectErr != nil {

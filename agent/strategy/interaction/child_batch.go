@@ -206,7 +206,7 @@ func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Defi
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if !definition.tools.deploymentRef.Valid() || end != len(calls) ||
+	if !definition.toolDeployment.Valid() || end != len(calls) ||
 		definition.maxConcurrentToolCalls == 1 && len(calls) != 1 {
 		return fmt.Errorf("%w: Tool batch crosses an exclusive boundary", ErrInvalidExecutionState)
 	}

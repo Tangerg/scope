@@ -10,9 +10,9 @@ import (
 
 type panickingCallbacks struct{ cause error }
 
-func (p panickingCallbacks) Descriptor() Descriptor            { panic(p.cause) }
-func (p panickingCallbacks) ChildDeployments() []DeploymentRef { panic(p.cause) }
-func (p panickingCallbacks) Start(Payload) (Execution, error)  { panic(p.cause) }
+func (p panickingCallbacks) Descriptor() Descriptor           { panic(p.cause) }
+func (p panickingCallbacks) ChildDeployments() []Deployment   { panic(p.cause) }
+func (p panickingCallbacks) Start(Payload) (Execution, error) { panic(p.cause) }
 func (p panickingCallbacks) Restore(context.Context, ExecutionState) (Execution, error) {
 	panic(p.cause)
 }

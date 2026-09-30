@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/samber/lo"
 )
@@ -38,7 +39,9 @@ type Deployment struct {
 	descriptor Descriptor
 	definition Definition
 	dispatcher Dispatcher
-	children   []DeploymentRef
+	// children are the canonical static child bindings, ordered by
+	// reference digest. Their references make up reference's bindings digest.
+	children []Deployment
 }
 
 // NewDeployment freezes a Definition and Dispatcher under explicit
@@ -78,9 +81,14 @@ func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 
 func (d Deployment) Definition() Definition { return d.definition }
 
-// ChildDeployments returns the child bindings folded into DeploymentRef, in
-// digest order.
-func (d Deployment) ChildDeployments() []DeploymentRef { return slices.Clone(d.children) }
+// boundChild returns the static child binding with exactly reference.
+func (d Deployment) boundChild(reference DeploymentRef) (Deployment, bool) {
+	index, found := slices.BinarySearchFunc(d.children, reference, compareBoundChild)
+	if !found {
+		return Deployment{}, false
+	}
+	return d.children[index], true
+}
 
 // Valid checks the frozen binding without invoking user code. The Engine checks
 // the live Definition contract at startup and restoration boundaries.
@@ -111,22 +119,38 @@ func (d Deployment) validateDefinition() error {
 	return nil
 }
 
-func definitionBindings(definition Definition) ([]DeploymentRef, Digest, error) {
-	reported, err := invokeCallback("Definition.ChildDeployments", func() ([]DeploymentRef, error) {
+func definitionBindings(definition Definition) ([]Deployment, Digest, error) {
+	reported, err := invokeCallback("Definition.ChildDeployments", func() ([]Deployment, error) {
 		return definition.ChildDeployments(), nil
 	})
 	if err != nil {
 		return nil, Digest{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
 	}
-	children, err := canonicalChildDeployments(reported)
-	if err != nil {
-		return nil, Digest{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
+	children := slices.Clone(reported)
+	for _, child := range children {
+		if !child.Valid() {
+			return nil, Digest{}, fmt.Errorf("%w: child binding is invalid", ErrInvalidDeployment)
+		}
 	}
-	bindings, err := childBindingsDigest(children)
+	slices.SortFunc(children, func(left, right Deployment) int {
+		return compareBoundChild(left, right.reference)
+	})
+	children = slices.CompactFunc(children, func(left, right Deployment) bool { return left.reference == right.reference })
+	references := make([]DeploymentRef, len(children))
+	for index, child := range children {
+		references[index] = child.reference
+	}
+	bindings, err := childBindingsDigest(references)
 	if err != nil {
 		return nil, Digest{}, fmt.Errorf("%w: bindings digest: %w", ErrInvalidDeployment, err)
 	}
 	return children, bindings, nil
+}
+
+// compareBoundChild orders static bindings by reference digest, so equal
+// binding sets always produce the same bindings digest.
+func compareBoundChild(child Deployment, reference DeploymentRef) int {
+	return strings.Compare(child.reference.digest.String(), reference.digest.String())
 }
 
 func definitionDescriptor(definition Definition) (Descriptor, error) {

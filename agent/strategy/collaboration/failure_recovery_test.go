@@ -17,7 +17,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			switch mode {
 			case "start":
 				kind = agent.FailureKindExternal
-				code, message = "engine.child.deployment_unavailable", "deployment unavailable"
+				code, message = "engine.child.admission.rejected", "agent: process admission rejected: coordinator refused"
 			case "panic":
 				kind = agent.FailureKindPanic
 				message = "agent: Execution.Step panicked: " + strings.Repeat("x", 4096-len("agent: Execution.Step panicked: "))
@@ -25,7 +25,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				const prefix = `transform "test.coordinator.transform": `
 				message = prefix + strings.Repeat("x", 4096-len(prefix))
 			}
-			definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+			definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 				if turn.Number == 1 {
 					return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 				}
@@ -34,11 +34,17 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				}
 				return Decision{}, errors.New(strings.TrimPrefix(message, `transform "test.coordinator.transform": `))
 			}, gate())
-			if mode == "start" {
-				delete(deployments, definition.coordinator.deploymentRef)
-			}
 			store := agent.NewMemoryTreeCommitter()
-			_, process := run(t, definition, deployments, store)
+			config := agent.EngineConfig{TreeCommitter: store}
+			if mode == "start" {
+				config.ProcessAdmitter = agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+					if key, child := admission.Relation().ChildKey(); child && key.String() == "collaboration.turn.2" {
+						return errors.New("coordinator refused")
+					}
+					return nil
+				})
+			}
+			_, process := runWith(t, definition, config)
 			result := require(process.Await(t.Context()))
 			if err := process.Join(t.Context()); err != nil {
 				t.Fatal(err)
@@ -87,7 +93,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 					}
 				})
 			}
-			restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
+			restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store}))
 			t.Cleanup(func() {
 				if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)

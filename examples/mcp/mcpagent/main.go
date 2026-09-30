@@ -159,8 +159,7 @@ func newBriefingEngine(ctx context.Context, session *sdkmcp.ClientSession) (*age
 		return nil, agent.Deployment{}, fmt.Errorf("create agent deployment: %w", err)
 	}
 	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeCommitter:      agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()},
+		TreeCommitter: agent.NewMemoryTreeCommitter(),
 	})
 	if err != nil {
 		return nil, agent.Deployment{}, fmt.Errorf("create agent engine: %w", err)
@@ -312,14 +311,4 @@ func responseWithText(text string) (*chat.Response, error) {
 func responseWithToolCall(name, arguments string) (*chat.Response, error) {
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: stubToolCallID, Name: name, Arguments: arguments}))
 	return chat.NewResponse(&chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}, nil)
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not bound", reference.Name())
-	}
-	return deployment, nil
 }

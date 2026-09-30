@@ -10,7 +10,7 @@ import (
 
 func BenchmarkDecisionValidation(b *testing.B) {
 	for _, count := range []int{64, 256, 1024} {
-		definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 		definition.maxConcurrentTasks = uint32(count)
 		state := executionState{}
 		decision := Decision{Mode: Continue, State: input("state")}

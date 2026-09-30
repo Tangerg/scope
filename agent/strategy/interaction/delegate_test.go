@@ -53,7 +53,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	model := &mixedDelegateModel{}
 	root := delegateInteraction(t, model, []tool.Tool{echo}, []interaction.Delegate{delegate})
 	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: root.resolveWith(child), Capabilities: capabilities,
+		Capabilities: capabilities,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,15 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	}
 	model := &delegateFailureModel{}
 	root := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agent.NewEngine(agent.EngineConfig{
+		TreeCommitter: agent.NewMemoryTreeCommitter(),
+		ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+			if admission.Relation().IsRoot() {
+				return nil
+			}
+			return errors.New("worker unavailable")
+		}),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,11 +237,10 @@ func TestWaitingManagedDelegateTreeRestoresWithoutRestartingChild(t *testing.T) 
 }
 
 type delegateRestoreFixture struct {
-	store    *agent.MemoryTreeCommitter
-	child    agent.Deployment
-	root     agent.Deployment
-	resolver delegateResolver
-	model    *restorableDelegateModel
+	store *agent.MemoryTreeCommitter
+	child agent.Deployment
+	root  agent.Deployment
+	model *restorableDelegateModel
 }
 
 func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
@@ -249,8 +256,7 @@ func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
 	}
 	model := &restorableDelegateModel{}
 	rootDeployment := delegateInteraction(t, model, nil, []interaction.Delegate{delegate})
-	resolver := delegateResolver{child.DeploymentRef(): child}
-	return delegateRestoreFixture{store: agent.NewMemoryTreeCommitter(), child: child, root: rootDeployment.Deployment, resolver: resolver, model: model}
+	return delegateRestoreFixture{store: agent.NewMemoryTreeCommitter(), child: child, root: rootDeployment.Deployment, model: model}
 }
 
 func captureWaitingDelegateTree(
@@ -258,7 +264,7 @@ func captureWaitingDelegateTree(
 	fixture delegateRestoreFixture,
 ) (agent.TreeSnapshot, agent.ProcessID) {
 	t.Helper()
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store})
 	root, err := engine.Start(context.Background(), fixture.root, interactionInput(t, "pause and restore"))
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +314,7 @@ func completeRestoredDelegateTree(
 	childID agent.ProcessID,
 ) {
 	t.Helper()
-	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store, DeploymentResolver: fixture.resolver})
+	restoredEngine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: fixture.store})
 	restoredRoot, err := restoredEngine.RestoreTree(context.Background(), fixture.root, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +411,7 @@ func (d *delegateFailureModel) Call(_ context.Context, request *chat.Request) (*
 	firstText, firstOK := toolResultText(first)
 	secondText, secondOK := toolResultText(second)
 	if first == nil || !firstOK || !first.IsError || !strings.Contains(firstText, "input contract") ||
-		second == nil || !secondOK || !second.IsError || !strings.Contains(secondText, "engine.child.deployment_unavailable") {
+		second == nil || !secondOK || !second.IsError || !strings.Contains(secondText, "engine.child.admission.rejected") {
 		return nil, fmt.Errorf("Delegate failure results = %#v, %#v", first, second)
 	}
 	return textResponse("failures observed"), nil
@@ -504,16 +510,6 @@ func delegateWorkflow[I, O any](t *testing.T, name string, transform workflow.Tr
 	return deployment
 }
 
-type delegateResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d delegateResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, errors.New("delegated Deployment is unavailable")
-	}
-	return deployment, nil
-}
-
 type pausingDelegateDefinition struct {
 	descriptor agent.Descriptor
 }
@@ -550,7 +546,7 @@ func (p *pausingDelegateDefinition) Descriptor() agent.Descriptor {
 	return p.descriptor
 }
 
-func (*pausingDelegateDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*pausingDelegateDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (*pausingDelegateDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	decoded, err := input.Decode[delegateRequest]()

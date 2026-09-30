@@ -12,7 +12,8 @@ import (
 var ErrInvalidChildStart = errors.New("agent: invalid child process start")
 
 // DeploymentResolver performs one bounded, deterministic, context-free lookup
-// of an exact immutable Deployment. The Engine accepts only a result whose
+// of an exact immutable Deployment for a child named by runtime input; the
+// Engine never consults it for a Deployment's own static bindings. The Engine accepts only a result whose
 // reference exactly matches the requested reference. Implementations must be
 // safe for concurrent use, must not perform remote I/O, and must not re-enter
 // any Process. Routing and caller-specific selection happen before an exact

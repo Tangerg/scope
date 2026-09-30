@@ -11,7 +11,7 @@ import (
 type panickingCallbacks struct{ cause error }
 
 func (p panickingCallbacks) Descriptor() agent.Descriptor                 { panic(p.cause) }
-func (p panickingCallbacks) ChildDeployments() []agent.DeploymentRef      { panic(p.cause) }
+func (p panickingCallbacks) ChildDeployments() []agent.Deployment         { panic(p.cause) }
 func (p panickingCallbacks) Start(agent.Payload) (agent.Execution, error) { panic(p.cause) }
 func (p panickingCallbacks) Restore(context.Context, agent.ExecutionState) (agent.Execution, error) {
 	panic(p.cause)

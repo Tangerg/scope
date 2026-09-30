@@ -73,6 +73,8 @@ func (m mapSource) member(index uint32) (fanoutMember, bool) {
 	return fanoutMember{id: strconv.FormatUint(uint64(index), 10), binding: m.binding}, true
 }
 
+func (m mapSource) bindings() []childBinding { return []childBinding{m.binding} }
+
 func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
 	return []BindingTopology{m.binding.topology(BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
 }

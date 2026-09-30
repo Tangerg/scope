@@ -40,13 +40,12 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 		t.Fatalf("Switch Stage = %#v", stage)
 	}
 	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.switch", stage), "switch")
-	resolver := deploymentResolver{left.DeploymentRef(): left, right.DeploymentRef(): right}
 	for _, test := range []struct {
 		selected string
 		want     int
 	}{{selected: "left", want: 13}, {selected: "right", want: 23}} {
 		t.Run(test.selected, func(t *testing.T) {
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 			if err != nil {
 				t.Fatal(err)
 			}

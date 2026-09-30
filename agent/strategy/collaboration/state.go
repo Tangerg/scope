@@ -90,7 +90,7 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 	for index, task := range e.Tasks {
 		worker, _ := d.worker(task.Request.Worker)
 		child := &batch.Children[index]
-		child.Key, child.Deployment = task.Request.Key, worker.deploymentRef
+		child.Key, child.Deployment = task.Request.Key, worker.deployment.DeploymentRef()
 		if task.Start != nil {
 			id, started := task.Start.ProcessID()
 			child.ProcessID, child.Done = id, !started || task.Outcome != nil
@@ -101,7 +101,7 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 		if err != nil {
 			return childcall.Batch{}, err
 		}
-		child := childcall.Child{Key: key, Deployment: d.coordinator.deploymentRef}
+		child := childcall.Child{Key: key, Deployment: d.coordinator.deployment.DeploymentRef()}
 		if e.Turn.Start != nil {
 			id, started := e.Turn.Start.ProcessID()
 			child.ProcessID, child.Done = id, !started || e.Turn.Outcome != nil
@@ -339,7 +339,7 @@ func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, 
 			if pending > 0 {
 				return 0, nil, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidExecutionState, index)
 			}
-			if !task.Start.Matches(task.Request.Key, worker.deploymentRef) {
+			if !task.Start.Matches(task.Request.Key, worker.deployment.DeploymentRef()) {
 				return 0, nil, fmt.Errorf("%w: task %d start does not match its request", ErrInvalidExecutionState, index)
 			}
 			if id, present := task.Start.ProcessID(); present {
@@ -354,7 +354,7 @@ func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, 
 		}
 		if task.Outcome != nil {
 			if output, completed := task.Outcome.Result().Output(); completed {
-				if err := worker.descriptor.ValidateOutput(output); err != nil {
+				if err := worker.deployment.Descriptor().ValidateOutput(output); err != nil {
 					return 0, nil, fmt.Errorf("%w: task %d output: %w", ErrInvalidExecutionState, index, err)
 				}
 			}
@@ -437,7 +437,7 @@ func (e executionState) validateTurnWorkers(ctx context.Context, d *Definition) 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if e.Turn.Input.Workers[index].Digest() != worker.descriptor.Digest() {
+		if e.Turn.Input.Workers[index].Digest() != worker.deployment.Descriptor().Digest() {
 			return fmt.Errorf("%w: turn worker %d does not match the definition", ErrInvalidExecutionState, index)
 		}
 	}
@@ -488,7 +488,7 @@ func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID
 	if err != nil {
 		return fmt.Errorf("%w: turn key: %w", ErrInvalidExecutionState, err)
 	}
-	if !e.Turn.Start.Matches(key, d.coordinator.deploymentRef) {
+	if !e.Turn.Start.Matches(key, d.coordinator.deployment.DeploymentRef()) {
 		return fmt.Errorf("%w: turn start does not match the coordinator request", ErrInvalidExecutionState)
 	}
 	id, present := e.Turn.Start.ProcessID()
@@ -519,7 +519,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 	if !present || result.Status() != agent.StatusCompleted {
 		return fmt.Errorf("%w: applied decision requires a completed turn output", ErrInvalidExecutionState)
 	}
-	decision, err := d.coordinator.descriptor.DecodeOutput[Decision](output)
+	decision, err := d.coordinator.deployment.Descriptor().DecodeOutput[Decision](output)
 	if err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidExecutionState, err)
 	}

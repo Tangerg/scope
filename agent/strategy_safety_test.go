@@ -52,7 +52,7 @@ type safetyCompetition struct {
 
 func (s *safetyCompetition) Descriptor() agent.Descriptor { return s.descriptor }
 
-func (*safetyCompetition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*safetyCompetition) ChildDeployments() []agent.Deployment { return nil }
 func (s *safetyCompetition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := s.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -312,7 +312,7 @@ func TestPlanningRejectsUnresolvedChildAction(t *testing.T) {
 			}))
 			var senseCalls, planCalls, inputCalls, actionCalls atomic.Int32
 			binding := safetyValue(planning.NewChildBinding(planning.ChildBindingConfig{
-				Action: delegate, DeploymentRef: child.DeploymentRef(),
+				Action: delegate, Deployment: child,
 				Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)},
 				Input: func(input agent.Payload, _ planning.WorldState) (agent.Payload, error) {
 					inputCalls.Add(1)

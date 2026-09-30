@@ -31,9 +31,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 			return textValue{Text: strconv.Itoa(output.Value)}, nil
 		}),
 	), "parent")
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
-	})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,9 +75,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := mustDeployment(t, mustDefinition(t, "test.workflow.failure_parent", call), "failure-parent")
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: deploymentResolver{child.DeploymentRef(): child},
-	})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,16 +120,6 @@ func mustDeployment(t *testing.T, definition agent.Definition, identity string) 
 	return deployment
 }
 
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, errors.New("deployment not found")
-	}
-	return deployment, nil
-}
-
 // A Workflow's identity must follow its child bindings on its own: the Host
 // configuration below is identical, only the bound child differs.
 func TestDefinitionChildBindingsDistinguishDeployments(t *testing.T) {
@@ -144,7 +130,7 @@ func TestDefinitionChildBindingsDistinguishDeployments(t *testing.T) {
 			t.Fatal(err)
 		}
 		definition := mustDefinition(t, "test.workflow.binding_root", stage)
-		if bindings := definition.ChildDeployments(); len(bindings) != 1 || bindings[0] != child.DeploymentRef() {
+		if bindings := definition.ChildDeployments(); len(bindings) != 1 || bindings[0].DeploymentRef() != child.DeploymentRef() {
 			t.Fatalf("ChildDeployments = %v, want the Call binding", bindings)
 		}
 		return mustDeployment(t, definition, "binding-root")

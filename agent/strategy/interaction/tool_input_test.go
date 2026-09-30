@@ -50,7 +50,7 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 		return toolCallResponse(chat.ToolCall{ID: "ask", Name: "ask_name", Arguments: `{}`}), nil
 	})
 	deployment := newDeployment(t, model, []tool.Tool{waiting}, 2)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	})
 	deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
 	store := agent.NewMemoryTreeCommitter()
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 		t.Fatal(err)
 	}
 	oldEngine, oldProcess := engine, process
-	engine, err = agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	engine, err = agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

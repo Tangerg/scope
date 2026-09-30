@@ -95,12 +95,15 @@ func (d *Definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
-// ChildDeployments reports the exact child binding of every Stage.
-func (d *Definition) ChildDeployments() []agent.DeploymentRef {
-	var children []agent.DeploymentRef
-	for _, stage := range d.Topology().Stages {
-		for _, binding := range stage.Bindings {
-			children = append(children, binding.DeploymentRef)
+// ChildDeployments returns the exact child binding of every Stage.
+func (d *Definition) ChildDeployments() []agent.Deployment {
+	if !d.valid() {
+		return nil
+	}
+	var children []agent.Deployment
+	for _, stage := range d.stages {
+		for _, binding := range stage.childBindings() {
+			children = append(children, binding.deployment)
 		}
 	}
 	return children

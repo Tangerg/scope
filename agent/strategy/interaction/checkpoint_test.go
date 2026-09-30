@@ -64,7 +64,7 @@ func captureWaitingCheckpoint(
 	store *agent.MemoryTreeCommitter,
 ) (agent.TreeSnapshot, interaction.PendingToolInput) {
 	t.Helper()
-	firstEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	firstEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func restoreWaitingCheckpoint(
 	store *agent.MemoryTreeCommitter,
 ) (*agent.Process, agent.Result) {
 	t.Helper()
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}

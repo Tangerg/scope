@@ -95,7 +95,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			} else {
 				done := contractValue(planning.NewCondition("world.done", planning.True))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
-				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, DeploymentRef: delegate.DeploymentRef(), Budget: delegateBudget}))
+				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: delegate, Budget: delegateBudget}))
 				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(agent.SchemaFor[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: agent.NewQuota(2)}))
 				dispatcher := contractValue(planning.NewDispatcher(definition, planning.DispatcherConfig{Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
 					rootCalls.Add(1)
@@ -104,7 +104,9 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				root = contractDeployment(definition, dispatcher)
 				input = contractValue(agent.EncodePayload(struct{}{}))
 			}
-			resolver := contractResolver{gate.DeploymentRef(): gate, loser.DeploymentRef(): loser, race.DeploymentRef(): race, delegate.DeploymentRef(): delegate}
+			// The race candidates arrive as FirstSuccess input; every other child is
+			// bound by its parent's Deployment.
+			resolver := contractResolver{gate.DeploymentRef(): gate, loser.DeploymentRef(): loser}
 			events := &agenttest.ObservationRecorder{}
 			store := agent.NewMemoryTreeCommitter()
 			engine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, EventListeners: []agent.EventListener{events}}))

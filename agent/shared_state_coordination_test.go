@@ -30,7 +30,7 @@ type revisionExecution struct {
 
 func (r revisionDefinition) Descriptor() agent.Descriptor { return r.descriptor }
 
-func (revisionDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (revisionDefinition) ChildDeployments() []agent.Deployment { return nil }
 func (r revisionDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	request, err := input.Decode[revisionRequest]()
 	if err != nil {

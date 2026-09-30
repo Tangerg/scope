@@ -67,7 +67,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deploymentResolver{toolSet.Deployment().DeploymentRef(): toolSet.Deployment()}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return err
 	}
@@ -148,14 +148,4 @@ func (c *calculatorModel) Call(_ context.Context, request *chat.Request) (*chat.
 	default:
 		return nil, errors.New("interaction did not stop after receiving the Tool result")
 	}
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not bound", reference.Name())
-	}
-	return deployment, nil
 }

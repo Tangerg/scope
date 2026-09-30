@@ -180,11 +180,11 @@ func execute(
 	threshold float64,
 	maxIterations uint64,
 ) (_ optimizationReport, _ executionEvidence, err error) {
-	root, resolver, err := newEvaluatorOptimizer(scores, threshold, maxIterations)
+	root, err := newEvaluatorOptimizer(scores, threshold, maxIterations)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -227,32 +227,28 @@ func newEvaluatorOptimizer(
 	scores []float64,
 	threshold float64,
 	maxIterations uint64,
-) (agent.Deployment, deploymentResolver, error) {
+) (agent.Deployment, error) {
 	frozenScores, err := validateScoreSchedule(scores, threshold, maxIterations)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	optimizer, err := newOptimizerDeployment(threshold)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	evaluator, err := newEvaluatorDeployment(frozenScores, threshold)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	iteration, err := newIterationDeployment(optimizer, evaluator)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
 	root, err := newOptimizationRoot(iteration, threshold, maxIterations)
 	if err != nil {
-		return agent.Deployment{}, nil, err
+		return agent.Deployment{}, err
 	}
-	return root, deploymentResolver{
-		optimizer.DeploymentRef(): optimizer,
-		evaluator.DeploymentRef(): evaluator,
-		iteration.DeploymentRef(): iteration,
-	}, nil
+	return root, nil
 }
 
 func validateScoreSchedule(
@@ -507,16 +503,4 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 		return zero, errors.New("completed Process has no Output")
 	}
 	return output.Decode[T]()
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(
-	reference agent.DeploymentRef,
-) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, fmt.Errorf("deployment %s is not registered", reference.Digest())
-	}
-	return deployment, nil
 }

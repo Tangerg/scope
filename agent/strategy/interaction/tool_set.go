@@ -67,7 +67,6 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 		return ToolSet{}, fmt.Errorf("%w: %w", ErrInvalidToolSet, err)
 	}
 	manifest := toolManifest{
-		deploymentRef:      deployment.DeploymentRef(),
 		initialDefinitions: cloneDefinitions(dispatcher.initialDefinitions),
 		entries:            make(map[string]toolManifestEntry, len(dispatcher.tools)),
 	}
@@ -80,8 +79,9 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	return ToolSet{deployment: deployment, manifest: manifest, dispatcher: dispatcher}, nil
 }
 
-// Deployment returns the exact child binding to include in the Engine's
-// DeploymentResolver alongside any other explicitly referenced children.
+// Deployment returns the exact child binding each Tool call runs under. An
+// Interaction configured with this ToolSet owns it as one of its
+// ChildDeployments.
 func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 
 // SettleToolResult converts an investigated external outcome into the same
@@ -127,8 +127,9 @@ func (t ToolSet) ObservationFailures() ObservationFailures {
 	return t.dispatcher.observationFailures.snapshot()
 }
 
+// toolManifest is the scheduling policy an Interaction retains: Tool
+// contracts and frozen classifiers, never the executable Tools.
 type toolManifest struct {
-	deploymentRef      agent.DeploymentRef
 	initialDefinitions []chat.ToolDefinition
 	entries            map[string]toolManifestEntry
 }

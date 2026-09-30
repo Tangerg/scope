@@ -42,9 +42,7 @@ func TestNestedWorkflowPreservesMaximumFailureDiagnostic(t *testing.T) {
 	}
 	root := mustDeployment(t, mustDefinition(t, "test.failure.root", mapper), "failure-root")
 	store := agent.NewMemoryTreeCommitter()
-	config := agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deploymentResolver{
-		leaf.DeploymentRef(): leaf, caller.DeploymentRef(): caller, router.DeploymentRef(): router,
-	}}
+	config := agent.EngineConfig{TreeCommitter: store}
 	engine, err := agent.NewEngine(config)
 	if err != nil {
 		t.Fatal(err)

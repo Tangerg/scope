@@ -36,8 +36,10 @@ type EngineConfig struct {
 	// nil omits this Host acceptance step.
 	ProcessInitializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
 
-	// Exact local bindings prevent restoration from silently selecting different
-	// behavior. Same-Deployment recursion needs no resolver.
+	// DeploymentResolver binds the exact child references a Deployment does
+	// not own: children named by runtime input. Same-Deployment recursion and
+	// children a Deployment binds through Definition.ChildDeployments need no
+	// resolver. Nil rejects every other child reference.
 	DeploymentResolver DeploymentResolver
 
 	// ProcessAdmitter optionally applies Host policy before root or child
@@ -609,8 +611,9 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 }
 
 // RestoreTree recreates a complete Process tree from one strict TreeSnapshot.
-// rootDeployment must exactly bind the captured root; same-reference children
-// reuse it, while other exact references are resolved through EngineConfig's
+// rootDeployment must exactly bind the captured root. Children bound by the
+// root's Deployment, transitively through their own bindings, reuse those
+// bindings; only other exact references are resolved through EngineConfig's
 // DeploymentResolver. Registration is all-or-nothing within this Engine.
 // The Engine reserves every captured identity before resolving children or
 // restoring Execution state. Any failure releases the entire reservation.
@@ -720,11 +723,11 @@ func (e *Engine) newRestoration(
 	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
 		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
 	}
-	return &treeRestoration{
-		engine:      e,
-		wire:        wire,
-		deployments: map[DeploymentRef]Deployment{rootDeployment.DeploymentRef(): rootDeployment},
-	}, nil
+	restoration := &treeRestoration{engine: e, wire: wire, deployments: make(map[DeploymentRef]Deployment)}
+	if err := restoration.bind(rootDeployment); err != nil {
+		return nil, err
+	}
+	return restoration, nil
 }
 
 func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestoration) *Process {

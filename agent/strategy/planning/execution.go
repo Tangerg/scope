@@ -240,7 +240,7 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (a
 	if !found || binding.target != bindingTargetChild {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	result, err := e.state.Child.AcceptStart(signal, key, binding.child.DeploymentRef)
+	result, err := e.state.Child.AcceptStart(signal, key, binding.childDeployment.DeploymentRef())
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child start: %w", ErrInvalidProtocol, err)
 	}

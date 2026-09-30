@@ -115,7 +115,7 @@ type rejectionDefinition struct {
 
 func (r rejectionDefinition) Descriptor() agent.Descriptor { return r.descriptor }
 
-func (rejectionDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (rejectionDefinition) ChildDeployments() []agent.Deployment { return nil }
 func (r rejectionDefinition) Start(_ agent.Payload) (agent.Execution, error) {
 	return &rejectionExecution{effect: r.effect}, nil
 }

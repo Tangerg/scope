@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkCollaborationReplayBoundary(b *testing.B) {
-	definition, _ := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		return finish(turn, "done"), nil
 	}, echo())
 	for _, size := range []int{1 << 10, 64 << 10} {

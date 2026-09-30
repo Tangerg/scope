@@ -285,7 +285,7 @@ func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinit
 
 func (e *engineTestDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (*engineTestDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*engineTestDefinition) ChildDeployments() []Deployment { return nil }
 
 func (e *engineTestDefinition) Start(input Payload) (Execution, error) {
 	value, err := input.Decode[engineTestInput]()

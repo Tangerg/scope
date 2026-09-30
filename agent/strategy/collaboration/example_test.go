@@ -48,7 +48,7 @@ func ExampleDefinition() {
 	}))
 	coordinator := exampleBinding(exampleValue(workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.coordinator", Description: "Render a turn and decode a model decision.", Stages: []workflow.Stage{render, call, decode},
-	})), nil, model.DeploymentRef())
+	})), nil)
 	gate := exampleBinding(exampleValue(coordination.NewInputGate(coordination.InputGateConfig{
 		Name: "example.input", Description: "Wait for an external instruction.", RequestSchema: textSchema, AnswerSchema: textSchema,
 	})), nil)
@@ -64,11 +64,8 @@ func ExampleDefinition() {
 		Workers:     []collaboration.WorkerConfig{{Deployment: gate, Budget: budget}, {Deployment: worker, Budget: budget}},
 		StateSchema: textSchema, OutputSchema: textSchema, MaxTurns: agent.NewQuota(4), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 1,
 	}))
-	root := exampleBinding(definition, nil, coordinator.DeploymentRef(), gate.DeploymentRef(), worker.DeploymentRef())
-	engine := exampleValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: exampleResolver{
-		model.DeploymentRef(): model, coordinator.DeploymentRef(): coordinator,
-		gate.DeploymentRef(): gate, worker.DeploymentRef(): worker,
-	}}))
+	root := exampleBinding(definition, nil)
+	engine := exampleValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}))
 	defer func() {
 		if err := engine.Close(ctx); err != nil {
 			panic(err)
@@ -163,25 +160,12 @@ func exampleValue[T any](value T, err error) T {
 	return value
 }
 
-func exampleBinding(definition agent.Definition, dispatcher agent.Dispatcher, children ...agent.DeploymentRef) agent.Deployment {
+func exampleBinding(definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {
 	// These labels identify the fixed code and configuration in this checked
 	// example. Production bindings identify the built artifact and full config.
-	configuration := struct {
-		Name     string
-		Children []agent.DeploymentRef
-	}{definition.Descriptor().Name(), children}
 	return exampleValue(agent.NewDeployment(agent.DeploymentConfig{
 		Definition: definition, Dispatcher: dispatcher,
 		ImplementationDigest: agent.ComputeDigest([]byte("collaboration-example-artifact")),
-		ConfigurationDigest:  agent.ComputeDigest(exampleValue(jsonv2.Marshal(configuration))),
+		ConfigurationDigest:  agent.ComputeDigest([]byte(definition.Descriptor().Name())),
 	}))
-}
-
-type exampleResolver map[agent.DeploymentRef]agent.Deployment
-
-func (e exampleResolver) Resolve(reference agent.DeploymentRef) (agent.Deployment, error) {
-	if deployment, found := e[reference]; found {
-		return deployment, nil
-	}
-	return agent.Deployment{}, errors.New("exact deployment unavailable")
 }

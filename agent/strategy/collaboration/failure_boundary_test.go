@@ -24,10 +24,10 @@ func TestFailuresPreserveStrategyClassification(t *testing.T) {
 		}, agent.FailureKindContract, "collaboration.decision.invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			config, deployments := fixtureConfig(test.decision, echo())
+			config := fixtureConfig(test.decision, echo())
 			config.MaxTurns = agent.NewQuota(1)
 			definition := require(NewDefinition(config))
-			_, process := run(t, definition, deployments, agent.NewMemoryTreeCommitter())
+			_, process := run(t, definition, agent.NewMemoryTreeCommitter())
 			result := require(process.Await(t.Context()))
 			if err := process.Join(t.Context()); err != nil {
 				t.Fatal(err)
@@ -41,7 +41,7 @@ func TestFailuresPreserveStrategyClassification(t *testing.T) {
 }
 
 func TestSignalAdmissionAndZeroQuotaPolicies(t *testing.T) {
-	config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	config.MaxTurns = agent.NewQuota(0)
 	if _, err := NewDefinition(config); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal(err)
@@ -49,5 +49,5 @@ func TestSignalAdmissionAndZeroQuotaPolicies(t *testing.T) {
 	config.MaxTurns = agent.Quota{}
 	config.MaxTasks = agent.NewQuota(0)
 	definition := require(NewDefinition(config))
-	conformancetest.Run(t, agent.DeploymentConfig{Definition: definition, ImplementationDigest: agent.ComputeDigest([]byte("admission")), ConfigurationDigest: agent.ComputeDigest([]byte("zero-tasks"))}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployments}, input("initial"))
+	conformancetest.Run(t, agent.DeploymentConfig{Definition: definition, ImplementationDigest: agent.ComputeDigest([]byte("admission")), ConfigurationDigest: agent.ComputeDigest([]byte("zero-tasks"))}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input("initial"))
 }

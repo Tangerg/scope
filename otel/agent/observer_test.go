@@ -599,7 +599,7 @@ type testDefinition struct {
 
 func (t testDefinition) Descriptor() agent.Descriptor { return t.descriptor }
 
-func (testDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (testDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (testDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[testInput]()

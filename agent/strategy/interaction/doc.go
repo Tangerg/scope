@@ -4,9 +4,9 @@
 // A Definition owns the serializable working context, the model/Tool state
 // machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
 // optional pure completion validator. A Dispatcher owns model I/O. A ToolSet
-// binds ordinary executable Tools to a separate Deployment that the Engine
-// must resolve exactly; Definition retains only its frozen input validators
-// and scheduling classifiers, never executable Tools or their backends. Hosts
+// binds ordinary executable Tools to a separate child Deployment that the
+// Definition binds; its scheduling retains only frozen input validators and
+// classifiers, never executable Tools or their backends. Hosts
 // cover declaration identity in deployment digests. Direct model calls remain
 // available through package chatclient without an Interaction or Engine.
 //

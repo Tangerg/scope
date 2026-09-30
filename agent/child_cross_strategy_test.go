@@ -40,6 +40,48 @@ func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) 
 	}
 }
 
+func TestEngineStartsAndRestoresBoundChildrenWithoutResolver(t *testing.T) {
+	childDeployment := newChildTestDeployment(t)
+	parentDeployment := newBoundCrossParentDeployment(t, childDeployment)
+	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, _ := EncodePayload(struct{}{})
+	parent, err := engine.Start(t.Context(), parentDeployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := childTestResult(t, mustAwait(t, parent))
+	if len(output.ChildIDs) != 1 || output.Failures != 0 {
+		t.Fatalf("bound child output = %#v", output)
+	}
+	if joinErr := parent.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	tree, err := engine.CaptureTree(t.Context(), parent.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree.ProcessSnapshots()) != 2 {
+		t.Fatalf("captured %d Processes, want parent and child", len(tree.ProcessSnapshots()))
+	}
+
+	restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, restoredEngine) })
+	if validateErr := restoredEngine.ValidateRestorableTree(t.Context(), parentDeployment, tree); validateErr != nil {
+		t.Fatalf("bound child was not restorable without a resolver: %v", validateErr)
+	}
+	unbound := newCrossParentDeployment(t, childDeployment.DeploymentRef())
+	if unbound.DeploymentRef() == parentDeployment.DeploymentRef() {
+		t.Fatal("static binding did not change the parent identity")
+	}
+}
+
 func TestEngineRejectsResolverBindingMismatch(t *testing.T) {
 	childDeployment := newChildTestDeployment(t)
 	parentDeployment := newCrossParentDeployment(t, childDeployment.DeploymentRef())
@@ -141,9 +183,22 @@ func (d deploymentResolverFunc) Resolve(reference DeploymentRef) (Deployment, er
 type crossParentDefinition struct {
 	descriptor Descriptor
 	target     DeploymentRef
+	bound      []Deployment
 }
 
 func newCrossParentDeployment(t *testing.T, target DeploymentRef) Deployment {
+	t.Helper()
+	return newCrossParent(t, &crossParentDefinition{target: target})
+}
+
+// newBoundCrossParentDeployment binds child in the parent's own configuration
+// instead of naming it as runtime input.
+func newBoundCrossParentDeployment(t *testing.T, child Deployment) Deployment {
+	t.Helper()
+	return newCrossParent(t, &crossParentDefinition{target: child.DeploymentRef(), bound: []Deployment{child}})
+}
+
+func newCrossParent(t *testing.T, definition *crossParentDefinition) Deployment {
 	t.Helper()
 	inputSchema, _ := SchemaFor[struct{}]()
 	outputSchema, _ := SchemaFor[childTestOutput]()
@@ -154,11 +209,12 @@ func newCrossParentDeployment(t *testing.T, target DeploymentRef) Deployment {
 	if err != nil {
 		t.Fatal(err)
 	}
+	definition.descriptor = descriptor
 	deployment, err := NewDeployment(DeploymentConfig{
-		Definition:           &crossParentDefinition{descriptor: descriptor, target: target},
+		Definition:           definition,
 		Dispatcher:           childTestDispatcher{},
 		ImplementationDigest: ComputeDigest([]byte("cross-parent-implementation")),
-		ConfigurationDigest:  ComputeDigest([]byte("cross-parent:" + target.Digest().String())),
+		ConfigurationDigest:  ComputeDigest([]byte("cross-parent:" + definition.target.Digest().String())),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +224,7 @@ func newCrossParentDeployment(t *testing.T, target DeploymentRef) Deployment {
 
 func (c *crossParentDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (*crossParentDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (c *crossParentDefinition) ChildDeployments() []Deployment { return c.bound }
 
 func (c *crossParentDefinition) Start(Payload) (Execution, error) {
 	return &crossParentExecution{target: c.target}, nil

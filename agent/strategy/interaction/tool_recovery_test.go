@@ -62,7 +62,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				MaxModelCalls: agent.NewQuota(2), MaxConcurrentToolCalls: concurrency, Tools: tools,
 			}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
 			deployment = toolInteractionDeployment(deployment.Deployment, tools)
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: gate, DeploymentResolver: deployment.resolver})
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: gate})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+			restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +233,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	}, interaction.DispatcherConfig{Model: model}, interaction.ToolSetConfig{})
 	deployment = toolInteractionDeployment(deployment.Deployment, tools)
 	store := &recoveryRequestRecorder{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), unknown: make(chan agent.EffectRequest, 1)}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					return textResponse("done"), nil
 				})}, interaction.ToolSetConfig{})
 				deployment = toolInteractionDeployment(deployment.Deployment, tools)
-				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployment.resolver, EventListeners: []agent.EventListener{events}})
+				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{events}})
 				if err != nil {
 					t.Fatal(err)
 				}

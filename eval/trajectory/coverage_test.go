@@ -276,7 +276,7 @@ type coverageReplayDefinition struct{ descriptor agent.Descriptor }
 
 func (c coverageReplayDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
-func (coverageReplayDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (coverageReplayDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (coverageReplayDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	value, err := input.Decode[fixtureInput]()

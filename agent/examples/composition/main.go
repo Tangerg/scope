@@ -45,17 +45,11 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	compositionDeployment, err := newCompositionDeployment(
-		localDeployment.DeploymentRef(), modelDeployment.DeploymentRef(),
-	)
+	compositionDeployment, err := newCompositionDeployment(localDeployment, modelDeployment)
 	if err != nil {
 		return err
 	}
-	resolver := deploymentResolver{
-		localDeployment.DeploymentRef(): localDeployment,
-		modelDeployment.DeploymentRef(): modelDeployment,
-	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		return err
 	}
@@ -128,7 +122,7 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 
 func (u *uppercaseDefinition) Descriptor() agent.Descriptor { return u.descriptor }
 
-func (*uppercaseDefinition) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*uppercaseDefinition) ChildDeployments() []agent.Deployment { return nil }
 
 func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := u.descriptor.ValidateInput(input); err != nil {
@@ -211,13 +205,13 @@ type compositionOutput struct {
 
 type compositionDefinition struct {
 	descriptor agent.Descriptor
-	local      agent.DeploymentRef
-	model      agent.DeploymentRef
+	local      agent.Deployment
+	model      agent.Deployment
 }
 
-func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deployment, error) {
+func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, error) {
 	if !local.Valid() || !model.Valid() {
-		return agent.Deployment{}, agent.ErrInvalidDeploymentRef
+		return agent.Deployment{}, agent.ErrInvalidDeployment
 	}
 	inputSchema, err := agent.SchemaFor[compositionInput]()
 	if err != nil {
@@ -244,10 +238,10 @@ func newCompositionDeployment(local, model agent.DeploymentRef) (agent.Deploymen
 
 func (c *compositionDefinition) Descriptor() agent.Descriptor { return c.descriptor }
 
-// ChildDeployments names both children, so the composition's identity changes
-// whenever either binding does.
-func (c *compositionDefinition) ChildDeployments() []agent.DeploymentRef {
-	return []agent.DeploymentRef{c.local, c.model}
+// ChildDeployments binds both children, so the Engine starts them without a
+// resolver and the composition's identity changes whenever either does.
+func (c *compositionDefinition) ChildDeployments() []agent.Deployment {
+	return []agent.Deployment{c.local, c.model}
 }
 
 func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, error) {
@@ -259,7 +253,7 @@ func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, err
 		return nil, err
 	}
 	return &compositionExecution{
-		local: c.local, model: c.model,
+		local: c.local.DeploymentRef(), model: c.model.DeploymentRef(),
 		state: compositionState{Phase: compositionReady, Prompt: decoded.Prompt},
 	}, nil
 }
@@ -278,7 +272,7 @@ func (c *compositionDefinition) Restore(ctx context.Context, state agent.Executi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &compositionExecution{local: c.local, model: c.model, state: decoded}, nil
+	return &compositionExecution{local: c.local.DeploymentRef(), model: c.model.DeploymentRef(), state: decoded}, nil
 }
 
 type compositionPhase string
@@ -540,18 +534,6 @@ func (compositionModel) Call(_ context.Context, request *chat.Request) (*chat.Re
 	return &chat.Response{Output: &chat.Output{
 		Message: &message, FinishReason: chat.FinishReasonStop,
 	}}, nil
-}
-
-type deploymentResolver map[agent.DeploymentRef]agent.Deployment
-
-func (d deploymentResolver) Resolve(
-	reference agent.DeploymentRef,
-) (agent.Deployment, error) {
-	deployment, found := d[reference]
-	if !found {
-		return agent.Deployment{}, errors.New("exact Deployment is unavailable")
-	}
-	return deployment, nil
 }
 
 func decodeCompleted[T any](result agent.Result) (T, error) {

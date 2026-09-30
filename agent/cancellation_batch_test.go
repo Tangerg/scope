@@ -157,7 +157,7 @@ type effectSequenceDefinition struct {
 
 func (e *effectSequenceDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (*effectSequenceDefinition) ChildDeployments() []DeploymentRef { return nil }
+func (*effectSequenceDefinition) ChildDeployments() []Deployment { return nil }
 
 func (e *effectSequenceDefinition) Start(input Payload) (Execution, error) {
 	value, err := input.Decode[engineTestInput]()

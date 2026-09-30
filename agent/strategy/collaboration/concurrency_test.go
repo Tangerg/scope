@@ -92,17 +92,15 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						return value.Decode[Decision]()
 					}))
 					coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
-					config, deployments := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
-					delete(deployments, config.Coordinator.Deployment.DeploymentRef())
+					config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
 					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agent.Budget{Steps: agent.NewQuota(64), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}}
 					definition := require(NewDefinition(config))
-					deployments[model.DeploymentRef()], deployments[coordinator.DeploymentRef()] = model, coordinator
 					store := agent.NewMemoryTreeCommitter()
 					var committer agent.TreeCommitter = store
 					if mode == "restored" {
 						committer = &coordinatorSettlementCrash{MemoryTreeCommitter: store}
 					}
-					engine, process := run(t, definition, deployments, committer)
+					engine, process := run(t, definition, committer)
 					<-entered
 					synctest.Wait()
 					tree := require(engine.InspectTree(t.Context(), process.ID()))
@@ -146,7 +144,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						if err := jsonv2.Unmarshal(head.JSON(), &restoredHead); err != nil {
 							t.Fatal(err)
 						}
-						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: deployments}))
+						restoredEngine := require(agent.NewEngine(agent.EngineConfig{TreeCommitter: store}))
 						defer func() {
 							if err := restoredEngine.Close(t.Context()); err != nil {
 								t.Error(err)
@@ -190,7 +188,7 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 			}
 			return textResponse("revised")
 		}))
-		definition, deployments := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			switch turn.Number {
 			case 1:
 				input := require(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("initial"))}}))
@@ -211,7 +209,7 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 			}
 		}, worker)
 		engine := require(agent.NewEngine(agent.EngineConfig{
-			DeploymentResolver: deployments, TreeCommitter: agent.NewMemoryTreeCommitter(),
+			TreeCommitter: agent.NewMemoryTreeCommitter(),
 			ProcessAdmitter: agent.ProcessAdmitterFunc(func(ctx context.Context, admission agent.ProcessAdmission) error {
 				if key, child := admission.Relation().ChildKey(); child && key.String() == "collaboration.turn.2" {
 					select {

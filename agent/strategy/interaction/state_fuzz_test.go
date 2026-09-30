@@ -170,14 +170,13 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 	if err != nil {
 		f.Fatal(err)
 	}
-	reference := workerDeployment.DeploymentRef()
 	budget := agent.Budget{Steps: agent.NewQuota(10), Effects: agent.NewQuota(10), Signals: agent.NewQuota(10)}
 	delegate := Delegate{
 		definition: chat.ToolDefinition{
 			Name: "delegate_fuzz", Description: "Delegate one fuzz task to the exact worker.",
 			InputSchema: inputSchema.JSON(),
 		},
-		deploymentRef: reference, inputSchema: inputSchema, outputSchema: outputSchema,
+		deployment: workerDeployment, inputSchema: inputSchema, outputSchema: outputSchema,
 		budget: budget, capabilities: agent.CapabilitySet{},
 	}
 	definition, err := NewDefinition(DefinitionConfig{

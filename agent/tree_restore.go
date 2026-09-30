@@ -52,7 +52,7 @@ func (t *treeRestoration) prepareProcesses(ctx context.Context) ([]*processState
 }
 
 func (t *treeRestoration) deployment(reference DeploymentRef) (Deployment, error) {
-	if deployment := t.deployments[reference]; deployment.Valid() {
+	if deployment, bound := t.deployments[reference]; bound {
 		return deployment, nil
 	}
 	if t.engine.resolver == nil {
@@ -66,8 +66,31 @@ func (t *treeRestoration) deployment(reference DeploymentRef) (Deployment, error
 			"%w: resolve exact Deployment %s: %w", ErrInvalidTreeSnapshot, reference.Name(), err,
 		)
 	}
-	t.deployments[reference] = deployment
+	if err := t.bind(deployment); err != nil {
+		return Deployment{}, err
+	}
 	return deployment, nil
+}
+
+// bind makes a validated deployment and, transitively, its static child
+// bindings available to the captured Processes they may have started. Each
+// child's live Definition is validated once, when it is first bound. A
+// reference is exact identity, so the first binding of each reference serves
+// every Process.
+func (t *treeRestoration) bind(deployment Deployment) error {
+	t.deployments[deployment.reference] = deployment
+	for _, child := range deployment.children {
+		if _, bound := t.deployments[child.reference]; bound {
+			continue
+		}
+		if err := child.validateDefinition(); err != nil {
+			return fmt.Errorf("%w: bound Deployment %s: %w", ErrInvalidTreeSnapshot, child.reference.Name(), err)
+		}
+		if err := t.bind(child); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (t *treeRestoration) prepareChildWaits() (childWaitRegistry, error) {

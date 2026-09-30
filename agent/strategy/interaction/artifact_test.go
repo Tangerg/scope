@@ -30,9 +30,7 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	root := delegateInteractionWithValidator(
 		t, model, nil, []interaction.Delegate{delegate}, validateArtifactCompletion, 4,
 	)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-		DeploymentResolver: root.resolveWith(child),
-	})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +148,7 @@ func TestCompletionValidatorRetryHonorsModelCallLimit(t *testing.T) {
 		},
 		1,
 	)
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: root.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "bounded validation"))
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +214,7 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 	root := delegateInteractionWithValidator(
 		t, model, []tool.Tool{directTool{Tool: echo}}, nil, validator, 3,
 	)
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: root.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "echo and explain"))
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +238,7 @@ func TestCompletionValidatorRejectsInvalidDecision(t *testing.T) {
 		},
 		2,
 	)
-	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: root.resolver})
+	engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "invalid validator"))
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +304,7 @@ func TestCompletionValidatorFailureClassification(t *testing.T) {
 				return textResponse("candidate"), nil
 			})
 			root := delegateInteractionWithValidator(t, model, nil, nil, test.validator, 2)
-			engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: root.resolver})
+			engine, _ := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 			result, err := engine.Run(context.Background(), root.Deployment, interactionInput(t, "validator failure"))
 			if err != nil {
 				t.Fatal(err)
@@ -397,7 +395,7 @@ func TestCompletionValidatorObservesStepCancellation(t *testing.T) {
 		close(canceled)
 		return interaction.CompletionDecision{}, ctx.Err()
 	}, 1)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: root.resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

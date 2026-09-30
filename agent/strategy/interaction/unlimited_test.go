@@ -50,8 +50,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver := worker.resolveWith(worker.Deployment)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, TreeLimits: agent.TreeLimits{MaxActiveChildren: 1}})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, TreeLimits: agent.TreeLimits{MaxActiveChildren: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovery, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, DeploymentResolver: resolver, Budget: agent.Budget{Steps: agent.NewQuota(0), Effects: agent.NewQuota(0), Signals: agent.NewQuota(0)}})
+	recovery, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, Budget: agent.Budget{Steps: agent.NewQuota(0), Effects: agent.NewQuota(0), Signals: agent.NewQuota(0)}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,6 +29,9 @@ type FirstSuccessConfig struct {
 // results, chooses the first accepted result in each request-ordered wait
 // response, and completes with FirstSuccessResult. An empty Winner means every
 // candidate failed to satisfy Accept; it is an explicit business result.
+// Candidates arrive as runtime input, so FirstSuccess binds no children of its
+// own: each candidate Deployment must be available through the Engine's
+// DeploymentResolver.
 //
 // Every candidate's admission and initialization must settle before results are
 // considered. A slow later admission can therefore delay acceptance of an
@@ -65,7 +68,7 @@ func NewFirstSuccess(config FirstSuccessConfig) (*FirstSuccess, error) {
 }
 
 // ChildDeployments is empty: FirstSuccess starts only children its input names.
-func (*FirstSuccess) ChildDeployments() []agent.DeploymentRef { return nil }
+func (*FirstSuccess) ChildDeployments() []agent.Deployment { return nil }
 
 func (f *FirstSuccess) Descriptor() agent.Descriptor {
 	if f == nil {

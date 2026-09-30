@@ -52,17 +52,19 @@ type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
 type transformStage func(context.Context, json.RawMessage) (json.RawMessage, error)
 
 type childBinding struct {
-	deploymentRef agent.DeploymentRef
-	budget        agent.Budget
-	capabilities  agent.CapabilitySet
+	deployment   agent.Deployment
+	budget       agent.Budget
+	capabilities agent.CapabilitySet
 }
 
 func newChildBinding(deployment agent.Deployment, budget agent.Budget, capabilities agent.CapabilitySet) (childBinding, bool) {
 	if !deployment.Valid() || !capabilities.Valid() {
 		return childBinding{}, false
 	}
-	return childBinding{deploymentRef: deployment.DeploymentRef(), budget: budget, capabilities: capabilities}, true
+	return childBinding{deployment: deployment, budget: budget, capabilities: capabilities}, true
 }
+
+func (c childBinding) deploymentRef() agent.DeploymentRef { return c.deployment.DeploymentRef() }
 
 func (c childBinding) topology(
 	role BindingRole,
@@ -71,7 +73,7 @@ func (c childBinding) topology(
 	outputSchema agent.Schema,
 ) BindingTopology {
 	return BindingTopology{
-		Role: role, ID: id, DeploymentRef: c.deploymentRef,
+		Role: role, ID: id, DeploymentRef: c.deploymentRef(),
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 		Budget: c.budget, Capabilities: c.capabilities,
 	}
@@ -97,8 +99,8 @@ type CallConfig struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	// Deployment is the exact child behavior binding. The Stage retains only
-	// its immutable DeploymentRef and Descriptor schemas.
+	// Deployment is the exact child behavior binding. The Workflow owns it as
+	// one of its ChildDeployments.
 	Deployment agent.Deployment
 
 	// Budget is permanently allocated from the parent when the child starts.
@@ -235,6 +237,26 @@ func (s Stage) fanoutOutcome(
 func (s Stage) fanoutFailureMessage(index uint32, diagnostic string) string {
 	return string(s.kind) + " Stage " + s.id + " " +
 		s.fanoutMemberLabel(index) + " " + diagnostic
+}
+
+// childBindings returns every child binding of the Stage in topology order.
+func (s Stage) childBindings() []childBinding {
+	switch s.kind {
+	case StageKindCall:
+		return []childBinding{s.call}
+	case StageKindSwitch:
+		bindings := make([]childBinding, len(s.switcher.cases))
+		for index, candidate := range s.switcher.cases {
+			bindings[index] = candidate.binding
+		}
+		return bindings
+	case StageKindFork, StageKindMap:
+		return s.fanout.source.bindings()
+	case StageKindLoop:
+		return []childBinding{s.loop.binding}
+	default:
+		return nil
+	}
 }
 
 func (s Stage) topology() StageTopology {

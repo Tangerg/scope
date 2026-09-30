@@ -44,7 +44,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				interaction.DefinitionConfig{Name: "interaction.unlimited_resume", Description: "Resume an unlimited input wait."},
 				interaction.DispatcherConfig{Model: client}, interaction.ToolSetConfig{Tools: []tool.Tool{waiting}},
 			)
-			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: deployment.resolver}
+			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
 			var store *agent.MemoryTreeCommitter
 			if readStore {
 				store = agent.NewMemoryTreeCommitter()
@@ -194,7 +194,7 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: toolInteractionDeployment(deployment, toolSet).resolver})
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
 	if err != nil {
 		t.Fatal(err)
 	}

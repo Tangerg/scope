@@ -15,8 +15,7 @@ const stateKind = "collaboration"
 // WorkerConfig freezes a child binding and its permanently allocated grants.
 // Workers are selected by Deployment.Descriptor().Name(), never by routing or
 // a model-supplied DeploymentRef, budget, or capability grant.
-// The Definition retains only immutable references, contracts, and grants;
-// the Engine's resolver owns the executable Deployments.
+// The Definition owns the bound Deployments as its ChildDeployments.
 type WorkerConfig struct {
 	Deployment   agent.Deployment
 	Budget       agent.Budget
@@ -28,15 +27,13 @@ func (w WorkerConfig) valid() bool {
 }
 
 func (w WorkerConfig) binding() childBinding {
-	return childBinding{descriptor: w.Deployment.Descriptor(), deploymentRef: w.Deployment.DeploymentRef(),
-		budget: w.Budget, capabilities: w.Capabilities}
+	return childBinding{deployment: w.Deployment, budget: w.Budget, capabilities: w.Capabilities}
 }
 
 type childBinding struct {
-	descriptor    agent.Descriptor
-	deploymentRef agent.DeploymentRef
-	budget        agent.Budget
-	capabilities  agent.CapabilitySet
+	deployment   agent.Deployment
+	budget       agent.Budget
+	capabilities agent.CapabilitySet
 }
 
 func (c childBinding) validateCoordinatorContract() error {
@@ -48,15 +45,15 @@ func (c childBinding) validateCoordinatorContract() error {
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(inputSchema.JSON(), c.descriptor.InputSchema().JSON()) ||
-		!bytes.Equal(outputSchema.JSON(), c.descriptor.OutputSchema().JSON()) {
+	if !bytes.Equal(inputSchema.JSON(), c.deployment.Descriptor().InputSchema().JSON()) ||
+		!bytes.Equal(outputSchema.JSON(), c.deployment.Descriptor().OutputSchema().JSON()) {
 		return fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
 	}
 	return nil
 }
 
 func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildSpec {
-	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: c.deploymentRef,
+	return agent.ChildSpec{Key: key, Input: input, DeploymentRef: c.deployment.DeploymentRef(),
 		Budget: c.budget, Capabilities: c.capabilities}
 }
 
@@ -132,7 +129,7 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 		}
 		child := worker.binding()
 		for _, previous := range workers {
-			if previous.descriptor.Name() == child.descriptor.Name() {
+			if previous.deployment.Descriptor().Name() == child.deployment.Descriptor().Name() {
 				return nil, fmt.Errorf("%w: duplicate worker name", ErrInvalidConfig)
 			}
 		}
@@ -142,13 +139,13 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 }
 
 // ChildDeployments reports the coordinator and every worker binding.
-func (d *Definition) ChildDeployments() []agent.DeploymentRef {
+func (d *Definition) ChildDeployments() []agent.Deployment {
 	if d == nil {
 		return nil
 	}
-	children := []agent.DeploymentRef{d.coordinator.deploymentRef}
+	children := []agent.Deployment{d.coordinator.deployment}
 	for _, worker := range d.workers {
-		children = append(children, worker.deploymentRef)
+		children = append(children, worker.deployment)
 	}
 	return children
 }
@@ -189,7 +186,7 @@ func (d *Definition) valid() bool {
 
 func (d *Definition) worker(name string) (childBinding, bool) {
 	for _, worker := range d.workers {
-		if worker.descriptor.Name() == name {
+		if worker.deployment.Descriptor().Name() == name {
 			return worker, true
 		}
 	}
@@ -204,7 +201,7 @@ func (d *Definition) validateRequest(request TaskRequest) error {
 	if !found {
 		return fmt.Errorf("%w: unknown worker %q", ErrInvalidDecision, request.Worker)
 	}
-	if err := worker.descriptor.ValidateInput(request.Input); err != nil {
+	if err := worker.deployment.Descriptor().ValidateInput(request.Input); err != nil {
 		return fmt.Errorf("%w: task input: %w", ErrInvalidDecision, err)
 	}
 	return nil
