@@ -63,13 +63,21 @@ func NewSubmission(config SubmissionConfig) (Submission, error) {
 			return Submission{}, fmt.Errorf("%w: duplicate prediction %q", ErrInvalidSubmission, prediction.InstanceID)
 		}
 	}
+	type identityPrediction struct {
+		InstanceID string `json:"instance_id"`
+		Patch      string `json:"model_patch"`
+	}
+	identityPredictions := make([]identityPrediction, len(predictions))
+	for index, prediction := range predictions {
+		identityPredictions[index] = identityPrediction(prediction)
+	}
 	identity, err := jsonv2.Marshal(struct {
-		Selection       string       `json:"selection"`
-		HarnessRevision string       `json:"harness_revision"`
-		Model           string       `json:"model"`
-		AttemptID       string       `json:"attempt_id"`
-		Predictions     []Prediction `json:"predictions"`
-	}{config.Selection.digest, HarnessRevision, config.Model, config.AttemptID, predictions})
+		Selection       string               `json:"selection"`
+		HarnessRevision string               `json:"harness_revision"`
+		Model           string               `json:"model"`
+		AttemptID       string               `json:"attempt_id"`
+		Predictions     []identityPrediction `json:"predictions"`
+	}{config.Selection.digest, HarnessRevision, config.Model, config.AttemptID, identityPredictions})
 	if err != nil {
 		return Submission{}, fmt.Errorf("%w: encode identity: %w", ErrInvalidSubmission, err)
 	}

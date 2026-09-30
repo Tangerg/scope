@@ -191,6 +191,29 @@ func TestSubmissionIdentityExportAndArguments(t *testing.T) {
 	}
 }
 
+func TestSubmissionRunIDEncodesExplicitIdentity(t *testing.T) {
+	selection, err := swebench.NewSelection(swebench.SelectionConfig{
+		Dataset: "SWE-bench/SWE-bench_Verified", Revision: datasetRevision, Split: "test",
+		Tasks: []swebench.Task{{InstanceID: "case-a", Digest: taskDigest("a")}, {InstanceID: "case-b", Digest: taskDigest("b")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := swebench.NewSubmission(swebench.SubmissionConfig{
+		Selection: selection, Model: "vendor/agent", AttemptID: "trial-1",
+		Predictions: []swebench.Prediction{{InstanceID: "case-b", Patch: "fix b"}, {InstanceID: "case-a", Patch: ""}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := `{"selection":"` + selection.Digest() + `","harness_revision":"` + swebench.HarnessRevision +
+		`","model":"vendor/agent","attempt_id":"trial-1","predictions":[` +
+		`{"instance_id":"case-a","model_patch":""},{"instance_id":"case-b","model_patch":"fix b"}]}`
+	if want := fmt.Sprintf("%x", sha256.Sum256([]byte(identity))); submission.RunID() != want {
+		t.Fatalf("RunID = %s, want %s", submission.RunID(), want)
+	}
+}
+
 func TestSubmissionRejectsDuplicateAndForeignCandidates(t *testing.T) {
 	submission := newSubmission(t)
 	for name, change := range map[string]func(*swebench.SubmissionConfig){
