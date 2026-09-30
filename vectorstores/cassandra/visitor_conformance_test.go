@@ -32,6 +32,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			Unsupported: []string{
 				"or", "not", "nested_logical", "null_test", "not_null_test",
 				"like", "collection_membership", "indexed_key", "nested_index",
+				"array_index", "nested_array_index", "array_index_key",
 			},
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.

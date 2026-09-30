@@ -22,11 +22,11 @@ func (i *Ident) Name() string {
 	return i.name
 }
 
-func (i *Ident) Path() ([]string, error) {
+func (i *Ident) Path() ([]PathSegment, error) {
 	if err := i.validate(); err != nil {
 		return nil, err
 	}
-	return []string{i.name}, nil
+	return []PathSegment{{key: i.name}}, nil
 }
 
 func (i *Ident) Start() Position {

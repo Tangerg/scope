@@ -21,8 +21,6 @@ const (
 	LiteralNull   LiteralKind = "null"
 )
 
-const firstInvalidSignedIndex = 1 << 63
-
 // Literal is an immutable scalar constant. Text is the canonical semantic
 // representation; typed methods reject mismatched kinds.
 type Literal struct {
@@ -219,38 +217,22 @@ func (l *Literal) Float32() (float32, error) {
 	return converted, nil
 }
 
-// Key converts a string or non-negative integral number literal into a
-// metadata index key.
-func (l *Literal) Key() (string, error) {
+func (l *Literal) pathSegment() (PathSegment, error) {
 	switch {
 	case l.IsString():
-		return l.AsString()
-	case l.IsNumber():
-		value, err := l.Value()
+		key, err := l.AsString()
 		if err != nil {
-			return "", err
+			return PathSegment{}, err
 		}
-		switch number := value.(type) {
-		case int64:
-			if number < 0 {
-				return "", errors.New("filter: convert literal to index key: numeric index must be non-negative")
-			}
-			return strconv.FormatInt(number, 10), nil
-		case uint64:
-			if number > math.MaxInt64 {
-				return "", errors.New("filter: convert literal to index key: numeric index exceeds int64")
-			}
-			return strconv.FormatUint(number, 10), nil
-		case float64:
-			if number < 0 || number >= firstInvalidSignedIndex || math.Trunc(number) != number {
-				return "", errors.New("filter: convert literal to index key: numeric index must be a non-negative integer")
-			}
-			return strconv.FormatUint(uint64(number), 10), nil
-		default:
-			return "", fmt.Errorf("filter: convert literal to index key: unsupported numeric index type %T", value)
+		return PathSegment{key: key}, nil
+	case l.IsNumber():
+		index, ok := l.integerIndex()
+		if !ok {
+			return PathSegment{}, fmt.Errorf("filter: numeric index must be a non-negative integer in the int64 range, got %q at %s", l.text, l.Start())
 		}
+		return PathSegment{index: index, isIndex: true}, nil
 	default:
-		return "", errors.New("filter: convert literal to index key: index must be a string or number literal")
+		return PathSegment{}, fmt.Errorf("filter: index must be a string or number, got %s at %s", l.Kind(), l.Start())
 	}
 }
 
@@ -308,12 +290,15 @@ func (l *Literal) numberRat() (*big.Rat, error) {
 	return number, nil
 }
 
-func (l *Literal) isIntegerIndex() bool {
+func (l *Literal) integerIndex() (uint64, bool) {
 	if !l.IsNumber() {
-		return false
+		return 0, false
 	}
 	number, ok := new(big.Rat).SetString(l.text)
-	return ok && number.Sign() >= 0 && number.IsInt() && number.Num().IsInt64()
+	if !ok || number.Sign() < 0 || !number.IsInt() || !number.Num().IsInt64() {
+		return 0, false
+	}
+	return number.Num().Uint64(), true
 }
 
 func (l *Literal) validate() error {

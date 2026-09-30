@@ -62,10 +62,12 @@ func (b *BinaryExpr) Selector() (Selector, error) {
 	return selector, nil
 }
 
-// Path returns the selected metadata keys. Indexed keys may contain arbitrary
+// Path returns the selected metadata path. Key segments may contain arbitrary
 // valid UTF-8, so compilers may bind them as values but must use IdentifierPath
-// before interpolating them as query syntax.
-func (b *BinaryExpr) Path() ([]string, error) {
+// before interpolating them as query syntax. A compiler whose backend cannot
+// select array elements with Match semantics must reject index segments rather
+// than render them as keys.
+func (b *BinaryExpr) Path() ([]PathSegment, error) {
 	selector, err := b.Selector()
 	if err != nil {
 		return nil, err
@@ -73,24 +75,33 @@ func (b *BinaryExpr) Path() ([]string, error) {
 	return selector.Path()
 }
 
-// IdentifierPath rejects segments outside [A-Za-z_][A-Za-z0-9_]*. Use it when
-// a filter language cannot quote field names: interpolating an arbitrary indexed
-// key would let metadata bytes become query syntax. Path remains available for
-// compilers that bind keys as values.
+// IdentifierPath rejects index segments and keys outside
+// [A-Za-z_][A-Za-z0-9_]*. Use it when a filter language cannot quote field
+// names: interpolating an arbitrary indexed key would let metadata bytes become
+// query syntax. Path remains available for compilers that bind keys as values.
 func (b *BinaryExpr) IdentifierPath() ([]string, error) {
-	keys, err := b.Path()
+	path, err := b.Path()
 	if err != nil {
 		return nil, err
 	}
-	if len(keys) == 0 {
+	if len(path) == 0 {
 		return nil, fmt.Errorf("filter: read identifier path: empty key path at %s", b.Start())
 	}
-	for _, key := range keys {
+	keys := make([]string, 0, len(path))
+	for _, segment := range path {
+		key, ok := segment.Key()
+		if !ok {
+			index, _ := segment.Index()
+			return nil, fmt.Errorf(
+				"filter: read identifier path: array index [%d] at %s cannot be named in this store's filter language",
+				index, b.Start())
+		}
 		if !isPlainIdentifier(key) {
 			return nil, fmt.Errorf(
 				"filter: read identifier path: key %q at %s is not a plain identifier, so it cannot be named in this store's filter language",
 				key, b.Start())
 		}
+		keys = append(keys, key)
 	}
 	return keys, nil
 }

@@ -23,7 +23,7 @@ func TestVisitor_Conformance(t *testing.T) {
 		storetest.Options{
 			// Vectara filterable metadata fields are scalar, so there is no
 			// collection to test membership against.
-			Unsupported: []string{"collection_membership"},
+			Unsupported: []string{"collection_membership", "array_index", "nested_array_index", "array_index_key"},
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.
 			InterpolatesKeyPaths: true,

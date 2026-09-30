@@ -119,3 +119,30 @@ func compileFilterText(source string) (string, error) {
 	}
 	return compiler.snapshot(), nil
 }
+
+// An index renders as SQL++ element selection and a digit key as field
+// selection; each yields MISSING where filter.Match reads absent, so the leaf
+// guards keep the AST's truth value.
+func TestVisitor_ArrayIndexUsesElementSelection(t *testing.T) {
+	for _, sample := range []struct {
+		source string
+		path   string
+	}{
+		{source: `tags[0] == 'a'`, path: "metadata.`tags`[0]"},
+		{source: `tags['0'] == 'a'`, path: "metadata.`tags`.`0`"},
+		{source: `items[2]['name'] == 'a'`, path: "metadata.`items`[2].`name`"},
+		{source: `items[9007199254740992] is null`, path: "metadata.`items`[9007199254740992]"},
+	} {
+		sql, err := build(t, sample.source)
+		if err != nil {
+			t.Fatalf("build %q: %v", sample.source, err)
+		}
+		if !strings.Contains(sql, sample.path+" ") {
+			t.Fatalf("sql=%q for %q must select %s", sql, sample.source, sample.path)
+		}
+	}
+
+	if _, err := build(t, `items[9007199254740993] == 'a'`); err == nil || !strings.Contains(err.Error(), "exceeds the exact SQL++ number range") {
+		t.Fatalf("build accepted an index SQL++ cannot represent exactly, err = %v", err)
+	}
+}

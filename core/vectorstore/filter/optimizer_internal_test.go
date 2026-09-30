@@ -75,18 +75,22 @@ func TestOptimizerDoesNotMutateCallerTree(t *testing.T) {
 }
 
 func TestLiteralIntegerIndexUsesExactArithmetic(t *testing.T) {
-	tests := map[string]bool{
-		"0":                   true,
-		"9223372036854775807": true,
-		"9223372036854775808": false,
-		"9007199254740992.5":  false,
-		"-1":                  false,
-		"1e3":                 true,
+	type result struct {
+		index uint64
+		ok    bool
+	}
+	tests := map[string]result{
+		"0":                   {0, true},
+		"9223372036854775807": {9223372036854775807, true},
+		"9223372036854775808": {},
+		"9007199254740992.5":  {},
+		"-1":                  {},
+		"1e3":                 {1000, true},
 	}
 	for value, want := range tests {
 		literal := &Literal{kind: LiteralNumber, text: value}
-		if got := literal.isIntegerIndex(); got != want {
-			t.Errorf("isIntegerIndex(%q) = %v, want %v", value, got, want)
+		if index, ok := literal.integerIndex(); (result{index, ok}) != want {
+			t.Errorf("integerIndex(%q) = %d, %v; want %d, %v", value, index, ok, want.index, want.ok)
 		}
 	}
 }

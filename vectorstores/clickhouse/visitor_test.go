@@ -22,7 +22,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			v := newVisitor("metadata")
 			return expr.Accept(v)
 		},
-		storetest.Options{Unsupported: []string{"collection_membership"}},
+		storetest.Options{Unsupported: []string{"collection_membership", "array_index", "nested_array_index", "array_index_key"}},
 	)
 }
 

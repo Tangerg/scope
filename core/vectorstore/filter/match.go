@@ -78,76 +78,36 @@ func (e *evaluator) listValue(list *ListLiteral) (any, error) {
 	return out, nil
 }
 
-// Missing keys and out-of-range indices resolve to nil, matching SQL NULL
-// semantics; only structural type errors are reported.
+// Missing keys, out-of-range indices, and segments that do not fit the value
+// they step into — an index on an object, a key on an array, or any step into
+// a scalar — resolve to nil, matching SQL NULL semantics. Never coercing one
+// segment kind into the other is what lets provider compilers render each
+// kind natively.
 func (e *evaluator) evalIndex(idx *IndexExpr) (any, error) {
-	keys, err := e.indexKeys(idx)
+	path, err := idx.Path()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("filter: evaluate index: %w", err)
 	}
 	var cur any = e.values
-	for _, key := range keys {
+	for _, segment := range path {
 		switch typed := cur.(type) {
 		case map[string]any:
-			s, ok := key.(string)
+			key, ok := segment.Key()
 			if !ok {
-				return nil, fmt.Errorf("filter: evaluate index: map key must be string, got %T", key)
-			}
-			cur = typed[s]
-		case []any:
-			index, ok := arrayIndex(key)
-			if !ok {
-				return nil, fmt.Errorf("filter: evaluate index: invalid array index %v (%T)", key, key)
-			}
-			if index >= uint64(len(typed)) {
 				return nil, nil
 			}
-			cur = typed[int(index)]
+			cur = typed[key]
+		case []any:
+			index, ok := segment.Index()
+			if !ok || index >= uint64(len(typed)) {
+				return nil, nil
+			}
+			cur = typed[index]
 		default:
 			return nil, nil
 		}
 	}
 	return cur, nil
-}
-
-func arrayIndex(value any) (uint64, bool) {
-	switch number := value.(type) {
-	case int64:
-		if number < 0 {
-			return 0, false
-		}
-		return uint64(number), true
-	case uint64:
-		return number, true
-	case float64:
-		if number < 0 || number >= firstInvalidSignedIndex || math.Trunc(number) != number {
-			return 0, false
-		}
-		return uint64(number), true
-	default:
-		return 0, false
-	}
-}
-
-func (e *evaluator) indexKeys(idx *IndexExpr) ([]any, error) {
-	var chain []any
-	cur := Expr(idx)
-	for {
-		switch typed := cur.(type) {
-		case *IndexExpr:
-			key, err := e.literalValue(typed.Index())
-			if err != nil {
-				return nil, err
-			}
-			chain = append([]any{key}, chain...)
-			cur = typed.Left()
-		case *Ident:
-			chain = append([]any{typed.Name()}, chain...)
-			return chain, nil
-		default:
-			return nil, fmt.Errorf("filter: evaluate filter: unexpected index base %T", cur)
-		}
-	}
 }
 
 func (e *evaluator) evalUnary(u *UnaryExpr) (any, error) {

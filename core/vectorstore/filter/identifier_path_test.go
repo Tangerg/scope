@@ -36,6 +36,8 @@ func TestIdentifierPathRefusesWhatQueryTextCannotName(t *testing.T) {
 		{name: "empty", source: `profile[''] == 'x'`, wantErr: `""`},
 		{name: "leading digit", source: `profile['1a'] == 'x'`, wantErr: "1a"},
 		{name: "nested injection", source: `profile['a']['b c'] == 'x'`, wantErr: "b c"},
+		{name: "array index", source: `tags[0] == 'x'`, wantErr: "array index [0]"},
+		{name: "nested array index", source: `profile['a'][3] == 'x'`, wantErr: "array index [3]"},
 	}
 
 	for _, test := range tests {
@@ -85,11 +87,11 @@ func TestPathStaysUnrestricted(t *testing.T) {
 	if !ok {
 		t.Fatalf("Parse() = %T, want *filter.BinaryExpr", expression)
 	}
-	keys, err := binary.Path()
+	path, err := binary.Path()
 	if err != nil {
 		t.Fatalf("Path() = %v, want nil", err)
 	}
-	if len(keys) != 2 || keys[1] != "a:1 OR b" {
-		t.Fatalf("Path() = %v, want the key verbatim", keys)
+	if got := pathText(path); got != "profile/a:1 OR b" {
+		t.Fatalf("Path() = %s, want the key verbatim", got)
 	}
 }

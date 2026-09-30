@@ -238,12 +238,23 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 // propertyAccess assembles the Cypher property accessor for the left
 // side of a comparison, e.g. “node.`metadata.foo` “.
 func (v *visitor) propertyAccess(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	path, err := expr.Path()
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
+	if len(path) == 0 {
 		return "", errors.New("neo4j: empty key path on left operand")
+	}
+	// Metadata is flattened into dotted node properties, and Cypher raises a
+	// type error when a list subscript meets a non-list value where
+	// filter.Match reads absent, so an index has no faithful rendering.
+	keys := make([]string, 0, len(path))
+	for _, segment := range path {
+		key, ok := segment.Key()
+		if !ok {
+			return "", errors.New("array index selectors are not supported")
+		}
+		keys = append(keys, key)
 	}
 	propName := strings.Join(keys, ".")
 	if v.metadataPrefix != "" {

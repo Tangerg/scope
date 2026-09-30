@@ -183,34 +183,28 @@ func (v *visitor) compileLike(expression *filter.BinaryExpr) (string, error) {
 	return fmt.Sprintf("%s like %s", fieldKey, pattern), nil
 }
 
+// selectorString renders the base identifier as the field name, a key as a
+// quoted JSON subscript, and an index as a bare array subscript, which Milvus
+// reads as an object member and an array element respectively.
 func selectorString(expression *filter.BinaryExpr) (string, error) {
-	selector, err := expression.Selector()
+	path, err := expression.Path()
 	if err != nil {
 		return "", err
 	}
-	return formatSelector(selector)
-}
-
-func formatSelector(selector filter.Selector) (string, error) {
-	switch expression := selector.(type) {
-	case *filter.Ident:
-		return expression.Name(), nil
-	case *filter.IndexExpr:
-		left, err := formatSelector(expression.Left())
-		if err != nil {
-			return "", err
+	var b strings.Builder
+	for position, segment := range path {
+		if index, ok := segment.Index(); ok {
+			b.WriteString("[" + strconv.FormatUint(index, 10) + "]")
+			continue
 		}
-		key, err := expression.Index().Key()
-		if err != nil {
-			return "", fmt.Errorf("milvus: %w", err)
+		key, _ := segment.Key()
+		if position == 0 {
+			b.WriteString(key)
+			continue
 		}
-		if expression.Index().IsString() {
-			key = strconv.Quote(key)
-		}
-		return left + "[" + key + "]", nil
-	default:
-		return "", fmt.Errorf("milvus: unsupported selector type %T", expression)
+		b.WriteString("[" + strconv.Quote(key) + "]")
 	}
+	return b.String(), nil
 }
 
 func listString(list *filter.ListLiteral) (string, error) {

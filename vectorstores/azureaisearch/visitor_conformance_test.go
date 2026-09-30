@@ -23,7 +23,7 @@ func TestVisitor_Conformance(t *testing.T) {
 		storetest.Options{
 			// $filter has no string function to build a pattern match on, and
 			// it does not support nested-property paths.
-			Unsupported: []string{"like", "indexed_key", "nested_index"},
+			Unsupported: []string{"like", "indexed_key", "nested_index", "array_index", "nested_array_index", "array_index_key"},
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.
 			InterpolatesKeyPaths: true,

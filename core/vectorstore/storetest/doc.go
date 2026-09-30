@@ -20,7 +20,8 @@
 //	years            - number list
 //	flags            - bool list
 //	title            - string pattern
-//	metadata['author'], metadata['a']['b'] - keyed access
+//	profile['author'], profile['a']['b'] - keyed access
+//	tags[0], profile['a'][0], items[0]['name'] - array element access
 //
 // # Compiler options
 //
@@ -28,7 +29,8 @@
 // from bound values. The former must reject unsafe names; the latter must
 // preserve arbitrary keys.
 //
-// [Options.CompileText] checks numerals without lossy scalar conversions.
+// [Options.CompileText] checks numerals without lossy scalar conversions and
+// that an array index never renders as the matching digit key.
 // [Options.NumericDomainIsFloat64] permits equivalent float64 representations
 // when that is the backend's numeric domain.
 //

@@ -32,9 +32,10 @@ type FilterConfig struct {
 }
 
 // FilterConformance compares backend selection with filter.Match and exact
-// expected IDs. It covers every operator, null/missing fields, and LIKE's case,
-// whole-value and Unicode wildcard semantics. Unlike Run, it executes queries
-// and requires isolated fixtures; it never opens a provider connection itself.
+// expected IDs. It covers every operator, null/missing fields, array-index
+// versus object-key selection, and LIKE's case, whole-value and Unicode
+// wildcard semantics. Unlike Run, it executes queries and requires isolated
+// fixtures; it never opens a provider connection itself.
 func FilterConformance(t *testing.T, config FilterConfig) {
 	t.Helper()
 	if config.Query == nil {
@@ -164,6 +165,11 @@ func filterCases() []filterCase {
 		{name: "missing_equality", source: `value == 'present'`, values: nullable, want: []int{2}},
 		{name: "missing_inequality", source: `value != 'present'`, values: nullable, want: []int{0, 1}},
 		{name: "nested_key", source: `value['name'] == 'Alice'`, values: filterValues(map[string]any{"name": "Alice"}, map[string]any{"name": "Bob"}, map[string]any{}), want: []int{0}},
+		{name: "array_index", source: `value[1] == 'b'`, values: filterValues([]string{"a", "b"}, []string{"b", "a"}, []string{"b"}, "b", map[string]any{"1": "b"}), want: []int{0}},
+		{name: "negated_array_index", source: `not (value[0] == 'a')`, values: filterValues([]string{"a"}, []string{"b"}, "a", map[string]any{"0": "a"}), want: []int{1, 2, 3}},
+		{name: "array_index_null", source: `value[0] is null`, values: []map[string]any{{}, {"value": []any{nil}}, {"value": []any{"a"}}, {"value": []any{}}, {"value": "a"}}, want: []int{0, 1, 3, 4}},
+		{name: "array_index_key", source: `value[0]['name'] == 'Alice'`, values: filterValues([]any{map[string]any{"name": "Alice"}}, []any{map[string]any{"name": "Bob"}}, map[string]any{"0": map[string]any{"name": "Alice"}}), want: []int{0}},
+		{name: "digit_key_excludes_array", source: `value['0'] == 'a'`, values: filterValues(map[string]any{"0": "a"}, []string{"a"}), want: []int{0}},
 		{name: "no_matches", source: `value == 100`, values: numbers},
 	}
 }

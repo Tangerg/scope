@@ -19,6 +19,12 @@
 //		return err
 //	}
 //
+// A string index selects an object member and a numeric index selects an
+// array element; a segment that does not fit the value it steps into selects
+// nothing. [Selector.Path] keeps that distinction as typed [PathSegment]
+// values, so a compiler renders each kind natively or rejects it rather than
+// treating an index as a key.
+//
 // [Parse] validates and normalizes the tree before a provider translates it.
 // Provider compilers and interpreters can share the complete-tree [Visitor]
 // contract through [Predicate.Accept]. Selectors, literals, lists, and operator

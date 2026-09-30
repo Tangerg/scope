@@ -325,11 +325,10 @@ func selectorJSONPath(selector filter.Selector) (string, error) {
 			}
 			return parent + "." + string(quoted), nil
 		}
-		index, err := node.Index().Int64()
-		if err != nil || index < 0 {
-			return "", fmt.Errorf("invalid array index %s", node.Index().Text())
-		}
-		return fmt.Sprintf("%s[%d]", parent, index), nil
+		// TiDB follows MySQL, which evaluates path[0] on a non-array value as
+		// the value itself where filter.Match reads absent, so an index has
+		// no faithful rendering.
+		return "", errors.New("array index selectors are not supported")
 	default:
 		return "", fmt.Errorf("unsupported selector %T", selector)
 	}

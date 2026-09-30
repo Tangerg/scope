@@ -46,4 +46,8 @@ FALSE = ? case-insensitive keyword "false" ? ;
    - numeric indexes are non-negative integers in the int64 range;
    - identifiers cannot be case-insensitive reserved keywords;
    - selector paths are complete metadata paths: profile['name'] means
-     ["profile", "name"], with no implicit metadata pseudo-root. *)
+     ["profile", "name"], with no implicit metadata pseudo-root;
+   - a string index selects an object member and a numeric index an array
+     element; a segment that does not fit the value it steps into, or any
+     step into a scalar, selects nothing, so items[0] and items['0'] never
+     select the same value. *)

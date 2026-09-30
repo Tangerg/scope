@@ -12,6 +12,8 @@ type BuildFn func(source string) error
 
 type Options struct {
 	// Unsupported cases must return an error; approximation and skipping are forbidden.
+	// A backend that cannot select array elements with filter.Match semantics
+	// declares array_index, nested_array_index, and array_index_key.
 	Unsupported []string
 
 	// InterpolatesKeyPaths declares that keys are written as query syntax.
@@ -56,6 +58,9 @@ func VisitorConformance(t *testing.T, build BuildFn, options Options) {
 		{"like", `title like '%foo%'`},
 		{"indexed_key", `profile['author'] == 'Alice'`},
 		{"nested_index", `profile['a']['b'] == 'x'`},
+		{"array_index", `tags[0] == 'a'`},
+		{"nested_array_index", `profile['a'][0] == 'x'`},
+		{"array_index_key", `items[0]['name'] == 'x'`},
 		{"nested_logical", `(a == 1 and b == 2) or (c == 3 and not (d == 4))`},
 
 		{"null_test", `author is null`},
@@ -117,7 +122,25 @@ func VisitorConformance(t *testing.T, build BuildFn, options Options) {
 
 	if options.CompileText != nil {
 		runNumeralCases(t, options.CompileText, options.NumericDomainIsFloat64)
+		runSegmentKindCase(t, options.CompileText)
 	}
+}
+
+// filter.Match reads items[0] as an array element and items['0'] as an object
+// member, so a compiler that accepts both must not render them identically.
+func runSegmentKindCase(t *testing.T, compile func(string) (string, error)) {
+	t.Helper()
+
+	t.Run("SegmentKind_index_differs_from_key", func(t *testing.T) {
+		index, indexErr := compile(`items[0] == 'x'`)
+		key, keyErr := compile(`items['0'] == 'x'`)
+		if indexErr != nil || keyErr != nil {
+			t.Skipf("compiler refused a segment kind: index %v, key %v", indexErr, keyErr)
+		}
+		if index == key {
+			t.Fatalf("items[0] and items['0'] both compiled to %q; an index must not render as a key", index)
+		}
+	})
 }
 
 // These magnitudes expose lossy float64 round trips and architecture-dependent

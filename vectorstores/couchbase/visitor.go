@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -255,26 +256,42 @@ func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
-// fieldPath builds the dotted SQL++ path for the left operand, with
-// each segment backtick-quoted to allow special characters.
+// fieldPath builds the SQL++ path for the left operand: each key is a
+// backtick-quoted field selection and each index an element selection. SQL++
+// yields MISSING for a field selection on an array, an element selection on a
+// non-array, and an out-of-range position, which IS NOT VALUED reads the way
+// filter.Match reads an absent value.
 func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	path, err := expr.Path()
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
+	if len(path) == 0 {
 		return "", errors.New("empty key path on left operand")
 	}
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, "`"+strings.ReplaceAll(k, "`", "``")+"`")
+	var b strings.Builder
+	b.WriteString(v.metadataPrefix)
+	for _, segment := range path {
+		if index, ok := segment.Index(); ok {
+			// SQL++ numbers are doubles and a subscript is truncated to a
+			// platform int, so a larger position could wrap to a negative one
+			// and count from the end of the array.
+			if index > maxExactElementIndex {
+				return "", fmt.Errorf("array index %d exceeds the exact SQL++ number range", index)
+			}
+			b.WriteString("[" + strconv.FormatUint(index, 10) + "]")
+			continue
+		}
+		key, _ := segment.Key()
+		if b.Len() > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString("`" + strings.ReplaceAll(key, "`", "``") + "`")
 	}
-	joined := strings.Join(parts, ".")
-	if v.metadataPrefix == "" {
-		return joined, nil
-	}
-	return v.metadataPrefix + "." + joined, nil
+	return b.String(), nil
 }
+
+const maxExactElementIndex = 1 << 53
 
 func sqlOpFor(kind filter.Operator) (string, error) {
 	switch kind {

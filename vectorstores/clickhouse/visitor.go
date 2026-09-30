@@ -327,12 +327,22 @@ func (v *visitor) appendValuePlaceholder(value any) error {
 }
 
 func buildKeyPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.Path()
+	path, err := expr.Path()
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
+	if len(path) == 0 {
 		return "", errors.New("clickhouse: empty key path")
+	}
+	// A Map(String, String) subscript holds each value as JSON text with no
+	// array element access, so an index has no faithful rendering.
+	keys := make([]string, 0, len(path))
+	for _, segment := range path {
+		key, ok := segment.Key()
+		if !ok {
+			return "", errors.New("array index selectors are not supported")
+		}
+		keys = append(keys, key)
 	}
 	return strings.Join(keys, "."), nil
 }

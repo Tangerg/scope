@@ -17,37 +17,6 @@ func TestDispatchRejectsUnsupportedOperators(t *testing.T) {
 	}
 }
 
-func TestLiteralKey(t *testing.T) {
-	tests := []struct {
-		name    string
-		literal *filter.Literal
-		want    string
-		wantErr bool
-	}{
-		{name: "string", literal: filter.NewLiteral("name"), want: "name"},
-		{name: "signed integer", literal: filter.NewLiteral(42), want: "42"},
-		{name: "unsigned integer", literal: filter.NewLiteral(uint64(math.MaxInt64)), want: "9223372036854775807"},
-		{name: "integral decimal", literal: filter.NewLiteral(4.0), want: "4"},
-		{name: "negative", literal: filter.NewLiteral(-1), wantErr: true},
-		{name: "fractional", literal: filter.NewLiteral(1.5), wantErr: true},
-		{name: "oversized", literal: filter.NewLiteral(uint64(math.MaxUint64)), wantErr: true},
-		{name: "bool", literal: filter.NewLiteral(true), wantErr: true},
-		{name: "nil", literal: nil, wantErr: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := test.literal.Key()
-			if (err != nil) != test.wantErr {
-				t.Fatalf("Key() error = %v, wantErr %t", err, test.wantErr)
-			}
-			if got != test.want {
-				t.Fatalf("Key() = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 func TestLiteralValue(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -116,10 +116,6 @@ func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 			predicate: mustParse(t, `year like 'a%'`),
 			wantText:  "LIKE left operand must be string",
 		},
-		"string array index": {
-			predicate: mustParse(t, `nested['list']['zero'] == 1`),
-			wantText:  "invalid array index",
-		},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -220,6 +216,35 @@ func TestEvaluatorArrayIndexBounds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Match(EQ(Index("list", index), 2), metadata); err == nil {
 				t.Fatalf("index %v was accepted", index)
+			}
+		})
+	}
+}
+
+func TestEvaluatorSegmentKindMismatchReadsAbsent(t *testing.T) {
+	metadata := map[string]any{
+		"list":   []any{"zero", map[string]any{"name": "Alice"}},
+		"object": map[string]any{"0": "zero"},
+		"scalar": "zero",
+	}
+	cases := map[string]struct {
+		source string
+		want   bool
+	}{
+		"index selects array element": {source: `list[0] == 'zero'`, want: true},
+		"key selects object member":   {source: `object['0'] == 'zero'`, want: true},
+		"index then key":              {source: `list[1]['name'] == 'Alice'`, want: true},
+		"index on object":             {source: `object[0] is null`, want: true},
+		"key on array":                {source: `list['0'] is null`, want: true},
+		"index on scalar":             {source: `scalar[0] is null`, want: true},
+		"negated index on object":     {source: `not (object[0] == 'zero')`, want: true},
+		"negated key on array":        {source: `not (list['0'] == 'zero')`, want: true},
+		"index on nested object":      {source: `list[1][0] is null`, want: true},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := mustMatch(t, mustParse(t, testCase.source), metadata); got != testCase.want {
+				t.Fatalf("%s = %t, want %t", testCase.source, got, testCase.want)
 			}
 		})
 	}

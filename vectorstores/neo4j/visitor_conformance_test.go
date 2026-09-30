@@ -19,5 +19,8 @@ func TestVisitor_Conformance(t *testing.T) {
 			return err
 		}
 		return expr.Accept(newVisitor("node", "metadata"))
-	}, storetest.Options{})
+	}, storetest.Options{
+		// The backend has no array element access with filter.Match semantics.
+		Unsupported: []string{"array_index", "nested_array_index", "array_index_key"},
+	})
 }

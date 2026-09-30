@@ -212,11 +212,11 @@ func TestSelectorPathIncludesBaseIdentifier(t *testing.T) {
 	tests := []struct {
 		name string
 		expr filter.Selector
-		want []string
+		want string
 	}{
-		{name: "bare", expr: filter.NewIdent("author"), want: []string{"author"}},
-		{name: "nested", expr: filter.Index(filter.Index("profile", "name"), "first"), want: []string{"profile", "name", "first"}},
-		{name: "numeric", expr: filter.Index("items", 2), want: []string{"items", "2"}},
+		{name: "bare", expr: filter.NewIdent("author"), want: "author"},
+		{name: "nested", expr: filter.Index(filter.Index("profile", "name"), "first"), want: "profile/name/first"},
+		{name: "numeric", expr: filter.Index("items", 2), want: "items/[2]"},
 	}
 
 	for _, tt := range tests {
@@ -225,8 +225,8 @@ func TestSelectorPathIncludesBaseIdentifier(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Join(got, "/") != strings.Join(tt.want, "/") {
-				t.Fatalf("path = %v, want %v", got, tt.want)
+			if pathText(got) != tt.want {
+				t.Fatalf("path = %s, want %s", pathText(got), tt.want)
 			}
 		})
 	}
@@ -243,8 +243,8 @@ func TestBinaryOperandsExposeSemanticValues(t *testing.T) {
 		t.Fatalf("selector = %#v, want populated IndexExpr", selector)
 	}
 	path, err := expr.Path()
-	if err != nil || strings.Join(path, "/") != "profile/name" {
-		t.Fatalf("Path() = %v, %v", path, err)
+	if err != nil || pathText(path) != "profile/name" {
+		t.Fatalf("Path() = %s, %v", pathText(path), err)
 	}
 	value, err := expr.Value()
 	if err != nil || value != "scope" {

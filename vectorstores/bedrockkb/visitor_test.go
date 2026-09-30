@@ -29,7 +29,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			return predicate.Accept(newVisitor())
 		},
 		storetest.Options{
-			Unsupported: []string{"indexed_key", "nested_index", "null_test", "not_null_test"},
+			Unsupported: []string{"indexed_key", "nested_index", "null_test", "not_null_test", "array_index", "nested_array_index", "array_index_key"},
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.
 			InterpolatesKeyPaths: true,

@@ -24,7 +24,7 @@ func TestVisitor_Conformance(t *testing.T) {
 			// YQL states plainly that "there is no way to query for a field
 			// that is not set / equals null or NaN", and its suggested
 			// workaround is a magic sentinel value this store will not invent.
-			Unsupported: []string{"null_test", "not_null_test"},
+			Unsupported: []string{"null_test", "not_null_test", "array_index", "nested_array_index", "array_index_key"},
 			// This compiler writes a metadata key into the query language as text,
 			// so a key that language cannot name is refused rather than approximated.
 			InterpolatesKeyPaths: true,

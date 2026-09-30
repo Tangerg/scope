@@ -64,6 +64,22 @@ func TestVisitor_QuotesCompleteStringLiteral(t *testing.T) {
 	}
 }
 
+func TestVisitor_SelectorKeepsSegmentKinds(t *testing.T) {
+	for source, want := range map[string]string{
+		`meta[0] == 'a'`:           `meta[0] == "a"`,
+		`meta['0'] == 'a'`:         `meta["0"] == "a"`,
+		`meta['a'][1]['b'] == 'x'`: `meta["a"][1]["b"] == "x"`,
+	} {
+		got, err := compileFilterText(source)
+		if err != nil {
+			t.Fatalf("compile %q: %v", source, err)
+		}
+		if got != want {
+			t.Fatalf("compile %q = %q, want %q", source, got, want)
+		}
+	}
+}
+
 // compileFilterText drives the compiler and returns the query text it produced,
 // so the shared suite can require the exact digits of a numeric literal. This
 // compiler's whole output is text, which is what makes those digits the only

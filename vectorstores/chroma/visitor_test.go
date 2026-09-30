@@ -18,7 +18,8 @@ func TestVisitor_Conformance(t *testing.T) {
 			return expr.Accept(v)
 		},
 		storetest.Options{Unsupported: []string{
-			"not", "nested_logical", "collection_membership", "like", "null_test", "not_null_test"}},
+			"not", "nested_logical", "collection_membership", "like", "null_test", "not_null_test",
+			"array_index", "nested_array_index", "array_index_key"}},
 	)
 }
 

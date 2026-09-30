@@ -3,6 +3,7 @@ package pgfilter
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,10 @@ import (
 //   - nested index — joined with -> for intermediate hops,
 //     ->> only on the final step (since ->> casts to text):
 //     profile["a"]["b"] → metadata->'profile'->'a'->>'b'
+//   - numeric index — an integer operand, which jsonb reads as an array
+//     position and which yields NULL on an object, as filter.Match reads
+//     absent:
+//     tags[0] → metadata->'tags'->>0
 //
 // Numeric / boolean values force a type cast on the JSON extraction so
 // the comparison happens in the proper type, not lexicographic on text.
@@ -326,19 +331,16 @@ func sqlOpFor(kind filter.Operator) (string, error) {
 // buildJSONPath turns the left-side expression of a comparison into
 // the metadata accessor.
 //
-//	ident            → metadata->>'ident'
-//	metadata['k']    → metadata->>'k'
-//	metadata['a']['b'] → metadata->'a'->>'b'
+//	author           → metadata->>'author'
+//	profile['a']     → metadata->'profile'->>'a'
+//	tags[0]          → metadata->'tags'->>0
 //
 // For numeric / boolean comparisons the trailing ->> is wrapped in a
 // type cast.
 func (c *Compiler) buildJSONPath(expr *filter.BinaryExpr, cast jsonCast) (string, error) {
-	pathParts, err := expr.Path()
+	operands, err := jsonPathOperands(expr)
 	if err != nil {
 		return "", err
-	}
-	if len(pathParts) == 0 {
-		return "", errors.New("empty key path on left operand")
 	}
 
 	var b strings.Builder
@@ -347,13 +349,13 @@ func (c *Compiler) buildJSONPath(expr *filter.BinaryExpr, cast jsonCast) (string
 	}
 	b.WriteString(c.metadataCol)
 
-	for i, key := range pathParts {
-		if i == len(pathParts)-1 {
+	for i, operand := range operands {
+		if i == len(operands)-1 {
 			b.WriteString("->>")
 		} else {
 			b.WriteString("->")
 		}
-		b.WriteString(quoteSQLLiteral(key))
+		b.WriteString(operand)
 	}
 
 	if cast != castNone {
@@ -371,21 +373,46 @@ func (c *Compiler) buildJSONPath(expr *filter.BinaryExpr, cast jsonCast) (string
 // buildRawJSONPath keeps the selected value as JSONB. Collection operators
 // must not use ->>, which would erase the array shape by converting it to text.
 func (c *Compiler) buildRawJSONPath(expr *filter.BinaryExpr) (string, error) {
-	pathParts, err := expr.Path()
+	operands, err := jsonPathOperands(expr)
 	if err != nil {
 		return "", err
-	}
-	if len(pathParts) == 0 {
-		return "", errors.New("empty key path on left operand")
 	}
 
 	var b strings.Builder
 	b.WriteString(c.metadataCol)
-	for _, key := range pathParts {
+	for _, operand := range operands {
 		b.WriteString("->")
-		b.WriteString(quoteSQLLiteral(key))
+		b.WriteString(operand)
 	}
 	return b.String(), nil
+}
+
+// jsonPathOperands renders each path segment as the right operand of -> or
+// ->>. A text operand reads an object member and an integer operand an array
+// element; jsonb yields NULL when the operand kind does not fit the value.
+// The integer operator takes int4, so a larger index is refused here rather
+// than failing to resolve when the statement runs.
+func jsonPathOperands(expr *filter.BinaryExpr) ([]string, error) {
+	path, err := expr.Path()
+	if err != nil {
+		return nil, err
+	}
+	if len(path) == 0 {
+		return nil, errors.New("empty key path on left operand")
+	}
+	operands := make([]string, 0, len(path))
+	for _, segment := range path {
+		if index, ok := segment.Index(); ok {
+			if index > math.MaxInt32 {
+				return nil, fmt.Errorf("array index %d exceeds the jsonb integer operand range", index)
+			}
+			operands = append(operands, strconv.FormatUint(index, 10))
+			continue
+		}
+		key, _ := segment.Key()
+		operands = append(operands, quoteSQLLiteral(key))
+	}
+	return operands, nil
 }
 
 func quoteSQLLiteral(s string) string {

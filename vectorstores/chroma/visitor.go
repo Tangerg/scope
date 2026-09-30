@@ -293,7 +293,17 @@ func selectorKey(expression *filter.BinaryExpr) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(path, "."), nil
+	// Chroma metadata is flat and its where clause has no array element
+	// access, so an index has no faithful rendering.
+	keys := make([]string, 0, len(path))
+	for _, segment := range path {
+		key, ok := segment.Key()
+		if !ok {
+			return "", errors.New("array index selectors are not supported")
+		}
+		keys = append(keys, key)
+	}
+	return strings.Join(keys, "."), nil
 }
 
 func literalToValue(literal *filter.Literal) (any, error) {

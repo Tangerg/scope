@@ -3,8 +3,6 @@ package filter
 import (
 	"errors"
 	"fmt"
-
-	"github.com/samber/lo"
 )
 
 type IndexExpr struct {
@@ -31,22 +29,19 @@ func (i *IndexExpr) Index() *Literal {
 	return i.index
 }
 
-func (i *IndexExpr) Path() ([]string, error) {
-	if i == nil {
-		return nil, errors.New("filter: read index path: index expression is nil")
-	}
-	if lo.IsNil(i.left) {
-		return nil, errors.New("filter: read index path: base is nil")
+func (i *IndexExpr) Path() ([]PathSegment, error) {
+	if err := i.validate(); err != nil {
+		return nil, err
 	}
 	path, err := i.left.Path()
 	if err != nil {
 		return nil, err
 	}
-	key, err := i.index.Key()
+	segment, err := i.index.pathSegment()
 	if err != nil {
 		return nil, err
 	}
-	return append(path, key), nil
+	return append(path, segment), nil
 }
 
 func (i *IndexExpr) Start() Position {
@@ -78,14 +73,9 @@ func (i *IndexExpr) validate() error {
 	if i.index == nil {
 		return fmt.Errorf("filter: index is nil at %s", i.Start())
 	}
-	if !i.index.IsString() && !i.index.IsNumber() {
-		return fmt.Errorf("filter: index must be a string or number, got %s at %s", i.index.Kind(), i.index.Start())
-	}
 	if err := i.index.validate(); err != nil {
 		return err
 	}
-	if i.index.IsNumber() && !i.index.isIntegerIndex() {
-		return fmt.Errorf("filter: numeric index must be a non-negative integer, got %q at %s", i.index.Text(), i.index.Start())
-	}
-	return nil
+	_, err := i.index.pathSegment()
+	return err
 }

@@ -213,6 +213,37 @@ func TestCompiler_IndexedKeyRetainsBase(t *testing.T) {
 	}
 }
 
+// jsonb reads an integer operand as an array position and a text operand as
+// an object member, so rendering an index as a quoted key would read a
+// different value than filter.Match.
+func TestCompiler_ArrayIndexUsesIntegerOperand(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{source: `tags[0] == 'a'`, want: `(metadata->'tags'->>0 IS NOT NULL AND metadata->'tags'->>0 = $1)`},
+		{source: `tags['0'] == 'a'`, want: `(metadata->'tags'->>'0' IS NOT NULL AND metadata->'tags'->>'0' = $1)`},
+		{source: `items[2]['name'] == 'a'`, want: `(metadata->'items'->2->>'name' IS NOT NULL AND metadata->'items'->2->>'name' = $1)`},
+		{source: `items[1] has 'a'`, want: `(metadata->'items'->1 @> jsonb_build_array($1))`},
+		{source: `items[2147483647] == 'a'`, want: `(metadata->'items'->>2147483647 IS NOT NULL AND metadata->'items'->>2147483647 = $1)`},
+	}
+	for _, test := range tests {
+		t.Run(test.source, func(t *testing.T) {
+			sql, _, err := build(t, test.source)
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if sql != test.want {
+				t.Fatalf("sql = %q, want %q", sql, test.want)
+			}
+		})
+	}
+
+	if _, _, err := build(t, `items[2147483648] == 'a'`); err == nil || !strings.Contains(err.Error(), "exceeds the jsonb integer operand range") {
+		t.Fatalf("build accepted an index beyond int4, err = %v", err)
+	}
+}
+
 func TestCompiler_EmptyMetadataColDefaults(t *testing.T) {
 	expr, err := filter.Parse(`a == 1`)
 	if err != nil {

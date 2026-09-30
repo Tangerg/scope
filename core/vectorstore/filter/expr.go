@@ -22,9 +22,10 @@ type Expr interface {
 
 type Selector interface {
 	Expr
-	// Path returns an independently owned metadata path. It fails when the
-	// selector contains an invalid identifier or index expression.
-	Path() ([]string, error)
+	// Path returns an independently owned metadata path whose first segment is
+	// the identifier key. It fails when the selector contains an invalid
+	// identifier or index expression.
+	Path() ([]PathSegment, error)
 	selector()
 }
 
