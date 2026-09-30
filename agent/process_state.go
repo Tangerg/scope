@@ -216,9 +216,7 @@ func (p *processState) requestKill(reason string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	if !p.pendingControl.kill.valid() {
-		p.pendingControl.kill = intent
-	}
+	p.pendingControl.recordKill(intent)
 	return nil
 }
 
@@ -488,10 +486,10 @@ func (p *processState) snapshotAdmissionSize(limits TreeLimits) (uint64, error) 
 // Asynchronous failures wait for accepted external effects to settle before
 // becoming terminal, just like cancellation and deadline intents.
 func (p *processState) recordFailure(kind FailureKind, code string, err error) {
-	if p.status.Terminal() || p.pendingControl.failure.Valid() {
+	if p.status.Terminal() {
 		return
 	}
-	p.pendingControl.failure = newEngineFailure(kind, code, err)
+	p.pendingControl.recordFailure(newEngineFailure(kind, code, err))
 }
 
 func (p *processState) installTermination(termination Termination, output Payload, finishedAt time.Time) {
@@ -548,6 +546,18 @@ func (p *processState) terminalEventPayload() json.RawMessage {
 
 // The first recorded intent of each kind is authoritative; later sources of
 // the same kind cannot rewrite its owner or reason.
+func (p *pendingControl) recordFailure(failure Failure) {
+	if !p.failure.Valid() {
+		p.failure = failure
+	}
+}
+
+func (p *pendingControl) recordKill(intent killIntent) {
+	if !p.kill.valid() {
+		p.kill = intent
+	}
+}
+
 func (p *pendingControl) recordDeadline(intent deadlineIntent) {
 	if !p.deadline.valid() {
 		p.deadline = intent
@@ -623,6 +633,13 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 
 func (p *processState) usage() Usage {
 	return Usage{CommittedSteps: p.committedSteps, AcceptedSignals: p.mailbox.acceptedCount(), PreparedEffects: p.counters.PreparedEffects, DroppedDeltas: p.counters.DroppedDeltas}
+}
+
+// An unadopted candidate and the executable instance restored for it live
+// and die together.
+func (p *processState) discardPreparedStep() {
+	p.prepared = nil
+	p.preparedExecution = nil
 }
 
 func (p *processState) adopt(finalization *preparedStepFinalization) {

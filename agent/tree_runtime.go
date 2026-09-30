@@ -416,8 +416,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		return
 	}
 	if process.pendingControl.pause.valid() && process.prepared.Intent.Kind() == TransitionKindWait {
-		process.prepared = nil
-		process.preparedExecution = nil
+		process.discardPreparedStep()
 		t.startRestore(process)
 		t.applyPendingControl(process)
 		return
