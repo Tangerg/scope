@@ -14,7 +14,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	handle := newProcessHandle(
-		rootProcessRelation(processID), DeploymentRef{},
+		rootProcessRelation(processID), DeploymentRef{}, Digest{},
 		Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
 		CapabilitySet{}, time.Now())
 	process := &processState{
@@ -51,7 +51,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 			continue
 		}
 		child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
-			controlValue(EncodePayload(childTestOutput{})), child.startedAt)
+			controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
 		child.mailbox.closeAllWaits()
 		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{
 			Key:      controlValue(ParseWaitKey(fmt.Sprintf("result-%d", len(effects)))),
@@ -114,9 +114,9 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment.DeploymentRef(), parent.handle.budget, parent.handle.capabilities, parent.startedAt)
+		parent.deployment.DeploymentRef(), Digest{}, parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt))
+		parent.committedExecutionState))
 	missingID, _ := ParseProcessID("process:missing-child")
 	var specs []ChildWaitSpec
 	var effects []Effect
@@ -168,9 +168,9 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	childKey := controlValue(ParseChildKey("worker"))
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment.DeploymentRef(), parent.handle.budget, parent.handle.capabilities, parent.startedAt)
+		parent.deployment.DeploymentRef(), Digest{}, parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.deployment, parent.execution,
-		parent.committedExecutionState, parent.startedAt))
+		parent.committedExecutionState))
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("worker-result")), Children: []ProcessID{childID},
 		Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
 	record := preparedEffect{

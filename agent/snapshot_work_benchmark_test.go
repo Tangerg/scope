@@ -61,9 +61,8 @@ func BenchmarkTreeAdmission(b *testing.B) {
 						}
 					})
 					relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
-					handle := newProcessHandle(relation, root.deployment.DeploymentRef(), root.handle.budget, root.handle.capabilities, root.startedAt)
-					handle.childRequestDigest = ComputeDigest([]byte("benchmark-child"))
-					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState, root.startedAt)
+					handle := newProcessHandle(relation, root.deployment.DeploymentRef(), ComputeDigest([]byte("benchmark-child")), root.handle.budget, root.handle.capabilities, root.handle.startedAt)
+					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState)
 					b.Run("child_publication_capacity", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
@@ -129,8 +128,8 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	}
 	rootID := newProcessID()
 	now := time.Now().Round(0).UTC()
-	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), engine.budget, engine.capabilities, now)
-	root := newProcessState(handle, deployment, execution, state, now)
+	handle := newProcessHandle(rootProcessRelation(rootID), deployment.DeploymentRef(), Digest{}, engine.budget, engine.capabilities, now)
+	root := newProcessState(handle, deployment, execution, state)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
 		id := newProcessID()
@@ -139,9 +138,8 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		budget := Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}
-		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), budget, engine.capabilities, now)
-		handle.childRequestDigest = ComputeDigest([]byte(key.String()))
-		child := newProcessState(handle, deployment, execution, state, now)
+		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment.DeploymentRef(), ComputeDigest([]byte(key.String())), budget, engine.capabilities, now)
+		child := newProcessState(handle, deployment, execution, state)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:waiting-%d", index))
 		if err != nil {
 			t.Fatal(err)

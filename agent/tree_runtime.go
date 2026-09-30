@@ -1831,14 +1831,11 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		handle := newProcessHandle(
 			pending.plan.relation,
 			pending.result.deployment.DeploymentRef(),
+			pending.plan.requestDigest,
 			pending.plan.spec.Budget,
 			pending.plan.spec.Capabilities,
 			pending.result.startedAt)
-		handle.childRequestDigest = pending.plan.requestDigest
-		child := newProcessState(
-			handle, pending.result.deployment, pending.result.execution,
-			pending.result.state, pending.result.startedAt,
-		)
+		child := newProcessState(handle, pending.result.deployment, pending.result.execution, pending.result.state)
 		if _, err := t.applyChildStartSettlement(candidate, pending.effectID, pending.result.result); err != nil {
 			return err
 		}

@@ -89,7 +89,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	handle := parent.handle
 	parentID := handle.processID
-	now := parent.startedAt
+	now := parent.handle.startedAt
 	parent.status = StatusWaiting
 	waitID, _ := ParseWaitID("wait:oversized-children")
 	waitKey, _ := ParseWaitKey("children")
@@ -112,9 +112,9 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		key, _ := ParseChildKey(name)
 		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
-			status: StatusCompleted, startedAt: now, finishedAt: now,
+			status: StatusCompleted, finishedAt: now,
 			termination: termination, finalOutput: output,
-			handle: &processHandle{processID: id, relation: relation},
+			handle: &processHandle{processID: id, relation: relation, startedAt: now},
 		}
 		if !last.result().Valid() {
 			t.Fatal("invalid child result")
@@ -189,9 +189,9 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	}
 	now := time.Now().Round(0).UTC()
 	parentID := newProcessID()
-	handle := newProcessHandle(rootProcessRelation(parentID), deployment.DeploymentRef(),
+	handle := newProcessHandle(rootProcessRelation(parentID), deployment.DeploymentRef(), Digest{},
 		engine.budget, engine.capabilities, now)
-	parent := newProcessState(handle, deployment, execution, state, now)
+	parent := newProcessState(handle, deployment, execution, state)
 	runtime := newTreeRuntime(engine, parentID, engine.treeLimits, t.Context(), parent)
 	snapshot := controlValue(runtime.captureTree())
 	checkpoint := controlValue(newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, snapshot))

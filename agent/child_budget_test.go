@@ -155,8 +155,8 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), first.handle.budget, first.handle.capabilities, root.startedAt)
-	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState, root.startedAt)
+	handle := newProcessHandle(relation, first.deployment.DeploymentRef(), Digest{}, first.handle.budget, first.handle.capabilities, root.handle.startedAt)
+	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")
@@ -188,5 +188,41 @@ func TestProvisionalBudgetReleaseRequiresExactReservation(t *testing.T) {
 	process.releaseProvisionalChildBudget(budget)
 	if process.provisionalChildBudget != nil {
 		t.Fatal("exact release retained the reservation")
+	}
+}
+
+func TestChildPublicationRequiresTheReservedRequestDigest(t *testing.T) {
+	runtime, parent := newChildCompletionTestProcess(t)
+	engine := runtime.engine
+	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment.DeploymentRef(), Digest{}); err != nil {
+		t.Fatal(err)
+	}
+	engine.publishProcessStart(parent.handle)
+	key := controlValue(ParseChildKey("worker"))
+	relation := childProcessRelation(newProcessID(), parent.handle.relation, key)
+	reserved := ComputeDigest([]byte("reserved request"))
+	if err := engine.reserveProcessStart(relation, parent.deployment.DeploymentRef(), reserved); err != nil {
+		t.Fatal(err)
+	}
+	for _, digest := range []Digest{ComputeDigest([]byte("another request")), reserved} {
+		handle := newProcessHandle(relation, parent.deployment.DeploymentRef(), digest,
+			parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
+		handle.runtime.Store(runtime)
+		published := func() (published bool) {
+			defer func() { published = recover() == nil }()
+			engine.publishProcessStart(handle)
+			return
+		}()
+		if published != (digest == reserved) {
+			t.Fatalf("digest %s published=%v", digest, published)
+		}
+	}
+	child, found := engine.Process(relation.ProcessID())
+	if !found || child.handle.childRequestDigest != reserved {
+		t.Fatal("published child does not carry its reserved request digest")
+	}
+	for _, handle := range []*processHandle{parent.handle, child.handle} {
+		handle.publishResult(Result{})
+		handle.finishBookkeeping()
 	}
 }

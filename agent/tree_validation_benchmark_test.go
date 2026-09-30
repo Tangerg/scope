@@ -16,7 +16,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	for _, id := range children {
 		child := runtime.members.get(id)
 		child.mailbox = newSignalMailbox()
-		child.installTermination(termination, output, child.startedAt)
+		child.installTermination(termination, output, child.handle.startedAt)
 		key, _ := child.handle.relation.ChildKey()
 		outcomes = append(outcomes, ChildOutcome{key: key, result: child.result(), boundary: ChildWaitBoundaryDrained})
 	}

@@ -22,7 +22,6 @@ type processState struct {
 	// snapshots and externally visible transitions in one deterministic order.
 	execution               Execution
 	preparedExecution       Execution
-	startedAt               time.Time
 	finishedAt              time.Time
 	status                  Status
 	committedSteps          uint64
@@ -73,11 +72,10 @@ func newProcessState(
 	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
-	startedAt time.Time,
 ) *processState {
 	return &processState{
 		handle: handle, deployment: deployment, execution: execution,
-		startedAt: startedAt, status: StatusRunning, committedExecutionState: state,
+		status: StatusRunning, committedExecutionState: state,
 		mailbox: newSignalMailbox(),
 	}
 }
@@ -330,7 +328,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 
 func (p *processState) result() Result {
 	return Result{
-		processID: p.handle.processID, startedAt: p.startedAt,
+		processID: p.handle.processID, startedAt: p.handle.startedAt,
 		finishedAt: p.finishedAt, output: p.finalOutput,
 		termination: p.termination, usage: p.usage(),
 	}
@@ -647,7 +645,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 	wire := processSnapshotWire{
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
-		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.startedAt,
+		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.handle.startedAt,
 		Status: p.status, CommittedSteps: p.committedSteps,
 		AllocatedResources: p.allocatedResources,
 		Budget:             p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,

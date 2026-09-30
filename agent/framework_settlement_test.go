@@ -131,9 +131,8 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
-	handle := newProcessHandle(relation, spec.DeploymentRef, spec.Budget, spec.Capabilities, wire.StartedAt)
-	handle.childRequestDigest = controlValue(spec.digest())
-	child := newProcessState(handle, deployment, execution, state, wire.StartedAt)
+	handle := newProcessHandle(relation, spec.DeploymentRef, controlValue(spec.digest()), spec.Budget, spec.Capabilities, wire.StartedAt)
+	child := newProcessState(handle, deployment, execution, state)
 	wire.AllocatedResources, _ = wire.Budget.allocation(spec.Budget)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())

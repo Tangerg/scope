@@ -35,16 +35,20 @@ type processHandle struct {
 	joinErr    *RuntimeError
 }
 
+// A child's request digest is part of its identity, so it is fixed here with
+// the rest; a root has none.
 func newProcessHandle(
 	relation ProcessRelation,
 	deploymentRef DeploymentRef,
+	childRequestDigest Digest,
 	budget Budget,
 	capabilities CapabilitySet,
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
 		processID: relation.ProcessID(), deploymentRef: deploymentRef, relation: relation,
-		budget: budget, capabilities: capabilities, startedAt: startedAt,
+		childRequestDigest: childRequestDigest,
+		budget:             budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}

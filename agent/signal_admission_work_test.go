@@ -57,8 +57,8 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 	}
 	now := time.Now().UTC()
 	id := newProcessID()
-	handle := newProcessHandle(rootProcessRelation(id), deployment.DeploymentRef(), budget, CapabilitySet{}, now)
-	process := newProcessState(handle, deployment, execution, state, now)
+	handle := newProcessHandle(rootProcessRelation(id), deployment.DeploymentRef(), Digest{}, budget, CapabilitySet{}, now)
+	process := newProcessState(handle, deployment, execution, state)
 	for index := range history {
 		signal := mustMailboxSignal(t, fmt.Sprintf("signal:%d", index), WaitID{}, json.RawMessage(`{}`))
 		if accepted, err := process.mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil || !accepted {

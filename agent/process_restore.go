@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+
+	"github.com/samber/lo"
 )
 
 func prepareRestoredProcess(
@@ -52,7 +54,7 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
 	}
-	handle := newProcessHandle(relation, wire.DeploymentRef, wire.Budget, wire.Capabilities, wire.StartedAt)
+	handle := newProcessHandle(relation, wire.DeploymentRef, lo.FromPtr(wire.ChildRequestDigest), wire.Budget, wire.Capabilities, wire.StartedAt)
 	process, err := restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
 	if err != nil {
 		return nil, nil, processSnapshotWire{}, err
@@ -70,12 +72,9 @@ func restoreProcessState(
 ) (*processState, error) {
 	process := &processState{
 		handle: handle, deployment: deployment, execution: execution,
-		startedAt: wire.StartedAt, status: wire.Status, committedSteps: wire.CommittedSteps,
+		status: wire.Status, committedSteps: wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		allocatedResources: wire.AllocatedResources, counters: wire.Counters,
-	}
-	if wire.ChildRequestDigest != nil {
-		handle.childRequestDigest = *wire.ChildRequestDigest
 	}
 	if wire.FinishedAt != nil {
 		process.finishedAt = *wire.FinishedAt
