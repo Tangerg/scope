@@ -91,14 +91,14 @@ func (d Deployment) validateDefinition() error {
 	return nil
 }
 
-func definitionDescriptor(definition Definition) (descriptor Descriptor, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			descriptor = Descriptor{}
-			err = fmt.Errorf("%w: %w", ErrInvalidDeployment, callbackPanic("Definition.Descriptor", recovered))
-		}
-	}()
-	return definition.Descriptor(), nil
+func definitionDescriptor(definition Definition) (Descriptor, error) {
+	descriptor, err := invokeCallback("Definition.Descriptor", func() (Descriptor, error) {
+		return definition.Descriptor(), nil
+	})
+	if err != nil {
+		return Descriptor{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
+	}
+	return descriptor, nil
 }
 
 func (d Deployment) validateEffect(effect Effect) error {

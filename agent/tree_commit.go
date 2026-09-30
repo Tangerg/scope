@@ -452,57 +452,33 @@ type TreeCommitter interface {
 	CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error
 }
 
-func activateTree(
-	ctx context.Context,
-	committer TreeCommitter,
-	activation TreeActivation,
-) (err error) {
+// Committer calls detach from caller cancellation: the Host owns storage
+// deadlines, and an abandoned acknowledgment would leave the head uncertain.
+func activateTree(ctx context.Context, committer TreeCommitter, activation TreeActivation) error {
 	if committer == nil || !activation.Valid() {
 		return errors.New("invalid durable tree activation")
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = callbackPanic("TreeCommitter.ActivateTree", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	return committer.ActivateTree(context.WithoutCancel(RequireContext(ctx)), activation)
+	return invokeCallbackErr("TreeCommitter.ActivateTree", func() error {
+		return committer.ActivateTree(context.WithoutCancel(RequireContext(ctx)), activation)
+	})
 }
 
-func commitEffectBoundary(
-	ctx context.Context,
-	committer TreeCommitter,
-	boundary EffectBoundary,
-) (err error) {
-	// Construction already checked the complete immutable boundary. This call
-	// only crosses the Host I/O boundary, so it need not repeat tree matching.
+// Construction already checked the complete immutable boundary, so this call
+// only crosses the Host I/O boundary and need not repeat tree matching.
+func commitEffectBoundary(ctx context.Context, committer TreeCommitter, boundary EffectBoundary) error {
 	if committer == nil || !boundary.kind.Valid() {
 		return errors.New("invalid durable Effect boundary")
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = callbackPanic("TreeCommitter.CommitEffect", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	return committer.CommitEffect(context.WithoutCancel(RequireContext(ctx)), boundary)
+	return invokeCallbackErr("TreeCommitter.CommitEffect", func() error {
+		return committer.CommitEffect(context.WithoutCancel(RequireContext(ctx)), boundary)
+	})
 }
 
-func commitTreeCheckpoint(
-	ctx context.Context,
-	committer TreeCommitter,
-	checkpoint TreeCheckpoint,
-) (err error) {
+func commitTreeCheckpoint(ctx context.Context, committer TreeCommitter, checkpoint TreeCheckpoint) error {
 	if committer == nil || !checkpoint.kind.Valid() {
 		return errors.New("invalid durable tree checkpoint")
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = callbackPanic("TreeCommitter.CommitCheckpoint", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	return committer.CommitCheckpoint(
-		context.WithoutCancel(RequireContext(ctx)), checkpoint,
-	)
+	return invokeCallbackErr("TreeCommitter.CommitCheckpoint", func() error {
+		return committer.CommitCheckpoint(context.WithoutCancel(RequireContext(ctx)), checkpoint)
+	})
 }

@@ -8,37 +8,23 @@ import (
 
 var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
 
-func dispatcherReplayPolicy(
-	dispatcher Dispatcher,
-	effect Effect,
-) (policy ReplayPolicy, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			policy = ReplayPolicyInvalid
-			err = fmt.Errorf("%w: %w", errInvalidReplayPolicy, callbackPanic("Dispatcher.ReplayPolicy", recovered))
-		}
-	}()
-	policy = dispatcher.ReplayPolicy(effect)
+func dispatcherReplayPolicy(dispatcher Dispatcher, effect Effect) (ReplayPolicy, error) {
+	policy, err := invokeCallback("Dispatcher.ReplayPolicy", func() (ReplayPolicy, error) {
+		return dispatcher.ReplayPolicy(effect), nil
+	})
+	if err != nil {
+		return ReplayPolicyInvalid, fmt.Errorf("%w: %w", errInvalidReplayPolicy, err)
+	}
 	if !policy.Valid() {
 		return ReplayPolicyInvalid, errInvalidReplayPolicy
 	}
 	return policy, nil
 }
 
-func dispatchEffect(
-	ctx context.Context,
-	dispatcher Dispatcher,
-	request EffectRequest,
-	emit DeltaEmitter,
-) (settlement Settlement, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			settlement = Settlement{}
-			err = callbackPanic("Dispatcher.Dispatch", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	return dispatcher.Dispatch(ctx, request, emit)
+func dispatchEffect(ctx context.Context, dispatcher Dispatcher, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
+	return invokeCallback("Dispatcher.Dispatch", func() (Settlement, error) {
+		return dispatcher.Dispatch(ctx, request, emit)
+	})
 }
 
 // Diagnostics cross persistence and observation boundaries; arbitrary error

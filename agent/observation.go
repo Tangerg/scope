@@ -105,17 +105,23 @@ func (o *observationBus) publishEvent(ctx context.Context, event Event) {
 	}
 }
 
-func (o *observationBus) callEventListener(ctx context.Context, index int, listener EventListener, event Event) (failure *ListenerPanic) {
+func (o *observationBus) callEventListener(ctx context.Context, index int, listener EventListener, event Event) *ListenerPanic {
+	key := observedTreeKey{bus: o, rootID: event.relation.RootID()}
+	return callListener(ctx, key, index, listener, event.ProcessID(), func(ctx context.Context) { listener.OnEvent(ctx, event) })
+}
+
+// callListener marks ctx as inside this listener for reentrancy checks and
+// contains a panic, because observation failures cannot veto execution.
+func callListener(ctx context.Context, key any, index int, listener any, processID ProcessID, call func(context.Context)) (failure *ListenerPanic) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			failure = captureListenerPanic(index, listener, event.ProcessID(), recovered)
+			failure = captureListenerPanic(index, listener, processID, recovered)
 		}
 	}()
 	active := new(atomic.Bool)
 	active.Store(true)
 	defer active.Store(false)
-	ctx = context.WithValue(ctx, observedTreeKey{bus: o, rootID: event.relation.RootID()}, active)
-	listener.OnEvent(ctx, event)
+	call(context.WithValue(ctx, key, active))
 	return nil
 }
 
@@ -180,18 +186,8 @@ func (o *observationBus) flushDeltas(ctx context.Context) error {
 	}
 }
 
-func (o *observationBus) callDeltaListener(ctx context.Context, index int, listener DeltaListener, delta Delta) (failure *ListenerPanic) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			failure = captureListenerPanic(index, listener, delta.ProcessID(), recovered)
-		}
-	}()
-	active := new(atomic.Bool)
-	active.Store(true)
-	defer active.Store(false)
-	ctx = context.WithValue(ctx, observedDeltaKey{bus: o}, active)
-	listener.OnDelta(ctx, delta)
-	return nil
+func (o *observationBus) callDeltaListener(ctx context.Context, index int, listener DeltaListener, delta Delta) *ListenerPanic {
+	return callListener(ctx, observedDeltaKey{bus: o}, index, listener, delta.ProcessID(), func(ctx context.Context) { listener.OnDelta(ctx, delta) })
 }
 
 func (o *observationBus) failureSnapshot() ObservationFailures {

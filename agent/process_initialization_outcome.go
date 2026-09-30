@@ -118,22 +118,17 @@ func acknowledgeProcessInitializationOutcome(
 	ctx context.Context,
 	acknowledger ProcessInitializationOutcomeAcknowledger,
 	outcome ProcessInitializationOutcome,
-) (err error) {
+) error {
 	if acknowledger == nil {
 		return nil
 	}
 	if !outcome.Valid() {
 		return errors.New("invalid Process initialization outcome")
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = callbackPanic("ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	if err := acknowledger.AcknowledgeProcessInitializationOutcome(
-		context.WithoutCancel(RequireContext(ctx)), outcome,
-	); err != nil {
+	err := invokeCallbackErr("ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", func() error {
+		return acknowledger.AcknowledgeProcessInitializationOutcome(context.WithoutCancel(RequireContext(ctx)), outcome)
+	})
+	if err != nil {
 		return fmt.Errorf("agent: acknowledge Process initialization: %w", err)
 	}
 	return nil

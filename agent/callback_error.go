@@ -50,3 +50,26 @@ func callbackPanic(operation string, value any) error {
 		dispatch: dispatchPanicFailure(),
 	}
 }
+
+// invokeCallback is the single Host callback boundary. A panic becomes a
+// CallbackPanicError and every returned error is sealed, so the runtime never
+// classifies a Host error chain after this call returns.
+func invokeCallback[T any](operation string, call func() (T, error)) (value T, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			var zero T
+			value, err = zero, callbackPanic(operation, recovered)
+		}
+	}()
+	value, err = call()
+	if err != nil {
+		var zero T
+		return zero, sealCallbackError(err)
+	}
+	return value, nil
+}
+
+func invokeCallbackErr(operation string, call func() error) error {
+	_, err := invokeCallback(operation, func() (struct{}, error) { return struct{}{}, call() })
+	return err
+}

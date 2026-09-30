@@ -89,18 +89,10 @@ func (c *childStartPlan) resolveDeployment() (Deployment, error) {
 	return resolveDeployment(c.resolver, reference)
 }
 
-func resolveDeployment(
-	resolver DeploymentResolver,
-	reference DeploymentRef,
-) (deployment Deployment, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			deployment = Deployment{}
-			err = callbackPanic("DeploymentResolver.Resolve", recovered)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	deployment, err = resolver.Resolve(reference)
+func resolveDeployment(resolver DeploymentResolver, reference DeploymentRef) (Deployment, error) {
+	deployment, err := invokeCallback("DeploymentResolver.Resolve", func() (Deployment, error) {
+		return resolver.Resolve(reference)
+	})
 	if err != nil {
 		return Deployment{}, err
 	}

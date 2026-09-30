@@ -82,23 +82,17 @@ func requestProcessAdmission(
 	ctx context.Context,
 	admitter ProcessAdmitter,
 	admission ProcessAdmission,
-) (err error) {
+) error {
 	if admitter == nil {
 		return nil
 	}
 	if !admission.Valid() {
 		return fmt.Errorf("%w: invalid admission", ErrProcessAdmissionRejected)
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf(
-				"%w: %w",
-				ErrProcessAdmissionRejected, callbackPanic("ProcessAdmitter.Admit", recovered),
-			)
-		}
-	}()
-	defer func() { err = sealCallbackError(err) }()
-	if err := admitter.Admit(RequireContext(ctx), admission); err != nil {
+	err := invokeCallbackErr("ProcessAdmitter.Admit", func() error {
+		return admitter.Admit(RequireContext(ctx), admission)
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrProcessAdmissionRejected, err)
 	}
 	return nil

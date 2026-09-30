@@ -8,60 +8,41 @@ import (
 	"github.com/samber/lo"
 )
 
-func startExecution(definition Definition, input Payload) (execution Execution, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			execution = nil
-			err = callbackPanic("Definition.Start", recovered)
-		}
-	}()
-	execution, err = definition.Start(input)
+func startExecution(definition Definition, input Payload) (Execution, error) {
+	execution, err := invokeCallback("Definition.Start", func() (Execution, error) {
+		return definition.Start(input)
+	})
 	if err == nil && lo.IsNil(execution) {
 		return nil, errors.New("definition.Start returned nil execution")
 	}
-	return execution, sealCallbackError(err)
+	return execution, err
 }
 
-func restoreExecution(ctx context.Context, definition Definition, state ExecutionState) (execution Execution, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			execution = nil
-			err = callbackPanic("Definition.Restore", recovered)
-		}
-	}()
-	if err = ctx.Err(); err != nil {
+func restoreExecution(ctx context.Context, definition Definition, state ExecutionState) (Execution, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	execution, err = definition.Restore(restoreContext{Context: ctx}, state)
+	execution, err := invokeCallback("Definition.Restore", func() (Execution, error) {
+		return definition.Restore(restoreContext{Context: ctx}, state)
+	})
 	if err == nil && lo.IsNil(execution) {
 		return nil, errors.New("definition.Restore returned nil execution")
 	}
-	return execution, sealCallbackError(err)
+	return execution, err
 }
 
-func stepExecution(ctx context.Context, execution Execution, signals []Signal) (transition Transition, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			transition = Transition{}
-			err = callbackPanic("Execution.Step", recovered)
-		}
-	}()
-	transition, err = execution.Step(ctx, signals)
-	return transition, sealCallbackError(err)
+func stepExecution(ctx context.Context, execution Execution, signals []Signal) (Transition, error) {
+	return invokeCallback("Execution.Step", func() (Transition, error) {
+		return execution.Step(ctx, signals)
+	})
 }
 
-func captureExecution(execution Execution) (state ExecutionState, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			state = ExecutionState{}
-			err = callbackPanic("Execution.Snapshot", recovered)
-		}
-	}()
-	state, err = execution.Snapshot()
+func captureExecution(execution Execution) (ExecutionState, error) {
+	state, err := invokeCallback("Execution.Snapshot", execution.Snapshot)
 	if err == nil && !state.Valid() {
 		return ExecutionState{}, ErrInvalidExecutionState
 	}
-	return state, sealCallbackError(err)
+	return state, err
 }
 
 func initializeExecution(
