@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
@@ -94,6 +95,9 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 		&sdkmcp.ResourceLink{URI: "https://example.com/report.pdf", Name: "report", MIMEType: "application/pdf", Title: "A report", Description: "Report description", Size: new(int64(42)), Icons: []sdkmcp.Icon{{Source: "https://example.com/icon.png"}}, Meta: meta, Annotations: annotations},
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///repo/example.go", MIMEType: "text/plain", Text: "source body", Meta: meta}, Meta: meta, Annotations: annotations},
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///repo/image.png", MIMEType: "image/png", Blob: []byte{6, 7}, Meta: meta}, Meta: meta, Annotations: annotations},
+		&sdkmcp.ResourceLink{URI: "https://example.com/photo.JPG", Name: "photo"},
+		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///repo/clip.wav", Blob: []byte{8}}},
+		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "https://example.com/notes.md"}},
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "source"}, nil)
 	server.AddTool(&sdkmcp.Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
@@ -106,6 +110,16 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "source body", output.Content[4].Text)
 	require.Contains(t, string(output.Content[4].Metadata[scopemcp.ContentMetadataKey]), "file:///repo/example.go")
+	require.NotContains(t, string(output.Content[3].Metadata[scopemcp.ContentMetadataKey]), "mimeTypeInferred")
+	for index, want := range []struct{ mime, envelope string }{
+		{mime: "image/jpeg", envelope: `{"type":"resource_link","mimeTypeInferred":true}`},
+		{mime: "audio/wav", envelope: `{"type":"resource","resource":{"uri":"file:///repo/clip.wav"},"mimeTypeInferred":true}`},
+		{mime: "application/octet-stream", envelope: `{"type":"resource","resource":{},"mimeTypeInferred":true}`},
+	} {
+		part := output.Content[6+index]
+		require.Equal(t, want.mime, part.Media.MIME)
+		require.Equal(t, want.envelope, string(part.Metadata[scopemcp.ContentMetadataKey]))
+	}
 	for index, content := range contents {
 		messages, promptErr := scopemcp.PromptMessagesToChat([]*sdkmcp.PromptMessage{{Role: "user", Content: content}})
 		require.NoError(t, promptErr)
@@ -139,6 +153,49 @@ func TestCoreContentMetadataAndCitationsRoundTrip(t *testing.T) {
 	got, err := invokeTestTool(t.Context(), tools[0], `{}`)
 	require.NoError(t, err)
 	require.Equal(t, output, got)
+}
+
+func TestCoreMediaNamesRoundTrip(t *testing.T) {
+	image, err := media.NewBytes("image/png", []byte{1})
+	require.NoError(t, err)
+	image.Name = "chart.png"
+	audio, err := media.NewBytes("audio/mpeg", []byte{2})
+	require.NoError(t, err)
+	audio.Name = "voice.mp3"
+	document, err := media.NewBytes("application/pdf", []byte{3})
+	require.NoError(t, err)
+	document.Name = "report.pdf"
+	linked, err := media.NewURI("image/png", "https://example.com/a.png")
+	require.NoError(t, err)
+	linked.Name = "site"
+	parts := []*media.Media{image, audio, document, linked}
+	output := chat.ToolOutput{}
+	for _, value := range parts {
+		output.Content = append(output.Content, chat.ToolContent{Kind: chat.PartMedia, Media: value})
+	}
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "named-media"}, nil)
+	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
+	session := connectContentServer(t, server)
+
+	result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "content", Arguments: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	wire, err := jsonv2.Marshal(result.Content)
+	require.NoError(t, err)
+	require.JSONEq(t, `[
+		{"type":"image","mimeType":"image/png","data":"AQ==","_meta":{"scope/content":"{\"name\":\"chart.png\"}"}},
+		{"type":"audio","mimeType":"audio/mpeg","data":"Ag==","_meta":{"scope/content":"{\"name\":\"voice.mp3\"}"}},
+		{"type":"resource","resource":{"uri":"scope://tool-output/report.pdf","mimeType":"application/pdf","blob":"Aw=="},"_meta":{"scope/content":"{\"name\":\"report.pdf\"}"}},
+		{"type":"resource_link","uri":"https://example.com/a.png","name":"site","mimeType":"image/png"}
+	]`, string(wire))
+
+	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+	require.NoError(t, err)
+	got, err := invokeTestTool(t.Context(), tools[0], `{}`)
+	require.NoError(t, err)
+	require.Len(t, got.Content, len(parts))
+	for index, value := range parts {
+		require.Equal(t, value, got.Content[index].Media)
+	}
 }
 
 type contentOutputTool struct{ output chat.ToolOutput }
