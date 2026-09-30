@@ -146,12 +146,13 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 	if effect.Target() != EffectTargetFramework {
 		t.Fatalf("NewWaitEffect target = %s, want framework", effect.Target())
 	}
-	decodedKey, signalPayload, err := effect.waitRequest()
+	operation, err := decodeFrameworkOperation(effect.Payload())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decodedKey != key || string(signalPayload) != `{"kind":"approval_opened","tool":"shell"}` {
-		t.Fatalf("decoded wait request = key %v payload %s", decodedKey, signalPayload)
+	wait, isWait := operation.(waitOperation)
+	if !isWait || wait.key != key || string(wait.payload) != `{"kind":"approval_opened","tool":"shell"}` {
+		t.Fatalf("decoded wait request = %#v", operation)
 	}
 
 	data, err := jsonv2.Marshal(effect)
@@ -162,7 +163,7 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := restored.waitRequest(); err != nil {
+	if _, err := decodeFrameworkOperation(restored.Payload()); err != nil {
 		t.Fatal(err)
 	}
 }

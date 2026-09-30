@@ -363,11 +363,11 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		}
 		policy := ReplayPolicyNever
 		if record.Effect.Target() == EffectTargetFramework {
-			operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+			operation, err := decodeFrameworkOperation(record.Effect.Payload())
 			if err != nil {
 				return fmt.Errorf("%w: restore pending framework Effect: %w", ErrInvalidSnapshot, err)
 			}
-			if operation != frameworkEffectStartChild {
+			if _, starts := operation.(childStartOperation); !starts {
 				continue
 			}
 		} else if !p.pendingControl.hasTerminalIntent() {
@@ -610,11 +610,13 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 		if record.Effect.Target() != EffectTargetFramework {
 			continue
 		}
-		operation, err := decodeFrameworkEffectOperation(record.Effect.Payload())
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
 		if err != nil {
 			return err
 		}
-		if operation != frameworkEffectWait && operation != frameworkEffectWaitChildren {
+		switch operation.(type) {
+		case waitOperation, childWaitOperation:
+		default:
 			continue
 		}
 		record = preparedEffect{ID: record.ID, Effect: record.Effect, Phase: effectPhasePlanned}

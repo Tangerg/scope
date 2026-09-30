@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,12 +22,18 @@ type frameworkOperation interface {
 	validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error
 }
 
+// The header deliberately accepts operation-owned fields; the selected strict
+// decoder below owns their validation.
+type frameworkEffectHeader struct {
+	Operation frameworkEffectOperation `json:"operation"`
+}
+
 func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, error) {
-	operation, err := decodeFrameworkEffectOperation(payload)
-	if err != nil {
-		return nil, err
+	var header frameworkEffectHeader
+	if err := jsonv2.Unmarshal(payload, &header); err != nil {
+		return nil, fmt.Errorf("%w: decode Framework Effect header: %w", ErrInvalidEffect, err)
 	}
-	switch operation {
+	switch header.Operation {
 	case frameworkEffectWait:
 		key, signal, err := decodeWaitRequestPayload(payload)
 		return waitOperation{key: key, payload: signal}, err
@@ -40,7 +47,7 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 		request, err := decodeChildControlEffect(payload)
 		return childControlOperation{request: request}, err
 	default:
-		return nil, ErrInvalidEffect
+		return nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
 }
 

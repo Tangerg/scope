@@ -75,10 +75,6 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	return processSnapshotFromWire(wire)
 }
 
-func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
-	return processSnapshotFromWire(wire.clone())
-}
-
 // The caller transfers the wire's mutable containers. After validation, state
 // is immutable and data is its encoded projection; neither is updated in place.
 func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) {

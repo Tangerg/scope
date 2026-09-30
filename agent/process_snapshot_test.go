@@ -10,6 +10,12 @@ import (
 	"testing"
 )
 
+// newProcessSnapshot validates a copy of wire, so tests may keep editing the
+// fixture they captured it from.
+func newProcessSnapshot(wire processSnapshotWire) (ProcessSnapshot, error) {
+	return processSnapshotFromWire(wire.clone())
+}
+
 func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
 	var fields map[string]json.RawMessage

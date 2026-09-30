@@ -84,37 +84,33 @@ func materializeSnapshotSettlement(p *preparedEffect, failure Failure) error {
 		}
 		return nil
 	}
-	operation, operationErr := decodeFrameworkEffectOperation(p.Effect.Payload())
+	operation, operationErr := decodeFrameworkOperation(p.Effect.Payload())
 	if operationErr != nil {
 		return operationErr
 	}
-	if operation == frameworkEffectWait || operation == frameworkEffectWaitChildren {
+	switch operation := operation.(type) {
+	case waitOperation, childWaitOperation:
 		if p.Phase == effectPhasePlanned {
 			if err := p.begin(); err != nil {
 				return err
 			}
 		}
 		return p.settleFramework()
-	}
-	if p.Phase != effectPhasePending {
-		return nil
-	}
-	if operation == frameworkEffectStartChild {
-		spec, err := decodeChildStartEffect(p.Effect.Payload())
-		if err != nil {
-			return err
+	case childStartOperation:
+		if p.Phase != effectPhasePending {
+			return nil
 		}
-		return p.settleChildStart(ChildStartResult{key: spec.Key, deploymentRef: spec.DeploymentRef, failure: failure})
+		return p.settleChildStart(ChildStartResult{key: operation.spec.Key, deploymentRef: operation.spec.DeploymentRef, failure: failure})
+	case childControlOperation:
+		if p.Phase != effectPhasePending {
+			return nil
+		}
+		result := operation.request.result()
+		result.failure = failure
+		return p.settleChildControl(result)
+	default:
+		return ErrInvalidEffect
 	}
-	request, err := decodeChildControlEffect(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	result := ChildControlResult{childID: request.ChildID, operation: request.Operation, failure: failure}
-	if request.Signal != nil {
-		result.signalID = request.Signal.ID()
-	}
-	return p.settleChildControl(result)
 }
 
 func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {

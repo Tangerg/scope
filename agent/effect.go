@@ -149,19 +149,12 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if value.target == EffectTargetFramework {
-		if err := validateFrameworkEffectPayload(value.payload); err != nil {
+		if _, err := decodeFrameworkOperation(value.payload); err != nil {
 			return err
 		}
 	}
 	*e = value
 	return nil
-}
-
-func (e Effect) waitRequest() (WaitKey, json.RawMessage, error) {
-	if e.Target() != EffectTargetFramework {
-		return WaitKey{}, nil, fmt.Errorf("%w: Effect is not framework-owned", ErrInvalidEffect)
-	}
-	return decodeWaitRequestPayload(e.payload)
 }
 
 func (e Effect) equal(other Effect) bool {
@@ -185,16 +178,6 @@ const (
 	frameworkEffectCancelChild  frameworkEffectOperation = "cancel_child"
 )
 
-func (f frameworkEffectOperation) valid() bool {
-	switch f {
-	case frameworkEffectWait, frameworkEffectStartChild, frameworkEffectWaitChildren,
-		frameworkEffectSignalChild, frameworkEffectCancelChild:
-		return true
-	default:
-		return false
-	}
-}
-
 type waitRequestWire struct {
 	Operation     frameworkEffectOperation `json:"operation"`
 	Key           WaitKey                  `json:"key"`
@@ -215,26 +198,4 @@ func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage
 		return WaitKey{}, nil, ErrInvalidEffect
 	}
 	return wire.Key, wire.SignalPayload, nil
-}
-
-func validateFrameworkEffectPayload(payload json.RawMessage) error {
-	_, err := decodeFrameworkOperation(payload)
-	return err
-}
-
-// The header deliberately accepts operation-owned fields; the selected strict
-// decoder below owns their validation.
-type frameworkEffectHeader struct {
-	Operation frameworkEffectOperation `json:"operation"`
-}
-
-func decodeFrameworkEffectOperation(payload json.RawMessage) (frameworkEffectOperation, error) {
-	var header frameworkEffectHeader
-	if err := jsonv2.Unmarshal(payload, &header); err != nil {
-		return "", fmt.Errorf("%w: decode Framework Effect header: %w", ErrInvalidEffect, err)
-	}
-	if !header.Operation.valid() {
-		return "", fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
-	}
-	return header.Operation, nil
 }
