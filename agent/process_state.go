@@ -177,7 +177,7 @@ func (p *processState) requestPause(reason string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	if p.status != StatusRunning && p.status != StatusWaiting {
+	if !p.status.pausable() {
 		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status)
 	}
 	p.pendingControl.recordPause(requested)
@@ -185,7 +185,7 @@ func (p *processState) requestPause(reason string) error {
 }
 
 func (p *processState) applyPendingPause() bool {
-	if !p.pendingControl.pause.valid() || (p.status != StatusRunning && p.status != StatusWaiting) {
+	if !p.pendingControl.pause.valid() || !p.status.pausable() {
 		return false
 	}
 	p.status = StatusPaused

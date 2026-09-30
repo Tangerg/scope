@@ -849,7 +849,7 @@ func (t *treeRuntime) readyForCheckpoint() bool {
 	}
 	for processID := range t.publications {
 		status := t.members.get(processID).status
-		if status.Terminal() || status == StatusWaiting || status == StatusPaused {
+		if status.Terminal() || status.parked() {
 			return true
 		}
 	}

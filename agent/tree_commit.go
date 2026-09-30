@@ -321,7 +321,7 @@ func classifyCheckpointCut(members iter.Seq2[Status, *preparedStep]) TreeCheckpo
 		if status.Terminal() {
 			continue
 		}
-		if status != StatusWaiting && status != StatusPaused && !prepared.hasUnknownSettlement() {
+		if !status.parked() && !prepared.hasUnknownSettlement() {
 			return TreeCheckpointKindProgress
 		}
 		kind = TreeCheckpointKindParked

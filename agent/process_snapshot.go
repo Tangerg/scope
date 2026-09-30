@@ -577,7 +577,7 @@ func (p processSnapshotWire) validateCurrentWait(mailbox signalMailbox) error {
 		}
 		return nil
 	}
-	if p.Status != StatusWaiting && p.Status != StatusPaused {
+	if !p.Status.parked() {
 		return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
 	}
 	if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {

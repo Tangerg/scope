@@ -63,8 +63,7 @@ type ScriptedDispatcher struct {
 // NewScriptedDispatcher copies the script so callers cannot change expectations
 // while dispatch is running.
 func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher, error) {
-	if config.ReplayPolicy != agent.ReplayPolicyNever &&
-		config.ReplayPolicy != agent.ReplayPolicySameIdentity {
+	if !config.ReplayPolicy.Valid() {
 		return nil, fmt.Errorf("%w: ReplayPolicy is required", ErrInvalidDispatchScript)
 	}
 	steps := make([]dispatchStep, len(config.Steps))

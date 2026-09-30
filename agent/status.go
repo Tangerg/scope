@@ -64,6 +64,13 @@ func (s Status) Terminal() bool {
 
 func (s Status) acceptsSignals() bool { return s.Valid() && !s.Terminal() }
 
+// parked reports a live status that cannot advance on its own: it waits for
+// input or for Resume.
+func (s Status) parked() bool { return s == StatusWaiting || s == StatusPaused }
+
+// pausable reports a live status that Pause can park.
+func (s Status) pausable() bool { return s == StatusRunning || s == StatusWaiting }
+
 func (s Status) MarshalText() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidStatus
