@@ -96,7 +96,7 @@ func (f *FirstSuccess) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (f *FirstSuccess) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if !(f.valid()) {
+	if !f.valid() {
 		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, firstSuccessStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded firstSuccessState) error {

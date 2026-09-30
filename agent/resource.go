@@ -235,6 +235,18 @@ func (t TreeLimits) validate() error {
 // admitsDepth reports whether a Process at depth may exist in this tree.
 func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
+// admitsChildren reports whether one Process may hold children lifetime
+// children, active of which are non-terminal. Runtime admission checks the
+// prospective counts; snapshot validation checks the captured ones.
+func (t TreeLimits) admitsChildren(children, active uint64) bool {
+	return t.MaxChildren.Allows(children) && active <= uint64(t.MaxActiveChildren)
+}
+
+// admitsTreeSize reports whether a tree may hold processes lifetime Processes.
+func (t TreeLimits) admitsTreeSize(processes uint64) bool {
+	return t.MaxTreeProcesses.Allows(processes)
+}
+
 // Only counters without an authoritative lifecycle record are stored separately.
 // PreparedEffects counts identities independently of quota policy; overflow is an error.
 // DroppedDeltas is best-effort telemetry and saturates instead of stopping work.

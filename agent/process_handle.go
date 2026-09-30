@@ -89,7 +89,7 @@ func (p *processHandle) finishBookkeeping() {
 	}
 }
 
-func (p *processHandle) finishJoin(err *RuntimeError) bool {
+func (p *processHandle) finishJoin(err *RuntimeError) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	select {
@@ -99,12 +99,11 @@ func (p *processHandle) finishJoin(err *RuntimeError) bool {
 	}
 	select {
 	case <-p.joined:
-		return false
+		return
 	default:
 	}
 	p.joinErr = err
 	close(p.joined)
-	return true
 }
 
 func (p *processHandle) joinError() error {

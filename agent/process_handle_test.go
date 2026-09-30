@@ -15,9 +15,8 @@ func TestProcessHandleCompletionIsOrderedAndRetainsFirstOutcome(t *testing.T) {
 	}
 	handle.finishBookkeeping()
 	handle.finishBookkeeping()
-	if !handle.finishJoin(failure) || handle.finishJoin(nil) {
-		t.Fatal("join publication did not retain the first failure")
-	}
+	handle.finishJoin(failure)
+	handle.finishJoin(nil)
 	if !errors.Is(handle.joinError(), cause) {
 		t.Fatal("join failure was overwritten")
 	}

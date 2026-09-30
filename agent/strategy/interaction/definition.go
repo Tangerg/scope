@@ -196,7 +196,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 // Restore recreates an Interaction solely from its opaque state. It accepts
 // the current Interaction state schema and rejects unknown fields.
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if !(d.valid()) {
+	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -577,8 +576,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 			active++
 		}
 	}
-	return limits.MaxChildren.Allows(childCount, 1) && active < uint64(limits.MaxActiveChildren) &&
-		limits.MaxTreeProcesses.Allows(treeCount, 1)
+	return limits.admitsChildren(childCount+1, active+1) && limits.admitsTreeSize(treeCount+1)
 }
 
 // A tree-local control and its receipt change one authoritative cut. The target
@@ -1927,9 +1925,11 @@ func (t *treeRuntime) applyDispatchCompletion(
 	job *processJob,
 	result dispatchJobResult,
 ) {
+	// A current dispatch job owns the Effect frontier: nothing else may settle,
+	// revoke, or resolve that Effect while the job runs.
 	index, record, nextErr := process.prepared.nextEffect()
 	if nextErr != nil || record == nil || record.ID != result.effectID {
-		return
+		panic("agent: dispatch completion does not answer the Effect frontier")
 	}
 	settlement := result.settlement
 	if record.unknown() {
@@ -2010,9 +2010,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	if failed {
 		joinErr = t.runtimeError(process.handle.processID, unresolved)
 	}
-	if !process.handle.finishJoin(joinErr) {
-		return true
-	}
+	process.handle.finishJoin(joinErr)
 	if joinErr == nil {
 		t.notifyChildWaits(process.handle.processID, ChildWaitBoundaryDrained)
 	}
@@ -2316,13 +2314,13 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 		return nil
 	}
 
-	header, err := jsonv2.Marshal(t.treeSnapshotBase())
+	header, err := t.treeSnapshotBase().encode()
 	if err != nil {
 		return err
 	}
-	// The header contains an empty JSON array. Adding raw object encodings and
-	// separators also reserves known wait settlements without validating a half-installed
-	// child-control or child-wait transition.
+	// The header is the tree encoding with an empty Process array. Adding raw
+	// object encodings and separators also reserves known wait settlements
+	// without validating a half-installed child-control or child-wait transition.
 	size := uint64(len(header))
 	index := 0
 	for member := range t.members.substituted(candidates) {

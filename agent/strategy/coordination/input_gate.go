@@ -72,7 +72,7 @@ func (i *InputGate) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 func (i *InputGate) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if !(i.valid()) {
+	if !i.valid() {
 		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, inputGateStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded inputGateState) error {

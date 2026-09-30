@@ -271,7 +271,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 	}
 	rootRelation, _ := processRelationFromWire(root.ProcessID, root.Relation)
 	if !rootRelation.IsRoot() || rootRelation.RootID() != wire.RootID ||
-		!wire.TreeLimits.MaxTreeProcesses.Allows(uint64(len(processes))) {
+		!wire.TreeLimits.admitsTreeSize(uint64(len(processes))) {
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)
 	}
 	return &treeSnapshotValidation{
@@ -335,8 +335,7 @@ func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child pro
 func (t *treeSnapshotValidation) validateChildAccounting() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		id, processWire := snapshot.ProcessID(), snapshot.state
-		if !t.wire.TreeLimits.MaxChildren.Allows(t.childCounts[id]) ||
-			t.activeChildCounts[id] > uint64(t.wire.TreeLimits.MaxActiveChildren) ||
+		if !t.wire.TreeLimits.admitsChildren(t.childCounts[id], t.activeChildCounts[id]) ||
 			t.allocatedResources[id] != processWire.AllocatedResources {
 			return fmt.Errorf("%w: child limits or allocated resources disagree", ErrInvalidTreeSnapshot)
 		}

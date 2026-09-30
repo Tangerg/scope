@@ -126,7 +126,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 // exact Definition. A completed outcome must agree with the observed Goal
 // satisfaction.
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if !(d.valid()) {
+	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
