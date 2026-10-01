@@ -88,7 +88,7 @@ func TestCompositeIsInvariantToWeightScale(t *testing.T) {
 					evaluator := eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
 						return scoredReport("quality", eval.VerdictPass, scoreCase.score), nil
 					})
-					composite, err := eval.NewCompositeEvaluator(eval.CompositeConfig[int]{
+					composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[int]{
 						Components: []eval.Component[int]{
 							{Evaluator: evaluator, Weight: testCase.weight},
 							{Evaluator: evaluator, Weight: testCase.weight},

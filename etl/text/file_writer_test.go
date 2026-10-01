@@ -82,7 +82,7 @@ func TestFileWriterRequiresPath(t *testing.T) {
 }
 
 func TestFileWriterRejectsTypedNilFormatter(t *testing.T) {
-	var formatter *etl.SimpleFormatter
+	var formatter *etl.MetadataHeaderFormatter
 	if _, err := text.NewFileWriter(text.FileWriterConfig{
 		Path:      filepath.Join(t.TempDir(), "documents.txt"),
 		Formatter: formatter,

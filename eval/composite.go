@@ -64,7 +64,7 @@ func (p PassPolicy) minimum(componentCount, configured int) (int, error) {
 // A zero Weight selects 1. Required components must pass independently of the
 // aggregate pass policy and still contribute to the score. To keep a gate out
 // of the quality score, declare it as another assessment in a [Suite]. Required
-// is only valid when CompositeConfig explicitly selects a pass policy.
+// is only valid when CompositeEvaluatorConfig explicitly selects a pass policy.
 type Component[T any] struct {
 	Evaluator Evaluator[T]
 	Weight    float64
@@ -87,10 +87,10 @@ func (c Component[T]) normalize(index int, policy PassPolicy) (Component[T], err
 	return c, nil
 }
 
-// CompositeConfig defines score aggregation and an optional categorical policy.
+// CompositeEvaluatorConfig defines score aggregation and an optional categorical policy.
 // A zero PassPolicy produces only a score and accepts score-only components.
 // A zero MaxConcurrency selects DefaultMaxConcurrency.
-type CompositeConfig[T any] struct {
+type CompositeEvaluatorConfig[T any] struct {
 	Components     []Component[T]
 	PassPolicy     PassPolicy
 	MinimumPassed  int
@@ -107,7 +107,7 @@ type CompositeEvaluator[T any] struct {
 }
 
 // NewCompositeEvaluator copies the component slice; evaluators remain shared.
-func NewCompositeEvaluator[T any](config CompositeConfig[T]) (*CompositeEvaluator[T], error) {
+func NewCompositeEvaluator[T any](config CompositeEvaluatorConfig[T]) (*CompositeEvaluator[T], error) {
 	if len(config.Components) == 0 {
 		return nil, fmt.Errorf("%w: at least one component is required", ErrInvalidEvaluatorConfig)
 	}

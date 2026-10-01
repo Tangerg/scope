@@ -7,12 +7,12 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-func ExampleSimpleFormatter() {
+func ExampleMetadataHeaderFormatter() {
 	doc, err := document.NewDocument("Scope keeps document text provider-neutral.", nil)
 	if err != nil {
 		panic(err)
 	}
-	formatted, err := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{}).Format(doc)
+	formatted, err := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(doc)
 	if err != nil {
 		panic(err)
 	}

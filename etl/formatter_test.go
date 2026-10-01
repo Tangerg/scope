@@ -32,10 +32,10 @@ func TestTextFormatterReturnsDocumentText(t *testing.T) {
 	}
 }
 
-func TestSimpleFormatterIncludesMetadataByDefault(t *testing.T) {
+func TestMetadataHeaderFormatterIncludesMetadataByDefault(t *testing.T) {
 	doc, _ := document.NewDocument("body", nil)
 	_ = doc.Metadata.Set("k", "v")
-	formatter := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{})
+	formatter := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{})
 
 	formatted, err := formatter.Format(doc)
 	if err != nil {
@@ -46,13 +46,13 @@ func TestSimpleFormatterIncludesMetadataByDefault(t *testing.T) {
 	}
 }
 
-func TestSimpleFormatterExcludesConfiguredKeys(t *testing.T) {
+func TestMetadataHeaderFormatterExcludesConfiguredKeys(t *testing.T) {
 	doc, _ := document.NewDocument("body", nil)
 	_ = doc.Metadata.Set("public", "yes")
 	_ = doc.Metadata.Set("secret", "hidden")
 
 	excluded := []string{"secret"}
-	formatter := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{
+	formatter := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{
 		ExcludedMetadata: excluded,
 	})
 	excluded[0] = "public"
@@ -69,7 +69,7 @@ func TestSimpleFormatterExcludesConfiguredKeys(t *testing.T) {
 	}
 }
 
-func TestSimpleFormatterPreservesTypedMetadataBoundary(t *testing.T) {
+func TestMetadataHeaderFormatterPreservesTypedMetadataBoundary(t *testing.T) {
 	doc, _ := document.NewDocument("body", nil)
 	doc.Metadata = metadata.Map{
 		"null":   []byte("null"),
@@ -78,7 +78,7 @@ func TestSimpleFormatterPreservesTypedMetadataBoundary(t *testing.T) {
 		"string": []byte(`"plain"`),
 	}
 
-	formatted, err := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{}).Format(doc)
+	formatted, err := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,8 +95,8 @@ func TestFormattersRejectInvalidDocuments(t *testing.T) {
 
 	doc, _ := document.NewDocument("body", nil)
 	doc.Metadata = metadata.Map{"broken": []byte("{")}
-	_, err := etl.NewSimpleFormatter(etl.SimpleFormatterConfig{}).Format(doc)
+	_, err := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(doc)
 	if !errors.Is(err, metadata.ErrInvalidValue) {
-		t.Fatalf("SimpleFormatter error = %v, want ErrInvalidValue", err)
+		t.Fatalf("MetadataHeaderFormatter error = %v, want ErrInvalidValue", err)
 	}
 }

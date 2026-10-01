@@ -84,7 +84,7 @@ func ExampleSuite_Run() {
 	safety := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 		return eval.Report{Metric: safetyMetric, Decision: &eval.Decision{Policy: "safety", Verdict: eval.VerdictFail}, Feedback: "Answer requires review."}, nil
 	})
-	scored, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+	scored, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components: []eval.Component[string]{{Evaluator: quality}},
 	})
 	if err != nil {

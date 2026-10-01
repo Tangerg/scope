@@ -78,7 +78,7 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 			return report, nil
 		})
 	}
-	scoreOnly, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}})
+	scoreOnly, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 	}
 	var baseline eval.Report
 	for _, threshold := range []eval.Score{0.5, 0.8} {
-		composite, constructErr := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{Components: []eval.Component[string]{{Evaluator: component(&threshold)}}, PassPolicy: eval.PassAll})
+		composite, constructErr := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(&threshold)}}, PassPolicy: eval.PassAll})
 		if constructErr != nil {
 			t.Fatal(constructErr)
 		}
@@ -102,14 +102,14 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 			t.Fatalf("threshold policy identity missing: %#v, %#v", baseline, decided)
 		}
 	}
-	explicit, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}, PassPolicy: eval.PassAll})
+	explicit, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}, PassPolicy: eval.PassAll})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := explicit.Evaluate(t.Context(), "input"); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("categorical policy accepted undecided component: %v", err)
 	}
-	if _, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil), Required: true}}}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
+	if _, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil), Required: true}}}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("required gate without categorical policy = %v", err)
 	}
 }

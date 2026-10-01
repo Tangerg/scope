@@ -89,7 +89,7 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 			return report, nil
 		}), Weight: 1},
 	}
-	composite, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+	composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components: components, PassPolicy: eval.PassAtLeast, MinimumPassed: 1,
 	})
 	if err != nil {
@@ -135,10 +135,10 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 }
 
 func TestCompositeValidatesConfigurationAndPreservesErrors(t *testing.T) {
-	if _, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
+	if _, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("empty composite error = %v", err)
 	}
-	for _, config := range []eval.CompositeConfig[string]{
+	for _, config := range []eval.CompositeEvaluatorConfig[string]{
 		{Components: []eval.Component[string]{{}}},
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator(), Weight: -1}}},
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator(), Weight: math.NaN()}}},
@@ -155,7 +155,7 @@ func TestCompositeValidatesConfigurationAndPreservesErrors(t *testing.T) {
 	}
 
 	childErr := errors.New("child failed")
-	composite, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+	composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components: []eval.Component[string]{{Evaluator: eval.EvaluatorFunc[string](
 			func(context.Context, string) (eval.Report, error) { return eval.Report{}, childErr },
 		)}},
@@ -178,7 +178,7 @@ func TestCompositeRunsIndependentComponentsConcurrently(t *testing.T) {
 			return scoredReport(name, eval.VerdictPass, 1), nil
 		})
 	}
-	composite, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+	composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components:     []eval.Component[string]{{Evaluator: evaluator("one")}, {Evaluator: evaluator("two")}},
 		MaxConcurrency: 2,
 	})
@@ -430,7 +430,7 @@ func TestCompositeRejectsReportsThatCannotBeMeaningfullyAggregated(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	composite, err := eval.NewCompositeEvaluator(eval.CompositeConfig[string]{
+	composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components: []eval.Component[string]{{Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 			measurement := 10.0
 			return eval.Report{Metric: metric, Measurement: &measurement}, nil

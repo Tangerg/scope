@@ -11,26 +11,26 @@ import (
 	"github.com/Tangerg/scope/core/document"
 )
 
-type SimpleFormatterConfig struct {
+type MetadataHeaderFormatterConfig struct {
 	// ExcludedMetadata lists metadata keys omitted from rendered output.
 	ExcludedMetadata []string
 }
 
-var _ Formatter = SimpleFormatter{}
+var _ Formatter = MetadataHeaderFormatter{}
 
-// SimpleFormatter renders a [*document.Document] as
+// MetadataHeaderFormatter renders a [*document.Document] as
 //
 //	key1: value1
 //	key2: value2
 //
 //	<document text>
-type SimpleFormatter struct {
+type MetadataHeaderFormatter struct {
 	excludedMetadata map[string]struct{}
 }
 
-// NewSimpleFormatter snapshots formatting policy into an immutable formatter.
-func NewSimpleFormatter(config SimpleFormatterConfig) SimpleFormatter {
-	return SimpleFormatter{excludedMetadata: lo.SliceToMap(config.ExcludedMetadata, func(key string) (string, struct{}) {
+// NewMetadataHeaderFormatter snapshots formatting policy into an immutable formatter.
+func NewMetadataHeaderFormatter(config MetadataHeaderFormatterConfig) MetadataHeaderFormatter {
+	return MetadataHeaderFormatter{excludedMetadata: lo.SliceToMap(config.ExcludedMetadata, func(key string) (string, struct{}) {
 		return key, struct{}{}
 	})}
 }
@@ -38,7 +38,7 @@ func NewSimpleFormatter(config SimpleFormatterConfig) SimpleFormatter {
 // Format sorts metadata keys because map order would make rendered text, and
 // therefore embeddings and token counts, nondeterministic. Without rendered
 // metadata the output is the document text alone.
-func (s SimpleFormatter) Format(doc *document.Document) (string, error) {
+func (m MetadataHeaderFormatter) Format(doc *document.Document) (string, error) {
 	if doc == nil {
 		return "", ErrNilDocument
 	}
@@ -47,7 +47,7 @@ func (s SimpleFormatter) Format(doc *document.Document) (string, error) {
 	}
 	entries := make([]string, 0, len(doc.Metadata))
 	for _, key := range slices.Sorted(maps.Keys(doc.Metadata)) {
-		if _, excluded := s.excludedMetadata[key]; excluded {
+		if _, excluded := m.excludedMetadata[key]; excluded {
 			continue
 		}
 		value, err := metadataValue(doc.Metadata[key]).text()
