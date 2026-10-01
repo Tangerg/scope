@@ -80,7 +80,7 @@ func TestChatRerankerHandlesEmptyAndUnformattableCandidates(t *testing.T) {
 		t.Fatalf("empty candidates triggered %d model calls", model.calls)
 	}
 
-	blankFormatter := rag.DocumentFormatterFunc(func(*document.Document) (string, error) { return " ", nil })
+	blankFormatter := document.FormatterFunc(func(*document.Document) (string, error) { return " ", nil })
 	reranker, err = ragchat.NewReranker(ragchat.RerankerConfig{Model: model, Formatter: blankFormatter})
 	if err != nil {
 		t.Fatal(err)

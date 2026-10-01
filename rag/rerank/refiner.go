@@ -11,6 +11,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/document"
 	corererank "github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/rag"
 )
@@ -19,9 +20,9 @@ var ErrNilModel = errors.New("rag: rerank model must not be nil")
 
 type RefinerConfig struct {
 	Model corererank.Model
-	// Formatter defaults to [rag.TextFormatter], which rejects media with
-	// [rag.ErrUnsupportedMedia].
-	Formatter rag.DocumentFormatter
+	// Formatter defaults to [document.TextFormatter], which rejects media with
+	// [document.ErrUnsupportedMedia].
+	Formatter document.Formatter
 	// TopK explicitly caps results; zero requests every candidate, including
 	// when the model has a configured default limit.
 	TopK int
@@ -42,7 +43,7 @@ func (r RefinerConfig) Validate() error {
 // input snapshot.
 type Refiner struct {
 	model     corererank.Model
-	formatter rag.DocumentFormatter
+	formatter document.Formatter
 	topK      int
 }
 
@@ -54,7 +55,7 @@ func NewRefiner(config RefinerConfig) (*Refiner, error) {
 	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
-		formatter = rag.TextFormatter{}
+		formatter = document.TextFormatter{}
 	}
 	return &Refiner{model: config.Model, formatter: formatter, topK: config.TopK}, nil
 }

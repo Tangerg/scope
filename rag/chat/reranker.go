@@ -13,6 +13,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
 )
 
@@ -35,9 +36,9 @@ type RerankerConfig struct {
 	// {{.Query}} and {{.Candidates}}.
 	PromptTemplate *chatclient.Template
 
-	// Formatter renders candidate content. The default [rag.TextFormatter]
-	// rejects media with [rag.ErrUnsupportedMedia].
-	Formatter rag.DocumentFormatter
+	// Formatter renders candidate content. The default [document.TextFormatter]
+	// rejects media with [document.ErrUnsupportedMedia].
+	Formatter document.Formatter
 }
 
 // Reranker reorders candidates using a chat model's native structured output
@@ -45,7 +46,7 @@ type RerankerConfig struct {
 // scores.
 type Reranker struct {
 	prompt    modelPrompt[chatRerankingOutput]
-	formatter rag.DocumentFormatter
+	formatter document.Formatter
 }
 
 type chatRerankerPromptVariables struct {
@@ -115,7 +116,7 @@ func NewReranker(config RerankerConfig) (*Reranker, error) {
 	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
-		formatter = rag.TextFormatter{}
+		formatter = document.TextFormatter{}
 	}
 	return &Reranker{prompt: prompt, formatter: formatter}, nil
 }

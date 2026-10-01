@@ -10,6 +10,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/rag"
 )
@@ -52,9 +53,9 @@ type ContextualAugmenterConfig struct {
 	// retrieved instead of rendering EmptyContextPromptTemplate.
 	AllowEmptyContext bool
 
-	// Formatter renders each retrieved document. The default [rag.TextFormatter]
-	// rejects media with [rag.ErrUnsupportedMedia].
-	Formatter rag.DocumentFormatter
+	// Formatter renders each retrieved document. The default [document.TextFormatter]
+	// rejects media with [document.ErrUnsupportedMedia].
+	Formatter document.Formatter
 
 	// MaxContextTokens limits the encoded evidence block. Zero leaves context
 	// unbounded. A positive value requires TokenCounter. Only complete
@@ -109,7 +110,7 @@ type ContextualAugmenter struct {
 	promptTemplate             *chatclient.Template
 	emptyContextPromptTemplate *chatclient.Template
 	allowEmptyContext          bool
-	formatter                  rag.DocumentFormatter
+	formatter                  document.Formatter
 	budget                     contextBudget
 }
 
@@ -147,7 +148,7 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
-		formatter = rag.TextFormatter{}
+		formatter = document.TextFormatter{}
 	}
 
 	return &ContextualAugmenter{

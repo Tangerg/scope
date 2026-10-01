@@ -26,8 +26,9 @@ type FileWriterConfig struct {
 	// DocumentMarkers adds an index header before each document.
 	DocumentMarkers bool
 	Append          bool
-	// Formatter renders each document. Nil writes document text only.
-	Formatter etl.Formatter
+	// Formatter renders each document. Nil uses [document.TextFormatter],
+	// which rejects media rather than dropping it from the file.
+	Formatter document.Formatter
 }
 
 // FileWriter calls os.File.Sync before a successful Write returns.
@@ -35,7 +36,7 @@ type FileWriter struct {
 	path            string
 	documentMarkers bool
 	append          bool
-	formatter       etl.Formatter
+	formatter       document.Formatter
 }
 
 func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
@@ -43,7 +44,7 @@ func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
 		return nil, errors.New("etl: output path is required")
 	}
 	if config.Formatter == nil {
-		config.Formatter = etl.TextFormatter{}
+		config.Formatter = document.TextFormatter{}
 	} else if lo.IsNil(config.Formatter) {
 		return nil, errors.New("etl: formatter must not be a typed nil")
 	}

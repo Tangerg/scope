@@ -101,7 +101,7 @@ func TestRerankerValidatesConstructionAndFormatting(t *testing.T) {
 	if _, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, nil }), TopK: -1}); !errors.Is(err, rag.ErrInvalidReranking) {
 		t.Fatalf("negative TopK error = %v", err)
 	}
-	formatter := rag.DocumentFormatterFunc(func(*document.Document) (string, error) { return " ", nil })
+	formatter := document.FormatterFunc(func(*document.Document) (string, error) { return " ", nil })
 	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{
 		Model:     corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, nil }),
 		Formatter: formatter,

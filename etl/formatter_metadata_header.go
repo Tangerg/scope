@@ -16,7 +16,7 @@ type MetadataHeaderFormatterConfig struct {
 	ExcludedMetadata []string
 }
 
-var _ Formatter = MetadataHeaderFormatter{}
+var _ document.Formatter = MetadataHeaderFormatter{}
 
 // MetadataHeaderFormatter renders a [*document.Document] as
 //
@@ -37,13 +37,17 @@ func NewMetadataHeaderFormatter(config MetadataHeaderFormatterConfig) MetadataHe
 
 // Format sorts metadata keys because map order would make rendered text, and
 // therefore embeddings and token counts, nondeterministic. Without rendered
-// metadata the output is the document text alone.
+// metadata the output is the document text alone. Media cannot be rendered
+// as text and returns [document.ErrUnsupportedMedia].
 func (m MetadataHeaderFormatter) Format(doc *document.Document) (string, error) {
 	if doc == nil {
 		return "", ErrNilDocument
 	}
 	if err := doc.Validate(); err != nil {
 		return "", fmt.Errorf("etl: format document: %w", err)
+	}
+	if doc.Media != nil {
+		return "", document.ErrUnsupportedMedia
 	}
 	entries := make([]string, 0, len(doc.Metadata))
 	for _, key := range slices.Sorted(maps.Keys(doc.Metadata)) {

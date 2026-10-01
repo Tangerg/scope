@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/etl"
 	"github.com/Tangerg/scope/etl/text"
 )
@@ -42,6 +43,25 @@ func TestFileWriterDefaultsToTextAndSupportsAppend(t *testing.T) {
 	contents := string(data)
 	if contents != "first\n\n### Index: 0\nsecond\n\n" {
 		t.Fatalf("file contents = %q", contents)
+	}
+}
+
+func TestFileWriterRejectsMediaItCannotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "documents.txt")
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := media.NewURI("image/png", "https://example.com/figure.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	figure, err := document.NewDocument("caption", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writeErr := writer.Write(t.Context(), []*document.Document{figure}); !errors.Is(writeErr, document.ErrUnsupportedMedia) {
+		t.Fatalf("Write error = %v, want ErrUnsupportedMedia", writeErr)
 	}
 }
 
@@ -115,7 +135,7 @@ func TestFileWriterPreservesExistingFileOnRenderFailure(t *testing.T) {
 	want := errors.New("format failed")
 	writer, err := text.NewFileWriter(text.FileWriterConfig{
 		Path: path,
-		Formatter: etl.FormatterFunc(func(*document.Document) (string, error) {
+		Formatter: document.FormatterFunc(func(*document.Document) (string, error) {
 			return "", want
 		}),
 	})

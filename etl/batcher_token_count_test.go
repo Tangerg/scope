@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/etl"
 )
 
@@ -33,6 +34,28 @@ func TestTokenCountBatcherDefaultsToPlainTextWithoutReserve(t *testing.T) {
 	}
 	if len(batches) != 1 || len(batches[0]) != 2 {
 		t.Fatalf("batches = %#v, want one full 10-token batch", batches)
+	}
+}
+
+func TestTokenCountBatcherCountsEmbeddedTextOfMediaDocuments(t *testing.T) {
+	batcher, err := etl.NewTokenCountBatcher(etl.TokenCountBatcherConfig{
+		Counter:   textLengthCounter{},
+		MaxTokens: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := media.NewURI("image/png", "https://example.com/figure.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	figure, err := document.NewDocument("caption", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batches, err := batcher.Batch(t.Context(), []*document.Document{figure})
+	if err != nil || len(batches) != 1 || len(batches[0]) != 1 {
+		t.Fatalf("batches = %#v, %v; want the media document sized by its text", batches, err)
 	}
 }
 

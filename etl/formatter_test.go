@@ -6,31 +6,10 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
 )
-
-func TestFormatterFunc(t *testing.T) {
-	doc, _ := document.NewDocument("hi", nil)
-	formatter := etl.FormatterFunc(func(doc *document.Document) (string, error) {
-		return strings.ToUpper(doc.Text), nil
-	})
-
-	if got, _ := formatter.Format(doc); got != "HI" {
-		t.Fatalf("Format = %q", got)
-	}
-}
-
-func TestTextFormatterReturnsDocumentText(t *testing.T) {
-	doc, _ := document.NewDocument("hi", nil)
-	got, err := (etl.TextFormatter{}).Format(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "hi" {
-		t.Fatalf("Format = %q, want hi", got)
-	}
-}
 
 func TestMetadataHeaderFormatterIncludesMetadataByDefault(t *testing.T) {
 	doc, _ := document.NewDocument("body", nil)
@@ -89,13 +68,24 @@ func TestMetadataHeaderFormatterPreservesTypedMetadataBoundary(t *testing.T) {
 }
 
 func TestFormattersRejectInvalidDocuments(t *testing.T) {
-	if _, err := (etl.TextFormatter{}).Format(nil); !errors.Is(err, etl.ErrNilDocument) {
-		t.Fatalf("TextFormatter error = %v, want ErrNilDocument", err)
+	if _, err := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(nil); !errors.Is(err, etl.ErrNilDocument) {
+		t.Fatalf("nil document error = %v, want ErrNilDocument", err)
+	}
+	payload, err := media.NewURI("image/png", "https://example.com/figure.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withMedia, err := document.NewDocument("caption", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, mediaErr := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(withMedia); !errors.Is(mediaErr, document.ErrUnsupportedMedia) {
+		t.Fatalf("media document error = %v, want ErrUnsupportedMedia", mediaErr)
 	}
 
 	doc, _ := document.NewDocument("body", nil)
 	doc.Metadata = metadata.Map{"broken": []byte("{")}
-	_, err := etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(doc)
+	_, err = etl.NewMetadataHeaderFormatter(etl.MetadataHeaderFormatterConfig{}).Format(doc)
 	if !errors.Is(err, metadata.ErrInvalidValue) {
 		t.Fatalf("MetadataHeaderFormatter error = %v, want ErrInvalidValue", err)
 	}

@@ -56,7 +56,7 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 			"augmenter":     func() error { _, err := augmenter.Augment(t.Context(), query, candidates); return err },
 		} {
 			t.Run(name+"/"+text, func(t *testing.T) {
-				if err := run(); !errors.Is(err, rag.ErrUnsupportedMedia) {
+				if err := run(); !errors.Is(err, document.ErrUnsupportedMedia) {
 					t.Fatalf("error = %v, want ErrUnsupportedMedia", err)
 				}
 			})
@@ -64,19 +64,5 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 	}
 	if modelCalls != 0 {
 		t.Fatalf("chat model calls = %d", modelCalls)
-	}
-}
-
-func TestTextFormatterUsesDocumentValidation(t *testing.T) {
-	formatter := rag.TextFormatter{}
-	for _, doc := range []*document.Document{nil, {}, {Text: string([]byte{0xff})}} {
-		if _, err := formatter.Format(doc); !errors.Is(err, document.ErrInvalidDocument) {
-			t.Fatalf("Format(%#v) error = %v, want invalid document", doc, err)
-		}
-	}
-	doc := identifiedDocument(t, "evidence", "source text")
-	got, err := formatter.Format(doc)
-	if err != nil || got != doc.Text {
-		t.Fatalf("Format = %q, %v", got, err)
 	}
 }

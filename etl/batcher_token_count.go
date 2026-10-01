@@ -20,9 +20,9 @@ type TokenCountBatcherConfig struct {
 	// Reserve is the fraction of MaxTokens held back from each batch. Zero
 	// means no reserve.
 	Reserve float64
-	// Formatter renders each document before counting. Nil uses document
-	// text without metadata.
-	Formatter Formatter
+	// Formatter renders each document before counting. Nil counts the
+	// document text an index embeds; media contributes no text tokens.
+	Formatter document.Formatter
 }
 
 func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
@@ -48,9 +48,7 @@ func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
 		return TokenCountBatcherConfig{}, errors.New("etl: token reserve leaves no usable batch budget")
 	}
 	t.MaxTokens = effective
-	if t.Formatter == nil {
-		t.Formatter = TextFormatter{}
-	} else if lo.IsNil(t.Formatter) {
+	if t.Formatter != nil && lo.IsNil(t.Formatter) {
 		return TokenCountBatcherConfig{}, errors.New("etl: formatter must not be a typed nil")
 	}
 	return t, nil
@@ -61,7 +59,7 @@ func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
 type TokenCountBatcher struct {
 	counter   tokenizer.TextCounter
 	maxTokens int
-	formatter Formatter
+	formatter document.Formatter
 }
 
 type sizedDocument struct {
@@ -105,9 +103,13 @@ func (t *TokenCountBatcher) measure(ctx context.Context, docs []*document.Docume
 		if err := doc.Validate(); err != nil {
 			return nil, fmt.Errorf("etl: size document %d: %w", index, err)
 		}
-		rendered, err := t.formatter.Format(doc)
-		if err != nil {
-			return nil, fmt.Errorf("etl: format document %d for sizing: %w", index, err)
+		rendered := doc.Text
+		if t.formatter != nil {
+			formatted, err := t.formatter.Format(doc)
+			if err != nil {
+				return nil, fmt.Errorf("etl: format document %d for sizing: %w", index, err)
+			}
+			rendered = formatted
 		}
 
 		count, err := t.counter.CountText(ctx, rendered)
