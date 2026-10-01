@@ -37,7 +37,7 @@ func TestTranscriptionUsesCoreAudioURI(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: assemblyai.ModelUniversal2}
-	model, err := assemblyai.NewAudioTranscriptionModel(t.Context(), assemblyai.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}

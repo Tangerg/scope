@@ -65,7 +65,7 @@ func TestSpeechQueryControlsAndBody(t *testing.T) {
 				if err := opts.Extensions.Set(elevenlabs.SpeechRequestExtensionKey, extension); err != nil {
 					t.Fatal(err)
 				}
-				model, err := elevenlabs.NewAudioTTSModel(t.Context(), elevenlabs.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+				model, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -107,7 +107,7 @@ func TestOfficialTranscriptionOptionsReachForm(t *testing.T) {
 	if err := opts.Extensions.Set(elevenlabs.TranscriptionRequestExtensionKey, map[string]any{"diarize": true, "num_speakers": 2, "keyterms": []string{"Scope"}, "tag_audio_events": false, "no_verbatim": false}); err != nil {
 		t.Fatal(err)
 	}
-	model, err := elevenlabs.NewAudioTranscriptionModel(t.Context(), elevenlabs.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ const (
 	// DefaultBaseURL is AssemblyAI's production REST endpoint.
 	DefaultBaseURL = "https://api.assemblyai.com/v2"
 
-	// DefaultPollInterval is how often [AudioTranscriptionModel.Call]
+	// DefaultPollInterval is how often [TranscriptionModel.Call]
 	// re-checks a queued job. AssemblyAI's typical real-time-factor is
 	// 0.1–0.3x audio length so 2s strikes a balance between latency and
 	// API call volume.

@@ -47,13 +47,13 @@ func newNativeTranscription(t *testing.T, provider string, server *httptest.Serv
 	t.Helper()
 	options := transcription.Options{Model: "gemini-test"}
 	if provider == "google" {
-		model, err := google.NewAudioTranscriptionModel(t.Context(), google.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
+		model, err := google.NewTranscriptionModel(t.Context(), google.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return model
 	}
-	model, err := vertexai.NewAudioTranscriptionModel(t.Context(), vertexai.AudioTranscriptionModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
+	model, err := vertexai.NewTranscriptionModel(t.Context(), vertexai.TranscriptionModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,13 +64,13 @@ func newNativeUnarySpeech(t *testing.T, provider string, server *httptest.Server
 	t.Helper()
 	options := speech.Options{Model: google.ModelGemini25FlashPreviewTTS}
 	if provider == "google" {
-		model, err := google.NewAudioTTSModel(t.Context(), google.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
+		model, err := google.NewSpeechModel(t.Context(), google.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return model
 	}
-	model, err := vertexai.NewAudioTTSModel(t.Context(), vertexai.AudioTTSModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
+	model, err := vertexai.NewSpeechModel(t.Context(), vertexai.SpeechModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
 	if err != nil {
 		t.Fatal(err)
 	}

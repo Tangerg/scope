@@ -35,7 +35,7 @@ func TestSpeechRejectsNativeCoreInputsBeforeIO(t *testing.T) {
 				if err := opts.Extensions.Set(hume.SpeechRequestExtensionKey, extension); err != nil {
 					t.Fatal(err)
 				}
-				model, err := hume.NewAudioTTSModel(t.Context(), hume.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+				model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -81,7 +81,7 @@ func TestSpeechPreservesProviderSpecificControls(t *testing.T) {
 	if err := opts.Extensions.Set(hume.SpeechRequestExtensionKey, map[string]any{"utterances": []any{map[string]any{"description": "calm", "voice": map[string]any{"provider": "CUSTOM_VOICE"}}}, "format": map[string]any{"sample_rate": 24000}, "strip_headers": false}); err != nil {
 		t.Fatal(err)
 	}
-	model, err := hume.NewAudioTTSModel(t.Context(), hume.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestSpeechRejectsDuplicateResponseMembers(t *testing.T) {
 		fmt.Fprint(w, `{"generations":[],"generations":[{"audio":"YXVkaW8="}]}`)
 	}))
 	defer server.Close()
-	model, err := hume.NewAudioTTSModel(t.Context(), hume.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speech.Options{Model: hume.ModelOctave1}})
+	model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speech.Options{Model: hume.ModelOctave1}})
 	if err != nil {
 		t.Fatal(err)
 	}

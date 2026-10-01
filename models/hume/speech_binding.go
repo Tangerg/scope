@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 )
 
 type speechBinding struct {
 	api            *api
-	defaultOptions tts.Options
+	defaultOptions speech.Options
 }
 
-func newSpeechBinding(_ context.Context, config AudioTTSModelConfig) (*speechBinding, error) {
+func newSpeechBinding(_ context.Context, config SpeechModelConfig) (*speechBinding, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -24,7 +24,7 @@ func newSpeechBinding(_ context.Context, config AudioTTSModelConfig) (*speechBin
 	return &speechBinding{api: api, defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
-func (s *speechBinding) buildAPIRequest(req *tts.Request) (*ttsRequest, error) {
+func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error) {
 	effectiveOptions, err := s.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err

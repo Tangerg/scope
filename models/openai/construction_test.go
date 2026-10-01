@@ -24,16 +24,16 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 			_, err := openai.NewEmbeddingModel(t.Context(), openai.EmbeddingModelConfig{})
 			return err
 		},
-		"NewAudioTranscriptionModel": func() error {
-			_, err := openai.NewAudioTranscriptionModel(t.Context(), openai.AudioTranscriptionModelConfig{})
+		"NewTranscriptionModel": func() error {
+			_, err := openai.NewTranscriptionModel(t.Context(), openai.TranscriptionModelConfig{})
 			return err
 		},
 		"NewAudioTranslationModel": func() error {
 			_, err := openai.NewAudioTranslationModel(t.Context(), openai.AudioTranslationModelConfig{})
 			return err
 		},
-		"NewAudioTTSModel": func() error {
-			_, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{})
+		"NewSpeechModel": func() error {
+			_, err := openai.NewSpeechModel(t.Context(), openai.SpeechModelConfig{})
 			return err
 		},
 		"NewImageModel": func() error {
@@ -59,9 +59,9 @@ func TestConfigsRejectAnAbsentCredential(t *testing.T) {
 		"chat":          func() error { return (openai.ChatCompletionsConfig{}).Validate() },
 		"responses":     func() error { return (openai.ResponsesConfig{}).Validate() },
 		"embedding":     func() error { return (openai.EmbeddingModelConfig{}).Validate() },
-		"transcription": func() error { return (openai.AudioTranscriptionModelConfig{}).Validate() },
+		"transcription": func() error { return (openai.TranscriptionModelConfig{}).Validate() },
 		"translation":   func() error { return (openai.AudioTranslationModelConfig{}).Validate() },
-		"speech":        func() error { return (openai.AudioTTSModelConfig{}).Validate() },
+		"speech":        func() error { return (openai.SpeechModelConfig{}).Validate() },
 		"image":         func() error { return (openai.ImageModelConfig{}).Validate() },
 		"moderation":    func() error { return (openai.ModerationModelConfig{}).Validate() },
 	}

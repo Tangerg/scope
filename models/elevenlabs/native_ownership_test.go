@@ -41,7 +41,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				} else {
 					request.Options.Extensions = extensions
 				}
-				model, err := elevenlabs.NewAudioTranscriptionModel(t.Context(), elevenlabs.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -70,7 +70,7 @@ func TestSpeechRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 			if err := opts.Extensions.Set(elevenlabs.SpeechRequestExtensionKey, extension); err != nil {
 				t.Fatal(err)
 			}
-			model, err := elevenlabs.NewAudioTTSModel(t.Context(), elevenlabs.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}

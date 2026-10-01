@@ -1,6 +1,6 @@
 // Package gladia wraps Gladia's speech-to-text API.
 //
-// [NewAudioTranscriptionModel] orchestrates Gladia's async pipeline
+// [NewTranscriptionModel] orchestrates Gladia's async pipeline
 // (upload → /v2/transcription submit → poll → fetch). Gladia's
 // supports the official Solaria-3 and Solaria-1 models. Solaria-1 provides
 // broad multilingual coverage and code switching; Solaria-3 targets one

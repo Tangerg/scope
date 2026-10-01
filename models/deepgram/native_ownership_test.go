@@ -40,7 +40,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				} else {
 					request.Options.Extensions = extensions
 				}
-				model, err := deepgram.NewAudioTranscriptionModel(t.Context(), deepgram.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}

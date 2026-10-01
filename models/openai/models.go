@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/moderation"
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -102,23 +102,23 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*opena
 	return openaiprotocol.NewEmbeddingModel(ctx, config.protocol())
 }
 
-// AudioTranscriptionModelConfig binds provider access and defaults shared by every transcription call.
-type AudioTranscriptionModelConfig struct {
+// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
+type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
 	BaseURL        string
 	HTTPClient     *http.Client
 }
 
-func (a AudioTranscriptionModelConfig) Validate() error { return a.protocol().Validate() }
+func (t TranscriptionModelConfig) Validate() error { return t.protocol().Validate() }
 
-func (a AudioTranscriptionModelConfig) protocol() openaiprotocol.AudioTranscriptionModelConfig {
-	return openaiprotocol.AudioTranscriptionModelConfig{Provider: protocolProvider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
+func (t TranscriptionModelConfig) protocol() openaiprotocol.TranscriptionModelConfig {
+	return openaiprotocol.TranscriptionModelConfig{Provider: protocolProvider, APIKey: t.APIKey, DefaultOptions: t.DefaultOptions, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
-// NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*openaiprotocol.AudioTranscriptionModel, error) {
-	return openaiprotocol.NewAudioTranscriptionModel(ctx, config.protocol())
+// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*openaiprotocol.TranscriptionModel, error) {
+	return openaiprotocol.NewTranscriptionModel(ctx, config.protocol())
 }
 
 // AudioTranslationModelConfig binds provider access and defaults shared by every translation call.
@@ -140,31 +140,31 @@ func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelC
 	return openaiprotocol.NewAudioTranslationModel(ctx, config.protocol())
 }
 
-// AudioTTSModelConfig binds provider access and defaults shared by every speech call.
-type AudioTTSModelConfig struct {
+// SpeechModelConfig binds provider access and defaults shared by every speech call.
+type SpeechModelConfig struct {
 	APIKey           string
-	DefaultOptions   tts.Options
+	DefaultOptions   speech.Options
 	BaseURL          string
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
 
-func (a AudioTTSModelConfig) Validate() error { return a.protocol().Validate() }
+func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
 
-func (a AudioTTSModelConfig) protocol() openaiprotocol.AudioTTSModelConfig {
-	return openaiprotocol.AudioTTSModelConfig{
+func (s SpeechModelConfig) protocol() openaiprotocol.SpeechModelConfig {
+	return openaiprotocol.SpeechModelConfig{
 		Provider:         protocolProvider,
-		APIKey:           a.APIKey,
-		DefaultOptions:   a.DefaultOptions,
-		BaseURL:          a.BaseURL,
-		HTTPClient:       a.HTTPClient,
-		MaxResponseBytes: a.MaxResponseBytes,
+		APIKey:           s.APIKey,
+		DefaultOptions:   s.DefaultOptions,
+		BaseURL:          s.BaseURL,
+		HTTPClient:       s.HTTPClient,
+		MaxResponseBytes: s.MaxResponseBytes,
 	}
 }
 
-// NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*openaiprotocol.AudioTTSModel, error) {
-	return openaiprotocol.NewAudioTTSModel(ctx, config.protocol())
+// NewSpeechModel rejects an invalid provider binding before the first speech call.
+func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*openaiprotocol.SpeechModel, error) {
+	return openaiprotocol.NewSpeechModel(ctx, config.protocol())
 }
 
 // ImageModelConfig binds provider access and defaults shared by every image call.

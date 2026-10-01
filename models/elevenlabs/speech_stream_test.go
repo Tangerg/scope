@@ -14,7 +14,7 @@ import (
 
 func TestSpeechStreamPreservesErrorResponseReadFailure(t *testing.T) {
 	body := &speechStreamBody{readErr: context.Canceled}
-	model, err := NewAudioTTSModel(t.Context(), AudioTTSModelConfig{
+	model, err := NewSpeechModel(t.Context(), SpeechModelConfig{
 		APIKey: "test-key", DefaultOptions: speech.Options{Model: "test-model", Voice: "test-voice"},
 		HTTPClient: &http.Client{Transport: speechStreamTransport{body: body, status: http.StatusServiceUnavailable}},
 	})
@@ -50,7 +50,7 @@ func TestSpeechStreamPreservesAudioBeforeReadError(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := &speechStreamBody{readErr: test.readErr}
-			model, err := NewAudioTTSModel(t.Context(), AudioTTSModelConfig{
+			model, err := NewSpeechModel(t.Context(), SpeechModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: speech.Options{Model: "test-model", Voice: "test-voice"},
 				HTTPClient:     &http.Client{Transport: speechStreamTransport{body: body, status: http.StatusOK}},
@@ -127,7 +127,7 @@ func TestSpeechCallDiscardsPartialAudioAndClosesBody(t *testing.T) {
 	for _, readErr := range []error{io.EOF, io.ErrUnexpectedEOF, context.Canceled} {
 		t.Run(readErr.Error(), func(t *testing.T) {
 			body := &speechStreamBody{readErr: readErr}
-			model, err := NewAudioTTSModel(t.Context(), AudioTTSModelConfig{
+			model, err := NewSpeechModel(t.Context(), SpeechModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: speech.Options{Model: "test-model", Voice: "test-voice"},
 				HTTPClient:     &http.Client{Transport: speechStreamTransport{body: body, status: http.StatusOK}},

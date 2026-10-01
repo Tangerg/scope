@@ -18,8 +18,8 @@
 //     with dimension truncation;
 //   - image via [NewImageModel] — GPT image generation;
 //   - moderation via [NewModerationModel] — omni-moderation-latest;
-//   - audio tts via [NewAudioTTSModel] — tts-1, tts-1-hd, gpt-4o-mini-tts;
-//   - audio transcription via [NewAudioTranscriptionModel] —
+//   - speech via [NewSpeechModel] — tts-1, tts-1-hd, gpt-4o-mini-tts;
+//   - audio transcription via [NewTranscriptionModel] —
 //     whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe;
 //   - audio translation via [NewAudioTranslationModel] — whisper-1
 //     translating any source language to English (implements

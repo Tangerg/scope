@@ -25,7 +25,7 @@ func TestOfficialTranscriptionOptionsReachQuery(t *testing.T) {
 	if err := opts.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"redact": []string{"pci", "ssn"}, "smart_format": true, "diarize": true, "punctuate": false, "keyterm": []string{"Scope", "Go"}}); err != nil {
 		t.Fatal(err)
 	}
-	model, err := deepgram.NewAudioTranscriptionModel(t.Context(), deepgram.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestOfficialSpeechOptionsReachQuery(t *testing.T) {
 	if err := opts.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"sample_rate": 24000, "bit_rate": 32000}); err != nil {
 		t.Fatal(err)
 	}
-	model, err := deepgram.NewAudioTTSModel(t.Context(), deepgram.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestExtraCannotOverrideBoundQueryFields(t *testing.T) {
 			if err := opts.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"extra": map[string][]string{field: {"other"}}}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := deepgram.NewAudioTranscriptionModel(t.Context(), deepgram.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestExtraCannotOverrideBoundQueryFields(t *testing.T) {
 			if err := opts.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"extra": map[string][]string{field: {"other"}}}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := deepgram.NewAudioTTSModel(t.Context(), deepgram.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -8,9 +8,9 @@ import (
 	"github.com/Tangerg/scope/models/elevenlabs"
 )
 
-func ExampleAudioTranscriptionModelConfig() {
+func ExampleTranscriptionModelConfig() {
 	options := transcription.Options{Model: elevenlabs.ModelScribeV2, Language: "eng"}
-	_, err := elevenlabs.NewAudioTranscriptionModel(context.Background(), elevenlabs.AudioTranscriptionModelConfig{
+	_, err := elevenlabs.NewTranscriptionModel(context.Background(), elevenlabs.TranscriptionModelConfig{
 		APIKey: "example-key", DefaultOptions: options,
 	})
 	fmt.Println(options.Model, options.Language, err)

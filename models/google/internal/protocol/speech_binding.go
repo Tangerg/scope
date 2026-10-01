@@ -8,16 +8,16 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/metadata"
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 )
 
 type speechBinding struct {
 	api            *api
 	provider       string
-	defaultOptions tts.Options
+	defaultOptions speech.Options
 }
 
-func newSpeechBinding(ctx context.Context, config AudioTTSModelConfig) (*speechBinding, error) {
+func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBinding, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func newSpeechBinding(ctx context.Context, config AudioTTSModelConfig) (*speechB
 	}, nil
 }
 
-func (s *speechBinding) buildAPITTSRequest(req *tts.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
+func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
 	effectiveOptions, err := s.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return "", nil, nil, err
@@ -77,7 +77,7 @@ func (s *speechBinding) buildAPITTSRequest(req *tts.Request) (string, []*genai.C
 	return effectiveOptions.Model, contents, config, nil
 }
 
-func (*speechBinding) validateOptions(options tts.Options) error {
+func (*speechBinding) validateOptions(options speech.Options) error {
 	switch {
 	case options.OutputFormat != "":
 		return errors.New("google: speech: output_format is not supported")
@@ -93,7 +93,7 @@ func (*speechBinding) validateOptions(options tts.Options) error {
 // terminating the whole stream.
 var errNoAudio = errors.New("google: tts chunk has no audio inline-data parts")
 
-func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse) (*tts.Response, error) {
+func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse) (*speech.Response, error) {
 	if len(apiResp.Candidates) == 0 || apiResp.Candidates[0].Content == nil {
 		return nil, errNoAudio
 	}
@@ -124,15 +124,15 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 		}
 	}
 
-	output, err := tts.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(audio, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
 
-	meta := &tts.ResponseMetadata{Model: apiResp.ModelVersion}
+	meta := &speech.ResponseMetadata{Model: apiResp.ModelVersion}
 	if err := meta.Extra.Set(protocolKey(s.provider, "speech_response"), apiResp); err != nil {
 		return nil, err
 	}
 
-	return tts.NewResponse(output, meta)
+	return speech.NewResponse(output, meta)
 }

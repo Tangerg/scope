@@ -13,27 +13,27 @@ import (
 	"testing"
 	"time"
 
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/google"
 	"github.com/Tangerg/scope/models/google/vertexai"
 )
 
 type speechSynthesis interface {
-	tts.Model
-	tts.Streamer
+	speech.Model
+	speech.Streamer
 }
 
 func newStreamingSpeech(t *testing.T, provider string, server *httptest.Server) speechSynthesis {
 	t.Helper()
-	options := tts.Options{Model: google.ModelGemini31FlashTTSPreview, Voice: "Kore"}
+	options := speech.Options{Model: google.ModelGemini31FlashTTSPreview, Voice: "Kore"}
 	if provider == "google" {
-		model, err := google.NewStreamingAudioTTSModel(t.Context(), google.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
+		model, err := google.NewStreamingSpeechModel(t.Context(), google.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return model
 	}
-	model, err := vertexai.NewStreamingAudioTTSModel(t.Context(), vertexai.AudioTTSModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
+	model, err := vertexai.NewStreamingSpeechModel(t.Context(), vertexai.SpeechModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,13 @@ func TestStreamingSpeechAggregateAndStream(t *testing.T) {
 			}))
 			defer server.Close()
 			model := newStreamingSpeech(t, provider, server)
-			req, _ := tts.NewRequest("hello")
+			req, _ := speech.NewRequest("hello")
 			aggregate, err := model.Call(t.Context(), req)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var audio []byte
-			var last *tts.Response
+			var last *speech.Response
 			chunks := 0
 			for chunk, err := range model.Stream(t.Context(), req) {
 				if err != nil {
@@ -109,7 +109,7 @@ func TestStreamingSpeechRejectsIncompleteResults(t *testing.T) {
 				}))
 				defer server.Close()
 				model := newStreamingSpeech(t, provider, server)
-				req, _ := tts.NewRequest("hello")
+				req, _ := speech.NewRequest("hello")
 				response, err := model.Call(t.Context(), req)
 				if ending == "truncated" && !errors.Is(err, io.ErrUnexpectedEOF) {
 					t.Fatalf("truncation error = %v", err)
@@ -148,7 +148,7 @@ func TestStreamingSpeechReleasesTransport(t *testing.T) {
 				}))
 				defer server.Close()
 				model := newStreamingSpeech(t, provider, server)
-				req, _ := tts.NewRequest("hello")
+				req, _ := speech.NewRequest("hello")
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				if operation == "call cancel" {
@@ -206,12 +206,12 @@ func TestSpeechModelsHaveDisjointCapabilities(t *testing.T) {
 			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(http.StatusBadRequest) }))
 			defer server.Close()
-			newUnary := func(model string) (tts.Model, error) {
-				options := tts.Options{Model: model}
+			newUnary := func(model string) (speech.Model, error) {
+				options := speech.Options{Model: model}
 				if provider == "google" {
-					return google.NewAudioTTSModel(t.Context(), google.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
+					return google.NewSpeechModel(t.Context(), google.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: options})
 				}
-				return vertexai.NewAudioTTSModel(t.Context(), vertexai.AudioTTSModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
+				return vertexai.NewSpeechModel(t.Context(), vertexai.SpeechModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: options})
 			}
 			if _, err := newUnary(google.ModelGemini31FlashTTSPreview); err == nil {
 				t.Fatal("3.1 retained an independent unary execution path")
@@ -221,14 +221,14 @@ func TestSpeechModelsHaveDisjointCapabilities(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				req, _ := tts.NewRequest("hello")
+				req, _ := speech.NewRequest("hello")
 				req.Options.Model = google.ModelGemini31FlashTTSPreview
 				if response, err := model.Call(t.Context(), req); err == nil || response != nil {
 					t.Fatal("request override crossed unary capability")
 				}
 			}
 			streaming := newStreamingSpeech(t, provider, server)
-			req, _ := tts.NewRequest("hello")
+			req, _ := speech.NewRequest("hello")
 			req.Options.Model = google.ModelGemini25FlashPreviewTTS
 			if response, err := streaming.Call(t.Context(), req); err == nil || response != nil {
 				t.Fatal("request override crossed streaming capability")

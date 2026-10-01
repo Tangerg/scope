@@ -156,21 +156,21 @@ func (a *api) moderation(ctx context.Context, req *openai.ModerationNewParams, o
 	return a.wrapResult(a.client.Moderations.New(ctx, *req, opts...))
 }
 
-func (a *api) audioTTS(ctx context.Context, req *openai.AudioSpeechNewParams, opts ...option.RequestOption) (*http.Response, error) {
+func (a *api) speech(ctx context.Context, req *openai.AudioSpeechNewParams, opts ...option.RequestOption) (*http.Response, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
 	return a.wrapResult(a.client.Audio.Speech.New(ctx, *req, opts...))
 }
 
-func (a *api) audioTranscription(ctx context.Context, req *openai.AudioTranscriptionNewParams, opts ...option.RequestOption) (*openai.AudioTranscriptionNewResponseUnion, error) {
+func (a *api) transcription(ctx context.Context, req *openai.AudioTranscriptionNewParams, opts ...option.RequestOption) (*openai.AudioTranscriptionNewResponseUnion, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
 	return a.wrapResult(a.client.Audio.Transcriptions.New(ctx, *req, opts...))
 }
 
-func (a *api) audioTranslation(ctx context.Context, req *openai.AudioTranslationNewParams, opts ...option.RequestOption) (*openai.Translation, error) {
+func (a *api) translation(ctx context.Context, req *openai.AudioTranslationNewParams, opts ...option.RequestOption) (*openai.Translation, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}

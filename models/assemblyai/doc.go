@@ -1,6 +1,6 @@
 // Package assemblyai wraps AssemblyAI's speech-to-text API.
 //
-// [NewAudioTranscriptionModel] orchestrates the upload → submit →
+// [NewTranscriptionModel] orchestrates the upload → submit →
 // poll → fetch flow against AssemblyAI's async /v2/transcript
 // endpoints. [transcription.Options].Model selects the primary official model;
 // use "universal-3-5-pro" for the current frontier model and add

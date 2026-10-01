@@ -32,7 +32,7 @@ import (
 )
 
 func main() {
-	model, err := openai.NewChat(openai.ChatConfig{
+	model, err := openai.NewChatCompletions(openai.ChatCompletionsConfig{
 		APIKey: os.Getenv("OPENAI_API_KEY"),
 		DefaultOptions: chat.Options{Model: os.Getenv("OPENAI_MODEL")},
 	})

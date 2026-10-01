@@ -40,7 +40,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				} else {
 					request.Options.Extensions = extensions
 				}
-				model, err := assemblyai.NewAudioTranscriptionModel(t.Context(), assemblyai.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}

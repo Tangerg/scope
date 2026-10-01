@@ -1,6 +1,6 @@
 // Package revai wraps Rev AI's speech-to-text API.
 //
-// [NewAudioTranscriptionModel] orchestrates Rev AI's async /v1/jobs
+// [NewTranscriptionModel] orchestrates Rev AI's async /v1/jobs
 // flow (submit → poll → fetch). Rev AI's strength is enterprise-
 // grade accuracy on English / multilingual content plus rich
 // metadata (speaker channels, custom vocabularies, profanity

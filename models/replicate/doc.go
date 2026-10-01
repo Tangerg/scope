@@ -3,7 +3,7 @@
 //
 // Replicate is not a modality API with one shared image or TTS request shape.
 // Every model version publishes an independent OpenAPI input/output schema.
-// Accordingly, ImageModel and AudioTTSModel require an explicit schema binding
+// Accordingly, ImageModel and SpeechModel require an explicit schema binding
 // at construction and reject model overrides. Provider-specific fields remain
 // in the input object under ImageRequestExtensionKey or
 // SpeechRequestExtensionKey; Core fields are mapped only through the declared

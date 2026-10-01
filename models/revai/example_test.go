@@ -8,9 +8,9 @@ import (
 	"github.com/Tangerg/scope/models/revai"
 )
 
-func ExampleAudioTranscriptionModelConfig() {
+func ExampleTranscriptionModelConfig() {
 	options := transcription.Options{Model: revai.ModelMachine, Language: "en"}
-	_, err := revai.NewAudioTranscriptionModel(context.Background(), revai.AudioTranscriptionModelConfig{
+	_, err := revai.NewTranscriptionModel(context.Background(), revai.TranscriptionModelConfig{
 		APIKey: "example-key", DefaultOptions: options,
 	})
 	fmt.Println(options.Model, options.Language, err)

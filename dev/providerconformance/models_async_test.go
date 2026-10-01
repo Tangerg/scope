@@ -50,7 +50,7 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 
 	validators := map[string]func(time.Duration, time.Duration) error{
 		"assemblyai": func(interval, timeout time.Duration) error {
-			return (assemblyai.AudioTranscriptionModelConfig{
+			return (assemblyai.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["assemblyai"],
 				PollInterval: interval, PollTimeout: timeout,
 			}).Validate()
@@ -62,7 +62,7 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 			}).Validate()
 		},
 		"gladia": func(interval, timeout time.Duration) error {
-			return (gladia.AudioTranscriptionModelConfig{
+			return (gladia.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["gladia"],
 				PollInterval: interval, PollTimeout: timeout,
 			}).Validate()
@@ -81,14 +81,14 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 			}).Validate()
 		},
 		"replicate-speech": func(interval, timeout time.Duration) error {
-			return (replicate.AudioTTSModelConfig{
+			return (replicate.SpeechModelConfig{
 				APIKey: "key", DefaultOptions: speechOptions,
 				InputSchema:  replicate.XTTSV2SpeechInputSchema(),
 				PollInterval: interval, PollTimeout: timeout,
 			}).Validate()
 		},
 		"revai": func(interval, timeout time.Duration) error {
-			return (revai.AudioTranscriptionModelConfig{
+			return (revai.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["revai"],
 				PollInterval: interval, PollTimeout: timeout,
 			}).Validate()

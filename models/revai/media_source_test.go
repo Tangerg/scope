@@ -39,7 +39,7 @@ func TestTranscriptionUsesCoreAudioURI(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: revai.ModelMachine}
-	model, err := revai.NewAudioTranscriptionModel(t.Context(), revai.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}

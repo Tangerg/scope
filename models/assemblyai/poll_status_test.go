@@ -43,7 +43,7 @@ func TestPollReportsAnUnrecognizedStatus(t *testing.T) {
 	if err := options.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	model, err := assemblyai.NewAudioTranscriptionModel(t.Context(), assemblyai.AudioTranscriptionModelConfig{
+	model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: options,
 		BaseURL:        server.URL,

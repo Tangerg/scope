@@ -24,16 +24,16 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 			_, err := google.NewEmbeddingModel(t.Context(), google.EmbeddingModelConfig{})
 			return err
 		},
-		"NewStreamingAudioTTSModel": func() error {
-			_, err := google.NewStreamingAudioTTSModel(t.Context(), google.AudioTTSModelConfig{})
+		"NewStreamingSpeechModel": func() error {
+			_, err := google.NewStreamingSpeechModel(t.Context(), google.SpeechModelConfig{})
 			return err
 		},
-		"NewAudioTTSModel": func() error {
-			_, err := google.NewAudioTTSModel(t.Context(), google.AudioTTSModelConfig{})
+		"NewSpeechModel": func() error {
+			_, err := google.NewSpeechModel(t.Context(), google.SpeechModelConfig{})
 			return err
 		},
-		"NewAudioTranscriptionModel": func() error {
-			_, err := google.NewAudioTranscriptionModel(t.Context(), google.AudioTranscriptionModelConfig{})
+		"NewTranscriptionModel": func() error {
+			_, err := google.NewTranscriptionModel(t.Context(), google.TranscriptionModelConfig{})
 			return err
 		},
 		"NewImageModel": func() error {

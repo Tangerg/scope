@@ -12,7 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/media"
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
@@ -174,81 +174,81 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	return e.protocol.Call(ctx, req)
 }
 
-// AudioTTSModelConfig binds provider access and defaults shared by every speech call.
-type AudioTTSModelConfig struct {
+// SpeechModelConfig binds provider access and defaults shared by every speech call.
+type SpeechModelConfig struct {
 	APIKey         string
-	DefaultOptions tts.Options
+	DefaultOptions speech.Options
 	BaseURL        string
 	HTTPClient     *http.Client
 }
 
-func (a AudioTTSModelConfig) Validate() error { return a.protocol().Validate() }
+func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
 
-func (a AudioTTSModelConfig) protocol() protocol.AudioTTSModelConfig {
-	return protocol.AudioTTSModelConfig{
-		Provider: protocolProvider, Client: protocolClient(a.APIKey, a.BaseURL, a.HTTPClient), DefaultOptions: a.DefaultOptions,
+func (s SpeechModelConfig) protocol() protocol.SpeechModelConfig {
+	return protocol.SpeechModelConfig{
+		Provider: protocolProvider, Client: protocolClient(s.APIKey, s.BaseURL, s.HTTPClient), DefaultOptions: s.DefaultOptions,
 	}
 }
 
-// AudioTTSModel wraps this provider's protocol implementation so the wire
+// SpeechModel wraps this provider's protocol implementation so the wire
 // type stays unexported. Callers depend on the Core modality contract, which
 // lets the protocol change without breaking this module's public surface.
-type AudioTTSModel struct{ protocol *protocol.AudioTTSModel }
+type SpeechModel struct{ protocol *protocol.SpeechModel }
 
-// NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
-	model, err := protocol.NewAudioTTSModel(ctx, config.protocol())
+// NewSpeechModel rejects an invalid provider binding before the first speech call.
+func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
+	model, err := protocol.NewSpeechModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
-	return &AudioTTSModel{protocol: model}, nil
+	return &SpeechModel{protocol: model}, nil
 }
 
-func (a *AudioTTSModel) Call(ctx context.Context, req *tts.Request) (*tts.Response, error) {
-	if a == nil || a.protocol == nil {
-		return nil, errors.New("google: nil AudioTTSModel")
+func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
+	if s == nil || s.protocol == nil {
+		return nil, errors.New("google: nil SpeechModel")
 	}
-	return a.protocol.Call(ctx, req)
+	return s.protocol.Call(ctx, req)
 }
 
-// AudioTranscriptionModelConfig binds provider access and defaults shared by every transcription call.
-type AudioTranscriptionModelConfig struct {
+// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
+type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
 	BaseURL        string
 	HTTPClient     *http.Client
 }
 
-func (a AudioTranscriptionModelConfig) Validate() error { return a.protocol().Validate() }
+func (t TranscriptionModelConfig) Validate() error { return t.protocol().Validate() }
 
-func (a AudioTranscriptionModelConfig) protocol() protocol.AudioTranscriptionModelConfig {
-	return protocol.AudioTranscriptionModelConfig{
-		Provider: protocolProvider, Client: protocolClient(a.APIKey, a.BaseURL, a.HTTPClient), DefaultOptions: a.DefaultOptions,
+func (t TranscriptionModelConfig) protocol() protocol.TranscriptionModelConfig {
+	return protocol.TranscriptionModelConfig{
+		Provider: protocolProvider, Client: protocolClient(t.APIKey, t.BaseURL, t.HTTPClient), DefaultOptions: t.DefaultOptions,
 	}
 }
 
-// AudioTranscriptionModel wraps this provider's protocol implementation so
+// TranscriptionModel wraps this provider's protocol implementation so
 // the wire type stays unexported. Callers depend on the Core modality
 // contract, which lets the protocol change without breaking this module's
 // public surface.
-type AudioTranscriptionModel struct {
-	protocol *protocol.AudioTranscriptionModel
+type TranscriptionModel struct {
+	protocol *protocol.TranscriptionModel
 }
 
-// NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
-	model, err := protocol.NewAudioTranscriptionModel(ctx, config.protocol())
+// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+	model, err := protocol.NewTranscriptionModel(ctx, config.protocol())
 	if err != nil {
 		return nil, err
 	}
-	return &AudioTranscriptionModel{protocol: model}, nil
+	return &TranscriptionModel{protocol: model}, nil
 }
 
-func (a *AudioTranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
-	if a == nil || a.protocol == nil {
-		return nil, errors.New("google: nil AudioTranscriptionModel")
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+	if t == nil || t.protocol == nil {
+		return nil, errors.New("google: nil TranscriptionModel")
 	}
-	return a.protocol.Call(ctx, req)
+	return t.protocol.Call(ctx, req)
 }
 
 // ImageModelConfig binds provider access and defaults shared by every image call.

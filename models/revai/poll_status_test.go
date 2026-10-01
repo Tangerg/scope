@@ -39,7 +39,7 @@ func TestPollReportsAnUnrecognizedStatus(t *testing.T) {
 	if err := options.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	model, err := revai.NewAudioTranscriptionModel(t.Context(), revai.AudioTranscriptionModelConfig{
+	model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: options,
 		BaseURL:        server.URL,

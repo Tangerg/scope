@@ -34,10 +34,10 @@
 //
 // See https://cloud.google.com/vertex-ai/generative-ai/docs.
 //
-// [NewAudioTTSModel] performs unary-only Gemini 2.5 speech synthesis.
+// [NewSpeechModel] performs unary-only Gemini 2.5 speech synthesis.
 // Unary speech and transcription require a STOP finish reason and return the
 // modality's ErrInvalidResponse for truncated, blocked, or unterminated output.
-// Gemini 3.1 uses [NewStreamingAudioTTSModel]: Call aggregates Stream, and both
+// Gemini 3.1 uses [NewStreamingSpeechModel]: Call aggregates Stream, and both
 // require successful stream completion. Call discards partial audio on error.
 // Native speech_response metadata describes the latest stream event, not a
 // fabricated unary response. Request model overrides must stay in that capability.

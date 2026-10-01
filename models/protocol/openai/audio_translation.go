@@ -48,7 +48,7 @@ var _ transcription.Model = (*AudioTranslationModel)(nil)
 // can drop into any code path that already uses transcription.
 //
 // If the caller needs the original-language transcript instead of a
-// translation, use [AudioTranscriptionModel].
+// translation, use [TranscriptionModel].
 type AudioTranslationModel struct {
 	api            *api
 	provider       string
@@ -113,7 +113,7 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 		return nil, err
 	}
 
-	apiResp, err := a.api.audioTranslation(ctx, apiReq)
+	apiResp, err := a.api.translation(ctx, apiReq)
 	if err != nil {
 		return nil, err
 	}

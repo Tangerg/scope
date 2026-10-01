@@ -40,7 +40,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 				} else {
 					request.Options.Extensions = extensions
 				}
-				model, err := revai.NewAudioTranscriptionModel(t.Context(), revai.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}

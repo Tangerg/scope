@@ -37,7 +37,7 @@ func TestTranscriptionUsesCoreAudioURI(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: gladia.ModelSolaria1}
-	model, err := gladia.NewAudioTranscriptionModel(t.Context(), gladia.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 			if err := opts.Extensions.Set(gladia.RequestExtensionKey, extension); err != nil {
 				t.Fatal(err)
 			}
-			model, err := gladia.NewAudioTranscriptionModel(t.Context(), gladia.AudioTranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}

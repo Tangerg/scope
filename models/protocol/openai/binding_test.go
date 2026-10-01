@@ -50,12 +50,12 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 			model, err := openai.NewModerationModel(t.Context(), openai.ModerationModelConfig{DefaultOptions: moderation.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
 			return model == nil, err
 		},
-		"NewAudioTTSModel": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewAudioTTSModel(t.Context(), openai.AudioTTSModelConfig{DefaultOptions: speech.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
+		"NewSpeechModel": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := openai.NewSpeechModel(t.Context(), openai.SpeechModelConfig{DefaultOptions: speech.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
 			return model == nil, err
 		},
-		"NewAudioTranscriptionModel": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewAudioTranscriptionModel(t.Context(), openai.AudioTranscriptionModelConfig{DefaultOptions: transcription.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
+		"NewTranscriptionModel": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := openai.NewTranscriptionModel(t.Context(), openai.TranscriptionModelConfig{DefaultOptions: transcription.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
 			return model == nil, err
 		},
 		"NewAudioTranslationModel": func(endpoint string, client *http.Client) (bool, error) {

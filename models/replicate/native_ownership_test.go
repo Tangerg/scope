@@ -43,7 +43,7 @@ func TestSpeechRejectsBoundNativeInputBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			schema := replicate.SpeechInputSchema{TextKey: "text", VoiceKey: "speaker", SpeedKey: "speed", VoiceRequired: true, OutputKind: replicate.FileOutputURI}
-			model, err := replicate.NewAudioTTSModel(t.Context(), replicate.AudioTTSModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
+			model, err := replicate.NewSpeechModel(t.Context(), replicate.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
 			if err != nil {
 				t.Fatal(err)
 			}

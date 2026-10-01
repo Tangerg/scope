@@ -24,11 +24,11 @@
 // [NewChatCompletions] is the exception: it builds an OpenAI-compatible client
 // and performs no I/O.
 //
-// [NewAudioTTSModel] performs unary-only Gemini 2.5 speech synthesis.
+// [NewSpeechModel] performs unary-only Gemini 2.5 speech synthesis.
 // Unary speech and transcription require a STOP finish reason. Truncated,
 // blocked, or unterminated generation returns the modality's ErrInvalidResponse
 // without presenting partial content as a completed response.
-// Gemini 3.1 uses [NewStreamingAudioTTSModel]: Call aggregates Stream, and both
+// Gemini 3.1 uses [NewStreamingSpeechModel]: Call aggregates Stream, and both
 // require successful stream completion. Call discards partial audio on error.
 // Native speech_response metadata describes the latest stream event, not a
 // fabricated unary response. Request model overrides must stay in that capability.

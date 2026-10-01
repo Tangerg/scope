@@ -42,7 +42,7 @@ func TestPollReportsAnUnrecognizedStatus(t *testing.T) {
 	if err := options.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	model, err := gladia.NewAudioTranscriptionModel(t.Context(), gladia.AudioTranscriptionModelConfig{
+	model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: options,
 		BaseURL:        server.URL,

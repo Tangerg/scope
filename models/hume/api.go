@@ -14,7 +14,7 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/metadata"
-	tts "github.com/Tangerg/scope/core/speech"
+	"github.com/Tangerg/scope/core/speech"
 )
 
 const maximumErrorResponseBytes = int64(64 * 1024)
@@ -71,7 +71,7 @@ type utterance struct {
 	TrailingSilence *float64 `json:"trailing_silence,omitzero"`
 }
 
-// TTSRequest mirrors POST /tts. Format is "mp3" / "wav" / "pcm";
+// TTSRequest mirrors POST /speech. Format is "mp3" / "wav" / "pcm";
 // SplitUtterances controls whether the response includes per-utterance
 // timing.
 type ttsRequest struct {
@@ -136,7 +136,7 @@ func (t *ttsStreamEvent) decodeAudio() ([]byte, error) {
 	return audio, nil
 }
 
-func (t *ttsStreamEvent) response(model string) (*tts.Response, error) {
+func (t *ttsStreamEvent) response(model string) (*speech.Response, error) {
 	audio, err := t.decodeAudio()
 	if err != nil {
 		return nil, err
@@ -169,17 +169,17 @@ func (t *ttsStreamEvent) response(model string) (*tts.Response, error) {
 	if setErr := outputMetadata.Set(metadataStreamAudioEvent, t); setErr != nil {
 		return nil, setErr
 	}
-	output, err := tts.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(audio, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
-	responseMetadata := &tts.ResponseMetadata{Model: model}
+	responseMetadata := &speech.ResponseMetadata{Model: model}
 	if t.RequestID != "" {
 		if err := responseMetadata.Extra.Set(metadataRequestID, t.RequestID); err != nil {
 			return nil, err
 		}
 	}
-	return tts.NewResponse(output, responseMetadata)
+	return speech.NewResponse(output, responseMetadata)
 }
 
 // decodeAudio returns the raw audio bytes from the first generation.
