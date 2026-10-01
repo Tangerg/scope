@@ -51,7 +51,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 							if count == 2 {
 								tasks = append(tasks, request("other", "test.gate", "waiting"))
 							}
-							decision = Decision{Mode: Continue, State: turn.State, Tasks: tasks}
+							decision = Decision{Mode: ModeContinue, State: turn.State, Tasks: tasks}
 						case 2:
 							if len(turn.Tasks) != count || turn.Tasks[0].Outcome != nil {
 								return nil, errors.New("task already observed before held decision")
@@ -62,7 +62,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 							case <-ctx.Done():
 								return nil, ctx.Err()
 							}
-							decision = Decision{Mode: Wait, State: turn.State}
+							decision = Decision{Mode: ModeWait, State: turn.State}
 						case 3:
 							if turn.Tasks[0].Outcome == nil {
 								return nil, errors.New("completion during model call was lost")
@@ -192,10 +192,10 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 			switch turn.Number {
 			case 1:
 				input := require(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("initial"))}}))
-				return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("writer")), Worker: "test.interaction", Input: input}}}, nil
+				return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("writer")), Worker: "test.interaction", Input: input}}}, nil
 			case 2:
 				signal := require(interaction.NewSteerSignal(require(agent.ParseSignalID("signal:revise")), chat.NewUserMessage(chat.NewTextPart("revise"))))
-				return Decision{Mode: Wait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, Signal: &signal}}}, nil
+				return Decision{Mode: ModeWait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, Signal: &signal}}}, nil
 			default:
 				if turn.Number != 3 || turn.Controls[0].Result == nil || turn.Tasks[0].Outcome == nil {
 					return Decision{}, errors.New("missing steer outcome")

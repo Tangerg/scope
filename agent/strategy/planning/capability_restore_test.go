@@ -21,7 +21,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			name = "required capability omitted"
 		}
 		t.Run(name, func(t *testing.T) {
-			done := mustCondition(t, "world.done", planning.True)
+			done := mustCondition(t, "world.done", planning.TruthTrue)
 			action := mustAction(t, planning.ActionConfig{
 				Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
 			})
@@ -131,7 +131,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			if awaitErr != nil || result.Status() != agent.StatusFailed || !failed || failure.Code() != "planning.dispatch.rejected" || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 				t.Fatalf("local rejection result = %+v, failure = %+v, error = %v", result, failure, awaitErr)
 			}
-			if world.truth("world.done") != planning.Unknown {
+			if world.truth("world.done") != planning.TruthUnknown {
 				t.Error("restored Effect dropped its required capability and reached the Action executor")
 			}
 		})

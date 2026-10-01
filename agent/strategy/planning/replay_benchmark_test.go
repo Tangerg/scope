@@ -11,7 +11,7 @@ import (
 )
 
 func BenchmarkPlanningReplayBoundary(b *testing.B) {
-	condition, err := planning.NewCondition("world.done", planning.True)
+	condition, err := planning.NewCondition("world.done", planning.TruthTrue)
 	if err != nil {
 		b.Fatal(err)
 	}

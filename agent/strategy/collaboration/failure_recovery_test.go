@@ -27,7 +27,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			}
 			definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 				if turn.Number == 1 {
-					return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
+					return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 				}
 				if mode == "panic" {
 					panic(strings.TrimPrefix(message, "agent: Execution.Step panicked: "))
@@ -78,7 +78,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			}
 			mutations := map[string]func(*executionState){
 				"completed output": func(state *executionState) { state.Output = input("forged") },
-				"decision mode":    func(state *executionState) { state.Mode = Continue },
+				"decision mode":    func(state *executionState) { state.Mode = ModeContinue },
 				"changed state":    func(state *executionState) { state.State = input("forged") },
 			}
 			if mode != "start" {

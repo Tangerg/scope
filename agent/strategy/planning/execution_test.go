@@ -16,8 +16,8 @@ import (
 )
 
 func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.True)
-	done := mustCondition(t, "world.done", planning.True)
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	prepare := mustAction(t, planning.ActionConfig{
 		Name: "action.prepare", Description: "Prepare the world for completion.", Effects: []planning.Condition{ready},
 	})
@@ -51,7 +51,7 @@ func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
 }
 
 func TestManagedPlanningExcludesUnconfirmedActionAndReplans(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	optimistic := mustAction(t, planning.ActionConfig{
 		Name: "action.optimistic", Description: "Attempt the inexpensive completion path.",
 		Effects: []planning.Condition{done}, Cost: planning.FixedCost(1),
@@ -84,7 +84,7 @@ func TestManagedPlanningExcludesUnconfirmedActionAndReplans(t *testing.T) {
 }
 
 func TestManagedPlanningRecordsDefiniteFailureAndUsesFallback(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	primary := mustAction(t, planning.ActionConfig{
 		Name: "action.primary", Description: "Attempt the primary completion path.",
 		Effects: []planning.Condition{done}, Cost: planning.FixedCost(1),
@@ -122,7 +122,7 @@ func TestManagedPlanningRecordsDefiniteFailureAndUsesFallback(t *testing.T) {
 }
 
 func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	t.Run("unreachable", func(t *testing.T) {
 		world := newManagedWorld(t)
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
@@ -190,14 +190,14 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 		})
 		output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
 		if output.Outcome != planning.OutcomeStuck || len(output.Attempts) != 1 ||
-			output.Attempts[0].ActionName != "action.first" || world.truth("world.done") != planning.Unknown {
+			output.Attempts[0].ActionName != "action.first" || world.truth("world.done") != planning.TruthUnknown {
 			t.Fatalf("output = %#v", output)
 		}
 	})
 }
 
 func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	t.Run("observation", func(t *testing.T) {
 		deployment := newManagedDeployment(t, managedDeploymentConfig{
 			goal: mustGoal(t, done),
@@ -236,7 +236,7 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 }
 
 func TestManagedPlanningRestoresExactBoundaryState(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
 	})
@@ -273,7 +273,7 @@ func TestManagedPlanningRestoresExactBoundaryState(t *testing.T) {
 }
 
 func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
 	})
@@ -342,7 +342,7 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 }
 
 func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	world := newManagedWorld(t)
 	childAction := mustAction(t, planning.ActionConfig{
 		Name: "action.child_finish", Description: "Complete the work inside the child Process.",
@@ -363,7 +363,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 		Action: delegate, Deployment: childDeployment, Budget: budget,
 		Input: func(input agent.Payload, observed planning.WorldState) (agent.Payload, error) {
 			inputCalls++
-			if !input.Valid() || observed.Truth("world.done") != planning.Unknown {
+			if !input.Valid() || observed.Truth("world.done") != planning.TruthUnknown {
 				return agent.Payload{}, errors.New("unexpected child input source")
 			}
 			return input, nil
@@ -385,7 +385,7 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 }
 
 func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	world := newManagedWorld(t)
 	rejected := newManagedDeployment(t, managedDeploymentConfig{name: "planning.rejected", goal: mustGoal(t, done)})
 	delegate := mustAction(t, planning.ActionConfig{
@@ -415,13 +415,13 @@ func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses != 2 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptFailed ||
-		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: agent: process admission rejected: child refused" || world.truth("world.done") != planning.Unknown {
+		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: agent: process admission rejected: child refused" || world.truth("world.done") != planning.TruthUnknown {
 		t.Fatalf("output = %#v", output)
 	}
 }
 
 func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
 	})
@@ -469,7 +469,7 @@ func TestManagedPlanningValidatesDispatcherBindingsAndCapabilities(t *testing.T)
 	})
 	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 	assertFailure(t, result, agent.FailureKindContract, "engine.capability.denied")
-	if world.truth("world.done") != planning.Unknown {
+	if world.truth("world.done") != planning.TruthUnknown {
 		t.Fatal("capability-denied Action reached its executor")
 	}
 }

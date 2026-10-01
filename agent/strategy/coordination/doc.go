@@ -1,7 +1,7 @@
 // Package coordination provides bounded coordination through ordinary Agent
 // Definitions. InputGate turns one addressed input into a result carrying the
-// original Signal identity. Deadline participates through the cancellable Timer
-// Dispatcher. FirstSuccess owns a competition among exact child requests.
+// original Signal identity. Deadline participates through the cancellable
+// DeadlineDispatcher. FirstSuccess owns a competition among exact child requests.
 //
 // These Definitions use the public Step, Effect, Signal, and child-wait protocol.
 // They have no scheduler, mailbox, journal, or lifecycle authority of their own.

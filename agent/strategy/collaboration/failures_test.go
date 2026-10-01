@@ -15,7 +15,7 @@ func TestWorkerFailuresRemainCoordinatorFacts(t *testing.T) {
 			worker := transformed("test.failing", func(context.Context, string) (string, error) { return "", errors.New("worker failure") })
 			definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 				if turn.Number == 1 {
-					return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("work", "test.failing", "x")}}, nil
+					return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("work", "test.failing", "x")}}, nil
 				}
 				if turn.Number != 2 || len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil {
 					return Decision{}, errors.New("missing task fact")
@@ -53,9 +53,9 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 					if mode == "task limit" && turn.Number > 1 {
 						key = "second"
 					}
-					return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request(key, "test.echo", "x")}}, nil
+					return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request(key, "test.echo", "x")}}, nil
 				}
-				return Decision{Mode: Continue, State: turn.State}, nil
+				return Decision{Mode: ModeContinue, State: turn.State}, nil
 			}, echo())
 			if mode == "turn limit" {
 				config.MaxTurns = agent.NewQuota(2)
@@ -85,7 +85,7 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 func TestCompletionCancelsOutstandingTask(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		if turn.Number == 1 {
-			return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
+			return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 		}
 		return finish(turn, "done"), nil
 	}, gate())

@@ -12,7 +12,7 @@ import (
 )
 
 func TestUnlimitedSearchCountersStopBeforeWrap(t *testing.T) {
-	done, err := planning.NewCondition("world.done", planning.True)
+	done, err := planning.NewCondition("world.done", planning.TruthTrue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestUnlimitedSearchCountersStopBeforeWrap(t *testing.T) {
 func TestGoalProducerScanObservesCancellationInsideEffects(t *testing.T) {
 	var effects []planning.Condition
 	for index := range 32 {
-		effect, err := planning.NewCondition(fmt.Sprintf("fact.%d", index), planning.True)
+		effect, err := planning.NewCondition(fmt.Sprintf("fact.%d", index), planning.TruthTrue)
 		if err != nil {
 			t.Fatal(err)
 		}

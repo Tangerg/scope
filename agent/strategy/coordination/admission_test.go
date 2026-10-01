@@ -13,8 +13,8 @@ import (
 
 func TestCoordinationRejectsUnaddressedInputBeforeProtocolStep(t *testing.T) {
 	t.Run("deadline", func(t *testing.T) {
-		deployment := deadlineBinding(t, coordination.Timer{})
-		conformancetest.Run(t, agent.DeploymentConfig{Definition: deployment.Definition(), Dispatcher: coordination.Timer{}, ImplementationDigest: agent.ComputeDigest([]byte("timer")), ConfigurationDigest: agent.ComputeDigest([]byte("timer"))}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, encodedInput(t, time.Unix(1, 0).UTC()))
+		deployment := deadlineBinding(t, coordination.DeadlineDispatcher{})
+		conformancetest.Run(t, agent.DeploymentConfig{Definition: deployment.Definition(), Dispatcher: coordination.DeadlineDispatcher{}, ImplementationDigest: agent.ComputeDigest([]byte("timer")), ConfigurationDigest: agent.ComputeDigest([]byte("timer"))}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, encodedInput(t, time.Unix(1, 0).UTC()))
 	})
 	t.Run("first success", func(t *testing.T) {
 		stage, err := workflow.Transform("echo", func(_ context.Context, input string) (string, error) { return input, nil })

@@ -11,7 +11,7 @@ import (
 )
 
 func TestRestoreValidatesPlanningFacts(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "finish", Description: "Finish the pending work.", Effects: []planning.Condition{done},
 	})
@@ -124,7 +124,7 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 }
 
 func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "finish", Description: "Finish the pending work.", Effects: []planning.Condition{done},
 	})
@@ -192,7 +192,7 @@ func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
 }
 
 func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "finish", Description: "Finish pending work.", Effects: []planning.Condition{done},
 	})
@@ -218,7 +218,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 }
 
 func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "finish", Description: "Complete the work.", Effects: []planning.Condition{done},
 	})

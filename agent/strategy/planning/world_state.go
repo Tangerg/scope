@@ -10,7 +10,7 @@ import (
 )
 
 // WorldState is an immutable, canonical observation of known condition truths.
-// Missing conditions read as Unknown. Its zero value is the empty state. Every
+// Missing conditions read as TruthUnknown. Its zero value is the empty state. Every
 // value is valid: constructors and decoding establish invariants, and
 // observations never expose mutable storage.
 type WorldState struct {
@@ -33,7 +33,7 @@ func (w WorldState) Truth(key string) Truth {
 		return strings.Compare(condition.key, key)
 	})
 	if !found {
-		return Unknown
+		return TruthUnknown
 	}
 	return w.conditions[index].truth
 }
@@ -108,7 +108,7 @@ func (w WorldState) Key() string {
 	for _, condition := range w.conditions {
 		key.WriteString(condition.key)
 		key.WriteByte('=')
-		if condition.truth == True {
+		if condition.truth == TruthTrue {
 			key.WriteByte('1')
 		} else {
 			key.WriteByte('0')

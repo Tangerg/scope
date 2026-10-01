@@ -93,7 +93,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				}))
 				input = contractValue(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run delegate"))}}))
 			} else {
-				done := contractValue(planning.NewCondition("world.done", planning.True))
+				done := contractValue(planning.NewCondition("world.done", planning.TruthTrue))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
 				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: delegate, Budget: delegateBudget}))
 				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(agent.SchemaFor[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: agent.NewQuota(2)}))

@@ -19,7 +19,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 	synctest.Test(t, func(t *testing.T) {
 		started := time.Now()
 		gate := bind(t, inputGate(t), nil)
-		timer := deadlineBinding(t, coordination.Timer{})
+		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		definition := competition(t, func(_ context.Context, outcome agent.ChildOutcome) (bool, error) {
 			return outcome.Key().String() == "input", nil
 		}, 3)
@@ -113,7 +113,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 
 func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		timer := deadlineBinding(t, coordination.Timer{})
+		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
 		probe := &heldStepDefinition{Definition: definition, entered: make(chan agent.Signal, 1), release: make(chan struct{})}
 		release := sync.OnceFunc(func() { close(probe.release) })
@@ -151,7 +151,7 @@ func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *test
 
 func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		timer := deadlineBinding(t, coordination.Timer{})
+		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		accepted := make(chan agent.ChildOutcome, 2)
 		definition := competition(t, func(_ context.Context, outcome agent.ChildOutcome) (bool, error) {
 			accepted <- outcome
@@ -211,7 +211,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 
 func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		timer := deadlineBinding(t, coordination.Timer{})
+		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return false, nil }, 2)
 		deployment := bind(t, definition, nil)
 		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
@@ -242,7 +242,7 @@ func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 }
 
 func TestFirstSuccessBoundsAndDefinitionConformance(t *testing.T) {
-	timer := deadlineBinding(t, coordination.Timer{})
+	timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 	spec := candidate(t, "candidate", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	for _, candidates := range [][]agent.ChildSpec{nil, {}, {spec, spec}} {

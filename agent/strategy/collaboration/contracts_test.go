@@ -19,18 +19,18 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	for name, decision := range map[string]Decision{
 		"mode":               {Mode: "invalid", State: input("x")},
-		"state schema":       {Mode: Continue, State: require(agent.EncodePayload(1))},
-		"missing output":     {Mode: Complete, State: input("x")},
-		"complete with task": {Mode: Complete, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x")}, Output: requireOutput("x")},
-		"output schema":      {Mode: Complete, State: input("x"), Output: requireOutput(1)},
-		"nonterminal output": {Mode: Continue, State: input("x"), Output: requireOutput("x")},
-		"unavailable worker": {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("work", "absent", "x")}},
-		"reserved key":       {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("collaboration.turn.1", "test.echo", "x")}},
-		"duplicate key":      {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x"), request("work", "test.echo", "y")}},
-		"input schema":       {Mode: Continue, State: input("x"), Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("work")), Worker: "test.echo", Input: require(agent.EncodePayload(1))}}},
-		"empty wait":         {Mode: Wait, State: input("x")},
-		"foreign control":    {Mode: Continue, State: input("x"), Controls: []Control{{Task: require(agent.ParseChildKey("absent"))}}},
-		"concurrency bound":  {Mode: Continue, State: input("x"), Tasks: []TaskRequest{request("a", "test.echo", "x"), request("b", "test.echo", "x"), request("c", "test.echo", "x"), request("d", "test.echo", "x"), request("e", "test.echo", "x")}},
+		"state schema":       {Mode: ModeContinue, State: require(agent.EncodePayload(1))},
+		"missing output":     {Mode: ModeComplete, State: input("x")},
+		"complete with task": {Mode: ModeComplete, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x")}, Output: requireOutput("x")},
+		"output schema":      {Mode: ModeComplete, State: input("x"), Output: requireOutput(1)},
+		"nonterminal output": {Mode: ModeContinue, State: input("x"), Output: requireOutput("x")},
+		"unavailable worker": {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("work", "absent", "x")}},
+		"reserved key":       {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("collaboration.turn.1", "test.echo", "x")}},
+		"duplicate key":      {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x"), request("work", "test.echo", "y")}},
+		"input schema":       {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{{Key: require(agent.ParseChildKey("work")), Worker: "test.echo", Input: require(agent.EncodePayload(1))}}},
+		"empty wait":         {Mode: ModeWait, State: input("x")},
+		"foreign control":    {Mode: ModeContinue, State: input("x"), Controls: []Control{{Task: require(agent.ParseChildKey("absent"))}}},
+		"concurrency bound":  {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("a", "test.echo", "x"), request("b", "test.echo", "x"), request("c", "test.echo", "x"), request("d", "test.echo", "x"), request("e", "test.echo", "x")}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			execution := require(definition.Start(input("initial"))).(*execution)
@@ -141,10 +141,10 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
-			return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("a", "test.gate", "wait")}}, nil
+			return Decision{Mode: ModeContinue, State: input("working"), Tasks: []TaskRequest{request("a", "test.gate", "wait")}}, nil
 		case 2:
 			reason := "finished"
-			return Decision{Mode: Wait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}}, nil
+			return Decision{Mode: ModeWait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}}, nil
 		default:
 			return finish(turn, "done"), nil
 		}
@@ -237,7 +237,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		if turn.Number == 1 {
-			return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("work", "test.echo", "value")}}, nil
+			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("work", "test.echo", "value")}}, nil
 		}
 		return finish(turn, "done"), nil
 	}, echo())

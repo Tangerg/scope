@@ -20,7 +20,7 @@ func cancellationDefinition(t *testing.T, planner Planner, cost CostFunc) *Defin
 	if err != nil {
 		t.Fatal(err)
 	}
-	condition, err := NewCondition("world.done", True)
+	condition, err := NewCondition("world.done", TruthTrue)
 	if err != nil {
 		t.Fatal(err)
 	}

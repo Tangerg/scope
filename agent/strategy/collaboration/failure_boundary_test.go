@@ -17,10 +17,10 @@ func TestFailuresPreserveStrategyClassification(t *testing.T) {
 		code     string
 	}{
 		{"turn limit", func(_ context.Context, turn Turn) (Decision, error) {
-			return Decision{Mode: Continue, State: turn.State}, nil
+			return Decision{Mode: ModeContinue, State: turn.State}, nil
 		}, agent.FailureKindExecution, "collaboration.limit.turns"},
 		{"invalid decision", func(_ context.Context, turn Turn) (Decision, error) {
-			return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("work", "absent", "x")}}, nil
+			return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("work", "absent", "x")}}, nil
 		}, agent.FailureKindContract, "collaboration.decision.invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -14,8 +14,8 @@ import (
 )
 
 func TestPlannerFindsCheapestMultiRoutePlan(t *testing.T) {
-	resource := condition(t, "world.resource", planning.True)
-	done := condition(t, "world.done", planning.True)
+	resource := condition(t, "world.resource", planning.TruthTrue)
+	done := condition(t, "world.done", planning.TruthTrue)
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 		action(t, "action.buy", nil, []planning.Condition{resource}, 4),
 		action(t, "action.forage", nil, []planning.Condition{resource}, 1),
@@ -33,13 +33,13 @@ func TestPlannerFindsCheapestMultiRoutePlan(t *testing.T) {
 }
 
 func TestPlannerEvaluatesDynamicCostAtTransitionSource(t *testing.T) {
-	unlocked := condition(t, "world.unlocked", planning.True)
-	done := condition(t, "world.done", planning.True)
+	unlocked := condition(t, "world.unlocked", planning.TruthTrue)
+	done := condition(t, "world.done", planning.TruthTrue)
 	dynamic, err := planning.NewAction(planning.ActionConfig{
 		Name: "action.fast", Description: "Finish cheaply after unlocking.",
 		Effects: []planning.Condition{done},
 		Cost: func(state planning.WorldState) (float64, error) {
-			if state.Truth("world.unlocked") == planning.True {
+			if state.Truth("world.unlocked") == planning.TruthTrue {
 				return 1, nil
 			}
 			return 100, nil
@@ -63,9 +63,9 @@ func TestPlannerEvaluatesDynamicCostAtTransitionSource(t *testing.T) {
 }
 
 func TestPlannerReplacesAStatePredecessorOnlyWithCheaperPath(t *testing.T) {
-	prepared := condition(t, "world.prepared", planning.True)
-	resource := condition(t, "world.resource", planning.True)
-	done := condition(t, "world.done", planning.True)
+	prepared := condition(t, "world.prepared", planning.TruthTrue)
+	resource := condition(t, "world.resource", planning.TruthTrue)
+	done := condition(t, "world.done", planning.TruthTrue)
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 		action(t, "action.expensive_resource", nil, []planning.Condition{prepared, resource}, 9),
 		action(t, "action.prepare", nil, []planning.Condition{prepared}, 1),
@@ -84,7 +84,7 @@ func TestPlannerReplacesAStatePredecessorOnlyWithCheaperPath(t *testing.T) {
 }
 
 func TestPlannerPreservesDeclarationOrderForEqualCostRoutes(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 		action(t, "action.first", nil, []planning.Condition{done}, 1),
 		action(t, "action.second", nil, []planning.Condition{done}, 1),
@@ -99,8 +99,8 @@ func TestPlannerPreservesDeclarationOrderForEqualCostRoutes(t *testing.T) {
 }
 
 func TestPlannerDistinguishesSatisfiedUnreachableAndBoundedSearch(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
-	key := condition(t, "world.key", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
+	key := condition(t, "world.key", planning.TruthTrue)
 	t.Run("already satisfied", func(t *testing.T) {
 		problem := mustProblem(t, world(t, done), goal(t, done))
 		plan, found, err := goap.New(goap.Config{}).Plan(t.Context(), problem)
@@ -118,7 +118,7 @@ func TestPlannerDistinguishesSatisfiedUnreachableAndBoundedSearch(t *testing.T) 
 		}
 	})
 	t.Run("expansion limit", func(t *testing.T) {
-		ready := condition(t, "world.ready", planning.True)
+		ready := condition(t, "world.ready", planning.TruthTrue)
 		problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 			action(t, "action.prepare", nil, []planning.Condition{ready}, 1),
 			action(t, "action.finish", []planning.Condition{ready}, []planning.Condition{done}, 1),
@@ -138,7 +138,7 @@ func TestPlannerDistinguishesSatisfiedUnreachableAndBoundedSearch(t *testing.T) 
 }
 
 func TestPlannerRejectsInvalidActionCosts(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	cause := errors.New("cost sentinel")
 	tests := []struct {
 		name string
@@ -170,7 +170,7 @@ func TestPlannerRejectsInvalidActionCosts(t *testing.T) {
 }
 
 func TestPlannerHonorsCancellation(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 		action(t, "action.finish", nil, []planning.Condition{done}, 1),
 	)
@@ -183,10 +183,10 @@ func TestPlannerHonorsCancellation(t *testing.T) {
 }
 
 func TestPlannerBoundsGeneratedNodesIndependentlyOfExpansions(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	var actions []planning.Action
 	for index := range 32 {
-		fact := condition(t, fmt.Sprintf("world.branch_%d", index), planning.True)
+		fact := condition(t, fmt.Sprintf("world.branch_%d", index), planning.TruthTrue)
 		actions = append(actions, action(t, fmt.Sprintf("action.branch_%d", index), nil, []planning.Condition{fact}, 1))
 	}
 	actions = append(actions, action(t, "action.finish", nil, []planning.Condition{done}, 100))
@@ -198,7 +198,7 @@ func TestPlannerBoundsGeneratedNodesIndependentlyOfExpansions(t *testing.T) {
 }
 
 func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
 		action(t, "action.expensive", nil, []planning.Condition{done}, 3),
 		action(t, "action.cheaper", nil, []planning.Condition{done}, 2),
@@ -217,8 +217,8 @@ func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
 }
 
 func TestPlannerNodeBudgetPreservesSatisfiedAndUnreachableResults(t *testing.T) {
-	done := condition(t, "world.done", planning.True)
-	key := condition(t, "world.key", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
+	key := condition(t, "world.key", planning.TruthTrue)
 	planner := goap.New(goap.Config{MaxGeneratedNodes: agent.NewQuota(1)})
 	satisfied := mustProblem(t, world(t, done), goal(t, done))
 	if plan, found, err := planner.Plan(t.Context(), satisfied); err != nil || !found || len(plan.Actions()) != 0 {
@@ -304,7 +304,7 @@ func actionNames(plan planning.Plan) []string {
 func TestPlannerStopsExpansionWhenCostCancelsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := condition(t, "world.done", planning.True)
+	done := condition(t, "world.done", planning.TruthTrue)
 	calls := 0
 	var actions []planning.Action
 	for _, name := range []string{"action.first", "action.second"} {

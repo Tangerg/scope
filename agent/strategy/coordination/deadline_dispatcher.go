@@ -9,13 +9,13 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// Timer is the stateless Dispatcher for Deadline. Its call owns and stops its
+// DeadlineDispatcher is the stateless Dispatcher for Deadline. Its call owns and stops its
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
 // Malformed timer payloads settle Failed with a JSON diagnostic string. Valid
 // timer operations settle with their absolute deadline and whether it was reached;
 // cancellation never leaves an unknown external outcome.
-type Timer struct{}
+type DeadlineDispatcher struct{}
 
 type timerRequest struct {
 	Deadline time.Time `json:"deadline"`
@@ -52,7 +52,7 @@ func decodeTimerEffect(effect agent.Effect) (timerRequest, error) {
 	return request, nil
 }
 
-func (Timer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+func (DeadlineDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 	if _, err := decodeTimerEffect(effect); err != nil {
 		return agent.ReplayPolicyNever
 	}
@@ -60,7 +60,7 @@ func (Timer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 }
 
 // Dispatch requires a non-nil context and panics if ctx is nil.
-func (Timer) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
+func (DeadlineDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
 	ctx = agent.RequireContext(ctx)
 	if !request.Valid() {
 		return agent.Settlement{}, ErrInvalidProtocol

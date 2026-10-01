@@ -13,7 +13,7 @@ func BenchmarkDecisionValidation(b *testing.B) {
 		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 		definition.maxConcurrentTasks = uint32(count)
 		state := executionState{}
-		decision := Decision{Mode: Continue, State: input("state")}
+		decision := Decision{Mode: ModeContinue, State: input("state")}
 		for index := range count {
 			state.Tasks = append(state.Tasks, Task{Request: request(fmt.Sprintf("old_%d", index), "test.echo", "input")})
 			decision.Tasks = append(decision.Tasks, TaskRequest{Key: require(agent.ParseChildKey(fmt.Sprintf("new_%d", index))), Worker: "test.echo", Input: input("input")})

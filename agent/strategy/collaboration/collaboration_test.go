@@ -56,7 +56,7 @@ func request(key, worker, value string) TaskRequest {
 }
 func finish(turn Turn, text string) Decision {
 	output := require(agent.EncodePayload(text))
-	return Decision{Mode: Complete, State: turn.State, Output: output}
+	return Decision{Mode: ModeComplete, State: turn.State, Output: output}
 }
 func echo() agent.Deployment {
 	return transformed("test.echo", func(_ context.Context, text string) (string, error) { return "echo: " + text, nil })
@@ -110,14 +110,14 @@ func TestBackgroundContinueControlAndDrain(t *testing.T) {
 		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			switch turn.Number {
 			case 1:
-				return Decision{Mode: Continue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
+				return Decision{Mode: ModeContinue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 			case 2:
 				if len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil || turn.Tasks[0].Outcome != nil || require(turn.State.Decode[string]()) != "working" {
 					return Decision{}, errors.New("coordinator did not continue beside the active task")
 				}
 				signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:steer")), agent.WaitID{}, []byte(`"new direction"`)))
 				reason := "No longer needed."
-				return Decision{Mode: Wait, State: turn.State, Controls: []Control{
+				return Decision{Mode: ModeWait, State: turn.State, Controls: []Control{
 					{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason},
 				}}, nil
 			case 3:
@@ -145,13 +145,13 @@ func TestCompletedTaskFollowUp(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		switch turn.Number {
 		case 1:
-			return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("draft", "test.echo", "draft")}}, nil
+			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("draft", "test.echo", "draft")}}, nil
 		case 2:
 			if turn.Tasks[0].Outcome == nil {
 				return Decision{}, errors.New("missing draft")
 			}
 			output, _ := turn.Tasks[0].Outcome.Result().Output()
-			return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("revision", "test.echo", require(output.Decode[string]())+" revised")}}, nil
+			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("revision", "test.echo", require(output.Decode[string]())+" revised")}}, nil
 		case 3:
 			output, _ := turn.Tasks[1].Outcome.Result().Output()
 			return finish(turn, require(output.Decode[string]())), nil
@@ -169,7 +169,7 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 			if turn.Number == 1 {
-				return Decision{Mode: Wait, State: turn.State, Tasks: []TaskRequest{request("input", "test.gate", "instruction")}}, nil
+				return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("input", "test.gate", "instruction")}}, nil
 			}
 			if turn.Number != 2 || turn.Tasks[0].Outcome == nil {
 				return Decision{}, errors.New("missing input outcome")
@@ -229,7 +229,7 @@ func TestDefinitionConformance(t *testing.T) {
 
 func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
-		return Decision{Mode: Complete, State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
+		return Decision{Mode: ModeComplete, State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
 	}, echo())
 	config.OutputSchema = require(agent.ParseSchema([]byte(`{"type":"null"}`)))
 	definition := require(NewDefinition(config))

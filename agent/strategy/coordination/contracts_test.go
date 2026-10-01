@@ -16,7 +16,7 @@ import (
 )
 
 func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing.T) {
-	timer := deadlineBinding(t, coordination.Timer{})
+	timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 	spec := candidate(t, "one", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	execution, err := definition.Start(encodedInput(t, []agent.ChildSpec{spec}))
@@ -76,7 +76,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 		waitID     string
 		payload    any
 	}{
-		{name: "timer", definition: deadlineBinding(t, coordination.Timer{}).Definition(), input: encodedInput(t, deadline), payload: struct {
+		{name: "timer", definition: deadlineBinding(t, coordination.DeadlineDispatcher{}).Definition(), input: encodedInput(t, deadline), payload: struct {
 			Deadline time.Time `json:"deadline"`
 			Reached  bool      `json:"reached"`
 		}{Deadline: deadline, Reached: true}},
@@ -124,7 +124,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 }
 
 func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
-	deadline := deadlineBinding(t, coordination.Timer{})
+	deadline := deadlineBinding(t, coordination.DeadlineDispatcher{})
 	first := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
 	spec := candidate(t, "one", deadline, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	for _, sample := range []struct {
@@ -176,7 +176,7 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 
 func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		timer := deadlineBinding(t, coordination.Timer{})
+		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		policyFailure := errors.New("business predicate could not evaluate the result")
 		for _, failedStarts := range []bool{false, true} {
 			definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) {
@@ -239,11 +239,11 @@ func TestTimerRejectsAnUnrelatedOperation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if policy := (coordination.Timer{}).ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
+		if policy := (coordination.DeadlineDispatcher{}).ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
 			t.Fatalf("unsupported operation received replay permission: %s", policy)
 		}
 	}
-	if _, err := (coordination.Timer{}).Dispatch(t.Context(), agent.EffectRequest{}, nil); !errors.Is(err, coordination.ErrInvalidProtocol) {
+	if _, err := (coordination.DeadlineDispatcher{}).Dispatch(t.Context(), agent.EffectRequest{}, nil); !errors.Is(err, coordination.ErrInvalidProtocol) {
 		t.Fatalf("unowned timer request = %v", err)
 	}
 }
@@ -273,13 +273,13 @@ func mutatedState(t testing.TB, state agent.ExecutionState, field string, value 
 type interruptedTimer struct{}
 
 func (interruptedTimer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return (coordination.Timer{}).ReplayPolicy(effect)
+	return (coordination.DeadlineDispatcher{}).ReplayPolicy(effect)
 }
 
 func (interruptedTimer) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	return (coordination.Timer{}).Dispatch(canceled, request, emit)
+	return (coordination.DeadlineDispatcher{}).Dispatch(canceled, request, emit)
 }
 
 func TestMalformedTimerSettlesWithoutUnknownOutcome(t *testing.T) {
@@ -288,6 +288,6 @@ func TestMalformedTimerSettlesWithoutUnknownOutcome(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		conformancetest.CheckDispatcherRejection(t, coordination.Timer{}, effect)
+		conformancetest.CheckDispatcherRejection(t, coordination.DeadlineDispatcher{}, effect)
 	}
 }

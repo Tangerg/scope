@@ -14,7 +14,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	done, err := NewCondition("world.done", True)
+	done, err := NewCondition("world.done", TruthTrue)
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestDispatcherReplaysOnlyObservationEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := NewCondition("world.done", True)
+	done, err := NewCondition("world.done", TruthTrue)
 	if err != nil {
 		t.Fatal(err)
 	}

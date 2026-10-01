@@ -11,7 +11,7 @@ import (
 func BenchmarkActionHistory(b *testing.B) {
 	for _, count := range []int{16, 64, 256, 1024} {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
-			fact, err := NewCondition("world.done", True)
+			fact, err := NewCondition("world.done", TruthTrue)
 			if err != nil {
 				b.Fatal(err)
 			}

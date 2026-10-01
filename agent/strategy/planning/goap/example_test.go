@@ -9,7 +9,7 @@ import (
 )
 
 func ExamplePlanner_Plan() {
-	ready, err := planning.NewCondition("service.ready", planning.True)
+	ready, err := planning.NewCondition("service.ready", planning.TruthTrue)
 	if err != nil {
 		panic(err)
 	}

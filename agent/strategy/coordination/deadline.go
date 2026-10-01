@@ -20,7 +20,7 @@ type DeadlineConfig struct {
 }
 
 // Deadline accepts an absolute time.Time and completes with that same instant
-// after Timer acknowledges reaching it. Step never reads the clock. Restoration
+// after DeadlineDispatcher acknowledges reaching it. Step never reads the clock. Restoration
 // retains the absolute deadline rather than restarting a relative delay.
 type Deadline struct{ descriptor agent.Descriptor }
 

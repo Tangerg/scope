@@ -7,25 +7,27 @@ const invalidEnumName = "invalid"
 type Mode string
 
 const (
-	Undecided Mode = ""
-	// Continue starts the next turn after action receipts, while tasks run.
-	Continue Mode = "continue"
-	// Wait starts the next turn after at least one outstanding task drains.
+	ModeUndecided Mode = ""
+	// ModeContinue starts the next turn after action receipts, while tasks run.
+	ModeContinue Mode = "continue"
+	// ModeWait starts the next turn after at least one outstanding task drains.
 	// If no tasks remain outstanding, failed-start receipts trigger the next turn.
 	// Older outstanding tasks still delay the turn when every new start fails;
-	// use Continue to process action receipts without waiting for those tasks.
-	Wait Mode = "wait"
-	// Complete ends this collaboration and cancels unfinished descendants.
-	Complete Mode = "complete"
+	// use ModeContinue to process action receipts without waiting for those tasks.
+	ModeWait Mode = "wait"
+	// ModeComplete ends this collaboration and cancels unfinished descendants.
+	ModeComplete Mode = "complete"
 )
 
-func (m Mode) Valid() bool { return m == Undecided || m == Continue || m == Wait || m == Complete }
+func (m Mode) Valid() bool {
+	return m == ModeUndecided || m == ModeContinue || m == ModeWait || m == ModeComplete
+}
 
 func (m Mode) String() string {
 	if !m.Valid() {
 		return invalidEnumName
 	}
-	if m == Undecided {
+	if m == ModeUndecided {
 		return "undecided"
 	}
 	return string(m)
@@ -76,7 +78,7 @@ type Turn struct {
 }
 
 // Decision is the coordinator's output contract. The entire batch is validated
-// before any action is declared. Complete requires Output and no actions; other
+// before any action is declared. ModeComplete requires Output and no actions; other
 // modes require a zero Output. An explicit JSON null is a present Output.
 // Input and Output retain the configured domain schemas.
 type Decision struct {
@@ -89,11 +91,11 @@ type Decision struct {
 
 func (d Decision) validateShape() error {
 	switch d.Mode {
-	case Complete:
+	case ModeComplete:
 		if !d.Output.Valid() || len(d.Tasks) != 0 || len(d.Controls) != 0 {
 			return ErrInvalidDecision
 		}
-	case Continue, Wait:
+	case ModeContinue, ModeWait:
 		if d.Output.Valid() {
 			return ErrInvalidDecision
 		}

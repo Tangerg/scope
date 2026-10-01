@@ -20,7 +20,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 	gate := newTreeCommitterCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitEffectResolved, phase: phase,
 	})
-	step := crashSucceededDispatchStep(t)
+	step := crashSucceededCall(t)
 	step.SettlementStatus = agent.SettlementStatusUnknown
 	deployment, dispatcher := newCrashDeployment(t, conformanceModeEffect, agent.ReplayPolicyNever, step)
 	engine := newCrashEngine(t, gate, nil)

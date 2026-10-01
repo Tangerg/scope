@@ -91,11 +91,11 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 					switch turn.Number {
 					case 1:
-						return Decision{Mode: Continue, State: turn.State, Tasks: []TaskRequest{request("receiver", "test.paused", "work")}}, nil
+						return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("receiver", "test.paused", "work")}}, nil
 					case 2:
 						signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:durable-control")), agent.WaitID{}, []byte(`"direction"`)))
 						reason := "Stop receiver."
-						return Decision{Mode: Wait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}}, nil
+						return Decision{Mode: ModeWait, State: turn.State, Controls: []Control{{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}}, nil
 					default:
 						if turn.Number != 3 || len(turn.Controls) != 2 || turn.Tasks[0].Outcome == nil {
 							return Decision{}, errors.New("incomplete recovery")

@@ -21,7 +21,7 @@ func TestTimerRejectsNilContextBeforeProtocolValidation(t *testing.T) {
 		}
 	}()
 	var nilContext context.Context
-	_, _ = (coordination.Timer{}).Dispatch(nilContext, agent.EffectRequest{}, nil)
+	_, _ = (coordination.DeadlineDispatcher{}).Dispatch(nilContext, agent.EffectRequest{}, nil)
 }
 
 func TestDeadlineRestoresTheSameAbsoluteTimerAndEffectIdentity(t *testing.T) {
@@ -111,7 +111,7 @@ func TestDeadlineCancellationStopsOwnedTimerWithoutAdvancingTime(t *testing.T) {
 
 func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		deployment := deadlineBinding(t, coordination.Timer{})
+		deployment := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		if _, err := deployment.Definition().Start(encodedInput(t, time.Time{})); !errors.Is(err, agent.ErrInvalidPayload) {
 			t.Fatalf("zero deadline = %v", err)
 		}
@@ -132,7 +132,7 @@ func TestDeadlineAcceptsPastInstantAndRejectsZero(t *testing.T) {
 }
 
 func TestDeadlineDefinitionConformance(t *testing.T) {
-	deployment := deadlineBinding(t, coordination.Timer{})
+	deployment := deadlineBinding(t, coordination.DeadlineDispatcher{})
 	definition := deployment.Definition()
 	input := encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC))
 	execution, err := definition.Start(input)
@@ -163,14 +163,14 @@ type recordingTimer struct {
 }
 
 func (r *recordingTimer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return (coordination.Timer{}).ReplayPolicy(effect)
+	return (coordination.DeadlineDispatcher{}).ReplayPolicy(effect)
 }
 
 func (r *recordingTimer) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	r.mu.Lock()
 	r.requests = append(r.requests, request.ID())
 	r.mu.Unlock()
-	return (coordination.Timer{}).Dispatch(ctx, request, emit)
+	return (coordination.DeadlineDispatcher{}).Dispatch(ctx, request, emit)
 }
 
 func (r *recordingTimer) identities() []agent.EffectID {
@@ -184,7 +184,7 @@ func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
 		`{"deadline":"2026-09-10T12:00:00Z","reached":true}`,
 		`{"deadline":42,"reached":true}`,
 	} {
-		dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Steps: []agenttest.DispatchStep{{SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(payload)}}})
+		dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{{SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(payload)}}})
 		if err != nil {
 			t.Fatal(err)
 		}

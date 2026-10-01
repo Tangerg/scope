@@ -159,7 +159,7 @@ A missing convenience API does not by itself prove a missing runtime capability.
 
 ### Bounded reactive coordination
 
-A coordinator can represent independent sources of progress as owned child executions. The [coordination package](../agent/strategy/coordination/doc.go) provides InputGate, which completes with the original admitted Signal, and Deadline, backed by the cancellable Timer Dispatcher. Its checked example composes these Definitions with an independent workflow worker and FirstSuccess under one ownership scope.
+A coordinator can represent independent sources of progress as owned child executions. The [coordination package](../agent/strategy/coordination/doc.go) provides InputGate, which completes with the original admitted Signal, and Deadline, backed by the cancellable DeadlineDispatcher. Its checked example composes these Definitions with an independent workflow worker and FirstSuccess under one ownership scope.
 
 ```mermaid
 flowchart TB
@@ -176,7 +176,7 @@ Slow work belongs in worker children when the coordinator must remain responsive
 
 This construction guarantees a decision after a selected child becomes terminal. It does not guarantee that the first raw input admitted anywhere in the tree wins. An input gate needs a Step after admission before it becomes terminal. `AnyChild` reports terminal outcomes in request order; it is not an earliest-event arbitration primitive. See [child waiting](../agent/child_wait.go).
 
-Deadline retains an absolute instant, so replay under the same Effect identity does not restart a relative delay. Timer cancellation releases the wait and returns a definite interrupted result; a settled Unknown still requires the existing adjudication path. The [deadline tests](../agent/strategy/coordination/deadline_test.go) check recovery, cancellation, and retained identity and resource charges. Other timing adapters must establish the same contract; a sleeping goroutine alone does not.
+Deadline retains an absolute instant, so replay under the same Effect identity does not restart a relative delay. DeadlineDispatcher cancellation releases the wait and returns a definite interrupted result; a settled Unknown still requires the existing adjudication path. The [deadline tests](../agent/strategy/coordination/deadline_test.go) check recovery, cancellation, and retained identity and resource charges. Other timing adapters must establish the same contract; a sleeping goroutine alone does not.
 
 Repeated gates consume child and Signal allocations. The construction fits bounded coordination episodes. Its resource cost and input-routing contract must be part of any reusable abstraction built from it.
 

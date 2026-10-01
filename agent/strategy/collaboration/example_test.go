@@ -115,20 +115,20 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 	decision := collaboration.Decision{State: turn.State}
 	switch turn.Number {
 	case 1:
-		decision.Mode = collaboration.Continue
+		decision.Mode = collaboration.ModeContinue
 		decision.Tasks = []collaboration.TaskRequest{{Key: exampleValue(agent.ParseChildKey("input")), Worker: "example.input", Input: turn.State}}
 	case 2:
 		if len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil || turn.Tasks[0].Outcome != nil {
 			return decision, errors.New("background input task was not outstanding")
 		}
-		decision.Mode = collaboration.Wait
+		decision.Mode = collaboration.ModeWait
 		reason := "No replacement instruction is needed."
 		decision.Controls = []collaboration.Control{{Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}
 	case 3:
 		if turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusCanceled {
 			return decision, errors.New("input cancellation did not drain")
 		}
-		decision.Mode = collaboration.Wait
+		decision.Mode = collaboration.ModeWait
 		decision.Tasks = []collaboration.TaskRequest{{Key: exampleValue(agent.ParseChildKey("review")), Worker: "example.reviewer", Input: turn.State}}
 	case 4:
 		if len(turn.Tasks) != 2 || turn.Tasks[1].Outcome == nil {
@@ -146,7 +146,7 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 		if err != nil {
 			return decision, err
 		}
-		decision.Mode, decision.Output = collaboration.Complete, final
+		decision.Mode, decision.Output = collaboration.ModeComplete, final
 	default:
 		return decision, errors.New("unexpected coordinator turn")
 	}

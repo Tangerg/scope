@@ -351,7 +351,7 @@ func runCrashBeforePendingCommit(t *testing.T, store TreeCommitterConformanceDri
 	})
 	deployment, dispatcher := newCrashDeployment(
 		t, conformanceModeEffect, agent.ReplayPolicyNever,
-		crashSucceededDispatchStep(t),
+		crashSucceededCall(t),
 	)
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
@@ -409,7 +409,7 @@ func runCrashBeforeSettledCommit(t *testing.T, store TreeCommitterConformanceDri
 	})
 	deployment, dispatcher := newCrashDeployment(
 		t, conformanceModeEffect, agent.ReplayPolicyNever,
-		crashSucceededDispatchStep(t),
+		crashSucceededCall(t),
 	)
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
@@ -440,7 +440,7 @@ func runCrashAfterSettledCommit(t *testing.T, store TreeCommitterConformanceDriv
 	})
 	deployment, dispatcher := newCrashDeployment(
 		t, conformanceModeEffect, agent.ReplayPolicyNever,
-		crashSucceededDispatchStep(t),
+		crashSucceededCall(t),
 	)
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
@@ -494,7 +494,7 @@ func runCrashAfterTerminalCommit(t *testing.T, store TreeCommitterConformanceDri
 	})
 	deployment, _ := newCrashDeployment(
 		t, conformanceModeEffect, agent.ReplayPolicyNever,
-		crashSucceededDispatchStep(t),
+		crashSucceededCall(t),
 	)
 	recorder := &ObservationRecorder{}
 	engine := newCrashEngine(t, gate, recorder)
@@ -596,13 +596,13 @@ func newCrashDeployment(
 	t *testing.T,
 	mode conformanceMode,
 	replayPolicy agent.ReplayPolicy,
-	steps ...DispatchStep,
+	steps ...ScriptedCall,
 ) (agent.Deployment, *ScriptedDispatcher) {
 	t.Helper()
 	descriptor := conformanceDescriptor(t, crashDeploymentName, crashDeploymentDescription)
 	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{
 		ReplayPolicy: replayPolicy,
-		Steps:        steps,
+		Calls:        steps,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -619,13 +619,13 @@ func newCrashDeployment(
 	return deployment, dispatcher
 }
 
-func crashSucceededDispatchStep(t *testing.T) DispatchStep {
+func crashSucceededCall(t *testing.T) ScriptedCall {
 	t.Helper()
 	payload, err := jsonv2.Marshal(conformanceOutput{Value: crashInputValue})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return DispatchStep{
+	return ScriptedCall{
 		SettlementStatus:  agent.SettlementStatusSucceeded,
 		SettlementPayload: payload,
 	}

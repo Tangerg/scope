@@ -12,7 +12,7 @@ import (
 )
 
 func TestDefinitionConformance(t *testing.T) {
-	condition := mustCondition(t, "conformance.ready", planning.True)
+	condition := mustCondition(t, "conformance.ready", planning.TruthTrue)
 	refused := mustAction(t, planning.ActionConfig{
 		Name: "refused", Description: "Attempt the cheapest route.",
 		Effects: []planning.Condition{condition}, Cost: planning.FixedCost(1),
@@ -77,7 +77,7 @@ func TestDefinitionConformance(t *testing.T) {
 }
 
 func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
-	condition := mustCondition(t, "world.ready", planning.True)
+	condition := mustCondition(t, "world.ready", planning.TruthTrue)
 	definition := newManagedDefinition(t, managedDeploymentConfig{goal: mustGoal(t, condition)})
 	dispatcher, err := planning.NewDispatcher(definition, planning.DispatcherConfig{
 		Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
@@ -105,7 +105,7 @@ func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
 }
 
 func TestDefinitionRejectsFiniteZeroActionAttempts(t *testing.T) {
-	condition := mustCondition(t, "goal.done", planning.True)
+	condition := mustCondition(t, "goal.done", planning.TruthTrue)
 	schema, err := agent.SchemaFor[struct{}]()
 	if err != nil {
 		t.Fatal(err)

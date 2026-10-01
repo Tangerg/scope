@@ -220,11 +220,11 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	incomplete, err := planning.NewCondition("review.complete", planning.False)
+	incomplete, err := planning.NewCondition("review.complete", planning.TruthFalse)
 	if err != nil {
 		t.Fatal(err)
 	}
-	complete, err := planning.NewCondition("review.complete", planning.True)
+	complete, err := planning.NewCondition("review.complete", planning.TruthTrue)
 	if err != nil {
 		t.Fatal(err)
 	}

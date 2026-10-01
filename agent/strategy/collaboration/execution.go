@@ -64,7 +64,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 		return agent.Transition{}, err
 	}
 	e.state.Turn = &turnExecution{Input: turn}
-	e.state.Mode = Undecided
+	e.state.Mode = ModeUndecided
 	e.state.WaitID = nil
 	return agent.Continue(consumed, effect)
 }
@@ -171,7 +171,7 @@ func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Trans
 		}
 		return agent.Fail(consumed, failure)
 	}
-	if e.state.Mode == Wait {
+	if e.state.Mode == ModeWait {
 		return e.startTurn(consumed)
 	}
 	result := e.state.Turn.Outcome.Result()
@@ -261,7 +261,7 @@ func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32
 }
 
 func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
-	if e.state.Mode == Wait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
+	if e.state.Mode == ModeWait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
 		return e.openWait(consumed)
 	}
 	return e.startTurn(consumed)
@@ -297,7 +297,7 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 	for _, control := range decision.Controls {
 		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
 	}
-	if decision.Mode == Complete {
+	if decision.Mode == ModeComplete {
 		e.state.Output = decision.Output
 		return agent.Complete(consumed, decision.Output)
 	}

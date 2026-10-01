@@ -34,11 +34,11 @@ func chainProblem(b *testing.B, count int) planning.Problem {
 	for index := range count {
 		key := fmt.Sprintf("fact.%03d", index)
 		var err error
-		truths[index], err = planning.NewCondition(key, planning.True)
+		truths[index], err = planning.NewCondition(key, planning.TruthTrue)
 		if err != nil {
 			b.Fatal(err)
 		}
-		facts[index], err = planning.NewCondition(key, planning.False)
+		facts[index], err = planning.NewCondition(key, planning.TruthFalse)
 		if err != nil {
 			b.Fatal(err)
 		}

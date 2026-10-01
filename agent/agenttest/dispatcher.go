@@ -20,11 +20,11 @@ var (
 	ErrEffectMismatch        = errors.New("agenttest: effect does not match script")
 )
 
-// DispatchStep describes one expected Dispatcher call and its deterministic
+// ScriptedCall describes one expected Dispatcher call and its deterministic
 // stream and settlement outcome. ExpectedEffect is optional; when present, the
 // complete immutable Effect must match. Error may follow emitted Deltas and is
 // mutually exclusive with SettlementStatus and SettlementPayload.
-type DispatchStep struct {
+type ScriptedCall struct {
 	ExpectedEffect *agent.Effect
 	// Deltas are emitted in declaration order before the final outcome.
 	Deltas            []json.RawMessage
@@ -36,11 +36,11 @@ type DispatchStep struct {
 
 type ScriptedDispatcherConfig struct {
 	ReplayPolicy agent.ReplayPolicy
-	// Steps are consumed in actual Dispatch order.
-	Steps []DispatchStep
+	// Calls are consumed in actual Dispatch order.
+	Calls []ScriptedCall
 }
 
-type dispatchStep struct {
+type frozenCall struct {
 	expectedEffectJSON []byte
 	deltas             []json.RawMessage
 	settlementStatus   agent.SettlementStatus
@@ -55,7 +55,7 @@ type ScriptedDispatcher struct {
 	replayPolicy agent.ReplayPolicy
 
 	mu       sync.Mutex
-	steps    []dispatchStep
+	calls    []frozenCall
 	next     int
 	requests []agent.EffectRequest
 }
@@ -66,50 +66,50 @@ func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher
 	if !config.ReplayPolicy.Valid() {
 		return nil, fmt.Errorf("%w: ReplayPolicy is required", ErrInvalidDispatchScript)
 	}
-	steps := make([]dispatchStep, len(config.Steps))
-	for index, source := range config.Steps {
-		step, err := freezeDispatchStep(source)
+	calls := make([]frozenCall, len(config.Calls))
+	for index, source := range config.Calls {
+		call, err := freezeCall(source)
 		if err != nil {
-			return nil, fmt.Errorf("%w: Steps[%d]: %w", ErrInvalidDispatchScript, index, err)
+			return nil, fmt.Errorf("%w: Calls[%d]: %w", ErrInvalidDispatchScript, index, err)
 		}
-		steps[index] = step
+		calls[index] = call
 	}
-	return &ScriptedDispatcher{replayPolicy: config.ReplayPolicy, steps: steps}, nil
+	return &ScriptedDispatcher{replayPolicy: config.ReplayPolicy, calls: calls}, nil
 }
 
-func freezeDispatchStep(source DispatchStep) (dispatchStep, error) {
-	step := dispatchStep{settlementStatus: source.SettlementStatus, err: source.Error}
+func freezeCall(source ScriptedCall) (frozenCall, error) {
+	call := frozenCall{settlementStatus: source.SettlementStatus, err: source.Error}
 	if source.ExpectedEffect != nil {
 		if !source.ExpectedEffect.Valid() {
-			return dispatchStep{}, agent.ErrInvalidEffect
+			return frozenCall{}, agent.ErrInvalidEffect
 		}
 		encoded, err := jsonv2.Marshal(*source.ExpectedEffect)
 		if err != nil {
-			return dispatchStep{}, fmt.Errorf("encode expected Effect: %w", err)
+			return frozenCall{}, fmt.Errorf("encode expected Effect: %w", err)
 		}
-		step.expectedEffectJSON = encoded
+		call.expectedEffectJSON = encoded
 	}
-	step.deltas = make([]json.RawMessage, len(source.Deltas))
+	call.deltas = make([]json.RawMessage, len(source.Deltas))
 	for index, delta := range source.Deltas {
 		if !jsontext.Value(delta).IsValid() {
-			return dispatchStep{}, fmt.Errorf("deltas[%d] is not valid JSON", index)
+			return frozenCall{}, fmt.Errorf("deltas[%d] is not valid JSON", index)
 		}
-		step.deltas[index] = bytes.Clone(delta)
+		call.deltas[index] = bytes.Clone(delta)
 	}
 	if source.Error != nil {
 		if source.SettlementStatus != agent.SettlementStatusInvalid || len(source.SettlementPayload) != 0 {
-			return dispatchStep{}, errors.New("error cannot be combined with a settlement")
+			return frozenCall{}, errors.New("error cannot be combined with a settlement")
 		}
-		return step, nil
+		return call, nil
 	}
 	if !source.SettlementStatus.Valid() {
-		return dispatchStep{}, errors.New("settlement status is required")
+		return frozenCall{}, errors.New("settlement status is required")
 	}
 	if !jsontext.Value(source.SettlementPayload).IsValid() {
-		return dispatchStep{}, errors.New("settlement payload is not valid JSON")
+		return frozenCall{}, errors.New("settlement payload is not valid JSON")
 	}
-	step.settlementPayload = bytes.Clone(source.SettlementPayload)
-	return step, nil
+	call.settlementPayload = bytes.Clone(source.SettlementPayload)
+	return call, nil
 }
 
 func (s *ScriptedDispatcher) Dispatch(
@@ -123,26 +123,26 @@ func (s *ScriptedDispatcher) Dispatch(
 	if s == nil {
 		return agent.Settlement{}, ErrInvalidDispatchScript
 	}
-	step, err := s.consume(request)
+	call, err := s.consume(request)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return step.dispatch(request, emit)
+	return call.dispatch(request, emit)
 }
 
-func (s *ScriptedDispatcher) consume(request agent.EffectRequest) (dispatchStep, error) {
+func (s *ScriptedDispatcher) consume(request agent.EffectRequest) (frozenCall, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requests = append(s.requests, request)
-	if s.next >= len(s.steps) {
-		return dispatchStep{}, ErrUnexpectedDispatch
+	if s.next >= len(s.calls) {
+		return frozenCall{}, ErrUnexpectedDispatch
 	}
-	step := s.steps[s.next]
+	call := s.calls[s.next]
 	s.next++
-	return step, nil
+	return call, nil
 }
 
-func (d dispatchStep) dispatch(
+func (d frozenCall) dispatch(
 	request agent.EffectRequest,
 	emit agent.DeltaEmitter,
 ) (agent.Settlement, error) {
@@ -164,7 +164,7 @@ func (d dispatchStep) dispatch(
 	return agent.NewSettlement(request.ID(), d.settlementStatus, d.settlementPayload)
 }
 
-func (d dispatchStep) matches(effect agent.Effect) (bool, error) {
+func (d frozenCall) matches(effect agent.Effect) (bool, error) {
 	if d.expectedEffectJSON == nil {
 		return true, nil
 	}
@@ -199,5 +199,5 @@ func (s *ScriptedDispatcher) Remaining() int {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.steps) - s.next
+	return len(s.calls) - s.next
 }

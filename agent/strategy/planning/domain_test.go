@@ -13,30 +13,30 @@ import (
 )
 
 func TestWorldStatePreservesThreeValuedImmutableFacts(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.True)
-	disabled := mustCondition(t, "world.disabled", planning.False)
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
+	disabled := mustCondition(t, "world.disabled", planning.TruthFalse)
 	input := []planning.Condition{ready, disabled}
 	state := mustWorldState(t, input...)
-	input[0] = mustCondition(t, "world.replaced", planning.True)
+	input[0] = mustCondition(t, "world.replaced", planning.TruthTrue)
 
-	if state.Truth("world.ready") != planning.True || state.Truth("world.disabled") != planning.False ||
-		state.Truth("world.missing") != planning.Unknown {
+	if state.Truth("world.ready") != planning.TruthTrue || state.Truth("world.disabled") != planning.TruthFalse ||
+		state.Truth("world.missing") != planning.TruthUnknown {
 		t.Fatalf("unexpected truth projection: %#v", state.Conditions())
 	}
 	conditions := state.Conditions()
 	if got := []string{conditions[0].Key(), conditions[1].Key()}; !slices.Equal(got, []string{"world.disabled", "world.ready"}) {
 		t.Fatalf("condition order = %v", got)
 	}
-	conditions[0] = mustCondition(t, "world.mutated", planning.True)
-	if state.Truth("world.disabled") != planning.False {
+	conditions[0] = mustCondition(t, "world.mutated", planning.TruthTrue)
+	if state.Truth("world.disabled") != planning.TruthFalse {
 		t.Fatal("Conditions exposed mutable storage")
 	}
 
-	updated, err := state.Apply(mustCondition(t, "world.ready", planning.False))
+	updated, err := state.Apply(mustCondition(t, "world.ready", planning.TruthFalse))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Truth("world.ready") != planning.True || updated.Truth("world.ready") != planning.False ||
+	if state.Truth("world.ready") != planning.TruthTrue || updated.Truth("world.ready") != planning.TruthFalse ||
 		state.Key() == updated.Key() {
 		t.Fatalf("immutable apply failed: before=%s after=%s", state.Key(), updated.Key())
 	}
@@ -44,15 +44,15 @@ func TestWorldStatePreservesThreeValuedImmutableFacts(t *testing.T) {
 
 func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
 	state := mustWorldState(t,
-		mustCondition(t, "b", planning.False),
-		mustCondition(t, "d", planning.True),
+		mustCondition(t, "b", planning.TruthFalse),
+		mustCondition(t, "d", planning.TruthTrue),
 	)
 	effects := []planning.Condition{
-		mustCondition(t, "e", planning.True),
-		mustCondition(t, "b", planning.True),
-		mustCondition(t, "a", planning.False),
-		mustCondition(t, "e", planning.False),
-		mustCondition(t, "c", planning.True),
+		mustCondition(t, "e", planning.TruthTrue),
+		mustCondition(t, "b", planning.TruthTrue),
+		mustCondition(t, "a", planning.TruthFalse),
+		mustCondition(t, "e", planning.TruthFalse),
+		mustCondition(t, "c", planning.TruthTrue),
 	}
 	before := slices.Clone(effects)
 	updated, err := state.Apply(effects...)
@@ -63,8 +63,8 @@ func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
 		!slices.Equal(effects, before) {
 		t.Fatalf("apply changed its inputs or facts: %s -> %s", state.Key(), updated.Key())
 	}
-	effects[0] = mustCondition(t, "z", planning.True)
-	if updated.Truth("z") != planning.Unknown {
+	effects[0] = mustCondition(t, "z", planning.TruthTrue)
+	if updated.Truth("z") != planning.TruthUnknown {
 		t.Fatal("successor retained caller effects")
 	}
 	if unchanged, applyErr := state.Apply(); applyErr != nil || unchanged.Key() != state.Key() {
@@ -77,8 +77,8 @@ func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
 
 func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 	state := mustWorldState(t,
-		mustCondition(t, "world.alpha", planning.True),
-		mustCondition(t, "world.beta", planning.False),
+		mustCondition(t, "world.alpha", planning.TruthTrue),
+		mustCondition(t, "world.beta", planning.TruthFalse),
 	)
 	data, err := jsonv2.Marshal(state)
 	if err != nil {
@@ -101,37 +101,37 @@ func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 }
 
 func TestGoalAndActionOwnConstructionInputs(t *testing.T) {
-	required := []planning.Condition{mustCondition(t, "world.done", planning.True)}
+	required := []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}
 	goal, err := planning.NewGoal(planning.GoalConfig{
 		Name: "goal.done", Description: "Make the world done.", Conditions: required,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	required[0] = mustCondition(t, "world.changed", planning.True)
+	required[0] = mustCondition(t, "world.changed", planning.TruthTrue)
 	if goal.Conditions()[0].Key() != "world.done" {
 		t.Fatal("Goal retained caller slice")
 	}
 
-	preconditions := []planning.Condition{mustCondition(t, "world.ready", planning.True)}
-	effects := []planning.Condition{mustCondition(t, "world.done", planning.True)}
+	preconditions := []planning.Condition{mustCondition(t, "world.ready", planning.TruthTrue)}
+	effects := []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}
 	action := mustAction(t, planning.ActionConfig{
 		Name: "action.finish", Description: "Finish the work.",
 		Preconditions: preconditions, Effects: effects,
 	})
-	preconditions[0] = mustCondition(t, "world.changed", planning.True)
-	effects[0] = mustCondition(t, "world.changed", planning.False)
+	preconditions[0] = mustCondition(t, "world.changed", planning.TruthTrue)
+	effects[0] = mustCondition(t, "world.changed", planning.TruthFalse)
 	if action.Preconditions()[0].Key() != "world.ready" || action.Effects()[0].Key() != "world.done" {
 		t.Fatal("Action retained caller slices")
 	}
-	cost, err := action.Cost(mustWorldState(t, mustCondition(t, "world.ready", planning.True)))
+	cost, err := action.Cost(mustWorldState(t, mustCondition(t, "world.ready", planning.TruthTrue)))
 	if err != nil || cost != 1 {
 		t.Fatalf("default cost = %v, error = %v", cost, err)
 	}
 }
 
 func TestActionRejectsPredictiveNoOpAndInvalidCosts(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.True)
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
 	_, err := planning.NewAction(planning.ActionConfig{
 		Name: "action.noop", Description: "Predict no state change.",
 		Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{ready},
@@ -156,7 +156,7 @@ func TestActionRejectsPredictiveNoOpAndInvalidCosts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			action := mustAction(t, planning.ActionConfig{
 				Name: "action.cost", Description: "Evaluate one test cost.",
-				Effects: []planning.Condition{mustCondition(t, "world.done", planning.True)}, Cost: test.cost,
+				Effects: []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}, Cost: test.cost,
 			})
 			_, err := action.Cost(planning.WorldState{})
 			if !errors.Is(err, planning.ErrInvalidActionCost) || !errors.Is(err, test.want) {
@@ -167,8 +167,8 @@ func TestActionRejectsPredictiveNoOpAndInvalidCosts(t *testing.T) {
 }
 
 func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.True)
-	done := mustCondition(t, "world.done", planning.True)
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	action := mustAction(t, planning.ActionConfig{
 		Name: "action.finish", Description: "Finish ready work.",
 		Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done}, Cost: planning.FixedCost(2),
@@ -201,7 +201,7 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 }
 
 func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.True)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
 	succeeded := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptSucceeded}
 	failed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptFailed, Diagnostic: "refused"}
 	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed, Diagnostic: "not observed"}
@@ -300,7 +300,7 @@ func TestValidatePlanStopsAfterCanceledCost(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			calls := 0
-			done := mustCondition(t, "world.done", planning.True)
+			done := mustCondition(t, "world.done", planning.TruthTrue)
 			action := mustAction(t, planning.ActionConfig{Name: "action.finish", Description: "Finish work.", Effects: []planning.Condition{done}, Cost: func(planning.WorldState) (float64, error) {
 				calls++
 				cancel()

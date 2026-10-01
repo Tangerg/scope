@@ -4,12 +4,12 @@
 // Model-backed coordinators compose an interaction Strategy with a workflow
 // adapter that renders Turn and decodes Decision. This package owns no model
 // conversion, dispatcher, scheduler, mailbox, persistence, or product session.
-// Construction freezes only child references, descriptors, budgets, and
-// capabilities; the Engine resolves the executable Deployments. The root
-// Descriptor owns the carried-state and final-output schemas.
+// Construction binds the coordinator and worker Deployments with their budgets
+// and capabilities, and the Engine starts children from those bindings. The
+// root Descriptor owns the carried-state and final-output schemas.
 //
-// Continue runs another coordinator turn while workers remain active. Wait
-// observes at least one drained task before running the next turn. Every wait
+// ModeContinue runs another coordinator turn while workers remain active.
+// ModeWait observes at least one drained task before running the next turn. Every wait
 // also observes workers that finish while the current coordinator is running;
 // those facts appear in its successor's Turn without preempting a decision.
 // Start failures, task failures, and control rejections remain explicit facts.
@@ -46,6 +46,6 @@
 //
 // Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
 // Engine-owned settlements are consumed only at their matching protocol phase;
-// Wait openings may share a window with the following completion. InputGate
+// Child-wait openings may share a window with the following completion. InputGate
 // replies, when used as children, must address the child's current WaitID.
 package collaboration

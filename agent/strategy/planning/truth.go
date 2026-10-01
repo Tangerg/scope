@@ -9,20 +9,20 @@ import (
 
 const invalidEnumName = "invalid"
 
-// Truth is the three-valued truth of one observed condition. Unknown is not a
-// synonym for False: it means the current WorldState does not establish either
+// Truth is the three-valued truth of one observed condition. TruthUnknown is
+// not a synonym for TruthFalse: it means the current WorldState does not establish either
 // known value. The zero value is invalid; callers must choose explicitly.
 type Truth string
 
 const (
-	Unknown Truth = "unknown"
-	False   Truth = "false"
-	True    Truth = "true"
+	TruthUnknown Truth = "unknown"
+	TruthFalse   Truth = "false"
+	TruthTrue    Truth = "true"
 )
 
-func (t Truth) Valid() bool { return t == Unknown || t == False || t == True }
+func (t Truth) Valid() bool { return t == TruthUnknown || t == TruthFalse || t == TruthTrue }
 
-func (t Truth) known() bool { return t == False || t == True }
+func (t Truth) known() bool { return t == TruthFalse || t == TruthTrue }
 
 func (t Truth) String() string {
 	if !t.Valid() {

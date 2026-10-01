@@ -75,7 +75,7 @@ func (e executionState) phase() phase {
 		return phaseCompleted
 	case e.Turn.Start == nil:
 		return phaseStartingTurn
-	case e.Mode == Undecided && e.Turn.ended():
+	case e.Mode == ModeUndecided && e.Turn.ended():
 		return phaseFailed
 	case e.unapplied() != 0:
 		return phaseApplying
@@ -277,7 +277,7 @@ func (e executionState) validateBounds(d *Definition) error {
 }
 
 func (e executionState) validateReady() error {
-	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != Undecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
+	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != ModeUndecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
 		return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
 	}
 	return nil
@@ -311,24 +311,24 @@ func (e executionState) validatePhaseProgress(d *Definition, current phase) erro
 }
 
 func (e executionState) validateStartingTurn() error {
-	if e.Turn.Outcome != nil || e.Mode != Undecided {
+	if e.Turn.Outcome != nil || e.Mode != ModeUndecided {
 		return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateApplying() error {
-	if e.Turn.Outcome == nil || e.Mode != Continue && e.Mode != Wait {
+	if e.Turn.Outcome == nil || e.Mode != ModeContinue && e.Mode != ModeWait {
 		return fmt.Errorf("%w: applying phase requires a continuing decision and pending work", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateWaitingTurn(d *Definition) error {
-	if e.Mode == Wait && e.hasUnseenOutcome() {
+	if e.Mode == ModeWait && e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
 	}
-	if e.Turn.Outcome == nil && e.Mode != Undecided || e.Turn.Outcome != nil && e.Mode != Wait {
+	if e.Turn.Outcome == nil && e.Mode != ModeUndecided || e.Turn.Outcome != nil && e.Mode != ModeWait {
 		return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidExecutionState)
 	}
 	if _, err := e.waitSpec(d); err != nil {
@@ -338,7 +338,7 @@ func (e executionState) validateWaitingTurn(d *Definition) error {
 }
 
 func (e executionState) validateCompleted(d *Definition) error {
-	if e.Turn.Outcome == nil || e.Mode != Complete {
+	if e.Turn.Outcome == nil || e.Mode != ModeComplete {
 		return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidExecutionState)
 	}
 	if err := d.descriptor.ValidateOutput(e.Output); err != nil {
@@ -443,7 +443,7 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := e.validateTurnStart(d, ids, current); err != nil {
 		return err
 	}
-	if e.Mode == Undecided {
+	if e.Mode == ModeUndecided {
 		return e.validateUndecidedTurn(current)
 	}
 	return e.validateAppliedDecision(ctx, d)
@@ -602,7 +602,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 	if err := decision.validateShape(); err != nil {
 		return err
 	}
-	if decision.Mode == Complete {
+	if decision.Mode == ModeComplete {
 		if err := definition.descriptor.ValidateOutput(decision.Output); err != nil {
 			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
 		}
@@ -617,7 +617,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 	if err := e.validateActions(ctx, definition, decision); err != nil {
 		return err
 	}
-	if decision.Mode == Wait && remaining+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
+	if decision.Mode == ModeWait && remaining+len(decision.Tasks) == 0 && !e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: wait has no outstanding tasks", ErrInvalidDecision)
 	}
 	return ctx.Err()

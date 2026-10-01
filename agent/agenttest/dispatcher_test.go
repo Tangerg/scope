@@ -24,7 +24,7 @@ func TestNewScriptedDispatcherRejectsContradictorySteps(t *testing.T) {
 			name: "invalid delta",
 			config: agenttest.ScriptedDispatcherConfig{
 				ReplayPolicy: agent.ReplayPolicyNever,
-				Steps: []agenttest.DispatchStep{{
+				Calls: []agenttest.ScriptedCall{{
 					Deltas:            []json.RawMessage{json.RawMessage(`{`)},
 					SettlementStatus:  agent.SettlementStatusSucceeded,
 					SettlementPayload: json.RawMessage(`{}`),
@@ -35,7 +35,7 @@ func TestNewScriptedDispatcherRejectsContradictorySteps(t *testing.T) {
 			name: "error and settlement",
 			config: agenttest.ScriptedDispatcherConfig{
 				ReplayPolicy: agent.ReplayPolicyNever,
-				Steps: []agenttest.DispatchStep{{
+				Calls: []agenttest.ScriptedCall{{
 					SettlementStatus:  agent.SettlementStatusFailed,
 					SettlementPayload: json.RawMessage(`{}`),
 					Error:             injected,
@@ -61,7 +61,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 			}
 			dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
 				ReplayPolicy: agent.ReplayPolicySameIdentity,
-				Steps: []agenttest.DispatchStep{{
+				Calls: []agenttest.ScriptedCall{{
 					ExpectedEffect:    &effect,
 					Deltas:            []json.RawMessage{json.RawMessage(`{"token":"hello"}`)},
 					SettlementStatus:  status,
@@ -83,7 +83,7 @@ func TestScriptedDispatcherRunsThroughPublicEngineBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			mismatched, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Steps: []agenttest.DispatchStep{{ExpectedEffect: &other, SettlementStatus: status, SettlementPayload: []byte(`{}`)}}})
+			mismatched, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{{ExpectedEffect: &other, SettlementStatus: status, SettlementPayload: []byte(`{}`)}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -223,7 +223,7 @@ func TestScriptedDispatcherSettlementStatuses(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			_, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
 				ReplayPolicy: agent.ReplayPolicyNever,
-				Steps:        []agenttest.DispatchStep{{SettlementStatus: status, SettlementPayload: json.RawMessage(`{}`)}},
+				Calls:        []agenttest.ScriptedCall{{SettlementStatus: status, SettlementPayload: json.RawMessage(`{}`)}},
 			})
 			valid := status == agent.SettlementStatusSucceeded || status == agent.SettlementStatusFailed || status == agent.SettlementStatusUnknown
 			if valid && err != nil || !valid && !errors.Is(err, agenttest.ErrInvalidDispatchScript) {

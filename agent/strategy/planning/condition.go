@@ -8,8 +8,8 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-// Condition is one immutable known truth requirement or prediction. Unknown is
-// represented by absence from a WorldState and therefore cannot be stored in a
+// Condition is one immutable known truth requirement or prediction.
+// TruthUnknown is represented by absence from a WorldState and therefore cannot be stored in a
 // Condition.
 type Condition struct {
 	key   string
