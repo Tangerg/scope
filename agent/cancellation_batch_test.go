@@ -71,11 +71,11 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 				if !effect.definitelySettled() || string(effect.Settlement.Payload()) != `{"done":true}` {
 					t.Errorf("settled prefix[%d] = %+v", index, effect)
 				}
-			} else if effect.Phase != effectPhasePlanned || effect.Settlement != nil || effect.WaitID != nil {
+			} else if effect.Phase != effectPhasePlanned || effect.Settlement != nil {
 				t.Errorf("unstarted tail[%d] = %+v", index, effect)
 			}
 		}
-		if wire.AllocatedResources != (resourceAmounts{}) || len(directChildIDs(t, engine, process.ID())) != 0 || len(wire.Mailbox.Waits) != 0 {
+		if wire.AllocatedResources != (resourceAmounts{}) || len(directChildIDs(t, engine, process.ID())) != 0 || waitOpenings(wire.Mailbox) != 0 {
 			t.Errorf("unstarted structural effects acquired resources: budget=%+v mailbox=%+v", wire.AllocatedResources, wire.Mailbox)
 		}
 		if len(dispatcher.entered) != 0 {

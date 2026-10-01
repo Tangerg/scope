@@ -127,10 +127,6 @@ func (p *preparedStep) clone() preparedStep {
 			diagnostic := *effect.Diagnostic
 			clone.Effects[index].Diagnostic = &diagnostic
 		}
-		if effect.WaitID != nil {
-			waitID := *effect.WaitID
-			clone.Effects[index].WaitID = &waitID
-		}
 		if effect.Settlement != nil {
 			settlement := *effect.Settlement
 			clone.Effects[index].Settlement = &settlement

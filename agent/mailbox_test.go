@@ -322,7 +322,7 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire := mailbox.wire()
-	wire.Waits[0].Kind = ""
+	wire.Signals[0].Opens.Kind = ""
 	if _, err := restoreSignalMailbox(wire, StatusRunning); !errors.Is(err, errWaitState) {
 		t.Fatalf("restore unknown authority error = %v", err)
 	}
@@ -412,6 +412,16 @@ func mustMailboxSignal(t testing.TB, value string, waitID WaitID, payload json.R
 		t.Fatal(err)
 	}
 	return signal
+}
+
+func waitOpenings(wire mailboxWire) int {
+	openings := 0
+	for _, record := range wire.Signals {
+		if record.Opens != nil {
+			openings++
+		}
+	}
+	return openings
 }
 
 func mailboxRecordWire(sequence uint64, signal Signal) signalRecordWire {

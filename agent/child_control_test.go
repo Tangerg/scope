@@ -76,7 +76,6 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 					}
 					record.Settlement = new(controlValue(NewSettlement(id, wrong, payload)))
 				},
-				"addressed": func(record *preparedEffect) { record.WaitID = new(id.waitID()) },
 				"other recipient": func(record *preparedEffect) {
 					if operation == frameworkEffectSignalChild {
 						record.Effect = controlValue(NewChildSignalEffect(other, request))
@@ -264,7 +263,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
 		},
 		"opening receipt": func(child *processSnapshotWire) {
-			child.Mailbox.Signals[0].OpensWait = true
+			child.Mailbox.Signals[0].Opens = &waitOpeningWire{Key: controlValue(ParseWaitKey("receipt")), Kind: WaitKindExternal}
 			child.Mailbox.Signals[0].Source = signalSourceSettlement
 		},
 		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },

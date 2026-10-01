@@ -54,6 +54,9 @@ func (w WaitKind) String() string {
 type ProcessSnapshot struct {
 	data  json.RawMessage
 	state processSnapshotWire
+	// openChildWaits projects the mailbox replay validation already performed,
+	// so tree validation can match registrations without replaying it again.
+	openChildWaits map[WaitID]WaitKey
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -85,14 +88,15 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 		finishedAt := canonicalTime(*wire.FinishedAt)
 		wire.FinishedAt = &finishedAt
 	}
-	if err := wire.validate(); err != nil {
+	mailbox, err := wire.validate()
+	if err != nil {
 		return ProcessSnapshot{}, err
 	}
 	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	return ProcessSnapshot{data: normalized, state: wire}, nil
+	return ProcessSnapshot{data: normalized, state: wire, openChildWaits: mailbox.openChildWaits()}, nil
 }
 
 // JSON returns an independently owned snapshot representation.
@@ -214,11 +218,7 @@ func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 	if !waiting {
 		return WaitKindInvalid, false
 	}
-	wait, found := p.state.Mailbox.waitRecord(waitID)
-	if !found {
-		return WaitKindInvalid, false
-	}
-	return wait.Kind, true
+	return p.state.Mailbox.waitKind(waitID)
 }
 
 func (p ProcessSnapshot) Valid() bool { return len(p.data) > 0 }
@@ -399,8 +399,10 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 		if signal.WaitID != nil {
 			clone.Mailbox.Signals[index].WaitID = new(*signal.WaitID)
 		}
+		if signal.Opens != nil {
+			clone.Mailbox.Signals[index].Opens = new(*signal.Opens)
+		}
 	}
-	clone.Mailbox.Waits = slices.Clone(p.Mailbox.Waits)
 	if p.Prepared != nil {
 		prepared := p.Prepared.clone()
 		clone.Prepared = &prepared
@@ -515,27 +517,28 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 	return nil
 }
 
-func (p processSnapshotWire) validate() error {
+// validate returns the mailbox its replay restored.
+func (p processSnapshotWire) validate() (signalMailbox, error) {
 	if err := p.validateContract(); err != nil {
-		return err
+		return signalMailbox{}, err
 	}
 	if err := p.validateRelation(); err != nil {
-		return err
+		return signalMailbox{}, err
 	}
 	mailbox, err := restoreSignalMailbox(p.Mailbox, p.Status)
 	if err != nil {
-		return fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
+		return signalMailbox{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
 	if err := p.validateProgress(mailbox); err != nil {
-		return err
+		return signalMailbox{}, err
 	}
 	if err := p.validateLifecycle(mailbox); err != nil {
-		return err
+		return signalMailbox{}, err
 	}
 	if _, err := pendingControlFromWire(p.PendingControl); err != nil {
-		return fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
+		return signalMailbox{}, fmt.Errorf("%w: pending control: %w", ErrInvalidSnapshot, err)
 	}
-	return nil
+	return mailbox, nil
 }
 
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {

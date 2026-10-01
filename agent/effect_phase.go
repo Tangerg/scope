@@ -35,7 +35,6 @@ type preparedEffect struct {
 	ID         EffectID    `json:"id"`
 	Effect     Effect      `json:"effect"`
 	Phase      effectPhase `json:"phase"`
-	WaitID     *WaitID     `json:"wait_id,omitzero"`
 	Settlement *Settlement `json:"settlement,omitzero"`
 	Diagnostic *Failure    `json:"diagnostic,omitzero"`
 }
@@ -225,9 +224,6 @@ func (p *preparedEffect) validateIdentity(
 		return errors.New("prepared Effect identity or payload changed")
 	}
 	if p.Effect.Target() != EffectTargetFramework {
-		if p.WaitID != nil {
-			return errors.New("dispatcher Effect cannot contain WaitID")
-		}
 		return nil
 	}
 	return p.validateFramework()
@@ -241,18 +237,10 @@ func (p *preparedEffect) validateFramework() error {
 	return operation.validate(p)
 }
 
+// A wait settles locally the moment it begins, so it never carries an
+// uncertain or failed outcome.
 func (p *preparedEffect) validateWait() error {
-	if p.WaitID != nil && *p.WaitID != p.ID.waitID() {
-		return errors.New("wait Effect contains a non-derived WaitID")
-	}
-	if (p.WaitID == nil) != (p.Phase != effectPhaseSettled) ||
-		p.Settlement != nil && p.Settlement.Status() == SettlementStatusUnknown {
-		return errors.New("wait Effect has an incomplete or unknown settlement")
-	}
-	if p.Settlement == nil {
-		return nil
-	}
-	if p.Settlement.Status() != SettlementStatusSucceeded {
+	if p.Settlement != nil && p.Settlement.Status() != SettlementStatusSucceeded {
 		return errors.New("wait Effect settlement is not successful")
 	}
 	return nil
@@ -283,10 +271,11 @@ func (p *preparedEffect) settleWait(payload json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if err := p.settle(settlement, nil); err != nil {
-		return err
-	}
-	waitID := p.ID.waitID()
-	p.WaitID = &waitID
-	return nil
+	return p.settle(settlement, nil)
+}
+
+// settlementSignal delivers the settled outcome to the Execution. Only a wait
+// opening addresses the wait its Effect identity derives.
+func (p *preparedEffect) settlementSignal(waitID WaitID) (Signal, error) {
+	return NewSignal(p.ID.settlementSignalID(), waitID, p.Settlement.Payload())
 }

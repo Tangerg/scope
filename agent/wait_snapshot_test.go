@@ -55,10 +55,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 		mutate func(*processSnapshotWire)
 	}{
 		{
-			name: "terminal wait remains open", tree: completed,
-			mutate: func(wire *processSnapshotWire) { wire.Mailbox.Waits[0].Closed = false },
-		},
-		{
 			name: "wait has no opening Signal", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				wire.Mailbox.Signals = nil
@@ -74,18 +70,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			},
 		},
 		{
-			name: "unconsumed answer already closed its wait", tree: waiting,
-			mutate: func(wire *processSnapshotWire) {
-				signal, _ := answer.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
-				wire.Mailbox.Waits[0].Answered = true
-				wire.Mailbox.Waits[0].Closed = true
-				wire.Status = StatusPaused
-				wire.PauseReason = "pending answer"
-				wire.CurrentWaitID = nil
-			},
-		},
-		{
 			name: "unknown current wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				unknown, _ := ParseWaitID("wait:unknown")
@@ -93,15 +77,10 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			},
 		},
 		{
-			name: "closed current wait", tree: waiting,
-			mutate: func(wire *processSnapshotWire) { wire.Mailbox.Waits[0].Closed = true },
-		},
-		{
 			name: "answered current wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				signal, _ := answer.signal()
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
-				wire.Mailbox.Waits[0].Answered = true
 			},
 		},
 		{
@@ -116,7 +95,6 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			mutate: func(wire *processSnapshotWire) {
 				signal, _ := answer.signal()
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
-				wire.Mailbox.Waits[0].Answered = true
 				wire.Status, wire.PauseReason = StatusPaused, "inspect"
 			},
 		},

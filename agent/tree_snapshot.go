@@ -344,14 +344,33 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 }
 
 type childWaitValidationFacts struct {
-	record  waitRecordWire
+	key     WaitKey
 	signals []signalRecordWire
+}
+
+func newChildWaitValidationFacts(snapshot ProcessSnapshot) map[WaitID]*childWaitValidationFacts {
+	waits := make(map[WaitID]*childWaitValidationFacts, len(snapshot.openChildWaits))
+	for id, key := range snapshot.openChildWaits {
+		waits[id] = &childWaitValidationFacts{key: key}
+	}
+	if len(waits) == 0 {
+		return waits
+	}
+	for _, signal := range snapshot.state.Mailbox.Signals {
+		if signal.WaitID == nil {
+			continue
+		}
+		if facts := waits[*signal.WaitID]; facts != nil {
+			facts.signals = append(facts.signals, signal)
+		}
+	}
+	return waits
 }
 
 func (t *treeSnapshotValidation) validateChildWaits() error {
 	openWaits := make(map[ProcessID]map[WaitID]*childWaitValidationFacts, len(t.wire.ProcessSnapshots))
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		openWaits[snapshot.ProcessID()] = snapshot.state.Mailbox.openChildWaits()
+		openWaits[snapshot.ProcessID()] = newChildWaitValidationFacts(snapshot)
 	}
 	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
 	for _, encoded := range t.wire.ChildWaits {
@@ -383,7 +402,7 @@ func (t *treeSnapshotValidation) validateChildWaitRegistration(
 	if !exists || err != nil || !encoded.WaitID.Valid() || parent.Status.Terminal() {
 		return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
 	}
-	if facts == nil || facts.record.WaitKey != spec.Key {
+	if facts == nil || facts.key != spec.Key {
 		return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
 	}
 	if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
@@ -435,7 +454,7 @@ func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecord
 	}
 	openedDigest := ComputeDigest(opened)
 	for _, record := range signals {
-		if !record.OpensWait {
+		if record.Opens == nil {
 			if err := t.validateChildWaitSatisfaction(record, waitID, spec); err != nil {
 				return err
 			}

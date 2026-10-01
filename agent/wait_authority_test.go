@@ -89,9 +89,9 @@ func TestSignalBatchRejectsNonCurrentWaitAnswers(t *testing.T) {
 				}
 				current, _ := before.WaitID()
 				var other WaitID
-				for _, wait := range wire.Mailbox.Waits {
-					if wait.WaitID != current {
-						other = wait.WaitID
+				for _, record := range wire.Mailbox.Signals {
+					if record.Opens != nil && *record.WaitID != current {
+						other = *record.WaitID
 					}
 				}
 				if !other.Valid() {

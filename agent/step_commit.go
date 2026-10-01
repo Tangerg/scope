@@ -64,20 +64,16 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 	if !record.definitelySettled() {
 		return errors.New("effect batch is not definitely settled")
 	}
-	var waitID WaitID
-	if record.WaitID != nil {
-		waitID = *record.WaitID
-	}
-	signal, err := NewSignal(record.ID.settlementSignalID(), waitID, record.Settlement.Payload())
-	if err != nil {
-		return err
-	}
 	if record.Effect.Target() == EffectTargetFramework {
 		operation, err := decodeFrameworkOperation(record.Effect.Payload())
 		if err != nil {
 			return err
 		}
-		return operation.apply(p, record, signal)
+		return operation.apply(p, record)
+	}
+	signal, err := record.settlementSignal(WaitID{})
+	if err != nil {
+		return err
 	}
 	return p.enqueueSettlement(signal)
 }

@@ -149,7 +149,7 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 		if err := record.settleFramework(); err == nil {
 			t.Fatalf("invalid local operation settled: %s", payload)
 		}
-		if record.Phase != effectPhasePending || record.Settlement != nil || record.WaitID != nil {
+		if record.Phase != effectPhasePending || record.Settlement != nil {
 			t.Fatalf("failed local preparation changed evidence: %+v", record)
 		}
 	}

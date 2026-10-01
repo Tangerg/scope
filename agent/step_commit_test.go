@@ -154,7 +154,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		t.Fatal("rejected finalization adopted candidate state")
 	}
 	for index, spec := range specs[:2] {
-		waitID := *prepared.Effects[index].WaitID
+		waitID := prepared.Effects[index].ID.waitID()
 		if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
 			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
 		}
@@ -180,7 +180,7 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent.prepared = &preparedStep{Intent: controlValue(Continue(0, record.Effect)), Effects: preparedEffects{record}}
-	waitID := *record.WaitID
+	waitID := record.ID.waitID()
 	if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
 		t.Fatal(err)
 	}

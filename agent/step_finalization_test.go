@@ -191,7 +191,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			}
 			state, err := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
 			if err != nil || state.Phase != "ready" || wire.usage() != (Usage{}) ||
-				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 || len(wire.Mailbox.Waits) != 0 {
+				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 {
 				t.Fatalf("failed finalization adopted candidate state: %+v, %v", wire, err)
 			}
 			tree := interruptedTreeSnapshot(t, engine, process, config)
@@ -233,7 +233,7 @@ func TestInvalidChildWaitRejectsWholeBatchBeforeDispatch(t *testing.T) {
 				t.Fatalf("status=%s dispatches=%d", result.Status(), dispatcher.calls.Load())
 			}
 			wire := inspectProcessSnapshot(t, process).state
-			if wire.Prepared != nil || wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Waits) != 0 || wire.usage() != (Usage{}) {
+			if wire.Prepared != nil || wire.Mailbox.SignalCursor != 0 || waitOpenings(wire.Mailbox) != 0 || wire.usage() != (Usage{}) {
 				t.Fatalf("invalid batch advanced process: %+v", wire)
 			}
 		})

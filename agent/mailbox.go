@@ -54,7 +54,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 func (s signalRecord) wire() signalRecordWire {
 	wire := signalRecordWire{
 		ArrivalSequence: s.arrivalSequence, ID: s.id,
-		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), OpensWait: s.opensWait, Source: s.source,
+		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), Source: s.source,
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -179,8 +179,8 @@ func (s *signalMailbox) acceptRecord(record signalRecord) {
 
 func (s *signalMailbox) openWait(key WaitKey, signal Signal, kind WaitKind) error {
 	_, addressed := signal.WaitID()
-	if !key.Valid() || !signal.Valid() || !addressed {
-		return fmt.Errorf("%w: wait key and addressed opening Signal are required", errWaitState)
+	if !signal.Valid() || !addressed {
+		return fmt.Errorf("%w: addressed opening Signal is required", errWaitState)
 	}
 	record := newSignalRecord(signal, true)
 	record.source = signalSourceSettlement
@@ -189,6 +189,9 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal, kind WaitKind) erro
 
 func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind WaitKind) error {
 	id := record.waitID
+	if !key.Valid() {
+		return fmt.Errorf("%w: invalid wait key", errWaitState)
+	}
 	if !kind.Valid() {
 		return fmt.Errorf("%w: unknown wait kind %q", errWaitState, kind)
 	}
@@ -309,27 +312,26 @@ func (s *signalMailbox) contains(id SignalID) bool {
 }
 
 type signalRecordWire struct {
-	ArrivalSequence uint64          `json:"arrival_sequence"`
-	ID              SignalID        `json:"id"`
-	WaitID          *WaitID         `json:"wait_id,omitzero"`
-	PayloadDigest   Digest          `json:"payload_digest"`
-	Payload         json.RawMessage `json:"payload,omitzero"`
-	OpensWait       bool            `json:"opens_wait,omitzero"`
-	Source          signalSource    `json:"source"`
+	ArrivalSequence uint64           `json:"arrival_sequence"`
+	ID              SignalID         `json:"id"`
+	WaitID          *WaitID          `json:"wait_id,omitzero"`
+	PayloadDigest   Digest           `json:"payload_digest"`
+	Payload         json.RawMessage  `json:"payload,omitzero"`
+	Opens           *waitOpeningWire `json:"opens,omitzero"`
+	Source          signalSource     `json:"source"`
 }
 
-type waitRecordWire struct {
-	WaitKey  WaitKey  `json:"wait_key"`
-	WaitID   WaitID   `json:"wait_id"`
-	Kind     WaitKind `json:"kind"`
-	Answered bool     `json:"answered"`
-	Closed   bool     `json:"closed"`
+// waitOpeningWire records the only wait facts the Signal history cannot
+// derive. Whether a wait is answered or closed is replayed from the answers
+// that follow its opening and from the Process status, never stored.
+type waitOpeningWire struct {
+	Key  WaitKey  `json:"key"`
+	Kind WaitKind `json:"kind"`
 }
 
 type mailboxWire struct {
 	Signals      []signalRecordWire `json:"signals,omitempty"`
 	SignalCursor uint64             `json:"signal_cursor"`
-	Waits        []waitRecordWire   `json:"waits,omitempty"`
 }
 
 func (m mailboxWire) receipts() []SignalReceipt {
@@ -347,47 +349,39 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	return receipts
 }
 
-func (m mailboxWire) openChildWaits() map[WaitID]*childWaitValidationFacts {
-	waits := make(map[WaitID]*childWaitValidationFacts)
-	for _, record := range m.Waits {
-		if record.Kind == WaitKindChildren && !record.Closed {
-			waits[record.WaitID] = &childWaitValidationFacts{record: record}
-		}
-	}
-	for _, signal := range m.Signals {
-		if signal.WaitID == nil {
+func (s *signalMailbox) openChildWaits() map[WaitID]WaitKey {
+	var waits map[WaitID]WaitKey
+	for id, wait := range s.waits {
+		if wait.kind != WaitKindChildren || wait.closed {
 			continue
 		}
-		if facts := waits[*signal.WaitID]; facts != nil {
-			facts.signals = append(facts.signals, signal)
+		if waits == nil {
+			waits = make(map[WaitID]WaitKey)
 		}
+		waits[id] = wait.key
 	}
 	return waits
 }
 
-func (m mailboxWire) waitRecord(id WaitID) (waitRecordWire, bool) {
-	for _, record := range m.Waits {
-		if record.WaitID == id {
-			return record, true
+func (m mailboxWire) waitKind(id WaitID) (WaitKind, bool) {
+	for _, record := range m.Signals {
+		if record.Opens != nil && lo.FromPtr(record.WaitID) == id {
+			return record.Opens.Kind, true
 		}
 	}
-	return waitRecordWire{}, false
+	return WaitKindInvalid, false
 }
 
 func (s *signalMailbox) wire() mailboxWire {
 	wire := mailboxWire{SignalCursor: s.signalCursor}
 	for _, record := range s.records {
-		wire.Signals = append(wire.Signals, record.wire())
+		encoded := record.wire()
+		if record.opensWait {
+			wait := s.waits[record.waitID]
+			encoded.Opens = &waitOpeningWire{Key: wait.key, Kind: wait.kind}
+		}
+		wire.Signals = append(wire.Signals, encoded)
 	}
-	for _, record := range s.waits {
-		wire.Waits = append(wire.Waits, waitRecordWire{
-			WaitKey: record.key, WaitID: record.id, Kind: record.kind,
-			Answered: record.answered, Closed: record.closed,
-		})
-	}
-	slices.SortFunc(wire.Waits, func(left, right waitRecordWire) int {
-		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
-	})
 	return wire
 }
 
@@ -447,17 +441,13 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 	if wire.SignalCursor > uint64(len(wire.Signals)) {
 		return signalMailbox{}, errMailboxCursor
 	}
-	waits, err := wire.waitIndex()
-	if err != nil {
-		return signalMailbox{}, err
-	}
 	mailbox := newSignalMailbox()
 	for index, encoded := range wire.Signals {
 		record, err := encoded.restore(uint64(index+1), wire.SignalCursor)
 		if err != nil {
 			return signalMailbox{}, err
 		}
-		if err := mailbox.replay(record, waits); err != nil {
+		if err := mailbox.replay(record, encoded.Opens); err != nil {
 			return signalMailbox{}, err
 		}
 		if record.arrivalSequence <= wire.SignalCursor {
@@ -469,50 +459,16 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 	if status.Terminal() {
 		mailbox.closeAllWaits()
 	}
-	if err := mailbox.matchWaits(waits); err != nil {
-		return signalMailbox{}, err
-	}
 	return mailbox, nil
 }
 
-func (m mailboxWire) waitIndex() (map[WaitID]waitRecordWire, error) {
-	waits := make(map[WaitID]waitRecordWire, len(m.Waits))
-	for _, record := range m.Waits {
-		if !record.WaitKey.Valid() || !record.WaitID.Valid() {
-			return nil, errWaitState
-		}
-		if _, duplicate := waits[record.WaitID]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate WaitID", errWaitState)
-		}
-		waits[record.WaitID] = record
+func (s *signalMailbox) replay(record signalRecord, opening *waitOpeningWire) error {
+	if opening != nil {
+		return s.openWaitRecord(opening.Key, record, opening.Kind)
 	}
-	return waits, nil
-}
-
-func (s *signalMailbox) replay(record signalRecord, waits map[WaitID]waitRecordWire) error {
-	if !record.opensWait {
-		accepted, err := s.enqueueRecord(StatusRunning, record)
-		if err != nil || !accepted {
-			return errors.Join(err, errors.New("invalid mailbox Signal history"))
-		}
-		return nil
-	}
-	wait, exists := waits[record.waitID]
-	if !exists {
-		return fmt.Errorf("%w: opening Signal has no wait", errWaitState)
-	}
-	return s.openWaitRecord(wait.WaitKey, record, wait.Kind)
-}
-
-func (s *signalMailbox) matchWaits(expected map[WaitID]waitRecordWire) error {
-	if len(s.waits) != len(expected) {
-		return fmt.Errorf("%w: wait has no opening Signal", errWaitState)
-	}
-	for id, want := range expected {
-		actual := s.waits[id]
-		if actual.answered != want.Answered || actual.closed != want.Closed {
-			return fmt.Errorf("%w: wait lifecycle disagrees with Signal history", errWaitState)
-		}
+	accepted, err := s.enqueueRecord(StatusRunning, record)
+	if err != nil || !accepted {
+		return errors.Join(err, errors.New("invalid mailbox Signal history"))
 	}
 	return nil
 }
@@ -523,7 +479,7 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 	}
 	record := signalRecord{
 		arrivalSequence: sequence, id: s.ID, waitID: lo.FromPtr(s.WaitID),
-		payloadDigest: s.PayloadDigest, opensWait: s.OpensWait, source: s.Source,
+		payloadDigest: s.PayloadDigest, opensWait: s.Opens != nil, source: s.Source,
 	}
 	if sequence <= cursor {
 		if len(s.Payload) != 0 {
@@ -541,8 +497,8 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 
 func (s signalRecordWire) validateShape(sequence uint64) error {
 	if !s.Source.accepts(s.ID) ||
-		s.OpensWait && s.Source != signalSourceSettlement ||
-		!s.OpensWait && s.Source == signalSourceSettlement && s.WaitID != nil {
+		s.Opens != nil && s.Source != signalSourceSettlement ||
+		s.Opens == nil && s.Source == signalSourceSettlement && s.WaitID != nil {
 		return fmt.Errorf("%w: invalid signal source", errMailboxCursor)
 	}
 	switch {
@@ -552,7 +508,7 @@ func (s signalRecordWire) validateShape(sequence uint64) error {
 		return fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
 	case s.WaitID != nil && !s.WaitID.Valid():
 		return fmt.Errorf("%w: Signal wait identity is invalid", errMailboxCursor)
-	case s.OpensWait && s.WaitID == nil:
+	case s.Opens != nil && s.WaitID == nil:
 		return fmt.Errorf("%w: wait-opening Signal has no wait identity", errMailboxCursor)
 	default:
 		return nil
