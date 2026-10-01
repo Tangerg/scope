@@ -20,9 +20,8 @@ type treeRuntime struct {
 	writer     *headWriter
 	events     eventRecorder
 
-	// External readers need scheduling liveness without acquiring execution
-	// state. Atomics expose that view while commands and completions preserve
-	// one mutation owner.
+	// Callers and jobs never touch owner-line state. They send requests on
+	// these lanes, and the owner applies each one in its own order.
 	context         context.Context
 	processCommands chan processTreeCommand
 	freezeCommands  chan freezeCommand
