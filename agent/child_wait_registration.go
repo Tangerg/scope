@@ -106,7 +106,7 @@ func (c *childWaitRegistration) satisfaction(members *treeMembers) (Signal, bool
 	outcomes := make([]ChildOutcome, 0, len(spec.Children))
 	for _, childID := range spec.Children {
 		child := members.get(childID)
-		ready := child.status.Terminal()
+		ready := child.status().Terminal()
 		if spec.Boundary == ChildWaitBoundaryDrained {
 			ready = child.handle.joinDone() && child.handle.joinError() == nil
 		}

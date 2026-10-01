@@ -218,27 +218,27 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			if !duplicate.Matches(effect) || child.usage().AcceptedSignals != 1 {
 				t.Fatal("deduplication changed accounting")
 			}
-			child.status = StatusPaused
+			child.pause = pause{reason: "await operator"}
 			second := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:paused")), WaitID{}, []byte(`"queued"`)))
 			paused := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, second)).Payload())))
-			if _, failed := paused.Failure(); failed || child.status != StatusPaused {
+			if _, failed := paused.Failure(); failed || child.status() != StatusPaused {
 				t.Fatal("signal resumed paused child")
 			}
-			child.status = StatusCompleted
+			cancel := controlValue(NewChildCancelEffect(recipient, "stop"))
+			runtime.applyChildControl(child, controlValue(decodeChildControlEffect(cancel.Payload())))
+			if child.pendingControl.cancellation.owner != cancellationOwnerParent {
+				t.Fatal("missing parent cancellation intent")
+			}
+			child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
+				controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
 			third := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:terminal")), WaitID{}, []byte(`"late"`)))
 			rejected := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, third)).Payload())))
 			if failure, failed := rejected.Failure(); !failed || failure.Code() != failureCodeEngineChildSignalRejected {
 				t.Fatal("terminal input admitted")
 			}
-			cancel := controlValue(NewChildCancelEffect(recipient, "stop"))
 			result = runtime.applyChildControl(child, controlValue(decodeChildControlEffect(cancel.Payload())))
-			if _, failed := result.Failure(); failed || child.status != StatusCompleted {
+			if _, failed := result.Failure(); failed || child.status() != StatusCompleted {
 				t.Fatal("terminal cancellation changed result")
-			}
-			child.status = StatusRunning
-			runtime.applyChildControl(child, controlValue(decodeChildControlEffect(cancel.Payload())))
-			if child.pendingControl.cancellation.owner != cancellationOwnerParent {
-				t.Fatal("missing parent cancellation intent")
 			}
 		})
 	}

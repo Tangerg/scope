@@ -16,7 +16,7 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
 		t.Fatalf("pause child wait: %v", err)
 	}
-	if err := parent.resume(); err != nil || parent.status != StatusWaiting || parent.currentWaitID != waitID {
+	if err := parent.resume(); err != nil || parent.status() != StatusWaiting || parent.currentWaitID != waitID {
 		t.Fatalf("Resume lost unanswered child wait: %v", err)
 	}
 	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
@@ -25,10 +25,10 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
 	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
 	runtime.finishIfTerminal(second)
-	if parent.status != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
+	if parent.status() != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
 		t.Fatal("child completion did not clear only the wait")
 	}
-	if err := parent.resume(); err != nil || parent.status != StatusRunning {
+	if err := parent.resume(); err != nil || parent.status() != StatusRunning {
 		t.Fatalf("Resume after child completion: %v", err)
 	}
 }
@@ -44,7 +44,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	for ownerID := range runtime.childWaits {
 		owner := runtime.members.get(ownerID)
 		if ownerID != parentID {
-			if owner.mailbox.pendingCount() != 0 || owner.status != StatusWaiting {
+			if owner.mailbox.pendingCount() != 0 || owner.status() != StatusWaiting {
 				t.Fatal("child completion changed an unrelated parent's wait")
 			}
 			continue
@@ -193,7 +193,6 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			b.Fatal(err)
 		}
 		parent.currentWaitID = waitID
-		parent.status = StatusWaiting
 		if _, satisfied, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil || satisfied {
 			b.Fatalf("register wait satisfied=%t error=%v", satisfied, err)
 		}

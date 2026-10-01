@@ -174,7 +174,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	runtime.treeLimits.MaxSnapshotBytes = NewQuota(512 << 14)
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`"` + strings.Repeat("x", 53<<14) + `"`)))
 	for _, process := range runtime.members.all() {
-		process.status, process.currentWaitID = StatusRunning, WaitID{}
+		process.currentWaitID = WaitID{}
 		process.counters.PreparedEffects = 2
 		process.prepared = &preparedStep{StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(process.committedExecutionState.digest()), SignalCursor: process.mailbox.committedSignalCursor(), Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
 			{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePlanned},
@@ -223,7 +223,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	}
 	for _, process := range runtime.members.all() {
 		process.handle.deployment = deployment
-		process.status, process.currentWaitID = StatusRunning, WaitID{}
+		process.currentWaitID = WaitID{}
 		process.committedExecutionState = state
 		process.execution = execution
 		process.prepared = &preparedStep{

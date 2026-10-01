@@ -22,7 +22,6 @@ type processState struct {
 	execution               Execution
 	preparedExecution       Execution
 	finishedAt              time.Time
-	status                  Status
 	committedSteps          uint64
 	processEventSequence    uint64
 	committedExecutionState ExecutionState
@@ -73,8 +72,8 @@ func newProcessState(
 ) *processState {
 	return &processState{
 		handle: handle, execution: execution,
-		status: StatusRunning, committedExecutionState: state,
-		mailbox: newSignalMailbox(),
+		committedExecutionState: state,
+		mailbox:                 newSignalMailbox(),
 	}
 }
 
@@ -92,6 +91,21 @@ func (p *processState) candidate() *processState {
 
 // deployment is the exact binding the Process's handle owns.
 func (p *processState) deployment() Deployment { return p.handle.deployment }
+
+// Lifecycle is a projection of the facts that park or terminate execution.
+// Pausing preserves an unanswered wait; answering it does not resume a pause.
+func (p *processState) status() Status {
+	if p.termination.Valid() {
+		return p.termination.Status()
+	}
+	if p.pause.valid() {
+		return StatusPaused
+	}
+	if p.currentWaitID.Valid() {
+		return StatusWaiting
+	}
+	return StatusRunning
+}
 
 func (p *processState) adoptCandidate(candidate *processState) {
 	if candidate.handle != p.handle {
@@ -128,7 +142,7 @@ func (p *processState) recordParentTermination(parent Termination) {
 
 // Admission validates the complete batch before changing mailbox or wait state.
 func (p *processState) prepareSignals(signals []Signal, source signalSource, limits TreeLimits) (*processState, error) {
-	records, err := p.mailbox.prepareAdmission(p.status, p.currentWaitID, signals, source)
+	records, err := p.mailbox.prepareAdmission(p.status(), p.currentWaitID, signals, source)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +176,6 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 		candidate.mailbox.acceptRecord(record)
 	}
 	if candidate.currentWaitID.Valid() && candidate.mailbox.waits[candidate.currentWaitID].answered {
-		if candidate.status == StatusWaiting {
-			candidate.status = StatusRunning
-		}
 		candidate.currentWaitID = WaitID{}
 	}
 	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
@@ -178,30 +189,25 @@ func (p *processState) requestPause(reason string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidProcessControl, err)
 	}
-	if !p.status.pausable() {
-		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status)
+	if !p.status().pausable() {
+		return fmt.Errorf("%w: Pause requires Running or Waiting status, got %s", ErrInvalidProcessControl, p.status())
 	}
 	p.pendingControl.recordPause(requested)
 	return nil
 }
 
 func (p *processState) applyPendingPause() bool {
-	if !p.pendingControl.pause.valid() || !p.status.pausable() {
+	if !p.pendingControl.pause.valid() || !p.status().pausable() {
 		return false
 	}
-	p.status = StatusPaused
 	p.pause = p.pendingControl.pause
 	p.pendingControl.pause = pause{}
 	return true
 }
 
 func (p *processState) resume() error {
-	if p.status != StatusPaused {
-		return fmt.Errorf("%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status)
-	}
-	p.status = StatusRunning
-	if p.currentWaitID.Valid() {
-		p.status = StatusWaiting
+	if p.status() != StatusPaused {
+		return fmt.Errorf("%w: Resume requires Paused status, got %s", ErrInvalidProcessControl, p.status())
 	}
 	p.pause = pause{}
 	p.pendingControl.pause = pause{}
@@ -321,7 +327,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 	}
 	// Join proves descendant work and child accounting have drained; only a
 	// capture at that boundary can become permanent.
-	p.snapshotSealed = p.status.Terminal() && p.handle.joinDone()
+	p.snapshotSealed = p.status().Terminal() && p.handle.joinDone()
 	return p.snapshot, nil
 }
 
@@ -347,7 +353,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		}
 	}
 	var candidate Execution
-	if !p.status.Terminal() {
+	if !p.status().Terminal() {
 		var err error
 		candidate, err = restoreExecution(ctx, p.deployment().Definition(), prepared.CandidateState)
 		if err != nil {
@@ -487,24 +493,23 @@ func (p *processState) snapshotAdmissionSize(limits TreeLimits) (uint64, error) 
 // Asynchronous failures wait for accepted external effects to settle before
 // becoming terminal, just like cancellation and deadline intents.
 func (p *processState) recordFailure(kind FailureKind, code string, err error) {
-	if p.status.Terminal() {
+	if p.status().Terminal() {
 		return
 	}
 	p.pendingControl.recordFailure(newEngineFailure(kind, code, err))
 }
 
 func (p *processState) installTermination(termination Termination, output Payload, finishedAt time.Time) {
-	if p.status.Terminal() {
+	if p.status().Terminal() {
 		return
 	}
 	p.termination = termination
-	p.status = termination.Status()
 	p.finishedAt = finishedAt
 	p.currentWaitID = WaitID{}
 	p.pause = pause{}
 	p.pendingControl = pendingControl{}
 	p.finalOutput = Payload{}
-	if p.status == StatusCompleted {
+	if p.status() == StatusCompleted {
 		p.finalOutput = output
 	}
 }
@@ -525,7 +530,7 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 }
 
 func (p *processState) effectiveTermination() Termination {
-	if p.status.Terminal() {
+	if p.status().Terminal() {
 		return p.termination
 	}
 	return p.resolveStepTermination(stepOutcome{})
@@ -534,7 +539,7 @@ func (p *processState) effectiveTermination() Termination {
 func (p *processState) terminalEventPayload() json.RawMessage {
 	usage := p.usage()
 	eventPayload := processFinishedEventPayload{
-		ProcessStatus:    p.status,
+		ProcessStatus:    p.status(),
 		TerminationCause: p.termination.Cause(),
 		Usage:            &usage,
 	}
@@ -655,7 +660,6 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	if finalization.commit.termination.Valid() {
 		p.installTermination(finalization.commit.termination, finalization.commit.finalOutput, finalization.commit.finishedAt)
 	} else {
-		p.status = finalization.commit.status
 		p.currentWaitID = finalization.commit.currentWaitID
 		p.pause = finalization.commit.pause
 	}
@@ -666,7 +670,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
 		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
-		Status: p.status, CommittedSteps: p.committedSteps,
+		Status: p.status(), CommittedSteps: p.committedSteps,
 		AllocatedResources: p.allocatedResources,
 		Budget:             p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),

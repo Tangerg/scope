@@ -90,7 +90,6 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	handle := parent.handle
 	parentID := handle.processID
 	now := parent.handle.startedAt
-	parent.status = StatusWaiting
 	waitID, _ := ParseWaitID("wait:oversized-children")
 	waitKey, _ := ParseWaitKey("children")
 	if err := parent.mailbox.openWait(waitKey, mustMailboxSignal(t, "signal:engine:oversized-opened", waitID, []byte(`{}`)), WaitKindExternal); err != nil {
@@ -112,7 +111,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		key, _ := ParseChildKey(name)
 		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
-			status: StatusCompleted, finishedAt: now,
+			finishedAt:  now,
 			termination: termination, finalOutput: output,
 			handle: &processHandle{processID: id, relation: relation, startedAt: now},
 		}
@@ -149,7 +148,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	parent.recordFailure(FailureKindExecution, "engine.child.wait.satisfaction.encoding_failed", errors.New("completion exceeds signal budget"))
-	if parent.status.Terminal() {
+	if parent.status().Terminal() {
 		t.Fatal("asynchronous failure terminated a Process before settlement")
 	}
 	control, err := pendingControlFromWire(parent.pendingControl.wire())

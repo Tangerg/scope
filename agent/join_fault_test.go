@@ -20,7 +20,6 @@ func TestCheckpointPreparationFailureCompletesJoinBeforeRuntimeStops(t *testing.
 		}
 		runtime.writer.identity = incarnation
 		runtime.writer.establish(initial)
-		process.status = StatusPaused
 		process.pause = pause{reason: "checkpoint preparation"}
 		// Inject an unencodable prospective state after a valid acknowledged
 		// head. Capture failure must drain the same lifecycle as storage failure.
@@ -60,8 +59,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := &processState{
-		handle: handle, status: StatusCompleted,
-		finishedAt: parent.handle.startedAt, finalOutput: output, termination: termination,
+		handle: handle, finishedAt: parent.handle.startedAt, finalOutput: output, termination: termination,
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())
@@ -78,7 +76,6 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 		t.Fatal(openErr)
 	}
 	parent.currentWaitID = waitID
-	parent.status = StatusWaiting
 	runtime.childWaits[parent.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	_, err = parent.capture()
 	if err != nil {

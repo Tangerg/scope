@@ -19,7 +19,6 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		CapabilitySet{}, time.Now())
 	process := &processState{
 		handle:             handle,
-		status:             StatusRunning,
 		committedSteps:     maxUint64 - 1,
 		allocatedResources: resourceAmounts{Steps: 1, Effects: 1, Signals: 1},
 		mailbox:            newSignalMailbox(),
@@ -32,8 +31,8 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	runtime := &treeRuntime{engine: &Engine{}}
 	runtime.failProcess(process, schedulingFailure.kind, schedulingFailure.code, schedulingFailure.cause)
 
-	if process.status != StatusFailed {
-		t.Fatalf("status = %s, want %s", process.status, StatusFailed)
+	if process.status() != StatusFailed {
+		t.Fatalf("status = %s, want %s", process.status(), StatusFailed)
 	}
 	failure, present := process.termination.Failure()
 	if !present || failure.Code() != "engine.limit.steps" {
@@ -100,8 +99,8 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	if err := finalization.prepareTransition(time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if finalization.commit.status != StatusKilled {
-		t.Fatalf("resolved status=%s, want %s", finalization.commit.status, StatusKilled)
+	if finalization.commit.termination.Status() != StatusKilled {
+		t.Fatalf("resolved status=%s, want %s", finalization.commit.termination.Status(), StatusKilled)
 	}
 	if finalization.commit.finalOutput.Valid() {
 		t.Fatal("superseded completion output survived Kill priority")

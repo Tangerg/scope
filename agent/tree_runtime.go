@@ -194,7 +194,7 @@ func (t *treeRuntime) finishRun() {
 
 func (t *treeRuntime) publishInitialProcessEvents() {
 	for _, process := range t.members.ordered() {
-		if process.status.Terminal() {
+		if process.status().Terminal() {
 			continue
 		}
 		if process.restored {
@@ -347,7 +347,7 @@ func (t *treeRuntime) mutationsBlocked() bool {
 
 func (t *treeRuntime) enqueueProcess(processID ProcessID) {
 	process := t.members.get(processID)
-	if t.fault != nil || process == nil || process.status.Terminal() || t.jobs.get(processID) != nil {
+	if t.fault != nil || process == nil || process.status().Terminal() || t.jobs.get(processID) != nil {
 		return
 	}
 	t.runQueue.push(processID)
@@ -360,7 +360,7 @@ func (t *treeRuntime) dequeueProcess() *processState {
 			return nil
 		}
 		process := t.members.get(processID)
-		if process != nil && !process.status.Terminal() && t.jobs.get(processID) == nil {
+		if process != nil && !process.status().Terminal() && t.jobs.get(processID) == nil {
 			return process
 		}
 	}
@@ -382,7 +382,7 @@ func (t *treeRuntime) advanceOne() bool {
 		t.finishIfTerminal(process)
 		return true
 	}
-	if process.status == StatusRunning {
+	if process.status() == StatusRunning {
 		t.startStep(process)
 	}
 	return true
@@ -419,7 +419,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		t.terminatePreparedProcess(process)
 	}
 	t.finishIfTerminal(process)
-	if !process.status.Terminal() {
+	if !process.status().Terminal() {
 		t.enqueueProcess(process.handle.processID)
 		if checkpoint {
 			snapshot, err := t.captureTree()
@@ -561,7 +561,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 	childCount, treeCount := uint64(len(children)), uint64(t.members.len())
 	var active uint64
 	for _, childID := range children {
-		if !t.members.get(childID).status.Terminal() {
+		if !t.members.get(childID).status().Terminal() {
 			active++
 		}
 	}
@@ -607,7 +607,7 @@ func (t *treeRuntime) controlChild(
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
 	result := request.result()
 	if request.Operation == frameworkOperationCancelChild {
-		if !child.status.Terminal() {
+		if !child.status().Terminal() {
 			// The request decoder has already validated this exact reason.
 			child.requestCancellation(cancellationIntent{owner: cancellationOwnerParent, reason: request.Reason})
 			t.stopProcessTree(child)
@@ -845,7 +845,7 @@ func (t *treeRuntime) readyForCheckpoint() bool {
 		return true
 	}
 	for processID := range t.publications {
-		status := t.members.get(processID).status
+		status := t.members.get(processID).status()
 		if status.Terminal() || status.parked() {
 			return true
 		}
@@ -856,7 +856,7 @@ func (t *treeRuntime) readyForCheckpoint() bool {
 func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
 	return classifyCheckpointCut(func(yield func(Status, *preparedStep) bool) {
 		for _, process := range t.members.all() {
-			if !yield(process.status, process.prepared) {
+			if !yield(process.status(), process.prepared) {
 				return
 			}
 		}
@@ -864,7 +864,7 @@ func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
 }
 
 func (t *treeRuntime) stageTerminal(process *processState) {
-	if process == nil || !process.status.Terminal() {
+	if process == nil || !process.status().Terminal() {
 		return
 	}
 	select {
@@ -1041,13 +1041,13 @@ func (t *treeRuntime) applyProcessCommand(process *processState, request process
 		return
 	}
 	if termination, ok := request.(hostTerminationRequest); ok {
-		if !process.status.Terminal() {
+		if !process.status().Terminal() {
 			process.recordHostTermination(termination.cause)
 			t.stopProcessTree(process)
 		}
 		return
 	}
-	if process.status.Terminal() {
+	if process.status().Terminal() {
 		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
@@ -1087,13 +1087,13 @@ func (t *treeRuntime) scheduleControl(process *processState) {
 		t.invalidateStep(process)
 	}
 	t.finishIfTerminal(process)
-	if !process.status.Terminal() {
+	if !process.status().Terminal() {
 		t.enqueueProcess(process.handle.processID)
 	}
 }
 
 func (t *treeRuntime) resolveUnknownEffect(process *processState, settlement Settlement, reply processReply) {
-	if process.status.Terminal() || process.pendingControl.hasTerminalIntent() {
+	if process.status().Terminal() || process.pendingControl.hasTerminalIntent() {
 		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
@@ -1235,7 +1235,7 @@ func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
 func (t *treeRuntime) releaseCurrentFreeze() *activeTreeFreeze {
 	ended := t.freeze.end()
 	for _, process := range t.members.all() {
-		if !process.status.Terminal() {
+		if !process.status().Terminal() {
 			t.enqueueProcess(process.handle.processID)
 		}
 	}
@@ -1254,7 +1254,7 @@ func (t *treeRuntime) invalidateStep(process *processState) {
 // Terminal intermediate Processes still own descendants that may be draining.
 func (t *treeRuntime) stopProcessTree(process *processState) {
 	termination := process.effectiveTermination()
-	if !process.status.Terminal() {
+	if !process.status().Terminal() {
 		if job := t.jobs.get(process.handle.processID); job != nil {
 			job.interrupt()
 		}
@@ -1262,7 +1262,7 @@ func (t *treeRuntime) stopProcessTree(process *processState) {
 	}
 	for _, childID := range t.members.childrenOf(process.handle.processID) {
 		child := t.members.get(childID)
-		if !child.status.Terminal() {
+		if !child.status().Terminal() {
 			child.recordParentTermination(termination)
 		}
 		t.stopProcessTree(child)
@@ -1390,7 +1390,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
 		if job := t.jobs.get(processID); job != nil {
 			report.Work, report.Stale, report.EffectID = job.kind.work(), job.stale, job.effectID
-		} else if t.runQueue.contains(processID) && !process.status.Terminal() {
+		} else if t.runQueue.contains(processID) && !process.status().Terminal() {
 			report.Work = ProcessWorkQueued
 		}
 		inspection.Processes = append(inspection.Processes, report)
@@ -1673,7 +1673,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		return
 	}
 	t.finishIfTerminal(process)
-	if !process.status.Terminal() {
+	if !process.status().Terminal() {
 		t.enqueueProcess(completion.processID)
 	}
 }
@@ -1801,7 +1801,7 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		}
 		parent.adoptCandidate(candidate)
 		t.addProcess(child)
-		if parent.pendingControl.hasTerminalIntent() || parent.status.Terminal() {
+		if parent.pendingControl.hasTerminalIntent() || parent.status().Terminal() {
 			child.recordParentTermination(parent.effectiveTermination())
 			t.stopProcessTree(child)
 		}
@@ -2033,7 +2033,7 @@ func (t *treeRuntime) finishProcessBookkeeping(process *processState) {
 }
 
 func (t *treeRuntime) finishIfTerminal(process *processState) {
-	if t.fault != nil || process == nil || !process.status.Terminal() {
+	if t.fault != nil || process == nil || !process.status().Terminal() {
 		return
 	}
 
@@ -2061,7 +2061,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 	}
 	parent := t.members.get(parentID)
 	for registration := range t.childWaits.awaiting(parentID, processID, boundary) {
-		if parent == nil || parent.status.Terminal() || parent.pendingControl.hasTerminalIntent() ||
+		if parent == nil || parent.status().Terminal() || parent.pendingControl.hasTerminalIntent() ||
 			parent.mailbox.contains(registration.waitID.childWaitSignalID()) {
 			continue
 		}
@@ -2090,7 +2090,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 	t.members.add(process)
 	process.handle.runtime.Store(t)
 	t.queueJoin(process)
-	if !process.status.Terminal() {
+	if !process.status().Terminal() {
 		t.enqueueProcess(process.handle.processID)
 	}
 }
@@ -2198,9 +2198,9 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	for _, waitID := range finalization.commit.closedChildWaits {
 		t.childWaits.remove(processID, waitID)
 	}
-	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status})
+	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status()})
 	t.stageEvent(process, EventStepCommitted, process.committedSteps, EffectID{}, payload)
-	if process.status == StatusPaused {
+	if process.status() == StatusPaused {
 		t.stageEvent(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
 	}
 	return nil

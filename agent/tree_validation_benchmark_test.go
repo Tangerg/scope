@@ -32,7 +32,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	if _, err := root.mailbox.enqueue(StatusWaiting, controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)), signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
-	root.status, root.pause = StatusPaused, pause{reason: "retain child outcomes"}
+	root.pause = pause{reason: "retain child outcomes"}
 	runtime.childWaits[root.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	snapshot, err := runtime.captureTree()
 	if err != nil {
@@ -126,7 +126,7 @@ func benchmarkMutableSnapshotTree(b *testing.B, count, stateBytes int) (*treeRun
 	state := controlValue(EncodeExecutionState("benchmark", benchmarkOpaqueText(stateBytes)))
 	for _, process := range owner.members.all() {
 		process.committedExecutionState = state
-		process.status, process.pause = StatusPaused, pause{reason: "before"}
+		process.pause = pause{reason: "before"}
 		process.currentWaitID = WaitID{}
 		process.mailbox = newSignalMailbox()
 	}
@@ -175,7 +175,7 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 	owner := newWaitingSnapshotTree(b, 1)
 	initial := controlValue(owner.captureTree())
 	root := owner.members.get(owner.rootID)
-	root.status, root.pause = StatusPaused, pause{reason: "first"}
+	root.pause = pause{reason: "first"}
 	first := controlValue(owner.captureTree())
 	root.pause = pause{reason: "second"}
 	second := controlValue(owner.captureTree())

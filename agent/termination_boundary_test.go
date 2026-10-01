@@ -40,7 +40,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 			}
 			runtime.failProcessContract(process, "engine.contract.failed", errors.New("contract failure"))
 			if mode == "in_flight" {
-				if process.status.Terminal() || record.Phase != effectPhasePending {
+				if process.status().Terminal() || record.Phase != effectPhasePending {
 					t.Fatal("failure discarded an owned attempt before its completion")
 				}
 				settlement, settlementErr := NewSettlement(record.ID, SettlementStatusUnknown, []byte(`null`))
@@ -67,7 +67,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				wantUnresolved = []EffectID{record.ID}
 				wantPhase = effectPhaseSettled
 			}
-			if process.status != StatusFailed || record.Phase != wantPhase ||
+			if process.status() != StatusFailed || record.Phase != wantPhase ||
 				!slices.Equal(process.termination.UnresolvedEffectIDs(), wantUnresolved) {
 				t.Fatalf("termination=%+v record=%+v", process.termination, record)
 			}

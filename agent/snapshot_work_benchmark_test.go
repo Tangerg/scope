@@ -159,7 +159,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err := child.mailbox.openWait(waitKey, signal, WaitKindExternal); err != nil {
 			t.Fatal(err)
 		}
-		child.status, child.currentWaitID = StatusWaiting, waitID
+		child.currentWaitID = waitID
 		debit, ok := root.handle.budget.allocation(budget)
 		if !ok {
 			t.Fatal("invalid allocation")
@@ -182,7 +182,7 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 		b.Run(fmt.Sprintf("processes_%d", count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
 			root := runtime.members.get(runtime.rootID)
-			root.status, root.pause = StatusPaused, pause{reason: "inspection benchmark"}
+			root.pause = pause{reason: "inspection benchmark"}
 			runtime.writer.committer = &recordingTreeCommitter{}
 			incarnation := newTreeIncarnationID()
 			runtime.writer.identity = incarnation
@@ -230,7 +230,6 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 						runtime := newWaitingSnapshotTree(b, count)
 						for _, process := range runtime.members.all() {
 							process.committedExecutionState = controlValue(EncodeExecutionState("benchmark", strings.Repeat("x", stateBytes)))
-							process.status = StatusPaused
 							process.pause = pause{reason: "benchmark"}
 							process.currentWaitID = WaitID{}
 							process.mailbox = newSignalMailbox()

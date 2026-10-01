@@ -114,8 +114,8 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	runtime.applyChildStartCompletion(parent, &processJob{
 		childStart: prepared.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt},
 	}, result)
-	if parent.status != StatusFailed {
-		t.Fatalf("rejected settlement parent status=%s", parent.status)
+	if parent.status() != StatusFailed {
+		t.Fatalf("rejected settlement parent status=%s", parent.status())
 	}
 	if _, exists := engine.Process(prepared.plan.childID); exists {
 		t.Fatal("rejected child settlement published the child")

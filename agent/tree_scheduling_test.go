@@ -124,7 +124,6 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	}
 	runtime.writer.identity = incarnation
 	runtime.writer.establish(initial)
-	process.status = StatusPaused
 	process.pause = pause{reason: "wait for explicit resumption"}
 	runtime.dequeueProcess()
 	response := make(chan TreeInspection, 1)
@@ -153,7 +152,6 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 
 func TestTreeInspectionDoesNotWakePausedExecution(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
-	process.status = StatusPaused
 	process.pause = pause{reason: "wait for explicit resumption"}
 
 	runtime.dequeueProcess()

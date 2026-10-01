@@ -30,7 +30,6 @@ type preparedStepFinalization struct {
 }
 
 type preparedStepCommit struct {
-	status           Status
 	currentWaitID    WaitID
 	pause            pause
 	finalOutput      Payload
@@ -90,16 +89,15 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 	transition := p.prepared.Intent
 	switch transition.Kind() {
 	case TransitionKindContinue, TransitionKindCheckpoint:
-		p.commit.status = StatusRunning
+		return nil
 	case TransitionKindWait:
 		return p.prepareWaitTransition(transition)
 	case TransitionKindPause:
-		p.commit.status = StatusPaused
 		p.commit.pause = transition.pause
 	case TransitionKindComplete:
 		output, _ := transition.Output()
 		p.prepareTermination(completedOutcome(), finishedAt)
-		if p.commit.status == StatusCompleted {
+		if p.commit.termination.Status() == StatusCompleted {
 			p.commit.finalOutput = output
 		}
 	case TransitionKindFail:
@@ -122,17 +120,13 @@ func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) 
 		return err
 	}
 	if shouldWait {
-		p.commit.status = StatusWaiting
 		p.commit.currentWaitID = waitID
-	} else {
-		p.commit.status = StatusRunning
 	}
 	return nil
 }
 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {
 	p.commit.termination = p.process.resolveStepTermination(outcome)
-	p.commit.status = p.commit.termination.Status()
 	p.commit.finishedAt = finishedAt
 	p.commit.closedChildWaits = p.mailbox.closeAllWaits()
 }

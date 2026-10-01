@@ -734,12 +734,12 @@ func (e *Engine) startRestoredTree(ctx context.Context, restoration *treeRestora
 	runtime := restoration.runtime
 	processes := runtime.members.ordered()
 	for _, process := range processes {
-		if process.status.Terminal() {
+		if process.status().Terminal() {
 			process.handle.publishResult(process.result())
 		}
 	}
 	for _, process := range slices.Backward(processes) {
-		if process.status.Terminal() {
+		if process.status().Terminal() {
 			runtime.propagateProcessTermination(process)
 			runtime.finishProcessBookkeeping(process)
 		}

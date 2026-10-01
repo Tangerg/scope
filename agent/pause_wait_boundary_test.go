@@ -126,7 +126,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	if runtime.writer.committing() {
 		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
-	if process.status != StatusPaused || process.prepared != nil || process.currentWaitID.Valid() {
+	if process.status() != StatusPaused || process.prepared != nil || process.currentWaitID.Valid() {
 		t.Fatal("accepted Pause was trapped behind Wait")
 	}
 	runtime.applyCompletion(<-runtime.completions)
@@ -147,7 +147,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	if runtime.writer.committing() {
 		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
-	if process.status != StatusWaiting || process.currentWaitID != waitID {
+	if process.status() != StatusWaiting || process.currentWaitID != waitID {
 		t.Fatal("Resume did not re-establish the same wait")
 	}
 	signal := mustMailboxSignal(t, "signal:answer", waitID, []byte(`{"kind":"answer","value":"approved"}`))
@@ -160,7 +160,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	if runtime.writer.committing() {
 		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
-	if process.status != StatusCompleted || controlValue(process.finalOutput.Decode[engineTestOutput]()).Value != "approved" {
+	if process.status() != StatusCompleted || controlValue(process.finalOutput.Decode[engineTestOutput]()).Value != "approved" {
 		t.Fatal("resumed wait lost its answer")
 	}
 }

@@ -67,7 +67,7 @@ func restoreProcessState(
 ) (*processState, error) {
 	process := &processState{
 		handle: handle, execution: execution,
-		status: wire.Status, committedSteps: wire.CommittedSteps,
+		committedSteps:          wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		allocatedResources: wire.AllocatedResources, counters: wire.Counters,
 	}
