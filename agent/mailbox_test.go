@@ -107,13 +107,13 @@ func TestMailboxCommitsOnlyAnExplicitSignalPrefix(t *testing.T) {
 	if _, err := mailbox.commit(2); err != nil {
 		t.Fatal(err)
 	}
-	if mailbox.committedSignalCursor() != 2 || len(mailbox.pending()) != 1 || mailbox.pending()[0].ID().String() != "signal:3" {
-		t.Fatalf("mailbox cursor = %d pending %+v", mailbox.committedSignalCursor(), mailbox.pending())
+	if mailbox.signalCursor != 2 || len(mailbox.pending()) != 1 || mailbox.pending()[0].ID().String() != "signal:3" {
+		t.Fatalf("mailbox cursor = %d pending %+v", mailbox.signalCursor, mailbox.pending())
 	}
 	if _, err := mailbox.commit(2); !errors.Is(err, errMailboxCursor) {
 		t.Fatalf("over-consume error = %v, want errMailboxCursor", err)
 	}
-	if mailbox.committedSignalCursor() != 2 {
+	if mailbox.signalCursor != 2 {
 		t.Fatal("failed cursor commit changed the authoritative cursor")
 	}
 }
@@ -140,7 +140,7 @@ func TestMailboxRejectsConflictingIdentityAfterConsumptionAndRestore(t *testing.
 			t.Fatalf("conflicting admission=%t %v", accepted, err)
 		}
 	}
-	if restored.acceptedCount() != 1 || restored.committedSignalCursor() != 1 {
+	if restored.acceptedCount() != 1 || restored.signalCursor != 1 {
 		t.Fatal("conflicting admission changed mailbox history")
 	}
 }
@@ -234,8 +234,8 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.committedSignalCursor() != 2 || len(restored.pending()) != 1 || restored.pending()[0].ID() != plain.ID() {
-		t.Fatalf("restored mailbox cursor=%d pending=%+v", restored.committedSignalCursor(), restored.pending())
+	if restored.signalCursor != 2 || len(restored.pending()) != 1 || restored.pending()[0].ID() != plain.ID() {
+		t.Fatalf("restored mailbox cursor=%d pending=%+v", restored.signalCursor, restored.pending())
 	}
 	if accepted, err := restored.enqueue(StatusRunning, answer, signalSourceExternal); err != nil || accepted {
 		t.Fatalf("restored duplicate enqueue = %t, %v", accepted, err)
@@ -287,8 +287,8 @@ func TestMailboxCommitReportsOnlyConsumedChildWaits(t *testing.T) {
 	if _, err := mailbox.enterWait(waitID); err != nil {
 		t.Fatalf("candidate commit closed the authoritative wait: %v", err)
 	}
-	if mailbox.committedSignalCursor() != 0 || candidate.committedSignalCursor() != 2 {
-		t.Fatalf("signal cursors = %d, %d; want 0, 2", mailbox.committedSignalCursor(), candidate.committedSignalCursor())
+	if mailbox.signalCursor != 0 || candidate.signalCursor != 2 {
+		t.Fatalf("signal cursors = %d, %d; want 0, 2", mailbox.signalCursor, candidate.signalCursor)
 	}
 }
 

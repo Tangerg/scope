@@ -300,8 +300,6 @@ func (s *signalMailbox) commit(consumedSignals uint32) ([]WaitID, error) {
 
 func (s *signalMailbox) acceptedCount() uint64 { return uint64(len(s.records)) }
 
-func (s *signalMailbox) committedSignalCursor() uint64 { return s.signalCursor }
-
 func (s *signalMailbox) pendingCount() uint64 {
 	return s.acceptedCount() - s.signalCursor
 }

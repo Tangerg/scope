@@ -7,11 +7,11 @@ import (
 // preparedStep owns candidate state and the effect lifecycle until adoption.
 // Its fields are the single persisted representation. Executable instances
 // belong to processState so portable facts cannot carry runtime authority.
+// Intent owns prospective Signal consumption; only adoption advances the mailbox.
 type preparedStep struct {
 	StepSequence                  uint64          `json:"step_sequence"`
 	CommittedExecutionStateDigest Digest          `json:"committed_execution_state_digest"`
 	CandidateState                ExecutionState  `json:"candidate_state"`
-	SignalCursor                  uint64          `json:"signal_cursor"`
 	Intent                        Transition      `json:"intent"`
 	Effects                       preparedEffects `json:"effects,omitempty"`
 }
@@ -91,18 +91,12 @@ func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedS
 	if !p.Intent.Valid() {
 		return errors.New("prepared Step transition is invalid")
 	}
-	if p.SignalCursor < mailbox.committedSignalCursor() {
-		return errors.New("prepared Step cursor precedes committed consumption")
-	}
-	if p.SignalCursor > mailbox.acceptedCount() {
-		return errors.New("prepared Step cursor exceeds admitted Signals")
+	if p.consumedSignals() > mailbox.pendingCount() {
+		return errors.New("prepared Step consumption exceeds pending Signals")
 	}
 	digest, err := committedState.digest()
 	if err != nil || digest != p.CommittedExecutionStateDigest {
 		return errors.New("prepared Step does not identify committed Execution state")
-	}
-	if p.SignalCursor != mailbox.committedSignalCursor()+p.consumedSignals() {
-		return errors.New("prepared Step consumption does not match Transition")
 	}
 	if len(p.Intent.effects) != 0 || len(p.Effects) != 0 && p.Intent.Kind() != TransitionKindContinue {
 		return errors.New("prepared Effects must belong only to the execution records of a continue intent")

@@ -460,7 +460,7 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 }
 
 // pendingSignals derives mailbox occupancy after the prepared Step, if any.
-// Callers validate the mailbox and prepared cursor first, so the prepared
+// Callers validate the mailbox and prepared consumption first, so the prepared
 // consumption cannot exceed the pending suffix.
 func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedSteps uint64) {
 	remaining = uint64(len(p.Mailbox.Signals)) - p.Mailbox.SignalCursor

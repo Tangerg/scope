@@ -461,8 +461,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 	transition.effects = nil
 	prepared := preparedStep{
 		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
-		SignalCursor: p.mailbox.committedSignalCursor() + uint64(transition.ConsumedSignals()),
-		Intent:       transition,
+		Intent: transition,
 	}
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{

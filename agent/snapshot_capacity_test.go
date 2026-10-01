@@ -176,7 +176,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	for _, process := range runtime.members.all() {
 		process.currentWaitID = WaitID{}
 		process.counters.PreparedEffects = 2
-		process.prepared = &preparedStep{StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(process.committedExecutionState.digest()), SignalCursor: process.mailbox.committedSignalCursor(), Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
+		process.prepared = &preparedStep{StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(process.committedExecutionState.digest()), Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
 			{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePlanned},
 			{ID: process.handle.processID.effectID(1, 1), Effect: effect, Phase: effectPhasePlanned},
 		}}
@@ -228,7 +228,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		process.execution = execution
 		process.prepared = &preparedStep{
 			StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(state.digest()),
-			CandidateState: state, SignalCursor: process.mailbox.committedSignalCursor(), Intent: controlValue(Continue(0)),
+			CandidateState: state, Intent: controlValue(Continue(0)),
 		}
 	}
 	effectID := root.handle.processID.effectID(1, 0)

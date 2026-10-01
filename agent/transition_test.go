@@ -76,6 +76,21 @@ func TestTransitionStrictUnionJSON(t *testing.T) {
 	}
 }
 
+func TestTransitionJSONRequiresExplicitSignalConsumption(t *testing.T) {
+	for _, raw := range []string{`{"kind":"continue"}`, `{"kind":"continue","consumed_signals":null}`} {
+		transition, err := Continue(2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = jsonv2.Unmarshal([]byte(raw), &transition); !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("missing consumption accepted: %s: %v", raw, err)
+		}
+		if transition.ConsumedSignals() != 2 {
+			t.Fatal("failed decode replaced the admitted consumption")
+		}
+	}
+}
+
 func TestFailureStrictRoundTrip(t *testing.T) {
 	failure, err := NewFailure(FailureKindContract, "output.schema", "Output did not match the Descriptor schema.")
 	if err != nil {

@@ -161,6 +161,48 @@ func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
 	}
 }
 
+func TestPreparedConsumptionUsesOnlyPendingSignals(t *testing.T) {
+	wire, err := preparedEngineTestSnapshot(t).wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mailbox := newSignalMailbox()
+	for _, name := range []string{"signal:consumed", "signal:pending"} {
+		id := controlValue(ParseSignalID(name))
+		signal := controlValue(NewSignal(id, WaitID{}, []byte(`"input"`)))
+		if accepted, enqueueErr := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); enqueueErr != nil || !accepted {
+			t.Fatalf("signal admission = %t, %v", accepted, enqueueErr)
+		}
+	}
+	if _, err = mailbox.commit(1); err != nil {
+		t.Fatal(err)
+	}
+	wire.Mailbox = mailbox.wire()
+	wire.CommittedSteps++
+	wire.Prepared.StepSequence++
+	for index := range wire.Prepared.Effects {
+		wire.Prepared.Effects[index].ID = wire.ProcessID.effectID(wire.Prepared.StepSequence, index)
+	}
+	for _, consumed := range []uint32{0, 1, 2, math.MaxUint32} {
+		wire.Prepared.Intent = controlValue(Continue(consumed))
+		data := controlValue(jsonv2.Marshal(wire))
+		snapshot, parseErr := ParseProcessSnapshot(data)
+		if consumed > 1 {
+			if !errors.Is(parseErr, ErrInvalidSnapshot) {
+				t.Fatalf("consumption %d exceeds the pending suffix: %v", consumed, parseErr)
+			}
+			continue
+		}
+		if parseErr != nil {
+			t.Fatalf("valid consumption %d rejected: %v", consumed, parseErr)
+		}
+		receipts := snapshot.SignalReceipts()
+		if len(receipts) != 2 || !receipts[0].Consumed() || receipts[1].Consumed() {
+			t.Fatal("prepared consumption changed committed Signal receipts")
+		}
+	}
+}
+
 func TestSnapshotRejectsRetiredUsageRepresentation(t *testing.T) {
 	snapshot := completedEngineTestSnapshot(t)
 	var wire map[string]json.RawMessage
