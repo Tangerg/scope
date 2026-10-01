@@ -211,7 +211,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(),
-				ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, Invocations: []childInvocationState{{ChildKey: &key}}}},
+				ChildBatch: &childCallBatch{Kind: childCallsDelegate, Invocations: []childInvocationState{{ChildKey: &key}}}},
 		},
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 1,
@@ -219,7 +219,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 				Messages:  []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz steer"))},
 				SignalIDs: []agent.SignalID{steerSignalID},
 			},
-			ToolRound: &toolCallRound{Response: response.Clone(), ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+			ToolRound: &toolCallRound{Response: response.Clone(), ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []childInvocationState{{
 				ChildKey: &key, ProcessID: &processID,
 			}}}},
 		},

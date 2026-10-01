@@ -142,6 +142,113 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 	}
 }
 
+func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
+	execution := childBatchTestExecution(t, childCallsTool, phaseWaitingChildren)
+	batch := execution.state.ToolRound.ChildBatch
+	batch.Invocations = make([]childInvocationState, 5)
+	message := chat.NewAssistantMessage()
+	for index := range batch.Invocations {
+		call := chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
+		message.Parts = append(message.Parts, chat.NewToolCallPart(call))
+		if index >= 4 {
+			continue
+		}
+		key, err := ToolChildKey(1, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
+		batch.Invocations[index] = childInvocationState{ChildKey: &key, ProcessID: &id}
+	}
+	batch.Invocations[0].Result = &toolCallResult{Result: chat.ToolResult{
+		ID: "call_0", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("settled prefix"),
+	}}
+	execution.state.ToolRound.Response.Output.Message = &message
+	captured, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := execution.definition.Restore(t.Context(), captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait, err := batch.waitSpec(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := agent.EncodePayload(toolCallResult{Result: chat.ToolResult{
+		ID: "call_1", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("newly settled"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
+		Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained,
+		Outcomes: []childOutcomeTestWire{{
+			Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[1].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
+			Result: childResultTestWire{
+				ProcessID: *batch.Invocations[1].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
+				Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`),
+			},
+		}},
+	})
+	transition, err := restored.Step(t.Context(), []agent.Signal{signal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transition.ConsumedSignals() != 1 || len(transition.Effects()) != 1 {
+		t.Fatalf("restored batch did not refill its suffix: %+v", transition)
+	}
+	for _, effect := range transition.Effects() {
+		var start struct {
+			Spec agent.ChildSpec `json:"spec"`
+		}
+		if err = jsonv2.Unmarshal(effect.Payload(), &start); err != nil {
+			t.Fatal(err)
+		}
+		call, decodeErr := start.Spec.Input.Decode[toolCall]()
+		if decodeErr != nil || call.ModelCallSequence != 1 || call.ToolCallIndex != 4 || call.Call.ID != "call_4" {
+			t.Fatalf("refilled call = %+v, error = %v", call, decodeErr)
+		}
+	}
+	after, err := restored.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execution.definition.Restore(t.Context(), after); err != nil {
+		t.Fatalf("refilled batch cannot restore: %v", err)
+	}
+}
+
+func TestChildBatchRestoreRejectsAdmissionGaps(t *testing.T) {
+	for _, kind := range []childCallKind{childCallsTool, childCallsDelegate} {
+		t.Run(string(kind), func(t *testing.T) {
+			execution := childBatchTestExecution(t, kind, phaseAwaitingChildStarts)
+			batch := execution.state.ToolRound.ChildBatch
+			for index := 1; index < 3; index++ {
+				call := chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
+				execution.state.ToolRound.Response.Output.Message.Parts = append(execution.state.ToolRound.Response.Output.Message.Parts, chat.NewToolCallPart(call))
+				invocation := childInvocationState{}
+				if index == 2 {
+					key, err := batch.childKey(1, call)
+					if err != nil {
+						t.Fatal(err)
+					}
+					invocation.ChildKey = &key
+				}
+				batch.Invocations = append(batch.Invocations, invocation)
+			}
+			captured, err := execution.state.snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := execution.definition.Restore(t.Context(), captured); !errors.Is(err, ErrInvalidExecutionState) {
+				t.Fatalf("Restore admitted a gap in child scheduling: %v", err)
+			}
+		})
+	}
+}
+
 func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *execution {
 	t.Helper()
 	definition := fuzzInteractionDefinition(t)
@@ -172,7 +279,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	call := chat.ToolCall{ID: "call_batch", Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	processID, _ := agent.ParseProcessID("process:child-batch")
-	batch := &childCallBatch{Kind: kind, NextStartIndex: 1}
+	batch := &childCallBatch{Kind: kind}
 	key, err := batch.childKey(1, call)
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +416,6 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				execution := childBatchTestExecution(t, kind, phaseWaitingChildren)
 				batch := execution.state.ToolRound.ChildBatch
 				batch.Invocations = nil
-				batch.NextStartIndex = 3
 				message := chat.NewAssistantMessage()
 				outcomes := make([]childOutcomeTestWire, 3)
 				for index := range 3 {

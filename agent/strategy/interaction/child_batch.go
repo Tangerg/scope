@@ -92,17 +92,25 @@ func (c childInvocationState) empty() bool {
 // One batch owns child admission, the active wait, and ordered settlements.
 // Kind selects binding and scheduling policy without creating another protocol.
 type childCallBatch struct {
-	Kind           childCallKind          `json:"kind"`
-	Invocations    []childInvocationState `json:"invocations"`
-	NextStartIndex uint32                 `json:"next_start_index"`
-	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
+	Kind        childCallKind          `json:"kind"`
+	Invocations []childInvocationState `json:"invocations"`
+	WaitID      *agent.WaitID          `json:"wait_id,omitzero"`
+}
+
+func (c childCallBatch) nextStartIndex() int {
+	for index, invocation := range c.Invocations {
+		if invocation.empty() {
+			return index
+		}
+	}
+	return len(c.Invocations)
 }
 
 // phase follows admission: starts settle before the wait opens, and only an
 // accepted opening records its WaitID.
 func (c childCallBatch) phase() phase {
-	for index, invocation := range c.Invocations {
-		if index < int(c.NextStartIndex) && invocation.ProcessID == nil && invocation.Result == nil {
+	for _, invocation := range c.Invocations {
+		if invocation.ChildKey != nil && invocation.ProcessID == nil && invocation.Result == nil {
 			return phaseAwaitingChildStarts
 		}
 	}
@@ -137,11 +145,12 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 }
 
 func (c childCallBatch) validateShape(calls []chat.ToolCall) error {
+	planned := c.nextStartIndex()
 	if c.Kind != childCallsTool && c.Kind != childCallsDelegate || len(calls) == 0 ||
-		len(c.Invocations) != len(calls) || c.NextStartIndex == 0 || uint64(c.NextStartIndex) > uint64(len(calls)) {
+		len(c.Invocations) != len(calls) || planned == 0 {
 		return fmt.Errorf("%w: invalid child call batch", ErrInvalidExecutionState)
 	}
-	if c.Kind == childCallsDelegate && int(c.NextStartIndex) != len(calls) {
+	if c.Kind == childCallsDelegate && planned != len(calls) {
 		return fmt.Errorf("%w: Delegate batch has unplanned calls", ErrInvalidExecutionState)
 	}
 	return nil
@@ -165,11 +174,12 @@ func (c childCallBatch) validateWait(current phase) error {
 // children that have no result yet.
 func (c childCallBatch) activeChildren(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) (int, error) {
 	active := 0
+	planned := c.nextStartIndex()
 	for index, invocation := range c.Invocations {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		if index >= int(c.NextStartIndex) {
+		if index >= planned {
 			if !invocation.empty() {
 				return 0, fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
 			}
@@ -279,7 +289,7 @@ func (c childCallBatch) protocolBatch(bindings []agent.DeploymentRef) childcall.
 	}
 	for index, invocation := range c.Invocations {
 		child := &batch.Children[index]
-		child.Done = index >= int(c.NextStartIndex) || invocation.Result != nil
+		child.Done = invocation.empty() || invocation.Result != nil
 		if invocation.ChildKey != nil {
 			child.Key = *invocation.ChildKey
 		}

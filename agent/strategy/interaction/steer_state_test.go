@@ -171,7 +171,7 @@ func pendingSteerTestState(t testing.TB) executionState {
 		}},
 		ModelCallCount: 1,
 		ToolRound: &toolCallRound{Response: response,
-			ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, WaitID: &waitID, Invocations: []childInvocationState{{
+			ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []childInvocationState{{
 				ChildKey: &key, ProcessID: &childID,
 			}}}},
 		PendingSteer: &steerBatch{

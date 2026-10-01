@@ -29,6 +29,8 @@
 // child-call batch owns start confirmations, wait identity, boundary
 // validation, and ordered results for both bindings. Tools refill their
 // bounded window after any child drains; Delegates await their entire batch.
+// Admission progress derives from the ordered invocation records, including
+// retained settlements, so recovery needs no separate scheduling cursor.
 // A rejected Tool child start terminates the Interaction with the original
 // Failure, because the ToolSet is required infrastructure. A rejected Delegate
 // start is a model-visible rejected result, because choosing another worker is

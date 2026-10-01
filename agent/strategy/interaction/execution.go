@@ -568,7 +568,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		return nil, fmt.Errorf("%w: delegate window at ToolCall %d is empty", ErrInvalidExecutionState, start)
 	}
 	batch := &childCallBatch{Kind: childCallsDelegate,
-		Invocations: make([]childInvocationState, end-start), NextStartIndex: end - start}
+		Invocations: make([]childInvocationState, end-start)}
 	effects := make([]agent.Effect, 0, len(batch.Invocations))
 	for index := range batch.Invocations {
 		if err := ctx.Err(); err != nil {
@@ -642,18 +642,17 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 	batch := e.state.ToolRound.ChildBatch
 	active := len(e.state.ToolRound.ChildBatch.children())
 	var effects []agent.Effect
-	for active < e.definition.maxConcurrentToolCalls && int(batch.NextStartIndex) < len(calls) {
+	for index := batch.nextStartIndex(); active < e.definition.maxConcurrentToolCalls && index < len(calls); index++ {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
-		index := batch.NextStartIndex
 		call := calls[index]
 		key, keyErr := ToolChildKey(e.state.ModelCallCount, call)
 		if keyErr != nil {
 			return agent.Transition{}, keyErr
 		}
 		input, inputErr := agent.EncodePayload(toolCall{
-			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.ToolRound.nextCallIndex() + index, Call: call,
+			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.ToolRound.nextCallIndex() + uint32(index), Call: call,
 		})
 		if inputErr != nil {
 			return agent.Transition{}, inputErr
@@ -666,7 +665,6 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 			return agent.Transition{}, effectErr
 		}
 		batch.Invocations[index].ChildKey = &key
-		batch.NextStartIndex++
 		effects = append(effects, effect)
 		active++
 	}
