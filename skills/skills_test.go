@@ -153,7 +153,7 @@ func TestParse(t *testing.T) {
 	if got := skill.Metadata["version"]; got != "1.0" {
 		t.Errorf("metadata.version = %q", got)
 	}
-	if got := skill.AllowedToolList(); len(got) != 2 || got[0] != "Bash(git:*)" {
+	if got := skill.AllowedToolNames(); len(got) != 2 || got[0] != "Bash(git:*)" {
 		t.Errorf("allowed tools = %v", got)
 	}
 	if skill.Instructions == "" || skill.Instructions[0] != '#' {

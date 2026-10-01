@@ -149,17 +149,17 @@ func TestReadLineNumberSurfacesTheOffendingLine(t *testing.T) {
 	if !errors.Is(err, ErrLineTooLarge) {
 		t.Fatalf("error does not unwrap to ErrLineTooLarge: %v", err)
 	}
-	if got := ReadLineNumber(err); got != 42 {
-		t.Fatalf("ReadLineNumber = %d, want 42", got)
+	if got := LineNumber(err); got != 42 {
+		t.Fatalf("LineNumber = %d, want 42", got)
 	}
 	if message := err.Error(); message == "" {
 		t.Fatal("the error has no message")
 	}
 
-	if got := ReadLineNumber(ErrFileTooLarge); got != 0 {
-		t.Fatalf("ReadLineNumber on a non-line error = %d, want 0", got)
+	if got := LineNumber(ErrFileTooLarge); got != 0 {
+		t.Fatalf("LineNumber on a non-line error = %d, want 0", got)
 	}
-	if got := ReadLineNumber(nil); got != 0 {
-		t.Fatalf("ReadLineNumber(nil) = %d, want 0", got)
+	if got := LineNumber(nil); got != 0 {
+		t.Fatalf("LineNumber(nil) = %d, want 0", got)
 	}
 }

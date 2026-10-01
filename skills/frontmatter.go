@@ -31,7 +31,7 @@ type Frontmatter struct {
 	AllowedTools string `yaml:"allowed-tools,omitempty"`
 }
 
-func (f Frontmatter) AllowedToolList() []string {
+func (f Frontmatter) AllowedToolNames() []string {
 	return strings.Fields(f.AllowedTools)
 }
 

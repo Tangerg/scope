@@ -24,7 +24,7 @@ var (
 	ErrFileTooLarge = errors.New("fs: file exceeds the operation input limit")
 
 	// ErrLineTooLarge preserves the one-based offending line through
-	// ReadLineNumber.
+	// LineNumber.
 	ErrLineTooLarge = errors.New("fs: line exceeds the operation line limit")
 )
 
@@ -40,9 +40,9 @@ func (l *lineLimitError) Error() string {
 
 func (l *lineLimitError) Unwrap() error { return ErrLineTooLarge }
 
-// ReadLineNumber returns the one-based line attached to an
+// LineNumber returns the one-based line attached to an
 // [ErrLineTooLarge] failure, or zero when the error is not line-specific.
-func ReadLineNumber(err error) int {
+func LineNumber(err error) int {
 	if target, ok := errors.AsType[*lineLimitError](err); ok {
 		return target.line
 	}
