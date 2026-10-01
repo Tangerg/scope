@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -104,7 +105,7 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
 		ArtifactRecords: []artifactRecord{
 			{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
-			{ModelCallSequence: 2, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
+			{ModelCallSequence: 2, ToolCallIndex: 7, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
 		},
 	}
 	envelope, err := agent.EncodeExecutionState(executionStateKind, state)
@@ -130,6 +131,34 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 	for index, artifact := range artifacts {
 		if artifact.ModelCallSequence() != uint64(index+1) || artifact.ToolCallID() != "reused" || artifact.DelegateName() != "delegate_fuzz" {
 			t.Fatalf("provenance=%+v", artifact)
+		}
+	}
+	if decoded.ArtifactRecords[1].ToolCallIndex != 7 {
+		t.Fatal("Restore changed an Artifact's original call position")
+	}
+	for _, mode := range []string{"missing", "null"} {
+		var fields map[string]json.RawMessage
+		if err = jsonv2.Unmarshal(envelope.Payload(), &fields); err != nil {
+			t.Fatal(err)
+		}
+		var records []map[string]json.RawMessage
+		if err = jsonv2.Unmarshal(fields["artifact_records"], &records); err != nil {
+			t.Fatal(err)
+		}
+		delete(records[1], "tool_call_index")
+		if mode == "null" {
+			records[1]["tool_call_index"] = json.RawMessage(`null`)
+		}
+		fields["artifact_records"], err = jsonv2.Marshal(records)
+		if err != nil {
+			t.Fatal(err)
+		}
+		invalid, encodeErr := agent.EncodeExecutionState(envelope.Kind(), fields)
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		if _, restoreErr := definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, ErrInvalidExecutionState) {
+			t.Fatalf("Restore accepted a missing Artifact position: %v", restoreErr)
 		}
 	}
 }

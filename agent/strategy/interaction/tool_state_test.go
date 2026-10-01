@@ -4,11 +4,62 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
+
+func TestToolCallRequiresExplicitPosition(t *testing.T) {
+	definition, err := newToolDefinition("interaction.position.tools", "Preserve Tool call attribution.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		member   string
+		position uint32
+		valid    bool
+	}{
+		{name: "missing"},
+		{name: "null", member: `"tool_call_index":null,`},
+		{name: "zero", member: `"tool_call_index":0,`, valid: true},
+		{name: "later", member: `"tool_call_index":7,`, position: 7, valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			call := `{"model_call_sequence":1,` + test.member + `"call":{"id":"call","name":"inspect","arguments":"{}"}}`
+			input, err := agent.ParsePayload([]byte(call))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, startErr := definition.Start(input)
+			state, err := agent.ParseExecutionState(toolExecutionStateKind, []byte(`{"phase":"awaiting_result","call":`+call+`}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, restoreErr := definition.Restore(t.Context(), state)
+			_, dispatchErr := decodeEffect(json.RawMessage(`{"operation":"tool_call","tool_call":{"invocation":` + call + `}}`))
+			if !test.valid {
+				if !errors.Is(startErr, ErrInvalidInput) || !errors.Is(restoreErr, ErrInvalidExecutionState) || !errors.Is(dispatchErr, ErrInvalidProtocol) {
+					t.Fatalf("lost position accepted: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
+				}
+				return
+			}
+			if startErr != nil || restoreErr != nil || dispatchErr != nil {
+				t.Fatalf("explicit position rejected: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
+			}
+			captured, err := restored.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := captured.Decode[toolExecutionState](toolExecutionStateKind)
+			if err != nil || decoded.Call.ToolCallIndex != test.position {
+				t.Fatalf("restored position = %d, error = %v", decoded.Call.ToolCallIndex, err)
+			}
+		})
+	}
+}
 
 func FuzzToolExecutionStateRestore(f *testing.F) {
 	definition, err := newToolDefinition("interaction.fuzz.tools", "Validate Tool continuation recovery.")

@@ -76,6 +76,16 @@ type artifactRecord struct {
 	Output            agent.Payload `json:"output"`
 }
 
+func (a *artifactRecord) UnmarshalJSON(data []byte) error {
+	type wire artifactRecord
+	decoded, err := jsonwire.Decode[wire](data, "tool_call_index")
+	if err != nil {
+		return err
+	}
+	*a = artifactRecord(decoded)
+	return nil
+}
+
 func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) error {
 	delegate, found := definition.delegate(a.DelegateName)
 	if a.ModelCallSequence == 0 || a.ModelCallSequence > modelCallCount || a.ToolCallID == "" || !found || !a.Output.Valid() {

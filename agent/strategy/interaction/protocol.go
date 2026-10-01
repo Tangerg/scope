@@ -43,6 +43,16 @@ type toolCall struct {
 	Call              chat.ToolCall `json:"call"`
 }
 
+func (t *toolCall) UnmarshalJSON(data []byte) error {
+	type wire toolCall
+	decoded, err := jsonwire.Decode[wire](data, "tool_call_index")
+	if err != nil {
+		return err
+	}
+	*t = toolCall(decoded)
+	return nil
+}
+
 func (t toolCall) validate() error {
 	if t.ModelCallSequence == 0 {
 		return fmt.Errorf("%w: Tool call sequence is required", ErrInvalidProtocol)
