@@ -162,8 +162,8 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	count := uint64(len(records))
 	reserved := p.prepared.settlementSignalCount()
 	remainingPending := p.mailbox.pendingCount()
-	// The prepared cursor is bounded by accepted Signals and starts at the
-	// committed mailbox cursor, so its consumption cannot exceed pending.
+	// Step preparation bounds consumption by the pending suffix. Admission must
+	// also fit the settlements appended when that candidate is adopted.
 	remainingPending -= p.prepared.consumedSignals()
 	allocated := p.effectiveAllocations()
 	if !resourceQuantitiesFit(limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
