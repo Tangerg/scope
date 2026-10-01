@@ -98,14 +98,14 @@ type childCallBatch struct {
 	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
 }
 
-func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelSequence uint64) error {
+func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelCallSequence uint64) error {
 	if err := c.validateShape(calls); err != nil {
 		return err
 	}
 	if err := c.validateWait(current); err != nil {
 		return err
 	}
-	pending, active, err := c.unsettledCounts(ctx, calls, modelSequence)
+	pending, active, err := c.unsettledCounts(ctx, calls, modelCallSequence)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (c childCallBatch) validateWait(current phase) error {
 	return nil
 }
 
-func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCall, modelSequence uint64) (pending, active int, err error) {
+func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) (pending, active int, err error) {
 	for index, invocation := range c.Invocations {
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err
@@ -157,7 +157,7 @@ func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCa
 			}
 			continue
 		}
-		key, err := c.childKey(modelSequence, calls[index])
+		key, err := c.childKey(modelCallSequence, calls[index])
 		if err != nil {
 			return 0, 0, fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
 		}
@@ -175,11 +175,11 @@ func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCa
 	return pending, active, nil
 }
 
-func (c childCallBatch) childKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
+func (c childCallBatch) childKey(modelCallSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
 	if c.Kind == childCallsDelegate {
-		return DelegateChildKey(modelSequence, call)
+		return DelegateChildKey(modelCallSequence, call)
 	}
-	return ToolChildKey(modelSequence, call)
+	return ToolChildKey(modelCallSequence, call)
 }
 
 func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
@@ -240,14 +240,14 @@ func (c childCallBatch) children() []agent.ProcessID {
 	return children
 }
 
-func (c childCallBatch) waitSpec(modelSequence uint64, callIndex uint32) (agent.ChildWaitSpec, error) {
+func (c childCallBatch) waitSpec(modelCallSequence uint64, callIndex uint32) (agent.ChildWaitSpec, error) {
 	completed := 0
 	for _, invocation := range c.Invocations {
 		if invocation.Result != nil {
 			completed++
 		}
 	}
-	key, err := agent.ParseWaitKey(fmt.Sprintf("interaction.children:%d:%d:%d", modelSequence, callIndex, completed))
+	key, err := agent.ParseWaitKey(fmt.Sprintf("interaction.children:%d:%d:%d", modelCallSequence, callIndex, completed))
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}

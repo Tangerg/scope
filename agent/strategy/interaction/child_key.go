@@ -11,11 +11,11 @@ import (
 )
 
 // ToolChildKey correlates an ordinary ToolCall with its managed child Process.
-func ToolChildKey(modelSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
-	if modelSequence == 0 || call.Validate() != nil {
+func ToolChildKey(modelCallSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
+	if modelCallSequence == 0 || call.Validate() != nil {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", modelSequence, call.ID)))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", modelCallSequence, call.ID)))
 	return agent.ParseChildKey("tool_" + hex.EncodeToString(digest[:]))
 }
 

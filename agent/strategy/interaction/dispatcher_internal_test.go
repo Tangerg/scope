@@ -12,7 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func TestUnlimitedModelSequencePreservesIdentityAcrossNumericBoundaries(t *testing.T) {
+func TestUnlimitedModelCallSequencePreservesIdentityAcrossNumericBoundaries(t *testing.T) {
 	definition, err := NewDefinition(DefinitionConfig{Name: "interaction.counter", Description: "Check counter identity."})
 	if err != nil {
 		t.Fatal(err)
