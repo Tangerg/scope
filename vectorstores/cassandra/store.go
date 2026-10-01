@@ -437,27 +437,27 @@ func (s *Store) insertOne(ctx context.Context, id string, doc *document.Document
 }
 
 // Search runs an ANN query using the configured similarity function.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("cassandra.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("cassandra.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	wherePredicate, whereArgs, err := s.buildFilter(req.Options.Filter)
+	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("cassandra: embed query: %w", err)
 	}
@@ -475,7 +475,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	stmt := fmt.Sprintf(
 		"SELECT %s FROM %s%s ORDER BY %s ANN OF %s LIMIT %d",
 		strings.Join(s.selectColumns(vecLiteral), ", "), s.fullTable, wherePart,
-		s.embeddingColumn, vecLiteral, req.Options.ResultLimit(),
+		s.embeddingColumn, vecLiteral, request.Options.ResultLimit(),
 	)
 
 	iterator := queryIterator{value: s.session.Query(stmt, whereArgs...).WithContext(ctx).Iter()}
@@ -485,10 +485,10 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}()
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
+	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
 	scanDestinations := s.scanDestinations()
 	for iterator.scan(scanDestinations...) {
-		match, err := s.searchResultFromScan(scanDestinations, req.Options.MinScore)
+		match, err := s.searchResultFromScan(scanDestinations, request.Options.MinScore)
 		if err != nil {
 			return nil, err
 		}
@@ -572,23 +572,23 @@ func (s *Store) searchResultFromScan(destinations []any, minScore vectorstore.Sc
 	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("cassandra.Store.DeleteWhere: %w", err)
 	}
 
-	predicate, args, err := s.buildFilter(expr)
+	clause, args, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}
-	if predicate == "" {
+	if clause == "" {
 		return errors.New("cassandra: refusing to delete on empty filter")
 	}
 
-	selectStmt := fmt.Sprintf("SELECT %s FROM %s WHERE %s", s.idColumn, s.fullTable, predicate)
+	selectStmt := fmt.Sprintf("SELECT %s FROM %s WHERE %s", s.idColumn, s.fullTable, clause)
 	iterator := queryIterator{value: s.session.Query(selectStmt, args...).WithContext(ctx).Iter()}
 	defer func() {
 		if closeErr := iterator.close(); closeErr != nil {

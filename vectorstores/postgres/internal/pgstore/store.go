@@ -205,35 +205,35 @@ func drainBatch(br pgx.BatchResults, n int) error {
 
 // Search embeds the query, runs an ANN search, and returns the matching
 // documents above the configured MinScore threshold.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("%s.Store.Search: %w", s.provider, err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("%s.Store.Search: %w", s.provider, err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("%s.Store.Search: embed query: %w", s.provider, err)
 	}
 	queryVec := pgvec.NewVector(embedding.Float32Vector(vector))
 
-	whereSQL, args, err := s.buildWhereClause(req.Options.Filter)
+	whereSQL, args, err := s.buildWhereClause(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
 
 	args = append(args, queryVec)
 	distancePlaceholder := fmt.Sprintf("$%d", len(args))
-	args = append(args, req.Options.ResultLimit())
+	args = append(args, request.Options.ResultLimit())
 	limitPlaceholder := fmt.Sprintf("$%d", len(args))
 
 	sql := fmt.Sprintf(
@@ -248,7 +248,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 	defer rows.Close()
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
+	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
 	for rows.Next() {
 		var (
 			id       string
@@ -261,7 +261,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 
 		score := s.distanceMetric.score(distance)
-		if score < req.Options.MinScore {
+		if score < request.Options.MinScore {
 			continue
 		}
 		if id == "" {
@@ -287,11 +287,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 // DeleteWhere removes every row whose metadata matches the predicate.
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("%s.Store.DeleteWhere: %w", s.provider, err)
 	}
 
@@ -299,7 +299,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err err
 		fragment string
 		args     []any
 	)
-	fragment, args, err = s.buildWhereClause(expr)
+	fragment, args, err = s.buildWhereClause(predicate)
 	if err != nil {
 		return err
 	}

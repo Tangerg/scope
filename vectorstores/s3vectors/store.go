@@ -325,34 +325,34 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 // restrict results by key, so it cannot express the Core filter contract.
 // Filtered search requires s3vectors:ListVectors and s3vectors:GetVectors and
 // reads the full index. Concurrent writes are not isolated by this scan.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("s3vectors.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("s3vectors.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("s3vectors: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	limit := req.Options.ResultLimit()
+	limit := request.Options.ResultLimit()
 	if limit > MaxTopK {
 		return nil, fmt.Errorf("s3vectors.Store.Search: TopK %d exceeds the %d results a query can return",
 			limit, MaxTopK)
 	}
-	if req.Options.Filter != nil {
-		return s.searchFiltered(ctx, req, queryVec)
+	if request.Options.Filter != nil {
+		return s.searchFiltered(ctx, request, queryVec)
 	}
 
 	input := &s3vectors.QueryVectorsInput{
@@ -375,7 +375,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			return nil, fmt.Errorf("s3vectors: QueryVectors: %w", queryErr)
 		}
 		for _, hit := range resp.Vectors {
-			match, matchErr := s.toMatch(hit, req.Options.MinScore)
+			match, matchErr := s.toMatch(hit, request.Options.MinScore)
 			if matchErr != nil {
 				return nil, matchErr
 			}
@@ -454,16 +454,16 @@ func (s *Store) searchFiltered(ctx context.Context, req *vectorstore.SearchReque
 // mutations. Requires s3vectors:GetVectors alongside s3vectors:ListVectors,
 // because membership needs each vector's metadata. Implements
 // [vectorstore.FilterDeleter].
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("s3vectors.Store.DeleteWhere: %w", err)
 	}
 
 	var keys []string
-	err = s.visitMatchingVectors(ctx, expr, false, func(_ types.ListOutputVector, doc *document.Document) error {
+	err = s.visitMatchingVectors(ctx, predicate, false, func(_ types.ListOutputVector, doc *document.Document) error {
 		keys = append(keys, doc.ID)
 		return nil
 	})

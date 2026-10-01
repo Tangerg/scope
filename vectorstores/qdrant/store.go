@@ -547,24 +547,24 @@ func (s *Store) buildDocumentsFromPoints(scoredPoints []*qdrant.ScoredPoint) ([]
 	return docs, nil
 }
 
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("qdrant.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("qdrant.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
 	var selected []string
-	if req.Options.Filter != nil {
-		selected, err = s.matchingIDs(ctx, req.Options.Filter)
+	if request.Options.Filter != nil {
+		selected, err = s.matchingIDs(ctx, request.Options.Filter)
 		if err != nil {
 			return nil, err
 		}
@@ -574,13 +574,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	var queryPoints *qdrant.QueryPoints
-	queryPoints, err = s.buildQueryPoints(ctx, req)
+	queryPoints, err = s.buildQueryPoints(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 
 	groups := [][]string{nil}
-	if req.Options.Filter != nil {
+	if request.Options.Filter != nil {
 		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
 	for _, group := range groups {
@@ -602,7 +602,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if convertErr != nil {
 			return nil, fmt.Errorf("qdrant: build documents from query results: %w", convertErr)
 		}
-		if req.Options.Filter != nil {
+		if request.Options.Filter != nil {
 			for _, match := range matches {
 				if !slices.Contains(group, match.Document.ID) {
 					return nil, fmt.Errorf("qdrant: search returned unselected ID %q", match.Document.ID)
@@ -611,7 +611,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 				if err != nil {
 					return nil, err
 				}
-				matched, err := filter.Match(req.Options.Filter, values)
+				matched, err := filter.Match(request.Options.Filter, values)
 				if err != nil {
 					return nil, fmt.Errorf("qdrant: validate returned metadata for %s: %w", match.Document.ID, err)
 				}
@@ -623,8 +623,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		docs = append(docs, matches...)
 	}
 	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
-	if len(docs) > req.Options.ResultLimit() {
-		docs = docs[:req.Options.ResultLimit()]
+	if len(docs) > request.Options.ResultLimit() {
+		docs = docs[:request.Options.ResultLimit()]
 	}
 
 	return &vectorstore.SearchResponse{Results: docs}, nil
@@ -634,15 +634,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 // deletion to be applied, because Qdrant otherwise answers as soon as the
 // operation reaches the write-ahead log and a following Search would still
 // return the removed points. Implements [vectorstore.FilterDeleter].
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("qdrant.Store.DeleteWhere: %w", err)
 	}
 
-	ids, err := s.matchingIDs(ctx, expr)
+	ids, err := s.matchingIDs(ctx, predicate)
 	if err != nil {
 		return err
 	}

@@ -326,28 +326,28 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 // Search runs a VectorDistance-ordered query within the store's bound partition.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("azurecosmos.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("azurecosmos.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("azurecosmos: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	wherePredicate, params, err := s.buildFilter(req.Options.Filter)
+	wherePredicate, params, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +367,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	queryParams := []azcosmos.QueryParameter{
 		{Name: "@queryVec", Value: queryVec},
-		{Name: "@topK", Value: req.Options.ResultLimit()},
+		{Name: "@topK", Value: request.Options.ResultLimit()},
 	}
 	for _, p := range params {
 		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})
@@ -377,14 +377,14 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		QueryParameters: queryParams,
 	})
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
+	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("azurecosmos: query: %w", err)
 		}
 		for _, item := range page.Items {
-			match, err := s.decodeRow(item, req.Options.MinScore)
+			match, err := s.decodeRow(item, request.Options.MinScore)
 			if err != nil {
 				return nil, err
 			}
@@ -398,23 +398,23 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 // DeleteWhere removes matching documents in the bound partition. It completes
 // enumeration before deletion so mutation cannot invalidate query continuation.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("azurecosmos.Store.DeleteWhere: %w", err)
 	}
 
-	predicate, params, err := s.buildFilter(expr)
+	clause, params, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}
-	if predicate == "" {
+	if clause == "" {
 		return errors.New("azurecosmos: refusing to delete on empty filter")
 	}
 
-	query := fmt.Sprintf("SELECT c.id AS _id FROM c WHERE %s", predicate)
+	query := fmt.Sprintf("SELECT c.id AS _id FROM c WHERE %s", clause)
 	queryParams := make([]azcosmos.QueryParameter, 0, len(params))
 	for _, p := range params {
 		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})

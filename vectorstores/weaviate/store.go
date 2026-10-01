@@ -431,24 +431,24 @@ func (s *Store) buildNearVector(vector []float64, minScore vectorstore.Score) *g
 // the native ranking query receives those UUIDs before applying TopK. Returned
 // candidates are rechecked, and a changed predicate result fails the search.
 // The scan and ranking are separate requests, not a database snapshot.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("weaviate.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return nil, fmt.Errorf("weaviate.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
 	var selectedIDs []string
-	if req.Options.Filter != nil {
-		selectedIDs, err = s.matchingIDs(ctx, req.Options.Filter)
+	if request.Options.Filter != nil {
+		selectedIDs, err = s.matchingIDs(ctx, request.Options.Filter)
 		if err != nil {
 			return nil, err
 		}
@@ -457,13 +457,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("weaviate: embed query: %w", err)
 	}
 
 	additionalRelevanceField := additionalDistance
-	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		additionalRelevanceField = additionalScore
 	}
 	fields := []graphql.Field{
@@ -481,12 +481,12 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	getBuilder := s.client.GraphQL().Get().
 		WithClassName(s.className).
 		WithFields(fields...).
-		WithLimit(req.Options.ResultLimit())
-	if req.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
-		getBuilder = getBuilder.WithNearVector(s.buildNearVector(vector, req.Options.MinScore))
+		WithLimit(request.Options.ResultLimit())
+	if request.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
+		getBuilder = getBuilder.WithNearVector(s.buildNearVector(vector, request.Options.MinScore))
 	} else {
 		hybrid := s.client.GraphQL().HybridArgumentBuilder().
-			WithQuery(req.Query).
+			WithQuery(request.Query).
 			WithVector(models.C11yVector(embedding.Float32Vector(vector))).
 			WithProperties([]string{fieldContent}).
 			WithFusionType(graphql.RelativeScore)
@@ -496,7 +496,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		getBuilder = getBuilder.WithHybrid(hybrid)
 	}
 
-	if req.Options.Filter != nil {
+	if request.Options.Filter != nil {
 		getBuilder = getBuilder.WithWhere(filters.Where().WithPath([]string{additionalID}).WithOperator(filters.ContainsAny).WithValueText(selectedIDs...))
 	}
 
@@ -505,7 +505,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("weaviate: query class %s: %w", s.className, err)
 	}
 
-	docs, err = s.buildDocumentsFromResult(result, req.Options, selectedIDs)
+	docs, err = s.buildDocumentsFromResult(result, request.Options, selectedIDs)
 	if err != nil {
 		return nil, fmt.Errorf("weaviate: build documents from results: %w", err)
 	}
@@ -642,15 +642,15 @@ func (s *Store) resultScore(additional map[string]any, mode vectorstore.SearchMo
 // are individual requests without revision preconditions; concurrent writes
 // require host coordination, and a later deletion error can leave earlier
 // deletions applied.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("weaviate.Store.DeleteWhere: %w", err)
 	}
 
-	ids, err := s.matchingIDs(ctx, expr)
+	ids, err := s.matchingIDs(ctx, predicate)
 	if err != nil {
 		return err
 	}

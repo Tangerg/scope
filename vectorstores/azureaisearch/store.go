@@ -470,28 +470,28 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 
 // Search runs a semantic vector query or a native hybrid query that combines
 // the same vector with lexical evidence from the configured content field.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("azureaisearch.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return nil, fmt.Errorf("azureaisearch.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("azureaisearch: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	filterStr, err := s.buildFilter(req.Options.Filter)
+	filterStr, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -499,16 +499,16 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	vectorQuery := map[string]any{
 		"kind":   "vector",
 		"vector": queryVec,
-		"k":      req.Options.ResultLimit(),
+		"k":      request.Options.ResultLimit(),
 		"fields": s.embeddingField,
 	}
 	body := map[string]any{
 		"count":         false,
-		"top":           req.Options.ResultLimit(),
+		"top":           request.Options.ResultLimit(),
 		"vectorQueries": []any{vectorQuery},
 	}
-	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
-		body["search"] = req.Query
+	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+		body["search"] = request.Query
 		body["searchFields"] = s.contentField
 	}
 	if filterStr != "" {
@@ -522,11 +522,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	docs = make([]*vectorstore.SearchResult, 0, len(rows))
 	for _, row := range rows {
-		match, err := s.toMatch(row, req.Options.EffectiveMode())
+		match, err := s.toMatch(row, request.Options.EffectiveMode())
 		if err != nil {
 			return nil, err
 		}
-		if match.Score < req.Options.MinScore {
+		if match.Score < request.Options.MinScore {
 			continue
 		}
 		docs = append(docs, match)
@@ -534,15 +534,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("azureaisearch.Store.DeleteWhere: %w", err)
 	}
 
-	filterStr, err := s.buildFilter(expr)
+	filterStr, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}

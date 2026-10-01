@@ -452,22 +452,22 @@ func (s *Store) buildDocumentsFromResult(result v2.QueryResult, minScore vectors
 }
 
 // Search embeds the query, searches Chroma, and returns matching documents.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("chroma.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("chroma.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("chroma: embed query: %w", err)
 	}
@@ -475,7 +475,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	queryVector := embedding.Float32Vector(vector)
 
 	var opts []v2.CollectionQueryOption
-	opts, err = s.buildQueryOptions(req, queryVector)
+	opts, err = s.buildQueryOptions(request, queryVector)
 	if err != nil {
 		return nil, err
 	}
@@ -486,23 +486,23 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, fmt.Errorf("chroma: query collection %s: %w", s.collectionName, err)
 	}
 
-	docs, err = s.buildDocumentsFromResult(result, req.Options.MinScore)
+	docs, err = s.buildDocumentsFromResult(result, request.Options.MinScore)
 	if err != nil {
 		return nil, err
 	}
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("chroma.Store.DeleteWhere: %w", err)
 	}
 
 	visitor := newVisitor()
-	if err = expr.Accept(visitor); err != nil {
+	if err = predicate.Accept(visitor); err != nil {
 		return fmt.Errorf("chroma: convert filter: %w", err)
 	}
 

@@ -376,28 +376,28 @@ func (s *Store) documentProperties(doc *document.Document) (map[string]any, erro
 
 // Search calls db.index.vector.queryNodes and returns matching
 // documents above MinScore.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("neo4j.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("neo4j.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("neo4j: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	wherePredicate, params, err := s.buildPredicate(req.Options.Filter)
+	wherePredicate, params, err := s.buildPredicate(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -417,9 +417,9 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		params = make(map[string]any)
 	}
 	params["indexName"] = s.indexName
-	params["k"] = req.Options.ResultLimit()
+	params["k"] = request.Options.ResultLimit()
 	params["vec"] = queryVec
-	params["threshold"] = req.Options.MinScore
+	params["threshold"] = request.Options.MinScore
 
 	session := s.session(ctx, neo4j.AccessModeRead)
 	defer session.Close(ctx)
@@ -508,25 +508,25 @@ func (s *Store) metadataValues(properties map[string]any) map[string]any {
 	return values
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("neo4j.Store.DeleteWhere: %w", err)
 	}
 
-	predicate, params, err := s.buildPredicate(expr)
+	clause, params, err := s.buildPredicate(predicate)
 	if err != nil {
 		return err
 	}
-	if predicate == "" {
+	if clause == "" {
 		return errors.New("neo4j: refusing to delete on empty filter")
 	}
 
 	cypher := fmt.Sprintf(
 		"MATCH (node:`%s`) WHERE %s DETACH DELETE node",
-		s.label, predicate,
+		s.label, clause,
 	)
 
 	return s.write(ctx, func(tx neo4j.ManagedTransaction) (any, error) {

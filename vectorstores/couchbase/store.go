@@ -405,22 +405,22 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 // Search runs a SQL++ query that embeds the KNN search clause.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("couchbase: embed query: %w", err)
 	}
@@ -431,8 +431,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	whereExtra := ""
-	if req.Options.Filter != nil {
-		predicate, filterErr := s.buildFilter(req.Options.Filter)
+	if request.Options.Filter != nil {
+		predicate, filterErr := s.buildFilter(request.Options.Filter)
 		if filterErr != nil {
 			return nil, filterErr
 		}
@@ -443,7 +443,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	knnFragment := fmt.Sprintf(
 		`{"query":{"match_none":{}},"knn":[{"field":"%s","k":%d,"vector":%s}]}`,
-		embeddingField, req.Options.ResultLimit(), string(vectorJSON),
+		embeddingField, request.Options.ResultLimit(), string(vectorJSON),
 	)
 	indexFullName := fmt.Sprintf("%s.%s.%s", s.bucketName, s.scopeName, s.vectorIndexName)
 	stmt := fmt.Sprintf(
@@ -451,16 +451,16 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			`WHERE SEARCH(c, %s, {"index": "%s"})%s ORDER BY SEARCH_SCORE() DESC LIMIT %d`,
 		resultScoreField,
 		s.bucketName, s.scopeName, s.collectionName,
-		knnFragment, indexFullName, whereExtra, req.Options.ResultLimit(),
+		knnFragment, indexFullName, whereExtra, request.Options.ResultLimit(),
 	)
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
+	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
 	if err = s.runStatement(ctx, stmt, func(result *gocb.QueryResult) error {
 		hit, decodeErr := decodeSearchRow(result)
 		if decodeErr != nil {
 			return decodeErr
 		}
-		if hit.Score < req.Options.MinScore {
+		if hit.Score < request.Options.MinScore {
 			return nil
 		}
 		docs = append(docs, hit)
@@ -505,25 +505,25 @@ func (s *Store) runStatement(
 	return nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("couchbase.Store.DeleteWhere: %w", err)
 	}
 
-	predicate, err := s.buildFilter(expr)
+	clause, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}
-	if predicate == "" {
+	if clause == "" {
 		return errors.New("couchbase: refusing to delete on empty filter")
 	}
 
 	stmt := fmt.Sprintf(
 		`DELETE FROM `+"`%s`"+`.`+"`%s`"+`.`+"`%s`"+` WHERE %s`,
-		s.bucketName, s.scopeName, s.collectionName, predicate,
+		s.bucketName, s.scopeName, s.collectionName, clause,
 	)
 	if err := s.runStatement(ctx, stmt, nil); err != nil {
 		return fmt.Errorf("couchbase: delete: %w", err)

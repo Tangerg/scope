@@ -359,22 +359,22 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 
 // Search embeds the query, ranks rows by vec_distance, and returns
 // matching documents above MinScore.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("mariadb: embed query: %w", err)
 	}
@@ -384,7 +384,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 	vecText := string(vectorJSON)
 
-	wherePredicate, whereArgs, err := s.buildFilter(req.Options.Filter)
+	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	args := []any{vecText}
 	args = append(args, whereArgs...)
-	args = append(args, req.Options.ResultLimit())
+	args = append(args, request.Options.ResultLimit())
 
 	rows, err := s.db.QueryContext(ctx, stmt, args...)
 	if err != nil {
@@ -406,7 +406,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 	defer rows.Close()
 
-	docs = make([]*vectorstore.SearchResult, 0, req.Options.ResultLimit())
+	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
 	for rows.Next() {
 		var (
 			id       string
@@ -419,7 +419,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 
 		score := s.distanceMetric.score(distance)
-		if score < req.Options.MinScore {
+		if score < request.Options.MinScore {
 			continue
 		}
 		if id == "" {
@@ -443,27 +443,27 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("mariadb.Store.DeleteWhere: %w", err)
 	}
 
 	var (
-		predicate string
-		args      []any
+		clause string
+		args   []any
 	)
-	predicate, args, err = s.buildFilter(expr)
+	clause, args, err = s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}
-	if predicate == "" {
+	if clause == "" {
 		return errors.New("mariadb: refusing to delete on empty filter")
 	}
 
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, predicate)
+	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, clause)
 	if _, err := s.db.ExecContext(ctx, stmt, args...); err != nil {
 		return fmt.Errorf("mariadb: delete from %s: %w", s.fullTable, err)
 	}

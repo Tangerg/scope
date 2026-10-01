@@ -315,24 +315,24 @@ func checkImportResults(results []*api.ImportDocumentResponse, documents []*docu
 // to export documents and reads the full collection. Search pages contain at
 // most [MaxResultsPerPage] hits. Concurrent writes are not isolated by the
 // export and subsequent search.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = req.Validate(); err != nil {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("typesense.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return nil, fmt.Errorf("typesense.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
 	var filterBy string
 	var selectedIDs map[string]struct{}
-	if req.Options.Filter != nil {
-		ids, matchErr := s.matchingIDs(ctx, req.Options.Filter)
+	if request.Options.Filter != nil {
+		ids, matchErr := s.matchingIDs(ctx, request.Options.Filter)
 		if matchErr != nil {
 			return nil, matchErr
 		}
@@ -349,16 +349,16 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("typesense: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
-	params := s.searchParameters(req, queryVec)
+	params := s.searchParameters(request, queryVec)
 	if filterBy != "" {
 		params.FilterBy = new(filterBy)
 	}
-	limit := req.Options.ResultLimit()
+	limit := request.Options.ResultLimit()
 	var docs []*vectorstore.SearchResult
 	var ranked int
 	for page := 1; ; page++ {
@@ -406,11 +406,11 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			if ranked == limit {
 				break
 			}
-			match, err := toMatch(hit, req.Options.EffectiveMode(), ranked)
+			match, err := toMatch(hit, request.Options.EffectiveMode(), ranked)
 			if err != nil {
 				return nil, err
 			}
-			if req.Options.Filter != nil {
+			if request.Options.Filter != nil {
 				if _, exists := selectedIDs[match.Document.ID]; !exists {
 					return nil, fmt.Errorf("typesense: search returned unselected ID %q", match.Document.ID)
 				}
@@ -418,7 +418,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 				if err != nil {
 					return nil, fmt.Errorf("typesense: decode returned metadata: %w", err)
 				}
-				matches, err := filter.Match(req.Options.Filter, values)
+				matches, err := filter.Match(request.Options.Filter, values)
 				if err != nil {
 					return nil, fmt.Errorf("typesense: evaluate returned metadata for %s: %w", match.Document.ID, err)
 				}
@@ -427,7 +427,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 				}
 			}
 			ranked++
-			if match.Score >= req.Options.MinScore {
+			if match.Score >= request.Options.MinScore {
 				docs = append(docs, match)
 			}
 		}
@@ -468,15 +468,15 @@ func (s *Store) searchParameters(req *vectorstore.SearchRequest, queryVector []f
 // matching IDs. Export, decoding, predicate and ID representation errors abort
 // before any deletion. It requires document export permission in addition to
 // delete permission and does not isolate concurrent writes.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("typesense.Store.DeleteWhere: %w", err)
 	}
 
-	ids, err := s.matchingIDs(ctx, expr)
+	ids, err := s.matchingIDs(ctx, predicate)
 	if err != nil {
 		return err
 	}

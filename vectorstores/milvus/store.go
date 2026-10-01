@@ -501,22 +501,22 @@ func (s *Store) normalizeScore(raw float64) vectorstore.Score {
 	}
 }
 
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("milvus.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("milvus.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("milvus: embed query: %w", err)
 	}
@@ -526,13 +526,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 
 	queryVec := entity.FloatVector(embedding.Float32Vector(vector))
 
-	searchOpt := milvusclient.NewSearchOption(s.collectionName, req.Options.ResultLimit(), []entity.Vector{queryVec}).
+	searchOpt := milvusclient.NewSearchOption(s.collectionName, request.Options.ResultLimit(), []entity.Vector{queryVec}).
 		WithANNSField(fieldVector).
 		WithOutputFields(fieldID, fieldContent, fieldMeta)
 
-	if req.Options.Filter != nil {
+	if request.Options.Filter != nil {
 		visitor := newVisitor()
-		if acceptErr := req.Options.Filter.Accept(visitor); acceptErr != nil {
+		if acceptErr := request.Options.Filter.Accept(visitor); acceptErr != nil {
 			return nil, fmt.Errorf("milvus: convert filter: %w", acceptErr)
 		}
 		searchOpt = searchOpt.WithFilter(visitor.snapshot())
@@ -547,7 +547,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return nil, nil
 	}
 
-	docs, err = s.buildDocumentsFromResults(results[0], req.Options.MinScore)
+	docs, err = s.buildDocumentsFromResults(results[0], request.Options.MinScore)
 	if err != nil {
 		return nil, fmt.Errorf("milvus: build documents from results: %w", err)
 	}
@@ -555,16 +555,16 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("milvus.Store.DeleteWhere: %w", err)
 	}
 
 	visitor := newVisitor()
-	if err = expr.Accept(visitor); err != nil {
+	if err = predicate.Accept(visitor); err != nil {
 		return fmt.Errorf("milvus: convert filter: %w", err)
 	}
 

@@ -188,25 +188,25 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 // Search runs a Vectara semantic search.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("vectara.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("vectara.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
 	searchOpts := map[string]any{
-		"limit": req.Options.ResultLimit(),
+		"limit": request.Options.ResultLimit(),
 	}
-	filterFragment, err := s.buildFilter(req.Options.Filter)
+	filterFragment, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +215,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	payload := map[string]any{
-		"query":  req.Query,
+		"query":  request.Query,
 		"search": searchOpts,
 	}
 
@@ -249,7 +249,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		if scoreErr != nil {
 			return nil, scoreErr
 		}
-		if score < req.Options.MinScore {
+		if score < request.Options.MinScore {
 			continue
 		}
 		if hit.DocumentID == "" {
@@ -266,15 +266,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("vectara.Store.DeleteWhere: %w", err)
 	}
 
-	filterFragment, err := s.buildFilter(expr)
+	filterFragment, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}

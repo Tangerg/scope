@@ -238,15 +238,15 @@ func (s *Store) vectorArgs() *goredis.FTVectorArgs {
 
 // DeleteWhere enumerates metadata, then deletes matching keys only while the
 // observed metadata remains unchanged.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("redis.Store.DeleteWhere: %w", err)
 	}
 
-	records, err := s.matchingRecords(ctx, expr)
+	records, err := s.matchingRecords(ctx, predicate)
 	if err != nil {
 		return err
 	}
@@ -436,24 +436,24 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 
 // Search embeds the query, runs a KNN search through RediSearch,
 // and returns the matching documents above MinScore.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("redis.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("redis.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
 	var selected []string
-	if req.Options.Filter != nil {
-		records, matchErr := s.matchingRecords(ctx, req.Options.Filter)
+	if request.Options.Filter != nil {
+		records, matchErr := s.matchingRecords(ctx, request.Options.Filter)
 		if matchErr != nil {
 			return nil, matchErr
 		}
@@ -466,13 +466,13 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 	}
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("redis: embed query: %w", err)
 	}
 	queryVec := float32sToBytes(embedding.Float32Vector(vector))
 
-	queryStr := fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", req.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName)
+	queryStr := fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", request.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName)
 
 	opts := &goredis.FTSearchOptions{
 		Params: map[string]any{
@@ -480,7 +480,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		},
 		Return:         s.returnFields(),
 		LimitOffset:    0,
-		Limit:          req.Options.ResultLimit(),
+		Limit:          request.Options.ResultLimit(),
 		DialectVersion: redisSearchDialectVersion,
 		SortBy: []goredis.FTSearchSortBy{
 			{FieldName: distanceFieldName, Asc: true},
@@ -488,7 +488,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	}
 
 	groups := [][]string{nil}
-	if req.Options.Filter != nil {
+	if request.Options.Filter != nil {
 		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
 	for _, group := range groups {
@@ -508,7 +508,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			if err != nil {
 				return nil, err
 			}
-			if req.Options.Filter != nil {
+			if request.Options.Filter != nil {
 				if !slices.Contains(group, hit.ID) {
 					return nil, fmt.Errorf("redis: search returned unselected key %q", hit.ID)
 				}
@@ -516,7 +516,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 				if decodeErr != nil {
 					return nil, decodeErr
 				}
-				matched, matchErr := filter.Match(req.Options.Filter, values)
+				matched, matchErr := filter.Match(request.Options.Filter, values)
 				if matchErr != nil {
 					return nil, fmt.Errorf("redis: validate returned metadata for %s: %w", hit.ID, matchErr)
 				}
@@ -528,15 +528,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			if err != nil {
 				return nil, err
 			}
-			if score < req.Options.MinScore {
+			if score < request.Options.MinScore {
 				continue
 			}
 			docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
 		}
 	}
 	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
-	if len(docs) > req.Options.ResultLimit() {
-		docs = docs[:req.Options.ResultLimit()]
+	if len(docs) > request.Options.ResultLimit() {
+		docs = docs[:request.Options.ResultLimit()]
 	}
 
 	return &vectorstore.SearchResponse{Results: docs}, nil

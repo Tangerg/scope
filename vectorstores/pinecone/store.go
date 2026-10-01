@@ -400,38 +400,38 @@ func (s *Store) buildDocumentsFromScoredVectors(svs []*pinecone.ScoredVector, mi
 	return docs, nil
 }
 
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("pinecone.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("pinecone.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("pinecone: embed query: %w", err)
 	}
 
-	if limit := req.Options.ResultLimit(); limit > MaxTopK {
+	if limit := request.Options.ResultLimit(); limit > MaxTopK {
 		return nil, fmt.Errorf("pinecone.Store.Search: TopK %d exceeds the %d results a query can return",
 			limit, MaxTopK)
 	}
 	queryReq := &pinecone.QueryByVectorValuesRequest{
 		Vector:          embedding.Float32Vector(vector),
-		TopK:            uint32(req.Options.ResultLimit()),
+		TopK:            uint32(request.Options.ResultLimit()),
 		IncludeMetadata: true,
 	}
 
-	if req.Options.Filter != nil {
-		return s.searchMatchingVectors(ctx, req, queryReq.Vector)
+	if request.Options.Filter != nil {
+		return s.searchMatchingVectors(ctx, request, queryReq.Vector)
 	}
 
 	resp, err := s.index.QueryByVectorValues(ctx, queryReq)
@@ -446,7 +446,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		return &vectorstore.SearchResponse{}, nil
 	}
 
-	docs, err = s.buildDocumentsFromScoredVectors(resp.Matches, req.Options.MinScore)
+	docs, err = s.buildDocumentsFromScoredVectors(resp.Matches, request.Options.MinScore)
 	if err != nil {
 		return nil, fmt.Errorf("pinecone: build documents from results: %w", err)
 	}
@@ -458,15 +458,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 // fetched metadata before deleting matching IDs. The List API requires a
 // serverless index. Reads and deletions are not an atomic snapshot; coordinate
 // writers when a predicate must remain true until deletion.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err := expr.Validate(); err != nil {
+	if err := predicate.Validate(); err != nil {
 		return fmt.Errorf("pinecone.Store.DeleteWhere: %w", err)
 	}
 	var ids []string
-	err := s.visitMatches(ctx, expr, func(point *pinecone.Vector) error { ids = append(ids, point.Id); return nil })
+	err := s.visitMatches(ctx, predicate, func(point *pinecone.Vector) error { ids = append(ids, point.Id); return nil })
 	if err != nil {
 		return err
 	}

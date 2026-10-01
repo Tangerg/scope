@@ -296,46 +296,46 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 // Search runs a nearestNeighbor YQL query.
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	var docs []*vectorstore.SearchResult
-	if err = req.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("vespa.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("vespa.Store.Search: %w", err)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("vespa: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	filterFragment, err := s.buildFilter(req.Options.Filter)
+	filterFragment, err := s.buildFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
 
 	nn := fmt.Sprintf("{targetHits:%d}nearestNeighbor(%s, %s)",
-		req.Options.ResultLimit(), s.embeddingField, s.queryTensorName)
+		request.Options.ResultLimit(), s.embeddingField, s.queryTensorName)
 	yql := fmt.Sprintf("select * from %s where %s and %s contains %s", s.schemaName, nn, namespaceField, strconv.Quote(s.namespace))
 	if filterFragment != "" {
 		yql = yql + " and " + filterFragment
 	}
 
-	if limit := req.Options.ResultLimit(); limit > s.maxHits {
+	if limit := request.Options.ResultLimit(); limit > s.maxHits {
 		return nil, fmt.Errorf("vespa: TopK %d exceeds this application's maxHits of %d, which Vespa applies by trimming the result rather than reporting it",
 			limit, s.maxHits)
 	}
 	body := map[string]any{
 		"yql":  yql,
-		"hits": req.Options.ResultLimit(),
+		"hits": request.Options.ResultLimit(),
 		fmt.Sprintf("input.query(%s)", s.queryTensorName): map[string]any{"values": queryVec},
 		"ranking": s.rankingProfile,
 	}
@@ -353,7 +353,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		// Vespa relevance for nearestNeighbor is the configured
 		// distance metric's similarity directly (cosine: [0, 1]).
 		score := vectorstore.ScoreFromValue(*hit.Relevance)
-		if score < req.Options.MinScore {
+		if score < request.Options.MinScore {
 			continue
 		}
 		doc, err := s.toDocument(hit.ID, hit.Fields)
@@ -365,15 +365,15 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 	return &vectorstore.SearchResponse{Results: docs}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) (err error) {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = expr.Validate(); err != nil {
+	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("vespa.Store.DeleteWhere: %w", err)
 	}
 
-	filterFragment, err := s.buildFilter(expr)
+	filterFragment, err := s.buildFilter(predicate)
 	if err != nil {
 		return err
 	}

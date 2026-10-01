@@ -351,36 +351,36 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = req.Validate(); err != nil {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("opensearch.Store.Search: %w", err)
 	}
-	if err = req.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("opensearch.Store.Search: %w", err)
 	}
-	if req.Options.Filter != nil && s.engine != EngineLucene && s.engine != EngineFaiss {
+	if request.Options.Filter != nil && s.engine != EngineLucene && s.engine != EngineFaiss {
 		return nil, fmt.Errorf("%w: opensearch: filtered KNN requires a Lucene or Faiss index, got engine %q", errors.ErrUnsupported, s.engine)
 	}
 
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(req)
+			err = response.ValidateFor(request)
 		}
 	}()
 
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 	var docs []scoredDocument
-	if req.Options.Filter == nil {
-		docs, err = s.searchVectors(ctx, req, queryVec, nil)
+	if request.Options.Filter == nil {
+		docs, err = s.searchVectors(ctx, request, queryVec, nil)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		matches, selectErr := s.selectMatches(ctx, req.Options.Filter)
+		matches, selectErr := s.selectMatches(ctx, request.Options.Filter)
 		if selectErr != nil {
 			return nil, selectErr
 		}
@@ -389,7 +389,7 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 			for index, hit := range batch {
 				ids[index] = hit.ID
 			}
-			partial, searchErr := s.searchVectors(ctx, req, queryVec, ids)
+			partial, searchErr := s.searchVectors(ctx, request, queryVec, ids)
 			if searchErr != nil {
 				return nil, searchErr
 			}
@@ -402,8 +402,8 @@ func (s *Store) Search(ctx context.Context, req *vectorstore.SearchRequest) (res
 		}
 		return cmp.Compare(left.document.ID, right.document.ID)
 	})
-	if len(docs) > req.Options.ResultLimit() {
-		docs = docs[:req.Options.ResultLimit()]
+	if len(docs) > request.Options.ResultLimit() {
+		docs = docs[:request.Options.ResultLimit()]
 	}
 	results := make([]*vectorstore.SearchResult, len(docs))
 	for index, doc := range docs {
@@ -496,14 +496,14 @@ func (s *Store) searchVectors(ctx context.Context, req *vectorstore.SearchReques
 // DeleteWhere evaluates the complete stored metadata snapshot with Core's
 // predicate semantics. Conditional bulk deletion refuses documents changed
 // since that snapshot. A conflict returns an error; earlier batches stay deleted.
-func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
-	if expr == nil {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err := expr.Validate(); err != nil {
+	if err := predicate.Validate(); err != nil {
 		return fmt.Errorf("opensearch.Store.DeleteWhere: %w", err)
 	}
-	matches, err := s.selectMatches(ctx, expr)
+	matches, err := s.selectMatches(ctx, predicate)
 	if err != nil {
 		return err
 	}
