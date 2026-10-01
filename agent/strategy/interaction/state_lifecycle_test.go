@@ -5,6 +5,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestCanceledStepPreservesRecoveryState(t *testing.T) {
 		if decodeErr := jsonv2.Unmarshal(state.Payload(), &decoded); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		t.Run(string(decoded.Phase), func(t *testing.T) {
+		t.Run(fmt.Sprintf("phase_%d", decoded.phase()), func(t *testing.T) {
 			restored, restoreErr := definition.Restore(t.Context(), state)
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
@@ -56,11 +57,7 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 		name   string
 		change func(*executionState)
 	}{
-		{"active without round", func(state *executionState) { state.ToolRound = nil }},
 		{"round without response", func(state *executionState) { state.ToolRound.Response = nil }},
-		{"round without children", func(state *executionState) { state.ToolRound.ChildBatch = nil }},
-		{"ready with round", func(state *executionState) { state.Phase = phaseReadyModel }},
-		{"completed without output", func(state *executionState) { state.complete(Output{}); state.FinalOutput = nil }},
 		{"output call count mismatch", func(state *executionState) {
 			state.complete(Output{Source: CompletionSourceDirectToolResults, ModelCalls: 2,
 				DirectToolResults: []chat.ToolResult{{ID: "call", Name: "direct", Output: chat.NewTextToolOutput("done")}}})
@@ -86,8 +83,6 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"complete", func(*executionState) {}},
-		{"retired publication phase", func(state *executionState) { state.Phase = "awaiting_result_commit" }},
-		{"missing result", func(state *executionState) { state.ToolRound.Results = nil }},
 		{"foreign result", func(state *executionState) { state.ToolRound.Results[0].Result.ID = "other" }},
 		{"rejected success", func(state *executionState) { state.ToolRound.Results[0].Rejected = true }},
 		{"direct failure", func(state *executionState) {
@@ -95,16 +90,11 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 			state.ToolRound.Results[0].Result.IsError = true
 		}},
 		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
-		{"truncated advancing execution", func(state *executionState) {
-			state.Phase = phaseAdvancingTools
-			state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength
-		}},
 		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
 		{"completed output", func(state *executionState) { state.FinalOutput = &Output{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
-			execution.state.Phase = phaseRoundComplete
 			execution.state.ToolRound.ChildBatch = nil
 			execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done")}}}
 			test.change(&execution.state)

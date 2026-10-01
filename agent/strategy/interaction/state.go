@@ -11,33 +11,24 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-type phase string
+// phase names the next protocol step. It is derived from the recovery facts
+// and never stored, so no persisted marker can disagree with them.
+type phase uint8
 
 const (
-	phaseAdvancingTools        phase = "advancing_tools"
-	phaseRoundComplete         phase = "round_complete"
-	phaseReadyModel            phase = "ready_model"
-	phaseAwaitingModel         phase = "awaiting_model"
-	phaseAwaitingChildStarts   phase = "awaiting_child_starts"
-	phaseAwaitingChildWaitOpen phase = "awaiting_child_wait_open"
-	phaseWaitingChildren       phase = "waiting_children"
-	phaseCompleted             phase = "completed"
+	phaseReadyModel phase = iota
+	phaseAwaitingModel
+	phaseAdvancingTools
+	phaseRoundComplete
+	phaseAwaitingChildStarts
+	phaseAwaitingChildWaitOpen
+	phaseWaitingChildren
+	phaseCompleted
 )
-
-func (p phase) valid() bool {
-	switch p {
-	case phaseAdvancingTools, phaseRoundComplete, phaseReadyModel, phaseAwaitingModel, phaseAwaitingChildStarts,
-		phaseAwaitingChildWaitOpen, phaseWaitingChildren, phaseCompleted:
-		return true
-	default:
-		return false
-	}
-}
 
 // executionState is the complete Strategy-owned recovery state. WorkingContext
 // is self-sufficient for the next model call; ToolRound owns each pending round.
 type executionState struct {
-	Phase               phase            `json:"phase"`
 	WorkingContext      *chat.Request    `json:"working_context"`
 	ModelCallCount      uint64           `json:"model_call_count"`
 	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
@@ -45,6 +36,25 @@ type executionState struct {
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord `json:"artifact_records,omitempty"`
 	FinalOutput         *Output          `json:"final_output,omitzero"`
+}
+
+// phase relies on every model request advancing ModelCallCount in the Step
+// that emits it: without a round or final Output, a counted call is in flight.
+func (e executionState) phase() phase {
+	switch {
+	case e.FinalOutput != nil:
+		return phaseCompleted
+	case e.ToolRound == nil && e.ModelCallCount == 0:
+		return phaseReadyModel
+	case e.ToolRound == nil:
+		return phaseAwaitingModel
+	case e.ToolRound.ChildBatch != nil:
+		return e.ToolRound.ChildBatch.phase()
+	case e.ToolRound.answered():
+		return phaseRoundComplete
+	default:
+		return phaseAdvancingTools
+	}
 }
 
 type artifactRecord struct {
@@ -100,9 +110,6 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 }
 
 func (e executionState) validateEnvelope() error {
-	if !e.Phase.valid() {
-		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
-	}
 	if e.WorkingContext == nil {
 		return fmt.Errorf("%w: WorkingContext is required", ErrInvalidExecutionState)
 	}
@@ -124,13 +131,11 @@ func (e executionState) validateEnvelope() error {
 }
 
 func (e executionState) validatePhaseState(ctx context.Context, definition *Definition) error {
-	switch e.Phase {
+	switch e.phase() {
 	case phaseAdvancingTools, phaseRoundComplete:
 		return e.validateRoundBoundary(ctx)
-	case phaseReadyModel:
-		return e.validateReadyModelState()
-	case phaseAwaitingModel:
-		return e.validateAwaitingModelState()
+	case phaseReadyModel, phaseAwaitingModel:
+		return e.validateModelState()
 	case phaseAwaitingChildStarts, phaseAwaitingChildWaitOpen, phaseWaitingChildren:
 		return e.validateActiveCallState(ctx, definition)
 	case phaseCompleted:
@@ -140,10 +145,10 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 }
 
 func (e executionState) validateRoundBoundary(ctx context.Context) error {
-	if e.FinalOutput != nil || e.ModelCallCount == 0 || e.ToolRound == nil || e.ToolRound.ChildBatch != nil {
+	if e.ModelCallCount == 0 {
 		return fmt.Errorf("%w: invalid round boundary", ErrInvalidExecutionState)
 	}
-	if e.Phase == phaseRoundComplete {
+	if e.phase() == phaseRoundComplete {
 		return e.ToolRound.validateComplete(ctx)
 	}
 	calls, err := validatedToolCalls(e.ToolRound.Response)
@@ -157,16 +162,11 @@ func (e executionState) validateRoundBoundary(ctx context.Context) error {
 	return e.ToolRound.validateResults(ctx, calls)
 }
 
-func (e executionState) validateReadyModelState() error {
-	if e.ToolRound != nil || e.PendingSteer != nil || e.FinalOutput != nil {
-		return fmt.Errorf("%w: ready_model has inconsistent pending response or limit", ErrInvalidExecutionState)
-	}
-	return nil
-}
-
-func (e executionState) validateAwaitingModelState() error {
-	if e.ToolRound != nil || e.PendingSteer != nil || e.FinalOutput != nil || e.ModelCallCount == 0 {
-		return fmt.Errorf("%w: awaiting_model has inconsistent pending response or limit", ErrInvalidExecutionState)
+// Steering waits for the next model request, so none can remain pending
+// before the first call or while one is in flight.
+func (e executionState) validateModelState() error {
+	if e.PendingSteer != nil {
+		return fmt.Errorf("%w: model call phase retains pending steering", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -180,15 +180,14 @@ func (e executionState) validateActiveCallState(ctx context.Context, definition 
 }
 
 func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, error) {
-	if e.Phase != phaseAwaitingChildStarts && e.Phase != phaseAwaitingChildWaitOpen && e.Phase != phaseWaitingChildren ||
-		e.FinalOutput != nil || e.ModelCallCount == 0 {
-		return nil, fmt.Errorf("%w: active children require an active call phase, a model call, and no final Output", ErrInvalidExecutionState)
+	if e.ModelCallCount == 0 {
+		return nil, fmt.Errorf("%w: active children require a model call", ErrInvalidExecutionState)
 	}
 	active, err := e.ToolRound.activeCalls(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := e.ToolRound.ChildBatch.validate(ctx, e.Phase, active, e.ModelCallCount); err != nil {
+	if err := e.ToolRound.ChildBatch.validate(ctx, e.phase(), active, e.ModelCallCount); err != nil {
 		return nil, err
 	}
 	return active, nil
@@ -258,14 +257,13 @@ func (e *executionState) applyPendingSteer() ([]agent.SignalID, error) {
 }
 
 func (e *executionState) complete(output Output) {
-	e.Phase = phaseCompleted
 	e.ToolRound = nil
 	e.PendingSteer = nil
 	e.FinalOutput = &output
 }
 
 func (e executionState) validateCompletedState() error {
-	if e.ToolRound != nil || e.PendingSteer != nil || e.FinalOutput == nil {
+	if e.ToolRound != nil || e.PendingSteer != nil {
 		return fmt.Errorf("%w: completed state requires only its final Output", ErrInvalidExecutionState)
 	}
 	if err := e.FinalOutput.Validate(); err != nil {

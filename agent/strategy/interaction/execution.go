@@ -24,7 +24,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.Phase {
+	switch e.state.phase() {
 	case phaseReadyModel:
 		return e.startModelCall(signals)
 	case phaseAdvancingTools, phaseRoundComplete:
@@ -61,7 +61,7 @@ func (e *execution) continueToolRound(ctx context.Context, signals []agent.Signa
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if e.state.Phase == phaseRoundComplete {
+	if e.state.phase() == phaseRoundComplete {
 		return e.finishToolCallBatch(ctx, consumed, e.state.ToolRound.Response.Output.Message)
 	}
 	return e.advanceToolCallBatch(ctx, consumed)
@@ -116,7 +116,6 @@ func (e *execution) requestModel(
 		return agent.Transition{}, err
 	}
 	e.state.ModelCallCount = modelCallSequence
-	e.state.Phase = phaseAwaitingModel
 	return agent.Continue(consumedSignals, effect)
 }
 
@@ -159,7 +158,6 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 		return e.acceptFinalModelResponse(ctx, consumedSignals, response)
 	}
 	e.state.ToolRound = &toolCallRound{Response: response}
-	e.state.Phase = phaseAdvancingTools
 	return agent.Checkpoint(consumedSignals)
 }
 
@@ -186,7 +184,6 @@ func (e *execution) acceptFinalModelResponse(
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
@@ -249,7 +246,6 @@ func (e *execution) finishOrRetry(
 	}
 	e.state.ToolRound = nil
 	e.state.PendingSteer = nil
-	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, nil)
 }
 
@@ -266,7 +262,6 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		if err := e.state.ToolRound.validateComplete(ctx); err != nil {
 			return agent.Transition{}, err
 		}
-		e.state.Phase = phaseRoundComplete
 		return agent.Checkpoint(consumedSignals)
 	}
 	call := calls[e.state.ToolRound.nextCallIndex()]
@@ -281,7 +276,6 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		if prepareErr != nil {
 			return agent.Transition{}, prepareErr
 		}
-		e.state.Phase = phaseAwaitingChildStarts
 		return agent.Continue(consumedSignals, effects...)
 	}
 	if _, found := e.definition.tools.entries[call.Name]; !found {
@@ -294,7 +288,6 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 // the round, so the next Step takes the following call.
 func (e *execution) rejectCall(consumedSignals uint32, call chat.ToolCall, reason string) (agent.Transition, error) {
 	e.state.ToolRound.reject(call, reason)
-	e.state.Phase = phaseAdvancingTools
 	return agent.Checkpoint(consumedSignals)
 }
 
@@ -311,7 +304,6 @@ func (e *execution) finishToolCallBatch(
 	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
 	e.state.ToolRound = nil
-	e.state.Phase = phaseReadyModel
 	if direct {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
 			Source:            CompletionSourceDirectToolResults,
@@ -457,7 +449,6 @@ func (e *execution) waitForChildren(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseAwaitingChildWaitOpen
 	return agent.Continue(consumed, effect)
 }
 
@@ -476,7 +467,6 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, want); err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Phase = phaseWaitingChildren
 	return agent.Wait(consumed, opened.WaitID())
 }
 
@@ -681,7 +671,6 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		active++
 	}
 	if len(effects) != 0 {
-		e.state.Phase = phaseAwaitingChildStarts
 		return agent.Continue(consumed, effects...)
 	}
 	if active != 0 {

@@ -18,7 +18,7 @@ func TestUnlimitedModelCallSequencePreservesIdentityAcrossNumericBoundaries(t *t
 		t.Fatal(err)
 	}
 	execution := &execution{definition: definition, state: executionState{
-		Phase: phaseReadyModel, ModelCallCount: math.MaxUint32,
+		ModelCallCount: math.MaxUint32,
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}},
 	}}
 	transition, err := execution.requestModel(0, nil)
@@ -81,7 +81,7 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := executionState{
-		Phase: phaseCompleted, ModelCallCount: 1,
+		ModelCallCount: 1,
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
 		FinalOutput:    &Output{Source: CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{result}},
 	}

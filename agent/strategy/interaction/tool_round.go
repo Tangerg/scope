@@ -16,6 +16,21 @@ type toolCallRound struct {
 
 func (t *toolCallRound) nextCallIndex() uint32 { return uint32(len(t.Results)) }
 
+// answered reports whether every call in the response has a result. It only
+// counts calls; validation of the response and results is separate.
+func (t *toolCallRound) answered() bool {
+	if t.Response == nil || t.Response.Output == nil || t.Response.Output.Message == nil {
+		return false
+	}
+	calls := 0
+	for _, part := range t.Response.Output.Message.Parts {
+		if part.Kind == chat.PartToolCall {
+			calls++
+		}
+	}
+	return calls != 0 && calls == len(t.Results)
+}
+
 func (t *toolCallRound) knownResult(index int) *toolCallResult {
 	if index < len(t.Results) {
 		return &t.Results[index]

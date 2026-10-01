@@ -80,12 +80,11 @@ func TestExecutionStateRejectsIncompleteOrDuplicatePendingSteer(t *testing.T) {
 }
 
 func TestRoundCheckpointPropagatesInvalidSteer(t *testing.T) {
-	for _, phase := range []phase{phaseAdvancingTools, phaseRoundComplete} {
-		t.Run(string(phase), func(t *testing.T) {
+	for name, complete := range map[string]bool{"advancing": false, "complete": true} {
+		t.Run(name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
-			execution.state.Phase = phase
 			execution.state.ToolRound.ChildBatch = nil
-			if phase == phaseRoundComplete {
+			if complete {
 				execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{
 					ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done"),
 				}}}
@@ -104,7 +103,7 @@ func TestRoundCheckpointPropagatesInvalidSteer(t *testing.T) {
 			signal := signalFromRequest(t, request)
 			transition, err := execution.Step(t.Context(), []agent.Signal{signal, signal})
 			if !errors.Is(err, ErrInvalidSteer) || !errors.Is(err, ErrInvalidExecutionState) || transition.Valid() {
-				t.Fatalf("duplicate steer at %s: transition=%+v error=%v", phase, transition, err)
+				t.Fatalf("duplicate steer at %s: transition=%+v error=%v", name, transition, err)
 			}
 		})
 	}
@@ -167,7 +166,6 @@ func pendingSteerTestState(t testing.TB) executionState {
 		t.Fatal(err)
 	}
 	return executionState{
-		Phase: phaseWaitingChildren,
 		WorkingContext: &chat.Request{Messages: []chat.Message{
 			chat.NewUserMessage(chat.NewTextPart("initial")),
 		}},

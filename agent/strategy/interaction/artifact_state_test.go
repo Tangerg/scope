@@ -55,7 +55,7 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			state := executionState{
-				Phase: phaseAwaitingModel, WorkingContext: request.Clone(), ModelCallCount: 2,
+				WorkingContext: request.Clone(), ModelCallCount: 2,
 				ArtifactRecords: test.artifacts,
 			}
 			payload, err := jsonv2.Marshal(state)
@@ -100,7 +100,7 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := executionState{
-		Phase: phaseAwaitingModel, ModelCallCount: 3,
+		ModelCallCount: 3,
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
 		ArtifactRecords: []artifactRecord{
 			{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},

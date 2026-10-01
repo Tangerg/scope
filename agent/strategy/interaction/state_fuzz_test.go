@@ -5,6 +5,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -35,7 +36,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 		f.Add([]byte(state.Payload()))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"phase":"waiting_children"}`))
+	f.Add([]byte(`{"model_call_count":1}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		state, err := agent.ParseExecutionState(executionStateKind, payload)
 		if err != nil {
@@ -74,7 +75,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 			continue
 		}
 		for _, reason := range []chat.FinishReason{chat.FinishReasonStop, chat.FinishReasonLength, chat.FinishReasonContentFilter, chat.FinishReasonRefusal, chat.FinishReasonOther} {
-			t.Run(string(state.Phase)+"/"+reason.String(), func(t *testing.T) {
+			t.Run(fmt.Sprintf("phase_%d/%s", state.phase(), reason), func(t *testing.T) {
 				state.ToolRound.Response.Output.FinishReason = reason
 				payload, err := jsonv2.Marshal(state)
 				if err != nil {
@@ -85,7 +86,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, restoreErr := definition.Restore(t.Context(), captured)
-				validRejection := state.Phase == phaseRoundComplete && reason == chat.FinishReasonLength
+				validRejection := state.phase() == phaseRoundComplete && reason == chat.FinishReasonLength
 				if validRejection && restoreErr != nil || !validRejection && !errors.Is(restoreErr, ErrInvalidExecutionState) {
 					t.Fatalf("Restore error = %v, valid rejection = %t", restoreErr, validRejection)
 				}
@@ -120,7 +121,7 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 				output.Source = CompletionSourceModelResponse
 			}
 			state, err := (executionState{
-				Phase: phaseCompleted, ModelCallCount: test.calls,
+				ModelCallCount: test.calls,
 				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
 				FinalOutput:    output,
 			}).snapshot()
@@ -202,18 +203,18 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	artifactOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
 		{
-			Phase: phaseRoundComplete, WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
 				Result: chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: chat.NewTextToolOutput("worker unavailable")}, Rejected: true,
 			}}},
 		},
 		{
-			Phase: phaseAwaitingChildStarts, WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(),
 				ChildBatch: &childCallBatch{Kind: childCallsDelegate, NextStartIndex: 1, Invocations: []childInvocationState{{ChildKey: &key}}}},
 		},
 		{
-			Phase: phaseWaitingChildren, WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.Clone(), ModelCallCount: 1,
 			PendingSteer: &steerBatch{
 				Messages:  []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz steer"))},
 				SignalIDs: []agent.SignalID{steerSignalID},
@@ -223,7 +224,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 			}}}},
 		},
 		{
-			Phase: phaseAwaitingModel, WorkingContext: request.Clone(), ModelCallCount: 2,
+			WorkingContext: request.Clone(), ModelCallCount: 2,
 			ArtifactRecords: []artifactRecord{{
 				ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_settled",
 				DelegateName: "delegate_fuzz", Output: artifactOutput,

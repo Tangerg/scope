@@ -186,10 +186,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	}
 	return &execution{
 		definition: d,
-		state: executionState{
-			Phase:          phaseReadyModel,
-			WorkingContext: request,
-		},
+		state:      executionState{WorkingContext: request},
 	}, nil
 }
 

@@ -98,6 +98,20 @@ type childCallBatch struct {
 	WaitID         *agent.WaitID          `json:"wait_id,omitzero"`
 }
 
+// phase follows admission: starts settle before the wait opens, and only an
+// accepted opening records its WaitID.
+func (c childCallBatch) phase() phase {
+	for index, invocation := range c.Invocations {
+		if index < int(c.NextStartIndex) && invocation.ProcessID == nil && invocation.Result == nil {
+			return phaseAwaitingChildStarts
+		}
+	}
+	if c.WaitID != nil {
+		return phaseWaitingChildren
+	}
+	return phaseAwaitingChildWaitOpen
+}
+
 func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelCallSequence uint64) error {
 	if err := c.validateShape(calls); err != nil {
 		return err
@@ -105,18 +119,19 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 	if err := c.validateWait(current); err != nil {
 		return err
 	}
-	pending, active, err := c.unsettledCounts(ctx, calls, modelCallSequence)
+	active, err := c.activeChildren(ctx, calls, modelCallSequence)
 	if err != nil {
 		return err
 	}
+	// A Delegate batch starts as one admission; a Tool batch refills its window.
 	if current == phaseAwaitingChildStarts {
-		if pending == 0 || c.Kind == childCallsDelegate && active != 0 {
-			return fmt.Errorf("%w: child starts disagree with the active batch", ErrInvalidExecutionState)
+		if c.Kind == childCallsDelegate && active != 0 {
+			return fmt.Errorf("%w: Delegate batch has both pending and started children", ErrInvalidExecutionState)
 		}
 		return nil
 	}
-	if pending != 0 || active == 0 {
-		return fmt.Errorf("%w: child wait disagrees with the active batch", ErrInvalidExecutionState)
+	if active == 0 {
+		return fmt.Errorf("%w: child wait has no active children", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -146,33 +161,32 @@ func (c childCallBatch) validateWait(current phase) error {
 	return nil
 }
 
-func (c childCallBatch) unsettledCounts(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) (pending, active int, err error) {
+// activeChildren validates every planned invocation and counts the started
+// children that have no result yet.
+func (c childCallBatch) activeChildren(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) (int, error) {
+	active := 0
 	for index, invocation := range c.Invocations {
 		if err := ctx.Err(); err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 		if index >= int(c.NextStartIndex) {
 			if !invocation.empty() {
-				return 0, 0, fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
+				return 0, fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
 			}
 			continue
 		}
 		key, err := c.childKey(modelCallSequence, calls[index])
 		if err != nil {
-			return 0, 0, fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
+			return 0, fmt.Errorf("%w: child key does not match its call", ErrInvalidExecutionState)
 		}
 		if err := invocation.validate(c.Kind, key, calls[index]); err != nil {
-			return 0, 0, err
+			return 0, err
 		}
-		switch {
-		case invocation.Result != nil:
-		case invocation.ProcessID == nil:
-			pending++
-		default:
+		if invocation.ProcessID != nil && invocation.Result == nil {
 			active++
 		}
 	}
-	return pending, active, nil
+	return active, nil
 }
 
 func (c childCallBatch) childKey(modelCallSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {

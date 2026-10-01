@@ -81,7 +81,7 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 		execution agent.Execution
 	}{
 		{"tool", &toolExecution{state: toolExecutionState{Phase: toolReady, Call: call}}},
-		{"interaction", &execution{state: executionState{Phase: phaseCompleted}}},
+		{"interaction", &execution{state: executionState{FinalOutput: &Output{}}}},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			_, stepErr := sample.execution.Step(t.Context(), []agent.Signal{unsolicited})

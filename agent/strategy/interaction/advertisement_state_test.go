@@ -14,7 +14,6 @@ import (
 func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 	definition := advertisementTestDefinition(t)
 	state := executionState{
-		Phase: phaseReadyModel,
 		WorkingContext: &chat.Request{Messages: []chat.Message{
 			chat.NewUserMessage(chat.NewTextPart("restore deferred manifest")),
 		}},
@@ -52,8 +51,7 @@ func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 func TestRestoreRejectsInvalidAdvertisements(t *testing.T) {
 	definition := advertisementTestDefinition(t)
 	for _, names := range [][]string{{"first", "first"}, {"unknown"}, {"initial"}, {" first"}, {""}} {
-		state := executionState{Phase: phaseReadyModel,
-			WorkingContext:      &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("restore"))}},
+		state := executionState{WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("restore"))}},
 			AdvertisedToolNames: names,
 		}
 		encoded, err := state.snapshot()
