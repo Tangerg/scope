@@ -18,7 +18,7 @@ import (
 func TestCancellationTerminatesBackgroundChild(t *testing.T) {
 	skipWithoutShell(t)
 	directory := t.TempDir()
-	executor := mustLocalExecutor(t, LocalConfig{Directory: directory})
+	executor := mustLocalExecutor(t, LocalExecutorConfig{Directory: directory})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	type result struct {

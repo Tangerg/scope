@@ -101,7 +101,7 @@ func TestToolNonzeroExitRemainsACompletedResult(t *testing.T) {
 
 func TestLocalExecutorDoesNotInventExitCodeForSpawnFailure(t *testing.T) {
 	skipWithoutShell(t)
-	executor := mustLocalExecutor(t, LocalConfig{Directory: t.TempDir(), Shell: filepath.Join(t.TempDir(), "missing-shell")})
+	executor := mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir(), Shell: filepath.Join(t.TempDir(), "missing-shell")})
 	output, err := executor.Run(t.Context(), Input{Cmd: "exit 0"})
 	if !errors.Is(err, os.ErrNotExist) || output.ExitCode != -1 || output.CancellationObserved {
 		t.Fatalf("spawn observation = %+v, %v", output, err)
@@ -112,7 +112,7 @@ func TestLocalExecutorRecordsCancellationBeforeSpawn(t *testing.T) {
 	skipWithoutShell(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	executor := mustLocalExecutor(t, LocalConfig{Directory: t.TempDir()})
+	executor := mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir()})
 	output, err := executor.Run(ctx, Input{Cmd: "exit 0"})
 	if !errors.Is(err, context.Canceled) || output.ExitCode != -1 || !output.CancellationObserved {
 		t.Fatalf("canceled spawn observation = %+v, %v", output, err)
@@ -121,7 +121,7 @@ func TestLocalExecutorRecordsCancellationBeforeSpawn(t *testing.T) {
 
 func TestLocalExecutorReportsActualStreamTruncation(t *testing.T) {
 	skipWithoutShell(t)
-	executor := mustLocalExecutor(t, LocalConfig{Directory: t.TempDir(), MaxBytesPerStream: 4})
+	executor := mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir(), MaxBytesPerStream: 4})
 	output, err := executor.Run(t.Context(), Input{Cmd: "printf abcde; printf xy >&2"})
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestLocalExecutorReportsActualStreamTruncation(t *testing.T) {
 	if !output.StdoutTruncated || output.StderrTruncated || string(output.Stderr) != "xy" {
 		t.Fatalf("truncation observations = %+v", output)
 	}
-	executor = mustLocalExecutor(t, LocalConfig{Directory: t.TempDir(), MaxBytesPerStream: 100})
+	executor = mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir(), MaxBytesPerStream: 100})
 	output, err = executor.Run(t.Context(), Input{Cmd: "printf '... [1 bytes truncated] ...'"})
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestToolPreservesNonUTF8Evidence(t *testing.T) {
 
 func TestToolKeepsBytesWhenLocalCaptureSplitsUTF8(t *testing.T) {
 	skipWithoutShell(t)
-	executable := mustTool(t, mustLocalExecutor(t, LocalConfig{Directory: t.TempDir(), MaxBytesPerStream: 2}))
+	executable := mustTool(t, mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir(), MaxBytesPerStream: 2}))
 	output, err := invokeTestTool(t.Context(), executable, `{"command":"printf '\\344\\275\\240'"}`)
 	if err != nil {
 		t.Fatal(err)

@@ -2,7 +2,7 @@ package shell
 
 import "testing"
 
-func mustLocalExecutor(t testing.TB, config LocalConfig) *LocalExecutor {
+func mustLocalExecutor(t testing.TB, config LocalExecutorConfig) *LocalExecutor {
 	t.Helper()
 	executor, err := NewLocalExecutor(config)
 	if err != nil {

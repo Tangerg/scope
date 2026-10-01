@@ -18,10 +18,10 @@ const (
 	defaultMaxBytesPerStream = 30 * 1024
 )
 
-// LocalConfig makes the local process authority visible at construction. The
+// LocalExecutorConfig makes the local process authority visible at construction. The
 // directory controls relative-path resolution but is not a filesystem jail;
 // callers that need confinement must supply an OS sandbox or container.
-type LocalConfig struct {
+type LocalExecutorConfig struct {
 	Directory string
 	Shell     string
 	// MaxBytesPerStream caps captured stdout and stderr independently.
@@ -41,7 +41,7 @@ type LocalExecutor struct {
 }
 
 // NewLocalExecutor freezes an absolute working directory and output limits.
-func NewLocalExecutor(config LocalConfig) (*LocalExecutor, error) {
+func NewLocalExecutor(config LocalExecutorConfig) (*LocalExecutor, error) {
 	if config.Directory == "" {
 		return nil, fmt.Errorf("%w: directory must not be empty", ErrInvalidConfig)
 	}
