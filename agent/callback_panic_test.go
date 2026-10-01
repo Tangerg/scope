@@ -24,7 +24,7 @@ func (p panickingCallbacks) Dispatch(context.Context, EffectRequest, DeltaEmitte
 	panic(p.cause)
 }
 func (p panickingCallbacks) Admit(context.Context, ProcessAdmission) error { panic(p.cause) }
-func (p panickingCallbacks) AcknowledgeProcessInitializationOutcome(context.Context, ProcessInitializationOutcome) error {
+func (p panickingCallbacks) Acknowledge(context.Context, ProcessInitializationOutcome) error {
 	panic(p.cause)
 }
 func (p panickingCallbacks) ActivateTree(context.Context, TreeActivation) error     { panic(p.cause) }
@@ -55,8 +55,8 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		{"Dispatcher.ReplayPolicy", func() error { _, err := dispatcherReplayPolicy(callbacks, Effect{}); return err }},
 		{"Dispatcher.Dispatch", func() error { _, err := dispatchEffect(t.Context(), callbacks, EffectRequest{}, nil); return err }},
 		{"ProcessAdmitter.Admit", func() error { return requestProcessAdmission(t.Context(), callbacks, admission) }},
-		{"ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", func() error {
-			return acknowledgeProcessInitializationOutcome(t.Context(), callbacks, initializedProcessOutcome(admission, time.Now()))
+		{"ProcessInitializationAcknowledger.Acknowledge", func() error {
+			return acknowledgeProcessInitialization(t.Context(), callbacks, initializedProcessOutcome(admission, time.Now()))
 		}},
 		{"TreeCommitter.ActivateTree", func() error { return activateTree(t.Context(), callbacks, activation) }},
 		{"TreeCommitter.CommitEffect", func() error {
@@ -117,7 +117,7 @@ func TestChildAdmissionFailuresDistinguishPanicsFromOrdinaryErrors(t *testing.T)
 					})
 				case "acknowledge":
 					code = "engine.child.initialization_outcome.unacknowledged"
-					config.ProcessInitializationOutcomeAcknowledger = ProcessInitializationOutcomeAcknowledgerFunc(func(_ context.Context, o ProcessInitializationOutcome) error {
+					config.ProcessInitializationAcknowledger = ProcessInitializationAcknowledgerFunc(func(_ context.Context, o ProcessInitializationOutcome) error {
 						if _, child := o.Admission().Relation().ParentID(); child {
 							return fail()
 						}

@@ -542,7 +542,7 @@ func (t *treeRuntime) prepareChildStart(
 	}
 	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
-		admitter: t.engine.admitter, acknowledger: t.engine.initializationOutcomeAcknowledger,
+		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment(),
 		spec: spec, childID: childID, relation: relation,
 		requestDigest: requestDigest,

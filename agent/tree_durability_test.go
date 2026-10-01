@@ -144,14 +144,14 @@ func TestTreeCommitterConfigurationIsUnambiguous(t *testing.T) {
 		t.Fatalf("typed-nil TreeCommitter error=%v", err)
 	}
 	committer := &recordingTreeCommitter{}
-	acknowledger := ProcessInitializationOutcomeAcknowledgerFunc(func(
+	acknowledger := ProcessInitializationAcknowledgerFunc(func(
 		context.Context,
 		ProcessInitializationOutcome,
 	) error {
 		return nil
 	})
 	if _, err := NewEngine(EngineConfig{
-		TreeCommitter: committer, ProcessInitializationOutcomeAcknowledger: acknowledger,
+		TreeCommitter: committer, ProcessInitializationAcknowledger: acknowledger,
 	}); err != nil {
 		t.Fatalf("independent committer and initialization ports error=%v", err)
 	}
@@ -913,7 +913,7 @@ func TestDurableStartSeparatesInitializationAcceptanceFromCheckpoint(t *testing.
 			var outcomes []ProcessInitializationOutcome
 			engine, err := NewEngine(EngineConfig{
 				TreeCommitter: committer,
-				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
+				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
 					if len(recorder.treeCheckpoints()) != 0 {
 						t.Error("persistence preceded initialization acceptance")
 					}

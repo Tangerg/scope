@@ -98,7 +98,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 						}
 						return nil
 					}),
-					ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(ctx context.Context, outcome ProcessInitializationOutcome) error {
+					ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(ctx context.Context, outcome ProcessInitializationOutcome) error {
 						if outcome.Admission().Relation().IsRoot() {
 							return nil
 						}

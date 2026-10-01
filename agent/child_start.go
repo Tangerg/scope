@@ -14,7 +14,7 @@ type childStartPreparation struct {
 
 type childStartPlan struct {
 	admitter         ProcessAdmitter
-	acknowledger     ProcessInitializationOutcomeAcknowledger
+	acknowledger     ProcessInitializationAcknowledger
 	resolver         DeploymentResolver
 	parentDeployment Deployment
 	spec             ChildSpec
@@ -60,12 +60,12 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	startedAt := canonicalTime(time.Now())
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), c.spec.Input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitialization(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
 		return childStartJobResult{result: failedChildStart(
 			c.spec, failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr),
 		)}
 	}
-	if err := acknowledgeProcessInitializationOutcome(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
+	if err := acknowledgeProcessInitialization(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
 		return childStartJobResult{result: failedChildStart(
 			c.spec, failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err,
 		)}

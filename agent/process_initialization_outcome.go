@@ -79,7 +79,7 @@ func (p ProcessInitializationOutcome) Valid() bool {
 	}
 }
 
-// ProcessInitializationOutcomeAcknowledger lets a Host close each accepted
+// ProcessInitializationAcknowledger lets a Host close each accepted
 // admission, even when initialization fails before a Process exists. Rejecting
 // an initialized outcome prevents publication; accepting it does not guarantee
 // later persistence. Initialization waits for this call, so implementations
@@ -88,18 +88,18 @@ func (p ProcessInitializationOutcome) Valid() bool {
 // accepted admission can finish while its parent terminates; the Host applies
 // its own deadline and reconciles an uncertain acknowledgment by admission
 // identity. Restore produces no outcome.
-type ProcessInitializationOutcomeAcknowledger interface {
-	// AcknowledgeProcessInitializationOutcome runs before publication, so an
+type ProcessInitializationAcknowledger interface {
+	// Acknowledge runs before publication, so an
 	// error rejects initialization without exposing a usable Process.
-	AcknowledgeProcessInitializationOutcome(ctx context.Context, outcome ProcessInitializationOutcome) error
+	Acknowledge(ctx context.Context, outcome ProcessInitializationOutcome) error
 }
 
-type ProcessInitializationOutcomeAcknowledgerFunc func(
+type ProcessInitializationAcknowledgerFunc func(
 	ctx context.Context,
 	outcome ProcessInitializationOutcome,
 ) error
 
-func (p ProcessInitializationOutcomeAcknowledgerFunc) AcknowledgeProcessInitializationOutcome(
+func (p ProcessInitializationAcknowledgerFunc) Acknowledge(
 	ctx context.Context,
 	outcome ProcessInitializationOutcome,
 ) error {
@@ -114,9 +114,9 @@ func failedProcessInitializationOutcome(admission ProcessAdmission, failure Fail
 	return ProcessInitializationOutcome{admission: admission, failure: failure}
 }
 
-func acknowledgeProcessInitializationOutcome(
+func acknowledgeProcessInitialization(
 	ctx context.Context,
-	acknowledger ProcessInitializationOutcomeAcknowledger,
+	acknowledger ProcessInitializationAcknowledger,
 	outcome ProcessInitializationOutcome,
 ) error {
 	if acknowledger == nil {
@@ -125,8 +125,8 @@ func acknowledgeProcessInitializationOutcome(
 	if !outcome.Valid() {
 		return errors.New("invalid Process initialization outcome")
 	}
-	err := invokeCallbackErr("ProcessInitializationOutcomeAcknowledger.AcknowledgeProcessInitializationOutcome", func() error {
-		return acknowledger.AcknowledgeProcessInitializationOutcome(context.WithoutCancel(RequireContext(ctx)), outcome)
+	err := invokeCallbackErr("ProcessInitializationAcknowledger.Acknowledge", func() error {
+		return acknowledger.Acknowledge(context.WithoutCancel(RequireContext(ctx)), outcome)
 	})
 	if err != nil {
 		return fmt.Errorf("agent: acknowledge Process initialization: %w", err)

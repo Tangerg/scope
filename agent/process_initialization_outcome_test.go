@@ -21,7 +21,7 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			var engine *Engine
 			var mu sync.Mutex
 			var outcomes []ProcessInitializationOutcome
-			acknowledger := ProcessInitializationOutcomeAcknowledgerFunc(func(
+			acknowledger := ProcessInitializationAcknowledgerFunc(func(
 				_ context.Context,
 				outcome ProcessInitializationOutcome,
 			) error {
@@ -38,9 +38,9 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			})
 			var err error
 			engine, err = NewEngine(EngineConfig{
-				TreeCommitter:                            mode.committer,
-				DeploymentResolver:                       deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-				ProcessInitializationOutcomeAcknowledger: acknowledger,
+				TreeCommitter:                     mode.committer,
+				DeploymentResolver:                deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
+				ProcessInitializationAcknowledger: acknowledger,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -113,7 +113,7 @@ func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t
 			deployment := failingInitializationDeployment(t, test.stage, initializationErr)
 			var outcomes []ProcessInitializationOutcome
 			engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 					_ context.Context,
 					outcome ProcessInitializationOutcome,
 				) error {
@@ -158,7 +158,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 	var outcomes []ProcessInitializationOutcome
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
 		DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			_ context.Context,
 			outcome ProcessInitializationOutcome,
 		) error {
@@ -204,7 +204,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
 	rejection := errors.New("outcome was not accepted")
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
 		) error {
@@ -230,7 +230,7 @@ func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *tes
 	initializationErr := errors.New("definition cannot initialize")
 	acknowledgmentErr := errors.New("outcome was not accepted")
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			_ context.Context,
 			outcome ProcessInitializationOutcome,
 		) error {
@@ -271,7 +271,7 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 			engine, err := NewEngine(EngineConfig{
 				TreeCommitter:      mode.committer,
 				DeploymentResolver: deploymentMapResolver{childDeployment.DeploymentRef(): childDeployment},
-				ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 					_ context.Context,
 					outcome ProcessInitializationOutcome,
 				) error {
@@ -315,13 +315,13 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 	}
 }
 
-func TestProcessInitializationOutcomeAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
-	var typedNil ProcessInitializationOutcomeAcknowledgerFunc
-	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessInitializationOutcomeAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
+func TestProcessInitializationAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
+	var typedNil ProcessInitializationAcknowledgerFunc
+	if _, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), ProcessInitializationAcknowledger: typedNil}); !errors.Is(err, ErrInvalidEngineConfig) {
 		t.Fatalf("typed-nil error = %v, want %v", err, ErrInvalidEngineConfig)
 	}
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
 		) error {
@@ -346,7 +346,7 @@ func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.
 	acknowledging := make(chan struct{})
 	release := make(chan struct{})
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(),
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
 		) error {
@@ -390,7 +390,7 @@ func TestRejectedAdmissionProducesNoProcessInitializationOutcome(t *testing.T) {
 		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
 			return errors.New("not admitted")
 		}),
-		ProcessInitializationOutcomeAcknowledger: ProcessInitializationOutcomeAcknowledgerFunc(func(
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
 			context.Context,
 			ProcessInitializationOutcome,
 		) error {

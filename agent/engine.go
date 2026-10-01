@@ -31,10 +31,10 @@ type EngineConfig struct {
 	// authoritative tree head, including when the Host selects volatile storage.
 	TreeCommitter TreeCommitter
 
-	// ProcessInitializationOutcomeAcknowledger optionally accepts initialization outcomes
+	// ProcessInitializationAcknowledger optionally accepts initialization outcomes
 	// before publication. Its acknowledgment is separate from TreeCommitter;
 	// nil omits this Host acceptance step.
-	ProcessInitializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
+	ProcessInitializationAcknowledger ProcessInitializationAcknowledger
 
 	// DeploymentResolver binds the exact child references a Deployment does
 	// not own: children named by runtime input. Same-Deployment recursion and
@@ -80,14 +80,14 @@ type EngineConfig struct {
 // duplicating their synchronization. Operations on a nil Engine report
 // ErrInvalidEngineConfig; read accessors return zero values.
 type Engine struct {
-	committer                         TreeCommitter
-	initializationOutcomeAcknowledger ProcessInitializationOutcomeAcknowledger
-	resolver                          DeploymentResolver
-	admitter                          ProcessAdmitter
-	observation                       *observationBus
-	budget                            Budget
-	treeLimits                        TreeLimits
-	capabilities                      CapabilitySet
+	committer                  TreeCommitter
+	initializationAcknowledger ProcessInitializationAcknowledger
+	resolver                   DeploymentResolver
+	admitter                   ProcessAdmitter
+	observation                *observationBus
+	budget                     Budget
+	treeLimits                 TreeLimits
+	capabilities               CapabilitySet
 
 	// Tree-wide administrative operations use an independent serial lane so a
 	// caller waiting for one root never holds the registry lock needed by Engine
@@ -150,8 +150,8 @@ func (e EngineConfig) validateCollaborators() error {
 	if lo.IsNil(e.TreeCommitter) {
 		return fmt.Errorf("%w: TreeCommitter is required", ErrInvalidEngineConfig)
 	}
-	if e.ProcessInitializationOutcomeAcknowledger != nil && lo.IsNil(e.ProcessInitializationOutcomeAcknowledger) {
-		return fmt.Errorf("%w: ProcessInitializationOutcomeAcknowledger is typed nil", ErrInvalidEngineConfig)
+	if e.ProcessInitializationAcknowledger != nil && lo.IsNil(e.ProcessInitializationAcknowledger) {
+		return fmt.Errorf("%w: ProcessInitializationAcknowledger is typed nil", ErrInvalidEngineConfig)
 	}
 	if e.DeploymentResolver != nil && lo.IsNil(e.DeploymentResolver) {
 		return fmt.Errorf("%w: DeploymentResolver is typed nil", ErrInvalidEngineConfig)
@@ -191,23 +191,23 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		return nil, fmt.Errorf("%w: capabilities are invalid", ErrInvalidEngineConfig)
 	}
 	return &Engine{
-		committer:                         config.TreeCommitter,
-		initializationOutcomeAcknowledger: config.ProcessInitializationOutcomeAcknowledger,
-		resolver:                          config.DeploymentResolver,
-		admitter:                          config.ProcessAdmitter,
-		observation:                       newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
-		budget:                            config.Budget,
-		treeLimits:                        treeLimits,
-		capabilities:                      config.Capabilities,
-		treeOperations:                    make(map[ProcessID]*treeOperation),
-		processes:                         make(map[ProcessID]*processHandle),
-		trees:                             make(map[ProcessID]*treeRuntime),
-		startReservations:                 make(map[ProcessID]processStartReservation),
-		treeRestoreReservations:           make(map[ProcessID]*treeRestoration),
-		restoredProcesses:                 make(map[ProcessID]*treeRestoration),
-		restoredChildren:                  make(map[childIdentity]*treeRestoration),
-		children:                          make(map[childIdentity]ProcessID),
-		childStartReservations:            make(map[childIdentity]ProcessID),
+		committer:                  config.TreeCommitter,
+		initializationAcknowledger: config.ProcessInitializationAcknowledger,
+		resolver:                   config.DeploymentResolver,
+		admitter:                   config.ProcessAdmitter,
+		observation:                newObservationBus(config.EventListeners, config.DeltaListeners, capacity),
+		budget:                     config.Budget,
+		treeLimits:                 treeLimits,
+		capabilities:               config.Capabilities,
+		treeOperations:             make(map[ProcessID]*treeOperation),
+		processes:                  make(map[ProcessID]*processHandle),
+		trees:                      make(map[ProcessID]*treeRuntime),
+		startReservations:          make(map[ProcessID]processStartReservation),
+		treeRestoreReservations:    make(map[ProcessID]*treeRestoration),
+		restoredProcesses:          make(map[ProcessID]*treeRestoration),
+		restoredChildren:           make(map[childIdentity]*treeRestoration),
+		children:                   make(map[childIdentity]ProcessID),
+		childStartReservations:     make(map[childIdentity]ProcessID),
 	}, nil
 }
 
@@ -250,10 +250,10 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	startedAt := canonicalTime(time.Now())
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, failedProcessInitializationOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, failedProcessInitializationOutcome(admission, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
-	if acknowledgeErr := acknowledgeProcessInitializationOutcome(ctx, e.initializationOutcomeAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
+	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
 	handle := newProcessHandle(relation, deployment, Digest{}, e.budget, e.capabilities, startedAt)
