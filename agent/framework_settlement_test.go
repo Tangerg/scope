@@ -1,11 +1,43 @@
 package agent
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"time"
 )
+
+func TestChildOutcomeRequiresUsageFacts(t *testing.T) {
+	result, terminal := completedEngineTestSnapshot(t).Result()
+	if !terminal || result.Usage().CommittedSteps == 0 {
+		t.Fatal("fixture did not retain committed work")
+	}
+	original := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: ChildWaitBoundaryResult}
+	for _, usage := range []json.RawMessage{nil, []byte(`null`), []byte(`{}`)} {
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(result.wire())), &fields); err != nil {
+			t.Fatal(err)
+		}
+		if usage == nil {
+			delete(fields, "usage")
+		} else {
+			fields["usage"] = usage
+		}
+		data := controlValue(jsonv2.Marshal(struct {
+			Key      ChildKey          `json:"key"`
+			Boundary ChildWaitBoundary `json:"boundary"`
+			Result   json.RawMessage   `json:"result"`
+		}{Key: original.Key(), Boundary: original.Boundary(), Result: controlValue(jsonv2.Marshal(fields))}))
+		decoded := original
+		if err := jsonv2.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidChildWait) {
+			t.Errorf("child outcome accepted usage %s: %v", usage, err)
+		}
+		if decoded.Result().Usage() != result.Usage() {
+			t.Error("rejected outcome replaced retained usage")
+		}
+	}
+}
 
 func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	deployment := newChildTestDeployment(t)

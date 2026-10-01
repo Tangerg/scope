@@ -259,7 +259,7 @@ func openingSignal(t *testing.T, waitID, key, boundary string, children []string
 
 func completionSignal(t *testing.T, waitID, waitKey, boundary, childKey, processID string) agent.Signal {
 	t.Helper()
-	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","key":%q,"boundary":%q,"outcomes":[{"boundary":%q,"key":%q,"subtree_unresolved_effects":[],"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{}}}]}`, waitKey, boundary, boundary, childKey, processID)
+	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","key":%q,"boundary":%q,"outcomes":[{"boundary":%q,"key":%q,"subtree_unresolved_effects":[],"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"status":"completed","cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}}]}`, waitKey, boundary, boundary, childKey, processID)
 	if boundary != "subtree_drained" {
 		payload = strings.Replace(payload, `"subtree_unresolved_effects":[],`, "", 1)
 	}

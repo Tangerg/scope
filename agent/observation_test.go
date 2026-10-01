@@ -47,6 +47,28 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 	}
 }
 
+func TestProcessFinishedRejectsIncompleteUsage(t *testing.T) {
+	processID := controlValue(ParseProcessID("process:usage-fact"))
+	deployment := newChildTestDeployment(t)
+	for _, usage := range []json.RawMessage{
+		[]byte(`{}`),
+		[]byte(`{"committed_steps":7,"prepared_effects":5,"accepted_signals":3}`),
+		[]byte(`{"committed_steps":7,"prepared_effects":5,"accepted_signals":3,"dropped_deltas":null}`),
+	} {
+		payload := controlValue(jsonv2.Marshal(struct {
+			Status Status           `json:"process_status"`
+			Cause  TerminationCause `json:"termination_cause"`
+			Usage  json.RawMessage  `json:"usage"`
+		}{Status: StatusCompleted, Cause: TerminationCauseCompletion, Usage: usage}))
+		if _, err := newEvent(eventDraft{
+			deploymentRef: deployment.DeploymentRef(), relation: rootProcessRelation(processID),
+			name: EventProcessFinished, occurredAt: time.Unix(20, 0), payload: payload,
+		}, 1); !errors.Is(err, ErrInvalidEvent) {
+			t.Errorf("finished event accepted incomplete usage %s: %v", usage, err)
+		}
+	}
+}
+
 func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 	processID, _ := ParseProcessID("process:event-contract")
 	effectID, _ := ParseEffectID("process:event-contract:step:1:effect:0")

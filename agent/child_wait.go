@@ -443,6 +443,16 @@ type resultWire struct {
 	Usage       Usage       `json:"usage"`
 }
 
+func (r *resultWire) UnmarshalJSON(data []byte) error {
+	type wire resultWire
+	value, err := jsonwire.Decode[wire](data, "usage")
+	if err != nil {
+		return err
+	}
+	*r = resultWire(value)
+	return nil
+}
+
 func (c childWaitSpecWire) value() (ChildWaitSpec, error) {
 	spec := ChildWaitSpec{
 		Key: c.Key, Children: slices.Clone(c.Children),

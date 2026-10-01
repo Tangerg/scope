@@ -329,6 +329,7 @@ type childResultTestWire struct {
 	FinishedAt  time.Time       `json:"finished_at"`
 	Output      agent.Payload   `json:"output,omitzero"`
 	Termination json.RawMessage `json:"termination"`
+	Usage       agent.Usage     `json:"usage"`
 }
 
 func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.Signal {

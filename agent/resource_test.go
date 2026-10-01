@@ -1,6 +1,40 @@
 package agent
 
-import "testing"
+import (
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"testing"
+)
+
+func TestUsageDecodeRequiresEveryCounter(t *testing.T) {
+	original := Usage{CommittedSteps: 7, PreparedEffects: 5, AcceptedSignals: 3, DroppedDeltas: 2}
+	for _, usage := range []Usage{{}, original} {
+		var decoded Usage
+		if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(usage)), &decoded); err != nil || decoded != usage {
+			t.Fatalf("usage round trip = %+v, %v; want %+v", decoded, err, usage)
+		}
+	}
+	for _, name := range []string{"committed_steps", "prepared_effects", "accepted_signals", "dropped_deltas"} {
+		for _, missing := range []bool{true, false} {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(original)), &fields); err != nil {
+				t.Fatal(err)
+			}
+			if missing {
+				delete(fields, name)
+			} else {
+				fields[name] = json.RawMessage(`null`)
+			}
+			decoded := original
+			if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(fields)), &decoded); err == nil {
+				t.Errorf("incomplete %s (missing=%t) accepted as %+v", name, missing, decoded)
+			}
+			if decoded != original {
+				t.Errorf("rejected %s changed prior usage: %+v", name, decoded)
+			}
+		}
+	}
+}
 
 func TestResourceQuantitiesFitWithoutUnsignedOverflow(t *testing.T) {
 	const maxUint64 = ^uint64(0)

@@ -26,6 +26,8 @@ const (
 
 // Usage contains monotonic Framework-owned counters. It deliberately excludes
 // provider pricing and Strategy-specific concepts such as tokens or tool calls.
+// JSON decoding requires every counter, including explicit zeros; partial
+// updates are not execution facts.
 type Usage struct {
 	// CommittedSteps counts finalized Steps.
 	CommittedSteps uint64 `json:"committed_steps"`
@@ -39,6 +41,21 @@ type Usage struct {
 	// DroppedDeltas counts increments rejected by validation, the bounded queue,
 	// or exhausted sequence space. It saturates at math.MaxUint64.
 	DroppedDeltas uint64 `json:"dropped_deltas"`
+}
+
+func (u *Usage) UnmarshalJSON(data []byte) error {
+	if u == nil {
+		return errors.New("agent: nil usage receiver")
+	}
+	type wire Usage
+	value, err := jsonwire.Decode[wire](data,
+		"committed_steps", "prepared_effects", "accepted_signals", "dropped_deltas",
+	)
+	if err != nil {
+		return err
+	}
+	*u = Usage(value)
+	return nil
 }
 
 // Budget grants cumulative work authority. Zero quotas are unlimited. A finite
