@@ -3,8 +3,6 @@ package agent
 import (
 	"errors"
 
-	"github.com/samber/lo"
-
 	"github.com/Tangerg/scope/agent/internal/panicinfo"
 )
 
@@ -15,7 +13,7 @@ type callbackError struct {
 	cause    error
 	message  string
 	kind     FailureKind
-	step     *StepError
+	step     Failure
 	dispatch Failure
 	runtime  Failure
 }
@@ -29,12 +27,7 @@ func sealCallbackError(err error) error {
 	}
 	c := &callbackError{cause: err, message: err.Error()}
 	c.kind = failureKindForError(err, FailureKindExecution)
-	if step, ok := errors.AsType[*StepError](err); ok {
-		c.step = &StepError{}
-		if !lo.IsNil(step) {
-			c.step.Failure = step.Failure
-		}
-	}
+	c.step, _ = classifiedStepFailure(err)
 	c.dispatch = dispatchFailure(err)
 	c.runtime = newTreeRuntimeFailure(err)
 	return c

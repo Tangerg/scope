@@ -1873,8 +1873,8 @@ func (t *treeRuntime) applyStepCompletion(
 	t.events.emit(process, EventStepPrepared, sequence, EffectID{}, emptyEventPayload())
 }
 
-// A Strategy's StepError keeps its own classification only when Step itself
-// returned it; snapshot, restore, and contained panics keep Engine codes.
+// A Strategy's classification applies only when Step itself returned it;
+// snapshot, restore, and contained panics keep Engine codes.
 func (t *treeRuntime) failStep(process *processState, result stepJobResult) {
 	code := failureCodeExecutionStepFailed
 	switch result.stage {
@@ -1884,16 +1884,11 @@ func (t *treeRuntime) failStep(process *processState, result stepJobResult) {
 		code = failureCodeExecutionSnapshotUnrestorable
 	}
 	sealed, ok := errors.AsType[*callbackError](result.err)
-	if !ok || sealed == nil || result.stage != stepJobStageExecution || sealed.kind == FailureKindPanic || sealed.step == nil {
+	if !ok || sealed == nil || result.stage != stepJobStageExecution || sealed.kind == FailureKindPanic || !sealed.step.Valid() {
 		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
 		return
 	}
-	failure := sealed.step.Failure
-	if !failure.Valid() {
-		t.failProcess(process, FailureKindContract, code, ErrInvalidFailure)
-		return
-	}
-	t.failProcess(process, failure.Kind(), failure.Code(), errors.New(failure.Message()))
+	t.failProcess(process, sealed.step.Kind(), sealed.step.Code(), errors.New(sealed.step.Message()))
 }
 
 // Relations are a tree fact, so prepareStep cannot check them on the Process.

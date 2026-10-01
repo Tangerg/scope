@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -331,10 +332,7 @@ func (r *rejectingExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
-	declared, err := agent.NewFailure(agent.FailureKindContract, "agenttest.rejected", "rejected")
-	if err != nil {
-		t.Fatal(err)
-	}
+	declared := agent.NewClassifiedError(agent.FailureKindContract, "agenttest.rejected", "agenttest: rejected")
 	state, err := (&rejectingExecution{}).Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +342,7 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 		FailureKind: agent.FailureKindContract, FailureCode: "agenttest.rejected",
 	}
 	if verifyErr := verifyRejectedStep(t.Context(),
-		newRejectingDefinition(t, &agent.StepError{Failure: declared}), sample,
+		newRejectingDefinition(t, fmt.Errorf("step: %w", declared)), sample,
 	); verifyErr != nil {
 		t.Fatalf("a correctly classified rejection failed: %v", verifyErr)
 	}
@@ -355,11 +353,9 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 	}{
 		{"accepted", nil, "instead of a classified Failure"},
 		{"unclassified", errors.New("plain failure"), "unclassified error"},
-		{"typed nil failure", (*agent.StepError)(nil), "unclassified error"},
-		{"invalid failure", &agent.StepError{}, "unclassified error"},
 		{
 			"wrong classification",
-			&agent.StepError{Failure: mustFailure(t, agent.FailureKindExecution, "agenttest.other")},
+			agent.NewClassifiedError(agent.FailureKindExecution, "agenttest.other", "agenttest: other"),
 			"want contract/agenttest.rejected",
 		},
 	} {
@@ -370,13 +366,4 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustFailure(t *testing.T, kind agent.FailureKind, code string) agent.Failure {
-	t.Helper()
-	failure, err := agent.NewFailure(kind, code, "diagnostic")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return failure
 }

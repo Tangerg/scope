@@ -5,32 +5,6 @@ import (
 	"errors"
 )
 
-// StepError discards the entire candidate Step, including input consumption and
-// Effects, while preserving Failure in the Process result. Cause optionally
-// retains in-memory evidence for errors.Is/As; only Failure is persisted.
-// A valid Failure is required. Cancellation and panic containment remain owned
-// by the Engine and take precedence over Strategy classification.
-type StepError struct {
-	Failure Failure
-	Cause   error
-}
-
-// A typed-nil *StepError is an invalid classification, not a crash: its
-// methods stay nil-safe so error inspection reaches the contract check.
-func (s *StepError) Error() string {
-	if s == nil {
-		return "agent: nil StepError"
-	}
-	return s.Failure.Message()
-}
-
-func (s *StepError) Unwrap() error {
-	if s == nil {
-		return nil
-	}
-	return s.Cause
-}
-
 // ClassifiedError is a sentinel that owns the Failure kind and code persisted
 // when an error wrapping it leaves Execution.Step, so no separate mapping can
 // disagree with the declaration.
@@ -52,45 +26,26 @@ func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError
 
 func (c *ClassifiedError) Error() string { return c.failure.Message() }
 
-// classifyStepError is applied by the Engine to every error Execution.Step
-// returns, so no Strategy can forget it. An error wrapping a ClassifiedError
-// becomes a *StepError carrying that classification and the complete
-// diagnostic; every other error is returned unchanged and recorded as
-// execution.step.failed. Cancellation, contained panics, and an existing
-// *StepError outrank Strategy classification.
-func classifyStepError(err error) error {
-	if err == nil {
-		return nil
+// classifiedStepFailure is the Failure the Engine persists when Execution.Step
+// returns err wrapping a ClassifiedError, with the complete wrapped chain as
+// its diagnostic. Cancellation and contained panics outrank Strategy
+// classification, and any other error stays unclassified.
+func classifiedStepFailure(err error) (Failure, bool) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return Failure{}, false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-	// A contained callback panic keeps FailureKindPanic. Classifying it would
-	// report a deliberate contract decision where a callback crashed.
 	if _, contained := errors.AsType[*CallbackPanicError](err); contained {
-		return err
-	}
-	if _, sealed := errors.AsType[*StepError](err); sealed {
-		return err
+		return Failure{}, false
 	}
 	classified, ok := errors.AsType[*ClassifiedError](err)
 	if !ok {
-		return err
+		return Failure{}, false
 	}
-	return &StepError{
-		Failure: newEngineFailure(classified.failure.Kind(), classified.failure.Code(), err),
-		Cause:   err,
-	}
+	return newEngineFailure(classified.failure.Kind(), classified.failure.Code(), err), true
 }
 
 // StepFailure reports the Failure the Engine persists when Execution.Step
 // returns err. It reports false for an error the Engine records as
 // execution.step.failed, and for cancellation and contained panics, whose
 // classifications the Engine owns.
-func StepFailure(err error) (Failure, bool) {
-	sealed, ok := errors.AsType[*StepError](classifyStepError(err))
-	if !ok || sealed == nil || !sealed.Failure.Valid() {
-		return Failure{}, false
-	}
-	return sealed.Failure, true
-}
+func StepFailure(err error) (Failure, bool) { return classifiedStepFailure(err) }

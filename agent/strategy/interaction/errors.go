@@ -44,6 +44,13 @@ var (
 		"interaction.protocol.invalid",
 		"interaction: invalid protocol payload",
 	)
+	// ErrInvalidModelResponse rejects the whole Step, so a structurally valid
+	// response that violates Interaction constraints never enters its state.
+	ErrInvalidModelResponse = agent.NewClassifiedError(
+		agent.FailureKindExternal,
+		"interaction.model.invalid_response",
+		"interaction: invalid model response",
+	)
 )
 
 // ErrModelResponseTooLarge reports response resource admission failure.

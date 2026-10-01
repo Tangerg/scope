@@ -141,7 +141,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 	response := envelope.ModelResult.Response.Clone()
 	calls, err := validatedToolCalls(response)
 	if err != nil {
-		return agent.Transition{}, invalidModelResponse(err.Error(), err)
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidModelResponse, err)
 	}
 	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
 		response.Output.FinishReason != chat.FinishReasonLength {
@@ -170,7 +170,7 @@ func (e *execution) acceptFinalModelResponse(
 ) (agent.Transition, error) {
 	modelOutput := response.Output
 	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
-		return agent.Transition{}, invalidModelResponse("model response has no finished assistant message", nil)
+		return agent.Transition{}, fmt.Errorf("%w: model response has no finished assistant message", ErrInvalidModelResponse)
 	}
 	if e.state.PendingSteer == nil {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
@@ -188,16 +188,6 @@ func (e *execution) acceptFinalModelResponse(
 	}
 	e.state.Phase = phaseReadyModel
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
-}
-
-// invalidModelResponse rejects the whole Step, so the response never enters
-// Interaction state.
-func invalidModelResponse(diagnostic string, cause error) error {
-	failure, err := stepfail.Failure(agent.FailureKindExternal, failureCodeInteractionModelInvalidResponse, diagnostic)
-	if err != nil {
-		return err
-	}
-	return &agent.StepError{Failure: failure, Cause: cause}
 }
 
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
@@ -711,7 +701,6 @@ const (
 	failureCodeInteractionDelegateUnresolvedEffects  = "interaction.delegate.unresolved_effects"
 	failureCodeInteractionHostFailed                 = "interaction.host.failed"
 	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
-	failureCodeInteractionModelInvalidResponse       = "interaction.model.invalid_response"
 	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
 	failureCodeInteractionToolProcessFailed          = "interaction.tool.process_failed"
 )
