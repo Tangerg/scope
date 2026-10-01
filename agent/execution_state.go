@@ -100,7 +100,7 @@ func (e ExecutionState) digest() (Digest, error) {
 	if err != nil {
 		return Digest{}, err
 	}
-	return digestBytes(data), nil
+	return ComputeDigest(data), nil
 }
 
 type executionStateWire struct {

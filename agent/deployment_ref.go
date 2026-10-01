@@ -150,7 +150,7 @@ func (d DeploymentRef) computeDigest() (Digest, error) {
 	if err != nil {
 		return Digest{}, err
 	}
-	return digestBytes(data), nil
+	return ComputeDigest(data), nil
 }
 
 func childBindingsDigest(canonical []DeploymentRef) (Digest, error) {
@@ -162,5 +162,5 @@ func childBindingsDigest(canonical []DeploymentRef) (Digest, error) {
 	if err != nil {
 		return Digest{}, err
 	}
-	return digestBytes(data), nil
+	return ComputeDigest(data), nil
 }

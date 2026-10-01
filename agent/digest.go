@@ -27,13 +27,12 @@ func ParseDigest(value string) (Digest, error) {
 // ComputeDigest returns the canonical SHA-256 identity of data. Callers that
 // assemble a Deployment use it for reproducible implementation artifacts and
 // canonical frozen configuration bytes.
-func ComputeDigest(data []byte) Digest { return digestBytes(data) }
-
+//
 // Digests identify exact bytes, not semantic JSON equality. Payload constructors
 // normalize open JSON; typed protocol owners hash their deterministic encoding
 // (struct field order and normalized embedded values). TreeSnapshot retains that
 // encoding and its digest together, so durable stores use Digest without rehashing.
-func digestBytes(data []byte) Digest {
+func ComputeDigest(data []byte) Digest {
 	sum := sha256.Sum256(data)
 	return Digest{identity{value: digestPrefix + hex.EncodeToString(sum[:])}}
 }

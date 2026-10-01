@@ -57,7 +57,7 @@ func randomHexIdentity(prefix string, size int) identity {
 // unambiguous before hashing. Only this boundary assembles derived identities.
 func deriveIdentity(prefix, tag string, parts ...string) identity {
 	encoded := append([]string{tag}, parts...)
-	digest := digestBytes([]byte(strings.Join(encoded, "\x00")))
+	digest := ComputeDigest([]byte(strings.Join(encoded, "\x00")))
 	return identity{value: prefix + digest.hex()}
 }
 

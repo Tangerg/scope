@@ -9,8 +9,8 @@ import (
 
 func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) {
 	descriptor := testDescriptor(t)
-	implementation := digestBytes([]byte("interaction implementation"))
-	configuration := digestBytes([]byte("model and dispatcher configuration"))
+	implementation := ComputeDigest([]byte("interaction implementation"))
+	configuration := ComputeDigest([]byte("model and dispatcher configuration"))
 	reference, err := newDeploymentRef(descriptor, implementation, configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
@@ -23,11 +23,11 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 		t.Fatalf("DeploymentRef text = %q, invalid = %q", reference.String(), (DeploymentRef{}).String())
 	}
 
-	changedImplementation, err := newDeploymentRef(descriptor, digestBytes([]byte("changed interaction implementation")), configuration, noChildBindings())
+	changedImplementation, err := newDeploymentRef(descriptor, ComputeDigest([]byte("changed interaction implementation")), configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedConfiguration, err := newDeploymentRef(descriptor, implementation, digestBytes([]byte("changed model and dispatcher configuration")), noChildBindings())
+	changedConfiguration, err := newDeploymentRef(descriptor, implementation, ComputeDigest([]byte("changed model and dispatcher configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 }
 
 func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
-	reference, err := newDeploymentRef(testDescriptor(t), digestBytes([]byte("implementation")), digestBytes([]byte("configuration")), noChildBindings())
+	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}

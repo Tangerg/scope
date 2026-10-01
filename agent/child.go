@@ -47,7 +47,7 @@ func (c ChildSpec) digest() (Digest, error) {
 	if err != nil {
 		return Digest{}, err
 	}
-	return digestBytes(payload), nil
+	return ComputeDigest(payload), nil
 }
 
 // NewChildStartEffect creates a Framework-owned Effect requesting one independently
