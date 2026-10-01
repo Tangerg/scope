@@ -64,7 +64,6 @@ func (s signalRecord) wire() signalRecordWire {
 
 type waitRecord struct {
 	key      WaitKey
-	id       WaitID
 	kind     WaitKind
 	answered bool
 	closed   bool
@@ -209,7 +208,7 @@ func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind Wa
 			return fmt.Errorf("%w: wait key is already open", errWaitState)
 		}
 	}
-	s.waits[id] = waitRecord{key: key, id: id, kind: kind}
+	s.waits[id] = waitRecord{key: key, kind: kind}
 	s.appendRecord(record)
 	return nil
 }
