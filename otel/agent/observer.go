@@ -440,10 +440,10 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 			processActivationAttribute.String(string(record.activation)),
 		)
 	}
-	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
+	if failure, failed := fact.Failure(); failed {
 		attributes = append(attributes,
-			processFailureKindAttribute.String(failureKind.String()),
-			processFailureCodeAttribute.String(failureCode),
+			processFailureKindAttribute.String(failure.Kind().String()),
+			processFailureCodeAttribute.String(failure.Code()),
 		)
 	}
 	metricOptions := metric.WithAttributes(attributes...)
@@ -460,9 +460,8 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		processActivationAttribute.String(string(record.activation)),
 	}
 	observedError := processFactError{status: fact.Status(), cause: fact.Cause()}
-	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
-		observedError.failureKind = failureKind
-		observedError.failureCode = failureCode
+	if failure, failed := fact.Failure(); failed {
+		observedError.failure = failure
 	}
 	if processStatusIsError(fact.Status()) {
 		durationAttributes = append(durationAttributes, semconv.ErrorType(observedError))
@@ -475,10 +474,10 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		processStatusAttribute.String(fact.Status().String()),
 		processCauseAttribute.String(fact.Cause().String()),
 	}
-	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
+	if failure, failed := fact.Failure(); failed {
 		spanAttributes = append(spanAttributes,
-			processFailureKindAttribute.String(failureKind.String()),
-			processFailureCodeAttribute.String(failureCode),
+			processFailureKindAttribute.String(failure.Kind().String()),
+			processFailureCodeAttribute.String(failure.Code()),
 		)
 	}
 	record.span.SetAttributes(spanAttributes...)
@@ -621,10 +620,10 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 		effectTargetAttribute.String(fact.Target().String()),
 		effectStatusAttribute.String(fact.SettlementStatus().String()),
 	)
-	if failureKind, failureCode, failed := fact.FailureClassification(); failed {
+	if failure, failed := fact.Failure(); failed {
 		metricAttributes = append(metricAttributes,
-			processFailureKindAttribute.String(failureKind.String()),
-			processFailureCodeAttribute.String(failureCode),
+			processFailureKindAttribute.String(failure.Kind().String()),
+			processFailureCodeAttribute.String(failure.Code()),
 		)
 	}
 	o.instruments.effectDuration.Record(
@@ -773,7 +772,7 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 	delete(o.processes, key)
 	spans := o.takeChildSpans(key)
 	o.stateMu.Unlock()
-	observedError := runtimeFactError{kind: fact.FailureKind(), code: fact.FailureCode()}
+	observedError := runtimeFactError{failure: fact.Failure()}
 	if found {
 		spans = append(spans, record.span)
 		attributes := []attribute.KeyValue{
@@ -788,8 +787,8 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 	}
 	for _, span := range spans {
 		span.SetAttributes(
-			processFailureKindAttribute.String(fact.FailureKind().String()),
-			processFailureCodeAttribute.String(fact.FailureCode()),
+			processFailureKindAttribute.String(observedError.failure.Kind().String()),
+			processFailureCodeAttribute.String(observedError.failure.Code()),
 		)
 		recordSpanFailure(span, observedError, event.OccurredAt())
 		span.End(trace.WithTimestamp(event.OccurredAt()))
@@ -834,23 +833,22 @@ func deploymentMetricAttributes(event agent.Event) []attribute.KeyValue {
 }
 
 type processFactError struct {
-	status      agent.Status
-	cause       agent.TerminationCause
-	failureKind agent.FailureKind
-	failureCode string
+	status  agent.Status
+	cause   agent.TerminationCause
+	failure agent.FailureClassification
 }
 
 func (p processFactError) Error() string {
-	if p.failureCode != "" {
+	if p.failure.Valid() {
 		return "agent Process " + p.status.String() + ": " +
-			p.failureKind.String() + "/" + p.failureCode
+			p.failure.Kind().String() + "/" + p.failure.Code()
 	}
 	return "agent Process " + p.status.String() + ": " + p.cause.String()
 }
 
 func (p processFactError) ErrorType() string {
-	if p.failureCode != "" {
-		return p.failureCode
+	if p.failure.Valid() {
+		return p.failure.Code()
 	}
 	return "agent." + p.cause.String()
 }

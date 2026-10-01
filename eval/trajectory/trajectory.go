@@ -334,8 +334,8 @@ func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinishedFact) bool {
 	if !failed {
 		return true
 	}
-	kind, code, _ := fact.FailureClassification()
-	return kind == failure.Kind() && code == failure.Code()
+	classification, _ := fact.Failure()
+	return classification == failure.Classification()
 }
 
 func (t Trajectory) TotalTokens() (int64, error) {

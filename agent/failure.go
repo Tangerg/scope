@@ -58,6 +58,22 @@ func (f FailureKind) terminationCause() TerminationCause {
 	}
 }
 
+// FailureClassification is the stable, diagnostic-free part of a Failure.
+// Observations carry only this part, so they can be recorded and aggregated
+// without exposing diagnostic text.
+type FailureClassification struct {
+	kind FailureKind
+	code string
+}
+
+func (f FailureClassification) Kind() FailureKind { return f.kind }
+
+func (f FailureClassification) Code() string { return f.code }
+
+func (f FailureClassification) Valid() bool {
+	return f.kind.Valid() && ValidQualifiedName(f.code)
+}
+
 // Failure separates stable codes from diagnostic text so wording changes cannot
 // alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
 // must exclude secrets.
@@ -69,11 +85,8 @@ type Failure struct {
 
 // NewFailure requires a trimmed UTF-8 message within MaxDiagnosticBytes.
 func NewFailure(kind FailureKind, code, message string) (Failure, error) {
-	if !kind.Valid() {
-		return Failure{}, fmt.Errorf("%w: kind is required", ErrInvalidFailure)
-	}
-	if !ValidQualifiedName(code) {
-		return Failure{}, fmt.Errorf("%w: code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
+	if !(FailureClassification{kind: kind, code: code}).Valid() {
+		return Failure{}, fmt.Errorf("%w: kind is required and code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
 	}
 	if !ValidDiagnostic(message) {
 		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, MaxDiagnosticBytes)
@@ -86,6 +99,10 @@ func (f Failure) Kind() FailureKind { return f.kind }
 func (f Failure) Code() string { return f.code }
 
 func (f Failure) Message() string { return f.message }
+
+func (f Failure) Classification() FailureClassification {
+	return FailureClassification{kind: f.kind, code: f.code}
+}
 
 func (f Failure) Valid() bool {
 	return f.kind.Valid()

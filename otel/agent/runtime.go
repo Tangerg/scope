@@ -5,12 +5,11 @@ import (
 )
 
 type runtimeFactError struct {
-	kind agent.FailureKind
-	code string
+	failure agent.FailureClassification
 }
 
 func (r runtimeFactError) Error() string {
-	return "agent runtime stopped: " + r.kind.String() + "/" + r.code
+	return "agent runtime stopped: " + r.failure.Kind().String() + "/" + r.failure.Code()
 }
 
-func (r runtimeFactError) ErrorType() string { return r.code }
+func (r runtimeFactError) ErrorType() string { return r.failure.Code() }

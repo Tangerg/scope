@@ -312,7 +312,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 				}
 				if fact, ok := event.RuntimeStopped(); ok {
 					stopped++
-					if event.Phase() != EventPhaseAttempt || fact.FailureKind() != test.wantFailureKind || fact.FailureCode() != test.wantFailureCode {
+					if event.Phase() != EventPhaseAttempt || fact.Failure().Kind() != test.wantFailureKind || fact.Failure().Code() != test.wantFailureCode {
 						t.Fatalf("runtime stop observation=%+v", fact)
 					}
 				}

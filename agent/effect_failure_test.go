@@ -91,10 +91,10 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 					t.Fatal(decodeErr)
 				}
 				fact, ok := decoded.EffectFinished()
-				kind, code, present := fact.FailureClassification()
+				classification, present := fact.Failure()
 				if !ok || !fact.Valid() || fact.SettlementStatus() != SettlementStatusUnknown ||
-					kind != test.kind || code != test.code || present != test.kind.Valid() {
-					t.Fatalf("Unknown classification: fact=%+v failure=%s/%s/%t", fact, kind, code, present)
+					classification.Kind() != test.kind || classification.Code() != test.code || present != test.kind.Valid() {
+					t.Fatalf("Unknown classification: fact=%+v failure=%+v/%t", fact, classification, present)
 				}
 				diagnostic, hasDiagnostic := snapshot.EffectDiagnostic(snapshot.UnknownEffectIDs()[0])
 				if hasDiagnostic != test.kind.Valid() || hasDiagnostic && (diagnostic.Kind() != test.kind || diagnostic.Code() != test.code || diagnostic.Message() == "" || len(diagnostic.Message()) > MaxDiagnosticBytes) {

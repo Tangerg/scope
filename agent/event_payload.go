@@ -120,19 +120,18 @@ type deltaDroppedEventPayload struct {
 // ProcessFinishedFact is the immutable terminal fact carried by a finished
 // Process Event. Usage is the authoritative Framework-owned terminal usage.
 type ProcessFinishedFact struct {
-	cause       TerminationCause
-	failureKind FailureKind
-	failureCode string
-	usage       Usage
+	cause   TerminationCause
+	failure FailureClassification
+	usage   Usage
 }
 
 func (p ProcessFinishedFact) Status() Status { return p.cause.status() }
 
 func (p ProcessFinishedFact) Cause() TerminationCause { return p.cause }
 
-// FailureClassification contains stable kind and code without diagnostic text.
-func (p ProcessFinishedFact) FailureClassification() (FailureKind, string, bool) {
-	return p.failureKind, p.failureCode, p.Status() == StatusFailed
+// Failure is present exactly when the Process failed.
+func (p ProcessFinishedFact) Failure() (FailureClassification, bool) {
+	return p.failure, p.Status() == StatusFailed
 }
 
 func (p ProcessFinishedFact) Usage() Usage { return p.usage }
@@ -142,34 +141,26 @@ func (p ProcessFinishedFact) Valid() bool {
 		return false
 	}
 	if p.Status() != StatusFailed {
-		return p.failureKind == FailureKindInvalid && p.failureCode == ""
+		return p.failure == FailureClassification{}
 	}
-	return p.failureKind.Valid() && ValidQualifiedName(p.failureCode) &&
-		p.cause == p.failureKind.terminationCause()
+	return p.failure.Valid() && p.cause == p.failure.kind.terminationCause()
 }
 
 // RuntimeStoppedFact describes an instance failure, not a logical Process
 // termination. It contains only the failure classification, never storage error
 // messages or application payloads. Event carries the Process and incarnation.
-type RuntimeStoppedFact struct {
-	failureKind FailureKind
-	failureCode string
-}
+type RuntimeStoppedFact struct{ failure FailureClassification }
 
-func (r RuntimeStoppedFact) FailureKind() FailureKind { return r.failureKind }
+func (r RuntimeStoppedFact) Failure() FailureClassification { return r.failure }
 
-func (r RuntimeStoppedFact) FailureCode() string { return r.failureCode }
-
-func (r RuntimeStoppedFact) Valid() bool {
-	return r.failureKind.Valid() && ValidQualifiedName(r.failureCode)
-}
+func (r RuntimeStoppedFact) Valid() bool { return r.failure.Valid() }
 
 func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
 	wire, err := jsonwire.Decode[runtimeStoppedEventPayload](payload)
 	if err != nil {
 		return RuntimeStoppedFact{}, err
 	}
-	fact := RuntimeStoppedFact{failureKind: wire.FailureKind, failureCode: wire.FailureCode}
+	fact := RuntimeStoppedFact{failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode}}
 	if !fact.Valid() {
 		return RuntimeStoppedFact{}, errors.New("invalid Runtime stopped event fact")
 	}
@@ -230,12 +221,11 @@ func (e EffectStartedFact) Valid() bool { return e.target.Valid() && e.attemptID
 // EffectFinishedFact is the immutable settlement observation for one Effect
 // attempt. It does not replace the durable Effect boundary.
 type EffectFinishedFact struct {
-	attemptID   EffectAttemptID
-	target      EffectTarget
-	settlement  SettlementStatus
-	duration    time.Duration
-	failureKind FailureKind
-	failureCode string
+	attemptID  EffectAttemptID
+	target     EffectTarget
+	settlement SettlementStatus
+	duration   time.Duration
+	failure    FailureClassification
 }
 
 func (e EffectFinishedFact) Target() EffectTarget { return e.target }
@@ -246,22 +236,21 @@ func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settl
 
 func (e EffectFinishedFact) Duration() time.Duration { return e.duration }
 
-// FailureClassification classifies the Dispatcher error that made the outcome
+// Failure classifies the Dispatcher error that made the outcome
 // Unknown, without diagnostic text. An Unknown returned directly by the
 // Dispatcher has no classification.
-func (e EffectFinishedFact) FailureClassification() (FailureKind, string, bool) {
-	return e.failureKind, e.failureCode, e.failureKind.Valid()
+func (e EffectFinishedFact) Failure() (FailureClassification, bool) {
+	return e.failure, e.failure != FailureClassification{}
 }
 
 func (e EffectFinishedFact) Valid() bool {
 	if !e.attemptID.Valid() || !e.target.Valid() || !e.settlement.Valid() || e.duration < 0 {
 		return false
 	}
-	if e.failureKind == FailureKindInvalid && e.failureCode == "" {
+	if e.failure == (FailureClassification{}) {
 		return true
 	}
-	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown &&
-		e.failureKind.Valid() && ValidQualifiedName(e.failureCode)
+	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown && e.failure.Valid()
 }
 
 // DeltaDroppedFact reports the number of increments rejected during one Effect
@@ -283,9 +272,9 @@ func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, er
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event payload")
 	}
 	fact := ProcessFinishedFact{
-		cause:       wire.TerminationCause,
-		failureKind: wire.FailureKind, failureCode: wire.FailureCode,
-		usage: *wire.Usage,
+		cause:   wire.TerminationCause,
+		failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode},
+		usage:   *wire.Usage,
 	}
 	if !fact.Valid() || wire.ProcessStatus != fact.Status() {
 		return ProcessFinishedFact{}, errors.New("invalid Process finished event fact")
@@ -360,7 +349,7 @@ func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, erro
 	fact := EffectFinishedFact{
 		attemptID: wire.AttemptID,
 		target:    wire.EffectTarget, settlement: wire.SettlementStatus, duration: duration,
-		failureKind: wire.FailureKind, failureCode: wire.FailureCode,
+		failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode},
 	}
 	if !fact.Valid() {
 		return EffectFinishedFact{}, errors.New("invalid Effect finished event fact")
