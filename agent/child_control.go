@@ -21,7 +21,7 @@ func NewChildSignalEffect(childID ProcessID, signal SignalRequest) (Effect, erro
 		return Effect{}, ErrInvalidChildControl
 	}
 	return childControlEffectWire{
-		Operation: frameworkEffectSignalChild, ChildID: childID, Signal: &signal,
+		Operation: frameworkOperationSignalChild, ChildID: childID, Signal: &signal,
 	}.effect()
 }
 
@@ -34,7 +34,7 @@ func NewChildCancelEffect(childID ProcessID, reason string) (Effect, error) {
 		return Effect{}, ErrInvalidChildControl
 	}
 	return childControlEffectWire{
-		Operation: frameworkEffectCancelChild, ChildID: childID, Reason: reason,
+		Operation: frameworkOperationCancelChild, ChildID: childID, Reason: reason,
 	}.effect()
 }
 
@@ -46,7 +46,7 @@ type ChildControlResult struct {
 	childID   ProcessID
 	signalID  SignalID
 	failure   Failure
-	operation frameworkEffectOperation
+	operation frameworkOperationKind
 }
 
 func (c ChildControlResult) ChildID() ProcessID { return c.childID }
@@ -81,10 +81,10 @@ func (c ChildControlResult) matches(request childControlEffectWire) bool {
 }
 
 func (c ChildControlResult) Valid() bool {
-	if !c.childID.Valid() || c.operation != frameworkEffectSignalChild && c.operation != frameworkEffectCancelChild {
+	if !c.childID.Valid() || c.operation != frameworkOperationSignalChild && c.operation != frameworkOperationCancelChild {
 		return false
 	}
-	return c.signalID.Valid() == (c.operation == frameworkEffectSignalChild)
+	return c.signalID.Valid() == (c.operation == frameworkOperationSignalChild)
 }
 
 func (c ChildControlResult) MarshalJSON() ([]byte, error) {
@@ -128,10 +128,10 @@ func ParseChildControlResult(signal Signal) (ChildControlResult, error) {
 }
 
 type childControlEffectWire struct {
-	Operation frameworkEffectOperation `json:"operation"`
-	ChildID   ProcessID                `json:"child_id"`
-	Signal    *SignalRequest           `json:"signal,omitzero"`
-	Reason    string                   `json:"reason,omitempty"`
+	Operation frameworkOperationKind `json:"operation"`
+	ChildID   ProcessID              `json:"child_id"`
+	Signal    *SignalRequest         `json:"signal,omitzero"`
+	Reason    string                 `json:"reason,omitempty"`
 }
 
 func (c childControlEffectWire) valid() bool {
@@ -139,9 +139,9 @@ func (c childControlEffectWire) valid() bool {
 		return false
 	}
 	switch c.Operation {
-	case frameworkEffectSignalChild:
+	case frameworkOperationSignalChild:
 		return c.Signal != nil && c.Signal.Valid() && c.Reason == ""
-	case frameworkEffectCancelChild:
+	case frameworkOperationCancelChild:
 		return c.Signal == nil && validateTerminationReason(c.Reason) == nil
 	default:
 		return false
@@ -167,10 +167,10 @@ func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, 
 }
 
 type childControlResultWire struct {
-	Operation frameworkEffectOperation `json:"operation"`
-	ChildID   ProcessID                `json:"child_id"`
-	SignalID  *SignalID                `json:"signal_id,omitzero"`
-	Failure   *Failure                 `json:"failure,omitzero"`
+	Operation frameworkOperationKind `json:"operation"`
+	ChildID   ProcessID              `json:"child_id"`
+	SignalID  *SignalID              `json:"signal_id,omitzero"`
+	Failure   *Failure               `json:"failure,omitzero"`
 }
 
 func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, error) {

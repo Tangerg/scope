@@ -71,7 +71,7 @@ func NewWaitEffect(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
 		return Effect{}, fmt.Errorf("%w: wait signal payload: %w", ErrInvalidEffect, err)
 	}
 	return newFrameworkEffect(waitRequestWire{
-		Operation: frameworkEffectWait, Key: key, SignalPayload: normalized,
+		Operation: frameworkOperationWait, Key: key, SignalPayload: normalized,
 	})
 }
 
@@ -168,20 +168,20 @@ type effectWire struct {
 	RequiredCapabilities []Capability    `json:"required_capabilities,omitempty"`
 }
 
-type frameworkEffectOperation string
+type frameworkOperationKind string
 
 const (
-	frameworkEffectWait         frameworkEffectOperation = "wait"
-	frameworkEffectStartChild   frameworkEffectOperation = "start_child"
-	frameworkEffectWaitChildren frameworkEffectOperation = "wait_children"
-	frameworkEffectSignalChild  frameworkEffectOperation = "signal_child"
-	frameworkEffectCancelChild  frameworkEffectOperation = "cancel_child"
+	frameworkOperationWait         frameworkOperationKind = "wait"
+	frameworkOperationStartChild   frameworkOperationKind = "start_child"
+	frameworkOperationWaitChildren frameworkOperationKind = "wait_children"
+	frameworkOperationSignalChild  frameworkOperationKind = "signal_child"
+	frameworkOperationCancelChild  frameworkOperationKind = "cancel_child"
 )
 
 type waitRequestWire struct {
-	Operation     frameworkEffectOperation `json:"operation"`
-	Key           WaitKey                  `json:"key"`
-	SignalPayload json.RawMessage          `json:"signal_payload"`
+	Operation     frameworkOperationKind `json:"operation"`
+	Key           WaitKey                `json:"key"`
+	SignalPayload json.RawMessage        `json:"signal_payload"`
 }
 
 func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage, error) {
@@ -189,7 +189,7 @@ func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage
 	if err != nil {
 		return WaitKey{}, nil, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
 	}
-	if wire.Operation != frameworkEffectWait || !wire.Key.Valid() {
+	if wire.Operation != frameworkOperationWait || !wire.Key.Valid() {
 		return WaitKey{}, nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
 	// The enclosing Effect owns canonicalization and the byte bound. Decoding

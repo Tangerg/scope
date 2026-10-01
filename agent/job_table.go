@@ -46,10 +46,10 @@ type processJob struct {
 	reply         processReply
 }
 
-// computation reports whether the job only computes a candidate. Such work
+// computesCandidate reports whether the job only computes a candidate. Such work
 // can be discarded; dispatch and child admission may already have external
 // effects that must settle.
-func (p *processJob) computation() bool {
+func (p *processJob) computesCandidate() bool {
 	return p.kind == processJobStep || p.kind == processJobRestore
 }
 
@@ -59,10 +59,10 @@ func (p *processJob) cancelContext() {
 	}
 }
 
-// interrupt cancels the job and discards its result when it is computation;
+// interrupt cancels the job and discards its result when it computes a candidate;
 // external work keeps its result so the outcome it produced is still settled.
 func (p *processJob) interrupt() {
-	if p.computation() {
+	if p.computesCandidate() {
 		p.stale = true
 	}
 	p.cancelContext()
@@ -78,7 +78,7 @@ func (p *processJob) abandon() {
 // uncertainEffect names the Effect whose external outcome this job may have
 // produced without reporting it.
 func (p *processJob) uncertainEffect() (EffectID, bool) {
-	return p.effectID, !p.computation() && p.effectID.Valid()
+	return p.effectID, !p.computesCandidate() && p.effectID.Valid()
 }
 
 type treeJobCompletion struct {
@@ -134,7 +134,7 @@ func (j *jobTable) all() iter.Seq2[ProcessID, *processJob] { return maps.All(j.j
 // tree can freeze.
 func (j *jobTable) hasExternal() bool {
 	for _, job := range j.jobs {
-		if !job.computation() {
+		if !job.computesCandidate() {
 			return true
 		}
 	}

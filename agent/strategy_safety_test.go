@@ -102,7 +102,7 @@ func (s *safetyTimer) Dispatch(ctx context.Context, request agent.EffectRequest,
 	case <-ctx.Done():
 		return agent.Settlement{}, ctx.Err()
 	}
-	return (coordination.Timer{}).Dispatch(ctx, request, emit)
+	return (coordination.DeadlineDispatcher{}).Dispatch(ctx, request, emit)
 }
 
 func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
@@ -262,12 +262,12 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 }
 
 func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
-	for _, mode := range []collaboration.Mode{collaboration.Continue, collaboration.Wait, collaboration.Complete} {
+	for _, mode := range []collaboration.Mode{collaboration.ModeContinue, collaboration.ModeWait, collaboration.ModeComplete} {
 		t.Run(string(mode), func(t *testing.T) {
 			output := safetyValue(agent.EncodePayload("done"))
 			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodePayload("initial"))}
 			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(agent.SchemaFor[string]()), AnswerSchema: safetyValue(agent.SchemaFor[string]())})), nil)
-			if mode == collaboration.Complete {
+			if mode == collaboration.ModeComplete {
 				decision.Output = output
 			} else {
 				decision.Tasks = []collaboration.TaskRequest{{Key: safetyValue(agent.ParseChildKey("new-work")), Worker: "safety.worker", Input: safetyValue(agent.EncodePayload("work"))}}
@@ -297,8 +297,8 @@ func TestPlanningRejectsUnresolvedChildAction(t *testing.T) {
 	for _, next := range []string{"goal achieved", "next action"} {
 		t.Run(next, func(t *testing.T) {
 			child, resolver := safetyChild[string]("winner")
-			ready := safetyValue(planning.NewCondition("world.ready", planning.True))
-			done := safetyValue(planning.NewCondition("world.done", planning.True))
+			ready := safetyValue(planning.NewCondition("world.ready", planning.TruthTrue))
+			done := safetyValue(planning.NewCondition("world.done", planning.TruthTrue))
 			goal := safetyValue(planning.NewGoal(planning.GoalConfig{
 				Name: "safety.goal", Description: "Finish the work.", Conditions: []planning.Condition{done},
 			}))

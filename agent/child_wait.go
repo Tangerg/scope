@@ -154,7 +154,7 @@ func NewChildWaitEffect(spec ChildWaitSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, ErrInvalidChildWait
 	}
-	return newFrameworkEffect(childWaitEffectWire{Operation: frameworkEffectWaitChildren, Spec: spec.wire()})
+	return newFrameworkEffect(childWaitEffectWire{Operation: frameworkOperationWaitChildren, Spec: spec.wire()})
 }
 
 // ChildWaitOpened is the definite acknowledgement that the Engine registered
@@ -192,7 +192,7 @@ func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
 		return ChildWaitOpened{}, fmt.Errorf("%w: decode opened Signal: %w", ErrInvalidChildWait, err)
 	}
 	spec, err := wire.Spec.value()
-	if err != nil || wire.Operation != childSignalWaitOpened {
+	if err != nil || wire.Operation != childWaitSignalOpened {
 		return ChildWaitOpened{}, ErrInvalidChildWait
 	}
 	opened := ChildWaitOpened{waitID: waitID, spec: spec}
@@ -374,7 +374,7 @@ func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	if err != nil {
 		return ChildWaitSatisfied{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
 	}
-	if wire.Operation != childSignalWaitSatisfied || !wire.Key.Valid() || len(wire.Outcomes) == 0 {
+	if wire.Operation != childWaitSignalSatisfied || !wire.Key.Valid() || len(wire.Outcomes) == 0 {
 		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
 	completed := ChildWaitSatisfied{waitID: waitID, key: wire.Key, boundary: wire.Boundary}
@@ -391,11 +391,11 @@ func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	return completed, nil
 }
 
-type childSignalOperation string
+type childWaitSignalKind string
 
 const (
-	childSignalWaitOpened    childSignalOperation = "child_wait_opened"
-	childSignalWaitSatisfied childSignalOperation = "child_wait_satisfied"
+	childWaitSignalOpened    childWaitSignalKind = "child_wait_opened"
+	childWaitSignalSatisfied childWaitSignalKind = "child_wait_satisfied"
 )
 
 type childWaitConditionWire struct {
@@ -411,20 +411,20 @@ type childWaitSpecWire struct {
 }
 
 type childWaitEffectWire struct {
-	Operation frameworkEffectOperation `json:"operation"`
-	Spec      childWaitSpecWire        `json:"spec"`
+	Operation frameworkOperationKind `json:"operation"`
+	Spec      childWaitSpecWire      `json:"spec"`
 }
 
 type childWaitOpenedWire struct {
-	Operation childSignalOperation `json:"operation"`
-	Spec      childWaitSpecWire    `json:"spec"`
+	Operation childWaitSignalKind `json:"operation"`
+	Spec      childWaitSpecWire   `json:"spec"`
 }
 
 type childWaitSatisfiedWire struct {
-	Operation childSignalOperation `json:"operation"`
-	Key       WaitKey              `json:"key"`
-	Boundary  ChildWaitBoundary    `json:"boundary"`
-	Outcomes  []childOutcomeWire   `json:"outcomes"`
+	Operation childWaitSignalKind `json:"operation"`
+	Key       WaitKey             `json:"key"`
+	Boundary  ChildWaitBoundary   `json:"boundary"`
+	Outcomes  []childOutcomeWire  `json:"outcomes"`
 }
 
 type childOutcomeWire struct {
@@ -460,7 +460,7 @@ func decodeChildWaitEffect(payload json.RawMessage) (ChildWaitSpec, error) {
 	if err != nil {
 		return ChildWaitSpec{}, fmt.Errorf("%w: decode request: %w", ErrInvalidChildWait, err)
 	}
-	if wire.Operation != frameworkEffectWaitChildren {
+	if wire.Operation != frameworkOperationWaitChildren {
 		return ChildWaitSpec{}, ErrInvalidChildWait
 	}
 	return wire.Spec.value()
@@ -471,7 +471,7 @@ func encodeChildWaitOpened(spec ChildWaitSpec) (json.RawMessage, error) {
 		return nil, ErrInvalidChildWait
 	}
 	return jsonv2.Marshal(childWaitOpenedWire{
-		Operation: childSignalWaitOpened,
+		Operation: childWaitSignalOpened,
 		Spec:      spec.wire(),
 	})
 }
@@ -511,7 +511,7 @@ func encodeChildWaitSatisfied(
 		return Signal{}, ErrInvalidChildWait
 	}
 	wire := childWaitSatisfiedWire{
-		Operation: childSignalWaitSatisfied,
+		Operation: childWaitSignalSatisfied,
 		Key:       key,
 		Boundary:  boundary,
 		Outcomes:  make([]childOutcomeWire, len(outcomes)),

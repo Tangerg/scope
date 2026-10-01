@@ -107,7 +107,7 @@ func (o *observationBus) publishEvent(ctx context.Context, event Event) {
 }
 
 func (o *observationBus) callEventListener(ctx context.Context, index int, listener EventListener, event Event) *ListenerPanic {
-	key := observedTreeKey{bus: o, rootID: event.relation.RootID()}
+	key := activeEventListenerKey{bus: o, rootID: event.relation.RootID()}
 	return callListener(ctx, key, index, listener, event.ProcessID(), func(ctx context.Context) { listener.OnEvent(ctx, event) })
 }
 
@@ -185,7 +185,7 @@ func (o *observationBus) flushDeltas(ctx context.Context) error {
 }
 
 func (o *observationBus) callDeltaListener(ctx context.Context, index int, listener DeltaListener, delta Delta) *ListenerPanic {
-	return callListener(ctx, observedDeltaKey{bus: o}, index, listener, delta.ProcessID(), func(ctx context.Context) { listener.OnDelta(ctx, delta) })
+	return callListener(ctx, activeDeltaListenerKey{bus: o}, index, listener, delta.ProcessID(), func(ctx context.Context) { listener.OnDelta(ctx, delta) })
 }
 
 func (o *observationBus) failureSnapshot() ObservationFailures {
@@ -208,7 +208,7 @@ func (o *observationBus) close() {
 }
 
 func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, operation string) error {
-	active, ok := ctx.Value(observedDeltaKey{bus: o}).(*atomic.Bool)
+	active, ok := ctx.Value(activeDeltaListenerKey{bus: o}).(*atomic.Bool)
 	if !ok || !active.Load() {
 		return nil
 	}
@@ -216,7 +216,7 @@ func (o *observationBus) checkDeltaListenerReentrancy(ctx context.Context, opera
 }
 
 func (o *observationBus) checkEventListenerReentrancy(ctx context.Context, rootID ProcessID, operation string) error {
-	active, ok := ctx.Value(observedTreeKey{bus: o, rootID: rootID}).(*atomic.Bool)
+	active, ok := ctx.Value(activeEventListenerKey{bus: o, rootID: rootID}).(*atomic.Bool)
 	if !ok || !active.Load() {
 		return nil
 	}

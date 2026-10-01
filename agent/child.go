@@ -57,7 +57,7 @@ func NewChildStartEffect(spec ChildSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, ErrInvalidChildStart
 	}
-	return newFrameworkEffect(childStartEffectWire{Operation: frameworkEffectStartChild, Spec: spec})
+	return newFrameworkEffect(childStartEffectWire{Operation: frameworkOperationStartChild, Spec: spec})
 }
 
 // ChildStartResult is the definite result of one NewChildStartEffect Effect. Success
@@ -104,7 +104,7 @@ func (c ChildStartResult) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildStart
 	}
-	wire := childStartResultWire{Operation: frameworkEffectStartChild, Key: c.key, DeploymentRef: c.deploymentRef}
+	wire := childStartResultWire{Operation: frameworkOperationStartChild, Key: c.key, DeploymentRef: c.deploymentRef}
 	if c.processID.Valid() {
 		wire.ProcessID = &c.processID
 	} else {
@@ -140,16 +140,16 @@ func ParseChildStartResult(signal Signal) (ChildStartResult, error) {
 }
 
 type childStartEffectWire struct {
-	Operation frameworkEffectOperation `json:"operation"`
-	Spec      ChildSpec                `json:"spec"`
+	Operation frameworkOperationKind `json:"operation"`
+	Spec      ChildSpec              `json:"spec"`
 }
 
 type childStartResultWire struct {
-	Operation     frameworkEffectOperation `json:"operation"`
-	Key           ChildKey                 `json:"key"`
-	ProcessID     *ProcessID               `json:"process_id,omitzero"`
-	DeploymentRef DeploymentRef            `json:"deployment_ref"`
-	Failure       *Failure                 `json:"failure,omitzero"`
+	Operation     frameworkOperationKind `json:"operation"`
+	Key           ChildKey               `json:"key"`
+	ProcessID     *ProcessID             `json:"process_id,omitzero"`
+	DeploymentRef DeploymentRef          `json:"deployment_ref"`
+	Failure       *Failure               `json:"failure,omitzero"`
 }
 
 func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
@@ -157,7 +157,7 @@ func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
 	if err != nil {
 		return ChildSpec{}, fmt.Errorf("%w: decode start request: %w", ErrInvalidChildStart, err)
 	}
-	if wire.Operation != frameworkEffectStartChild || !wire.Spec.Valid() {
+	if wire.Operation != frameworkOperationStartChild || !wire.Spec.Valid() {
 		return ChildSpec{}, ErrInvalidChildStart
 	}
 	return wire.Spec, nil
@@ -179,7 +179,7 @@ func decodeChildStartResult(payload json.RawMessage) (ChildStartResult, error) {
 	result := ChildStartResult{
 		key: wire.Key, processID: processID, deploymentRef: wire.DeploymentRef, failure: failure,
 	}
-	if wire.Operation != frameworkEffectStartChild || !result.Valid() {
+	if wire.Operation != frameworkOperationStartChild || !result.Valid() {
 		return ChildStartResult{}, ErrInvalidChildStart
 	}
 	return result, nil

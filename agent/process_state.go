@@ -388,35 +388,35 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 	return nil
 }
 
-func (p *processState) stepSchedulingFailure() *stepPreparationFailure {
+func (p *processState) stepSchedulingFailure() *stepFailure {
 	reserved := p.effectiveAllocations()
 	if !p.handle.budget.Steps.Allows(p.committedSteps, reserved.Steps, 1) {
-		return &stepPreparationFailure{
+		return &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSteps, cause: ErrResourceLimitExceeded,
 		}
 	}
 	if p.committedSteps == math.MaxUint64 {
-		return &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
+		return &stepFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	return nil
 }
 
-func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*processState, *stepPreparationFailure) {
+func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*processState, *stepFailure) {
 	transition := result.transition
 	if !transition.Valid() || uint64(transition.ConsumedSignals()) > result.deliveredSignals {
-		return nil, &stepPreparationFailure{
+		return nil, &stepFailure{
 			kind: FailureKindContract, code: failureCodeExecutionTransitionInvalid, cause: ErrInvalidTransition,
 		}
 	}
 	effects := transition.Effects()
 	for _, effect := range effects {
 		if err := p.deployment().validateEffect(effect); err != nil {
-			return nil, &stepPreparationFailure{
+			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
 		}
 		if !p.handle.capabilities.Allows(effect.RequiredCapabilities()) {
-			return nil, &stepPreparationFailure{
+			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeEngineCapabilityDenied, cause: ErrInvalidCapability,
 			}
 		}
@@ -424,30 +424,30 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 	effectCount := uint64(len(effects))
 	allocated := p.effectiveAllocations()
 	if !p.handle.budget.Effects.Allows(p.counters.PreparedEffects, allocated.Effects, effectCount) {
-		return nil, &stepPreparationFailure{
+		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
 	}
 	if !resourceQuantitiesFit(math.MaxUint64, p.counters.PreparedEffects, effectCount) {
-		return nil, &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
+		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
 	if !resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, effectCount) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, effectCount) {
-		return nil, &stepPreparationFailure{
+		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
 		}
 	}
 	if output, completes := transition.Output(); completes {
 		if validateOutputErr := p.deployment().Descriptor().ValidateOutput(output); validateOutputErr != nil {
-			return nil, &stepPreparationFailure{
+			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeExecutionOutputInvalid, cause: validateOutputErr,
 			}
 		}
 	}
 	digest, err := p.committedExecutionState.digest()
 	if err != nil {
-		return nil, &stepPreparationFailure{
+		return nil, &stepFailure{
 			kind: FailureKindContract, code: failureCodeEngineCommittedExecutionStateInvalid, cause: err,
 		}
 	}
@@ -465,14 +465,14 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 		})
 	}
 	if err := p.validatePreparedWaits(&prepared); err != nil {
-		return nil, &stepPreparationFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
+		return nil, &stepFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
 	}
 	candidate := p.candidate()
 	candidate.prepared = &prepared
 	candidate.preparedExecution = result.candidate
 	candidate.counters.PreparedEffects += effectCount
 	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
-		return nil, &stepPreparationFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
+		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
 	}
 	return candidate, nil
 }

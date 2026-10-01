@@ -190,7 +190,7 @@ func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
 	process.releaseCommittedChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(3), Signals: NewQuota(1)})
 }
 
-func prepareTestStep(process *processState, limits TreeLimits, result stepJobResult) *stepPreparationFailure {
+func prepareTestStep(process *processState, limits TreeLimits, result stepJobResult) *stepFailure {
 	candidate, failure := process.prepareStep(result, limits)
 	if failure == nil {
 		process.adoptCandidate(candidate)

@@ -24,26 +24,26 @@ type frameworkOperation interface {
 
 // The header deliberately accepts operation-owned fields; the selected strict
 // decoder below owns their validation.
-type frameworkEffectHeader struct {
-	Operation frameworkEffectOperation `json:"operation"`
+type frameworkOperationHeader struct {
+	Operation frameworkOperationKind `json:"operation"`
 }
 
 func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, error) {
-	var header frameworkEffectHeader
+	var header frameworkOperationHeader
 	if err := jsonv2.Unmarshal(payload, &header); err != nil {
 		return nil, fmt.Errorf("%w: decode Framework Effect header: %w", ErrInvalidEffect, err)
 	}
 	switch header.Operation {
-	case frameworkEffectWait:
+	case frameworkOperationWait:
 		key, signal, err := decodeWaitRequestPayload(payload)
 		return waitOperation{key: key, payload: signal}, err
-	case frameworkEffectWaitChildren:
+	case frameworkOperationWaitChildren:
 		spec, err := decodeChildWaitEffect(payload)
 		return childWaitOperation{spec: spec}, err
-	case frameworkEffectStartChild:
+	case frameworkOperationStartChild:
 		spec, err := decodeChildStartEffect(payload)
 		return childStartOperation{spec: spec}, err
-	case frameworkEffectSignalChild, frameworkEffectCancelChild:
+	case frameworkOperationSignalChild, frameworkOperationCancelChild:
 		request, err := decodeChildControlEffect(payload)
 		return childControlOperation{request: request}, err
 	default:
@@ -105,7 +105,7 @@ func (c childWaitOperation) validate(effect *preparedEffect) error {
 	if err != nil {
 		return err
 	}
-	if opened.Operation != childSignalWaitOpened || !got.equal(c.spec) {
+	if opened.Operation != childWaitSignalOpened || !got.equal(c.spec) {
 		return errors.New("child-wait Effect settlement differs from its request")
 	}
 	return nil
@@ -280,7 +280,7 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 	if !present || child.Relation.ParentID == nil || *child.Relation.ParentID != parent {
 		return ErrInvalidChildControl
 	}
-	if result.operation == frameworkEffectCancelChild {
+	if result.operation == frameworkOperationCancelChild {
 		if !child.Status.Terminal() && !child.PendingControl.CancellationOwner.valid() {
 			return ErrInvalidChildControl
 		}

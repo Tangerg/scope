@@ -27,7 +27,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	}
 	dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
 		ReplayPolicy: agent.ReplayPolicyNever,
-		Steps: []agenttest.DispatchStep{{
+		Calls: []agenttest.ScriptedCall{{
 			ExpectedEffect:    &expectedEffect,
 			Deltas:            []json.RawMessage{json.RawMessage(`{"text":"do"}`)},
 			SettlementStatus:  agent.SettlementStatusSucceeded,

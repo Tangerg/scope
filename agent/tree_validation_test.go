@@ -30,7 +30,7 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 			process := root
 			process.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 			outcomes := test.change(slices.Clone(satisfied.outcomes))
-			payload := childWaitSatisfiedWire{Operation: childSignalWaitSatisfied, Key: wait.Spec.Key, Boundary: ChildWaitBoundaryDrained}
+			payload := childWaitSatisfiedWire{Operation: childWaitSignalSatisfied, Key: wait.Spec.Key, Boundary: ChildWaitBoundaryDrained}
 			for _, outcome := range outcomes {
 				payload.Outcomes = append(payload.Outcomes, outcome.wire())
 			}

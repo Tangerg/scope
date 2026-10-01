@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type stepPreparationFailure struct {
+type stepFailure struct {
 	kind  FailureKind
 	code  string
 	cause error
@@ -13,11 +13,11 @@ type stepPreparationFailure struct {
 
 // newFinalizationFailure attributes an exhausted bound to limitCode; any other
 // finalization error is a contract violation of the prepared Step.
-func newFinalizationFailure(limitCode string, err error) *stepPreparationFailure {
+func newFinalizationFailure(limitCode string, err error) *stepFailure {
 	if errors.Is(err, ErrResourceLimitExceeded) {
-		return &stepPreparationFailure{kind: FailureKindExecution, code: limitCode, cause: err}
+		return &stepFailure{kind: FailureKindExecution, code: limitCode, cause: err}
 	}
-	return &stepPreparationFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
+	return &stepFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
 }
 
 type preparedStepFinalization struct {

@@ -606,7 +606,7 @@ func (t *treeRuntime) controlChild(
 
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
 	result := request.result()
-	if request.Operation == frameworkEffectCancelChild {
+	if request.Operation == frameworkOperationCancelChild {
 		if !child.status.Terminal() {
 			// The request decoder has already validated this exact reason.
 			child.requestCancellation(cancellationIntent{owner: cancellationOwnerParent, reason: request.Reason})
@@ -2154,7 +2154,7 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 // A rejected local transition cannot leave a live registration behind.
 // Only immediate child-wait answers and the resulting snapshot can exceed a
 // bound here, so each failure is classified where it arises.
-func (t *treeRuntime) finalizePrepared(process *processState) *stepPreparationFailure {
+func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	processID := process.handle.processID
 	finalization, err := newPreparedStepFinalization(process, process.prepared)
 	if err == nil {
