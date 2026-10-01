@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -273,4 +274,66 @@ func TestBlockedEventKeepsTreeOwnedUntilListenerReturns(t *testing.T) {
 		}
 		mustCloseEngine(t, engine)
 	})
+}
+
+func TestEngineCloseRetainsFailedTreeUntilLateEventReturns(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cause := errors.New("signal checkpoint failed")
+		committer := &rejectingSignalCheckpointCommitter{MemoryTreeCommitter: NewMemoryTreeCommitter(), err: cause}
+		dispatcher := &cancellationDispatcher{
+			entered: make(chan EffectRequest, 1), canceled: make(chan struct{}),
+			release: make(chan struct{}), status: SettlementStatusSucceeded,
+		}
+		releaseDispatch := sync.OnceFunc(func() { close(dispatcher.release) })
+		defer releaseDispatch()
+		entered, release := make(chan struct{}), make(chan struct{})
+		releaseListener := sync.OnceFunc(func() { close(release) })
+		defer releaseListener()
+		engine := controlValue(NewEngine(EngineConfig{
+			TreeCommitter: committer,
+			EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
+				if event.Name() == EventEffectFinished {
+					close(entered)
+					<-release
+				}
+			})},
+		}))
+		deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+		input := controlValue(EncodePayload(engineTestInput{Value: "late completion"}))
+		process := controlValue(engine.Start(t.Context(), deployment, input))
+		<-dispatcher.entered
+		signal := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:fail-checkpoint")), WaitID{}, json.RawMessage(`{"wake":true}`)))
+		if accepted, err := process.DeliverSignals(t.Context(), signal); accepted || !errors.Is(err, cause) {
+			t.Fatalf("failed checkpoint admission = %t, %v", accepted, err)
+		}
+		awaitRuntimeError(t, process, cause)
+		<-dispatcher.canceled
+		releaseDispatch()
+		<-entered
+		if err := engine.Close(t.Context()); !errors.Is(err, ErrEngineHasActiveProcesses) {
+			t.Errorf("Close while late completion listener is active = %v", err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		if err := process.Join(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Join while late completion listener is active = %v", err)
+		}
+		releaseListener()
+		if err := process.Join(t.Context()); !errors.Is(err, cause) {
+			t.Fatalf("drained Join lost runtime failure: %v", err)
+		}
+		mustCloseEngine(t, engine)
+	})
+}
+
+type rejectingSignalCheckpointCommitter struct {
+	*MemoryTreeCommitter
+	err error
+}
+
+func (r *rejectingSignalCheckpointCommitter) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
+	if checkpoint.Kind() == TreeCheckpointKindSignals {
+		return r.err
+	}
+	return r.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 }

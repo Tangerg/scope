@@ -115,11 +115,19 @@ func (j *jobTable) start(processID ProcessID, job *processJob) {
 	j.active.Add(1)
 }
 
+func (j *jobTable) matching(completion treeJobCompletion) (*processJob, bool) {
+	job := j.jobs[completion.processID]
+	if job == nil || job.kind != completion.result.jobKind() || job.attempt != completion.attempt {
+		return nil, false
+	}
+	return job, true
+}
+
 // finish retires the job that completion answers and cancels its context.
 // Completions of retired or superseded attempts are ignored.
 func (j *jobTable) finish(completion treeJobCompletion) (*processJob, bool) {
-	job := j.jobs[completion.processID]
-	if job == nil || job.kind != completion.result.jobKind() || job.attempt != completion.attempt {
+	job, current := j.matching(completion)
+	if !current {
 		return nil, false
 	}
 	delete(j.jobs, completion.processID)

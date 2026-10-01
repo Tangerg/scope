@@ -1654,12 +1654,15 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	if process == nil && t.jobs.get(completion.processID) != nil {
 		panic("agent: owned work requires a tree member")
 	}
-	job, current := t.jobs.finish(completion)
+	job, current := t.jobs.matching(completion)
 	if !current {
 		return
 	}
-	t.queueJoin(process)
+	// A failed runtime may have already published every outcome. The job still
+	// owns its synchronous completion events, so Close must see it until they return.
 	t.publishJobFinished(process, job, completion)
+	t.jobs.finish(completion)
+	t.queueJoin(process)
 	if t.fault != nil {
 		return
 	}
