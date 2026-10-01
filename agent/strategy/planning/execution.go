@@ -205,14 +205,14 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if phase == childcall.AwaitingStart {
+	if phase == childcall.PhaseAwaitingStart {
 		return e.acceptChildStart(signal, key)
 	}
 	waitKey, err := planningChildWaitKey(key, e.state.Child.ProcessID())
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if phase == childcall.AwaitingOpening {
+	if phase == childcall.PhaseAwaitingOpening {
 		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, openErr)

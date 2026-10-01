@@ -63,7 +63,7 @@ func TestWriteOutcomePreservesAcknowledgedAppendWhenExpiryFails(t *testing.T) {
 			if outcome != test.want || (test.appendErr != nil || test.execErr != nil) != errors.Is(err, cause) {
 				t.Fatalf("outcome=%+v error=%v", outcome, err)
 			}
-			if validationErr := outcome.Validate(2, err); validationErr != nil {
+			if validationErr := outcome.ValidateFor(2, err); validationErr != nil {
 				t.Fatal(validationErr)
 			}
 		})

@@ -23,7 +23,7 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 		batchStart(t, startSignal(t, ref, second, "second-child", nil)),
 		batchStart(t, startSignal(t, ref, failedKey, "", &failure)),
 	}
-	if batch.Phase() != childcall.AwaitingStart || batch.PendingStarts() != 3 {
+	if batch.Phase() != childcall.PhaseAwaitingStart || batch.PendingStarts() != 3 {
 		t.Fatal("missing pending starts")
 	}
 	before := slices.Clone(batch.Children)
@@ -40,7 +40,7 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 		id, started := start.ProcessID()
 		batch.Children[index].ProcessID, batch.Children[index].Done = id, !started
 	}
-	if batch.Phase() != childcall.AwaitingOpening || batch.PendingStarts() != 0 {
+	if batch.Phase() != childcall.PhaseAwaitingOpening || batch.PendingStarts() != 0 {
 		t.Fatal("settled starts did not reach opening")
 	}
 	spec, err := batch.WaitSpec(waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
@@ -56,7 +56,7 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	batch.WaitID = waitID
-	if batch.Phase() != childcall.AwaitingCompletion {
+	if batch.Phase() != childcall.PhaseAwaitingCompletion {
 		t.Fatal("open wait did not reach completion")
 	}
 	first := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}})

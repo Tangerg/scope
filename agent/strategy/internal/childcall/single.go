@@ -15,9 +15,9 @@ import (
 type Phase uint8
 
 const (
-	AwaitingStart Phase = iota
-	AwaitingOpening
-	AwaitingCompletion
+	PhaseAwaitingStart Phase = iota
+	PhaseAwaitingOpening
+	PhaseAwaitingCompletion
 )
 
 // Single owns the identities learned during one child invocation. Its zero
@@ -32,7 +32,7 @@ type Single struct {
 // Window validates the input cardinality owned by this handshake. An opening
 // may be followed by its completion when the child has already drained.
 func (s Single) Window(signals []agent.Signal) (agent.Signal, error) {
-	if len(signals) == 0 || len(signals) > 1 && s.Phase() != AwaitingOpening || len(signals) > 2 {
+	if len(signals) == 0 || len(signals) > 1 && s.Phase() != PhaseAwaitingOpening || len(signals) > 2 {
 		return agent.Signal{}, errors.New("childcall: unexpected handshake window size")
 	}
 	if len(signals) == 2 {
@@ -53,12 +53,12 @@ func (s Single) Window(signals []agent.Signal) (agent.Signal, error) {
 
 func (s Single) Phase() Phase {
 	if s.waitID.Valid() {
-		return AwaitingCompletion
+		return PhaseAwaitingCompletion
 	}
 	if s.processID.Valid() {
-		return AwaitingOpening
+		return PhaseAwaitingOpening
 	}
-	return AwaitingStart
+	return PhaseAwaitingStart
 }
 
 // ProcessID is available after a successful start, including to derive a
@@ -68,7 +68,7 @@ func (s Single) ProcessID() agent.ProcessID { return s.processID }
 // AcceptStart records only a successfully started, exactly correlated child.
 // A definite start failure leaves progress unchanged for the Strategy to handle.
 func (s *Single) AcceptStart(signal agent.Signal, key agent.ChildKey, deployment agent.DeploymentRef) (agent.ChildStartResult, error) {
-	if s.Phase() != AwaitingStart {
+	if s.Phase() != PhaseAwaitingStart {
 		return agent.ChildStartResult{}, errors.New("childcall: start already settled")
 	}
 	result, err := agent.ParseChildStartResult(signal)
@@ -91,14 +91,14 @@ func (s Single) waitSpec(key agent.WaitKey, boundary agent.ChildWaitBoundary) ag
 }
 
 func (s Single) WaitEffect(key agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.Effect, error) {
-	if s.Phase() != AwaitingOpening {
+	if s.Phase() != PhaseAwaitingOpening {
 		return agent.Effect{}, errors.New("childcall: wait requires a started child without an open wait")
 	}
 	return agent.NewChildWaitEffect(s.waitSpec(key, boundary))
 }
 
 func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.WaitID, error) {
-	if s.Phase() != AwaitingOpening {
+	if s.Phase() != PhaseAwaitingOpening {
 		return agent.WaitID{}, errors.New("childcall: opening requires a started child without an open wait")
 	}
 	opened, err := agent.ParseChildWaitOpened(signal)
@@ -116,7 +116,7 @@ func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary 
 // termination or subtree facts. The Strategy retires the invocation after
 // applying its policy.
 func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.ChildOutcome, error) {
-	if s.Phase() != AwaitingCompletion {
+	if s.Phase() != PhaseAwaitingCompletion {
 		return agent.ChildOutcome{}, errors.New("childcall: completion requires an open wait")
 	}
 	completed, err := agent.ParseChildWaitSatisfied(signal)

@@ -146,9 +146,9 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 		return agent.Transition{}, err
 	}
 	switch e.state.Child.Phase() {
-	case childcall.AwaitingStart:
+	case childcall.PhaseAwaitingStart:
 		return e.acceptChildStart(signal, key, waitKey)
-	case childcall.AwaitingOpening:
+	case childcall.PhaseAwaitingOpening:
 		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child wait opening: %w", ErrInvalidProtocol, e.stage().id, openErr)

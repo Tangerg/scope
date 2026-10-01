@@ -283,7 +283,7 @@ func cosmosSelectorPath(selector filter.Selector) (string, error) {
 			}
 			return parent + "[" + string(quoted) + "]", nil
 		}
-		index, err := node.Index().Int64()
+		index, err := node.Index().AsInt64()
 		if err != nil || index < 0 {
 			return "", fmt.Errorf("invalid array index %s", node.Index().Text())
 		}

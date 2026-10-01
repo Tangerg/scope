@@ -267,7 +267,7 @@ func numericInClause(fieldKey string, literals []*filter.Literal) (v2.WhereClaus
 			allIntegers = false
 			break
 		}
-		value, err := literal.Int()
+		value, err := literal.AsInt()
 		if err != nil {
 			return nil, fmt.Errorf("chroma: IN numeric value: %w", err)
 		}
@@ -279,7 +279,7 @@ func numericInClause(fieldKey string, literals []*filter.Literal) (v2.WhereClaus
 
 	floats := make([]float32, 0, len(literals))
 	for _, literal := range literals {
-		value, err := literal.Float32()
+		value, err := literal.AsFloat32()
 		if err != nil {
 			return nil, fmt.Errorf("chroma: IN numeric value: %w", err)
 		}
@@ -325,13 +325,13 @@ func numericLiteralValue(literal *filter.Literal) (chromaNumber, error) {
 		return chromaNumber{}, err
 	}
 	if integer {
-		value, intErr := literal.Int()
+		value, intErr := literal.AsInt()
 		if intErr != nil {
 			return chromaNumber{}, intErr
 		}
 		return chromaNumber{integer: value, isInteger: true}, nil
 	}
-	value, err := literal.Float32()
+	value, err := literal.AsFloat32()
 	if err != nil {
 		return chromaNumber{}, err
 	}

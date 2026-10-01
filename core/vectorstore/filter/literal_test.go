@@ -101,28 +101,28 @@ func TestExactNumberConversions(t *testing.T) {
 	})
 
 	t.Run("int64 rejects fraction and overflow", func(t *testing.T) {
-		if _, err := filter.NewLiteral(1.5).Int64(); err == nil {
+		if _, err := filter.NewLiteral(1.5).AsInt64(); err == nil {
 			t.Fatal("Int64 accepted a fraction")
 		}
-		if _, err := filter.NewLiteral(uint64(math.MaxUint64)).Int64(); err == nil {
+		if _, err := filter.NewLiteral(uint64(math.MaxUint64)).AsInt64(); err == nil {
 			t.Fatal("Int64 accepted uint64 overflow")
 		}
 	})
 
 	t.Run("float64 rejects rounded integer", func(t *testing.T) {
-		if _, err := filter.NewLiteral(uint64(1<<53 + 1)).Float64(); err == nil {
+		if _, err := filter.NewLiteral(uint64(1<<53 + 1)).AsFloat64(); err == nil {
 			t.Fatal("Float64 accepted a rounded integer")
 		}
-		if actual, err := filter.NewLiteral(uint64(1 << 54)).Float64(); err != nil || actual != 1<<54 {
+		if actual, err := filter.NewLiteral(uint64(1 << 54)).AsFloat64(); err != nil || actual != 1<<54 {
 			t.Fatalf("Float64(exact power of two) = %v, %v", actual, err)
 		}
 	})
 
 	t.Run("float32 rejects rounded integer", func(t *testing.T) {
-		if _, err := filter.NewLiteral(1<<24 + 1).Float32(); err == nil {
+		if _, err := filter.NewLiteral(1<<24 + 1).AsFloat32(); err == nil {
 			t.Fatal("Float32 accepted a rounded integer")
 		}
-		if actual, err := filter.NewLiteral(1.5).Float32(); err != nil || actual != 1.5 {
+		if actual, err := filter.NewLiteral(1.5).AsFloat32(); err != nil || actual != 1.5 {
 			t.Fatalf("Float32(1.5) = %v, %v", actual, err)
 		}
 	})
@@ -132,13 +132,13 @@ func TestExactNumberConversions(t *testing.T) {
 		if exact, err := integer.IsInteger(); err != nil || !exact {
 			t.Fatalf("IsInteger(42) = %t, %v", exact, err)
 		}
-		if actual, err := integer.Int(); err != nil || actual != 42 {
+		if actual, err := integer.AsInt(); err != nil || actual != 42 {
 			t.Fatalf("Int(42) = %d, %v", actual, err)
 		}
 		if exact, err := filter.NewLiteral(1.5).IsInteger(); err != nil || exact {
 			t.Fatalf("IsInteger(1.5) = %t, %v", exact, err)
 		}
-		if _, err := filter.NewLiteral(uint64(math.MaxUint64)).Int(); err == nil {
+		if _, err := filter.NewLiteral(uint64(math.MaxUint64)).AsInt(); err == nil {
 			t.Fatal("Int accepted an overflowing uint64")
 		}
 	})

@@ -142,11 +142,11 @@ func (s *ScriptedDispatcher) consume(request agent.EffectRequest) (frozenCall, e
 	return call, nil
 }
 
-func (d frozenCall) dispatch(
+func (f frozenCall) dispatch(
 	request agent.EffectRequest,
 	emit agent.DeltaEmitter,
 ) (agent.Settlement, error) {
-	matches, err := d.matches(request.Effect())
+	matches, err := f.matches(request.Effect())
 	if err != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: %w", ErrEffectMismatch, err)
 	}
@@ -154,25 +154,25 @@ func (d frozenCall) dispatch(
 		return agent.Settlement{}, ErrEffectMismatch
 	}
 	if emit != nil {
-		for _, delta := range d.deltas {
+		for _, delta := range f.deltas {
 			emit(bytes.Clone(delta))
 		}
 	}
-	if d.err != nil {
-		return agent.Settlement{}, d.err
+	if f.err != nil {
+		return agent.Settlement{}, f.err
 	}
-	return agent.NewSettlement(request.ID(), d.settlementStatus, d.settlementPayload)
+	return agent.NewSettlement(request.ID(), f.settlementStatus, f.settlementPayload)
 }
 
-func (d frozenCall) matches(effect agent.Effect) (bool, error) {
-	if d.expectedEffectJSON == nil {
+func (f frozenCall) matches(effect agent.Effect) (bool, error) {
+	if f.expectedEffectJSON == nil {
 		return true, nil
 	}
 	actual, err := jsonv2.Marshal(effect)
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(d.expectedEffectJSON, actual), nil
+	return bytes.Equal(f.expectedEffectJSON, actual), nil
 }
 
 func (s *ScriptedDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {

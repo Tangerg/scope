@@ -34,12 +34,12 @@ type Batch struct {
 
 func (b Batch) Phase() Phase {
 	if b.PendingStarts() > 0 {
-		return AwaitingStart
+		return PhaseAwaitingStart
 	}
 	if b.WaitID.Valid() {
-		return AwaitingCompletion
+		return PhaseAwaitingCompletion
 	}
-	return AwaitingOpening
+	return PhaseAwaitingOpening
 }
 
 func (b Batch) PendingStarts() int {
@@ -72,7 +72,7 @@ func (b Batch) Validate() error {
 			processes[child.ProcessID] = struct{}{}
 		}
 	}
-	if b.WaitID.Valid() && b.Phase() == AwaitingStart {
+	if b.WaitID.Valid() && b.Phase() == PhaseAwaitingStart {
 		return fmt.Errorf("%w: open wait precedes child admission", ErrInvalidBatch)
 	}
 	return nil
@@ -84,7 +84,7 @@ func (b Batch) AcceptStarts(starts []agent.ChildStartResult) ([]int, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err
 	}
-	if b.Phase() != AwaitingStart || len(starts) == 0 {
+	if b.Phase() != PhaseAwaitingStart || len(starts) == 0 {
 		return nil, errors.New("childcall: no pending start response")
 	}
 	seen := make(map[agent.ProcessID]struct{}, len(b.Children))
@@ -123,7 +123,7 @@ func (b Batch) WaitSpec(key agent.WaitKey, boundary agent.ChildWaitBoundary, con
 	if err := b.Validate(); err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
-	if b.Phase() == AwaitingStart {
+	if b.Phase() == PhaseAwaitingStart {
 		return agent.ChildWaitSpec{}, errors.New("childcall: wait precedes child admission")
 	}
 	spec := agent.ChildWaitSpec{Key: key, Boundary: boundary, Condition: condition}
@@ -143,7 +143,7 @@ func (b Batch) AcceptOpening(opened agent.ChildWaitOpened, key agent.WaitKey, bo
 	if err != nil {
 		return agent.WaitID{}, err
 	}
-	if b.Phase() != AwaitingOpening {
+	if b.Phase() != PhaseAwaitingOpening {
 		return agent.WaitID{}, errors.New("childcall: opening is out of phase")
 	}
 	if !opened.Matches(spec) {
@@ -159,7 +159,7 @@ func (b Batch) Complete(completed agent.ChildWaitSatisfied, key agent.WaitKey, b
 	if err != nil {
 		return nil, err
 	}
-	if b.Phase() != AwaitingCompletion {
+	if b.Phase() != PhaseAwaitingCompletion {
 		return nil, errors.New("childcall: completion is out of phase")
 	}
 	if !completed.Matches(b.WaitID, spec) {

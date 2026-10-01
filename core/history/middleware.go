@@ -188,7 +188,7 @@ func (m Middleware) persist(
 	messages = append(messages, fresh...)
 	messages = append(messages, assistant)
 	outcome, err := m.store.Write(ctx, conversationID, messages...)
-	if invalid := outcome.Validate(len(messages), err); invalid != nil {
+	if invalid := outcome.ValidateFor(len(messages), err); invalid != nil {
 		err = errors.Join(err, invalid)
 		// Contradictory adapter facts cannot authorize a retry of any message.
 		outcome = WriteOutcome{Uncertain: len(messages) > 0}

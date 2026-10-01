@@ -18,9 +18,9 @@ type WriteOutcome struct {
 	Uncertain bool
 }
 
-// Validate checks the outcome against the attempted batch size and error.
+// ValidateFor checks the outcome against the attempted batch size and error.
 // Successful calls must acknowledge the full batch without uncertainty.
-func (w WriteOutcome) Validate(count int, err error) error {
+func (w WriteOutcome) ValidateFor(count int, err error) error {
 	if count < 0 || w.Accepted < 0 || w.Accepted > count {
 		return fmt.Errorf("%w: accepted %d of %d messages", ErrInvalidWriteOutcome, w.Accepted, count)
 	}

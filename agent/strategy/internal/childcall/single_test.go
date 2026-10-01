@@ -17,12 +17,12 @@ import (
 func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 	ref, key, waitKey := invocation(t)
 	var progress childcall.Single
-	roundTrip(t, &progress, childcall.AwaitingStart)
+	roundTrip(t, &progress, childcall.PhaseAwaitingStart)
 	start := startSignal(t, ref, key, "child", nil)
 	if _, err := progress.AcceptStart(start, key, ref); err != nil {
 		t.Fatal(err)
 	}
-	roundTrip(t, &progress, childcall.AwaitingOpening)
+	roundTrip(t, &progress, childcall.PhaseAwaitingOpening)
 	effect, err := progress.WaitEffect(waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 	if err != nil || waitID.String() != "wait" {
 		t.Fatalf("wait ID=%s error=%v", waitID, err)
 	}
-	roundTrip(t, &progress, childcall.AwaitingCompletion)
+	roundTrip(t, &progress, childcall.PhaseAwaitingCompletion)
 	result, err := progress.Complete(completionSignal(t, "wait", "children", "subtree_drained", "call", "child"), key, waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil || result.Result().ProcessID() != progress.ProcessID() || result.Result().Status() != agent.StatusCompleted {
 		t.Fatalf("completion=%+v error=%v", result, err)
@@ -58,10 +58,10 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 	}
 	start := startSignal(t, ref, key, "child", nil)
 	var progress childcall.Single
-	if _, err := progress.AcceptStart(start, otherKey, ref); err == nil || progress.Phase() != childcall.AwaitingStart {
+	if _, err := progress.AcceptStart(start, otherKey, ref); err == nil || progress.Phase() != childcall.PhaseAwaitingStart {
 		t.Fatal("mismatched child start advanced progress")
 	}
-	if _, err := progress.AcceptStart(start, key, agent.DeploymentRef{}); err == nil || progress.Phase() != childcall.AwaitingStart {
+	if _, err := progress.AcceptStart(start, key, agent.DeploymentRef{}); err == nil || progress.Phase() != childcall.PhaseAwaitingStart {
 		t.Fatal("mismatched Deployment advanced progress")
 	}
 	if _, err := progress.AcceptStart(start, key, ref); err != nil {
@@ -78,7 +78,7 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 			if _, err := agent.ParseChildWaitOpened(signal); err != nil {
 				t.Fatalf("invalid fixture: %v", err)
 			}
-			if _, err := progress.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained); err == nil || progress.Phase() != childcall.AwaitingOpening {
+			if _, err := progress.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained); err == nil || progress.Phase() != childcall.PhaseAwaitingOpening {
 				t.Fatal("mismatched wait opening advanced progress")
 			}
 		})
@@ -149,7 +149,7 @@ func TestSingleLeavesStartFailureToStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, failed := result.Failure()
-	if !failed || got.Code() != failure.Code() || got.Message() != failure.Message() || progress.Phase() != childcall.AwaitingStart {
+	if !failed || got.Code() != failure.Code() || got.Message() != failure.Message() || progress.Phase() != childcall.PhaseAwaitingStart {
 		t.Fatal("start failure was converted or installed as a successful child")
 	}
 }
@@ -299,12 +299,12 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:external","payload":{}}`), &foreign); err != nil {
 		t.Fatal(err)
 	}
-	for _, phase := range []childcall.Phase{childcall.AwaitingStart, childcall.AwaitingOpening, childcall.AwaitingCompletion} {
+	for _, phase := range []childcall.Phase{childcall.PhaseAwaitingStart, childcall.PhaseAwaitingOpening, childcall.PhaseAwaitingCompletion} {
 		frame := start
-		if phase == childcall.AwaitingOpening {
+		if phase == childcall.PhaseAwaitingOpening {
 			frame = opening
 		}
-		if phase == childcall.AwaitingCompletion {
+		if phase == childcall.PhaseAwaitingCompletion {
 			frame = completion
 		}
 		if _, err := progress.Window([]agent.Signal{frame}); err != nil {
@@ -316,11 +316,11 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 			}
 		}
 		switch phase {
-		case childcall.AwaitingStart:
+		case childcall.PhaseAwaitingStart:
 			if _, err := progress.AcceptStart(start, key, ref); err != nil {
 				t.Fatal(err)
 			}
-		case childcall.AwaitingOpening:
+		case childcall.PhaseAwaitingOpening:
 			if _, err := progress.Window([]agent.Signal{opening, completion}); err != nil {
 				t.Fatal(err)
 			}

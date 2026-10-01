@@ -118,14 +118,14 @@ func TestWriteOutcomeRejectsContradictoryFacts(t *testing.T) {
 		{history.WriteOutcome{}, 1, nil},
 		{history.WriteOutcome{Uncertain: true}, 1, nil},
 	} {
-		if err := test.outcome.Validate(test.count, test.err); !errors.Is(err, history.ErrInvalidWriteOutcome) {
+		if err := test.outcome.ValidateFor(test.count, test.err); !errors.Is(err, history.ErrInvalidWriteOutcome) {
 			t.Fatalf("Validate(%#v) = %v", test, err)
 		}
 	}
-	if err := (history.WriteOutcome{Accepted: 2}).Validate(2, nil); err != nil {
+	if err := (history.WriteOutcome{Accepted: 2}).ValidateFor(2, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := (history.WriteOutcome{}).Validate(0, nil); err != nil {
+	if err := (history.WriteOutcome{}).ValidateFor(0, nil); err != nil {
 		t.Fatal(err)
 	}
 }
