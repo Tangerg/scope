@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.40.1-0.20260930022023-b0a036f7f9b0 h1:FQeHH7piKy7GkcPo7+JGMBY++wPHgWx/3bUGOC9GbV8=
-github.com/Tangerg/scope/core v0.40.1-0.20260930022023-b0a036f7f9b0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/core v0.41.0 h1:KpIZrmjHvZm44rblS8Nm1iYT4y+NphP6MRu9Xs1ZvSI=
+github.com/Tangerg/scope/core v0.41.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/neo4j/neo4j-go-driver/v5 v5.28.5 h1:YfqEKXt8AxsXRMGu73eNipYWCSXodVI4dl2I8iwcavA=
 github.com/neo4j/neo4j-go-driver/v5 v5.28.5/go.mod h1:Vff8OwT7QpLm7L2yYr85XNWe9Rbqlbeb9asNXJTHO4k=
 github.com/samber/lo v1.53.0 h1:t975lj2py4kJPQ6haz1QMgtId2gtmfktACxIXArw3HM=
