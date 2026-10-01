@@ -31,17 +31,8 @@ func (a AudioTTSModelConfig) Validate() error {
 	return err
 }
 
-var (
-	_ tts.Model    = (*AudioTTSModel)(nil)
-	_ tts.Streamer = (*AudioTTSModel)(nil)
-)
-
-// AudioTTSModel is the shared protocol type itself rather than a wrapper, so
-// this provider adds no second public surface for callers to choose between.
-type AudioTTSModel = openai.AudioTTSModel
-
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*openai.AudioTTSModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err

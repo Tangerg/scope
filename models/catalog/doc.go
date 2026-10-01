@@ -27,7 +27,7 @@
 //
 //   - provider equals the adapter's Provider constant, lowercased, and Lookup
 //     matches case-insensitively. An OpenAI-compatible provider delegates to
-//     openai.NewChat but keeps its own Provider, so its rows are keyed by its
+//     openai.NewChatCompletions but keeps its own Provider, so its rows are keyed by its
 //     own name rather than by openai.
 //   - pricing is an ascending array of rate bands in USD per million tokens.
 //     A band reprices the whole prompt, not the marginal tokens, so a call

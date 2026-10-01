@@ -26,14 +26,14 @@ func TestChatUsesAzureOpenAIV1Protocol(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := azureopenai.NewChat(t.Context(), azureopenai.ChatConfig{
+	model, err := azureopenai.NewChatCompletions(t.Context(), azureopenai.ChatCompletionsConfig{
 		Config: azureopenai.Config{APIKey: "test-key", BaseURL: server.URL + "/openai/v1/"},
 		DefaultOptions: corechat.Options{
 			Model: "gpt-deployment",
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request := &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("hello")),

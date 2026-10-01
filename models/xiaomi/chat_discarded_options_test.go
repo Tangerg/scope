@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/models/protocol/openai"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
 
@@ -82,7 +83,7 @@ func TestChatSendsSamplingWhenThinkingIsDisabled(t *testing.T) {
 	}
 }
 
-func newDiscardTestModel(t *testing.T) (*xiaomi.Chat, func() int) {
+func newDiscardTestModel(t *testing.T) (*openai.ChatCompletions, func() int) {
 	t.Helper()
 
 	calls := 0
@@ -97,13 +98,13 @@ func newDiscardTestModel(t *testing.T) (*xiaomi.Chat, func() int) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{
+	model, err := xiaomi.NewChatCompletions(t.Context(), xiaomi.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "mimo-v2.5-pro"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	return model, func() int { return calls }
 }

@@ -1,4 +1,4 @@
-// Package zhipu exposes Zhipu AI chat and embedding adapters. [NewChat]
+// Package zhipu exposes Zhipu AI chat and embedding adapters. [NewChatCompletions]
 // targets its OpenAI-compatible endpoint; [NewMessages] targets its
 // Anthropic-compatible endpoint.
 //

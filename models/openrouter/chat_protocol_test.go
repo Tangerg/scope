@@ -39,13 +39,13 @@ func TestChatPreservesStructuredReasoningDetails(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{
+	model, err := openrouter.NewChatCompletions(t.Context(), openrouter.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "anthropic/claude-sonnet"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	firstRequest := &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("solve it")),
@@ -113,13 +113,13 @@ func TestChatCoalescesStreamedReasoningDetailsForReplay(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{
+	model, err := openrouter.NewChatCompletions(t.Context(), openrouter.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "model"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	first := corechat.NewUserMessage(corechat.NewTextPart("solve"))
 	var accumulator corechat.ResponseAccumulator

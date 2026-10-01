@@ -2,8 +2,7 @@
 // is OpenAI-compatible — chat completions hit /v1/chat/completions with
 // the same request/response shape.
 //
-// [NewChat] returns the provider-local [Chat], backed by the shared
-// OpenAI Chat Completions protocol and configured for the Hugging Face router.
-// Callers receive tool calling and streaming without depending on OpenAI's
-// concrete adapter type.
+// [NewChatCompletions] returns the shared [openai.ChatCompletions] protocol
+// model configured for the Hugging Face router, with tool calling and
+// streaming.
 package huggingface

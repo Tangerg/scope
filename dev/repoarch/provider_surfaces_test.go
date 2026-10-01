@@ -82,7 +82,7 @@ func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
 
 // Exact shared wire implementations need no forwarding wrapper. Private
 // protocol wrappers remain necessary for Go internal visibility.
-func TestSharedProtocolsArePromotedWithoutDelegatingWrappers(t *testing.T) {
+func TestSharedProtocolsAreReturnedWithoutDelegatingWrappers(t *testing.T) {
 	t.Parallel()
 
 	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
@@ -126,7 +126,7 @@ func checkSharedProtocolType(
 		!pointsToImportedSelector(field.Type, protocols) {
 		return
 	}
-	t.Errorf("%s:%d %s is a behaviorless shared-protocol wrapper; promote the protocol model with a type alias", filepath.ToSlash(path), fset.Position(typeSpec.Pos()).Line, typeSpec.Name.Name)
+	t.Errorf("%s:%d %s is a behaviorless shared-protocol wrapper; return the protocol model directly", filepath.ToSlash(path), fset.Position(typeSpec.Pos()).Line, typeSpec.Name.Name)
 }
 
 func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {

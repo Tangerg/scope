@@ -13,7 +13,7 @@ import (
 )
 
 func TestChatRejectsNativeReasoningEffort(t *testing.T) {
-	model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}})
+	model, err := perplexity.NewChatCompletions(t.Context(), perplexity.ChatCompletionsConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 				fmt.Fprint(writer, "data: {\"id\":\"c\",\"model\":\"sonar\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 			}))
 			defer server.Close()
-			model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "sonar", ReasoningEffort: effort}})
+			model, err := perplexity.NewChatCompletions(t.Context(), perplexity.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "sonar", ReasoningEffort: effort}})
 			if err != nil {
 				t.Fatal(err)
 			}

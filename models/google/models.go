@@ -124,12 +124,8 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-// ChatCompletions is Google's OpenAI-compatible protocol model. It is a distinct
-// endpoint from the native Gemini protocol exposed by Chat.
-type ChatCompletions = openaiprotocol.ChatCompletions
-
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

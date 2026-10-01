@@ -31,15 +31,8 @@ func (e EmbeddingModelConfig) Validate() error {
 	return nil
 }
 
-var _ embedding.Model = (*EmbeddingModel)(nil)
-
-// EmbeddingModel is the shared protocol type itself rather than a wrapper,
-// so this provider adds no second public surface for callers to choose
-// between.
-type EmbeddingModel = openai.EmbeddingModel
-
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*openai.EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

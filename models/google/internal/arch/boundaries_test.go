@@ -113,7 +113,7 @@ func TestProviderAPIsHideProtocolTypes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		aliases := protocolAliases(file)
+		aliases := privateProtocolImports(file)
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || !function.Name.IsExported() {
@@ -154,11 +154,13 @@ func rootGoFiles(t *testing.T, root string) []string {
 	return files
 }
 
-func protocolAliases(file *ast.File) map[string]struct{} {
+// privateProtocolImports names the provider-internal protocol packages a file
+// imports. Shared protocol models are returned under their own names.
+func privateProtocolImports(file *ast.File) map[string]struct{} {
 	aliases := make(map[string]struct{})
 	for _, imported := range file.Imports {
 		pathValue, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || (!strings.Contains(pathValue, "/internal/protocol/") && !strings.Contains(pathValue, "/models/protocol/")) {
+		if err != nil || !strings.Contains(pathValue, "/internal/protocol/") {
 			continue
 		}
 		name := filepath.Base(pathValue)

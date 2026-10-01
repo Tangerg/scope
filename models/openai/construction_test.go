@@ -12,8 +12,8 @@ import (
 // as a transport error the caller cannot distinguish from an outage.
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
-		"NewChat": func() error {
-			_, err := openai.NewChat(t.Context(), openai.ChatConfig{})
+		"NewChatCompletions": func() error {
+			_, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{})
 			return err
 		},
 		"NewResponses": func() error {
@@ -56,7 +56,7 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 
 func TestConfigsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
-		"chat":          func() error { return (openai.ChatConfig{}).Validate() },
+		"chat":          func() error { return (openai.ChatCompletionsConfig{}).Validate() },
 		"responses":     func() error { return (openai.ResponsesConfig{}).Validate() },
 		"embedding":     func() error { return (openai.EmbeddingModelConfig{}).Validate() },
 		"transcription": func() error { return (openai.AudioTranscriptionModelConfig{}).Validate() },

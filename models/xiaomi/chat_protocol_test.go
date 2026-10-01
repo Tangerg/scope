@@ -39,7 +39,7 @@ func TestChatUsesMiMoThinkingAndToolReasoningContract(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	maxTokens := int64(4096)
-	model, err := xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{
+	model, err := xiaomi.NewChatCompletions(t.Context(), xiaomi.ChatCompletionsConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -48,7 +48,7 @@ func TestChatUsesMiMoThinkingAndToolReasoningContract(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	toolReasoning, err := openai.NewTextReasoningPart("xiaomi", openai.TextReasoningContent, "tool thinking")
 	if err != nil {
@@ -96,13 +96,13 @@ func TestChatRejectsTemperatureAboveOfficialMaximum(t *testing.T) {
 		t.Fatal("request must fail before transport")
 	}))
 	t.Cleanup(server.Close)
-	model, err := xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{
+	model, err := xiaomi.NewChatCompletions(t.Context(), xiaomi.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: xiaomi.ModelV25Pro},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	temperature := 1.6
 	_, err = model.Call(t.Context(), &corechat.Request{

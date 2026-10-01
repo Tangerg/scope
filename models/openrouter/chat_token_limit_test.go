@@ -37,13 +37,13 @@ func TestChatSendsTheDocumentedTokenLimitField(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	limit := int64(64)
-	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{
+	model, err := openrouter.NewChatCompletions(t.Context(), openrouter.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "openai/gpt-4o"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	if _, err := model.Call(t.Context(), &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))},

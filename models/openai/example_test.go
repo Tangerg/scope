@@ -8,8 +8,8 @@ import (
 	"github.com/Tangerg/scope/models/openai"
 )
 
-func ExampleNewChat() {
-	model, err := openai.NewChat(context.Background(), openai.ChatConfig{
+func ExampleNewChatCompletions() {
+	model, err := openai.NewChatCompletions(context.Background(), openai.ChatCompletionsConfig{
 		APIKey:         "example-key",
 		DefaultOptions: chat.Options{Model: "example-model"},
 	})

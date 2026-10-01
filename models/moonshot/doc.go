@@ -1,4 +1,4 @@
-// Package moonshot exposes Moonshot AI chat adapters. [NewChat] targets its
+// Package moonshot exposes Moonshot AI chat adapters. [NewChatCompletions] targets its
 // OpenAI-compatible endpoint; [NewMessages] targets its
 // Anthropic-compatible endpoint.
 //

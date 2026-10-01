@@ -58,14 +58,14 @@ func TestThinkingUsesEffectiveCoreOptions(t *testing.T) {
 				}))
 				defer server.Close()
 				options := chat.Options{Model: deepseek.ModelFlash, ReasoningEffort: test.effort, TopP: test.topP, Temperature: test.temperature}
-				config := deepseek.ChatConfig{APIKey: "test", BaseURL: server.URL}
+				config := deepseek.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL}
 				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 				if defaults {
 					config.DefaultOptions = options
 				} else {
 					request.Options = options
 				}
-				model, err := deepseek.NewChat(t.Context(), config)
+				model, err := deepseek.NewChatCompletions(t.Context(), config)
 				if err == nil {
 					_, err = model.Call(t.Context(), request)
 				}
@@ -86,7 +86,7 @@ func TestChatRejectsObsoleteThinkingExtension(t *testing.T) {
 	if err := request.Options.Extensions.Set(deepseek.RequestExtensionKey, map[string]any{"thinking": map[string]any{"type": "disabled"}}); err != nil {
 		t.Fatal(err)
 	}
-	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: deepseek.ModelFlash}})
+	model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: deepseek.ModelFlash}})
 	if err != nil {
 		t.Fatal(err)
 	}

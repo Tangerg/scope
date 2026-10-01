@@ -1,4 +1,4 @@
-// Package anthropic exposes Anthropic adapters. [NewChat] targets the Messages
+// Package anthropic exposes Anthropic adapters. [NewMessages] targets the Messages
 // API, [NewChatCompletions] targets the OpenAI-compatible endpoint, and
 // [NewTextCounter] serves isolated text-token estimation.
 //
@@ -13,5 +13,5 @@
 //
 // Anthropic calls the layer "primarily intended to test and compare model
 // capabilities, and not considered a long-term or production-ready solution".
-// [NewChat] is the native Messages surface and carries all of the above.
+// [NewMessages] is the native Messages surface and carries all of the above.
 package anthropic

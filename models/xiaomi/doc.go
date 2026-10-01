@@ -1,4 +1,4 @@
-// Package xiaomi exposes Xiaomi MiMo chat adapters. [NewChat] targets its
+// Package xiaomi exposes Xiaomi MiMo chat adapters. [NewChatCompletions] targets its
 // OpenAI-compatible endpoint; [NewMessages] targets its
 // Anthropic-compatible endpoint.
 //

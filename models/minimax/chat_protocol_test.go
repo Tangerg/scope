@@ -37,13 +37,13 @@ func TestChatUsesSplitReasoningByDefault(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
+	model, err := minimax.NewChatCompletions(t.Context(), minimax.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "MiniMax-M3"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("solve")),
@@ -73,13 +73,13 @@ func TestChatRespectsExplicitReasoningSplit(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
+	model, err := minimax.NewChatCompletions(t.Context(), minimax.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "MiniMax-M3"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request := &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("solve")),
@@ -111,13 +111,13 @@ func TestChatReplaysStructuredReasoningDetails(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := minimax.NewChat(t.Context(), minimax.ChatConfig{
+	model, err := minimax.NewChatCompletions(t.Context(), minimax.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: minimax.ModelM3},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	userMessage := corechat.NewUserMessage(corechat.NewTextPart("look up"))
 	response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{userMessage}})

@@ -28,7 +28,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{
+	model, err := perplexity.NewChatCompletions(t.Context(), perplexity.ChatCompletionsConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -36,7 +36,7 @@ func TestChatMapsOfficialSonarOptionsAndResponse(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request := &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("question")),
@@ -96,7 +96,7 @@ func TestChatCallSupportsProSearch(t *testing.T) {
 		fmt.Fprint(writer, "data: {\"id\":\"search\",\"model\":\"sonar-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	t.Cleanup(server.Close)
-	model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: perplexity.ModelSonarPro}})
+	model, err := perplexity.NewChatCompletions(t.Context(), perplexity.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: perplexity.ModelSonarPro}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestChatRejectsUnsupportedSearchBeforeProviderIO(t *testing.T) {
 		{name: "unknown search type", model: perplexity.ModelSonarPro, searchType: "invalid", want: "search_type has unsupported value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			model, err := perplexity.NewChat(t.Context(), perplexity.ChatConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: test.model}})
+			model, err := perplexity.NewChatCompletions(t.Context(), perplexity.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: test.model}})
 			if err != nil {
 				t.Fatal(err)
 			}

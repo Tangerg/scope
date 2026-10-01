@@ -1,4 +1,4 @@
-// Package openrouter exposes OpenRouter chat adapters. [NewChat] targets its
+// Package openrouter exposes OpenRouter chat adapters. [NewChatCompletions] targets its
 // OpenAI-compatible endpoint; [NewMessages] targets its
 // Anthropic-compatible endpoint.
 //

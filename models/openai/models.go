@@ -33,18 +33,18 @@ const (
 	ModerationRequestExtensionKey    = "openai/moderation_request"
 )
 
-// ChatConfig configures the OpenAI Chat Completions endpoint. Construction does
+// ChatCompletionsConfig configures the OpenAI Chat Completions endpoint. Construction does
 // no network I/O; per-call overrides remain in chat.Request.
-type ChatConfig struct {
+type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
 	BaseURL        string
 	HTTPClient     *http.Client
 }
 
-func (c ChatConfig) Validate() error { return c.protocol().Validate() }
+func (c ChatCompletionsConfig) Validate() error { return c.protocol().Validate() }
 
-func (c ChatConfig) protocol() openaiprotocol.ChatCompletionsConfig {
+func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 	return openaiprotocol.ChatCompletionsConfig{
 		APIKey:         c.APIKey,
 		DefaultOptions: c.DefaultOptions,
@@ -53,11 +53,8 @@ func (c ChatConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 	}
 }
 
-// Chat is the OpenAI Chat Completions protocol model.
-type Chat = openaiprotocol.ChatCompletions
-
-// NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+// NewChatCompletions rejects an invalid provider binding before the first chat call.
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	return openaiprotocol.NewChatCompletions(ctx, config.protocol())
 }
 
@@ -81,12 +78,8 @@ func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
 	}
 }
 
-// Responses is the OpenAI Responses API model. It remains distinct from
-// Chat because the endpoints expose different transport capabilities.
-type Responses = openaiprotocol.Responses
-
 // NewResponses rejects an invalid provider binding before the first Responses call.
-func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, error) {
+func NewResponses(ctx context.Context, config ResponsesConfig) (*openaiprotocol.Responses, error) {
 	return openaiprotocol.NewResponses(ctx, config.protocol())
 }
 
@@ -104,11 +97,8 @@ func (e EmbeddingModelConfig) protocol() openaiprotocol.EmbeddingModelConfig {
 	return openaiprotocol.EmbeddingModelConfig{Provider: protocolProvider, APIKey: e.APIKey, DefaultOptions: e.DefaultOptions, BaseURL: e.BaseURL, HTTPClient: e.HTTPClient}
 }
 
-// EmbeddingModel is the OpenAI-compatible embedding protocol model.
-type EmbeddingModel = openaiprotocol.EmbeddingModel
-
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
-func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*openaiprotocol.EmbeddingModel, error) {
 	return openaiprotocol.NewEmbeddingModel(ctx, config.protocol())
 }
 
@@ -126,11 +116,8 @@ func (a AudioTranscriptionModelConfig) protocol() openaiprotocol.AudioTranscript
 	return openaiprotocol.AudioTranscriptionModelConfig{Provider: protocolProvider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
 }
 
-// AudioTranscriptionModel is the OpenAI-compatible transcription protocol model.
-type AudioTranscriptionModel = openaiprotocol.AudioTranscriptionModel
-
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*openaiprotocol.AudioTranscriptionModel, error) {
 	return openaiprotocol.NewAudioTranscriptionModel(ctx, config.protocol())
 }
 
@@ -148,11 +135,8 @@ func (a AudioTranslationModelConfig) protocol() openaiprotocol.AudioTranslationM
 	return openaiprotocol.AudioTranslationModelConfig{Provider: protocolProvider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
 }
 
-// AudioTranslationModel is the OpenAI-compatible translation protocol model.
-type AudioTranslationModel = openaiprotocol.AudioTranslationModel
-
 // NewAudioTranslationModel rejects an invalid provider binding before the first translation call.
-func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
+func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*openaiprotocol.AudioTranslationModel, error) {
 	return openaiprotocol.NewAudioTranslationModel(ctx, config.protocol())
 }
 
@@ -178,11 +162,8 @@ func (a AudioTTSModelConfig) protocol() openaiprotocol.AudioTTSModelConfig {
 	}
 }
 
-// AudioTTSModel is the OpenAI-compatible speech protocol model.
-type AudioTTSModel = openaiprotocol.AudioTTSModel
-
 // NewAudioTTSModel rejects an invalid provider binding before the first speech call.
-func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*AudioTTSModel, error) {
+func NewAudioTTSModel(ctx context.Context, config AudioTTSModelConfig) (*openaiprotocol.AudioTTSModel, error) {
 	return openaiprotocol.NewAudioTTSModel(ctx, config.protocol())
 }
 
@@ -200,11 +181,8 @@ func (i ImageModelConfig) protocol() openaiprotocol.ImageModelConfig {
 	return openaiprotocol.ImageModelConfig{Provider: protocolProvider, APIKey: i.APIKey, DefaultOptions: i.DefaultOptions, BaseURL: i.BaseURL, HTTPClient: i.HTTPClient}
 }
 
-// ImageModel is the OpenAI-compatible image protocol model.
-type ImageModel = openaiprotocol.ImageModel
-
 // NewImageModel rejects an invalid provider binding before the first image call.
-func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*openaiprotocol.ImageModel, error) {
 	return openaiprotocol.NewImageModel(ctx, config.protocol())
 }
 
@@ -222,10 +200,7 @@ func (m ModerationModelConfig) protocol() openaiprotocol.ModerationModelConfig {
 	return openaiprotocol.ModerationModelConfig{Provider: protocolProvider, APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
 }
 
-// ModerationModel is the OpenAI-compatible moderation protocol model.
-type ModerationModel = openaiprotocol.ModerationModel
-
 // NewModerationModel rejects an invalid provider binding before the first moderation call.
-func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*ModerationModel, error) {
+func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*openaiprotocol.ModerationModel, error) {
 	return openaiprotocol.NewModerationModel(ctx, config.protocol())
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func TestChatRejectsNativeReasoningEffort(t *testing.T) {
-	model, err := openrouter.NewChat(t.Context(), openrouter.ChatConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}})
+	model, err := openrouter.NewChatCompletions(t.Context(), openrouter.ChatCompletionsConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}

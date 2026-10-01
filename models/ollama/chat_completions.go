@@ -18,14 +18,6 @@ const (
 	OpenAIStreamChunkExtensionKey = "ollama/openai_stream_chunk"
 )
 
-var (
-	_ corechat.Model    = (*ChatCompletions)(nil)
-	_ corechat.Streamer = (*ChatCompletions)(nil)
-)
-
-// ChatCompletions implements Ollama's OpenAI-compatible endpoint.
-type ChatCompletions = openai.ChatCompletions
-
 // ChatCompletionsConfig binds provider access and defaults shared by every Chat Completions call.
 type ChatCompletionsConfig struct {
 	APIKey         string
@@ -42,7 +34,7 @@ func (c ChatCompletionsConfig) Validate() error {
 }
 
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

@@ -23,7 +23,7 @@ func TestChatPreservesReasoningContent(t *testing.T) {
 		fmt.Fprint(writer, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
-	model, err := xai.NewChat(t.Context(), xai.ChatConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "grok"}})
+	model, err := xai.NewChatCompletions(t.Context(), xai.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "grok"}})
 	if err != nil {
 		t.Fatal(err)
 	}

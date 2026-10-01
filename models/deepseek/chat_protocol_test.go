@@ -72,7 +72,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+			model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 				APIKey:  "test-key",
 				BaseURL: server.URL,
 				DefaultOptions: corechat.Options{
@@ -80,7 +80,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 				},
 			})
 			if err != nil {
-				t.Fatalf("NewChat: %v", err)
+				t.Fatalf("NewChatCompletions: %v", err)
 			}
 			if _, err := model.Call(t.Context(), &corechat.Request{Messages: test.messages, Tools: []corechat.ToolDefinition{{Name: "search", InputSchema: json.RawMessage(`{"type":"object"}`)}}}); err != nil {
 				t.Fatalf("Call: %v", err)
@@ -108,13 +108,13 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+	model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	logProbs := true
 	topLogProbs := int64(5)
@@ -175,13 +175,13 @@ func TestChatThinkingDisabledAllowsSampling(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+	model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	temperature := 0.7
 	request := &corechat.Request{
@@ -209,13 +209,13 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+	model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	includeUsage := true
 	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
@@ -234,12 +234,12 @@ func TestChatMapsStreamingUsageOption(t *testing.T) {
 }
 
 func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
-	model, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+	model, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	topLogProbs := int64(1)
 	tests := []struct {
@@ -299,12 +299,12 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 }
 
 func TestNewChatRejectsIgnoredDefaultSampling(t *testing.T) {
-	_, err := deepseek.NewChat(t.Context(), deepseek.ChatConfig{
+	_, err := deepseek.NewChatCompletions(t.Context(), deepseek.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: deepseek.ModelFlash, Temperature: new(0.5)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "temperature has no effect") {
-		t.Fatalf("NewChat error = %v; want ignored temperature error", err)
+		t.Fatalf("NewChatCompletions error = %v; want ignored temperature error", err)
 	}
 }
 

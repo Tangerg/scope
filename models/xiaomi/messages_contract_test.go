@@ -109,7 +109,7 @@ data: {"type":"message_stop"}
 				var model chat.Model
 				var err error
 				if protocol == "chat" {
-					model, err = xiaomi.NewChat(t.Context(), xiaomi.ChatConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: options})
+					model, err = xiaomi.NewChatCompletions(t.Context(), xiaomi.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: options})
 				} else {
 					model, err = xiaomi.NewMessages(t.Context(), xiaomi.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: options})
 				}

@@ -37,13 +37,13 @@ func TestChatSendsTheDocumentedTokenLimitField(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	limit := int64(64)
-	model, err := xai.NewChat(t.Context(), xai.ChatConfig{
+	model, err := xai.NewChatCompletions(t.Context(), xai.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "grok-4.6"},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	if _, err := model.Call(t.Context(), &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))},

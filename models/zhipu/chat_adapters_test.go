@@ -14,8 +14,8 @@ func TestChatConfigsValidateCredentialAndOptions(t *testing.T) {
 		name string
 		err  error
 	}{
-		{name: "credential", err: (ChatConfig{}).Validate()},
-		{name: "options", err: (ChatConfig{APIKey: "key", DefaultOptions: invalidOptions}).Validate()},
+		{name: "credential", err: (ChatCompletionsConfig{}).Validate()},
+		{name: "options", err: (ChatCompletionsConfig{APIKey: "key", DefaultOptions: invalidOptions}).Validate()},
 		{name: "messages options", err: (MessagesConfig{APIKey: "key", DefaultOptions: invalidOptions}).Validate()},
 	}
 	for _, test := range tests {
@@ -28,17 +28,17 @@ func TestChatConfigsValidateCredentialAndOptions(t *testing.T) {
 func TestChatConstructorsProduceProtocolAdapters(t *testing.T) {
 	t.Parallel()
 
-	model, err := NewChat(t.Context(), ChatConfig{APIKey: "key"})
+	model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if model == nil {
-		t.Fatal("NewChat(t.Context(), ) = nil")
+		t.Fatal("NewChatCompletions(t.Context(), ) = nil")
 	}
 
-	_, invalidErr := NewChat(t.Context(), ChatConfig{})
+	_, invalidErr := NewChatCompletions(t.Context(), ChatCompletionsConfig{})
 	if invalidErr == nil {
-		t.Fatal("NewChat(t.Context(), invalid config) error = nil")
+		t.Fatal("NewChatCompletions(t.Context(), invalid config) error = nil")
 	}
 
 	anthropicModel, err := NewMessages(t.Context(), MessagesConfig{APIKey: "key"})

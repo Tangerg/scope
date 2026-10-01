@@ -21,25 +21,22 @@ const (
 	OpenAIStreamChunkExtensionKey = "anthropic/openai_stream_chunk"
 )
 
-// ChatConfig binds provider access and defaults shared by every chat call.
-type ChatConfig struct {
+// MessagesConfig binds provider access and defaults shared by every chat call.
+type MessagesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
 	BaseURL        string
 	HTTPClient     *http.Client
 }
 
-func (c ChatConfig) Validate() error { return c.protocol().Validate() }
+func (m MessagesConfig) Validate() error { return m.protocol().Validate() }
 
-func (c ChatConfig) protocol() anthropicprotocol.MessagesConfig {
-	return anthropicprotocol.MessagesConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: c.BaseURL, HTTPClient: c.HTTPClient}
+func (m MessagesConfig) protocol() anthropicprotocol.MessagesConfig {
+	return anthropicprotocol.MessagesConfig{APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
 }
 
-// Chat is the Anthropic Messages protocol model.
-type Chat = anthropicprotocol.Messages
-
-// NewChat rejects an invalid provider binding before the first chat call.
-func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
+// NewMessages rejects an invalid provider binding before the first chat call.
+func NewMessages(ctx context.Context, config MessagesConfig) (*anthropicprotocol.Messages, error) {
 	return anthropicprotocol.NewMessages(ctx, config.protocol())
 }
 
@@ -61,11 +58,8 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-// ChatCompletions implements Anthropic's OpenAI-compatible endpoint.
-type ChatCompletions = openaiprotocol.ChatCompletions
-
 // NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -108,10 +102,7 @@ func (t TextCounterConfig) protocol() anthropicprotocol.TextCounterConfig {
 	return anthropicprotocol.TextCounterConfig{APIKey: t.APIKey, Model: t.Model, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
-// TextCounter is Anthropic's token-counting counter.
-type TextCounter = anthropicprotocol.TextCounter
-
 // NewTextCounter rejects an invalid provider/model binding before counting begins.
-func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
+func NewTextCounter(ctx context.Context, config TextCounterConfig) (*anthropicprotocol.TextCounter, error) {
 	return anthropicprotocol.NewTextCounter(ctx, config.protocol())
 }

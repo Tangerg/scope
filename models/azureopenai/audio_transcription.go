@@ -22,15 +22,8 @@ func (a AudioTranscriptionModelConfig) Validate() error {
 	return err
 }
 
-var _ transcription.Model = (*AudioTranscriptionModel)(nil)
-
-// AudioTranscriptionModel is the shared protocol type itself rather than a
-// wrapper, so this provider adds no second public surface for callers to
-// choose between.
-type AudioTranscriptionModel = openai.AudioTranscriptionModel
-
 // NewAudioTranscriptionModel rejects an invalid provider binding before the first transcription call.
-func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*AudioTranscriptionModel, error) {
+func NewAudioTranscriptionModel(ctx context.Context, config AudioTranscriptionModelConfig) (*openai.AudioTranscriptionModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err

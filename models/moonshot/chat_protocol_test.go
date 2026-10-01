@@ -39,7 +39,7 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	maxTokens := int64(4096)
-	model, err := moonshot.NewChat(t.Context(), moonshot.ChatConfig{
+	model, err := moonshot.NewChatCompletions(t.Context(), moonshot.ChatCompletionsConfig{
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		DefaultOptions: corechat.Options{
@@ -48,7 +48,7 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	previousThinking, err := openai.NewTextReasoningPart("moonshot", openai.TextReasoningContent, "previous thinking")
 	if err != nil {
@@ -88,13 +88,13 @@ func TestChatRejectsK2ThinkingOptionsForK3(t *testing.T) {
 		t.Fatal("request must fail before transport")
 	}))
 	t.Cleanup(server.Close)
-	model, err := moonshot.NewChat(t.Context(), moonshot.ChatConfig{
+	model, err := moonshot.NewChatCompletions(t.Context(), moonshot.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: moonshot.ModelK3},
 	})
 	if err != nil {
-		t.Fatalf("NewChat: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
 	if err := request.Options.Extensions.Set(moonshot.RequestExtensionKey, moonshot.ChatRequestOptions{
