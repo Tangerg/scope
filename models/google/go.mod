@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/google
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.40.0
-	github.com/Tangerg/scope/models/protocol/openai v0.40.0
+	github.com/Tangerg/scope/core v0.41.0
+	github.com/Tangerg/scope/models/protocol/openai v0.41.0
 	github.com/go-resty/resty/v2 v2.17.2
 	google.golang.org/genai v1.71.0
 )
@@ -28,6 +28,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/openai/openai-go/v3 v3.66.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect

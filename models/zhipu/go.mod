@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/models/zhipu
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.40.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.40.0
-	github.com/Tangerg/scope/models/protocol/openai v0.40.0
+	github.com/Tangerg/scope/core v0.41.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.41.0
+	github.com/Tangerg/scope/models/protocol/openai v0.41.0
 )
 
 require (
@@ -16,6 +16,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/openai/openai-go/v3 v3.66.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect

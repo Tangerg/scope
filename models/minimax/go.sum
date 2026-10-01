@@ -1,9 +1,9 @@
-github.com/Tangerg/scope/core v0.40.0 h1:UdSVZFec2nNC4+TU0YA4WhcFHxblDdLjFA5gZtd1OcM=
-github.com/Tangerg/scope/core v0.40.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/models/protocol/anthropic v0.40.0 h1:PH5TJ629e4E8mP7D0vEQSW5dHdnCsDdkq7y68PgdZas=
-github.com/Tangerg/scope/models/protocol/anthropic v0.40.0/go.mod h1://440CO7iiFKHNZi2nlHZcCyjPm19Hwcysgw8kCfhIw=
-github.com/Tangerg/scope/models/protocol/openai v0.40.0 h1:u/BTvyry0hnMVjCOVfISOAUO8aDWii+KnHEzRVXMvlg=
-github.com/Tangerg/scope/models/protocol/openai v0.40.0/go.mod h1:iujMuYZi2F4F5FNxYrkGJUwU5/isAxwUkOJbQPU3O40=
+github.com/Tangerg/scope/core v0.41.0 h1:KpIZrmjHvZm44rblS8Nm1iYT4y+NphP6MRu9Xs1ZvSI=
+github.com/Tangerg/scope/core v0.41.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/models/protocol/anthropic v0.41.0 h1:hC5uxsXKMpVuUEGCs7HZbhzR3m7Cytwubp2Zn7TqumU=
+github.com/Tangerg/scope/models/protocol/anthropic v0.41.0/go.mod h1:bB8CHhp9DBUeM4tcv8fdq+C3dtkIe5yJy2/9awgxEnM=
+github.com/Tangerg/scope/models/protocol/openai v0.41.0 h1:cCNSCWNuQzgcQWRqBss0u0vKa+LgHeIRPXVFp/llqQc=
+github.com/Tangerg/scope/models/protocol/openai v0.41.0/go.mod h1:0TjLaeA++2i/mlnsCLvLQpni5LEM3/dNFgwFs6g9zRU=
 github.com/anthropics/anthropic-sdk-go v1.75.0 h1:2oajsgiYwI0Hc8E6K9GttVe6CLwZlfhdxaqFqKVUnvA=
 github.com/anthropics/anthropic-sdk-go v1.75.0/go.mod h1:x+lPk/cCl48uRegeP0hlYYBN1b7bEBTveInIMgLicnY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
@@ -22,6 +22,8 @@ github.com/openai/openai-go/v3 v3.66.0 h1:hykUFik2rqpkKf8O2bc41OpSZuVA1lGFUu+Ufj
 github.com/openai/openai-go/v3 v3.66.0/go.mod h1:+dSPa+nbX+dNoXg1jecMnVpgRP+E/5IBA6Jiz9Pc8WM=
 github.com/pb33f/ordered-map/v2 v2.3.1 h1:5319HDO0aw4DA4gzi+zv4FXU9UlSs3xGZ40wcP1nBjY=
 github.com/pb33f/ordered-map/v2 v2.3.1/go.mod h1:qxFQgd0PkVUtOMCkTapqotNgzRhMPL7VvaHKbd1HnmQ=
+github.com/samber/lo v1.53.0 h1:t975lj2py4kJPQ6haz1QMgtId2gtmfktACxIXArw3HM=
+github.com/samber/lo v1.53.0/go.mod h1:4+MXEGsJzbKGaUEQFKBq2xtfuznW9oz/WrgyzMzRoM0=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 h1:1EYB5IzjZawrrnELUi78f9fPu57HuXjmddZPjrls/28=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 h1:uOfcYT+3QungH6tIGSVCR/Y3KJmgJiHcojJbMTPDZAI=
