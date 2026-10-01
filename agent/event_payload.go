@@ -254,7 +254,8 @@ func (e EffectFinished) Valid() bool {
 }
 
 // DeltaDropped reports the number of increments rejected during one Effect
-// attempt because validation failed or the bounded observation queue was full.
+// attempt because validation failed, the bounded observation queue was full,
+// or the sequence space was exhausted. Count saturates at math.MaxUint64.
 type DeltaDropped struct {
 	count     uint64
 	attemptID EffectAttemptID

@@ -36,7 +36,8 @@ type Usage struct {
 	// AcceptedSignals counts external and Engine-generated mailbox entries.
 	AcceptedSignals uint64 `json:"accepted_signals"`
 
-	// DroppedDeltas counts increments rejected by validation or the bounded queue.
+	// DroppedDeltas counts increments rejected by validation, the bounded queue,
+	// or exhausted sequence space. It saturates at math.MaxUint64.
 	DroppedDeltas uint64 `json:"dropped_deltas"`
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 )
 
@@ -37,5 +38,57 @@ func TestDeltaStreamStopsAtCloseAndCountsRejectedIncrements(t *testing.T) {
 	}
 	if len(delivered) != 1 || delivered[0].EffectSequence() != 1 {
 		t.Fatalf("delivered %d Deltas, want only the increment before close", len(delivered))
+	}
+}
+
+func TestDeltaStreamDoesNotReuseExhaustedSequence(t *testing.T) {
+	var delivered []Delta
+	bus := newObservationBus(nil, []DeltaListener{DeltaListenerFunc(func(_ context.Context, delta Delta) {
+		delivered = append(delivered, delta)
+	})}, 4)
+	t.Cleanup(bus.close)
+	stream := &deltaStream{
+		observation: bus, context: t.Context(),
+		processID: newProcessID(), effectID: newProcessID().effectID(1, 0),
+		incarnationID: newTreeIncarnationID(), attemptID: newEffectAttemptID(),
+		sequence: math.MaxUint64 - 1,
+	}
+	for range 3 {
+		stream.emit(json.RawMessage(`{"text":"increment"}`))
+	}
+	dropped := stream.close()
+	if err := bus.flushDeltas(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 1 || delivered[0].EffectSequence() != math.MaxUint64 || dropped != 2 {
+		t.Fatalf("delivered = %+v, dropped = %d; want only the final sequence and two drops", delivered, dropped)
+	}
+}
+
+func TestDeltaStreamDroppedCountSaturates(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		sequence uint64
+		payload  json.RawMessage
+	}{
+		{name: "invalid payload", payload: json.RawMessage(`{`)},
+		{name: "exhausted sequence", sequence: math.MaxUint64, payload: json.RawMessage(`{}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bus := newObservationBus(nil, nil, 0)
+			t.Cleanup(bus.close)
+			stream := &deltaStream{
+				observation: bus, context: t.Context(),
+				processID: newProcessID(), effectID: newProcessID().effectID(1, 0),
+				incarnationID: newTreeIncarnationID(), attemptID: newEffectAttemptID(),
+				sequence: test.sequence, dropped: math.MaxUint64 - 1,
+			}
+			for range 2 {
+				stream.emit(test.payload)
+			}
+			if dropped := stream.close(); dropped != math.MaxUint64 {
+				t.Fatalf("dropped = %d, want saturation at %d", dropped, uint64(math.MaxUint64))
+			}
+		})
 	}
 }

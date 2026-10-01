@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sync"
 	"time"
 )
@@ -30,10 +31,14 @@ func (d *deltaStream) emit(payload json.RawMessage) {
 	if d.closed {
 		return
 	}
+	if d.sequence == math.MaxUint64 {
+		d.dropped = saturatingCountAdd(d.dropped, 1)
+		return
+	}
 	d.sequence++
 	delta, err := newDelta(d.processID, d.effectID, d.incarnationID, d.attemptID, d.sequence, time.Now(), payload)
 	if err != nil || !d.observation.offerDelta(d.context, delta) {
-		d.dropped++
+		d.dropped = saturatingCountAdd(d.dropped, 1)
 	}
 }
 
@@ -46,7 +51,7 @@ func (d *deltaStream) emitter() DeltaEmitter {
 	return d.emit
 }
 
-// close returns how many increments validation or the bounded queue rejected.
+// close returns the saturated count of increments the stream could not deliver.
 func (d *deltaStream) close() uint64 {
 	if d == nil {
 		return 0

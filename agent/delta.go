@@ -81,7 +81,8 @@ func (d Delta) TreeIncarnationID() (TreeIncarnationID, bool) {
 }
 
 // EffectSequence returns the one-based emitter admission order within the Effect
-// attempt. Delivered sequences increase; dropped payloads leave gaps.
+// attempt. Delivered sequences increase; dropped payloads leave gaps. Exhausting
+// the sequence space drops further increments from that attempt.
 func (d Delta) EffectSequence() uint64 { return d.effectSequence }
 
 func (d Delta) EmittedAt() time.Time { return d.emittedAt }
