@@ -26,11 +26,12 @@ func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError
 
 func (c *ClassifiedError) Error() string { return c.failure.Message() }
 
-// classifiedStepFailure is the Failure the Engine persists when Execution.Step
-// returns err wrapping a ClassifiedError, with the complete wrapped chain as
-// its diagnostic. Cancellation and contained panics outrank Strategy
-// classification, and any other error stays unclassified.
-func classifiedStepFailure(err error) (Failure, bool) {
+// StepFailure reports the Failure the Engine persists when Execution.Step
+// returns an error wrapping a ClassifiedError. Its message includes the complete
+// wrapped diagnostic. It reports false for an error the Engine records as
+// execution.step.failed, and for cancellation and contained panics, whose
+// classifications the Engine owns.
+func StepFailure(err error) (Failure, bool) {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Failure{}, false
 	}
@@ -43,9 +44,3 @@ func classifiedStepFailure(err error) (Failure, bool) {
 	}
 	return newEngineFailure(classified.failure.Kind(), classified.failure.Code(), err), true
 }
-
-// StepFailure reports the Failure the Engine persists when Execution.Step
-// returns err. It reports false for an error the Engine records as
-// execution.step.failed, and for cancellation and contained panics, whose
-// classifications the Engine owns.
-func StepFailure(err error) (Failure, bool) { return classifiedStepFailure(err) }

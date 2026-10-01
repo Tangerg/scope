@@ -100,7 +100,7 @@ func (r *rejectedStepExecution) Snapshot() (ExecutionState, error) {
 
 func TestClassifiedErrorOwnsStepClassification(t *testing.T) {
 	sentinel := NewClassifiedError(FailureKindContract, "test.sentinel.invalid", "test: sentinel rejected")
-	if _, classified := classifiedStepFailure(nil); classified {
+	if _, classified := StepFailure(nil); classified {
 		t.Fatal("nil error was classified")
 	}
 	for _, test := range []struct {
@@ -111,7 +111,7 @@ func TestClassifiedErrorOwnsStepClassification(t *testing.T) {
 		{"wrapped sentinel", fmt.Errorf("step: %w", sentinel)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			failure, ok := classifiedStepFailure(test.err)
+			failure, ok := StepFailure(test.err)
 			if !ok {
 				t.Fatal("sentinel reached the Engine unclassified")
 			}
@@ -136,7 +136,7 @@ func TestClassifiedErrorOwnsStepClassification(t *testing.T) {
 		{"unclassified", errors.New("plain execution failure")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, classified := classifiedStepFailure(test.err); classified {
+			if _, classified := StepFailure(test.err); classified {
 				t.Fatalf("Strategy classification overrode the Engine-owned outcome of %v", test.err)
 			}
 		})

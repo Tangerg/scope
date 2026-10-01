@@ -27,7 +27,7 @@ func sealCallbackError(err error) error {
 	}
 	c := &callbackError{cause: err, message: err.Error()}
 	c.kind = failureKindForError(err, FailureKindExecution)
-	c.step, _ = classifiedStepFailure(err)
+	c.step, _ = StepFailure(err)
 	c.dispatch = dispatchFailure(err)
 	c.runtime = newTreeRuntimeFailure(err)
 	return c
