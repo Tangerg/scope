@@ -329,7 +329,7 @@ func TestObservationFailuresAreCountedWithoutAffectingDelivery(t *testing.T) {
 	}
 }
 
-func TestStepPausePublishesCommittedProcessPausedFact(t *testing.T) {
+func TestStepPausePublishesCommittedProcessPausedEvent(t *testing.T) {
 	paused := make(chan struct{}, 1)
 	var events []Event
 	engine, err := NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
