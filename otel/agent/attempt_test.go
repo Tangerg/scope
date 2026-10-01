@@ -58,7 +58,7 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					}
 					first := <-finished
 					effectID, _ := first.EffectID()
-					firstFact, _ := first.EffectFinished()
+					firstFinished, _ := first.EffectFinished()
 					synctest.Wait()
 					time.Sleep(time.Hour)
 					if replay {
@@ -90,8 +90,8 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					if got := effects[0].EndTime().Sub(effects[0].StartTime()); got != 3*time.Millisecond {
 						t.Fatalf("uncertain attempt duration = %s, want 3ms without adjudication delay", got)
 					}
-					if got := stringAttribute(effects[0].Attributes(), "agent.effect.attempt_id"); got != firstFact.AttemptID().String() {
-						t.Fatalf("attempt identity = %q, want %q", got, firstFact.AttemptID().String())
+					if got := stringAttribute(effects[0].Attributes(), "agent.effect.attempt_id"); got != firstFinished.AttemptID().String() {
+						t.Fatalf("attempt identity = %q, want %q", got, firstFinished.AttemptID().String())
 					}
 					wantKind, wantCode := "", ""
 					switch failureMode {
@@ -105,8 +105,8 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					}
 					if replay {
 						second := <-finished
-						secondFact, _ := second.EffectFinished()
-						if got := stringAttribute(effects[1].Attributes(), "agent.effect.attempt_id"); got != secondFact.AttemptID().String() || got == firstFact.AttemptID().String() {
+						secondFinished, _ := second.EffectFinished()
+						if got := stringAttribute(effects[1].Attributes(), "agent.effect.attempt_id"); got != secondFinished.AttemptID().String() || got == firstFinished.AttemptID().String() {
 							t.Fatal("replayed physical attempt lost its Engine identity")
 						}
 						if effects[1].EndTime().Sub(effects[1].StartTime()) != 7*time.Millisecond {

@@ -154,10 +154,10 @@ func (s stepOutcome) valid() bool {
 		s.kind == stepOutcomeFailed && s.failure.Valid()
 }
 
-// terminationFacts are the independently recorded facts used by the Engine's
+// terminationInputs are the independently recorded facts used by the Engine's
 // terminal priority matrix. Presence is expressed by validated value objects,
 // not by interpreting an error such as context.Canceled.
-type terminationFacts struct {
+type terminationInputs struct {
 	kill         killIntent
 	deadline     deadlineIntent
 	cancellation cancellationIntent
@@ -166,7 +166,7 @@ type terminationFacts struct {
 
 // resolve applies kill, deadline, cancellation, and Step outcome in that
 // priority order.
-func (t terminationFacts) resolve() (Termination, error) {
+func (t terminationInputs) resolve() (Termination, error) {
 	if !t.outcome.valid() {
 		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)
 	}

@@ -25,8 +25,8 @@ func (e eventRecorder) prepare(
 	step uint64,
 	effectID EffectID,
 	payload json.RawMessage,
-) eventFact {
-	event, err := newEventFact(eventFact{
+) eventDraft {
+	event, err := newEventDraft(eventDraft{
 		deploymentRef: process.deployment().DeploymentRef(),
 		relation:      process.handle.relation,
 		incarnationID: e.writer.incarnation(),
@@ -45,7 +45,7 @@ func (e eventRecorder) prepare(
 // publish assigns the next per-Process sequence. Prepared facts may wait for a
 // durable acknowledgment while newer attempts are observed; only publication
 // establishes their listener-visible order.
-func (e eventRecorder) publish(process *processState, event eventFact) {
+func (e eventRecorder) publish(process *processState, event eventDraft) {
 	if process.processEventSequence == math.MaxUint64 {
 		e.observation.recordDroppedEvent()
 		return
@@ -91,7 +91,7 @@ func (e eventRecorder) settlement(
 	status SettlementStatus,
 	observation effectAttempt,
 	cause error,
-) eventFact {
+) eventDraft {
 	durationMS := time.Since(observation.startedAt).Milliseconds()
 	failure := dispatchFailure(cause)
 	payload := marshalEventPayload(effectFinishedEventPayload{
@@ -112,8 +112,8 @@ func (e eventRecorder) publishSettlement(
 	e.publish(process, e.settlement(process, effectID, target, status, observation, cause))
 }
 
-func (e eventRecorder) signalsAccepted(process *processState, records []signalRecord) []eventFact {
-	var events []eventFact
+func (e eventRecorder) signalsAccepted(process *processState, records []signalRecord) []eventDraft {
+	var events []eventDraft
 	for _, record := range records {
 		payload := marshalEventPayload(signalAcceptedEventPayload{SignalID: record.id.String(), WaitID: record.waitID.String()})
 		events = append(events, e.prepare(process, EventSignalAccepted, 0, EffectID{}, payload))

@@ -832,7 +832,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 			t.Fatal("completed Process retained its current wait")
 		}
 	}
-	var accepted SignalAcceptedFact
+	var accepted SignalAccepted
 	for _, event := range listener.snapshot() {
 		if fact, ok := event.SignalAccepted(); ok {
 			accepted = fact
@@ -1070,7 +1070,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
 		t.Fatalf("committed execution state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
 	}
-	var finished ProcessFinishedFact
+	var finished ProcessFinished
 	for _, event := range listener.snapshot() {
 		if event.Name() == EventProcessFinished {
 			var ok bool
@@ -1175,7 +1175,7 @@ func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
 	if err != nil || result.Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	var dropped DeltaDroppedFact
+	var dropped DeltaDropped
 	for _, event := range events.snapshot() {
 		if fact, ok := event.DeltaDropped(); ok {
 			dropped = fact

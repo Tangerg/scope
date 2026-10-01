@@ -16,7 +16,7 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 	effectID, _ := ParseEffectID("process:1:step:2:effect:0")
 	deployment := newChildTestDeployment(t)
 	relation := rootProcessRelation(processID)
-	event, err := newEvent(eventFact{
+	event, err := newEvent(eventDraft{
 		deploymentRef: deployment.DeploymentRef(),
 		relation:      relation,
 		stepSequence:  2,
@@ -53,26 +53,26 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	tests := []struct {
 		name string
-		fact eventFact
+		fact eventDraft
 	}{
 		{
 			name: "unknown name",
-			fact: eventFact{name: "agent.unknown.fact", payload: emptyEventPayload()},
+			fact: eventDraft{name: "agent.unknown.fact", payload: emptyEventPayload()},
 		},
 		{
 			name: "missing Effect identity",
-			fact: eventFact{
+			fact: eventDraft{
 				name: EventEffectStarted, stepSequence: 1,
 				payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetDispatcher, AttemptID: newEffectAttemptID()}),
 			},
 		},
 		{
 			name: "runtime stop requires a classification",
-			fact: eventFact{name: EventRuntimeStopped, payload: emptyEventPayload()},
+			fact: eventDraft{name: EventRuntimeStopped, payload: emptyEventPayload()},
 		},
 		{
 			name: "invalid payload",
-			fact: eventFact{
+			fact: eventDraft{
 				name: EventEffectStarted, stepSequence: 1,
 				effectID: effectID, payload: marshalEventPayload(effectStartedEventPayload{EffectTarget: EffectTargetInvalid, AttemptID: newEffectAttemptID()}),
 			},
@@ -96,7 +96,7 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 func TestEventDecodingRejectsAPhaseItsNameDoesNotFix(t *testing.T) {
 	processID, _ := ParseProcessID("process:event-phase")
 	deployment := newChildTestDeployment(t)
-	for _, fact := range []eventFact{
+	for _, fact := range []eventDraft{
 		{name: EventProcessStarted, payload: emptyEventPayload()},
 		{name: EventRuntimeStopped, payload: json.RawMessage(`{"failure_kind":"external","failure_code":"engine.tree.committer_failed"}`)},
 	} {
@@ -187,7 +187,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 		if marshalErr != nil {
 			f.Fatal(marshalErr)
 		}
-		event, eventErr := newEvent(eventFact{
+		event, eventErr := newEvent(eventDraft{
 			deploymentRef: reference, relation: rootProcessRelation(processID),
 			stepSequence: fixture.stepSequence, effectID: fixture.effectID,
 			name: fixture.name, occurredAt: time.Unix(20, 0), payload: payload,

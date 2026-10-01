@@ -459,7 +459,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		semconv.GenAIAgentName(event.DeploymentRef().Name()),
 		processActivationAttribute.String(string(record.activation)),
 	}
-	observedError := processFactError{status: fact.Status(), cause: fact.Cause()}
+	observedError := processError{status: fact.Status(), cause: fact.Cause()}
 	if failure, failed := fact.Failure(); failed {
 		observedError.failure = failure
 	}
@@ -553,7 +553,7 @@ func (o *Observer) finishStep(ctx context.Context, event agent.Event) {
 	}
 	record.SetAttributes(stepStatusAttribute.String(fact.Status().String()))
 	if fact.Status() == agent.StepStatusFailed {
-		recordSpanFailure(record, stepFactError{}, event.OccurredAt())
+		recordSpanFailure(record, stepError{}, event.OccurredAt())
 	}
 	record.End(trace.WithTimestamp(event.OccurredAt()))
 }
@@ -635,7 +635,7 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 	record.SetAttributes(metricAttributes...)
 	record.SetAttributes(effectAttemptIDAttribute.String(fact.AttemptID().String()))
 	if fact.SettlementStatus() != agent.SettlementStatusSucceeded {
-		recordSpanFailure(record, effectFactError{
+		recordSpanFailure(record, effectError{
 			target: fact.Target(), settlement: fact.SettlementStatus(),
 		}, event.OccurredAt())
 	}
@@ -746,7 +746,7 @@ func (o *Observer) observeDurability(ctx context.Context, operation, boundary st
 		attributes = append(attributes, durabilityOutcomeAttribute.String(outcome))
 		span.SetAttributes(durabilityOutcomeAttribute.String(outcome))
 		if outcome != durabilityAcknowledged {
-			recordSpanFailure(span, durabilityFactError{outcome: outcome}, finishedAt)
+			recordSpanFailure(span, durabilityError{outcome: outcome}, finishedAt)
 		}
 		options := metric.WithAttributes(attributes...)
 		o.instruments.durabilityDuration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), options)
@@ -772,7 +772,7 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 	delete(o.processes, key)
 	spans := o.takeChildSpans(key)
 	o.stateMu.Unlock()
-	observedError := runtimeFactError{failure: fact.Failure()}
+	observedError := runtimeError{failure: fact.Failure()}
 	if found {
 		spans = append(spans, record.span)
 		attributes := []attribute.KeyValue{
@@ -832,13 +832,13 @@ func deploymentMetricAttributes(event agent.Event) []attribute.KeyValue {
 	}
 }
 
-type processFactError struct {
+type processError struct {
 	status  agent.Status
 	cause   agent.TerminationCause
 	failure agent.FailureClassification
 }
 
-func (p processFactError) Error() string {
+func (p processError) Error() string {
 	if p.failure.Valid() {
 		return "agent Process " + p.status.String() + ": " +
 			p.failure.Kind().String() + "/" + p.failure.Code()
@@ -846,29 +846,29 @@ func (p processFactError) Error() string {
 	return "agent Process " + p.status.String() + ": " + p.cause.String()
 }
 
-func (p processFactError) ErrorType() string {
+func (p processError) ErrorType() string {
 	if p.failure.Valid() {
 		return p.failure.Code()
 	}
 	return "agent." + p.cause.String()
 }
 
-type stepFactError struct{}
+type stepError struct{}
 
-func (stepFactError) Error() string { return "agent Execution Step failed" }
+func (stepError) Error() string { return "agent Execution Step failed" }
 
-func (stepFactError) ErrorType() string { return "agent.step.failed" }
+func (stepError) ErrorType() string { return "agent.step.failed" }
 
-type effectFactError struct {
+type effectError struct {
 	target     agent.EffectTarget
 	settlement agent.SettlementStatus
 }
 
-func (e effectFactError) Error() string {
+func (e effectError) Error() string {
 	return "agent " + e.target.String() + " Effect " + e.settlement.String()
 }
 
-func (e effectFactError) ErrorType() string { return "agent.effect." + e.settlement.String() }
+func (e effectError) ErrorType() string { return "agent.effect." + e.settlement.String() }
 
 func recordSpanFailure(span trace.Span, observedError error, occurredAt time.Time) {
 	span.SetAttributes(semconv.ErrorType(observedError))

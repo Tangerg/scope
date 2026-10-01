@@ -23,20 +23,20 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		facts terminationFacts
+		facts terminationInputs
 		want  Status
 		cause TerminationCause
 	}{
-		{name: "kill wins all", facts: terminationFacts{kill: kill, deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusKilled, cause: TerminationCauseEngineKill},
-		{name: "parent deadline", facts: terminationFacts{deadline: parentDeadline, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseParentDeadline},
-		{name: "host deadline wins cancellation and failure", facts: terminationFacts{deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseHostDeadline},
-		{name: "parent cancellation wins failure", facts: terminationFacts{cancellation: parentCancellation, outcome: externalFailed}, want: StatusCanceled, cause: TerminationCauseParentCancellation},
-		{name: "host cancellation wins failure", facts: terminationFacts{cancellation: hostCancellation, outcome: externalFailed}, want: StatusCanceled, cause: TerminationCauseHostCancellation},
-		{name: "execution failure", facts: terminationFacts{outcome: executionFailed}, want: StatusFailed, cause: TerminationCauseExecutionFailure},
-		{name: "contract failure", facts: terminationFacts{outcome: contractFailed}, want: StatusFailed, cause: TerminationCauseContractFailure},
-		{name: "external failure", facts: terminationFacts{outcome: externalFailed}, want: StatusFailed, cause: TerminationCauseExternalFailure},
-		{name: "panic", facts: terminationFacts{outcome: panicFailed}, want: StatusFailed, cause: TerminationCausePanic},
-		{name: "completion", facts: terminationFacts{outcome: completedOutcome()}, want: StatusCompleted, cause: TerminationCauseCompletion},
+		{name: "kill wins all", facts: terminationInputs{kill: kill, deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusKilled, cause: TerminationCauseEngineKill},
+		{name: "parent deadline", facts: terminationInputs{deadline: parentDeadline, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseParentDeadline},
+		{name: "host deadline wins cancellation and failure", facts: terminationInputs{deadline: hostDeadline, cancellation: parentCancellation, outcome: externalFailed}, want: StatusTimedOut, cause: TerminationCauseHostDeadline},
+		{name: "parent cancellation wins failure", facts: terminationInputs{cancellation: parentCancellation, outcome: externalFailed}, want: StatusCanceled, cause: TerminationCauseParentCancellation},
+		{name: "host cancellation wins failure", facts: terminationInputs{cancellation: hostCancellation, outcome: externalFailed}, want: StatusCanceled, cause: TerminationCauseHostCancellation},
+		{name: "execution failure", facts: terminationInputs{outcome: executionFailed}, want: StatusFailed, cause: TerminationCauseExecutionFailure},
+		{name: "contract failure", facts: terminationInputs{outcome: contractFailed}, want: StatusFailed, cause: TerminationCauseContractFailure},
+		{name: "external failure", facts: terminationInputs{outcome: externalFailed}, want: StatusFailed, cause: TerminationCauseExternalFailure},
+		{name: "panic", facts: terminationInputs{outcome: panicFailed}, want: StatusFailed, cause: TerminationCausePanic},
+		{name: "completion", facts: terminationInputs{outcome: completedOutcome()}, want: StatusCompleted, cause: TerminationCauseCompletion},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,7 +45,7 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !got.Valid() || got.Status() != test.want || got.Cause() != test.cause {
-				t.Fatalf("terminationFacts.resolve() = status %s cause %s valid %t", got.Status(), got.Cause(), got.Valid())
+				t.Fatalf("terminationInputs.resolve() = status %s cause %s valid %t", got.Status(), got.Cause(), got.Valid())
 			}
 		})
 	}
@@ -83,8 +83,8 @@ func TestStatusStrictJSONRoundTrip(t *testing.T) {
 }
 
 func TestResolveTerminationRejectsMissingFacts(t *testing.T) {
-	if _, err := (terminationFacts{}).resolve(); !errors.Is(err, errInvalidTermination) {
-		t.Fatalf("empty terminationFacts.resolve() error = %v, want errInvalidTermination", err)
+	if _, err := (terminationInputs{}).resolve(); !errors.Is(err, errInvalidTermination) {
+		t.Fatalf("empty terminationInputs.resolve() error = %v, want errInvalidTermination", err)
 	}
 	if _, err := newDeadlineIntent(deadlineOwnerInvalid, "deadline"); !errors.Is(err, errInvalidTermination) {
 		t.Fatalf("newDeadlineIntent error = %v, want errInvalidTermination", err)
@@ -121,13 +121,13 @@ func TestStatusRejectsUnoccupiedLifecycleState(t *testing.T) {
 	}
 }
 
-func TestProcessFinishedFactRejectsAStatusItsCauseDoesNotDetermine(t *testing.T) {
+func TestProcessFinishedRejectsAStatusItsCauseDoesNotDetermine(t *testing.T) {
 	usage := Usage{CommittedSteps: 1}
 	for status, wantValid := range map[Status]bool{StatusCompleted: true, StatusFailed: false} {
 		payload := marshalEventPayload(processFinishedEventPayload{
 			ProcessStatus: status, TerminationCause: TerminationCauseCompletion, Usage: &usage,
 		})
-		fact, err := decodeProcessFinishedFact(payload)
+		fact, err := decodeProcessFinished(payload)
 		if (err == nil) != wantValid || wantValid && fact.Status() != StatusCompleted {
 			t.Fatalf("status %s with completion cause: fact=%+v err=%v", status, fact, err)
 		}

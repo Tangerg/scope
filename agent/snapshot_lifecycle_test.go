@@ -152,7 +152,7 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 					child = member
 				}
 			}
-			child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
+			child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{strings.Repeat("x", 200<<10)}})), child.handle.startedAt)
 			child.mailbox.closeAllWaits()
 			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(jsonv2.Marshal(strings.Repeat("x", 150<<10)))))
@@ -234,7 +234,7 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 			root := runtime.members.get(runtime.rootID)
 			runtime.treeLimits.MaxProcessSnapshotBytes = config.TreeLimits.MaxProcessSnapshotBytes
 			runtime.treeLimits.MaxSnapshotBytes = config.TreeLimits.MaxSnapshotBytes
-			root.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
+			root.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 				controlValue(EncodePayload(childTestOutput{})), root.handle.startedAt)
 			if recording {
 				runtime.writer.identity = newTreeIncarnationID()

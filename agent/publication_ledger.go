@@ -5,11 +5,11 @@ package agent
 type publicationLedger map[ProcessID]pendingProcessPublication
 
 type pendingProcessPublication struct {
-	events   []eventFact
+	events   []eventDraft
 	terminal bool
 }
 
-func (p publicationLedger) stage(event eventFact) {
+func (p publicationLedger) stage(event eventDraft) {
 	publication := p[event.processID()]
 	publication.events = append(publication.events, event)
 	p[event.processID()] = publication
@@ -19,7 +19,7 @@ func (p publicationLedger) owesTerminal(processID ProcessID) bool {
 	return p[processID].terminal
 }
 
-func (p publicationLedger) stageTerminal(event eventFact) {
+func (p publicationLedger) stageTerminal(event eventDraft) {
 	p.stage(event)
 	publication := p[event.processID()]
 	publication.terminal = true

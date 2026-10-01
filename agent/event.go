@@ -71,13 +71,13 @@ func (e EventPhase) String() string {
 // project or instrument it, but observer failure never changes Process state.
 // Payload is descriptive data, never a Signal or state mutation command.
 type Event struct {
-	eventFact
+	eventDraft
 	processSequence uint64
 }
 
-// eventFact is validated before staging; publication alone assigns its sequence.
+// eventDraft is validated before staging; publication alone assigns its sequence.
 // Its phase is not stored: frameworkEventContracts fixes it for each name.
-type eventFact struct {
+type eventDraft struct {
 	deploymentRef DeploymentRef
 	relation      ProcessRelation
 	incarnationID TreeIncarnationID
@@ -88,56 +88,56 @@ type eventFact struct {
 	payload       json.RawMessage
 }
 
-func newEvent(fact eventFact, processSequence uint64) (Event, error) {
+func newEvent(fact eventDraft, processSequence uint64) (Event, error) {
 	if processSequence == 0 {
 		return Event{}, fmt.Errorf("%w: Process sequence must be greater than zero", ErrInvalidEvent)
 	}
-	validated, err := newEventFact(fact)
+	validated, err := newEventDraft(fact)
 	if err != nil {
 		return Event{}, err
 	}
 	return validated.publish(processSequence), nil
 }
 
-// newEventFact validates fact against its Framework contract and returns it
+// newEventDraft validates fact against its Framework contract and returns it
 // with a normalized payload and UTC occurrence time.
-func newEventFact(fact eventFact) (eventFact, error) {
+func newEventDraft(fact eventDraft) (eventDraft, error) {
 	if !fact.deploymentRef.Valid() {
-		return eventFact{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
+		return eventDraft{}, fmt.Errorf("%w: deployment: %w", ErrInvalidEvent, ErrInvalidDeploymentRef)
 	}
 	if !fact.relation.Valid() {
-		return eventFact{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
+		return eventDraft{}, fmt.Errorf("%w: relation: %w", ErrInvalidEvent, ErrInvalidProcessRelation)
 	}
 	if fact.incarnationID != (TreeIncarnationID{}) && !fact.incarnationID.Valid() {
-		return eventFact{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
+		return eventDraft{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidEvent)
 	}
 	if !ValidQualifiedName(fact.name) {
-		return eventFact{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
+		return eventDraft{}, fmt.Errorf("%w: name must be a lowercase qualified name", ErrInvalidEvent)
 	}
 	if fact.occurredAt.IsZero() {
-		return eventFact{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
+		return eventDraft{}, fmt.Errorf("%w: occurrence time is required", ErrInvalidEvent)
 	}
 	normalized, err := normalizeJSON(fact.payload, maxEventBytes)
 	if err != nil {
-		return eventFact{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
+		return eventDraft{}, fmt.Errorf("%w: payload: %w", ErrInvalidEvent, err)
 	}
 	fact.occurredAt = canonicalTime(fact.occurredAt)
 	fact.payload = normalized
 	if err := fact.validateContract(); err != nil {
-		return eventFact{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
+		return eventDraft{}, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 	}
 	return fact, nil
 }
 
-func (e eventFact) processID() ProcessID { return e.relation.ProcessID() }
+func (e eventDraft) processID() ProcessID { return e.relation.ProcessID() }
 
-func (e eventFact) phase() EventPhase { return frameworkEventContracts[e.name].phase }
+func (e eventDraft) phase() EventPhase { return frameworkEventContracts[e.name].phase }
 
-func (e eventFact) publish(sequence uint64) Event {
+func (e eventDraft) publish(sequence uint64) Event {
 	if sequence == 0 || e.name == "" {
 		panic("agent: invalid Event publication")
 	}
-	return Event{eventFact: e, processSequence: sequence}
+	return Event{eventDraft: e, processSequence: sequence}
 }
 
 // ProcessSequence returns the Process-local publication order within one tree
@@ -174,75 +174,75 @@ func (e Event) OccurredAt() time.Time { return e.occurredAt }
 // Payload returns an independently owned descriptive payload.
 func (e Event) Payload() json.RawMessage { return bytes.Clone(e.payload) }
 
-func (e Event) ProcessFinished() (ProcessFinishedFact, bool) {
+func (e Event) ProcessFinished() (ProcessFinished, bool) {
 	if e.name != EventProcessFinished {
-		return ProcessFinishedFact{}, false
+		return ProcessFinished{}, false
 	}
-	fact, err := decodeProcessFinishedFact(e.payload)
+	fact, err := decodeProcessFinished(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) RuntimeStopped() (RuntimeStoppedFact, bool) {
+func (e Event) RuntimeStopped() (RuntimeStopped, bool) {
 	if e.name != EventRuntimeStopped {
-		return RuntimeStoppedFact{}, false
+		return RuntimeStopped{}, false
 	}
-	fact, err := decodeRuntimeStoppedFact(e.payload)
+	fact, err := decodeRuntimeStopped(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) SignalAccepted() (SignalAcceptedFact, bool) {
+func (e Event) SignalAccepted() (SignalAccepted, bool) {
 	if e.name != EventSignalAccepted {
-		return SignalAcceptedFact{}, false
+		return SignalAccepted{}, false
 	}
-	fact, err := decodeSignalAcceptedFact(e.payload)
+	fact, err := decodeSignalAccepted(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) StepFinished() (StepFinishedFact, bool) {
+func (e Event) StepFinished() (StepFinished, bool) {
 	if e.name != EventStepFinished {
-		return StepFinishedFact{}, false
+		return StepFinished{}, false
 	}
-	fact, err := decodeStepFinishedFact(e.payload)
+	fact, err := decodeStepFinished(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) StepCommitted() (StepCommittedFact, bool) {
+func (e Event) StepCommitted() (StepCommitted, bool) {
 	if e.name != EventStepCommitted {
-		return StepCommittedFact{}, false
+		return StepCommitted{}, false
 	}
-	fact, err := decodeStepCommittedFact(e.payload)
+	fact, err := decodeStepCommitted(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) EffectStarted() (EffectStartedFact, bool) {
+func (e Event) EffectStarted() (EffectStarted, bool) {
 	if e.name != EventEffectStarted {
-		return EffectStartedFact{}, false
+		return EffectStarted{}, false
 	}
-	fact, err := decodeEffectStartedFact(e.payload)
+	fact, err := decodeEffectStarted(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) EffectFinished() (EffectFinishedFact, bool) {
+func (e Event) EffectFinished() (EffectFinished, bool) {
 	if e.name != EventEffectFinished {
-		return EffectFinishedFact{}, false
+		return EffectFinished{}, false
 	}
-	fact, err := decodeEffectFinishedFact(e.payload)
+	fact, err := decodeEffectFinished(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) EffectResolved() (EffectResolvedFact, bool) {
+func (e Event) EffectResolved() (EffectResolved, bool) {
 	if e.name != EventEffectResolved {
-		return EffectResolvedFact{}, false
+		return EffectResolved{}, false
 	}
-	fact, err := decodeEffectResolvedFact(e.payload)
+	fact, err := decodeEffectResolved(e.payload)
 	return fact, err == nil
 }
 
-func (e Event) DeltaDropped() (DeltaDroppedFact, bool) {
+func (e Event) DeltaDropped() (DeltaDropped, bool) {
 	if e.name != EventDeltaDropped {
-		return DeltaDroppedFact{}, false
+		return DeltaDropped{}, false
 	}
-	fact, err := decodeDeltaDroppedFact(e.payload)
+	fact, err := decodeDeltaDropped(e.payload)
 	return fact, err == nil
 }
 
@@ -290,7 +290,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidEvent, err)
 	}
-	value, err := newEvent(eventFact{
+	value, err := newEvent(eventDraft{
 		deploymentRef: wire.DeploymentRef,
 		relation:      relation,
 		incarnationID: lo.FromPtr(wire.IncarnationID),
@@ -323,17 +323,17 @@ var frameworkEventContracts = map[string]eventContract{
 	EventProcessRestored: {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
 	EventProcessPaused:   {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
 	EventProcessResumed:  {EventPhaseCommitted, eventIdentityProcess, validateEmptyEventPayload},
-	EventProcessFinished: {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeProcessFinishedFact)},
-	EventRuntimeStopped:  {EventPhaseAttempt, eventIdentityProcess, decodesEventPayload(decodeRuntimeStoppedFact)},
-	EventSignalAccepted:  {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeSignalAcceptedFact)},
+	EventProcessFinished: {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeProcessFinished)},
+	EventRuntimeStopped:  {EventPhaseAttempt, eventIdentityProcess, decodesEventPayload(decodeRuntimeStopped)},
+	EventSignalAccepted:  {EventPhaseCommitted, eventIdentityProcess, decodesEventPayload(decodeSignalAccepted)},
 	EventStepStarted:     {EventPhaseAttempt, eventIdentityStep, validateEmptyEventPayload},
 	EventStepPrepared:    {EventPhaseAttempt, eventIdentityStep, validateEmptyEventPayload},
-	EventStepFinished:    {EventPhaseAttempt, eventIdentityStep, decodesEventPayload(decodeStepFinishedFact)},
-	EventStepCommitted:   {EventPhaseCommitted, eventIdentityStep, decodesEventPayload(decodeStepCommittedFact)},
-	EventEffectStarted:   {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectStartedFact)},
-	EventEffectFinished:  {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectFinishedFact)},
-	EventDeltaDropped:    {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeDeltaDroppedFact)},
-	EventEffectResolved:  {EventPhaseCommitted, eventIdentityEffect, decodesEventPayload(decodeEffectResolvedFact)},
+	EventStepFinished:    {EventPhaseAttempt, eventIdentityStep, decodesEventPayload(decodeStepFinished)},
+	EventStepCommitted:   {EventPhaseCommitted, eventIdentityStep, decodesEventPayload(decodeStepCommitted)},
+	EventEffectStarted:   {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectStarted)},
+	EventEffectFinished:  {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeEffectFinished)},
+	EventDeltaDropped:    {EventPhaseAttempt, eventIdentityEffect, decodesEventPayload(decodeDeltaDropped)},
+	EventEffectResolved:  {EventPhaseCommitted, eventIdentityEffect, decodesEventPayload(decodeEffectResolved)},
 }
 
 func decodesEventPayload[T any](decode func(json.RawMessage) (T, error)) func(json.RawMessage) error {
@@ -348,7 +348,7 @@ func validateEmptyEventPayload(payload json.RawMessage) error {
 	return err
 }
 
-func (e eventFact) validateContract() error {
+func (e eventDraft) validateContract() error {
 	contract, known := frameworkEventContracts[e.name]
 	if !known {
 		return errors.New("unknown Framework event name")
@@ -359,7 +359,7 @@ func (e eventFact) validateContract() error {
 	return contract.validatePayload(e.payload)
 }
 
-func (e eventFact) validateIdentity(scope eventIdentityScope) error {
+func (e eventDraft) validateIdentity(scope eventIdentityScope) error {
 	switch scope {
 	case eventIdentityProcess:
 		if e.stepSequence != 0 || e.effectID.Valid() {

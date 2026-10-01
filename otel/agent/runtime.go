@@ -4,12 +4,12 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-type runtimeFactError struct {
+type runtimeError struct {
 	failure agent.FailureClassification
 }
 
-func (r runtimeFactError) Error() string {
+func (r runtimeError) Error() string {
 	return "agent runtime stopped: " + r.failure.Kind().String() + "/" + r.failure.Code()
 }
 
-func (r runtimeFactError) ErrorType() string { return r.failure.Code() }
+func (r runtimeError) ErrorType() string { return r.failure.Code() }

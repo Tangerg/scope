@@ -90,10 +90,10 @@ func (r *revisionExecution) Snapshot() (agent.ExecutionState, error) {
 type revisionStore struct {
 	mu       sync.Mutex
 	current  revisionObservation
-	facts    map[agent.EffectID]revisionStoreFact
+	facts    map[agent.EffectID]revisionRecord
 	attempts int
 }
-type revisionStoreFact struct {
+type revisionRecord struct {
 	request    agent.Digest
 	settlement agent.Settlement
 }
@@ -138,7 +138,7 @@ func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectReques
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	r.facts[request.ID()] = revisionStoreFact{request: digest, settlement: settlement}
+	r.facts[request.ID()] = revisionRecord{request: digest, settlement: settlement}
 	return settlement, nil
 }
 
@@ -171,7 +171,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 		t.Fatal(err)
 	}
 	definition := revisionDefinition{descriptor: descriptor}
-	shared := &revisionStore{facts: make(map[agent.EffectID]revisionStoreFact)}
+	shared := &revisionStore{facts: make(map[agent.EffectID]revisionRecord)}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
 		Definition: definition, Dispatcher: shared,
 		ImplementationDigest: agent.ComputeDigest([]byte("revision-comparison")), ConfigurationDigest: agent.ComputeDigest([]byte("shared-revision-store")),

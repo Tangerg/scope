@@ -82,7 +82,7 @@ type treeCommit struct {
 	effectID  EffectID
 	snapshot  TreeSnapshot
 	reply     processReply
-	events    []eventFact
+	events    []eventDraft
 	child     *pendingChildStartPublication
 }
 
@@ -92,7 +92,7 @@ type pendingChildStartPublication struct {
 	plan          *childStartPlan
 	result        childStartJobResult
 	effectAttempt effectAttempt
-	event         eventFact
+	event         eventDraft
 }
 
 type stepJobResult struct {
@@ -705,7 +705,7 @@ func (t *treeRuntime) startCheckpointCommit(
 	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, kind)
 }
 
-func (t *treeRuntime) startSignalCommit(process *processState, reply processReply, events []eventFact) error {
+func (t *treeRuntime) startSignalCommit(process *processState, reply processReply, events []eventDraft) error {
 	snapshot, err := t.captureTree()
 	if err != nil {
 		return err
@@ -882,7 +882,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 	t.publications.stageTerminal(event)
 }
 
-func (t *treeRuntime) stageCommittedEvent(event eventFact) {
+func (t *treeRuntime) stageCommittedEvent(event eventDraft) {
 	if event.phase() != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
 		t.members.get(event.processID()) == nil {
 		panic("agent: invalid committed Event")
@@ -1751,7 +1751,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	if err == nil {
 		commit := &treeCommit{
 			kind: treeCommitEffectSettled, processID: pending.parentID,
-			effectID: pending.effectID, snapshot: snapshot, events: []eventFact{pending.event},
+			effectID: pending.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
 		}
 		if pending.result.started() {
 			commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
@@ -2277,7 +2277,7 @@ func (t *treeRuntime) installTerminationWithUnresolved(process *processState, ou
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
 
-func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventFact, error) {
+func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventDraft, error) {
 	candidate, err := process.prepareSignals(signals, source, t.treeLimits)
 	if err != nil || candidate == nil {
 		return nil, err

@@ -326,7 +326,7 @@ func (t Trajectory) validateToolCalls(paths map[agent.ProcessID]string) error {
 	return nil
 }
 
-func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinishedFact) bool {
+func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinished) bool {
 	if fact.Status() != t.termination.Status() || fact.Cause() != t.termination.Cause() || fact.Usage() != t.rootUsage {
 		return false
 	}

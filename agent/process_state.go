@@ -513,7 +513,7 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 	if p.pendingControl.failure.Valid() {
 		outcome, _ = failedOutcome(p.pendingControl.failure)
 	}
-	termination, err := (terminationFacts{
+	termination, err := (terminationInputs{
 		kill: p.pendingControl.kill, deadline: p.pendingControl.deadline,
 		cancellation: p.pendingControl.cancellation, outcome: outcome,
 	}).resolve()

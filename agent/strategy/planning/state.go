@@ -58,7 +58,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if err := definition.descriptor.ValidateInput(input); err != nil {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidExecutionState, err)
 	}
-	if err := e.validateAttemptFacts(ctx, definition); err != nil {
+	if err := e.validateAttemptHistory(ctx, definition); err != nil {
 		return err
 	}
 	if err := e.validateCurrentAction(definition); err != nil {
@@ -70,7 +70,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	return e.validatePhase()
 }
 
-func (e executionState) validateAttemptFacts(ctx context.Context, definition *Definition) error {
+func (e executionState) validateAttemptHistory(ctx context.Context, definition *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

@@ -240,7 +240,7 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 	assertSumAttribute(t, exits, "agent.failure.code", "test.otel.failed")
 }
 
-func TestObserverRecordsStepAndEffectFactErrors(t *testing.T) {
+func TestObserverRecordsStepAndEffectErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		value       string

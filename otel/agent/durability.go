@@ -63,9 +63,9 @@ func durabilityOutcome(err error) string {
 	}
 }
 
-type durabilityFactError struct{ outcome string }
+type durabilityError struct{ outcome string }
 
-func (d durabilityFactError) Error() string     { return "agent committer " + d.outcome }
-func (d durabilityFactError) ErrorType() string { return "agent.committer." + d.outcome }
+func (d durabilityError) Error() string     { return "agent committer " + d.outcome }
+func (d durabilityError) ErrorType() string { return "agent.committer." + d.outcome }
 
 var _ agent.TreeCommitter = (*observedTreeCommitter)(nil)

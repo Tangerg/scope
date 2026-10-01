@@ -343,15 +343,15 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 	return nil
 }
 
-type childWaitValidationFacts struct {
+type openChildWait struct {
 	key     WaitKey
 	signals []signalRecordWire
 }
 
-func newChildWaitValidationFacts(snapshot ProcessSnapshot) map[WaitID]*childWaitValidationFacts {
-	waits := make(map[WaitID]*childWaitValidationFacts, len(snapshot.openChildWaits))
+func newOpenChildWaits(snapshot ProcessSnapshot) map[WaitID]*openChildWait {
+	waits := make(map[WaitID]*openChildWait, len(snapshot.openChildWaits))
 	for id, key := range snapshot.openChildWaits {
-		waits[id] = &childWaitValidationFacts{key: key}
+		waits[id] = &openChildWait{key: key}
 	}
 	if len(waits) == 0 {
 		return waits
@@ -368,9 +368,9 @@ func newChildWaitValidationFacts(snapshot ProcessSnapshot) map[WaitID]*childWait
 }
 
 func (t *treeSnapshotValidation) validateChildWaits() error {
-	openWaits := make(map[ProcessID]map[WaitID]*childWaitValidationFacts, len(t.wire.ProcessSnapshots))
+	openWaits := make(map[ProcessID]map[WaitID]*openChildWait, len(t.wire.ProcessSnapshots))
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		openWaits[snapshot.ProcessID()] = newChildWaitValidationFacts(snapshot)
+		openWaits[snapshot.ProcessID()] = newOpenChildWaits(snapshot)
 	}
 	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
 	for _, encoded := range t.wire.ChildWaits {
@@ -395,7 +395,7 @@ func (t *treeSnapshotValidation) validateChildWaits() error {
 
 func (t *treeSnapshotValidation) validateChildWaitRegistration(
 	encoded childWaitSnapshotWire,
-	facts *childWaitValidationFacts,
+	facts *openChildWait,
 ) error {
 	parent, exists := t.processes[encoded.ParentProcessID]
 	spec, err := encoded.Spec.value()

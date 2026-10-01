@@ -57,29 +57,29 @@ type effectResolvedEventPayload struct {
 	SettlementStatus SettlementStatus `json:"settlement_status"`
 }
 
-// EffectResolvedFact records the definite result that replaced an Unknown
+// EffectResolved records the definite result that replaced an Unknown
 // settlement. It has no duration: adjudication is not an execution attempt.
-type EffectResolvedFact struct {
+type EffectResolved struct {
 	target     EffectTarget
 	settlement SettlementStatus
 }
 
-func (e EffectResolvedFact) Target() EffectTarget { return e.target }
+func (e EffectResolved) Target() EffectTarget { return e.target }
 
-func (e EffectResolvedFact) SettlementStatus() SettlementStatus { return e.settlement }
+func (e EffectResolved) SettlementStatus() SettlementStatus { return e.settlement }
 
-func (e EffectResolvedFact) Valid() bool {
+func (e EffectResolved) Valid() bool {
 	return e.target.Valid() && e.settlement.Valid() && e.settlement != SettlementStatusUnknown
 }
 
-func decodeEffectResolvedFact(payload json.RawMessage) (EffectResolvedFact, error) {
+func decodeEffectResolved(payload json.RawMessage) (EffectResolved, error) {
 	wire, err := jsonwire.Decode[effectResolvedEventPayload](payload)
 	if err != nil {
-		return EffectResolvedFact{}, err
+		return EffectResolved{}, err
 	}
-	fact := EffectResolvedFact{target: wire.EffectTarget, settlement: wire.SettlementStatus}
+	fact := EffectResolved{target: wire.EffectTarget, settlement: wire.SettlementStatus}
 	if !fact.Valid() {
-		return EffectResolvedFact{}, errors.New("invalid Effect resolution event fact")
+		return EffectResolved{}, errors.New("invalid Effect resolution event fact")
 	}
 	return fact, nil
 }
@@ -117,26 +117,26 @@ type deltaDroppedEventPayload struct {
 	DroppedDeltaCount uint64          `json:"dropped_delta_count"`
 }
 
-// ProcessFinishedFact is the immutable terminal fact carried by a finished
+// ProcessFinished is the immutable terminal fact carried by a finished
 // Process Event. Usage is the authoritative Framework-owned terminal usage.
-type ProcessFinishedFact struct {
+type ProcessFinished struct {
 	cause   TerminationCause
 	failure FailureClassification
 	usage   Usage
 }
 
-func (p ProcessFinishedFact) Status() Status { return p.cause.status() }
+func (p ProcessFinished) Status() Status { return p.cause.status() }
 
-func (p ProcessFinishedFact) Cause() TerminationCause { return p.cause }
+func (p ProcessFinished) Cause() TerminationCause { return p.cause }
 
 // Failure is present exactly when the Process failed.
-func (p ProcessFinishedFact) Failure() (FailureClassification, bool) {
+func (p ProcessFinished) Failure() (FailureClassification, bool) {
 	return p.failure, p.Status() == StatusFailed
 }
 
-func (p ProcessFinishedFact) Usage() Usage { return p.usage }
+func (p ProcessFinished) Usage() Usage { return p.usage }
 
-func (p ProcessFinishedFact) Valid() bool {
+func (p ProcessFinished) Valid() bool {
 	if !p.Status().Terminal() {
 		return false
 	}
@@ -146,81 +146,81 @@ func (p ProcessFinishedFact) Valid() bool {
 	return p.failure.Valid() && p.cause == p.failure.kind.terminationCause()
 }
 
-// RuntimeStoppedFact describes an instance failure, not a logical Process
+// RuntimeStopped describes an instance failure, not a logical Process
 // termination. It contains only the failure classification, never storage error
 // messages or application payloads. Event carries the Process and incarnation.
-type RuntimeStoppedFact struct{ failure FailureClassification }
+type RuntimeStopped struct{ failure FailureClassification }
 
-func (r RuntimeStoppedFact) Failure() FailureClassification { return r.failure }
+func (r RuntimeStopped) Failure() FailureClassification { return r.failure }
 
-func (r RuntimeStoppedFact) Valid() bool { return r.failure.Valid() }
+func (r RuntimeStopped) Valid() bool { return r.failure.Valid() }
 
-func decodeRuntimeStoppedFact(payload json.RawMessage) (RuntimeStoppedFact, error) {
+func decodeRuntimeStopped(payload json.RawMessage) (RuntimeStopped, error) {
 	wire, err := jsonwire.Decode[runtimeStoppedEventPayload](payload)
 	if err != nil {
-		return RuntimeStoppedFact{}, err
+		return RuntimeStopped{}, err
 	}
-	fact := RuntimeStoppedFact{failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode}}
+	fact := RuntimeStopped{failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode}}
 	if !fact.Valid() {
-		return RuntimeStoppedFact{}, errors.New("invalid Runtime stopped event fact")
+		return RuntimeStopped{}, errors.New("invalid Runtime stopped event fact")
 	}
 	return fact, nil
 }
 
-// SignalAcceptedFact is the immutable delivery identity carried by an accepted
+// SignalAccepted is the immutable delivery identity carried by an accepted
 // Signal Event. WaitID is present only for a wait-addressed Signal.
-type SignalAcceptedFact struct {
+type SignalAccepted struct {
 	signalID SignalID
 	waitID   WaitID
 }
 
-func (s SignalAcceptedFact) SignalID() SignalID { return s.signalID }
+func (s SignalAccepted) SignalID() SignalID { return s.signalID }
 
-func (s SignalAcceptedFact) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }
+func (s SignalAccepted) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }
 
-func (s SignalAcceptedFact) Valid() bool {
+func (s SignalAccepted) Valid() bool {
 	return s.signalID.Valid() && (s.waitID == (WaitID{}) || s.waitID.Valid())
 }
 
-// StepFinishedFact closes one physical attempt, including discarded candidates.
+// StepFinished closes one physical attempt, including discarded candidates.
 // WorkDuration covers Step, Snapshot, and Restore in the worker. AdoptionDelay
 // covers completion delivery and waiting for the tree owner, including barriers.
 // Both use monotonic elapsed time, independent of lifecycle wall-clock stamps.
 // Attempts with the same logical StepSequence are paired in activation-local
 // event order; the previous attempt finishes before another starts.
-type StepFinishedFact struct {
+type StepFinished struct {
 	status        StepStatus
 	workDuration  time.Duration
 	adoptionDelay time.Duration
 }
 
-func (s StepFinishedFact) Status() StepStatus           { return s.status }
-func (s StepFinishedFact) WorkDuration() time.Duration  { return s.workDuration }
-func (s StepFinishedFact) AdoptionDelay() time.Duration { return s.adoptionDelay }
-func (s StepFinishedFact) Valid() bool {
+func (s StepFinished) Status() StepStatus           { return s.status }
+func (s StepFinished) WorkDuration() time.Duration  { return s.workDuration }
+func (s StepFinished) AdoptionDelay() time.Duration { return s.adoptionDelay }
+func (s StepFinished) Valid() bool {
 	return s.status.Valid() && s.workDuration >= 0 && s.adoptionDelay >= 0
 }
 
-type StepCommittedFact struct{ status Status }
+type StepCommitted struct{ status Status }
 
-func (s StepCommittedFact) Status() Status { return s.status }
+func (s StepCommitted) Status() Status { return s.status }
 
-func (s StepCommittedFact) Valid() bool { return s.status.Valid() }
+func (s StepCommitted) Valid() bool { return s.status.Valid() }
 
-type EffectStartedFact struct {
+type EffectStarted struct {
 	target    EffectTarget
 	attemptID EffectAttemptID
 }
 
-func (e EffectStartedFact) Target() EffectTarget { return e.target }
+func (e EffectStarted) Target() EffectTarget { return e.target }
 
-func (e EffectStartedFact) AttemptID() EffectAttemptID { return e.attemptID }
+func (e EffectStarted) AttemptID() EffectAttemptID { return e.attemptID }
 
-func (e EffectStartedFact) Valid() bool { return e.target.Valid() && e.attemptID.Valid() }
+func (e EffectStarted) Valid() bool { return e.target.Valid() && e.attemptID.Valid() }
 
-// EffectFinishedFact is the immutable settlement observation for one Effect
+// EffectFinished is the immutable settlement observation for one Effect
 // attempt. It does not replace the durable Effect boundary.
-type EffectFinishedFact struct {
+type EffectFinished struct {
 	attemptID  EffectAttemptID
 	target     EffectTarget
 	settlement SettlementStatus
@@ -228,22 +228,22 @@ type EffectFinishedFact struct {
 	failure    FailureClassification
 }
 
-func (e EffectFinishedFact) Target() EffectTarget { return e.target }
+func (e EffectFinished) Target() EffectTarget { return e.target }
 
-func (e EffectFinishedFact) AttemptID() EffectAttemptID { return e.attemptID }
+func (e EffectFinished) AttemptID() EffectAttemptID { return e.attemptID }
 
-func (e EffectFinishedFact) SettlementStatus() SettlementStatus { return e.settlement }
+func (e EffectFinished) SettlementStatus() SettlementStatus { return e.settlement }
 
-func (e EffectFinishedFact) Duration() time.Duration { return e.duration }
+func (e EffectFinished) Duration() time.Duration { return e.duration }
 
 // Failure classifies the Dispatcher error that made the outcome
 // Unknown, without diagnostic text. An Unknown returned directly by the
 // Dispatcher has no classification.
-func (e EffectFinishedFact) Failure() (FailureClassification, bool) {
+func (e EffectFinished) Failure() (FailureClassification, bool) {
 	return e.failure, e.failure != FailureClassification{}
 }
 
-func (e EffectFinishedFact) Valid() bool {
+func (e EffectFinished) Valid() bool {
 	if !e.attemptID.Valid() || !e.target.Valid() || !e.settlement.Valid() || e.duration < 0 {
 		return false
 	}
@@ -253,118 +253,118 @@ func (e EffectFinishedFact) Valid() bool {
 	return e.target == EffectTargetDispatcher && e.settlement == SettlementStatusUnknown && e.failure.Valid()
 }
 
-// DeltaDroppedFact reports the number of increments rejected during one Effect
+// DeltaDropped reports the number of increments rejected during one Effect
 // attempt because validation failed or the bounded observation queue was full.
-type DeltaDroppedFact struct {
+type DeltaDropped struct {
 	count     uint64
 	attemptID EffectAttemptID
 }
 
-func (d DeltaDroppedFact) Count() uint64 { return d.count }
+func (d DeltaDropped) Count() uint64 { return d.count }
 
-func (d DeltaDroppedFact) AttemptID() EffectAttemptID { return d.attemptID }
+func (d DeltaDropped) AttemptID() EffectAttemptID { return d.attemptID }
 
-func (d DeltaDroppedFact) Valid() bool { return d.count > 0 && d.attemptID.Valid() }
+func (d DeltaDropped) Valid() bool { return d.count > 0 && d.attemptID.Valid() }
 
-func decodeProcessFinishedFact(payload json.RawMessage) (ProcessFinishedFact, error) {
+func decodeProcessFinished(payload json.RawMessage) (ProcessFinished, error) {
 	wire, err := jsonwire.Decode[processFinishedEventPayload](payload)
 	if err != nil || wire.Usage == nil {
-		return ProcessFinishedFact{}, errors.New("invalid Process finished event payload")
+		return ProcessFinished{}, errors.New("invalid Process finished event payload")
 	}
-	fact := ProcessFinishedFact{
+	fact := ProcessFinished{
 		cause:   wire.TerminationCause,
 		failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode},
 		usage:   *wire.Usage,
 	}
 	if !fact.Valid() || wire.ProcessStatus != fact.Status() {
-		return ProcessFinishedFact{}, errors.New("invalid Process finished event fact")
+		return ProcessFinished{}, errors.New("invalid Process finished event fact")
 	}
 	return fact, nil
 }
 
-func decodeSignalAcceptedFact(payload json.RawMessage) (SignalAcceptedFact, error) {
+func decodeSignalAccepted(payload json.RawMessage) (SignalAccepted, error) {
 	wire, err := jsonwire.Decode[signalAcceptedEventPayload](payload)
 	if err != nil {
-		return SignalAcceptedFact{}, err
+		return SignalAccepted{}, err
 	}
 	signalID, err := ParseSignalID(wire.SignalID)
 	if err != nil {
-		return SignalAcceptedFact{}, err
+		return SignalAccepted{}, err
 	}
-	fact := SignalAcceptedFact{signalID: signalID}
+	fact := SignalAccepted{signalID: signalID}
 	if wire.WaitID != "" {
 		fact.waitID, err = ParseWaitID(wire.WaitID)
 		if err != nil {
-			return SignalAcceptedFact{}, err
+			return SignalAccepted{}, err
 		}
 	}
 	return fact, nil
 }
 
-func decodeStepFinishedFact(payload json.RawMessage) (StepFinishedFact, error) {
+func decodeStepFinished(payload json.RawMessage) (StepFinished, error) {
 	wire, err := jsonwire.Decode[stepFinishedEventPayload](payload)
 	if err != nil || wire.WorkDurationNS == nil || wire.AdoptionDelayNS == nil {
-		return StepFinishedFact{}, errors.New("invalid Step finished event payload")
+		return StepFinished{}, errors.New("invalid Step finished event payload")
 	}
-	fact := StepFinishedFact{status: wire.StepStatus, workDuration: time.Duration(*wire.WorkDurationNS), adoptionDelay: time.Duration(*wire.AdoptionDelayNS)}
+	fact := StepFinished{status: wire.StepStatus, workDuration: time.Duration(*wire.WorkDurationNS), adoptionDelay: time.Duration(*wire.AdoptionDelayNS)}
 	if !fact.Valid() {
-		return StepFinishedFact{}, errors.New("invalid Step finished event fact")
+		return StepFinished{}, errors.New("invalid Step finished event fact")
 	}
 	return fact, nil
 }
 
-func decodeStepCommittedFact(payload json.RawMessage) (StepCommittedFact, error) {
+func decodeStepCommitted(payload json.RawMessage) (StepCommitted, error) {
 	wire, err := jsonwire.Decode[stepCommittedEventPayload](payload)
 	if err != nil {
-		return StepCommittedFact{}, err
+		return StepCommitted{}, err
 	}
-	fact := StepCommittedFact{status: wire.ProcessStatus}
+	fact := StepCommitted{status: wire.ProcessStatus}
 	if !fact.Valid() {
-		return StepCommittedFact{}, errors.New("invalid Step committed event fact")
+		return StepCommitted{}, errors.New("invalid Step committed event fact")
 	}
 	return fact, nil
 }
 
-func decodeEffectStartedFact(payload json.RawMessage) (EffectStartedFact, error) {
+func decodeEffectStarted(payload json.RawMessage) (EffectStarted, error) {
 	wire, err := jsonwire.Decode[effectStartedEventPayload](payload)
 	if err != nil {
-		return EffectStartedFact{}, err
+		return EffectStarted{}, err
 	}
-	fact := EffectStartedFact{target: wire.EffectTarget, attemptID: wire.AttemptID}
+	fact := EffectStarted{target: wire.EffectTarget, attemptID: wire.AttemptID}
 	if !fact.Valid() {
-		return EffectStartedFact{}, errors.New("invalid Effect started event fact")
+		return EffectStarted{}, errors.New("invalid Effect started event fact")
 	}
 	return fact, nil
 }
 
-func decodeEffectFinishedFact(payload json.RawMessage) (EffectFinishedFact, error) {
+func decodeEffectFinished(payload json.RawMessage) (EffectFinished, error) {
 	wire, err := jsonwire.Decode[effectFinishedEventPayload](payload)
 	if err != nil || wire.DurationMS == nil || *wire.DurationMS < 0 {
-		return EffectFinishedFact{}, errors.New("invalid Effect finished event payload")
+		return EffectFinished{}, errors.New("invalid Effect finished event payload")
 	}
 	duration, ok := durationFromMilliseconds(*wire.DurationMS)
 	if !ok {
-		return EffectFinishedFact{}, errors.New("effect duration overflows time.Duration")
+		return EffectFinished{}, errors.New("effect duration overflows time.Duration")
 	}
-	fact := EffectFinishedFact{
+	fact := EffectFinished{
 		attemptID: wire.AttemptID,
 		target:    wire.EffectTarget, settlement: wire.SettlementStatus, duration: duration,
 		failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode},
 	}
 	if !fact.Valid() {
-		return EffectFinishedFact{}, errors.New("invalid Effect finished event fact")
+		return EffectFinished{}, errors.New("invalid Effect finished event fact")
 	}
 	return fact, nil
 }
 
-func decodeDeltaDroppedFact(payload json.RawMessage) (DeltaDroppedFact, error) {
+func decodeDeltaDropped(payload json.RawMessage) (DeltaDropped, error) {
 	wire, err := jsonwire.Decode[deltaDroppedEventPayload](payload)
 	if err != nil {
-		return DeltaDroppedFact{}, err
+		return DeltaDropped{}, err
 	}
-	fact := DeltaDroppedFact{count: wire.DroppedDeltaCount, attemptID: wire.AttemptID}
+	fact := DeltaDropped{count: wire.DroppedDeltaCount, attemptID: wire.AttemptID}
 	if !fact.Valid() {
-		return DeltaDroppedFact{}, errors.New("invalid Delta dropped event fact")
+		return DeltaDropped{}, errors.New("invalid Delta dropped event fact")
 	}
 	return fact, nil
 }

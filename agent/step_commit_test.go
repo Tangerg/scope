@@ -50,7 +50,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 		if child == parent {
 			continue
 		}
-		child.installTermination(controlValue((terminationFacts{outcome: completedOutcome()}).resolve()),
+		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 			controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
 		child.mailbox.closeAllWaits()
 		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{

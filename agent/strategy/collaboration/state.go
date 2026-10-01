@@ -257,7 +257,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := e.validateTurn(ctx, d, ids, current); err != nil {
 		return err
 	}
-	if err := e.validatePhaseFacts(current, pending+pendingControls); err != nil {
+	if err := e.validatePhaseEvidence(current, pending+pendingControls); err != nil {
 		return err
 	}
 	if err := e.validatePhaseProgress(d, current); err != nil {
@@ -283,9 +283,9 @@ func (e executionState) validateReady() error {
 	return nil
 }
 
-// validatePhaseFacts rejects evidence the derived phase leaves unexplained:
+// validatePhaseEvidence rejects evidence the derived phase leaves unexplained:
 // owed settlements outside applying and a wait identity outside waiting.
-func (e executionState) validatePhaseFacts(current phase, unapplied int) error {
+func (e executionState) validatePhaseEvidence(current phase, unapplied int) error {
 	if current != phaseApplying && unapplied != 0 {
 		return fmt.Errorf("%w: settled turn retains unapplied work", ErrInvalidExecutionState)
 	}

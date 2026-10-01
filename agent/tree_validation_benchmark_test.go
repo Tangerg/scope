@@ -11,7 +11,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	root := runtime.members.get(runtime.rootID)
 	children := runtime.members.childrenOf(runtime.rootID)
 	outcomes := make([]ChildOutcome, 0, len(children))
-	termination := controlValue((terminationFacts{outcome: completedOutcome()}).resolve())
+	termination := controlValue((terminationInputs{outcome: completedOutcome()}).resolve())
 	output := controlValue(EncodePayload(childTestOutput{}))
 	for _, id := range children {
 		child := runtime.members.get(id)

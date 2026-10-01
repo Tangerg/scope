@@ -37,7 +37,7 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			var calls atomic.Int32
-			observer := &responseFactObserver{}
+			observer := &responseMutatingObserver{}
 			config := interaction.DispatcherConfig{Observer: observer, MaxResponseBytes: 512, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls.Add(1)
 				return textResponse(test.text), nil
@@ -260,12 +260,12 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 	}
 }
 
-type responseFactObserver struct{ calls atomic.Int32 }
+type responseMutatingObserver struct{ calls atomic.Int32 }
 
-func (*responseFactObserver) OnModelStarted(context.Context, interaction.ModelInvocation, *chat.Request) {
+func (*responseMutatingObserver) OnModelStarted(context.Context, interaction.ModelInvocation, *chat.Request) {
 }
 
-func (r *responseFactObserver) OnModelSettled(_ context.Context, _ interaction.ModelInvocation, settlement interaction.ModelSettlement) {
+func (r *responseMutatingObserver) OnModelSettled(_ context.Context, _ interaction.ModelInvocation, settlement interaction.ModelSettlement) {
 	if settlement.Response == nil {
 		return
 	}

@@ -162,7 +162,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		if err != nil {
 			b.Fatal(err)
 		}
-		termination, err := (terminationFacts{outcome: completedOutcome()}).resolve()
+		termination, err := (terminationInputs{outcome: completedOutcome()}).resolve()
 		if err != nil {
 			b.Fatal(err)
 		}

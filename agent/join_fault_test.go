@@ -55,7 +55,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	termination, err := (terminationFacts{outcome: completedOutcome()}).resolve()
+	termination, err := (terminationInputs{outcome: completedOutcome()}).resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
