@@ -138,8 +138,8 @@
 // [github.com/Tangerg/scope/agent/strategy/collaboration] runs coordinator
 // turns beside background workers. Decisions choose whether to continue while
 // workers run, wait for drained results, or complete. The Strategy retains
-// explicit working state and immutable child bindings; the Engine resolves and
-// runs the children. Workflow child failures and collaboration coordinator
+// explicit working state and its Deployment binds the coordinator and workers;
+// the Engine starts the children from those bindings. Workflow child failures and collaboration coordinator
 // failures preserve their original Failure kind, code, and diagnostic.
 //
 // [github.com/Tangerg/scope/agent/messaging] delivers intermediate input through
