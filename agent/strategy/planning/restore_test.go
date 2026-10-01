@@ -24,6 +24,22 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		valid   bool
 	}{
 		{
+			name:    "missing planning passes",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]}}`),
+		},
+		{
+			name:    "null planning passes",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":null}`),
+		},
+		{
+			name:    "missing observed world",
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"planning_passes":1,"current_action_name":"finish"}`),
+		},
+		{
+			name:    "null observed world",
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":null,"planning_passes":1,"current_action_name":"finish"}`),
+		},
+		{
 			name: "successful action awaits confirmation",
 			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
 				"planning_passes":1,"current_action_name":"finish"}`),

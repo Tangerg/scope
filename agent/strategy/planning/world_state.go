@@ -13,6 +13,7 @@ import (
 // Missing conditions read as TruthUnknown. Its zero value is the empty state. Every
 // value is valid: constructors and decoding establish invariants, and
 // observations never expose mutable storage.
+// Its JSON representation requires an explicit conditions array, even when empty.
 type WorldState struct {
 	conditions []Condition
 }
@@ -130,7 +131,7 @@ func (w *WorldState) UnmarshalJSON(data []byte) error {
 	if w == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidWorldState)
 	}
-	wire, err := jsonwire.Decode[worldStateWire](data)
+	wire, err := jsonwire.Decode[worldStateWire](data, "conditions")
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidWorldState, err)
 	}

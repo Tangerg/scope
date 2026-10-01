@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
@@ -62,6 +63,16 @@ type executionState struct {
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
 	Output       agent.Payload    `json:"output,omitzero"`
+}
+
+func (e *executionState) UnmarshalJSON(data []byte) error {
+	type wire executionState
+	decoded, err := jsonwire.Decode[wire](data, "number", "wait_sequence")
+	if err != nil {
+		return err
+	}
+	*e = executionState(decoded)
+	return nil
 }
 
 // phase derives the next protocol step. A turn fails, before any decision

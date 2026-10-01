@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
@@ -39,6 +40,16 @@ type executionState struct {
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
 	Child             *childcall.Single `json:"child,omitzero"`
+}
+
+func (e *executionState) UnmarshalJSON(data []byte) error {
+	type wire executionState
+	decoded, err := jsonwire.Decode[wire](data, "world_state", "planning_passes")
+	if err != nil {
+		return err
+	}
+	*e = executionState(decoded)
+	return nil
 }
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {

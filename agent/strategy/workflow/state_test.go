@@ -17,6 +17,8 @@ type stateFixture struct {
 func TestRestoreRejectsUnknownAndContradictoryState(t *testing.T) {
 	definition := stateTestDefinition(t)
 	for name, payload := range map[string]json.RawMessage{
+		"missing stage index":      json.RawMessage(`{"current_value":{"value":1}}`),
+		"null stage index":         json.RawMessage(`{"stage_index":null,"current_value":{"value":1}}`),
 		"unknown field":            json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"unknown":true}`),
 		"child in transform":       json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"child":{}}`),
 		"Loop cursor in Transform": json.RawMessage(`{"stage_index":0,"current_value":{"value":1},"loop_iteration":1}`),
@@ -91,6 +93,35 @@ func TestExecutionRejectsMissingProtocolSignals(t *testing.T) {
 				t.Fatalf("rejection classification = %v", stepErr)
 			}
 		})
+	}
+}
+
+func TestRestorePreservesExplicitNullBusinessValue(t *testing.T) {
+	stage, err := Transform("identity", func(_ context.Context, value any) (any, error) { return value, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := NewDefinition(DefinitionConfig{
+		Name: "test.workflow.null", Description: "Preserve nullable business values.", Stages: []Stage{stage},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := agent.ParseExecutionState(executionStateKind, []byte(`{"stage_index":0,"current_value":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Restore(t.Context(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition, err := execution.Step(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, completed := transition.Output()
+	if !completed || string(output.JSON()) != "null" {
+		t.Fatalf("nullable value lost at completion: %+v", transition)
 	}
 }
 

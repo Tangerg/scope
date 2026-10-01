@@ -91,8 +91,13 @@ func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 	if restored.Key() != state.Key() {
 		t.Fatalf("restored key = %q, want %q", restored.Key(), state.Key())
 	}
-	if err := jsonv2.Unmarshal([]byte(`{"conditions":[],"extra":true}`), &restored); !errors.Is(err, planning.ErrInvalidWorldState) {
-		t.Fatalf("unknown-field error = %v", err)
+	for _, invalid := range []string{`null`, `{}`, `{"conditions":null}`, `{"conditions":[],"extra":true}`} {
+		if err := jsonv2.Unmarshal([]byte(invalid), &restored); !errors.Is(err, planning.ErrInvalidWorldState) {
+			t.Fatalf("invalid WorldState %s error = %v", invalid, err)
+		}
+		if restored.Key() != state.Key() {
+			t.Fatal("invalid WorldState replaced the last complete observation")
+		}
 	}
 	var truth planning.Truth
 	if err := truth.UnmarshalJSON([]byte(`"true" false`)); !errors.Is(err, planning.ErrInvalidCondition) {

@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
@@ -9,6 +10,30 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 )
+
+func TestRestoreRequiresExplicitTurnAndWaitCounters(t *testing.T) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	execution := require(definition.Start(input("initial")))
+	state := require(execution.Snapshot())
+	for _, member := range []string{"number", "wait_sequence"} {
+		for _, mode := range []string{"missing", "null"} {
+			t.Run(member+"/"+mode, func(t *testing.T) {
+				var fields map[string]json.RawMessage
+				if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
+					t.Fatal(err)
+				}
+				delete(fields, member)
+				if mode == "null" {
+					fields[member] = json.RawMessage(`null`)
+				}
+				corrupted := require(agent.EncodeExecutionState(state.Kind(), fields))
+				if _, err := definition.Restore(t.Context(), corrupted); !errors.Is(err, ErrInvalidExecutionState) {
+					t.Fatalf("incomplete progress was restored: %v", err)
+				}
+			})
+		}
+	}
+}
 
 func TestUnlimitedTurnAndWaitCountersStopBeforeWrap(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -36,6 +37,16 @@ type executionState struct {
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord `json:"artifact_records,omitempty"`
 	FinalOutput         *Output          `json:"final_output,omitzero"`
+}
+
+func (e *executionState) UnmarshalJSON(data []byte) error {
+	type wire executionState
+	decoded, err := jsonwire.Decode[wire](data, "model_call_count")
+	if err != nil {
+		return err
+	}
+	*e = executionState(decoded)
+	return nil
 }
 
 // phase relies on every model request advancing ModelCallCount in the Step

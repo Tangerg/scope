@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
 )
 
@@ -32,6 +33,16 @@ type executionState struct {
 	ActiveFanoutWindow     []fanoutChildState `json:"active_fanout_window,omitempty"`
 	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
 	LoopIteration          uint64             `json:"loop_iteration,omitzero"`
+}
+
+func (e *executionState) UnmarshalJSON(data []byte) error {
+	type wire executionState
+	decoded, err := jsonwire.Decode[wire](data, "stage_index")
+	if err != nil {
+		return err
+	}
+	*e = executionState(decoded)
+	return nil
 }
 
 type fanoutChildState struct {

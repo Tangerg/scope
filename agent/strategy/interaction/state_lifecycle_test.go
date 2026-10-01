@@ -3,6 +3,7 @@ package interaction
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -12,6 +13,44 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
+
+func TestRestoreCannotResetMissingModelCallCount(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	input, err := agent.EncodePayload(Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = execution.Step(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"missing", "null"} {
+		t.Run(mode, func(t *testing.T) {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			delete(fields, "model_call_count")
+			if mode == "null" {
+				fields["model_call_count"] = json.RawMessage(`null`)
+			}
+			corrupted, err := agent.EncodeExecutionState(state.Kind(), fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := definition.Restore(t.Context(), corrupted); !errors.Is(err, ErrInvalidExecutionState) {
+				t.Fatalf("lost model progress was restored: %v", err)
+			}
+		})
+	}
+}
 
 func TestCanceledStepPreservesRecoveryState(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
