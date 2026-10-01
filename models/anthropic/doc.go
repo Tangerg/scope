@@ -1,6 +1,13 @@
-// Package anthropic exposes Anthropic adapters. [NewMessages] targets the Messages
-// API, [NewChatCompletions] targets the OpenAI-compatible endpoint, and
-// [NewTextCounter] serves isolated text-token estimation.
+// Package anthropic binds the official Anthropic endpoints. [NewMessages]
+// targets the Messages API, [NewChatCompletions] targets the
+// OpenAI-compatible endpoint, and [NewTextCounter] serves isolated text-token
+// estimation.
+//
+// Constructors return the shared protocol models from
+// [github.com/Tangerg/scope/models/protocol/anthropic] and
+// [github.com/Tangerg/scope/models/protocol/openai], which own the wire
+// protocols. This package owns the Anthropic binding: its identity, endpoints,
+// and the compatibility limits below.
 //
 // The OpenAI-compatible endpoint is narrower than the native one, and Anthropic
 // publishes exactly how. Its support table marks reasoning_effort,
