@@ -113,7 +113,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		last = &processState{
 			finishedAt:  now,
 			termination: termination, finalOutput: output,
-			handle: &processHandle{processID: id, relation: relation, startedAt: now},
+			handle: &processHandle{processID: id, relation: relation, startedAt: now, budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}},
 		}
 		if !last.result().Valid() {
 			t.Fatal("invalid child result")

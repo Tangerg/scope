@@ -172,12 +172,13 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 
 func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		modify func(*processSnapshotWire)
+		name            string
+		modify          func(*processSnapshotWire)
+		childAllocation func(processSnapshotWire) resourceAmounts
 	}{
 		{name: "lifetime signals", modify: func(wire *processSnapshotWire) { wire.Budget.Signals = NewQuota(1) }},
-		{name: "child allocation", modify: func(wire *processSnapshotWire) {
-			wire.AllocatedResources.Signals = wire.Budget.Signals.maximum - 1
+		{name: "child allocation", childAllocation: func(wire processSnapshotWire) resourceAmounts {
+			return resourceAmounts{Signals: wire.Budget.Signals.maximum - 1}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -199,6 +200,12 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 				t.Fatalf("enqueue=%t error=%v", accepted, enqueueErr)
 			}
 			wire.Mailbox = mailbox.wire()
+			if test.childAllocation != nil {
+				if capacityErr := wire.validateCapacity(test.childAllocation(wire)); !errors.Is(capacityErr, ErrInvalidSnapshot) {
+					t.Fatalf("unfunded reservation beside child grants error=%v", capacityErr)
+				}
+				return
+			}
 			test.modify(&wire)
 			data, err := jsonv2.Marshal(wire)
 			if err != nil {

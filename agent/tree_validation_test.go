@@ -58,7 +58,6 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	for index, snapshot := range wire.ProcessSnapshots {
 		process := snapshot.state
 		process.Budget = Budget{}
-		process.AllocatedResources = resourceAmounts{}
 		if index > 0 {
 			key, _ := snapshot.Relation().ChildKey()
 			parent = childProcessRelation(snapshot.ProcessID(), parent, key)
@@ -105,7 +104,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	original := wire.ChildWaits[0]
 	originalSignal := root.Mailbox.Signals[1]
 	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.WaitID, originalSignal.Payload)))).Outcomes()
-	root.Budget, root.AllocatedResources = Budget{}, resourceAmounts{}
+	root.Budget = Budget{}
 	mailbox := newSignalMailbox()
 	wire.ChildWaits = nil
 	for index := range count {

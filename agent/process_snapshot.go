@@ -69,7 +69,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	// reset usage, authority, mailbox history, or pending control intent.
 	wire, err := jsonwire.Decode[processSnapshotWire](data,
 		"process_id", "relation", "deployment_ref", "started_at", "committed_steps",
-		"budget", "allocated_resources", "capabilities", "counters",
+		"budget", "capabilities", "counters",
 		"committed_execution_state", "mailbox", "pending_control",
 	)
 	if err != nil {
@@ -277,7 +277,6 @@ type processSnapshotWire struct {
 	FinishedAt              *time.Time          `json:"finished_at,omitzero"`
 	CommittedSteps          uint64              `json:"committed_steps"`
 	Budget                  Budget              `json:"budget"`
-	AllocatedResources      resourceAmounts     `json:"allocated_resources"`
 	Capabilities            CapabilitySet       `json:"capabilities"`
 	Counters                processCounters     `json:"counters"`
 	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
@@ -424,9 +423,6 @@ func (p processSnapshotWire) validateContract() error {
 	if !p.Capabilities.Valid() {
 		return fmt.Errorf("%w: capability set is invalid", ErrInvalidSnapshot)
 	}
-	if !p.Budget.contains(p.usage(), p.AllocatedResources) {
-		return fmt.Errorf("%w: usage and child allocations exceed the Process budget", ErrInvalidSnapshot)
-	}
 	return nil
 }
 
@@ -446,9 +442,19 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 	if err := p.validatePrepared(mailbox); err != nil {
 		return err
 	}
+	return p.validateCapacity(resourceAmounts{})
+}
+
+// validateCapacity checks usage and prepared work against the budget left after
+// childAllocation. A Process alone knows no child grants; tree validation
+// repeats the check with the debits of the captured children.
+func (p processSnapshotWire) validateCapacity(childAllocation resourceAmounts) error {
+	if !p.Budget.contains(p.usage(), childAllocation) {
+		return fmt.Errorf("%w: usage and child allocations exceed the Process budget", ErrInvalidSnapshot)
+	}
 	_, reserved, preparedSteps := p.pendingSignals()
-	if !p.Budget.Signals.Allows(p.usage().AcceptedSignals, p.AllocatedResources.Signals, reserved) ||
-		!p.Budget.Steps.Allows(p.CommittedSteps, p.AllocatedResources.Steps, preparedSteps) {
+	if !p.Budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, reserved) ||
+		!p.Budget.Steps.Allows(p.CommittedSteps, childAllocation.Steps, preparedSteps) {
 		return fmt.Errorf("%w: execution capacity exceeds budget", ErrInvalidSnapshot)
 	}
 	return nil

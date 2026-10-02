@@ -165,7 +165,6 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
 	handle := newProcessHandle(relation, deployment, controlValue(spec.digest()), spec.Budget, spec.Capabilities, wire.StartedAt)
 	child := newProcessState(handle, execution, state)
-	wire.AllocatedResources, _ = wire.Budget.allocation(spec.Budget)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
 	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
@@ -178,7 +177,6 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			switch mutation {
 			case "allocation":
 				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
-				parentWire.AllocatedResources.Steps++
 			case "deployment":
 				childWire.DeploymentRef = parentWire.DeploymentRef
 			case "request":

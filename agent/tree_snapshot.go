@@ -230,13 +230,13 @@ func (t *treeSnapshotWire) normalize() {
 }
 
 type treeSnapshotValidation struct {
-	wire               treeSnapshotWire
-	processes          map[ProcessID]processSnapshotWire
-	childrenByParent   map[ProcessID][]ProcessID
-	children           map[childIdentity]ProcessID
-	childCounts        map[ProcessID]uint64
-	activeChildCounts  map[ProcessID]uint64
-	allocatedResources map[ProcessID]resourceAmounts
+	wire              treeSnapshotWire
+	processes         map[ProcessID]processSnapshotWire
+	childrenByParent  map[ProcessID][]ProcessID
+	children          map[childIdentity]ProcessID
+	childCounts       map[ProcessID]uint64
+	activeChildCounts map[ProcessID]uint64
+	childAllocations  map[ProcessID]resourceAmounts
 }
 
 func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, error) {
@@ -275,13 +275,13 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)
 	}
 	return &treeSnapshotValidation{
-		wire:               wire,
-		processes:          processes,
-		childrenByParent:   childrenByParent,
-		children:           make(map[childIdentity]ProcessID, len(processes)-1),
-		childCounts:        make(map[ProcessID]uint64),
-		activeChildCounts:  make(map[ProcessID]uint64),
-		allocatedResources: make(map[ProcessID]resourceAmounts),
+		wire:              wire,
+		processes:         processes,
+		childrenByParent:  childrenByParent,
+		children:          make(map[childIdentity]ProcessID, len(processes)-1),
+		childCounts:       make(map[ProcessID]uint64),
+		activeChildCounts: make(map[ProcessID]uint64),
+		childAllocations:  make(map[ProcessID]resourceAmounts),
 	}, nil
 }
 
@@ -324,20 +324,22 @@ func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child pro
 	if !ok {
 		return fmt.Errorf("%w: child grant exceeds parent authority", ErrInvalidTreeSnapshot)
 	}
-	allocated, ok := t.allocatedResources[identity.parent].add(debit)
+	allocated, ok := t.childAllocations[identity.parent].add(debit)
 	if !ok {
 		return fmt.Errorf("%w: child budget overflow", ErrInvalidTreeSnapshot)
 	}
-	t.allocatedResources[identity.parent] = allocated
+	t.childAllocations[identity.parent] = allocated
 	return nil
 }
 
 func (t *treeSnapshotValidation) validateChildAccounting() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		id, processWire := snapshot.ProcessID(), snapshot.state
-		if !t.wire.TreeLimits.admitsChildren(t.childCounts[id], t.activeChildCounts[id]) ||
-			t.allocatedResources[id] != processWire.AllocatedResources {
-			return fmt.Errorf("%w: child limits or allocated resources disagree", ErrInvalidTreeSnapshot)
+		if !t.wire.TreeLimits.admitsChildren(t.childCounts[id], t.activeChildCounts[id]) {
+			return fmt.Errorf("%w: child limits exceeded", ErrInvalidTreeSnapshot)
+		}
+		if err := processWire.validateCapacity(t.childAllocations[id]); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTreeSnapshot, err)
 		}
 	}
 	return nil

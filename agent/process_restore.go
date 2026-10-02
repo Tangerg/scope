@@ -69,7 +69,7 @@ func restoreProcessState(
 		handle: handle, execution: execution,
 		committedSteps:          wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		allocatedResources: wire.AllocatedResources, counters: wire.Counters,
+		counters: wire.Counters,
 	}
 	if wire.FinishedAt != nil {
 		process.finishedAt = *wire.FinishedAt

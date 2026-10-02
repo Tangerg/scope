@@ -20,7 +20,6 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 		{"deployment", func(p *processSnapshotWire) { p.DeploymentRef = DeploymentRef{} }, "Deployment reference is invalid"},
 		{"start", func(p *processSnapshotWire) { p.StartedAt = time.Time{} }, "Process start time is missing"},
 		{"state", func(p *processSnapshotWire) { p.CommittedExecutionState = ExecutionState{} }, "committed Execution state is invalid"},
-		{"budget", func(p *processSnapshotWire) { p.Budget.Steps = NewQuota(0); p.CommittedSteps = 1 }, "usage and child allocations exceed the Process budget"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			wire := valid.clone()
@@ -31,6 +30,14 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 			}
 		})
 	}
+	t.Run("budget", func(t *testing.T) {
+		wire := valid.clone()
+		wire.Budget.Steps, wire.CommittedSteps = NewQuota(0), 1
+		const detail = "usage and child allocations exceed the Process budget"
+		if err := wire.validateCapacity(resourceAmounts{}); !errors.Is(err, ErrInvalidSnapshot) || !strings.Contains(err.Error(), detail) {
+			t.Fatalf("snapshot rejection=%v, want %q", err, detail)
+		}
+	})
 }
 
 func TestTreeSnapshotReportsTheContradictedTreeLimit(t *testing.T) {

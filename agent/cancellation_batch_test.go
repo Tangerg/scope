@@ -75,8 +75,8 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 				t.Errorf("unstarted tail[%d] = %+v", index, effect)
 			}
 		}
-		if wire.AllocatedResources != (resourceAmounts{}) || len(directChildIDs(t, engine, process.ID())) != 0 || waitOpenings(wire.Mailbox) != 0 {
-			t.Errorf("unstarted structural effects acquired resources: budget=%+v mailbox=%+v", wire.AllocatedResources, wire.Mailbox)
+		if len(directChildIDs(t, engine, process.ID())) != 0 || waitOpenings(wire.Mailbox) != 0 {
+			t.Errorf("unstarted structural effects acquired resources: mailbox=%+v", wire.Mailbox)
 		}
 		if len(dispatcher.entered) != 0 {
 			t.Error("a later external Effect started")

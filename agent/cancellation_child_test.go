@@ -152,19 +152,19 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				}
 				switch stage {
 				case "rejected admission":
-					if len(children) != 0 || len(outcomes) != 0 || wire.AllocatedResources != (resourceAmounts{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+					if len(children) != 0 || len(outcomes) != 0 || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
 						t.Errorf("rejected admission published resources: children=%v outcomes=%v snapshot=%+v", children, outcomes, wire)
 					}
 				case "accepted admission":
-					if len(children) != 0 || len(outcomes) != 1 || wire.AllocatedResources != (resourceAmounts{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
-						t.Fatalf("canceled initialization lost its failure acknowledgment or retained resources: children=%v outcomes=%d budget=%+v", children, len(outcomes), wire.AllocatedResources)
+					if len(children) != 0 || len(outcomes) != 1 || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+						t.Fatalf("canceled initialization lost its failure acknowledgment or retained resources: children=%v outcomes=%d", children, len(outcomes))
 					}
 					failure, failed := outcomes[0].Failure()
 					if !failed || failure.Code() != failureCodeEngineProcessSnapshotUnrestorable || failure.Message() != context.Canceled.Error() {
 						t.Fatalf("canceled initialization failure = %+v", failure)
 					}
 				case "outcome acknowledgment":
-					if len(children) != 1 || len(outcomes) != 1 || wire.AllocatedResources == (resourceAmounts{}) || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded {
+					if len(children) != 1 || len(outcomes) != 1 || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded {
 						t.Fatalf("accepted initialization was lost: children=%v outcomes=%v snapshot=%+v", children, outcomes, wire)
 					}
 					childID, _ := ParseProcessID(children[0])
@@ -199,9 +199,9 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				start, err := decodeChildStartResult(settlement.Payload())
 				failure, failed := start.Failure()
 				if err != nil || !failed || failure.Code() != failureCodeEngineChildStartInterrupted ||
-					recoveredWire.AllocatedResources != (resourceAmounts{}) || len(directChildIDs(t, recoveredEngine, recovered.ID())) != 0 ||
+					len(directChildIDs(t, recoveredEngine, recovered.ID())) != 0 ||
 					len(outcomes) != priorOutcomes {
-					t.Errorf("recovery repeated or lost unpublished initialization: result=%+v error=%v budget=%+v outcomes=%d", start, err, recoveredWire.AllocatedResources, len(outcomes))
+					t.Errorf("recovery repeated or lost unpublished initialization: result=%+v error=%v outcomes=%d", start, err, len(outcomes))
 				}
 				mustCloseEngine(t, recoveredEngine)
 			})

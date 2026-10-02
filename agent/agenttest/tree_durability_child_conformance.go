@@ -75,22 +75,10 @@ func assertCrashTreeAllocation(
 	}
 	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), original.ID())
 	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
-	var allocation struct {
-		AllocatedResources struct {
-			Steps   uint64 `json:"steps"`
-			Effects uint64 `json:"effects"`
-			Signals uint64 `json:"signals"`
-		} `json:"allocated_resources"`
-	}
-	if err := jsonv2.Unmarshal(rootSnapshot.JSON(), &allocation); err != nil {
-		t.Fatal(err)
-	}
-	reserved := allocation.AllocatedResources
-	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != crashTreeChildBudget() ||
-		reserved.Steps != crashTreeChildStepBudget || reserved.Effects != crashTreeChildEffectBudget ||
-		reserved.Signals != crashTreeChildSignalBudget {
-		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v reserved=%+v",
-			rootSnapshot.Budget(), childSnapshot.Budget(), reserved)
+	// The parent's child debit is derived from the retained child grant.
+	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != crashTreeChildBudget() {
+		t.Fatalf("restoration changed child allocation: parent=%+v child=%+v",
+			rootSnapshot.Budget(), childSnapshot.Budget())
 	}
 }
 

@@ -120,6 +120,14 @@ type resourceAmounts struct {
 	Signals uint64 `json:"signals"`
 }
 
+// subtract removes a debit that add previously included.
+func (r resourceAmounts) subtract(debit resourceAmounts) resourceAmounts {
+	if debit.Steps > r.Steps || debit.Effects > r.Effects || debit.Signals > r.Signals {
+		panic("agent: released child debit exceeds its allocation")
+	}
+	return resourceAmounts{Steps: r.Steps - debit.Steps, Effects: r.Effects - debit.Effects, Signals: r.Signals - debit.Signals}
+}
+
 func (r resourceAmounts) add(other resourceAmounts) (resourceAmounts, bool) {
 	if !resourceQuantitiesFit(math.MaxUint64, r.Steps, other.Steps) ||
 		!resourceQuantitiesFit(math.MaxUint64, r.Effects, other.Effects) ||

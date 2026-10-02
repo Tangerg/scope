@@ -6,18 +6,21 @@ import (
 	"slices"
 )
 
-// treeMembers owns the Processes of one tree and the parent index derived from
-// their relations. Membership changes only through add and remove, so the
-// index always mirrors the members' relations.
+// treeMembers owns the Processes of one tree and the indexes derived from
+// their relations and immutable grants. Membership changes only through add and
+// remove, so the parent index and each parent's child debits always mirror the
+// members.
 type treeMembers struct {
-	byID     map[ProcessID]*processState
-	children map[ProcessID][]ProcessID
+	byID             map[ProcessID]*processState
+	children         map[ProcessID][]ProcessID
+	childAllocations map[ProcessID]resourceAmounts
 }
 
 func newTreeMembers(capacity int) treeMembers {
 	return treeMembers{
-		byID:     make(map[ProcessID]*processState, capacity),
-		children: make(map[ProcessID][]ProcessID),
+		byID:             make(map[ProcessID]*processState, capacity),
+		children:         make(map[ProcessID][]ProcessID),
+		childAllocations: make(map[ProcessID]resourceAmounts),
 	}
 }
 
@@ -29,6 +32,12 @@ func (t *treeMembers) all() iter.Seq2[ProcessID, *processState] { return maps.Al
 
 // ordered returns members in canonical tree order.
 func (t *treeMembers) ordered() []*processState { return orderedProcesses(t.byID) }
+
+// childAllocation returns the finite debits processID's member children hold
+// against its budget.
+func (t *treeMembers) childAllocation(processID ProcessID) resourceAmounts {
+	return t.childAllocations[processID]
+}
 
 // childrenOf returns processID's direct children in admission order.
 func (t *treeMembers) childrenOf(processID ProcessID) []ProcessID { return t.children[processID] }
@@ -50,10 +59,20 @@ func (t *treeMembers) add(process *processState) {
 	if t.byID[processID] != nil {
 		panic("agent: duplicate tree Process")
 	}
-	t.byID[processID] = process
 	if parentID, child := process.handle.relation.ParentID(); child {
+		parent := t.byID[parentID]
+		if parent == nil {
+			panic("agent: tree child requires its parent")
+		}
+		debit, ok := parent.handle.budget.allocation(process.handle.budget)
+		allocated, fits := t.childAllocations[parentID].add(debit)
+		if !ok || !fits {
+			panic("agent: child grant exceeds parent authority")
+		}
+		t.childAllocations[parentID] = allocated
 		t.children[parentID] = append(t.children[parentID], processID)
 	}
+	t.byID[processID] = process
 }
 
 func (t *treeMembers) remove(processID ProcessID) {
@@ -69,8 +88,13 @@ func (t *treeMembers) remove(processID ProcessID) {
 		}
 		if children = slices.Delete(children, index, index+1); len(children) == 0 {
 			delete(t.children, parentID)
+			delete(t.childAllocations, parentID)
 		} else {
 			t.children[parentID] = children
+			if parent := t.byID[parentID]; parent != nil {
+				debit, _ := parent.handle.budget.allocation(process.handle.budget)
+				t.childAllocations[parentID] = t.childAllocations[parentID].subtract(debit)
+			}
 		}
 	}
 	delete(t.byID, processID)

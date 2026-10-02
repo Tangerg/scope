@@ -147,7 +147,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		t.Fatalf("unlimited parent rejected grant: %+v", accepted)
 	}
 	runtime.discardChildStart(accepted.plan)
-	if parent.provisionalChildBudget != nil || parent.allocatedResources != (resourceAmounts{}) {
+	if parent.provisionalChildBudget != nil || runtime.members.childAllocation(parent.handle.processID) != (resourceAmounts{}) {
 		t.Fatal("discard retained an unlimited allocation")
 	}
 }
@@ -169,29 +169,32 @@ func TestQuotaConfigurationIdentityDistinguishesAllModes(t *testing.T) {
 }
 
 func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing.T) {
-	parent := &processState{handle: &processHandle{budget: Budget{Effects: NewQuota(10)}}}
-	first := Budget{Effects: NewQuota(3)}
-	second := Budget{Effects: NewQuota(4)}
-	for _, child := range []Budget{first, second} {
-		if !parent.reserveProvisionalChildBudget(child) {
-			t.Fatal("unlimited grant rejected")
-		}
-		if err := parent.commitProvisionalChildBudget(child); err != nil {
-			t.Fatal(err)
-		}
+	parentID := newProcessID()
+	parentRelation := rootProcessRelation(parentID)
+	parent := &processState{handle: &processHandle{processID: parentID, relation: parentRelation, budget: Budget{Effects: NewQuota(10)}}}
+	members := newTreeMembers(3)
+	members.add(parent)
+	var secondID ProcessID
+	for index, budget := range []Budget{{Effects: NewQuota(3)}, {Effects: NewQuota(4)}} {
+		childID := newProcessID()
+		key := controlValue(ParseChildKey(fmt.Sprintf("child-%d", index)))
+		members.add(&processState{handle: &processHandle{
+			processID: childID, relation: childProcessRelation(childID, parentRelation, key), budget: budget,
+		}})
+		secondID = childID
 	}
-	parent.releaseCommittedChildBudget(second)
-	if parent.allocatedResources != (resourceAmounts{Effects: 3}) {
-		t.Fatalf("rollback lost existing grant: %+v", parent.allocatedResources)
+	members.remove(secondID)
+	if allocated := members.childAllocation(parentID); allocated != (resourceAmounts{Effects: 3}) {
+		t.Fatalf("rollback lost existing grant: %+v", allocated)
 	}
-	if !parent.reserveProvisionalChildBudget(Budget{Effects: NewQuota(7)}) {
+	if !parent.reserveProvisionalChildBudget(Budget{Effects: NewQuota(7)}, members.childAllocation(parentID)) {
 		t.Fatal("released finite debit remained charged")
 	}
-	if parent.reserveProvisionalChildBudget(Budget{}) {
+	if parent.reserveProvisionalChildBudget(Budget{}, members.childAllocation(parentID)) {
 		t.Fatal("second provisional grant overwrote the first")
 	}
 	parent.releaseProvisionalChildBudget(Budget{Effects: NewQuota(7)})
-	if parent.provisionalChildBudget != nil || parent.allocatedResources.Effects != 3 {
+	if parent.provisionalChildBudget != nil || members.childAllocation(parentID).Effects != 3 {
 		t.Fatal("provisional rollback changed published allocation")
 	}
 }
@@ -200,7 +203,7 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.handle.budget = Budget{}
 	process.committedSteps = ^uint64(0)
-	if failure := process.stepSchedulingFailure(); failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) {
+	if failure := process.stepSchedulingFailure(resourceAmounts{}); failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) {
 		t.Fatalf("step overflow=%+v", failure)
 	}
 	if process.committedSteps != ^uint64(0) {
@@ -217,17 +220,15 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 
 func TestSnapshotRejectsMissingAndRetiredQuotaAuthority(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
-	for _, name := range []string{"budget", "allocated_resources"} {
-		var fields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
-			t.Fatal(err)
-		}
-		delete(fields, name)
-		if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
-			t.Fatalf("missing %s accepted: %v", name, err)
-		}
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"limits", "tree_limits"} {
+	delete(fields, "budget")
+	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("missing budget accepted: %v", err)
+	}
+	for _, name := range []string{"limits", "tree_limits", "allocated_resources"} {
 		var fields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 			t.Fatal(err)

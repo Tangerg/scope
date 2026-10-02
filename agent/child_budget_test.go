@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -81,13 +80,12 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.AllocatedResources.Steps = wire.Budget.Steps.maximum - wire.CommittedSteps
-	data, err := jsonv2.Marshal(wire)
-	if err != nil {
+	if err := wire.validateCapacity(resourceAmounts{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, parseErr := ParseProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
-		t.Fatalf("unfunded prepared Step error=%v", parseErr)
+	children := resourceAmounts{Steps: wire.Budget.Steps.maximum - wire.CommittedSteps}
+	if err := wire.validateCapacity(children); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("unfunded prepared Step error=%v", err)
 	}
 }
 
@@ -120,7 +118,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if _, exists := engine.Process(prepared.plan.childID); exists {
 		t.Fatal("rejected child settlement published the child")
 	}
-	if parent.effectiveAllocations() != (resourceAmounts{}) || runtime.members.len() != 1 {
+	if parent.reservedResources(runtime.members.childAllocation(parent.handle.processID)) != (resourceAmounts{}) || runtime.members.len() != 1 {
 		t.Fatal("rejected child settlement retained its budget or prospective Process")
 	}
 	assertTreeMembership(t, runtime)

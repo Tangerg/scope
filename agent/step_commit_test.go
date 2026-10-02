@@ -17,14 +17,9 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		rootProcessRelation(processID), Deployment{}, Digest{},
 		Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
 		CapabilitySet{}, time.Now())
-	process := &processState{
-		handle:             handle,
-		committedSteps:     maxUint64 - 1,
-		allocatedResources: resourceAmounts{Steps: 1, Effects: 1, Signals: 1},
-		mailbox:            newSignalMailbox(),
-	}
+	process := &processState{handle: handle, committedSteps: maxUint64 - 1, mailbox: newSignalMailbox()}
 
-	schedulingFailure := process.stepSchedulingFailure()
+	schedulingFailure := process.stepSchedulingFailure(resourceAmounts{Steps: 1, Effects: 1, Signals: 1})
 	if schedulingFailure == nil {
 		t.Fatal("step scheduling failure is nil")
 	}

@@ -350,25 +350,11 @@ func assertChildControlCancelIntent(t *testing.T, child, priorChild agent.Proces
 
 func assertChildControlAllocation(t *testing.T, parent, child agent.ProcessSnapshot, before agent.TreeSnapshot) {
 	t.Helper()
-	var current, prior struct {
-		Allocated struct {
-			Steps   uint64 `json:"steps"`
-			Effects uint64 `json:"effects"`
-			Signals uint64 `json:"signals"`
-		} `json:"allocated_resources"`
-	}
+	// The parent's child debit is derived from the retained child grant.
 	oldParent := conformanceSnapshotByID(before.ProcessSnapshots(), parent.ProcessID())
 	oldChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ProcessID())
-	if err := jsonv2.Unmarshal(parent.JSON(), &current); err != nil {
-		t.Fatal(err)
-	}
-	if err := jsonv2.Unmarshal(oldParent.JSON(), &prior); err != nil {
-		t.Fatal(err)
-	}
-	if current.Allocated != prior.Allocated || current.Allocated.Steps != childControlChildBudget ||
-		current.Allocated.Effects != childControlChildBudget || current.Allocated.Signals != childControlChildBudget ||
-		parent.Budget() != oldParent.Budget() || child.Budget() != oldChild.Budget() {
-		t.Fatalf("framework control released or changed child allocation: current=%+v prior=%+v", current, prior)
+	if parent.Budget() != oldParent.Budget() || child.Budget() != oldChild.Budget() {
+		t.Fatalf("framework control released or changed child allocation: parent=%+v child=%+v", parent.Budget(), child.Budget())
 	}
 }
 

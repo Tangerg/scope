@@ -51,7 +51,7 @@ func BenchmarkTreeAdmission(b *testing.B) {
 					b.Run("signal", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
-							candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
+							candidate, err := root.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits, resourceAmounts{})
 							if err != nil {
 								b.Fatal(err)
 							}
@@ -160,14 +160,6 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 			t.Fatal(err)
 		}
 		child.currentWaitID = waitID
-		debit, ok := root.handle.budget.allocation(budget)
-		if !ok {
-			t.Fatal("invalid allocation")
-		}
-		root.allocatedResources, ok = root.allocatedResources.add(debit)
-		if !ok {
-			t.Fatal("child allocation overflow")
-		}
 		processes = append(processes, child)
 	}
 	runtime := newTreeRuntime(engine, rootID, engine.treeLimits, t.Context(), processes...)

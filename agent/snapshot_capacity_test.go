@@ -253,7 +253,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !result.started() {
 		t.Fatalf("child initialization failed: %+v", result.result)
 	}
-	reserved := root.allocatedResources
+	reserved := runtime.members.childAllocation(root.handle.processID)
 	pending := &pendingChildStartPublication{parentID: root.handle.processID, effectID: effectID, plan: preparation.plan, result: result}
 	if err := runtime.applyChildStart(pending); err != nil {
 		t.Fatalf("capacity rejection became a runtime fault: %v", err)
@@ -263,7 +263,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
-	if root.allocatedResources != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+	if runtime.members.childAllocation(root.handle.processID) != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
 		t.Fatal("rejection retained child resources or lost the failed start fact")
 	}
 	assertNoPendingProcessStarts(t, runtime.engine)
@@ -311,7 +311,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
-			if root.provisionalChildBudget != nil || root.allocatedResources != (resourceAmounts{}) || runtime.members.len() != 1 {
+			if root.provisionalChildBudget != nil || runtime.members.childAllocation(root.handle.processID) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")
 			}
 			assertNoPendingProcessStarts(t, runtime.engine)

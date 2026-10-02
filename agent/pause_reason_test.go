@@ -146,7 +146,7 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 		t.Fatal("restoration changed concurrent current and pending Pause reasons")
 	}
 	signal := mustMailboxSignal(t, "signal:pause-capacity", WaitID{}, []byte(`{"value":"input"}`))
-	prospective, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
+	prospective, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits, resourceAmounts{})
 	if err != nil || prospective == nil {
 		t.Fatalf("prepare capacity witness: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 	for _, maximum := range []uint64{exact, exact - 1} {
 		runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(maximum)
 		before := controlValue(process.capture())
-		candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
+		candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits, resourceAmounts{})
 		if maximum == exact {
 			if err != nil || candidate == nil {
 				t.Fatalf("exact Pause reservation quota: %v", err)

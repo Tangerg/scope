@@ -62,20 +62,6 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 	if wire := captureChange(); wire.usage().AcceptedSignals != 1 || len(wire.Mailbox.Signals) != 1 {
 		t.Fatal("accepted signal is absent")
 	}
-	budget := Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}
-	if !process.reserveProvisionalChildBudget(budget) {
-		t.Fatal("budget not reserved")
-	}
-	if err := process.commitProvisionalChildBudget(budget); err != nil {
-		t.Fatal(err)
-	}
-	if wire := captureChange(); wire.AllocatedResources.Steps != 11 {
-		t.Fatal("committed budget is absent")
-	}
-	process.releaseCommittedChildBudget(budget)
-	if wire := captureChange(); wire.AllocatedResources.Steps != 10 {
-		t.Fatal("released budget is retained")
-	}
 	if before.Status() != StatusRunning || len(before.SignalReceipts()) != 0 {
 		t.Fatal("later changes mutated an earlier immutable capture")
 	}
@@ -97,7 +83,6 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.AllocatedResources = resourceAmounts{}
 	acknowledged, err = newProcessSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -176,22 +161,26 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	}
 }
 
-func TestChildBudgetUnderflowFailsBeforeMutation(t *testing.T) {
-	original := resourceAmounts{Steps: 3, Effects: 2, Signals: 1}
-	process := &processState{allocatedResources: original, handle: &processHandle{budget: Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}}}
+func TestChildDebitUnderflowPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
-			t.Fatal("budget underflow was silently accepted")
-		}
-		if process.allocatedResources != original {
-			t.Fatal("failed release mutated reservation")
+			t.Fatal("child debit underflow was silently accepted")
 		}
 	}()
-	process.releaseCommittedChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(3), Signals: NewQuota(1)})
+	resourceAmounts{Steps: 3, Effects: 2, Signals: 1}.subtract(resourceAmounts{Steps: 1, Effects: 3, Signals: 1})
+}
+
+// memberChildAllocation reads the debits tree membership attributes to a
+// Process, which holds none before it joins a tree.
+func memberChildAllocation(process *processState) resourceAmounts {
+	if runtime := process.handle.runtime.Load(); runtime != nil {
+		return runtime.members.childAllocation(process.handle.processID)
+	}
+	return resourceAmounts{}
 }
 
 func prepareTestStep(process *processState, limits TreeLimits, result stepJobResult) *stepFailure {
-	candidate, failure := process.prepareStep(result, limits)
+	candidate, failure := process.prepareStep(result, limits, memberChildAllocation(process))
 	if failure == nil {
 		process.adoptCandidate(candidate)
 	}
@@ -199,7 +188,7 @@ func prepareTestStep(process *processState, limits TreeLimits, result stepJobRes
 }
 
 func admitTestSignals(process *processState, limits TreeLimits, signals []Signal, source signalSource) (bool, error) {
-	candidate, err := process.prepareSignals(signals, source, limits)
+	candidate, err := process.prepareSignals(signals, source, limits, memberChildAllocation(process))
 	if err != nil || candidate == nil {
 		return false, err
 	}
@@ -211,7 +200,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	before := controlValue(process.capture())
 	signal := mustMailboxSignal(t, "signal:candidate", WaitID{}, []byte(`{}`))
-	candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits)
+	candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits, resourceAmounts{})
 	if err != nil || candidate == nil {
 		t.Fatalf("candidate: %v", err)
 	}
@@ -223,7 +212,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 		t.Fatal("candidate adoption lost the signal")
 	}
 	transition := controlValue(Continue(0, controlValue(NewDispatcherEffect([]byte(`{}`)))))
-	step, failure := process.prepareStep(stepJobResult{transition: transition, candidateState: process.committedExecutionState}, runtime.treeLimits)
+	step, failure := process.prepareStep(stepJobResult{transition: transition, candidateState: process.committedExecutionState}, runtime.treeLimits, resourceAmounts{})
 	if failure != nil {
 		t.Fatal(failure.cause)
 	}
