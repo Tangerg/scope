@@ -1,29 +1,23 @@
 package agent
 
+import "slices"
+
 // publicationLedger owns the committed facts staged until the next
 // acknowledged tree cut. Each Process owes at most one terminal publication.
 type publicationLedger map[ProcessID]pendingProcessPublication
 
-type pendingProcessPublication struct {
-	events   []eventDraft
-	terminal bool
+type pendingProcessPublication []eventDraft
+
+func (p pendingProcessPublication) hasTerminal() bool {
+	return slices.ContainsFunc(p, func(event eventDraft) bool { return event.name == EventProcessFinished })
 }
 
 func (p publicationLedger) stage(event eventDraft) {
-	publication := p[event.processID()]
-	publication.events = append(publication.events, event)
-	p[event.processID()] = publication
+	p[event.processID()] = append(p[event.processID()], event)
 }
 
 func (p publicationLedger) owesTerminal(processID ProcessID) bool {
-	return p[processID].terminal
-}
-
-func (p publicationLedger) stageTerminal(event eventDraft) {
-	p.stage(event)
-	publication := p[event.processID()]
-	publication.terminal = true
-	p[event.processID()] = publication
+	return p[processID].hasTerminal()
 }
 
 // take removes and returns what processID is owed, if anything.

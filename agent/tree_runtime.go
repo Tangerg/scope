@@ -875,7 +875,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		EventProcessFinished, 0, EffectID{}, process.terminalEventPayload(),
 	)
 	t.propagateProcessTermination(process)
-	t.publications.stageTerminal(event)
+	t.stageCommittedEvent(event)
 }
 
 func (t *treeRuntime) stageCommittedEvent(event eventDraft) {
@@ -899,10 +899,10 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 			continue
 		}
 		process := t.members.get(processID)
-		for _, event := range publication.events {
+		for _, event := range publication {
 			t.events.publish(process, event)
 		}
-		if !publication.terminal {
+		if !publication.hasTerminal() {
 			continue
 		}
 		result, terminal := snapshot.Result()
