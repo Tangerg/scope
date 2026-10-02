@@ -258,7 +258,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	for name, mutate := range map[string]func(*processSnapshotWire){
 		"missing receipt": func(child *processSnapshotWire) { child.Mailbox.Signals = nil },
 		"wrong payload": func(child *processSnapshotWire) {
-			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
+			child.Mailbox.Signals[0].Payload = []byte(`"other"`)
 		},
 		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
 		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(newProcessID()) },
@@ -278,6 +278,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
+	child.Mailbox.Signals[0].PayloadDigest = new(ComputeDigest(child.Mailbox.Signals[0].Payload))
 	child.Mailbox.Signals[0].Payload = nil
 	child.Mailbox.SignalCursor = 1
 	validation.processes[childID] = child

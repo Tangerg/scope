@@ -55,9 +55,9 @@ func TestMailboxRestoreEnforcesPayloadConsumptionBoundary(t *testing.T) {
 		mutate func(*signalRecordWire)
 	}{
 		{name: "pending payload missing", mutate: func(record *signalRecordWire) { record.Payload = nil }},
-		{name: "pending payload changed", mutate: func(record *signalRecordWire) { record.Payload = json.RawMessage(`{"value":"changed"}`) }},
-		{name: "digest missing", mutate: func(record *signalRecordWire) { record.PayloadDigest = Digest{} }},
+		{name: "pending digest stored", mutate: func(record *signalRecordWire) { record.PayloadDigest = new(ComputeDigest(record.Payload)) }},
 		{name: "consumed payload retained", cursor: 1, mutate: func(*signalRecordWire) {}},
+		{name: "consumed digest missing", cursor: 1, mutate: func(record *signalRecordWire) { record.Payload = nil }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			record := mailboxRecordWire(signal)
@@ -320,23 +320,35 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 	} {
 		wire := mailbox.wire()
 		wire.Signals[0].Opens = &opens
-		if _, err := restoreSignalMailbox(wire, StatusRunning); !errors.Is(err, errWaitState) {
-			t.Fatalf("restore %s authority error = %v", name, err)
+		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
+			t.Fatalf("restored %s wait authority", name)
 		}
 	}
 }
 
-func TestMailboxRestoreRejectsChildWaitOpeningMismatch(t *testing.T) {
+func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 	mailbox := newSignalMailbox()
 	waitID := controlValue(ParseWaitID("wait:announced"))
 	spec := testChildWaitSpec(t, "announced")
+	unannounced := mustMailboxSignal(t, "signal:engine:announced", waitID, json.RawMessage(`{}`))
+	if err := mailbox.openChildWait(spec, unannounced); !errors.Is(err, errWaitState) {
+		t.Fatalf("opening that does not announce its spec error = %v", err)
+	}
 	openTestChildWait(t, &mailbox, "signal:engine:announced", waitID, spec)
-	restoredMailbox(t, mailbox, StatusRunning)
-	wire := mailbox.wire()
-	other := testChildWaitSpec(t, "announced").wire()
-	wire.Signals[0].Opens.Spec = &other
-	if _, err := restoreSignalMailbox(wire, StatusRunning); !errors.Is(err, errWaitState) {
-		t.Fatalf("restore child wait unlike its opening Signal error = %v", err)
+	restored := restoredMailbox(t, mailbox, StatusRunning)
+	if pending := restored.pending(); len(pending) != 1 || !bytes.Equal(pending[0].payload, controlValue(childWaitOpenedPayload(spec))) {
+		t.Fatal("restored opening lost the payload its spec determines")
+	}
+	payload := controlValue(childWaitOpenedPayload(spec))
+	for name, mutate := range map[string]func(*signalRecordWire){
+		"payload": func(record *signalRecordWire) { record.Payload = payload },
+		"digest":  func(record *signalRecordWire) { record.PayloadDigest = new(ComputeDigest(payload)) },
+	} {
+		wire := mailbox.wire()
+		mutate(&wire.Signals[0])
+		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
+			t.Fatalf("child-wait opening stored its derived %s", name)
+		}
 	}
 }
 

@@ -394,6 +394,9 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	clone.Mailbox.Signals = slices.Clone(p.Mailbox.Signals)
 	for index, signal := range p.Mailbox.Signals {
 		clone.Mailbox.Signals[index].Payload = bytes.Clone(signal.Payload)
+		if signal.PayloadDigest != nil {
+			clone.Mailbox.Signals[index].PayloadDigest = new(*signal.PayloadDigest)
+		}
 		if signal.WaitID != nil {
 			clone.Mailbox.Signals[index].WaitID = new(*signal.WaitID)
 		}

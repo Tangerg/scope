@@ -486,16 +486,13 @@ func encodeChildWaitOpened(spec ChildWaitSpec) (json.RawMessage, error) {
 	})
 }
 
-// childWaitOpenedDigest identifies the opening Signal payload announcing spec.
-func childWaitOpenedDigest(spec ChildWaitSpec) (Digest, error) {
+// childWaitOpenedPayload is the normalized opening Signal payload announcing spec.
+func childWaitOpenedPayload(spec ChildWaitSpec) (json.RawMessage, error) {
 	payload, err := encodeChildWaitOpened(spec)
 	if err != nil {
-		return Digest{}, err
+		return nil, err
 	}
-	if payload, err = normalizeJSON(payload, MaxPayloadBytes); err != nil {
-		return Digest{}, err
-	}
-	return ComputeDigest(payload), nil
+	return normalizeJSON(payload, MaxPayloadBytes)
 }
 
 func (c childOutcomeWire) value() (ChildOutcome, error) {

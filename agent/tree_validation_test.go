@@ -35,7 +35,6 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 				payload.Outcomes = append(payload.Outcomes, outcome.wire())
 			}
 			record.Payload = controlValue(normalizeJSON(controlValue(jsonv2.Marshal(payload)), MaxPayloadBytes))
-			record.PayloadDigest = ComputeDigest(record.Payload)
 			process.Mailbox.Signals[len(process.Mailbox.Signals)-1] = record
 			candidate.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
 			encoded := controlValue(jsonv2.Marshal(candidate))
@@ -75,7 +74,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
 	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary}}))
-	root.Mailbox.Signals[1].Payload, root.Mailbox.Signals[1].PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
+	root.Mailbox.Signals[1].Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	return controlValue(newTreeSnapshot(wire))
 }
@@ -160,7 +159,6 @@ func TestTreeSnapshotKeepsWaitSignalsSeparated(t *testing.T) {
 func reopenTestChildWait(t testing.TB, record *signalRecordWire, spec ChildWaitSpec) {
 	t.Helper()
 	record.Opens = &waitOpeningWire{Spec: new(spec.wire())}
-	record.PayloadDigest = controlValue(childWaitOpenedDigest(spec))
 }
 
 func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
@@ -174,7 +172,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	record := &root.Mailbox.Signals[1]
 	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
 	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
-	record.Payload, record.PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
+	record.Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {
 		t.Fatalf("ordered quorum subset rejected: %v", err)

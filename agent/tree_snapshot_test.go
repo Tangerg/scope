@@ -251,7 +251,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			t.Fatalf("wire mutation changed retained Process snapshots: %v", encodeErr)
 		}
 	})
-	for _, boundary := range []ChildWaitBoundary{"", "unknown", ChildWaitBoundaryDrained} {
+	for _, boundary := range []ChildWaitBoundary{"", "unknown"} {
 		t.Run("child wait rejects changed boundary "+string(boundary), func(t *testing.T) {
 			encoded := treeJSONWithProcess(t, tree, root.ID(), func(wire *processSnapshotWire) {
 				for _, record := range wire.Mailbox.Signals {

@@ -67,10 +67,11 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 	return s.id == other.id && s.waitID == other.waitID && s.payloadDigest == other.payloadDigest && s.opensWait == other.opensWait
 }
 
+// wire keeps a pending payload or a consumed digest, never both.
 func (s signalRecord) wire() signalRecordWire {
-	wire := signalRecordWire{
-		ID:            s.id,
-		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload),
+	wire := signalRecordWire{ID: s.id, Payload: bytes.Clone(s.payload)}
+	if s.payload == nil {
+		wire.PayloadDigest = new(s.payloadDigest)
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -202,10 +203,15 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
 	return s.openSettledWait(waitRecord{key: key}, signal)
 }
 
-// openChildWait opens an Engine-answered wait over spec.
+// openChildWait opens an Engine-answered wait over spec. Its opening Signal
+// must announce exactly spec, which is all the persisted opening keeps.
 func (s *signalMailbox) openChildWait(spec ChildWaitSpec, signal Signal) error {
 	if !spec.Valid() {
 		return fmt.Errorf("%w: %w", errWaitState, ErrInvalidChildWait)
+	}
+	announced, err := childWaitOpenedPayload(spec)
+	if err != nil || !bytes.Equal(announced, signal.payload) {
+		return fmt.Errorf("%w: child wait opening Signal must announce its spec", errWaitState)
 	}
 	return s.openSettledWait(newChildWaitRecord(spec), signal)
 }
@@ -320,12 +326,51 @@ func (s *signalMailbox) contains(id SignalID) bool {
 	return exists
 }
 
+// signalRecordWire keeps a pending record's payload and a consumed record's
+// digest. A child-wait opening keeps neither, because its spec determines the
+// payload that announced it.
 type signalRecordWire struct {
 	ID            SignalID         `json:"id"`
 	WaitID        *WaitID          `json:"wait_id,omitzero"`
-	PayloadDigest Digest           `json:"payload_digest"`
+	PayloadDigest *Digest          `json:"payload_digest,omitzero"`
 	Payload       json.RawMessage  `json:"payload,omitzero"`
 	Opens         *waitOpeningWire `json:"opens,omitzero"`
+}
+
+// content derives the payload a pending record still carries and the digest
+// every record identifies.
+func (s signalRecordWire) content(consumed bool) (json.RawMessage, Digest, error) {
+	if s.Opens != nil && s.Opens.Spec != nil {
+		if s.Payload != nil || s.PayloadDigest != nil {
+			return nil, Digest{}, fmt.Errorf("%w: child-wait opening stores content its spec determines", errMailboxCursor)
+		}
+		spec, err := s.Opens.Spec.value()
+		if err != nil {
+			return nil, Digest{}, fmt.Errorf("%w: %w", errWaitState, err)
+		}
+		payload, err := childWaitOpenedPayload(spec)
+		if err != nil {
+			return nil, Digest{}, fmt.Errorf("%w: %w", errWaitState, err)
+		}
+		if consumed {
+			return nil, ComputeDigest(payload), nil
+		}
+		return payload, ComputeDigest(payload), nil
+	}
+	if consumed {
+		if s.Payload != nil || s.PayloadDigest == nil || !s.PayloadDigest.Valid() {
+			return nil, Digest{}, fmt.Errorf("%w: consumed Signal keeps exactly its digest", errMailboxCursor)
+		}
+		return nil, *s.PayloadDigest, nil
+	}
+	if s.PayloadDigest != nil {
+		return nil, Digest{}, fmt.Errorf("%w: pending Signal stores a digest of its payload", errMailboxCursor)
+	}
+	payload, err := normalizeJSON(s.Payload, MaxPayloadBytes)
+	if err != nil {
+		return nil, Digest{}, fmt.Errorf("%w: pending Signal payload: %w", errMailboxCursor, err)
+	}
+	return payload, ComputeDigest(payload), nil
 }
 
 // waitOpeningWire records the only wait facts the Signal history cannot
@@ -382,12 +427,15 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	receipts := make([]SignalReceipt, 0, len(m.Signals))
 	for index, record := range m.Signals {
 		arrivalSequence := uint64(index) + 1
+		consumed := arrivalSequence <= m.SignalCursor
+		// A validated capture always derives its content.
+		payload, digest, _ := record.content(consumed)
 		receipt := SignalReceipt{
-			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: record.PayloadDigest,
+			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: digest,
 			arrivalSequence: arrivalSequence, external: !record.ID.engineOwned(),
 		}
-		if arrivalSequence > m.SignalCursor {
-			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
+		if !consumed {
+			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: payload}
 		}
 		receipts = append(receipts, receipt)
 	}
@@ -436,7 +484,11 @@ func (s *signalMailbox) wire() mailboxWire {
 	for _, record := range s.records {
 		encoded := record.wire()
 		if record.opensWait {
-			encoded.Opens = s.waits[record.waitID].openingWire()
+			wait := s.waits[record.waitID]
+			encoded.Opens = wait.openingWire()
+			if wait.child != nil {
+				encoded.Payload, encoded.PayloadDigest = nil, nil
+			}
 		}
 		wire.Signals = append(wire.Signals, encoded)
 	}
@@ -527,13 +579,6 @@ func (s *signalMailbox) replay(record signalRecord, opening *waitOpeningWire) er
 		if err != nil {
 			return err
 		}
-		if wait.child != nil {
-			// The opening Signal announced exactly this spec to the Execution.
-			digest, err := childWaitOpenedDigest(*wait.child)
-			if err != nil || digest != record.payloadDigest {
-				return fmt.Errorf("%w: child wait disagrees with its opening Signal", errWaitState)
-			}
-		}
 		return s.openWaitRecord(wait, record)
 	}
 	accepted, err := s.enqueueRecord(StatusRunning, record)
@@ -547,22 +592,14 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 	if err := s.validateShape(); err != nil {
 		return signalRecord{}, err
 	}
-	record := signalRecord{
+	payload, digest, err := s.content(consumed)
+	if err != nil {
+		return signalRecord{}, err
+	}
+	return signalRecord{
 		id: s.ID, waitID: lo.FromPtr(s.WaitID),
-		payloadDigest: s.PayloadDigest, opensWait: s.Opens != nil,
-	}
-	if consumed {
-		if len(s.Payload) != 0 {
-			return signalRecord{}, fmt.Errorf("%w: consumed Signal retains payload", errMailboxCursor)
-		}
-		return record, nil
-	}
-	payload, err := normalizeJSON(s.Payload, MaxPayloadBytes)
-	if err != nil || ComputeDigest(payload) != s.PayloadDigest {
-		return signalRecord{}, fmt.Errorf("%w: pending Signal content disagrees with digest", errMailboxCursor)
-	}
-	record.payload = payload
-	return record, nil
+		payloadDigest: digest, payload: payload, opensWait: s.Opens != nil,
+	}, nil
 }
 
 func (s signalRecordWire) validateShape() error {
@@ -570,8 +607,6 @@ func (s signalRecordWire) validateShape() error {
 		return fmt.Errorf("%w: invalid signal source", errMailboxCursor)
 	}
 	switch {
-	case !s.PayloadDigest.Valid():
-		return fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
 	case s.WaitID != nil && !s.WaitID.Valid():
 		return fmt.Errorf("%w: Signal wait identity is invalid", errMailboxCursor)
 	case s.Opens != nil && s.WaitID == nil:
