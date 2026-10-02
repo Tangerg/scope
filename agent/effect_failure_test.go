@@ -129,7 +129,7 @@ func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := preparedEffect{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
-	process.prepared = &preparedStep{StepSequence: 1, Effects: preparedEffects{record}}
+	process.prepared = &preparedStep{Effects: preparedEffects{record}}
 	runtime.startDispatch(process, 0, record, nil)
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
 	dispatched, ok := completion.result.(dispatchJobResult)

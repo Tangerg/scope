@@ -123,41 +123,46 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 	}
 }
 
-func TestPreparedSnapshotBindsCommittedExecutionState(t *testing.T) {
+func TestPreparedSnapshotPreservesCommittedExecutionState(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	var projection struct {
 		CommittedState ExecutionState `json:"committed_execution_state"`
 		Prepared       struct {
-			CommittedDigest Digest         `json:"committed_execution_state_digest"`
-			CandidateState  ExecutionState `json:"candidate_state"`
+			CandidateState ExecutionState `json:"candidate_state"`
 		} `json:"prepared"`
 	}
 	if err := jsonv2.Unmarshal(snapshot.JSON(), &projection); err != nil {
 		t.Fatal(err)
 	}
-	committed, err := jsonv2.Marshal(snapshot.CommittedExecutionState())
-	if err != nil {
-		t.Fatal(err)
+	committed := controlValue(jsonv2.Marshal(snapshot.CommittedExecutionState()))
+	encoded := controlValue(jsonv2.Marshal(projection.CommittedState))
+	candidate := controlValue(jsonv2.Marshal(projection.Prepared.CandidateState))
+	if !bytes.Equal(committed, encoded) || bytes.Equal(committed, candidate) {
+		t.Fatal("prepared snapshot did not preserve the committed state beside its candidate")
 	}
-	encoded, err := jsonv2.Marshal(projection.CommittedState)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := jsonv2.Marshal(projection.Prepared.CandidateState)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(committed, encoded) || bytes.Equal(committed, candidate) ||
-		projection.Prepared.CommittedDigest != ComputeDigest(committed) {
-		t.Fatal("prepared snapshot did not preserve and identify the committed state")
-	}
-	wire, err := snapshot.wire()
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire.Prepared.CommittedExecutionStateDigest = ComputeDigest(candidate)
-	if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
-		t.Fatalf("prepared Step bound to its own candidate: %v", err)
+}
+
+func TestPreparedSnapshotRejectsCopiedProgress(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	for name, value := range map[string]json.RawMessage{
+		"step_sequence":                    json.RawMessage(`1`),
+		"committed_execution_state_digest": json.RawMessage(`"` + ComputeDigest(nil).String() + `"`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var wire map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(snapshot.JSON(), &wire); err != nil {
+				t.Fatal(err)
+			}
+			var prepared map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(wire["prepared"], &prepared); err != nil {
+				t.Fatal(err)
+			}
+			prepared[name] = value
+			wire["prepared"] = controlValue(jsonv2.Marshal(prepared))
+			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("copied prepared progress accepted: %v", err)
+			}
+		})
 	}
 }
 
@@ -179,9 +184,8 @@ func TestPreparedConsumptionUsesOnlyPendingSignals(t *testing.T) {
 	}
 	wire.Mailbox = mailbox.wire()
 	wire.CommittedSteps++
-	wire.Prepared.StepSequence++
 	for index := range wire.Prepared.Effects {
-		wire.Prepared.Effects[index].ID = wire.ProcessID.effectID(wire.Prepared.StepSequence, index)
+		wire.Prepared.Effects[index].ID = wire.ProcessID.effectID(wire.CommittedSteps+1, index)
 	}
 	for _, consumed := range []uint32{0, 1, 2, math.MaxUint32} {
 		wire.Prepared.Intent = controlValue(Continue(consumed))
@@ -230,7 +234,6 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	}
 	wire.CommittedSteps = math.MaxUint64
 	wire.Budget.Steps = NewQuota(math.MaxUint64)
-	wire.Prepared.StepSequence = 0
 	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
 	data, err := jsonv2.Marshal(wire)
 	if err != nil {
@@ -352,7 +355,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			for index, item := range sample.effects {
 				effects[index] = effect
 				record := preparedEffect{
-					ID:     wire.ProcessID.effectID(wire.Prepared.StepSequence, index),
+					ID:     wire.ProcessID.effectID(wire.CommittedSteps+1, index),
 					Effect: effect, Phase: item.phase,
 				}
 				if item.settlement.Valid() {

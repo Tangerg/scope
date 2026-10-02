@@ -150,7 +150,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 						diagnostic := controlValue(NewFailure(FailureKindExternal, "test.failure", "<actual diagnostic>"))
 						record.Diagnostic = &diagnostic
 					}
-					wire.Prepared = &preparedStep{StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()), CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)), Effects: preparedEffects{record}}
+					wire.Prepared = &preparedStep{CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)), Effects: preparedEffects{record}}
 					before := controlValue(jsonv2.Marshal(wire))
 					want := controlValue(materializedAdmissionSize(wire, limits))
 					got := controlValue(wire.admissionSize(limits))
@@ -201,7 +201,7 @@ func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
 	wire := root.snapshotWire()
 	limits := runtime.treeLimits
 	limits.MaxSnapshotBytes = NewQuota(1 << 30)
-	wire.Prepared = &preparedStep{StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()), CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0))}
+	wire.Prepared = &preparedStep{CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0))}
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	for index := range 3000 {
 		id := root.handle.processID.effectID(1, index)

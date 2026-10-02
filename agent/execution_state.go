@@ -95,14 +95,6 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e ExecutionState) digest() (Digest, error) {
-	data, err := jsonv2.Marshal(e)
-	if err != nil {
-		return Digest{}, err
-	}
-	return ComputeDigest(data), nil
-}
-
 type executionStateWire struct {
 	Kind    string          `json:"kind"`
 	Payload json.RawMessage `json:"payload"`

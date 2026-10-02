@@ -98,7 +98,7 @@ func (e eventRecorder) settlement(
 		EffectTarget: target, SettlementStatus: status, AttemptID: observation.id,
 		DurationMS: &durationMS, FailureKind: failure.Kind(), FailureCode: failure.Code(),
 	})
-	return e.prepare(process, EventEffectFinished, process.prepared.StepSequence, effectID, payload)
+	return e.prepare(process, EventEffectFinished, process.preparedStepSequence(), effectID, payload)
 }
 
 func (e eventRecorder) publishSettlement(
@@ -137,7 +137,7 @@ func (e eventRecorder) stepFinished(process *processState, result stepJobResult,
 func (e eventRecorder) dispatchFinished(process *processState, attempt effectAttempt, result dispatchJobResult) {
 	if result.dropped > 0 {
 		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: attempt.id})
-		e.emit(process, EventDeltaDropped, process.prepared.StepSequence, result.effectID, payload)
+		e.emit(process, EventDeltaDropped, process.preparedStepSequence(), result.effectID, payload)
 	}
 	e.publishSettlement(process, result.effectID, EffectTargetDispatcher, result.settlement.Status(), attempt, result.err)
 }

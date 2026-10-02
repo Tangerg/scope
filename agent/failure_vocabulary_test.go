@@ -30,7 +30,6 @@ func TestStableFailureVocabulary(t *testing.T) {
 		"engine.child.tree_limit":                            failureCodeEngineChildTreeLimit,
 		"engine.child.wait.satisfaction.encoding_failed":     failureCodeEngineChildWaitSatisfactionEncodingFailed,
 		"engine.child.wait.satisfaction.invalid":             failureCodeEngineChildWaitSatisfactionInvalid,
-		"engine.committed_execution_state.invalid":           failureCodeEngineCommittedExecutionStateInvalid,
 		"engine.counter.exhausted":                           failureCodeEngineCounterExhausted,
 		"engine.dispatch.canceled":                           failureCodeEngineDispatchCanceled,
 		"engine.dispatch.deadline":                           failureCodeEngineDispatchDeadline,

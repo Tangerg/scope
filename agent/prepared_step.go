@@ -8,12 +8,12 @@ import (
 // Its fields are the single persisted representation. Executable instances
 // belong to processState so portable facts cannot carry runtime authority.
 // Intent owns prospective Signal consumption; only adoption advances the mailbox.
+// The step always follows the committed one it would replace, so its sequence
+// and base state belong to the enclosing Process record.
 type preparedStep struct {
-	StepSequence                  uint64          `json:"step_sequence"`
-	CommittedExecutionStateDigest Digest          `json:"committed_execution_state_digest"`
-	CandidateState                ExecutionState  `json:"candidate_state"`
-	Intent                        Transition      `json:"intent"`
-	Effects                       preparedEffects `json:"effects,omitempty"`
+	CandidateState ExecutionState  `json:"candidate_state"`
+	Intent         Transition      `json:"intent"`
+	Effects        preparedEffects `json:"effects,omitempty"`
 }
 
 // nextEffect returns the execution frontier after checking the entire batch.
@@ -81,10 +81,7 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 	return false
 }
 
-func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedState ExecutionState, mailbox signalMailbox) error {
-	if p.StepSequence != sequence {
-		return errors.New("prepared Step sequence does not follow committed progress")
-	}
+func (p *preparedStep) validate(processID ProcessID, sequence uint64, mailbox signalMailbox) error {
 	if !p.CandidateState.Valid() {
 		return errors.New("prepared Step candidate state is invalid")
 	}
@@ -94,10 +91,6 @@ func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedS
 	if p.consumedSignals() > mailbox.pendingCount() {
 		return errors.New("prepared Step consumption exceeds pending Signals")
 	}
-	digest, err := committedState.digest()
-	if err != nil || digest != p.CommittedExecutionStateDigest {
-		return errors.New("prepared Step does not identify committed Execution state")
-	}
 	if len(p.Intent.effects) != 0 || len(p.Effects) != 0 && p.Intent.Kind() != TransitionKindContinue {
 		return errors.New("prepared Effects must belong only to the execution records of a continue intent")
 	}
@@ -106,7 +99,7 @@ func (p *preparedStep) validate(processID ProcessID, sequence uint64, committedS
 			return effectErr
 		}
 	}
-	_, err = p.Effects.next()
+	_, err := p.Effects.next()
 	return err
 }
 

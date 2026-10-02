@@ -89,6 +89,9 @@ func (p *processState) candidate() *processState {
 	return &candidate
 }
 
+// preparedStepSequence numbers the Step that would follow committed progress.
+func (p *processState) preparedStepSequence() uint64 { return p.committedSteps + 1 }
+
 // deployment is the exact binding the Process's handle owns.
 func (p *processState) deployment() Deployment { return p.handle.deployment }
 
@@ -451,18 +454,9 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits) (*pr
 			}
 		}
 	}
-	digest, err := p.committedExecutionState.digest()
-	if err != nil {
-		return nil, &stepFailure{
-			kind: FailureKindContract, code: failureCodeEngineCommittedExecutionStateInvalid, cause: err,
-		}
-	}
-	sequence := p.committedSteps + 1
+	sequence := p.preparedStepSequence()
 	transition.effects = nil
-	prepared := preparedStep{
-		StepSequence: sequence, CommittedExecutionStateDigest: digest, CandidateState: result.candidateState,
-		Intent: transition,
-	}
+	prepared := preparedStep{CandidateState: result.candidateState, Intent: transition}
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
 			ID: p.handle.processID.effectID(sequence, index), Effect: effect,
@@ -654,7 +648,7 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	p.preparedExecution = nil
 	p.committedExecutionState = finalization.prepared.CandidateState
 	p.mailbox = finalization.mailbox
-	p.committedSteps = finalization.prepared.StepSequence
+	p.committedSteps = p.preparedStepSequence()
 	p.prepared = nil
 	if finalization.commit.termination.Valid() {
 		p.installTermination(finalization.commit.termination, finalization.commit.finalOutput, finalization.commit.finishedAt)

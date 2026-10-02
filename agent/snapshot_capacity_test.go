@@ -176,7 +176,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	for _, process := range runtime.members.all() {
 		process.currentWaitID = WaitID{}
 		process.counters.PreparedEffects = 2
-		process.prepared = &preparedStep{StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(process.committedExecutionState.digest()), Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
+		process.prepared = &preparedStep{Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
 			{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePlanned},
 			{ID: process.handle.processID.effectID(1, 1), Effect: effect, Phase: effectPhasePlanned},
 		}}
@@ -227,7 +227,6 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		process.committedExecutionState = state
 		process.execution = execution
 		process.prepared = &preparedStep{
-			StepSequence: process.committedSteps + 1, CommittedExecutionStateDigest: controlValue(state.digest()),
 			CandidateState: state, Intent: controlValue(Continue(0)),
 		}
 	}
@@ -289,7 +288,6 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
 			}
 			root.prepared = &preparedStep{
-				StepSequence: 1, CommittedExecutionStateDigest: controlValue(root.committedExecutionState.digest()),
 				CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)),
 				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}},
 			}

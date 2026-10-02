@@ -642,7 +642,7 @@ func (t *treeRuntime) effectRequestFor(
 		t.writer.incarnation(),
 		process.handle.deploymentRef(),
 		process.handle.relation,
-		process.prepared.StepSequence,
+		process.preparedStepSequence(),
 		batchIndex,
 		record.ID,
 		record.Effect,
@@ -1119,7 +1119,7 @@ func (t *treeRuntime) commitResolution(process *processState, settlement Settlem
 		EffectTarget: record.Effect.Target(), SettlementStatus: settlement.Status(),
 	})
 	t.stageEvent(process, EventEffectResolved,
-		process.prepared.StepSequence, record.ID, payload)
+		process.preparedStepSequence(), record.ID, payload)
 
 	if err := t.startUnknownResolutionCommit(process, index, settlement, reply); err != nil {
 		reply.send(processResponse{err: err})
@@ -1499,7 +1499,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 	}
 	if record.Effect.Target() == EffectTargetFramework {
 		process.restoredPending = restoredPendingEffect{}
-		observation := t.events.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetFramework)
+		observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetFramework)
 		operation, err := decodeFrameworkOperation(record.Effect.Payload())
 		if err != nil {
 			t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
@@ -1611,7 +1611,7 @@ func (t *treeRuntime) startDispatch(
 		return
 	}
 	request := t.effectRequestFor(process, batchIndex, record)
-	observation := t.events.beginEffectAttempt(process, process.prepared.StepSequence, record.ID, EffectTargetDispatcher)
+	observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetDispatcher)
 	request.attemptID = observation.id
 	dispatchCtx, cancel := context.WithCancel(t.context)
 	job := &processJob{

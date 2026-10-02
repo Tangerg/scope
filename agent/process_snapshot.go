@@ -179,7 +179,7 @@ func (p ProcessSnapshot) Settlements() []Settlement {
 
 func (p ProcessSnapshot) preparedEffect(stepSequence uint64, batchIndex uint32) (preparedEffect, bool) {
 	prepared := p.state.Prepared
-	if prepared == nil || prepared.StepSequence != stepSequence || uint64(batchIndex) >= uint64(len(prepared.Effects)) {
+	if prepared == nil || p.state.CommittedSteps+1 != stepSequence || uint64(batchIndex) >= uint64(len(prepared.Effects)) {
 		return preparedEffect{}, false
 	}
 	return prepared.Effects[batchIndex], true
@@ -500,7 +500,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 	if p.CommittedSteps == math.MaxUint64 {
 		return fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 	}
-	if err := p.Prepared.validate(p.ProcessID, p.CommittedSteps+1, p.CommittedExecutionState, mailbox); err != nil {
+	if err := p.Prepared.validate(p.ProcessID, p.CommittedSteps+1, mailbox); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
 	for _, record := range p.Prepared.Effects {

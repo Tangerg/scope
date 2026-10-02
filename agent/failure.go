@@ -190,7 +190,6 @@ const (
 	failureCodeEngineChildTreeLimit                           = "engine.child.tree_limit"
 	failureCodeEngineChildWaitSatisfactionEncodingFailed      = "engine.child.wait.satisfaction.encoding_failed"
 	failureCodeEngineChildWaitSatisfactionInvalid             = "engine.child.wait.satisfaction.invalid"
-	failureCodeEngineCommittedExecutionStateInvalid           = "engine.committed_execution_state.invalid"
 	failureCodeEngineCounterExhausted                         = "engine.counter.exhausted"
 	failureCodeEngineDispatchCanceled                         = "engine.dispatch.canceled"
 	failureCodeEngineDispatchDeadline                         = "engine.dispatch.deadline"
