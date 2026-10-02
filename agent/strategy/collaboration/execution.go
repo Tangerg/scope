@@ -18,7 +18,11 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.phase() {
+	decision, err := e.state.decision()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	switch e.state.phase(decision.Mode) {
 	case phaseReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidProtocol
@@ -38,14 +42,18 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 }
 
 func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
-	if !e.definition.maxTurns.Allows(e.state.Number, 1) {
+	number := e.state.number()
+	if !e.definition.maxTurns.Allows(number, 1) {
 		return agent.Transition{}, ErrTurnLimit
 	}
-	if e.state.Number == math.MaxUint64 {
+	if number == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
 	}
-	e.state.Number++
-	turn := Turn{Number: e.state.Number, State: e.state.State,
+	decision, err := e.state.decision()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	turn := Turn{Number: number + 1, State: e.state.workingState(decision),
 		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...),
 		Workers: make([]agent.Descriptor, 0, len(e.definition.workers))}
 	for _, worker := range e.definition.workers {
@@ -55,7 +63,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	key, err := turnKey(e.state.Number)
+	key, err := turnKey(turn.Number)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -64,7 +72,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 		return agent.Transition{}, err
 	}
 	e.state.Turn = &turnExecution{Input: turn}
-	e.state.Mode = ModeUndecided
+	e.state.InitialState = agent.Payload{}
 	e.state.WaitID = nil
 	return agent.Continue(consumed, effect)
 }
@@ -153,12 +161,16 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if completionErr != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, completionErr)
 	}
+	decided := e.state.Turn.Outcome != nil
 	for offset, outcome := range satisfied.Outcomes() {
 		e.state.recordOutcome(indices[offset], outcome)
 	}
 	e.state.WaitID = nil
 	if e.state.Turn.Outcome == nil {
 		return e.openWait(1)
+	}
+	if decided {
+		return e.startTurn(1)
 	}
 	return e.adoptTurn(ctx, 1)
 }
@@ -171,20 +183,13 @@ func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Trans
 		}
 		return agent.Fail(consumed, failure)
 	}
-	if e.state.Mode == ModeWait {
-		return e.startTurn(consumed)
+	decision, err := e.state.decision()
+	if err != nil {
+		return agent.Transition{}, err
 	}
 	result := e.state.Turn.Outcome.Result()
 	if failure, failed := result.Termination().Failure(); failed {
 		return agent.Fail(consumed, failure)
-	}
-	output, present := result.Output()
-	if !present || result.Status() != agent.StatusCompleted {
-		return agent.Transition{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Status(), result.Termination().Reason())
-	}
-	decision, err := output.Decode[Decision]()
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidDecision, err)
 	}
 	return e.applyDecision(ctx, decision, consumed)
 }
@@ -261,7 +266,11 @@ func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32
 }
 
 func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
-	if e.state.Mode == ModeWait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
+	decision, err := e.state.decision()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if decision.Mode == ModeWait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
 		return e.openWait(consumed)
 	}
 	return e.startTurn(consumed)
@@ -288,8 +297,6 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		}
 		effects = append(effects, effect)
 	}
-	e.state.State = decision.State
-	e.state.Mode = decision.Mode
 	e.state.Controls = nil
 	for _, request := range decision.Tasks {
 		e.state.Tasks = append(e.state.Tasks, Task{Request: request})

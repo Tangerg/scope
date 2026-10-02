@@ -165,7 +165,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		current := state.phase()
+		current := state.phase(require(state.decision()).Mode)
 		cases[index].Name = fmt.Sprintf("phase%d-%c", current, 'a'+index)
 		phases[current] = true
 		if current != phaseReady {
@@ -174,14 +174,21 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 				t.Fatalf("%s accepted a Step without its protocol Signal: %v", cases[index].Name, err)
 			}
 		}
-		mutations := map[string]func(*executionState){
-			"excess turns":  func(state *executionState) { maximum, _ := definition.maxTurns.Maximum(); state.Number = maximum + 1 },
-			"changed state": func(state *executionState) { state.State = require(agent.EncodePayload(1)) },
-		}
-		if state.Turn != nil {
-			mutations["changed turn number"] = func(state *executionState) { state.Turn.Input.Number++ }
+		mutations := map[string]func(*executionState){}
+		if state.Turn == nil {
+			mutations["changed initial state"] = func(state *executionState) { state.InitialState = require(agent.EncodePayload(1)) }
+		} else {
+			mutations["excess turns"] = func(state *executionState) {
+				maximum, _ := definition.maxTurns.Maximum()
+				state.Turn.Input.Number = maximum + 1
+			}
+			mutations["zero turn number"] = func(state *executionState) { state.Turn.Input.Number = 0 }
 			mutations["changed worker catalog"] = func(state *executionState) { state.Turn.Input.Workers = nil }
-			mutations["different carried state"] = func(state *executionState) { state.State = input("forged") }
+			mutations["changed input state"] = func(state *executionState) { state.Turn.Input.State = require(agent.EncodePayload(1)) }
+			mutations["retained initial state"] = func(state *executionState) { state.InitialState = input("forged") }
+			if state.Turn.Start != nil {
+				mutations["changed turn number"] = func(state *executionState) { state.Turn.Input.Number++ }
+			}
 		}
 		if len(state.Tasks) > 0 {
 			mutations["duplicate task"] = func(state *executionState) { state.Tasks = append(state.Tasks, state.Tasks[0]) }

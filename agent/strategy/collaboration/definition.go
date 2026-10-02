@@ -164,7 +164,7 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	return &execution{definition: d, state: executionState{State: input}}, nil
+	return &execution{definition: d, state: executionState{InitialState: input}}, nil
 }
 
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {

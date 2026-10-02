@@ -280,7 +280,13 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
 				t.Fatal(err)
 			}
-			if string(wire["number"]) != "1" || len(wire["tasks"]) != 0 || len(wire["controls"]) != 0 {
+			var turn struct {
+				Input collaboration.Turn `json:"input"`
+			}
+			if err := jsonv2.Unmarshal(wire["turn"], &turn); err != nil {
+				t.Fatal(err)
+			}
+			if turn.Input.Number != 1 || len(wire["tasks"]) != 0 || len(wire["controls"]) != 0 {
 				t.Fatalf("unsafe decision adopted: %s", state.Payload())
 			}
 			wire["mode"] = safetyValue(jsonv2.Marshal(mode))

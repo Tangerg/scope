@@ -5,17 +5,69 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func TestRestoreRequiresExplicitTurnAndWaitCounters(t *testing.T) {
+func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+		if turn.Number == 1 {
+			return Decision{Mode: ModeWait, State: input("working"), Tasks: []TaskRequest{request("work", "test.echo", "value")}}, nil
+		}
+		if turn.Number != 2 || require(turn.State.Decode[string]()) != "working" || turn.Tasks[0].Outcome == nil {
+			return Decision{}, errors.New("turn lost its predecessor decision or task outcome")
+		}
+		return Decision{Mode: ModeComplete, State: input("finished"), Output: input("done")}, nil
+	}, echo())
+	instance := require(definition.Start(input("initial")))
+	initial := require(instance.Snapshot())
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(initial.Payload(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"initial_state", "wait_sequence"}) {
+		t.Fatalf("initial state fields = %v", got)
+	}
+	restored := require(definition.Restore(t.Context(), initial))
+	require(restored.Step(t.Context(), nil))
+	started := require(restored.Snapshot())
+	fields = nil
+	if err := jsonv2.Unmarshal(started.Payload(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"turn", "wait_sequence"}) {
+		t.Fatalf("started state fields = %v", got)
+	}
+	engine, process := run(t, definition, agent.NewMemoryTreeCommitter())
+	if got := completed(t, process); got != "done" {
+		t.Fatal(got)
+	}
+	tree := require(engine.InspectTree(t.Context(), process.ID()))
+	root, _ := tree.Process(process.ID())
+	state := root.Snapshot.CommittedExecutionState()
+	fields = nil
+	if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"tasks", "turn", "wait_sequence"}) {
+		t.Fatalf("completed state fields = %v", got)
+	}
+	recovered := require(definition.Restore(t.Context(), state)).(*execution)
+	decision := require(recovered.state.decision())
+	if recovered.state.number() != 2 || decision.Mode != ModeComplete || require(recovered.state.workingState(decision).Decode[string]()) != "finished" {
+		t.Fatal("recovery did not derive progress from the recorded turn and decision")
+	}
+}
+
+func TestRestoreRequiresExplicitWaitCounter(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	execution := require(definition.Start(input("initial")))
 	state := require(execution.Snapshot())
-	for _, member := range []string{"number", "wait_sequence"} {
+	for _, member := range []string{"wait_sequence"} {
 		for _, mode := range []string{"missing", "null"} {
 			t.Run(member+"/"+mode, func(t *testing.T) {
 				var fields map[string]json.RawMessage
@@ -38,8 +90,9 @@ func TestRestoreRequiresExplicitTurnAndWaitCounters(t *testing.T) {
 func TestUnlimitedTurnAndWaitCountersStopBeforeWrap(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	execution := require(definition.Start(input("initial"))).(*execution)
-	execution.state.Number = ^uint64(0)
-	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.Number != ^uint64(0) {
+	require(execution.Step(t.Context(), nil))
+	execution.state.Turn.Input.Number = ^uint64(0)
+	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.number() != ^uint64(0) {
 		t.Fatalf("turn identity wrapped: %v", err)
 	}
 	execution.state.WaitSequence = ^uint64(0)

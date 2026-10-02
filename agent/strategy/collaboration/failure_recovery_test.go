@@ -70,16 +70,15 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.phase() != phaseFailed {
-				t.Fatalf("failed turn was not retained: phase %d", decoded.phase())
+			if decoded.phase(require(decoded.decision()).Mode) != phaseFailed {
+				t.Fatalf("failed turn was not retained: phase %d", decoded.phase(require(decoded.decision()).Mode))
 			}
 			if _, err := definition.Restore(t.Context(), state); err != nil {
 				t.Fatal(err)
 			}
 			mutations := map[string]func(*executionState){
-				"completed mode": func(state *executionState) { state.Mode = ModeComplete },
-				"decision mode":  func(state *executionState) { state.Mode = ModeContinue },
-				"changed state":  func(state *executionState) { state.State = input("forged") },
+				"retained initial state": func(state *executionState) { state.InitialState = input("forged") },
+				"invalid turn state":     func(state *executionState) { state.Turn.Input.State = require(agent.EncodePayload(42)) },
 			}
 			if mode != "start" {
 				// Without its outcome, a turn that never started is a valid fresh turn.

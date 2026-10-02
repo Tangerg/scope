@@ -53,20 +53,37 @@ func (t turnExecution) failure() (agent.Failure, bool) {
 	return agent.Failure{}, false
 }
 
+func (t turnExecution) decision() (Decision, error) {
+	if t.Outcome == nil || t.ended() {
+		return Decision{}, nil
+	}
+	result := t.Outcome.Result()
+	output, present := result.Output()
+	if !present || result.Status() != agent.StatusCompleted {
+		return Decision{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Status(), result.Termination().Reason())
+	}
+	decision, err := output.Decode[Decision]()
+	if err != nil {
+		return Decision{}, fmt.Errorf("%w: coordinator output: %w", ErrInvalidDecision, err)
+	}
+	if err := decision.validateShape(); err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
+}
+
 type executionState struct {
-	Number       uint64           `json:"number"`
-	State        agent.Payload    `json:"state"`
+	InitialState agent.Payload    `json:"initial_state,omitzero"`
 	Tasks        []Task           `json:"tasks,omitempty"`
 	Controls     []ControlReceipt `json:"controls,omitempty"`
 	Turn         *turnExecution   `json:"turn,omitzero"`
-	Mode         Mode             `json:"mode,omitempty"`
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
 }
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
 	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "number", "wait_sequence")
+	decoded, err := jsonwire.Decode[wire](data, "wait_sequence")
 	if err != nil {
 		return err
 	}
@@ -77,15 +94,15 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 // phase derives the next protocol step. A turn fails, before any decision
 // applies, when its start fails or its drained outcome failed or retains
 // unresolved Effects.
-func (e executionState) phase() phase {
+func (e executionState) phase(mode Mode) phase {
 	switch {
 	case e.Turn == nil:
 		return phaseReady
-	case e.Mode == ModeComplete:
+	case mode == ModeComplete:
 		return phaseCompleted
 	case e.Turn.Start == nil:
 		return phaseStartingTurn
-	case e.Mode == ModeUndecided && e.Turn.ended():
+	case mode == ModeUndecided && e.Turn.ended():
 		return phaseFailed
 	case e.unapplied() != 0:
 		return phaseApplying
@@ -94,6 +111,30 @@ func (e executionState) phase() phase {
 	default:
 		return phaseOpening
 	}
+}
+
+func (e executionState) number() uint64 {
+	if e.Turn == nil {
+		return 0
+	}
+	return e.Turn.Input.Number
+}
+
+func (e executionState) decision() (Decision, error) {
+	if e.Turn == nil {
+		return Decision{}, nil
+	}
+	return e.Turn.decision()
+}
+
+func (e executionState) workingState(decision Decision) agent.Payload {
+	if e.Turn == nil {
+		return e.InitialState
+	}
+	if decision.Mode == ModeUndecided {
+		return e.Turn.Input.State
+	}
+	return decision.State
 }
 
 // unapplied counts decided actions whose Framework settlement is still owed.
@@ -153,7 +194,7 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 		}
 	}
 	if e.Turn != nil {
-		key, err := turnKey(e.Number)
+		key, err := turnKey(e.number())
 		if err != nil {
 			return childcall.Batch{}, err
 		}
@@ -243,7 +284,19 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := d.descriptor.ValidateInput(e.State); err != nil {
+	decision, decisionErr := e.decision()
+	if decisionErr != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, decisionErr)
+	}
+	if e.Turn != nil && e.InitialState.Valid() {
+		return fmt.Errorf("%w: initial state retained after the first turn", ErrInvalidExecutionState)
+	}
+	if e.Turn != nil {
+		if err := e.validateTurnInput(d); err != nil {
+			return err
+		}
+	}
+	if err := d.descriptor.ValidateInput(e.workingState(decision)); err != nil {
 		return fmt.Errorf("%w: state: %w", ErrInvalidExecutionState, err)
 	}
 	if err := e.validateBounds(d); err != nil {
@@ -260,34 +313,34 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err != nil {
 		return err
 	}
-	current := e.phase()
+	current := e.phase(decision.Mode)
 	if current == phaseReady {
 		return e.validateReady()
 	}
-	if err := e.validateTurn(ctx, d, ids, current); err != nil {
+	if err := e.validateTurn(ctx, d, ids, current, decision); err != nil {
 		return err
 	}
 	if err := e.validatePhaseEvidence(current, pending+pendingControls); err != nil {
 		return err
 	}
-	if err := e.validatePhaseProgress(d, current); err != nil {
+	if err := e.validatePhaseProgress(d, current, decision.Mode); err != nil {
 		return err
 	}
 	return ctx.Err()
 }
 
 func (e executionState) validateBounds(d *Definition) error {
-	if !d.maxTurns.Allows(e.Number) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
+	if !d.maxTurns.Allows(e.number()) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
 		return fmt.Errorf("%w: turn, task, or control bound exceeded", ErrInvalidExecutionState)
 	}
-	if e.WaitSequence > e.Number && e.WaitSequence-e.Number > uint64(len(e.Tasks)) {
+	if e.WaitSequence > e.number() && e.WaitSequence-e.number() > uint64(len(e.Tasks)) {
 		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
 func (e executionState) validateReady() error {
-	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != ModeUndecided || e.WaitSequence != 0 || e.WaitID != nil {
+	if len(e.Tasks)+len(e.Controls) != 0 || e.WaitSequence != 0 || e.WaitID != nil {
 		return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
 	}
 	return nil
@@ -305,51 +358,42 @@ func (e executionState) validatePhaseEvidence(current phase, unapplied int) erro
 	return nil
 }
 
-func (e executionState) validatePhaseProgress(d *Definition, current phase) error {
+func (e executionState) validatePhaseProgress(d *Definition, current phase, mode Mode) error {
 	switch current {
 	case phaseStartingTurn:
 		return e.validateStartingTurn()
 	case phaseApplying:
-		return e.validateApplying()
+		return e.validateApplying(mode)
 	case phaseOpening, phaseWaiting:
-		return e.validateWaitingTurn(d)
-	case phaseCompleted:
-		return e.validateCompleted(d)
+		return e.validateWaitingTurn(d, mode)
 	default:
 		return nil
 	}
 }
 
 func (e executionState) validateStartingTurn() error {
-	if e.Turn.Outcome != nil || e.Mode != ModeUndecided {
+	if e.Turn.Outcome != nil {
 		return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateApplying() error {
-	if e.Turn.Outcome == nil || e.Mode != ModeContinue && e.Mode != ModeWait {
+func (e executionState) validateApplying(mode Mode) error {
+	if mode != ModeContinue && mode != ModeWait {
 		return fmt.Errorf("%w: applying phase requires a continuing decision and pending work", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateWaitingTurn(d *Definition) error {
-	if e.Mode == ModeWait && e.hasUnseenOutcome() {
+func (e executionState) validateWaitingTurn(d *Definition, mode Mode) error {
+	if mode == ModeWait && e.hasUnseenOutcome() {
 		return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
 	}
-	if e.Turn.Outcome == nil && e.Mode != ModeUndecided || e.Turn.Outcome != nil && e.Mode != ModeWait {
+	if e.Turn.Outcome != nil && mode != ModeWait {
 		return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidExecutionState)
 	}
 	if _, err := e.waitSpec(d); err != nil {
 		return fmt.Errorf("%w: child wait: %w", ErrInvalidExecutionState, err)
-	}
-	return nil
-}
-
-func (e executionState) validateCompleted(d *Definition) error {
-	if e.Turn.Outcome == nil || e.Mode != ModeComplete {
-		return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -431,11 +475,8 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 	return pendingControls, nil
 }
 
-func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
+func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}, current phase, decision Decision) error {
 	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := e.validateTurnInput(d); err != nil {
 		return err
 	}
 	if err := e.validateTurnWorkers(ctx, d); err != nil {
@@ -450,15 +491,15 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := e.validateTurnStart(d, ids, current); err != nil {
 		return err
 	}
-	if e.Mode == ModeUndecided {
+	if decision.Mode == ModeUndecided {
 		return e.validateUndecidedTurn(current)
 	}
-	return e.validateAppliedDecision(ctx, d)
+	return e.validateAppliedDecision(ctx, d, decision)
 }
 
 func (e executionState) validateTurnInput(d *Definition) error {
-	if e.Turn == nil || e.Number == 0 || e.Turn.Input.Number != e.Number {
-		return fmt.Errorf("%w: turn is missing or its number does not match", ErrInvalidExecutionState)
+	if e.number() == 0 {
+		return fmt.Errorf("%w: turn requires a positive number", ErrInvalidExecutionState)
 	}
 	if len(e.Turn.Input.Tasks) > len(e.Tasks) {
 		return fmt.Errorf("%w: turn input contains undeclared tasks", ErrInvalidExecutionState)
@@ -524,7 +565,7 @@ func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID
 	if e.Turn.Start == nil {
 		return nil
 	}
-	key, err := turnKey(e.Number)
+	key, err := turnKey(e.number())
 	if err != nil {
 		return fmt.Errorf("%w: turn key: %w", ErrInvalidExecutionState, err)
 	}
@@ -541,26 +582,18 @@ func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID
 
 func (e executionState) validateUndecidedTurn(current phase) error {
 	if e.Turn.Outcome != nil && current != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
-		!sameJSON(e.State, e.Turn.Input.State) || !sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
-		return fmt.Errorf("%w: turn without a decision changed state, tasks, or controls", ErrInvalidExecutionState)
+		!sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
+		return fmt.Errorf("%w: turn without a decision changed tasks or controls", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateAppliedDecision(ctx context.Context, d *Definition) error {
+func (e executionState) validateAppliedDecision(ctx context.Context, d *Definition, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if e.Turn.Outcome == nil || e.Turn.unresolved() {
-		return fmt.Errorf("%w: applied decision requires a resolved turn outcome", ErrInvalidExecutionState)
-	}
-	result := e.Turn.Outcome.Result()
-	output, present := result.Output()
-	if !present || result.Status() != agent.StatusCompleted {
-		return fmt.Errorf("%w: applied decision requires a completed turn output", ErrInvalidExecutionState)
-	}
-	decision, err := d.coordinator.deployment.Descriptor().DecodeOutput[Decision](output)
-	if err != nil {
+	output, _ := e.Turn.Outcome.Result().Output()
+	if err := d.coordinator.deployment.Descriptor().ValidateOutput(output); err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidExecutionState, err)
 	}
 	if err := e.validateAppliedActions(ctx, decision); err != nil {
@@ -576,9 +609,8 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 
 func (e executionState) validateAppliedActions(ctx context.Context, decision Decision) error {
 	previousCount := len(e.Turn.Input.Tasks)
-	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) ||
-		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) {
-		return fmt.Errorf("%w: applied state does not match the coordinator decision", ErrInvalidExecutionState)
+	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) {
+		return fmt.Errorf("%w: applied actions do not match the coordinator decision", ErrInvalidExecutionState)
 	}
 	for index, request := range decision.Tasks {
 		if err := ctx.Err(); err != nil {

@@ -22,6 +22,10 @@
 // Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
+// The current Turn owns its number and input state. A resolved coordinator
+// outcome owns the Decision, including the next working state and mode;
+// recovery derives them directly without retaining writable copies. Initial
+// state is retained only until the first Turn takes ownership of it.
 //
 // Controls compile to agent.NewChildSignalEffect and agent.NewChildCancelEffect. Signals obey the
 // recipient Strategy's protocol, including interaction steering at its safe
