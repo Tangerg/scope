@@ -22,30 +22,45 @@ var (
 )
 
 // signalRecord's arrival sequence is its one-based position in the mailbox
-// history, so neither the record nor its wire stores it.
+// history and its source follows from its identity facts, so neither the
+// record nor its wire stores them.
 type signalRecord struct {
 	id            SignalID
 	waitID        WaitID
 	payloadDigest Digest
 	payload       json.RawMessage
 	opensWait     bool
-	source        signalSource
 }
 
 func newSignalRecord(signal Signal, opensWait bool) signalRecord {
 	return signalRecord{
 		id: signal.id, waitID: signal.waitID, payload: signal.payload,
-		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait, source: signalSourceExternal,
+		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait,
 	}
 }
 
+// newAdmissionRecord accepts signal only through the channel its identity
+// facts assign it to.
 func newAdmissionRecord(signal Signal, source signalSource) (signalRecord, error) {
-	if !signal.Valid() || !source.accepts(signal.ID()) {
+	record := newSignalRecord(signal, false)
+	if !signal.Valid() || record.source() != source {
 		return signalRecord{}, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
-	record := newSignalRecord(signal, false)
-	record.source = source
 	return record, nil
+}
+
+// source classifies who may deliver the record: Host identities are external;
+// an Engine identity opens a wait or settles an Effect as a settlement, and
+// answers a child wait when addressed.
+func (s signalRecord) source() signalSource {
+	switch {
+	case !s.id.engineOwned():
+		return signalSourceExternal
+	case s.waitID.Valid() && !s.opensWait:
+		return signalSourceChildWait
+	default:
+		return signalSourceSettlement
+	}
 }
 
 func (s signalRecord) sameContent(other signalRecord) bool {
@@ -55,7 +70,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 func (s signalRecord) wire() signalRecordWire {
 	wire := signalRecordWire{
 		ID:            s.id,
-		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), Source: s.source,
+		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload),
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -128,17 +143,6 @@ const (
 	signalSourceSettlement signalSource = "settlement"
 )
 
-func (s signalSource) accepts(id SignalID) bool {
-	switch s {
-	case signalSourceExternal:
-		return id.Valid() && !id.engineOwned()
-	case signalSourceSettlement, signalSourceChildWait:
-		return id.Valid() && id.engineOwned()
-	default:
-		return false
-	}
-}
-
 func (s *signalMailbox) enqueue(status Status, signal Signal, source signalSource) (bool, error) {
 	record, err := newAdmissionRecord(signal, source)
 	if err != nil {
@@ -165,13 +169,10 @@ func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool
 		return false, ErrSignalRejected
 	}
 	if !record.waitID.Valid() {
-		if record.source == signalSourceChildWait {
-			return false, ErrSignalRejected
-		}
 		return true, nil
 	}
 	wait, exists := s.waits[record.waitID]
-	if !exists || !wait.answerableBy(record.source) || wait.closed || wait.answered {
+	if !exists || !wait.answerableBy(record.source()) || wait.closed || wait.answered {
 		return false, ErrSignalRejected
 	}
 	return true, nil
@@ -181,8 +182,7 @@ func (s *signalMailbox) validateDuplicate(existing, record signalRecord) error {
 	if !existing.sameContent(record) {
 		return ErrSignalConflict
 	}
-	if existing.source != record.source ||
-		record.waitID.Valid() && !s.waits[record.waitID].answerableBy(record.source) {
+	if record.waitID.Valid() && !s.waits[record.waitID].answerableBy(record.source()) {
 		return ErrSignalRejected
 	}
 	return nil
@@ -215,9 +215,7 @@ func (s *signalMailbox) openSettledWait(wait waitRecord, signal Signal) error {
 	if !signal.Valid() || !addressed {
 		return fmt.Errorf("%w: addressed opening Signal is required", errWaitState)
 	}
-	record := newSignalRecord(signal, true)
-	record.source = signalSourceSettlement
-	return s.openWaitRecord(wait, record)
+	return s.openWaitRecord(wait, newSignalRecord(signal, true))
 }
 
 func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) error {
@@ -225,7 +223,7 @@ func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) err
 	if !key.Valid() {
 		return fmt.Errorf("%w: invalid wait key", errWaitState)
 	}
-	if !signalSourceSettlement.accepts(record.id) {
+	if record.source() != signalSourceSettlement {
 		return fmt.Errorf("%w: opening Signal requires Engine identity", errWaitState)
 	}
 	if _, exists := s.waits[id]; exists {
@@ -328,7 +326,6 @@ type signalRecordWire struct {
 	PayloadDigest Digest           `json:"payload_digest"`
 	Payload       json.RawMessage  `json:"payload,omitzero"`
 	Opens         *waitOpeningWire `json:"opens,omitzero"`
-	Source        signalSource     `json:"source"`
 }
 
 // waitOpeningWire records the only wait facts the Signal history cannot
@@ -387,7 +384,7 @@ func (m mailboxWire) receipts() []SignalReceipt {
 		arrivalSequence := uint64(index) + 1
 		receipt := SignalReceipt{
 			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: record.PayloadDigest,
-			arrivalSequence: arrivalSequence, external: record.Source == signalSourceExternal,
+			arrivalSequence: arrivalSequence, external: !record.ID.engineOwned(),
 		}
 		if arrivalSequence > m.SignalCursor {
 			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
@@ -552,7 +549,7 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 	}
 	record := signalRecord{
 		id: s.ID, waitID: lo.FromPtr(s.WaitID),
-		payloadDigest: s.PayloadDigest, opensWait: s.Opens != nil, source: s.Source,
+		payloadDigest: s.PayloadDigest, opensWait: s.Opens != nil,
 	}
 	if consumed {
 		if len(s.Payload) != 0 {
@@ -569,9 +566,7 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 }
 
 func (s signalRecordWire) validateShape() error {
-	if !s.Source.accepts(s.ID) ||
-		s.Opens != nil && s.Source != signalSourceSettlement ||
-		s.Opens == nil && s.Source == signalSourceSettlement && s.WaitID != nil {
+	if !s.ID.Valid() || s.Opens != nil && !s.ID.engineOwned() {
 		return fmt.Errorf("%w: invalid signal source", errMailboxCursor)
 	}
 	switch {

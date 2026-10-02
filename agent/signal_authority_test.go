@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
+
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -33,19 +35,35 @@ func TestExternalDeliveryCannotClaimEngineSignalIdentity(t *testing.T) {
 	}
 }
 
-func TestMailboxRestoreRejectsSignalAuthorityMismatch(t *testing.T) {
-	for _, source := range []signalSource{signalSourceExternal, signalSourceSettlement, signalSourceChildWait} {
-		t.Run(string(source), func(t *testing.T) {
-			id := "signal:caller"
-			if source == signalSourceExternal {
-				id = "signal:engine:reserved"
-			}
-			record := newSignalRecord(mustMailboxSignal(t, id, WaitID{}, []byte(`null`)), false)
-			record.source = source
-			wire := mailboxWire{Signals: []signalRecordWire{record.wire()}}
-			if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
-				t.Fatal("restoration accepted conflicting identity authority")
-			}
-		})
+func TestSignalAuthorityFollowsIdentityFacts(t *testing.T) {
+	waitID := controlValue(ParseWaitID("wait:authority"))
+	for _, test := range []struct {
+		id      string
+		waitID  WaitID
+		source  signalSource
+		allowed bool
+	}{
+		{id: "signal:caller", source: signalSourceExternal, allowed: true},
+		{id: "signal:caller", waitID: waitID, source: signalSourceExternal, allowed: true},
+		{id: "signal:engine:settled", source: signalSourceSettlement, allowed: true},
+		{id: "signal:engine:answer", waitID: waitID, source: signalSourceChildWait, allowed: true},
+		{id: "signal:engine:reserved", source: signalSourceExternal},
+		{id: "signal:caller", source: signalSourceSettlement},
+		{id: "signal:engine:answer", waitID: waitID, source: signalSourceSettlement},
+		{id: "signal:engine:settled", source: signalSourceChildWait},
+	} {
+		signal := mustMailboxSignal(t, test.id, test.waitID, []byte(`null`))
+		if _, err := newAdmissionRecord(signal, test.source); (err == nil) != test.allowed {
+			t.Errorf("%s addressed=%t through %s: error=%v", test.id, test.waitID.Valid(), test.source, err)
+		}
+	}
+	opening := newSignalRecord(mustMailboxSignal(t, "signal:caller", waitID, []byte(`null`)), true).wire()
+	opening.Opens = &waitOpeningWire{Key: new(controlValue(ParseWaitKey("authority")))}
+	if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{opening}}, StatusRunning); err == nil {
+		t.Fatal("restoration accepted a Host identity opening a wait")
+	}
+	stored := []byte(`{"signals":[{"id":"signal:caller","payload_digest":"` + ComputeDigest([]byte(`null`)).String() + `","payload":null,"source":"external"}],"signal_cursor":0}`)
+	if _, err := jsonwire.Decode[mailboxWire](stored); err == nil {
+		t.Fatal("mailbox decoding accepted a stored copy of the signal source")
 	}
 }

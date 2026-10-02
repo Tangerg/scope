@@ -22,7 +22,7 @@ type SignalRequest struct {
 // signal:engine: namespace, so a Host retry after an ambiguous failure stays
 // one logical delivery rather than a second answer.
 func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (SignalRequest, error) {
-	if !signalSourceExternal.accepts(id) {
+	if !id.Valid() || id.engineOwned() {
 		return SignalRequest{}, fmt.Errorf("%w: signal ID: %w", ErrInvalidSignalRequest, ErrInvalidIdentity)
 	}
 	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
@@ -40,7 +40,7 @@ func (s SignalRequest) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid
 // Payload returns an independently owned Strategy-defined value.
 func (s SignalRequest) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
-func (s SignalRequest) Valid() bool { return signalSourceExternal.accepts(s.id) && len(s.payload) > 0 }
+func (s SignalRequest) Valid() bool { return s.id.Valid() && !s.id.engineOwned() && len(s.payload) > 0 }
 
 func (s SignalRequest) signal() (Signal, error) {
 	if !s.Valid() {

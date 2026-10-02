@@ -260,10 +260,6 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		"wrong payload": func(child *processSnapshotWire) {
 			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
 		},
-		"opening receipt": func(child *processSnapshotWire) {
-			child.Mailbox.Signals[0].Opens = &waitOpeningWire{Key: new(controlValue(ParseWaitKey("receipt")))}
-			child.Mailbox.Signals[0].Source = signalSourceSettlement
-		},
 		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
 		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(newProcessID()) },
 		"not a child":  func(child *processSnapshotWire) { child.Relation.ParentID = nil },
