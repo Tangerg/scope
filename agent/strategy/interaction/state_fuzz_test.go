@@ -196,7 +196,6 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	call := chat.ToolCall{ID: "call_fuzz", Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}
-	key, _ := DelegateChildKey(1, call)
 	processID, _ := agent.ParseProcessID("process:fuzz-child")
 	waitID, _ := agent.ParseWaitID("wait:fuzz-child")
 	steerSignalID, _ := agent.ParseSignalID("signal:fuzz-steer")
@@ -211,7 +210,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(),
-				ChildBatch: &childCallBatch{Kind: childCallsDelegate, Invocations: []childInvocationState{{ChildKey: &key}}}},
+				ChildBatch: &childCallBatch{Kind: childCallsDelegate, Invocations: []childInvocationState{{Requested: true}}}},
 		},
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 1,
@@ -220,7 +219,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 				SignalIDs: []agent.SignalID{steerSignalID},
 			},
 			ToolRound: &toolCallRound{Response: response.Clone(), ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []childInvocationState{{
-				ChildKey: &key, ProcessID: &processID,
+				Requested: true, ProcessID: &processID,
 			}}}},
 		},
 		{

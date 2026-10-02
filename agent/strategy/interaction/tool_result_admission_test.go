@@ -34,14 +34,6 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []chat.ToolCall{{ID: "failed", Name: "initial", Arguments: `{}`}, {ID: "pending", Name: "initial", Arguments: `{}`}}
-	firstKey, err := ToolChildKey(1, calls[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondKey, err := ToolChildKey(1, calls[1])
-	if err != nil {
-		t.Fatal(err)
-	}
 	firstID, err := agent.ParseProcessID("process:first")
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +51,8 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 		ModelCallCount: 1, WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("work"))}},
 		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, ChildBatch: &childCallBatch{
 			Kind: childCallsTool, WaitID: &waitID, Invocations: []childInvocationState{
-				{ChildKey: &firstKey, ProcessID: &firstID, Result: &toolCallResult{Result: chat.ToolResult{ID: "failed", Name: "initial", IsError: true, Output: chat.NewTextToolOutput("failed")}, AdvertisedToolNames: []string{"first"}}},
-				{ChildKey: &secondKey, ProcessID: &secondID},
+				{Requested: true, ProcessID: &firstID, Result: &toolCallResult{Result: chat.ToolResult{ID: "failed", Name: "initial", IsError: true, Output: chat.NewTextToolOutput("failed")}, AdvertisedToolNames: []string{"first"}}},
+				{Requested: true, ProcessID: &secondID},
 			},
 		}},
 	}

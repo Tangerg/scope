@@ -145,10 +145,6 @@ func pendingSteerTestState(t testing.TB) executionState {
 	call := chat.ToolCall{ID: "call_pending_steer", Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 	assistant := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	response := &chat.Response{Output: &chat.Output{Message: &assistant, FinishReason: chat.FinishReasonToolCalls}}
-	key, err := DelegateChildKey(1, call)
-	if err != nil {
-		t.Fatal(err)
-	}
 	childID, err := agent.ParseProcessID("process:pending-steer-child")
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +168,7 @@ func pendingSteerTestState(t testing.TB) executionState {
 		ModelCallCount: 1,
 		ToolRound: &toolCallRound{Response: response,
 			ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []childInvocationState{{
-				ChildKey: &key, ProcessID: &childID,
+				Requested: true, ProcessID: &childID,
 			}}}},
 		PendingSteer: &steerBatch{
 			Messages: []chat.Message{

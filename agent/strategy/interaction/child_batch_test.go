@@ -25,7 +25,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 				t.Run(string(kind)+"/"+string(stage)+"/"+boundary.String(), func(t *testing.T) {
 					execution := childBatchTestExecution(t, kind, stage)
 					batch := execution.state.ToolRound.ChildBatch
-					want, err := batch.waitSpec(execution.state.ModelCallCount, execution.state.ToolRound.nextCallIndex())
+					want, err := batch.waitSpec(execution.state.ModelCallCount, execution.state.ToolRound.nextCallIndex(), mustActiveChildKeys(t, execution))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -56,7 +56,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						payload = childCompletionTestPayload{
 							Operation: "child_wait_satisfied", Key: want.Key, Boundary: boundary,
 							Outcomes: []childOutcomeTestWire{{
-								Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
+								Boundary: agent.ChildWaitBoundaryDrained, Key: mustActiveChildKeys(t, execution)[0], SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
 								Result: childResultTestWire{
 									ProcessID: want.Children[0], StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 									Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
@@ -126,11 +126,6 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 			execution := childBatchTestExecution(t, kind, phaseWaitingChildren)
 			call := execution.state.ToolRound.Response.Output.Message.Parts[0].ToolCall
 			call.Name = "unavailable"
-			key, err := execution.state.ToolRound.ChildBatch.childKey(execution.state.ModelCallCount, *call)
-			if err != nil {
-				t.Fatal(err)
-			}
-			execution.state.ToolRound.ChildBatch.Invocations[0].ChildKey = &key
 			captured, err := execution.state.snapshot()
 			if err != nil {
 				t.Fatal(err)
@@ -153,12 +148,8 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 		if index >= 4 {
 			continue
 		}
-		key, err := ToolChildKey(1, call)
-		if err != nil {
-			t.Fatal(err)
-		}
 		id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
-		batch.Invocations[index] = childInvocationState{ChildKey: &key, ProcessID: &id}
+		batch.Invocations[index] = childInvocationState{Requested: true, ProcessID: &id}
 	}
 	batch.Invocations[0].Result = &toolCallResult{Result: chat.ToolResult{
 		ID: "call_0", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("settled prefix"),
@@ -172,7 +163,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wait, err := batch.waitSpec(1, 0)
+	wait, err := batch.waitSpec(1, 0, mustActiveChildKeys(t, execution))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +176,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 	signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
 		Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained,
 		Outcomes: []childOutcomeTestWire{{
-			Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[1].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
+			Boundary: agent.ChildWaitBoundaryDrained, Key: mustActiveChildKeys(t, execution)[1], SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
 			Result: childResultTestWire{
 				ProcessID: *batch.Invocations[1].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 				Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
@@ -230,11 +221,7 @@ func TestChildBatchRestoreRejectsAdmissionGaps(t *testing.T) {
 				execution.state.ToolRound.Response.Output.Message.Parts = append(execution.state.ToolRound.Response.Output.Message.Parts, chat.NewToolCallPart(call))
 				invocation := childInvocationState{}
 				if index == 2 {
-					key, err := batch.childKey(1, call)
-					if err != nil {
-						t.Fatal(err)
-					}
-					invocation.ChildKey = &key
+					invocation.Requested = true
 				}
 				batch.Invocations = append(batch.Invocations, invocation)
 			}
@@ -280,11 +267,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	processID, _ := agent.ParseProcessID("process:child-batch")
 	batch := &childCallBatch{Kind: kind}
-	key, err := batch.childKey(1, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	batch.Invocations = []childInvocationState{{ChildKey: &key, ProcessID: &processID}}
+	batch.Invocations = []childInvocationState{{Requested: true, ProcessID: &processID}}
 	switch stage {
 	case phaseWaitingChildren:
 		waitID, _ := agent.ParseWaitID("wait:child-batch")
@@ -362,13 +345,13 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseWaitingChildren)
 			batch := execution.state.ToolRound.ChildBatch
-			wait, err := batch.waitSpec(1, 0)
+			wait, err := batch.waitSpec(1, 0, mustActiveChildKeys(t, execution))
 			if err != nil {
 				t.Fatal(err)
 			}
 			signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
 				Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained,
-				Outcomes: []childOutcomeTestWire{{Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{
+				Outcomes: []childOutcomeTestWire{{Boundary: agent.ChildWaitBoundaryDrained, Key: mustActiveChildKeys(t, execution)[0], SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{
 					ProcessID: *batch.Invocations[0].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Termination: json.RawMessage(test.termination),
 				}}},
 			})
@@ -387,14 +370,15 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
 	execution := childBatchTestExecution(t, childCallsDelegate, phaseWaitingChildren)
 	batch := execution.state.ToolRound.ChildBatch
-	wait, err := batch.waitSpec(1, 0)
+	wait, err := batch.waitSpec(1, 0, mustActiveChildKeys(t, execution))
 	if err != nil {
 		t.Fatal(err)
 	}
 	outcomes := make([]childOutcomeTestWire, len(batch.Invocations))
+	keys := mustActiveChildKeys(t, execution)
 	for index, invocation := range batch.Invocations {
 		effectID, _ := agent.ParseEffectID("effect:remote-write")
-		outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: *invocation.ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}, Result: childResultTestWire{
+		outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: keys[index], SubtreeUnresolvedEffects: []agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}, Result: childResultTestWire{
 			ProcessID: *invocation.ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 			Termination: json.RawMessage(`{"cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
 		}}
@@ -427,7 +411,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 						t.Fatal(err)
 					}
 					id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
-					batch.Invocations = append(batch.Invocations, childInvocationState{ChildKey: &key, ProcessID: &id})
+					batch.Invocations = append(batch.Invocations, childInvocationState{Requested: true, ProcessID: &id})
 					output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 					if kind == childCallsTool {
 						output, _ = agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
@@ -450,7 +434,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				if _, restoreErr := execution.definition.Restore(t.Context(), before); restoreErr != nil {
 					t.Fatal(restoreErr)
 				}
-				wait, err := batch.waitSpec(1, 0)
+				wait, err := batch.waitSpec(1, 0, mustActiveChildKeys(t, execution))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -558,4 +542,13 @@ func TestConcurrencyClassifierPanicFailsScheduling(t *testing.T) {
 	if end != 0 || !isPanic || panicErr.Operation != "ConcurrentTool policy" || panicErr.Value != "classifier failed" {
 		t.Fatalf("classifier panic = %d, %v", end, err)
 	}
+}
+
+func mustActiveChildKeys(t testing.TB, execution *execution) []agent.ChildKey {
+	t.Helper()
+	keys, err := execution.activeChildKeys(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return keys
 }

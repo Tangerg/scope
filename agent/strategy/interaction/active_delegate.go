@@ -86,11 +86,15 @@ func ActiveDelegateChildren(
 			continue
 		}
 		call := activeCalls[index]
+		childKey, keyErr := DelegateChildKey(state.ModelCallCount, call)
+		if keyErr != nil {
+			return nil, false, fmt.Errorf("%w: active Delegate child key: %w", ErrInvalidExecutionState, keyErr)
+		}
 		child := ActiveDelegateChild{
 			modelCallSequence: state.ModelCallCount,
 			toolCallIndex:     state.ToolRound.nextCallIndex() + uint32(index),
 			toolCall:          call,
-			childKey:          *invocation.ChildKey,
+			childKey:          childKey,
 			processID:         *invocation.ProcessID,
 			parentProcessID:   snapshot.ProcessID(),
 		}

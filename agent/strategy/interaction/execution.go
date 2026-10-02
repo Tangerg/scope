@@ -34,7 +34,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	case phaseAwaitingChildStarts:
 		return e.acceptChildStarts(ctx, signals)
 	case phaseAwaitingChildWaitOpen:
-		return e.acceptChildWaitOpen(signals)
+		return e.acceptChildWaitOpen(ctx, signals)
 	case phaseWaitingChildren:
 		return e.acceptChildCompletions(ctx, signals)
 	case phaseCompleted:
@@ -414,7 +414,11 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 		return agent.Transition{}, err
 	}
 	batch := e.state.ToolRound.ChildBatch
-	indices, err := batch.acceptStarts(starts, bindings)
+	keys, err := batch.childKeys(e.state.ModelCallCount, calls)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	indices, err := batch.acceptStarts(starts, keys, bindings)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -437,11 +441,24 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 		}
 		return e.advanceToolCallBatch(ctx, consumed)
 	}
-	return e.waitForChildren(consumed)
+	return e.waitForChildren(ctx, consumed)
 }
 
-func (e *execution) waitForChildren(consumed uint32) (agent.Transition, error) {
-	spec, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
+// activeChildKeys derives the active batch's ChildKeys from the calls it serves.
+func (e *execution) activeChildKeys(ctx context.Context) ([]agent.ChildKey, error) {
+	calls, err := e.state.ToolRound.activeCalls(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return e.state.ToolRound.ChildBatch.childKeys(e.state.ModelCallCount, calls)
+}
+
+func (e *execution) waitForChildren(ctx context.Context, consumed uint32) (agent.Transition, error) {
+	keys, err := e.activeChildKeys(ctx)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	spec, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -452,7 +469,7 @@ func (e *execution) waitForChildren(consumed uint32) (agent.Transition, error) {
 	return agent.Continue(consumed, effect)
 }
 
-func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transition, error) {
+func (e *execution) acceptChildWaitOpen(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	opened, steer, consumed, err := collectChildWaitOpened(signals)
 	if err != nil {
 		return agent.Transition{}, err
@@ -460,11 +477,15 @@ func (e *execution) acceptChildWaitOpen(signals []agent.Signal) (agent.Transitio
 	if steerErr := e.state.addSteer(steer); steerErr != nil {
 		return agent.Transition{}, steerErr
 	}
-	want, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
+	keys, err := e.activeChildKeys(ctx)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, want); err != nil {
+	want, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, want, keys); err != nil {
 		return agent.Transition{}, err
 	}
 	return agent.Wait(consumed, opened.WaitID())
@@ -483,11 +504,15 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		return agent.Transition{}, err
 	}
 	batch := e.state.ToolRound.ChildBatch
-	want, err := batch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex())
+	keys, err := batch.childKeys(e.state.ModelCallCount, calls)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	indices, err := batch.validateCompletions(completed, want)
+	want, err := batch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	indices, err := batch.validateCompletions(completed, want, keys)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -591,7 +616,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		if err != nil {
 			return nil, err
 		}
-		batch.Invocations[index].ChildKey = &key
+		batch.Invocations[index].Requested = true
 		effects = append(effects, effect)
 	}
 	e.state.ToolRound.beginChildren(batch)
@@ -664,7 +689,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		if effectErr != nil {
 			return agent.Transition{}, effectErr
 		}
-		batch.Invocations[index].ChildKey = &key
+		batch.Invocations[index].Requested = true
 		effects = append(effects, effect)
 		active++
 	}
@@ -672,7 +697,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		return agent.Continue(consumed, effects...)
 	}
 	if active != 0 {
-		return e.waitForChildren(consumed)
+		return e.waitForChildren(ctx, consumed)
 	}
 	if err := e.finishChildBatch(); err != nil {
 		return agent.Transition{}, err
