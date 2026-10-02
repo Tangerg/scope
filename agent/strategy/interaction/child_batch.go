@@ -47,18 +47,15 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 	return agent.Failure{}, false, nil
 }
 
-// childInvocationState records whether a call's child start was requested.
-// Its ChildKey follows from the call and model sequence, so it is never stored.
+// A nil invocation has not been requested. Declaring its start creates the
+// record that then retains admission and settlement; no separate marker can
+// disagree with those facts. ChildKey follows from the call and model sequence.
 type childInvocationState struct {
-	Requested bool             `json:"requested,omitzero"`
 	ProcessID *agent.ProcessID `json:"process_id,omitzero"`
 	Result    *toolCallResult  `json:"result,omitzero"`
 }
 
-func (c childInvocationState) validate(kind childCallKind, call chat.ToolCall) error {
-	if !c.Requested {
-		return fmt.Errorf("%w: planned child was not requested", ErrInvalidExecutionState)
-	}
+func (c *childInvocationState) validate(kind childCallKind, call chat.ToolCall) error {
 	if c.ProcessID != nil && !c.ProcessID.Valid() {
 		return ErrInvalidExecutionState
 	}
@@ -68,7 +65,7 @@ func (c childInvocationState) validate(kind childCallKind, call chat.ToolCall) e
 	return c.validateResult(kind, call)
 }
 
-func (c childInvocationState) validateResult(kind childCallKind, call chat.ToolCall) error {
+func (c *childInvocationState) validateResult(kind childCallKind, call chat.ToolCall) error {
 	if err := c.Result.validateCall(call); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
@@ -84,21 +81,17 @@ func (c childInvocationState) validateResult(kind childCallKind, call chat.ToolC
 	return nil
 }
 
-func (c childInvocationState) empty() bool {
-	return !c.Requested && c.ProcessID == nil && c.Result == nil
-}
-
 // One batch owns child admission, the active wait, and ordered settlements.
 // Kind selects binding and scheduling policy without creating another protocol.
 type childCallBatch struct {
-	Kind        childCallKind          `json:"kind"`
-	Invocations []childInvocationState `json:"invocations"`
-	WaitID      *agent.WaitID          `json:"wait_id,omitzero"`
+	Kind        childCallKind           `json:"kind"`
+	Invocations []*childInvocationState `json:"invocations"`
+	WaitID      *agent.WaitID           `json:"wait_id,omitzero"`
 }
 
 func (c childCallBatch) nextStartIndex() int {
 	for index, invocation := range c.Invocations {
-		if invocation.empty() {
+		if invocation == nil {
 			return index
 		}
 	}
@@ -109,7 +102,7 @@ func (c childCallBatch) nextStartIndex() int {
 // accepted opening records its WaitID.
 func (c childCallBatch) phase() phase {
 	for _, invocation := range c.Invocations {
-		if invocation.Requested && invocation.ProcessID == nil && invocation.Result == nil {
+		if invocation != nil && invocation.ProcessID == nil && invocation.Result == nil {
 			return phaseAwaitingChildStarts
 		}
 	}
@@ -119,7 +112,7 @@ func (c childCallBatch) phase() phase {
 	return phaseAwaitingChildWaitOpen
 }
 
-func (c childCallBatch) validate(ctx context.Context, current phase, calls []chat.ToolCall, modelCallSequence uint64) error {
+func (c childCallBatch) validate(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) error {
 	if err := c.validateShape(calls); err != nil {
 		return err
 	}
@@ -127,7 +120,7 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 	if err != nil {
 		return err
 	}
-	if err = c.validateWait(current, keys); err != nil {
+	if err = c.validateWait(keys); err != nil {
 		return err
 	}
 	active, err := c.activeChildren(ctx, calls)
@@ -135,7 +128,7 @@ func (c childCallBatch) validate(ctx context.Context, current phase, calls []cha
 		return err
 	}
 	// A Delegate batch starts as one admission; a Tool batch refills its window.
-	if current == phaseAwaitingChildStarts {
+	if c.phase() == phaseAwaitingChildStarts {
 		if c.Kind == childCallsDelegate && active != 0 {
 			return fmt.Errorf("%w: Delegate batch has both pending and started children", ErrInvalidExecutionState)
 		}
@@ -159,12 +152,8 @@ func (c childCallBatch) validateShape(calls []chat.ToolCall) error {
 	return nil
 }
 
-func (c childCallBatch) validateWait(current phase, keys []agent.ChildKey) error {
-	if current != phaseWaitingChildren {
-		if c.WaitID != nil {
-			return fmt.Errorf("%w: child start or wait opening already has a WaitID", ErrInvalidExecutionState)
-		}
-	} else if c.WaitID == nil || !c.WaitID.Valid() {
+func (c childCallBatch) validateWait(keys []agent.ChildKey) error {
+	if c.WaitID != nil && !c.WaitID.Valid() {
 		return fmt.Errorf("%w: waiting children require an Engine WaitID", ErrInvalidExecutionState)
 	}
 	if err := c.protocolBatch(keys, nil).Validate(); err != nil {
@@ -183,7 +172,7 @@ func (c childCallBatch) activeChildren(ctx context.Context, calls []chat.ToolCal
 			return 0, err
 		}
 		if index >= planned {
-			if !invocation.empty() {
+			if invocation != nil {
 				return 0, fmt.Errorf("%w: unplanned call has child state", ErrInvalidExecutionState)
 			}
 			continue
@@ -206,7 +195,7 @@ func (c childCallBatch) childKeys(modelCallSequence uint64, calls []chat.ToolCal
 	}
 	keys := make([]agent.ChildKey, len(c.Invocations))
 	for index, invocation := range c.Invocations {
-		if !invocation.Requested {
+		if invocation == nil {
 			continue
 		}
 		key, err := c.childKey(modelCallSequence, calls[index])
@@ -258,12 +247,15 @@ func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Defi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if invocation == nil {
+			continue
+		}
 		if invocation.Result != nil {
 			if err := definition.tools.validateAdvertisements(invocation.Result.AdvertisedToolNames); err != nil {
 				return fmt.Errorf("%w: child advertisements: %w", ErrInvalidExecutionState, err)
 			}
 		}
-		if invocation.Requested && invocation.Result == nil {
+		if invocation.Result == nil {
 			active++
 		}
 	}
@@ -276,7 +268,7 @@ func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Defi
 func (c childCallBatch) children() []agent.ProcessID {
 	var children []agent.ProcessID
 	for _, invocation := range c.Invocations {
-		if invocation.ProcessID != nil && invocation.Result == nil {
+		if invocation != nil && invocation.ProcessID != nil && invocation.Result == nil {
 			children = append(children, *invocation.ProcessID)
 		}
 	}
@@ -286,7 +278,7 @@ func (c childCallBatch) children() []agent.ProcessID {
 func (c childCallBatch) waitSpec(modelCallSequence uint64, callIndex uint32, keys []agent.ChildKey) (agent.ChildWaitSpec, error) {
 	completed := 0
 	for _, invocation := range c.Invocations {
-		if invocation.Result != nil {
+		if invocation != nil && invocation.Result != nil {
 			completed++
 		}
 	}
@@ -308,7 +300,11 @@ func (c childCallBatch) protocolBatch(keys []agent.ChildKey, bindings []agent.De
 	}
 	for index, invocation := range c.Invocations {
 		child := &batch.Children[index]
-		child.Done = invocation.empty() || invocation.Result != nil
+		if invocation == nil {
+			child.Done = true
+			continue
+		}
+		child.Done = invocation.Result != nil
 		if len(keys) == len(c.Invocations) {
 			child.Key = keys[index]
 		}

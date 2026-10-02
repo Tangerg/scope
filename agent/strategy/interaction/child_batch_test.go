@@ -137,10 +137,80 @@ func TestChildBatchRestoreRequiresDeclaredBinding(t *testing.T) {
 	}
 }
 
+func TestChildBatchDeclarationSurvivesRecovery(t *testing.T) {
+	for _, kind := range []childCallKind{childCallsTool, childCallsDelegate} {
+		t.Run(string(kind), func(t *testing.T) {
+			current := childBatchTestExecution(t, kind, phaseAwaitingChildStarts)
+			for progress := range 2 {
+				captured, err := current.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				var wire struct {
+					ToolRound struct {
+						ChildBatch struct {
+							Invocations []map[string]json.RawMessage `json:"invocations"`
+						} `json:"child_batch"`
+					} `json:"tool_round"`
+				}
+				if decodeErr := jsonv2.Unmarshal(captured.Payload(), &wire); decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				invocations := wire.ToolRound.ChildBatch.Invocations
+				if len(invocations) != 1 || invocations[0] == nil || len(invocations[0]) != progress {
+					t.Fatalf("admission %d records = %s", progress, captured.Payload())
+				}
+				if progress == 1 && string(invocations[0]["process_id"]) != `"process:admitted"` {
+					t.Fatalf("start receipt lost its identity: %s", captured.Payload())
+				}
+				restored, err := current.definition.Restore(t.Context(), captured)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current = restored.(*execution)
+				if progress != 0 {
+					continue
+				}
+				if _, stepErr := current.Step(t.Context(), nil); !errors.Is(stepErr, ErrInvalidExecutionState) {
+					t.Fatalf("declared start was reissued after recovery: %v", stepErr)
+				}
+				calls, err := current.state.ToolRound.activeCalls(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				bindings, err := current.childBindings(calls)
+				if err != nil {
+					t.Fatal(err)
+				}
+				encoded, err := jsonv2.Marshal(struct {
+					ID      string `json:"id"`
+					Payload any    `json:"payload"`
+				}{ID: "signal:engine:start", Payload: struct {
+					Operation     string              `json:"operation"`
+					Key           agent.ChildKey      `json:"key"`
+					ProcessID     string              `json:"process_id"`
+					DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
+				}{"start_child", mustActiveChildKeys(t, current)[0], "process:admitted", bindings[0]}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var signal agent.Signal
+				if decodeErr := jsonv2.Unmarshal(encoded, &signal); decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				transition, err := current.Step(t.Context(), []agent.Signal{signal})
+				if err != nil || transition.ConsumedSignals() != 1 || len(transition.Effects()) != 1 {
+					t.Fatalf("start acknowledgment = %+v, %v", transition, err)
+				}
+			}
+		})
+	}
+}
+
 func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 	execution := childBatchTestExecution(t, childCallsTool, phaseWaitingChildren)
 	batch := execution.state.ToolRound.ChildBatch
-	batch.Invocations = make([]childInvocationState, 5)
+	batch.Invocations = make([]*childInvocationState, 5)
 	message := chat.NewAssistantMessage()
 	for index := range batch.Invocations {
 		call := chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
@@ -149,7 +219,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 			continue
 		}
 		id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
-		batch.Invocations[index] = childInvocationState{Requested: true, ProcessID: &id}
+		batch.Invocations[index] = &childInvocationState{ProcessID: &id}
 	}
 	batch.Invocations[0].Result = &toolCallResult{Result: chat.ToolResult{
 		ID: "call_0", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("settled prefix"),
@@ -219,9 +289,9 @@ func TestChildBatchRestoreRejectsAdmissionGaps(t *testing.T) {
 			for index := 1; index < 3; index++ {
 				call := chat.ToolCall{ID: fmt.Sprintf("call_%d", index), Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 				execution.state.ToolRound.Response.Output.Message.Parts = append(execution.state.ToolRound.Response.Output.Message.Parts, chat.NewToolCallPart(call))
-				invocation := childInvocationState{}
+				var invocation *childInvocationState
 				if index == 2 {
-					invocation.Requested = true
+					invocation = &childInvocationState{}
 				}
 				batch.Invocations = append(batch.Invocations, invocation)
 			}
@@ -267,7 +337,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	processID, _ := agent.ParseProcessID("process:child-batch")
 	batch := &childCallBatch{Kind: kind}
-	batch.Invocations = []childInvocationState{{Requested: true, ProcessID: &processID}}
+	batch.Invocations = []*childInvocationState{{ProcessID: &processID}}
 	switch stage {
 	case phaseWaitingChildren:
 		waitID, _ := agent.ParseWaitID("wait:child-batch")
@@ -411,7 +481,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 						t.Fatal(err)
 					}
 					id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
-					batch.Invocations = append(batch.Invocations, childInvocationState{Requested: true, ProcessID: &id})
+					batch.Invocations = append(batch.Invocations, &childInvocationState{ProcessID: &id})
 					output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 					if kind == childCallsTool {
 						output, _ = agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})

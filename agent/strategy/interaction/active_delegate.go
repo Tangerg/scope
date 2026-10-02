@@ -82,7 +82,7 @@ func ActiveDelegateChildren(
 	}
 	children = make([]ActiveDelegateChild, 0, len(activeCalls))
 	for index, invocation := range state.ToolRound.ChildBatch.Invocations {
-		if invocation.ProcessID == nil {
+		if invocation == nil || invocation.ProcessID == nil {
 			continue
 		}
 		call := activeCalls[index]

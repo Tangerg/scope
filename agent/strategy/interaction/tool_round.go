@@ -37,7 +37,9 @@ func (t *toolCallRound) knownResult(index int) *toolCallResult {
 	}
 	offset := index - len(t.Results)
 	if t.ChildBatch != nil && offset < len(t.ChildBatch.Invocations) {
-		return t.ChildBatch.Invocations[offset].Result
+		if invocation := t.ChildBatch.Invocations[offset]; invocation != nil {
+			return invocation.Result
+		}
 	}
 	return nil
 }
@@ -70,7 +72,7 @@ func (t *toolCallRound) beginChildren(batch *childCallBatch) {
 func (t *toolCallRound) finishChildren(tools toolManifest, advertisedNames []string) ([]string, error) {
 	results := make([]toolCallResult, 0, len(t.ChildBatch.Invocations))
 	for _, invocation := range t.ChildBatch.Invocations {
-		if invocation.Result == nil {
+		if invocation == nil || invocation.Result == nil {
 			return nil, ErrInvalidExecutionState
 		}
 		names, err := tools.mergeAdvertisements(advertisedNames, invocation.Result.AdvertisedToolNames)

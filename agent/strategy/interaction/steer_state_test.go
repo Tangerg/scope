@@ -167,8 +167,8 @@ func pendingSteerTestState(t testing.TB) executionState {
 		}},
 		ModelCallCount: 1,
 		ToolRound: &toolCallRound{Response: response,
-			ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []childInvocationState{{
-				Requested: true, ProcessID: &childID,
+			ChildBatch: &childCallBatch{Kind: childCallsDelegate, WaitID: &waitID, Invocations: []*childInvocationState{{
+				ProcessID: &childID,
 			}}}},
 		PendingSteer: &steerBatch{
 			Messages: []chat.Message{

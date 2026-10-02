@@ -593,7 +593,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		return nil, fmt.Errorf("%w: delegate window at ToolCall %d is empty", ErrInvalidExecutionState, start)
 	}
 	batch := &childCallBatch{Kind: childCallsDelegate,
-		Invocations: make([]childInvocationState, end-start)}
+		Invocations: make([]*childInvocationState, end-start)}
 	effects := make([]agent.Effect, 0, len(batch.Invocations))
 	for index := range batch.Invocations {
 		if err := ctx.Err(); err != nil {
@@ -616,7 +616,7 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		if err != nil {
 			return nil, err
 		}
-		batch.Invocations[index].Requested = true
+		batch.Invocations[index] = &childInvocationState{}
 		effects = append(effects, effect)
 	}
 	e.state.ToolRound.beginChildren(batch)
@@ -655,7 +655,7 @@ func (e *execution) startToolChildren(ctx context.Context, consumed uint32, call
 			return agent.Transition{}, err
 		}
 	}
-	e.state.ToolRound.beginChildren(&childCallBatch{Kind: childCallsTool, Invocations: make([]childInvocationState, count)})
+	e.state.ToolRound.beginChildren(&childCallBatch{Kind: childCallsTool, Invocations: make([]*childInvocationState, count)})
 	return e.scheduleToolChildren(ctx, consumed)
 }
 
@@ -689,7 +689,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		if effectErr != nil {
 			return agent.Transition{}, effectErr
 		}
-		batch.Invocations[index].Requested = true
+		batch.Invocations[index] = &childInvocationState{}
 		effects = append(effects, effect)
 		active++
 	}

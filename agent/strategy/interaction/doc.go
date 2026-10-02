@@ -31,6 +31,8 @@
 // bounded window after any child drains; Delegates await their entire batch.
 // Admission progress derives from the ordered invocation records, including
 // retained settlements, so recovery needs no separate scheduling cursor.
+// Each invocation is absent until its start is declared, then the same record
+// retains its start receipt and result without a parallel requested marker.
 // A rejected Tool child start terminates the Interaction with the original
 // Failure, because the ToolSet is required infrastructure. A rejected Delegate
 // start is a model-visible rejected result, because choosing another worker is

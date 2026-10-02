@@ -150,7 +150,7 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 	first := chat.ToolResult{ID: "first", Name: "tool", Output: chat.NewTextToolOutput("first result")}
 	second := chat.ToolResult{ID: "second", Name: "tool", Output: chat.NewTextToolOutput("second result")}
 	round := &toolCallRound{ChildBatch: &childCallBatch{
-		Kind: childCallsTool, Invocations: []childInvocationState{
+		Kind: childCallsTool, Invocations: []*childInvocationState{
 			{Result: &toolCallResult{Result: first, Direct: true, AdvertisedToolNames: []string{"first"}}},
 			{Result: &toolCallResult{Result: second, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
 		},

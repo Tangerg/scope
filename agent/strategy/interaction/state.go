@@ -210,7 +210,7 @@ func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, 
 	if err != nil {
 		return nil, err
 	}
-	if err := e.ToolRound.ChildBatch.validate(ctx, e.phase(), active, e.ModelCallCount); err != nil {
+	if err := e.ToolRound.ChildBatch.validate(ctx, active, e.ModelCallCount); err != nil {
 		return nil, err
 	}
 	return active, nil
