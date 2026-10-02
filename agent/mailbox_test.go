@@ -60,7 +60,7 @@ func TestMailboxRestoreEnforcesPayloadConsumptionBoundary(t *testing.T) {
 		{name: "consumed payload retained", cursor: 1, mutate: func(*signalRecordWire) {}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			record := mailboxRecordWire(1, signal)
+			record := mailboxRecordWire(signal)
 			test.mutate(&record)
 			if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{record}, SignalCursor: test.cursor}, StatusRunning); err == nil {
 				t.Fatal("restored an inconsistent payload retention boundary")
@@ -291,8 +291,7 @@ func TestMailboxRestoreRejectsInvalidWire(t *testing.T) {
 	signal := mustMailboxSignal(t, "signal:1", WaitID{}, json.RawMessage(`{}`))
 	for _, wire := range []mailboxWire{
 		{SignalCursor: 1},
-		{Signals: []signalRecordWire{mailboxRecordWire(2, signal)}},
-		{Signals: []signalRecordWire{mailboxRecordWire(1, signal), mailboxRecordWire(2, signal)}},
+		{Signals: []signalRecordWire{mailboxRecordWire(signal), mailboxRecordWire(signal)}},
 	} {
 		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
 			t.Fatalf("restoreSignalMailbox(%+v) unexpectedly succeeded", wire)
@@ -458,8 +457,6 @@ func waitOpenings(wire mailboxWire) int {
 	return openings
 }
 
-func mailboxRecordWire(sequence uint64, signal Signal) signalRecordWire {
-	record := newSignalRecord(signal, false)
-	record.arrivalSequence = sequence
-	return record.wire()
+func mailboxRecordWire(signal Signal) signalRecordWire {
+	return newSignalRecord(signal, false).wire()
 }

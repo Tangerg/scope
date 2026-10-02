@@ -253,7 +253,6 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled,
 		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
-	receipt.ArrivalSequence = 1
 	child := processSnapshotWire{ProcessID: childID,
 		Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
 	for name, mutate := range map[string]func(*processSnapshotWire){

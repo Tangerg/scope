@@ -21,14 +21,15 @@ var (
 	errWaitState      = errors.New("agent: invalid wait state")
 )
 
+// signalRecord's arrival sequence is its one-based position in the mailbox
+// history, so neither the record nor its wire stores it.
 type signalRecord struct {
-	arrivalSequence uint64
-	id              SignalID
-	waitID          WaitID
-	payloadDigest   Digest
-	payload         json.RawMessage
-	opensWait       bool
-	source          signalSource
+	id            SignalID
+	waitID        WaitID
+	payloadDigest Digest
+	payload       json.RawMessage
+	opensWait     bool
+	source        signalSource
 }
 
 func newSignalRecord(signal Signal, opensWait bool) signalRecord {
@@ -53,7 +54,7 @@ func (s signalRecord) sameContent(other signalRecord) bool {
 
 func (s signalRecord) wire() signalRecordWire {
 	wire := signalRecordWire{
-		ArrivalSequence: s.arrivalSequence, ID: s.id,
+		ID:            s.id,
 		PayloadDigest: s.payloadDigest, Payload: bytes.Clone(s.payload), Source: s.source,
 	}
 	if s.waitID.Valid() {
@@ -244,9 +245,7 @@ func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) err
 }
 
 func (s *signalMailbox) appendRecord(record signalRecord) {
-	// seen stores zero-based indexes; persisted arrival sequences start at one.
 	s.seen[record.id] = len(s.records)
-	record.arrivalSequence = uint64(len(s.records)) + 1
 	s.records = append(s.records, record)
 }
 
@@ -324,13 +323,12 @@ func (s *signalMailbox) contains(id SignalID) bool {
 }
 
 type signalRecordWire struct {
-	ArrivalSequence uint64           `json:"arrival_sequence"`
-	ID              SignalID         `json:"id"`
-	WaitID          *WaitID          `json:"wait_id,omitzero"`
-	PayloadDigest   Digest           `json:"payload_digest"`
-	Payload         json.RawMessage  `json:"payload,omitzero"`
-	Opens           *waitOpeningWire `json:"opens,omitzero"`
-	Source          signalSource     `json:"source"`
+	ID            SignalID         `json:"id"`
+	WaitID        *WaitID          `json:"wait_id,omitzero"`
+	PayloadDigest Digest           `json:"payload_digest"`
+	Payload       json.RawMessage  `json:"payload,omitzero"`
+	Opens         *waitOpeningWire `json:"opens,omitzero"`
+	Source        signalSource     `json:"source"`
 }
 
 // waitOpeningWire records the only wait facts the Signal history cannot
@@ -385,12 +383,13 @@ type mailboxWire struct {
 
 func (m mailboxWire) receipts() []SignalReceipt {
 	receipts := make([]SignalReceipt, 0, len(m.Signals))
-	for _, record := range m.Signals {
+	for index, record := range m.Signals {
+		arrivalSequence := uint64(index) + 1
 		receipt := SignalReceipt{
 			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: record.PayloadDigest,
-			arrivalSequence: record.ArrivalSequence, external: record.Source == signalSourceExternal,
+			arrivalSequence: arrivalSequence, external: record.Source == signalSourceExternal,
 		}
-		if record.ArrivalSequence > m.SignalCursor {
+		if arrivalSequence > m.SignalCursor {
 			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: record.Payload}
 		}
 		receipts = append(receipts, receipt)
@@ -505,14 +504,15 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 	}
 	mailbox := newSignalMailbox()
 	for index, encoded := range wire.Signals {
-		record, err := encoded.restore(uint64(index+1), wire.SignalCursor)
+		consumed := uint64(index) < wire.SignalCursor
+		record, err := encoded.restore(consumed)
 		if err != nil {
 			return signalMailbox{}, err
 		}
 		if err := mailbox.replay(record, encoded.Opens); err != nil {
 			return signalMailbox{}, err
 		}
-		if record.arrivalSequence <= wire.SignalCursor {
+		if consumed {
 			if err := mailbox.commit(1); err != nil {
 				return signalMailbox{}, err
 			}
@@ -546,15 +546,15 @@ func (s *signalMailbox) replay(record signalRecord, opening *waitOpeningWire) er
 	return nil
 }
 
-func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error) {
-	if err := s.validateShape(sequence); err != nil {
+func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
+	if err := s.validateShape(); err != nil {
 		return signalRecord{}, err
 	}
 	record := signalRecord{
-		arrivalSequence: sequence, id: s.ID, waitID: lo.FromPtr(s.WaitID),
+		id: s.ID, waitID: lo.FromPtr(s.WaitID),
 		payloadDigest: s.PayloadDigest, opensWait: s.Opens != nil, source: s.Source,
 	}
-	if sequence <= cursor {
+	if consumed {
 		if len(s.Payload) != 0 {
 			return signalRecord{}, fmt.Errorf("%w: consumed Signal retains payload", errMailboxCursor)
 		}
@@ -568,15 +568,13 @@ func (s signalRecordWire) restore(sequence, cursor uint64) (signalRecord, error)
 	return record, nil
 }
 
-func (s signalRecordWire) validateShape(sequence uint64) error {
+func (s signalRecordWire) validateShape() error {
 	if !s.Source.accepts(s.ID) ||
 		s.Opens != nil && s.Source != signalSourceSettlement ||
 		s.Opens == nil && s.Source == signalSourceSettlement && s.WaitID != nil {
 		return fmt.Errorf("%w: invalid signal source", errMailboxCursor)
 	}
 	switch {
-	case s.ArrivalSequence != sequence:
-		return fmt.Errorf("%w: Signal arrival sequence disagrees with history", errMailboxCursor)
 	case !s.PayloadDigest.Valid():
 		return fmt.Errorf("%w: Signal payload digest is invalid", errMailboxCursor)
 	case s.WaitID != nil && !s.WaitID.Valid():

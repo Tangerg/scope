@@ -42,7 +42,6 @@ func TestMailboxRestoreRejectsSignalAuthorityMismatch(t *testing.T) {
 			}
 			record := newSignalRecord(mustMailboxSignal(t, id, WaitID{}, []byte(`null`)), false)
 			record.source = source
-			record.arrivalSequence = 1
 			wire := mailboxWire{Signals: []signalRecordWire{record.wire()}}
 			if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
 				t.Fatal("restoration accepted conflicting identity authority")
