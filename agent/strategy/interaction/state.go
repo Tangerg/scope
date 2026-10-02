@@ -36,7 +36,9 @@ type executionState struct {
 	ToolRound           *toolCallRound   `json:"tool_round,omitzero"`
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord `json:"artifact_records,omitempty"`
-	FinalOutput         *Output          `json:"final_output,omitzero"`
+	// Completed marks the Step that returned the final Output. The Engine owns
+	// that Output; the state never repeats it.
+	Completed bool `json:"completed,omitzero"`
 }
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
@@ -50,10 +52,10 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 }
 
 // phase relies on every model request advancing ModelCallCount in the Step
-// that emits it: without a round or final Output, a counted call is in flight.
+// that emits it: without a round or completion, a counted call is in flight.
 func (e executionState) phase() phase {
 	switch {
-	case e.FinalOutput != nil:
+	case e.Completed:
 		return phaseCompleted
 	case e.ToolRound == nil && e.ModelCallCount == 0:
 		return phaseReadyModel
@@ -277,21 +279,15 @@ func (e *executionState) applyPendingSteer() ([]agent.SignalID, error) {
 	return appliedSignalIDs, nil
 }
 
-func (e *executionState) complete(output Output) {
+func (e *executionState) complete() {
 	e.ToolRound = nil
 	e.PendingSteer = nil
-	e.FinalOutput = &output
+	e.Completed = true
 }
 
 func (e executionState) validateCompletedState() error {
-	if e.ToolRound != nil || e.PendingSteer != nil {
-		return fmt.Errorf("%w: completed state requires only its final Output", ErrInvalidExecutionState)
-	}
-	if err := e.FinalOutput.Validate(); err != nil {
-		return fmt.Errorf("%w: final Output: %w", ErrInvalidExecutionState, err)
-	}
-	if e.FinalOutput.ModelCalls != e.ModelCallCount {
-		return fmt.Errorf("%w: final Output model calls differ from execution count", ErrInvalidExecutionState)
+	if e.ToolRound != nil || e.PendingSteer != nil || e.ModelCallCount == 0 {
+		return fmt.Errorf("%w: completed state retains pending work or issued no model call", ErrInvalidExecutionState)
 	}
 	return nil
 }

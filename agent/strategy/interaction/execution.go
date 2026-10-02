@@ -195,7 +195,7 @@ func (e *execution) complete(consumedSignals uint32, output Output) (agent.Trans
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.complete(output)
+	e.state.complete()
 	return agent.Complete(consumedSignals, encoded)
 }
 

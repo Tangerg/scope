@@ -76,14 +76,13 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 		f.Fatal(err)
 	}
 	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: request}
-	result := &toolCallResult{Result: chat.ToolResult{ID: "call", Name: "inspect", Output: chat.NewTextToolOutput("done")}}
 	for _, state := range []toolExecutionState{
 		{Phase: toolReady, Call: call},
 		{Phase: toolAwaitingResult, Call: call},
 		{Phase: toolAwaitingResult, Call: call, Checkpoint: checkpoint},
 		{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint},
 		{Phase: toolWaitingInput, Call: call, Checkpoint: checkpoint, WaitID: &waitID},
-		{Phase: toolCompleted, Call: call, Result: result},
+		{Phase: toolCompleted, Call: call},
 	} {
 		captured, captureErr := (&toolExecution{state: state}).Snapshot()
 		if captureErr != nil {
@@ -132,7 +131,7 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 		execution agent.Execution
 	}{
 		{"tool", &toolExecution{state: toolExecutionState{Phase: toolReady, Call: call}}},
-		{"interaction", &execution{state: executionState{FinalOutput: &Output{}}}},
+		{"interaction", &execution{state: executionState{Completed: true}}},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			_, stepErr := sample.execution.Step(t.Context(), []agent.Signal{unsolicited})

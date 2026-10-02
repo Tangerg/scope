@@ -266,8 +266,14 @@ func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uin
 	if state.Call.ModelCallSequence != sequence || state.Call.ToolCallIndex != index || state.Call.Call != call {
 		return nil, ErrInvalidExecutionState
 	}
-	if state.Result != nil {
-		return state.Result, nil
+	// A completed Tool child's Output is its result; its state never repeats it.
+	if result, terminal := process.Result(); terminal && result.Status() == agent.StatusCompleted {
+		output, _ := result.Output()
+		completion, err := output.Decode[toolCallResult]()
+		if err != nil {
+			return nil, err
+		}
+		return &completion, nil
 	}
 	for _, payload := range definitePayloads(process) {
 		envelope, err := decodeSignal(payload)

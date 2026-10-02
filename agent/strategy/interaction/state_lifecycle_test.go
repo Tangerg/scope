@@ -97,10 +97,6 @@ func TestRestoreRejectsIncompleteLifecycleStates(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"round without response", func(state *executionState) { state.ToolRound.Response = nil }},
-		{"output call count mismatch", func(state *executionState) {
-			state.complete(Output{Source: CompletionSourceDirectToolResults, ModelCalls: 2,
-				DirectToolResults: []chat.ToolResult{{ID: "call", Name: "direct", Output: chat.NewTextToolOutput("done")}}})
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
@@ -130,7 +126,7 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		}},
 		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
 		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
-		{"completed output", func(state *executionState) { state.FinalOutput = &Output{} }},
+		{"completed with pending work", func(state *executionState) { state.Completed = true }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)

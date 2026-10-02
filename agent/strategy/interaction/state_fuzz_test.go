@@ -95,35 +95,21 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 	}
 }
 
-func TestRestoreRequiresOneCompletedResult(t *testing.T) {
+func TestRestoreKeepsCompletionWithoutItsOutput(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
-	message := chat.NewAssistantMessage(chat.NewTextPart("done"))
-	response := &chat.Response{Output: &chat.Output{
-		Message: &message, FinishReason: chat.FinishReasonStop,
-	}}
-	results := []chat.ToolResult{{ID: "call", Name: "direct", Output: chat.NewTextToolOutput("done")}}
 	for _, test := range []struct {
-		name     string
-		response *chat.Response
-		results  []chat.ToolResult
-		calls    uint64
-		valid    bool
+		name  string
+		calls uint64
+		valid bool
 	}{
-		{name: "model", response: response, calls: 2, valid: true},
-		{name: "direct tools", results: results, calls: 1, valid: true},
-		{name: "missing result", calls: 1},
-		{name: "competing results", response: response, results: results, calls: 1},
-		{name: "no model call", response: response},
+		{name: "completed", calls: 1, valid: true},
+		{name: "no model call"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := &Output{Source: CompletionSourceDirectToolResults, ModelResponse: test.response, DirectToolResults: test.results, ModelCalls: test.calls}
-			if test.response != nil {
-				output.Source = CompletionSourceModelResponse
-			}
 			state, err := (executionState{
 				ModelCallCount: test.calls,
 				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-				FinalOutput:    output,
+				Completed:      true,
 			}).snapshot()
 			if err != nil {
 				t.Fatal(err)
@@ -140,7 +126,7 @@ func TestRestoreRequiresOneCompletedResult(t *testing.T) {
 			}
 			captured, err := restored.Snapshot()
 			if err != nil || !bytes.Equal(state.Payload(), captured.Payload()) {
-				t.Fatalf("completed result changed after restoration: %v", err)
+				t.Fatalf("completion changed after restoration: %v", err)
 			}
 		})
 	}

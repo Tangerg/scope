@@ -27,7 +27,6 @@ type toolExecutionState struct {
 	Call       toolCall        `json:"call"`
 	Checkpoint *toolCheckpoint `json:"checkpoint,omitzero"`
 	WaitID     *agent.WaitID   `json:"wait_id,omitzero"`
-	Result     *toolCallResult `json:"result,omitzero"`
 }
 
 func (t toolExecutionState) validate() error {
@@ -39,11 +38,6 @@ func (t toolExecutionState) validate() error {
 			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 	}
-	if t.Result != nil {
-		if err := t.Result.validateCall(t.Call.Call); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-		}
-	}
 	if !t.continuationMatchesPhase() {
 		return fmt.Errorf("%w: Tool phase disagrees with its continuation", ErrInvalidExecutionState)
 	}
@@ -51,7 +45,7 @@ func (t toolExecutionState) validate() error {
 }
 
 func (t toolExecutionState) continuationMatchesPhase() bool {
-	if (t.Result != nil) != (t.Phase == toolCompleted) || (t.WaitID != nil) != (t.Phase == toolWaitingInput) ||
+	if (t.WaitID != nil) != (t.Phase == toolWaitingInput) ||
 		t.WaitID != nil && !t.WaitID.Valid() {
 		return false
 	}
@@ -215,7 +209,6 @@ func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelop
 	}
 	t.state.Checkpoint = nil
 	t.state.WaitID = nil
-	t.state.Result = result
 	t.state.Phase = toolCompleted
 	return agent.Complete(1, output)
 }

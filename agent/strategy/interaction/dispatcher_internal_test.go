@@ -60,7 +60,7 @@ func TestToolDispatcherSettlesLocalProtocolRejections(t *testing.T) {
 	}
 }
 
-func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
+func TestFailedDirectResultCannotEnterProtocol(t *testing.T) {
 	result := chat.ToolResult{
 		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
 	}
@@ -73,32 +73,6 @@ func TestFailedDirectResultCannotEnterProtocolOrRestore(t *testing.T) {
 	}
 	if _, decodeErr := decodeSignal(payload); decodeErr == nil {
 		t.Fatal("failed direct result entered the tool protocol")
-	}
-	definition, err := NewDefinition(DefinitionConfig{
-		Name: "interaction.restore_direct", Description: "Validate completed direct result recovery.", MaxModelCalls: agent.NewQuota(1),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := executionState{
-		ModelCallCount: 1,
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-		FinalOutput:    &Output{Source: CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{result}},
-	}
-	encoded, err := state.snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, restoreErr := definition.Restore(t.Context(), encoded); !errors.Is(restoreErr, ErrInvalidExecutionState) {
-		t.Fatalf("Restore = %v, want ErrInvalidExecutionState", restoreErr)
-	}
-	state.FinalOutput.DirectToolResults[0].IsError = false
-	encoded, err = state.snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, restoreErr := definition.Restore(t.Context(), encoded); restoreErr != nil {
-		t.Fatalf("Restore successful direct result: %v", restoreErr)
 	}
 }
 

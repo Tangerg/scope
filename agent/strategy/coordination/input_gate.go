@@ -101,7 +101,6 @@ type inputGateState struct {
 	Phase   gatePhase     `json:"phase"`
 	Request agent.Payload `json:"request"`
 	WaitID  *agent.WaitID `json:"wait_id,omitzero"`
-	Answer  *agent.Signal `json:"answer,omitzero"`
 }
 
 func (i inputGateState) validate(ctx context.Context, definition *InputGate) error {
@@ -113,22 +112,13 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 	}
 	switch i.Phase {
 	case gateReady, gateAwaitingOpen:
-		if i.WaitID != nil || i.Answer != nil {
-			return fmt.Errorf("%w: unopened gate retains a wait or answer", ErrInvalidExecutionState)
+		if i.WaitID != nil {
+			return fmt.Errorf("%w: unopened gate retains a wait", ErrInvalidExecutionState)
 		}
-	case gateWaiting:
+	case gateWaiting, gateCompleted:
+		// A completed gate's answer is the Engine-owned Output, never repeated here.
 		if i.WaitID == nil {
-			return fmt.Errorf("%w: waiting gate requires a WaitID", ErrInvalidExecutionState)
-		}
-		if i.Answer != nil {
-			return fmt.Errorf("%w: waiting gate already has an answer", ErrInvalidExecutionState)
-		}
-	case gateCompleted:
-		if i.WaitID == nil || i.Answer == nil {
-			return fmt.Errorf("%w: completed gate requires a wait and answer", ErrInvalidExecutionState)
-		}
-		if err := i.acceptsAnswer(definition, *i.Answer); err != nil {
-			return fmt.Errorf("%w: completed answer: %w", ErrInvalidExecutionState, err)
+			return fmt.Errorf("%w: opened gate requires a WaitID", ErrInvalidExecutionState)
 		}
 	default:
 		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidExecutionState, i.Phase)
@@ -211,7 +201,6 @@ func (i *inputGateExecution) acceptAnswer(signals []agent.Signal) (agent.Transit
 	if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
 	}
-	i.state.Answer = &answer
 	i.state.Phase = gateCompleted
 	output, err := agent.EncodePayload(answer)
 	if err != nil {

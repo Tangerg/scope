@@ -298,7 +298,6 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
 	}
 	if decision.Mode == ModeComplete {
-		e.state.Output = decision.Output
 		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {

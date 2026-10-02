@@ -77,9 +77,9 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				t.Fatal(err)
 			}
 			mutations := map[string]func(*executionState){
-				"completed output": func(state *executionState) { state.Output = input("forged") },
-				"decision mode":    func(state *executionState) { state.Mode = ModeContinue },
-				"changed state":    func(state *executionState) { state.State = input("forged") },
+				"completed mode": func(state *executionState) { state.Mode = ModeComplete },
+				"decision mode":  func(state *executionState) { state.Mode = ModeContinue },
+				"changed state":  func(state *executionState) { state.State = input("forged") },
 			}
 			if mode != "start" {
 				// Without its outcome, a turn that never started is a valid fresh turn.

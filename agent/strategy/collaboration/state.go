@@ -62,7 +62,6 @@ type executionState struct {
 	Mode         Mode             `json:"mode,omitempty"`
 	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
-	Output       agent.Payload    `json:"output,omitzero"`
 }
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
@@ -82,7 +81,7 @@ func (e executionState) phase() phase {
 	switch {
 	case e.Turn == nil:
 		return phaseReady
-	case e.Output.Valid():
+	case e.Mode == ModeComplete:
 		return phaseCompleted
 	case e.Turn.Start == nil:
 		return phaseStartingTurn
@@ -288,7 +287,7 @@ func (e executionState) validateBounds(d *Definition) error {
 }
 
 func (e executionState) validateReady() error {
-	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != ModeUndecided || e.WaitSequence != 0 || e.WaitID != nil || e.Output.Valid() {
+	if e.Number != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.Turn != nil || e.Mode != ModeUndecided || e.WaitSequence != 0 || e.WaitID != nil {
 		return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
 	}
 	return nil
@@ -351,9 +350,6 @@ func (e executionState) validateWaitingTurn(d *Definition) error {
 func (e executionState) validateCompleted(d *Definition) error {
 	if e.Turn.Outcome == nil || e.Mode != ModeComplete {
 		return fmt.Errorf("%w: completed phase requires a completed turn decision", ErrInvalidExecutionState)
-	}
-	if err := d.descriptor.ValidateOutput(e.Output); err != nil {
-		return fmt.Errorf("%w: completed output: %w", ErrInvalidExecutionState, err)
 	}
 	return nil
 }
@@ -581,7 +577,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 func (e executionState) validateAppliedActions(ctx context.Context, decision Decision) error {
 	previousCount := len(e.Turn.Input.Tasks)
 	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) ||
-		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) || !bytes.Equal(e.Output.JSON(), decision.Output.JSON()) {
+		e.Mode != decision.Mode || !sameJSON(e.State, decision.State) {
 		return fmt.Errorf("%w: applied state does not match the coordinator decision", ErrInvalidExecutionState)
 	}
 	for index, request := range decision.Tasks {
