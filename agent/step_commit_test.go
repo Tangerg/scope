@@ -112,7 +112,6 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	runtime.addProcess(newProcessState(handle, parent.execution,
 		parent.committedExecutionState))
 	missingID, _ := ParseProcessID("process:missing-child")
-	var specs []ChildWaitSpec
 	var effects []Effect
 	for index, id := range []ProcessID{childID, childID, missingID} {
 		key, _ := ParseWaitKey(fmt.Sprintf("worker-result-%d", index))
@@ -122,7 +121,6 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		specs = append(specs, spec)
 		effects = append(effects, effect)
 	}
 	transition, err := Continue(0, effects...)
@@ -147,12 +145,8 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	if parent.prepared != prepared || parent.committedSteps != 0 || parent.mailbox.pendingCount() != 0 {
 		t.Fatal("rejected finalization adopted candidate state")
 	}
-	for index, spec := range specs[:2] {
-		waitID := prepared.Effects[index].ID.waitID()
-		if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
-			t.Fatalf("rejected finalization retained registration %d: %v", index, err)
-		}
-		runtime.childWaits.remove(parent.handle.processID, waitID)
+	if len(parent.mailbox.openChildWaits()) != 0 {
+		t.Fatal("rejected finalization opened child waits")
 	}
 }
 
@@ -175,13 +169,11 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	}
 	parent.prepared = &preparedStep{Intent: controlValue(Continue(0, record.Effect)), Effects: preparedEffects{record}}
 	waitID := record.ID.waitID()
-	if _, _, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil {
-		t.Fatal(err)
-	}
-	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrInvalidChildWait) {
+	openTestChildWait(t, &parent.mailbox, "signal:engine:existing", waitID, spec)
+	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, errWaitState) {
 		t.Fatalf("duplicate child wait finalization = %+v", failure)
 	}
-	if runtime.childWaits[parent.handle.processID][waitID] == nil {
-		t.Fatal("rejected finalization removed a registration it did not create")
+	if opened := parent.mailbox.openChildWaits(); len(opened) != 1 || opened[0].waitID != waitID {
+		t.Fatal("rejected finalization removed a wait it did not open")
 	}
 }

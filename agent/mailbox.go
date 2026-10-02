@@ -62,16 +62,36 @@ func (s signalRecord) wire() signalRecordWire {
 	return wire
 }
 
+// waitRecord owns one wait's lifecycle. A child wait also owns the spec the
+// Engine evaluates against tree membership; its key is the spec's key.
 type waitRecord struct {
 	key      WaitKey
-	kind     WaitKind
+	child    *ChildWaitSpec
 	answered bool
 	closed   bool
 }
 
+func newChildWaitRecord(spec ChildWaitSpec) waitRecord {
+	return waitRecord{key: spec.Key, child: new(spec.clone())}
+}
+
+func (w waitRecord) kind() WaitKind {
+	if w.child != nil {
+		return WaitKindChildren
+	}
+	return WaitKindExternal
+}
+
 // Only Host input answers an external wait; only the Engine answers a child wait.
 func (w waitRecord) answerableBy(source signalSource) bool {
-	return (w.kind == WaitKindExternal) == (source == signalSourceExternal)
+	return (w.child == nil) == (source == signalSourceExternal)
+}
+
+func (w waitRecord) openingWire() *waitOpeningWire {
+	if w.child != nil {
+		return &waitOpeningWire{Spec: new(w.child.wire())}
+	}
+	return &waitOpeningWire{Key: new(w.key)}
 }
 
 // signalMailbox has reference semantics. candidate must clone it before any
@@ -176,23 +196,33 @@ func (s *signalMailbox) acceptRecord(record signalRecord) {
 	s.appendRecord(record)
 }
 
-func (s *signalMailbox) openWait(key WaitKey, signal Signal, kind WaitKind) error {
+// openWait opens a Host-answered wait.
+func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
+	return s.openSettledWait(waitRecord{key: key}, signal)
+}
+
+// openChildWait opens an Engine-answered wait over spec.
+func (s *signalMailbox) openChildWait(spec ChildWaitSpec, signal Signal) error {
+	if !spec.Valid() {
+		return fmt.Errorf("%w: %w", errWaitState, ErrInvalidChildWait)
+	}
+	return s.openSettledWait(newChildWaitRecord(spec), signal)
+}
+
+func (s *signalMailbox) openSettledWait(wait waitRecord, signal Signal) error {
 	_, addressed := signal.WaitID()
 	if !signal.Valid() || !addressed {
 		return fmt.Errorf("%w: addressed opening Signal is required", errWaitState)
 	}
 	record := newSignalRecord(signal, true)
 	record.source = signalSourceSettlement
-	return s.openWaitRecord(key, record, kind)
+	return s.openWaitRecord(wait, record)
 }
 
-func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind WaitKind) error {
-	id := record.waitID
+func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) error {
+	id, key := record.waitID, wait.key
 	if !key.Valid() {
 		return fmt.Errorf("%w: invalid wait key", errWaitState)
-	}
-	if !kind.Valid() {
-		return fmt.Errorf("%w: unknown wait kind %q", errWaitState, kind)
 	}
 	if !signalSourceSettlement.accepts(record.id) {
 		return fmt.Errorf("%w: opening Signal requires Engine identity", errWaitState)
@@ -208,7 +238,7 @@ func (s *signalMailbox) openWaitRecord(key WaitKey, record signalRecord, kind Wa
 			return fmt.Errorf("%w: wait key is already open", errWaitState)
 		}
 	}
-	s.waits[id] = waitRecord{key: key, kind: kind}
+	s.waits[id] = wait
 	s.appendRecord(record)
 	return nil
 }
@@ -238,25 +268,14 @@ func (s *signalMailbox) closeWait(id WaitID) error {
 	return nil
 }
 
-// closeAllWaits makes every remaining wait terminal with its Process. It
-// returns child-wait identities whose Engine registrations must be removed
-// before the terminal ProcessSnapshot is captured.
-func (s *signalMailbox) closeAllWaits() []WaitID {
-	var childWaits []WaitID
+// closeAllWaits makes every remaining wait terminal with its Process.
+func (s *signalMailbox) closeAllWaits() {
 	for id, record := range s.waits {
-		if record.closed {
-			continue
-		}
-		record.closed = true
-		s.waits[id] = record
-		if record.kind == WaitKindChildren {
-			childWaits = append(childWaits, id)
+		if !record.closed {
+			record.closed = true
+			s.waits[id] = record
 		}
 	}
-	slices.SortFunc(childWaits, func(left, right WaitID) int {
-		return cmp.Compare(left.String(), right.String())
-	})
-	return childWaits
 }
 
 func (s *signalMailbox) pending() []Signal {
@@ -273,20 +292,16 @@ func (s *signalMailbox) pending() []Signal {
 	return signals
 }
 
-func (s *signalMailbox) commit(consumedSignals uint32) ([]WaitID, error) {
+func (s *signalMailbox) commit(consumedSignals uint32) error {
 	remaining := uint64(len(s.records)) - s.signalCursor
 	if uint64(consumedSignals) > remaining {
-		return nil, errMailboxCursor
+		return errMailboxCursor
 	}
-	var childWaits []WaitID
 	for index := s.signalCursor; index < s.signalCursor+uint64(consumedSignals); index++ {
 		record := &s.records[index]
 		if waitID := record.waitID; waitID.Valid() && !record.opensWait {
 			if err := s.closeWait(waitID); err != nil {
-				return nil, err
-			}
-			if s.waits[waitID].kind == WaitKindChildren {
-				childWaits = append(childWaits, waitID)
+				return err
 			}
 		}
 		// Candidate adoption owns consumption; history only needs identity,
@@ -294,7 +309,7 @@ func (s *signalMailbox) commit(consumedSignals uint32) ([]WaitID, error) {
 		record.payload = nil
 	}
 	s.signalCursor += uint64(consumedSignals)
-	return childWaits, nil
+	return nil
 }
 
 func (s *signalMailbox) acceptedCount() uint64 { return uint64(len(s.records)) }
@@ -319,11 +334,48 @@ type signalRecordWire struct {
 }
 
 // waitOpeningWire records the only wait facts the Signal history cannot
-// derive. Whether a wait is answered or closed is replayed from the answers
-// that follow its opening and from the Process status, never stored.
+// derive: an external wait's key, or a child wait's complete spec. Exactly one
+// is present, and it determines the wait's kind. Whether a wait is answered or
+// closed is replayed from the answers that follow its opening and from the
+// Process status, never stored.
 type waitOpeningWire struct {
-	Key  WaitKey  `json:"key"`
-	Kind WaitKind `json:"kind"`
+	Key  *WaitKey           `json:"key,omitzero"`
+	Spec *childWaitSpecWire `json:"spec,omitzero"`
+}
+
+func (w waitOpeningWire) clone() waitOpeningWire {
+	var clone waitOpeningWire
+	if w.Key != nil {
+		clone.Key = new(*w.Key)
+	}
+	if w.Spec != nil {
+		spec := *w.Spec
+		spec.Children = slices.Clone(w.Spec.Children)
+		clone.Spec = &spec
+	}
+	return clone
+}
+
+func (w waitOpeningWire) wait() (waitRecord, error) {
+	switch {
+	case w.Key != nil && w.Spec == nil:
+		return waitRecord{key: *w.Key}, nil
+	case w.Key == nil && w.Spec != nil:
+		spec, err := w.Spec.value()
+		if err != nil {
+			return waitRecord{}, fmt.Errorf("%w: %w", errWaitState, err)
+		}
+		return newChildWaitRecord(spec), nil
+	default:
+		return waitRecord{}, fmt.Errorf("%w: wait opening needs exactly one of key and spec", errWaitState)
+	}
+}
+
+func (w waitOpeningWire) kind() WaitKind {
+	if w.Spec != nil {
+		return WaitKindChildren
+	}
+	return WaitKindExternal
 }
 
 type mailboxWire struct {
@@ -346,16 +398,30 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	return receipts
 }
 
-func (s *signalMailbox) openChildWaits() map[WaitID]WaitKey {
-	var waits map[WaitID]WaitKey
+// openChildWaits returns the child waits that still constrain tree membership,
+// in WaitID order so notification does not depend on map iteration.
+func (s *signalMailbox) openChildWaits() []ChildWaitOpened {
+	var waits []ChildWaitOpened
 	for id, wait := range s.waits {
-		if wait.kind != WaitKindChildren || wait.closed {
-			continue
+		if wait.child != nil && !wait.closed {
+			waits = append(waits, ChildWaitOpened{waitID: id, spec: *wait.child})
 		}
-		if waits == nil {
-			waits = make(map[WaitID]WaitKey)
+	}
+	slices.SortFunc(waits, func(left, right ChildWaitOpened) int {
+		return cmp.Compare(left.waitID.String(), right.waitID.String())
+	})
+	return waits
+}
+
+// awaitingChild returns the open, unanswered child waits that observe childID
+// at boundary.
+func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBoundary) []ChildWaitOpened {
+	var waits []ChildWaitOpened
+	for _, opened := range s.openChildWaits() {
+		if !s.waits[opened.waitID].answered && opened.spec.Boundary == boundary &&
+			slices.Contains(opened.spec.Children, childID) {
+			waits = append(waits, opened)
 		}
-		waits[id] = wait.key
 	}
 	return waits
 }
@@ -363,7 +429,7 @@ func (s *signalMailbox) openChildWaits() map[WaitID]WaitKey {
 func (m mailboxWire) waitKind(id WaitID) (WaitKind, bool) {
 	for _, record := range m.Signals {
 		if record.Opens != nil && lo.FromPtr(record.WaitID) == id {
-			return record.Opens.Kind, true
+			return record.Opens.kind(), true
 		}
 	}
 	return WaitKindInvalid, false
@@ -374,8 +440,7 @@ func (s *signalMailbox) wire() mailboxWire {
 	for _, record := range s.records {
 		encoded := record.wire()
 		if record.opensWait {
-			wait := s.waits[record.waitID]
-			encoded.Opens = &waitOpeningWire{Key: wait.key, Kind: wait.kind}
+			encoded.Opens = s.waits[record.waitID].openingWire()
 		}
 		wire.Signals = append(wire.Signals, encoded)
 	}
@@ -429,7 +494,7 @@ func (s *signalMailbox) blockedByCurrentWait(currentWaitID, waitID WaitID, answe
 		return true
 	}
 	_, currentAnswered := answered[currentWaitID]
-	return s.waits[currentWaitID].kind == WaitKindExternal && !currentAnswered
+	return s.waits[currentWaitID].kind() == WaitKindExternal && !currentAnswered
 }
 
 // Restoration replays portable facts through the live mailbox transitions.
@@ -448,7 +513,7 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 			return signalMailbox{}, err
 		}
 		if record.arrivalSequence <= wire.SignalCursor {
-			if _, err := mailbox.commit(1); err != nil {
+			if err := mailbox.commit(1); err != nil {
 				return signalMailbox{}, err
 			}
 		}
@@ -461,7 +526,18 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 
 func (s *signalMailbox) replay(record signalRecord, opening *waitOpeningWire) error {
 	if opening != nil {
-		return s.openWaitRecord(opening.Key, record, opening.Kind)
+		wait, err := opening.wait()
+		if err != nil {
+			return err
+		}
+		if wait.child != nil {
+			// The opening Signal announced exactly this spec to the Execution.
+			digest, err := childWaitOpenedDigest(*wait.child)
+			if err != nil || digest != record.payloadDigest {
+				return fmt.Errorf("%w: child wait disagrees with its opening Signal", errWaitState)
+			}
+		}
+		return s.openWaitRecord(wait, record)
 	}
 	accepted, err := s.enqueueRecord(StatusRunning, record)
 	if err != nil || !accepted {

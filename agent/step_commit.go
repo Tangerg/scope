@@ -20,34 +20,30 @@ func newFinalizationFailure(limitCode string, err error) *stepFailure {
 	return &stepFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
 }
 
+// The candidate mailbox owns every wait the Step opens, consumes, or closes;
+// openedChildWaits only lists the child waits that may already be satisfied.
 type preparedStepFinalization struct {
-	process            *processState
-	prepared           *preparedStep
-	mailbox            signalMailbox
-	consumedChildWaits []WaitID
-	openedChildWaits   []ChildWaitOpened
-	commit             preparedStepCommit
+	process          *processState
+	prepared         *preparedStep
+	mailbox          signalMailbox
+	openedChildWaits []ChildWaitOpened
+	commit           preparedStepCommit
 }
 
 type preparedStepCommit struct {
-	currentWaitID    WaitID
-	pause            pause
-	finalOutput      Payload
-	termination      Termination
-	finishedAt       time.Time
-	closedChildWaits []WaitID
+	currentWaitID WaitID
+	pause         pause
+	finalOutput   Payload
+	termination   Termination
+	finishedAt    time.Time
 }
 
 func newPreparedStepFinalization(process *processState, prepared *preparedStep) (*preparedStepFinalization, error) {
 	mailbox := process.mailbox.clone()
-	consumedChildWaits, err := mailbox.commit(prepared.Intent.ConsumedSignals())
-	if err != nil {
+	if err := mailbox.commit(prepared.Intent.ConsumedSignals()); err != nil {
 		return nil, err
 	}
-	return &preparedStepFinalization{
-		process: process, prepared: prepared, mailbox: mailbox,
-		consumedChildWaits: consumedChildWaits,
-	}, nil
+	return &preparedStepFinalization{process: process, prepared: prepared, mailbox: mailbox}, nil
 }
 
 func (p *preparedStepFinalization) prepareSettlements() error {
@@ -128,5 +124,4 @@ func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {
 	p.commit.termination = p.process.resolveStepTermination(outcome)
 	p.commit.finishedAt = finishedAt
-	p.commit.closedChildWaits = p.mailbox.closeAllWaits()
 }

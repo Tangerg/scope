@@ -605,10 +605,10 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
 	owner := root.handle.runtime.Load()
-	_, _, err = owner.childWaits.register(root.ID(), waitID, ChildWaitSpec{
+	_, err = owner.childWaitAnswers(root.ID(), []ChildWaitOpened{{waitID: waitID, spec: ChildWaitSpec{
 		Boundary: ChildWaitBoundaryResult,
 		Key:      waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
-	}, &owner.members)
+	}}})
 	if !errors.Is(err, ErrInvalidChildWait) {
 		t.Fatalf("ancestor wait error = %v, want %v", err, ErrInvalidChildWait)
 	}
@@ -618,33 +618,32 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 }
 
 func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
-	waitC, _ := ParseWaitID("wait:c")
-	waitA, _ := ParseWaitID("wait:a")
-	waitB, _ := ParseWaitID("wait:b")
-	parentID := newProcessID()
-	registry := childWaitRegistry{}
-	for _, waitID := range []WaitID{waitC, waitA, waitB} {
-		if !registry.add(parentID, &childWaitRegistration{waitID: waitID}) {
-			t.Fatalf("registration %s rejected", waitID)
+	childID := newProcessID()
+	mailbox := newSignalMailbox()
+	for _, name := range []string{"c", "a", "b"} {
+		waitID := controlValue(ParseWaitID("wait:" + name))
+		spec := ChildWaitSpec{
+			Key: controlValue(ParseWaitKey(name)), Children: []ProcessID{childID},
+			Boundary: ChildWaitBoundaryResult, Condition: AllChildren(),
+		}
+		openTestChildWait(t, &mailbox, "signal:engine:opened-"+name, waitID, spec)
+	}
+	duplicate := mustMailboxSignal(t, "signal:engine:duplicate", controlValue(ParseWaitID("wait:a")), json.RawMessage(`{}`))
+	if err := mailbox.openChildWait(testChildWaitSpec(t, "duplicate"), duplicate); !errors.Is(err, errWaitState) {
+		t.Fatalf("duplicate WaitID opened twice: %v", err)
+	}
+	want := []string{"wait:a", "wait:b", "wait:c"}
+	awaiting := mailbox.awaitingChild(childID, ChildWaitBoundaryResult)
+	if len(awaiting) != len(want) {
+		t.Fatalf("awaiting waits = %d, want %d", len(awaiting), len(want))
+	}
+	for index, opened := range awaiting {
+		if opened.waitID.String() != want[index] {
+			t.Fatalf("delivery %d WaitID = %s, want %s", index, opened.waitID, want[index])
 		}
 	}
-	if registry.add(parentID, &childWaitRegistration{waitID: waitA}) {
-		t.Fatal("duplicate WaitID registered twice")
-	}
-	ordered := registry.ordered(parentID)
-	want := []WaitID{waitA, waitB, waitC}
-	for index, registration := range ordered {
-		if registration.waitID != want[index] {
-			t.Fatalf(
-				"delivery %d WaitID = %s, want %s", index, registration.waitID, want[index],
-			)
-		}
-	}
-	for _, waitID := range want {
-		registry.remove(parentID, waitID)
-	}
-	if len(registry) != 0 {
-		t.Fatal("empty parent group outlived its last registration")
+	if len(mailbox.awaitingChild(childID, ChildWaitBoundaryDrained)) != 0 {
+		t.Fatal("result waits awaited a drained boundary")
 	}
 }
 

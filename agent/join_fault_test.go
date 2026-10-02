@@ -67,16 +67,8 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:completed-child-drain")
 	waitKey, _ := ParseWaitKey("completed-child-drain")
 	spec := ChildWaitSpec{Key: waitKey, Children: []ProcessID{childID}, Condition: AllChildren(), Boundary: ChildWaitBoundaryDrained}
-	payload, err := encodeChildWaitOpened(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	opening := mustMailboxSignal(t, "signal:engine:completed-child-opened", waitID, payload)
-	if openErr := parent.mailbox.openWait(waitKey, opening, WaitKindChildren); openErr != nil {
-		t.Fatal(openErr)
-	}
+	openTestChildWait(t, &parent.mailbox, "signal:engine:completed-child-opened", waitID, spec)
 	parent.currentWaitID = waitID
-	runtime.childWaits[parent.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	_, err = parent.capture()
 	if err != nil {
 		t.Fatal(err)

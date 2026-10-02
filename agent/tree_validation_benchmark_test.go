@@ -22,18 +22,14 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	}
 	waitID := controlValue(ParseWaitID("wait:drained-benchmark"))
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: children, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}
-	opening := mustMailboxSignal(t, "signal:engine:drained-benchmark", waitID, controlValue(encodeChildWaitOpened(spec)))
-	if err := root.mailbox.openWait(spec.Key, opening, WaitKindChildren); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := root.mailbox.commit(1); err != nil {
+	openTestChildWait(t, &root.mailbox, "signal:engine:drained-benchmark", waitID, spec)
+	if err := root.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := root.mailbox.enqueue(StatusWaiting, controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, outcomes)), signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
 	root.pause = pause{reason: "retain child outcomes"}
-	runtime.childWaits[root.handle.processID] = map[WaitID]*childWaitRegistration{waitID: {waitID: waitID, spec: spec}}
 	snapshot, err := runtime.captureTree()
 	if err != nil {
 		t.Fatal(err)

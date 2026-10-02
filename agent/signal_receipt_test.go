@@ -22,12 +22,13 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 			var opening Signal
 			if test.wait {
 				waitID = controlValue(ParseWaitID("wait:receipt"))
-				opening = mustMailboxSignal(t, "signal:engine:opening", waitID, []byte(`"opened"`))
-				kind := WaitKindChildren
+				spec := testChildWaitSpec(t, "receipt")
+				opening = mustMailboxSignal(t, "signal:engine:opening", waitID, controlValue(encodeChildWaitOpened(spec)))
+				open := func() error { return mailbox.openChildWait(spec, opening) }
 				if test.external {
-					kind = WaitKindExternal
+					open = func() error { return mailbox.openWait(spec.Key, opening) }
 				}
-				if err := mailbox.openWait(controlValue(ParseWaitKey("receipt")), opening, kind); err != nil {
+				if err := open(); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -48,7 +49,7 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 			}
 			for _, consumed := range []bool{false, true} {
 				if consumed {
-					if _, err := mailbox.commit(uint32(mailbox.pendingCount())); err != nil {
+					if err := mailbox.commit(uint32(mailbox.pendingCount())); err != nil {
 						t.Fatal(err)
 					}
 				}

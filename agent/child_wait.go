@@ -157,8 +157,8 @@ func NewChildWaitEffect(spec ChildWaitSpec) (Effect, error) {
 	return newFrameworkEffect(childWaitEffectWire{Operation: frameworkOperationWaitChildren, Spec: spec.wire()})
 }
 
-// ChildWaitOpened is the definite acknowledgement that the Engine registered
-// a child wait and minted its WaitID.
+// ChildWaitOpened is the definite acknowledgement that the Engine opened a
+// child wait and minted its WaitID.
 type ChildWaitOpened struct {
 	waitID WaitID
 	spec   ChildWaitSpec
@@ -484,6 +484,18 @@ func encodeChildWaitOpened(spec ChildWaitSpec) (json.RawMessage, error) {
 		Operation: childWaitSignalOpened,
 		Spec:      spec.wire(),
 	})
+}
+
+// childWaitOpenedDigest identifies the opening Signal payload announcing spec.
+func childWaitOpenedDigest(spec ChildWaitSpec) (Digest, error) {
+	payload, err := encodeChildWaitOpened(spec)
+	if err != nil {
+		return Digest{}, err
+	}
+	if payload, err = normalizeJSON(payload, MaxPayloadBytes); err != nil {
+		return Digest{}, err
+	}
+	return ComputeDigest(payload), nil
 }
 
 func (c childOutcomeWire) value() (ChildOutcome, error) {

@@ -88,14 +88,9 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	handle := parent.handle
-	parentID := handle.processID
 	now := parent.handle.startedAt
 	waitID, _ := ParseWaitID("wait:oversized-children")
 	waitKey, _ := ParseWaitKey("children")
-	if err := parent.mailbox.openWait(waitKey, mustMailboxSignal(t, "signal:engine:oversized-opened", waitID, []byte(`{}`)), WaitKindExternal); err != nil {
-		t.Fatal(err)
-	}
-	parent.currentWaitID = waitID
 	output, err := EncodePayload(strings.Repeat("x", 32<<20))
 	if err != nil {
 		t.Fatal(err)
@@ -121,10 +116,9 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		runtime.addProcess(last)
 		children = append(children, id)
 	}
-	runtime.childWaits[parentID] = map[WaitID]*childWaitRegistration{waitID: {
-		waitID: waitID,
-		spec:   ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()},
-	}}
+	spec := ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()}
+	openTestChildWait(t, &parent.mailbox, "signal:engine:oversized-opened", waitID, spec)
+	parent.currentWaitID = waitID
 	runtime.propagateProcessTermination(last)
 	if !parent.pendingControl.failure.Valid() {
 		t.Fatal("aggregate encoding failure left the parent waiting without a failure intent")

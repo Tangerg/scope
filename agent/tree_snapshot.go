@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -28,8 +27,8 @@ type TreeSnapshot struct {
 
 // ParseTreeSnapshot strictly validates the current wire shape and domain
 // constraints of one complete Process tree, in canonical order regardless of
-// input array order. Every active child wait must have a registration matching
-// its Process and opening Signal, pending satisfaction Signals must agree with
+// input array order. Every open child wait must observe direct children of the
+// Process whose mailbox opened it, pending satisfaction Signals must agree with
 // the captured terminal results, and a retained successful child-start
 // settlement must identify a captured child matching the complete request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
@@ -140,18 +139,13 @@ func (t TreeSnapshot) wire() (treeSnapshotWire, error) {
 	return t.state.clone(), nil
 }
 
-type childWaitSnapshotWire struct {
-	ParentProcessID ProcessID         `json:"parent_process_id"`
-	WaitID          WaitID            `json:"wait_id"`
-	Spec            childWaitSpecWire `json:"spec"`
-}
-
+// treeSnapshotWire holds only tree-wide facts. Each child wait belongs to the
+// mailbox of the Process that opened it.
 type treeSnapshotWire struct {
-	RootID           ProcessID               `json:"root_id"`
-	IncarnationID    TreeIncarnationID       `json:"incarnation_id"`
-	TreeLimits       TreeLimits              `json:"tree_limits"`
-	ProcessSnapshots []ProcessSnapshot       `json:"process_snapshots"`
-	ChildWaits       []childWaitSnapshotWire `json:"child_waits,omitempty"`
+	RootID           ProcessID         `json:"root_id"`
+	IncarnationID    TreeIncarnationID `json:"incarnation_id"`
+	TreeLimits       TreeLimits        `json:"tree_limits"`
+	ProcessSnapshots []ProcessSnapshot `json:"process_snapshots"`
 }
 
 // treeSnapshotHeaderWire carries the members treeSnapshotWire encodes before
@@ -174,13 +168,7 @@ func (t treeSnapshotWire) encode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var waits []byte
-	if len(t.ChildWaits) != 0 {
-		if waits, err = jsonv2.Marshal(t.ChildWaits, jsonv2.Deterministic(true)); err != nil {
-			return nil, err
-		}
-	}
-	size := len(header) + len(`,"process_snapshots":[]`) + len(`,"child_waits":`) + len(waits)
+	size := len(header) + len(`,"process_snapshots":[]`)
 	for _, snapshot := range t.ProcessSnapshots {
 		size += len(snapshot.data) + 1
 	}
@@ -194,20 +182,12 @@ func (t treeSnapshotWire) encode() ([]byte, error) {
 		encoded = append(encoded, snapshot.data...)
 	}
 	encoded = append(encoded, ']')
-	if len(waits) != 0 {
-		encoded = append(encoded, `,"child_waits":`...)
-		encoded = append(encoded, waits...)
-	}
 	return append(encoded, '}'), nil
 }
 
 func (t treeSnapshotWire) clone() treeSnapshotWire {
 	clone := t
 	clone.ProcessSnapshots = slices.Clone(t.ProcessSnapshots)
-	clone.ChildWaits = slices.Clone(t.ChildWaits)
-	for index, wait := range t.ChildWaits {
-		clone.ChildWaits[index].Spec.Children = slices.Clone(wait.Spec.Children)
-	}
 	return clone
 }
 
@@ -223,9 +203,6 @@ func (t treeSnapshotWire) processSnapshot(id ProcessID) ProcessSnapshot {
 func (t *treeSnapshotWire) normalize() {
 	slices.SortFunc(t.ProcessSnapshots, func(left, right ProcessSnapshot) int {
 		return left.Relation().compareTreeOrder(right.Relation())
-	})
-	slices.SortFunc(t.ChildWaits, func(left, right childWaitSnapshotWire) int {
-		return cmp.Compare(left.WaitID.String(), right.WaitID.String())
 	})
 }
 
@@ -345,73 +322,31 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 	return nil
 }
 
-type openChildWait struct {
-	key     WaitKey
-	signals []signalRecordWire
-}
-
-func newOpenChildWaits(snapshot ProcessSnapshot) map[WaitID]*openChildWait {
-	waits := make(map[WaitID]*openChildWait, len(snapshot.openChildWaits))
-	for id, key := range snapshot.openChildWaits {
-		waits[id] = &openChildWait{key: key}
-	}
-	if len(waits) == 0 {
-		return waits
-	}
-	for _, signal := range snapshot.state.Mailbox.Signals {
-		if signal.WaitID == nil {
+// validateChildWaits checks each open child wait against the tree its parent
+// belongs to: the children it observes, and the answers already admitted.
+func (t *treeSnapshotValidation) validateChildWaits() error {
+	for _, snapshot := range t.wire.ProcessSnapshots {
+		if len(snapshot.openChildWaits) == 0 {
 			continue
 		}
-		if facts := waits[*signal.WaitID]; facts != nil {
-			facts.signals = append(facts.signals, signal)
+		parentID := snapshot.ProcessID()
+		specs := make(map[WaitID]ChildWaitSpec, len(snapshot.openChildWaits))
+		for _, opened := range snapshot.openChildWaits {
+			if err := opened.spec.validateRelations(parentID, t.processRelation); err != nil {
+				return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
+			}
+			specs[opened.waitID] = opened.spec
 		}
-	}
-	return waits
-}
-
-func (t *treeSnapshotValidation) validateChildWaits() error {
-	openWaits := make(map[ProcessID]map[WaitID]*openChildWait, len(t.wire.ProcessSnapshots))
-	for _, snapshot := range t.wire.ProcessSnapshots {
-		openWaits[snapshot.ProcessID()] = newOpenChildWaits(snapshot)
-	}
-	waitOwners := make(map[WaitID]ProcessID, len(t.wire.ChildWaits))
-	for _, encoded := range t.wire.ChildWaits {
-		if _, duplicate := waitOwners[encoded.WaitID]; duplicate {
-			return fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
-		}
-		facts := openWaits[encoded.ParentProcessID][encoded.WaitID]
-		if err := t.validateChildWaitRegistration(encoded, facts); err != nil {
-			return err
-		}
-		waitOwners[encoded.WaitID] = encoded.ParentProcessID
-	}
-	for _, snapshot := range t.wire.ProcessSnapshots {
-		for waitID := range openWaits[snapshot.ProcessID()] {
-			if waitOwners[waitID] != snapshot.ProcessID() {
-				return fmt.Errorf("%w: active child wait registration does not belong to Process", ErrInvalidTreeSnapshot)
+		for _, record := range snapshot.state.Mailbox.Signals {
+			if record.WaitID == nil || record.Opens != nil {
+				continue
+			}
+			if spec, open := specs[*record.WaitID]; open {
+				if err := t.validateChildWaitSatisfaction(record, *record.WaitID, spec); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	return nil
-}
-
-func (t *treeSnapshotValidation) validateChildWaitRegistration(
-	encoded childWaitSnapshotWire,
-	facts *openChildWait,
-) error {
-	parent, exists := t.processes[encoded.ParentProcessID]
-	spec, err := encoded.Spec.value()
-	if !exists || err != nil || !encoded.WaitID.Valid() || parent.status().Terminal() {
-		return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
-	}
-	if facts == nil || facts.key != spec.Key {
-		return fmt.Errorf("%w: child wait is absent from parent mailbox", ErrInvalidTreeSnapshot)
-	}
-	if err := t.validateChildWaitSignals(facts.signals, encoded.WaitID, spec); err != nil {
-		return err
-	}
-	if err := spec.validateRelations(encoded.ParentProcessID, t.processRelation); err != nil {
-		return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 	}
 	return nil
 }
@@ -445,30 +380,6 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 	return nil
 }
 
-func (t *treeSnapshotValidation) validateChildWaitSignals(signals []signalRecordWire, waitID WaitID, spec ChildWaitSpec) error {
-	opened, err := encodeChildWaitOpened(spec)
-	if err != nil {
-		return fmt.Errorf("%w: encode child wait: %w", ErrInvalidTreeSnapshot, err)
-	}
-	opened, err = normalizeJSON(opened, MaxPayloadBytes)
-	if err != nil {
-		return fmt.Errorf("%w: normalize child wait: %w", ErrInvalidTreeSnapshot, err)
-	}
-	openedDigest := ComputeDigest(opened)
-	for _, record := range signals {
-		if record.Opens == nil {
-			if err := t.validateChildWaitSatisfaction(record, waitID, spec); err != nil {
-				return err
-			}
-			continue
-		}
-		if record.PayloadDigest != openedDigest {
-			return fmt.Errorf("%w: child wait disagrees with its opening Signal", ErrInvalidTreeSnapshot)
-		}
-	}
-	return nil
-}
-
 func (t *treeSnapshotValidation) validateChildWaitSatisfaction(record signalRecordWire, waitID WaitID, spec ChildWaitSpec) error {
 	signal, err := NewSignal(record.ID, waitID, record.Payload)
 	if err != nil {
@@ -476,7 +387,7 @@ func (t *treeSnapshotValidation) validateChildWaitSatisfaction(record signalReco
 	}
 	satisfied, err := ParseChildWaitSatisfied(signal)
 	if err != nil || record.ID != waitID.childWaitSignalID() || !satisfied.Matches(waitID, spec) {
-		return fmt.Errorf("%w: child wait satisfaction disagrees with its registration", ErrInvalidTreeSnapshot)
+		return fmt.Errorf("%w: child wait satisfaction disagrees with its wait", ErrInvalidTreeSnapshot)
 	}
 	for _, outcome := range satisfied.outcomes {
 		if !t.matchesChildWaitOutcome(outcome, spec.Boundary) {

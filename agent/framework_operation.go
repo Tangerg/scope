@@ -81,7 +81,7 @@ func (w waitOperation) apply(finalization *preparedStepFinalization, record prep
 	if err != nil {
 		return err
 	}
-	return finalization.mailbox.openWait(w.key, signal, WaitKindExternal)
+	return finalization.mailbox.openWait(w.key, signal)
 }
 
 func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error {
@@ -134,7 +134,7 @@ func (c childWaitOperation) apply(finalization *preparedStepFinalization, record
 	if err != nil {
 		return err
 	}
-	if err := finalization.mailbox.openWait(c.spec.Key, signal, WaitKindChildren); err != nil {
+	if err := finalization.mailbox.openChildWait(c.spec, signal); err != nil {
 		return err
 	}
 	finalization.openedChildWaits = append(finalization.openedChildWaits, ChildWaitOpened{waitID: waitID, spec: c.spec})

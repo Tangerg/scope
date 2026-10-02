@@ -65,7 +65,7 @@ func admissionTestProcess(t testing.TB, history int) *processState {
 			t.Fatalf("history admission = %t, %v", accepted, err)
 		}
 	}
-	if _, err := process.mailbox.commit(uint32(history)); err != nil {
+	if err := process.mailbox.commit(uint32(history)); err != nil {
 		t.Fatal(err)
 	}
 	return process
@@ -157,7 +157,7 @@ func admissionTestWait(t *testing.T, process *processState) WaitID {
 	wait, _ := ParseWaitID("wait:approval")
 	key, _ := ParseWaitKey("approval")
 	signal := mustMailboxSignal(t, "signal:engine:opened", wait, json.RawMessage(`{}`))
-	if err := process.mailbox.openWait(key, signal, WaitKindExternal); err != nil {
+	if err := process.mailbox.openWait(key, signal); err != nil {
 		t.Fatal(err)
 	}
 	process.currentWaitID = wait

@@ -227,7 +227,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if err != nil || parsed.RootID() != tree.RootID() || len(parsed.ProcessSnapshots()) != 4 {
 		t.Fatalf("parsed tree = %#v, error = %v", parsed, err)
 	}
-	t.Run("structured tree owns child wait members", func(t *testing.T) {
+	t.Run("structured tree owns its Process snapshots", func(t *testing.T) {
 		wire, decodeErr := tree.wire()
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
@@ -236,44 +236,45 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		if snapshotErr != nil {
 			t.Fatal(snapshotErr)
 		}
-		wire.ChildWaits[0].Spec.Children[0] = ProcessID{}
 		wire.ProcessSnapshots[0] = ProcessSnapshot{}
 		returned, wireErr := rebuilt.wire()
 		if wireErr != nil {
 			t.Fatal(wireErr)
 		}
-		returned.ChildWaits[0].Spec.Children[0] = ProcessID{}
+		returned.ProcessSnapshots[0] = ProcessSnapshot{}
 		retained, retainedErr := rebuilt.wire()
 		if retainedErr != nil {
 			t.Fatal(retainedErr)
 		}
 		encoded, encodeErr := jsonv2.Marshal(retained)
 		if encodeErr != nil || !bytes.Equal(encoded, tree.JSON()) {
-			t.Fatalf("wire mutation changed retained child wait membership: %v", encodeErr)
+			t.Fatalf("wire mutation changed retained Process snapshots: %v", encodeErr)
 		}
 	})
 	for _, boundary := range []ChildWaitBoundary{"", "unknown", ChildWaitBoundaryDrained} {
 		t.Run("child wait rejects changed boundary "+string(boundary), func(t *testing.T) {
-			candidate, decodeErr := tree.wire()
-			if decodeErr != nil {
-				t.Fatal(decodeErr)
-			}
-			candidate.ChildWaits[0].Spec.Boundary = boundary
-			encoded, encodeErr := jsonv2.Marshal(candidate)
-			if encodeErr != nil {
-				t.Fatal(encodeErr)
-			}
+			encoded := treeJSONWithProcess(t, tree, root.ID(), func(wire *processSnapshotWire) {
+				for _, record := range wire.Mailbox.Signals {
+					if record.Opens != nil && record.Opens.Spec != nil {
+						record.Opens.Spec.Boundary = boundary
+					}
+				}
+			})
 			if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) {
 				t.Fatalf("changed child wait boundary error=%v", parseErr)
 			}
 		})
 	}
-	t.Run("child wait registration belongs to its parent", func(t *testing.T) {
+	t.Run("child wait belongs to its parent", func(t *testing.T) {
 		candidate, decodeErr := tree.wire()
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		registration := candidate.ChildWaits[0]
+		rootWaits := candidate.processSnapshot(root.ID()).openChildWaits
+		if len(rootWaits) == 0 {
+			t.Fatal("fixture root has no open child wait")
+		}
+		foreignID := controlValue(ParseWaitID("wait:foreign"))
 		for index, snapshot := range candidate.ProcessSnapshots {
 			if snapshot.ProcessID() == root.ID() {
 				continue
@@ -286,13 +287,10 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
-			opened := mustMailboxSignal(t, "signal:engine:foreign-wait", registration.WaitID, json.RawMessage(`{}`))
-			if openErr := mailbox.openWait(registration.Spec.Key, opened, WaitKindChildren); openErr != nil {
-				t.Fatal(openErr)
-			}
+			openTestChildWait(t, &mailbox, "signal:engine:foreign-wait", foreignID, rootWaits[0].spec)
 			child.Mailbox = mailbox.wire()
 			child.PauseReason = ""
-			child.CurrentWaitID = &registration.WaitID
+			child.CurrentWaitID = &foreignID
 			changed, snapshotErr := newProcessSnapshot(child)
 			if snapshotErr != nil {
 				t.Fatalf("individual Process facts should be valid: %v", snapshotErr)
@@ -305,7 +303,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			t.Fatal(encodeErr)
 		}
 		if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) {
-			t.Fatalf("foreign child wait registration error=%v", parseErr)
+			t.Fatalf("foreign child wait error=%v", parseErr)
 		}
 	})
 	wire, err := tree.wire()
@@ -625,12 +623,6 @@ func assertNoChildWaitRegistrations(t *testing.T, engine *Engine) {
 		case <-time.After(treeRuntimeProgressTimeout):
 			t.Fatal("tree runtime did not finish after all Processes settled")
 		}
-		if len(runtime.childWaits) != 0 {
-			t.Fatalf(
-				"active child wait registrations = %d, want 0",
-				len(runtime.childWaits),
-			)
-		}
 	}
 }
 
@@ -803,7 +795,31 @@ func TestTreeSnapshotEncodingMatchesTheEncoder(t *testing.T) {
 			t.Fatalf("%s: captured snapshot bytes differ from the encoder", name)
 		}
 	}
-	if len(fixtures["retained waits"].state.ChildWaits) == 0 {
-		t.Fatal("fixture set does not exercise child-wait registrations")
+	if len(fixtures["retained waits"].ProcessSnapshots()[0].openChildWaits) == 0 {
+		t.Fatal("fixture set does not exercise open child waits")
 	}
+}
+
+// treeJSONWithProcess re-encodes tree with one Process wire mutated and not
+// revalidated, so parsing exercises the tree's own contract checks.
+func treeJSONWithProcess(t testing.TB, tree TreeSnapshot, processID ProcessID, mutate func(*processSnapshotWire)) []byte {
+	t.Helper()
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(tree.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	var processes []json.RawMessage
+	if err := jsonv2.Unmarshal(fields["process_snapshots"], &processes); err != nil {
+		t.Fatal(err)
+	}
+	for index, snapshot := range tree.ProcessSnapshots() {
+		if snapshot.ProcessID() != processID {
+			continue
+		}
+		wire := controlValue(snapshot.wire())
+		mutate(&wire)
+		processes[index] = controlValue(jsonv2.Marshal(wire))
+	}
+	fields["process_snapshots"] = controlValue(jsonv2.Marshal(processes))
+	return controlValue(jsonv2.Marshal(fields))
 }

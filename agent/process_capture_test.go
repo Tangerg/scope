@@ -224,7 +224,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 	if err := other.prepared.Effects[0].begin(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.mailbox.commit(1); err != nil {
+	if err := other.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
 	if process.prepared.Effects[0].Phase != effectPhasePlanned || process.mailbox.pendingCount() != 1 {

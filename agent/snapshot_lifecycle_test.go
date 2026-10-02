@@ -174,8 +174,8 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 				t.Fatalf("oversized immediate result = %+v", failure)
 			}
 			after := controlValue(runtime.captureTree())
-			if before.Digest() != after.Digest() || len(runtime.childWaits) != 0 {
-				t.Fatal("rejected finalization changed Process facts or wait registrations")
+			if before.Digest() != after.Digest() || len(parent.mailbox.openChildWaits()) != 0 {
+				t.Fatal("rejected finalization changed Process facts or opened child waits")
 			}
 			runtime.advancePrepared(parent)
 			failure, failed := parent.termination.Failure()

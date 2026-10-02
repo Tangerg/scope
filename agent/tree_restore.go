@@ -6,7 +6,7 @@ import (
 )
 
 // treeRestoration rebuilds one captured tree. Its prepared runtime owns the
-// restored members and child-wait registrations from then on.
+// restored members, whose mailboxes carry their open child waits.
 type treeRestoration struct {
 	engine      *Engine
 	wire        treeSnapshotWire
@@ -20,12 +20,7 @@ func (t *treeRestoration) prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	childWaits, err := t.prepareChildWaits()
-	if err != nil {
-		return err
-	}
 	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, t.wire.TreeLimits, ctx, processes...)
-	t.runtime.childWaits = childWaits
 	if err := t.runtime.validateSnapshotCapacity(); err != nil {
 		return fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -91,18 +86,4 @@ func (t *treeRestoration) bind(deployment Deployment) error {
 		}
 	}
 	return nil
-}
-
-func (t *treeRestoration) prepareChildWaits() (childWaitRegistry, error) {
-	childWaits := childWaitRegistry{}
-	for _, encoded := range t.wire.ChildWaits {
-		spec, err := encoded.Spec.value()
-		if err != nil {
-			return nil, fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
-		}
-		if !childWaits.add(encoded.ParentProcessID, &childWaitRegistration{waitID: encoded.WaitID, spec: spec}) {
-			return nil, fmt.Errorf("%w: duplicate child WaitID", ErrInvalidTreeSnapshot)
-		}
-	}
-	return childWaits, nil
 }

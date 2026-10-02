@@ -55,8 +55,8 @@ type ProcessSnapshot struct {
 	data  json.RawMessage
 	state processSnapshotWire
 	// openChildWaits projects the mailbox replay validation already performed,
-	// so tree validation can match registrations without replaying it again.
-	openChildWaits map[WaitID]WaitKey
+	// so tree validation can check each wait without replaying it again.
+	openChildWaits []ChildWaitOpened
 }
 
 // ParseProcessSnapshot strictly validates one Process snapshot wire value,
@@ -397,7 +397,7 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 			clone.Mailbox.Signals[index].WaitID = new(*signal.WaitID)
 		}
 		if signal.Opens != nil {
-			clone.Mailbox.Signals[index].Opens = new(*signal.Opens)
+			clone.Mailbox.Signals[index].Opens = new(signal.Opens.clone())
 		}
 	}
 	if p.Prepared != nil {

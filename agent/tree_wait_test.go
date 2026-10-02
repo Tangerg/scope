@@ -41,7 +41,8 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
 	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
 	runtime.finishIfTerminal(second)
-	for ownerID := range runtime.childWaits {
+	owners := runtime.members.childrenOf(runtime.rootID)
+	for _, ownerID := range owners {
 		owner := runtime.members.get(ownerID)
 		if ownerID != parentID {
 			if owner.mailbox.pendingCount() != 0 || owner.status() != StatusWaiting {
@@ -68,24 +69,27 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 			t.Fatalf("completion outcomes=%v", got)
 		}
 	}
-	closed, err := parent.mailbox.commit(1)
-	if err != nil {
+	openWaits := func() int {
+		count := 0
+		for _, ownerID := range owners {
+			count += len(runtime.members.get(ownerID).mailbox.openChildWaits())
+		}
+		return count
+	}
+	if err := parent.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	for _, waitID := range closed {
-		runtime.childWaits.remove(parentID, waitID)
+	if openWaits() != 2 {
+		t.Fatal("consuming one parent's completion closed another wait")
 	}
-	if len(runtime.childWaits) != 2 {
-		t.Fatal("consuming one parent's completion removed another wait")
+	other := runtime.members.get(owners[0])
+	if other == parent {
+		other = runtime.members.get(owners[1])
 	}
-	for ownerID := range runtime.childWaits {
-		owner := runtime.members.get(ownerID)
-		owner.installTermination(first.termination, first.finalOutput, first.finishedAt)
-		runtime.finishIfTerminal(owner)
-		if len(runtime.childWaits) != 1 {
-			t.Fatal("terminating one parent removed another parent's wait")
-		}
-		break
+	other.installTermination(first.termination, first.finalOutput, first.finishedAt)
+	runtime.finishIfTerminal(other)
+	if openWaits() != 1 {
+		t.Fatal("terminating one parent closed another parent's wait")
 	}
 }
 
@@ -181,20 +185,14 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			Key: key, Children: []ProcessID{first.handle.processID, second.handle.processID},
 			Boundary: ChildWaitBoundaryResult, Condition: AllChildren(),
 		}
-		payload, err := encodeChildWaitOpened(spec)
-		if err != nil {
-			b.Fatal(err)
-		}
-		opening := mustMailboxSignal(b, fmt.Sprintf("signal:engine:parent-%d", index), waitID, payload)
-		if err := parent.mailbox.openWait(key, opening, WaitKindChildren); err != nil {
-			b.Fatal(err)
-		}
-		if _, err := parent.mailbox.commit(1); err != nil {
+		openTestChildWait(b, &parent.mailbox, fmt.Sprintf("signal:engine:parent-%d", index), waitID, spec)
+		if err := parent.mailbox.commit(1); err != nil {
 			b.Fatal(err)
 		}
 		parent.currentWaitID = waitID
-		if _, satisfied, err := runtime.childWaits.register(parent.handle.processID, waitID, spec, &runtime.members); err != nil || satisfied {
-			b.Fatalf("register wait satisfied=%t error=%v", satisfied, err)
+		opened := []ChildWaitOpened{{waitID: waitID, spec: spec}}
+		if answers, err := runtime.childWaitAnswers(parent.handle.processID, opened); err != nil || len(answers) != 0 {
+			b.Fatalf("opened wait answers=%d error=%v", len(answers), err)
 		}
 		notified = first
 	}

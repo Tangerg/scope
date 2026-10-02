@@ -10,10 +10,10 @@ import (
 
 func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 	snapshot := drainedSnapshotFixture(t, 4)
-	wait := snapshot.state.ChildWaits[0]
+	wait := snapshot.state.ProcessSnapshots[0].openChildWaits[0]
 	root := snapshot.state.ProcessSnapshots[0].state
 	record := root.Mailbox.Signals[len(root.Mailbox.Signals)-1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.WaitID, record.Payload))))
+	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
 	for _, test := range []struct {
 		name   string
 		change func([]ChildOutcome) []ChildOutcome
@@ -30,7 +30,7 @@ func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
 			process := root
 			process.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 			outcomes := test.change(slices.Clone(satisfied.outcomes))
-			payload := childWaitSatisfiedWire{Operation: childWaitSignalSatisfied, Key: wait.Spec.Key, Boundary: ChildWaitBoundaryDrained}
+			payload := childWaitSatisfiedWire{Operation: childWaitSignalSatisfied, Key: wait.spec.Key, Boundary: ChildWaitBoundaryDrained}
 			for _, outcome := range outcomes {
 				payload.Outcomes = append(payload.Outcomes, outcome.wire())
 			}
@@ -68,14 +68,13 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	child := wire.ProcessSnapshots[1].state
 	key, _ := wire.ProcessSnapshots[1].Relation().ChildKey()
 	result := controlValue((resultWire{ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt, Output: child.Output, Termination: *child.Termination, Usage: child.usage()}).value())
-	wait := &wire.ChildWaits[0]
-	wait.Spec.Children = []ProcessID{child.ProcessID}
-	spec := controlValue(wait.Spec.value())
+	wait := wire.ProcessSnapshots[0].openChildWaits[0]
+	spec := wait.spec.clone()
+	spec.Children = []ProcessID{child.ProcessID}
 	root := wire.ProcessSnapshots[0].state
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
-	opening := controlValue(normalizeJSON(controlValue(encodeChildWaitOpened(spec)), MaxPayloadBytes))
-	root.Mailbox.Signals[0].PayloadDigest = ComputeDigest(opening)
-	signal := controlValue(encodeChildWaitSatisfied(wait.WaitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary}}))
+	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary}}))
 	root.Mailbox.Signals[1].Payload, root.Mailbox.Signals[1].PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	return controlValue(newTreeSnapshot(wire))
@@ -101,36 +100,33 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	t.Helper()
 	wire := drainedSnapshotFixture(t, 2).state.clone()
 	root := wire.ProcessSnapshots[0].state
-	original := wire.ChildWaits[0]
+	original := wire.ProcessSnapshots[0].openChildWaits[0]
 	originalSignal := root.Mailbox.Signals[1]
-	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.WaitID, originalSignal.Payload)))).Outcomes()
+	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.waitID, originalSignal.Payload)))).Outcomes()
 	root.Budget = Budget{}
 	mailbox := newSignalMailbox()
-	wire.ChildWaits = nil
 	for index := range count {
 		signal := mustMailboxSignal(t, fmt.Sprintf("signal:history-%d", index), WaitID{}, []byte(`{}`))
 		if _, err := mailbox.enqueue(StatusPaused, signal, signalSourceExternal); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := mailbox.commit(uint32(count)); err != nil {
+	if err := mailbox.commit(uint32(count)); err != nil {
 		t.Fatal(err)
 	}
+	var retained []ChildWaitOpened
 	for index := range count {
 		waitID := controlValue(ParseWaitID(fmt.Sprintf("wait:retained-%d", index)))
-		spec := controlValue(original.Spec.value())
+		spec := original.spec.clone()
 		spec.Key = controlValue(ParseWaitKey(fmt.Sprintf("retained-%d", index)))
-		opening := mustMailboxSignal(t, fmt.Sprintf("signal:engine:retained-%d", index), waitID, controlValue(encodeChildWaitOpened(spec)))
-		if err := mailbox.openWait(spec.Key, opening, WaitKindChildren); err != nil {
-			t.Fatal(err)
-		}
-		wire.ChildWaits = append(wire.ChildWaits, childWaitSnapshotWire{ParentProcessID: root.ProcessID, WaitID: waitID, Spec: spec.wire()})
+		openTestChildWait(t, &mailbox, fmt.Sprintf("signal:engine:retained-%d", index), waitID, spec)
+		retained = append(retained, ChildWaitOpened{waitID: waitID, spec: spec})
 	}
-	if _, err := mailbox.commit(uint32(count)); err != nil {
+	if err := mailbox.commit(uint32(count)); err != nil {
 		t.Fatal(err)
 	}
-	for _, wait := range wire.ChildWaits {
-		signal := controlValue(encodeChildWaitSatisfied(wait.WaitID, wait.Spec.Key, wait.Spec.Boundary, outcomes))
+	for _, wait := range retained {
+		signal := controlValue(encodeChildWaitSatisfied(wait.waitID, wait.spec.Key, wait.spec.Boundary, outcomes))
 		if _, err := mailbox.enqueue(StatusPaused, signal, signalSourceChildWait); err != nil {
 			t.Fatal(err)
 		}
@@ -145,26 +141,39 @@ func TestTreeSnapshotKeepsWaitSignalsSeparated(t *testing.T) {
 	if _, err := ParseTreeSnapshot(snapshot.JSON()); err != nil {
 		t.Fatal(err)
 	}
-	wire := snapshot.state.clone()
-	wire.ChildWaits[1].Spec.Boundary = ChildWaitBoundaryResult
-	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	root := snapshot.state.ProcessSnapshots[0]
+	encoded := treeJSONWithProcess(t, snapshot, root.ProcessID(), func(wire *processSnapshotWire) {
+		for index, record := range wire.Mailbox.Signals {
+			if record.Opens != nil && record.Opens.Spec != nil && record.Opens.Spec.Key.String() == "retained-1" {
+				spec := controlValue(record.Opens.Spec.value())
+				spec.Boundary = ChildWaitBoundaryResult
+				reopenTestChildWait(t, &wire.Mailbox.Signals[index], spec)
+			}
+		}
+	})
+	if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("changed wait escaped its retained signals: %v", err)
 	}
+}
+
+// reopenTestChildWait rewrites a captured opening as though it had announced spec.
+func reopenTestChildWait(t testing.TB, record *signalRecordWire, spec ChildWaitSpec) {
+	t.Helper()
+	record.Opens = &waitOpeningWire{Spec: new(spec.wire())}
+	record.PayloadDigest = controlValue(childWaitOpenedDigest(spec))
 }
 
 func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	wire := drainedSnapshotFixture(t, 4).state.clone()
 	root := wire.ProcessSnapshots[0].state
-	wait := &wire.ChildWaits[0]
-	spec := controlValue(wait.Spec.value())
+	wait := wire.ProcessSnapshots[0].openChildWaits[0]
+	spec := wait.spec.clone()
 	spec.Condition = controlValue(ChildQuorum(2))
-	wait.Spec = spec.wire()
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
-	opening := controlValue(normalizeJSON(controlValue(encodeChildWaitOpened(spec)), MaxPayloadBytes))
-	root.Mailbox.Signals[0].PayloadDigest = ComputeDigest(opening)
+	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
 	record := &root.Mailbox.Signals[1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.WaitID, record.Payload))))
-	signal := controlValue(encodeChildWaitSatisfied(wait.WaitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
+	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload, record.PayloadDigest = signal.Payload(), ComputeDigest(signal.Payload())
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {

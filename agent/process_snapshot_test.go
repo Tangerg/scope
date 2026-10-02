@@ -179,7 +179,7 @@ func TestPreparedConsumptionUsesOnlyPendingSignals(t *testing.T) {
 			t.Fatalf("signal admission = %t, %v", accepted, enqueueErr)
 		}
 	}
-	if _, err = mailbox.commit(1); err != nil {
+	if err = mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
 	wire.Mailbox = mailbox.wire()

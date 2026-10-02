@@ -154,7 +154,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	}
 	mailbox := newSignalMailbox()
 	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, request.Payload()))
-	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal, WaitKindExternal); err != nil {
+	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal); err != nil {
 		t.Fatal(err)
 	}
 	if accepted, err := mailbox.enqueue(StatusWaiting, signal, signalSourceExternal); accepted || !errors.Is(err, ErrSignalRejected) {
@@ -262,7 +262,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			child.Mailbox.Signals[0].PayloadDigest = ComputeDigest([]byte(`"other"`))
 		},
 		"opening receipt": func(child *processSnapshotWire) {
-			child.Mailbox.Signals[0].Opens = &waitOpeningWire{Key: controlValue(ParseWaitKey("receipt")), Kind: WaitKindExternal}
+			child.Mailbox.Signals[0].Opens = &waitOpeningWire{Key: new(controlValue(ParseWaitKey("receipt")))}
 			child.Mailbox.Signals[0].Source = signalSourceSettlement
 		},
 		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },

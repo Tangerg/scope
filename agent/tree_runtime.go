@@ -31,7 +31,6 @@ type treeRuntime struct {
 	// Everything below is owner-line state. Keeping it lock-free makes commit,
 	// scheduling, freeze, and checkpoint order a single explicit state machine.
 	members         treeMembers
-	childWaits      childWaitRegistry
 	joinCandidates  map[ProcessID]*processState
 	runQueue        runQueue
 	jobs            *jobTable
@@ -154,7 +153,6 @@ func newTreeRuntime(
 		completions:     make(chan treeJobCompletion),
 		inspections:     make(chan chan TreeInspection, treeCommandBufferCapacity),
 		members:         newTreeMembers(len(processes)),
-		childWaits:      childWaitRegistry{},
 		joinCandidates:  make(map[ProcessID]*processState),
 		runQueue:        newRunQueue(len(processes)),
 		jobs:            newJobTable(len(processes)),
@@ -1210,7 +1208,6 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
 	wire := treeSnapshotWire{RootID: t.rootID, TreeLimits: t.treeLimits, ProcessSnapshots: make([]ProcessSnapshot, 0, t.members.len())}
 	wire.IncarnationID = t.writer.incarnation()
-	wire.ChildWaits = t.childWaits.wire()
 	return wire
 }
 
@@ -2043,7 +2040,6 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 
 func (t *treeRuntime) propagateProcessTermination(process *processState) {
 	processID := process.handle.processID
-	delete(t.childWaits, processID)
 	t.stopProcessTree(process)
 	t.notifyChildWaits(processID, ChildWaitBoundaryResult)
 }
@@ -2061,12 +2057,14 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 		return
 	}
 	parent := t.members.get(parentID)
-	for registration := range t.childWaits.awaiting(parentID, processID, boundary) {
-		if parent == nil || parent.status().Terminal() || parent.pendingControl.hasTerminalIntent() ||
-			parent.mailbox.contains(registration.waitID.childWaitSignalID()) {
+	if parent == nil {
+		return
+	}
+	for _, opened := range parent.mailbox.awaitingChild(processID, boundary) {
+		if parent.status().Terminal() || parent.pendingControl.hasTerminalIntent() {
 			continue
 		}
-		signal, satisfied, err := registration.satisfaction(&t.members)
+		signal, satisfied, err := t.members.childWaitAnswer(opened)
 		if err != nil {
 			parent.recordFailure(FailureKindExecution, failureCodeEngineChildWaitSatisfactionEncodingFailed, err)
 			t.stopProcessTree(parent)
@@ -2151,9 +2149,8 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 	}
 }
 
-// The tree owner installs wait registrations around one candidate adoption.
-// A rejected local transition cannot leave a live registration behind.
-// Only immediate child-wait answers and the resulting snapshot can exceed a
+// Child waits the Step opens live only in the candidate mailbox, so a rejected
+// local transition leaves no wait behind. Only immediate child-wait answers and the resulting snapshot can exceed a
 // bound here, so each failure is classified where it arises.
 func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	processID := process.handle.processID
@@ -2164,18 +2161,10 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	if err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	immediate, err := t.registerOpenedChildWaits(processID, finalization)
+	immediate, err := t.childWaitAnswers(processID, finalization.openedChildWaits)
 	if err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	adopted := false
-	defer func() {
-		if !adopted {
-			for _, opened := range finalization.openedChildWaits {
-				t.childWaits.remove(processID, opened.WaitID())
-			}
-		}
-	}()
 	if err = finalization.prepareTransition(canonicalTime(time.Now())); err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
@@ -2192,13 +2181,6 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 		return newFinalizationFailure(limitCode, err)
 	}
 	process.adoptCandidate(candidate)
-	adopted = true
-	for _, waitID := range finalization.consumedChildWaits {
-		t.childWaits.remove(processID, waitID)
-	}
-	for _, waitID := range finalization.commit.closedChildWaits {
-		t.childWaits.remove(processID, waitID)
-	}
 	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status()})
 	t.stageEvent(process, EventStepCommitted, process.committedSteps, EffectID{}, payload)
 	if process.status() == StatusPaused {
@@ -2207,17 +2189,16 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	return nil
 }
 
-// registerOpenedChildWaits atomically registers every wait the prepared Step
-// opens and returns the answers the current tree already satisfies. A failure
-// removes only its own registrations, never a pre-existing one.
-func (t *treeRuntime) registerOpenedChildWaits(processID ProcessID, finalization *preparedStepFinalization) ([]Signal, error) {
+// childWaitAnswers checks the child waits a prepared Step opens against tree
+// membership and returns the answers the current tree already satisfies.
+func (t *treeRuntime) childWaitAnswers(processID ProcessID, opened []ChildWaitOpened) ([]Signal, error) {
 	var immediate []Signal
-	for index, opened := range finalization.openedChildWaits {
-		signal, satisfied, err := t.childWaits.register(processID, opened.WaitID(), opened.Spec(), &t.members)
+	for _, wait := range opened {
+		if err := wait.spec.validateRelations(processID, t.members.relation); err != nil {
+			return nil, err
+		}
+		signal, satisfied, err := t.members.childWaitAnswer(wait)
 		if err != nil {
-			for _, registered := range finalization.openedChildWaits[:index] {
-				t.childWaits.remove(processID, registered.WaitID())
-			}
 			return nil, err
 		}
 		if satisfied {
@@ -2271,9 +2252,6 @@ func (t *treeRuntime) installTermination(process *processState, outcome stepOutc
 func (t *treeRuntime) installTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
 	termination := process.resolveStepTermination(outcome)
 	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, canonicalTime(time.Now()))
-	for _, waitID := range process.mailbox.closeAllWaits() {
-		t.childWaits.remove(process.handle.processID, waitID)
-	}
 }
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }

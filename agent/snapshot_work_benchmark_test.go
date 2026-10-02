@@ -156,7 +156,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := child.mailbox.openWait(waitKey, signal, WaitKindExternal); err != nil {
+		if err := child.mailbox.openWait(waitKey, signal); err != nil {
 			t.Fatal(err)
 		}
 		child.currentWaitID = waitID
@@ -229,7 +229,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 								signal := controlValue(NewSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:history-%d", index))), WaitID{}, []byte(`{}`)))
 								process.mailbox.acceptRecord(newSignalRecord(signal, false))
 							}
-							if _, err := process.mailbox.commit(uint32(history)); err != nil {
+							if err := process.mailbox.commit(uint32(history)); err != nil {
 								b.Fatal(err)
 							}
 							if limited {
