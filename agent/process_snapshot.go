@@ -76,6 +76,10 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}
+	// An overflowing sequence leaves the batch unbound; validation rejects it.
+	if wire.Prepared != nil && wire.CommittedSteps < math.MaxUint64 {
+		wire.Prepared.Effects.bindIDs(wire.ProcessID, wire.CommittedSteps+1)
+	}
 	return processSnapshotFromWire(wire)
 }
 
@@ -498,7 +502,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 	if p.CommittedSteps == math.MaxUint64 {
 		return fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 	}
-	if err := p.Prepared.validate(p.ProcessID, p.CommittedSteps+1, mailbox); err != nil {
+	if err := p.Prepared.validate(mailbox); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
 	for _, record := range p.Prepared.Effects {

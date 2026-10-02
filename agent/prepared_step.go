@@ -8,8 +8,8 @@ import (
 // Its fields are the single persisted representation. Executable instances
 // belong to processState so portable facts cannot carry runtime authority.
 // Intent owns prospective Signal consumption; only adoption advances the mailbox.
-// The step always follows the committed one it would replace, so its sequence
-// and base state belong to the enclosing Process record.
+// The step always follows the committed one it would replace, so its sequence,
+// base state, and Effect identities belong to the enclosing Process record.
 type preparedStep struct {
 	CandidateState ExecutionState  `json:"candidate_state"`
 	Intent         Transition      `json:"intent"`
@@ -81,7 +81,7 @@ func (p *preparedStep) hasUnknownSettlement() bool {
 	return false
 }
 
-func (p *preparedStep) validate(processID ProcessID, sequence uint64, mailbox signalMailbox) error {
+func (p *preparedStep) validate(mailbox signalMailbox) error {
 	if !p.CandidateState.Valid() {
 		return errors.New("prepared Step candidate state is invalid")
 	}
@@ -94,8 +94,8 @@ func (p *preparedStep) validate(processID ProcessID, sequence uint64, mailbox si
 	if len(p.Intent.effects) != 0 || len(p.Effects) != 0 && p.Intent.Kind() != TransitionKindContinue {
 		return errors.New("prepared Effects must belong only to the execution records of a continue intent")
 	}
-	for index, record := range p.Effects {
-		if effectErr := record.validateIdentity(processID, sequence, index); effectErr != nil {
+	for _, record := range p.Effects {
+		if effectErr := record.validateEffect(); effectErr != nil {
 			return effectErr
 		}
 	}

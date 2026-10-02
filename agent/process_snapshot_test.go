@@ -544,3 +544,34 @@ func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 		}
 	}
 }
+
+func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
+	snapshot := preparedEngineTestSnapshot(t)
+	wire := controlValue(snapshot.wire())
+	for index, record := range wire.Prepared.Effects {
+		if record.ID != wire.ProcessID.effectID(wire.CommittedSteps+1, index) {
+			t.Fatalf("decoded Effect %d identity = %s", index, record.ID)
+		}
+		if record.Settlement != nil && record.Settlement.EffectID() != record.ID {
+			t.Fatalf("decoded settlement %d identifies %s", index, record.Settlement.EffectID())
+		}
+	}
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	var prepared map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(fields["prepared"], &prepared); err != nil {
+		t.Fatal(err)
+	}
+	var effects []map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(prepared["effects"], &effects); err != nil {
+		t.Fatal(err)
+	}
+	effects[0]["id"] = controlValue(jsonv2.Marshal(wire.Prepared.Effects[0].ID))
+	prepared["effects"] = controlValue(jsonv2.Marshal(effects))
+	fields["prepared"] = controlValue(jsonv2.Marshal(prepared))
+	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("snapshot accepted a stored copy of a derived EffectID: %v", err)
+	}
+}

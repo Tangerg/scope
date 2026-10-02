@@ -2,7 +2,11 @@ package agent
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // effectPhase stays private: callers act through typed boundaries, not by
@@ -31,12 +35,56 @@ func (e effectPhase) String() string {
 	return string(e)
 }
 
+// preparedEffect's identity follows from its Process, Step sequence, and batch
+// position. Memory keeps the derived EffectID on the record and its
+// settlement; the wire omits both, and bindIDs restores them after decoding.
 type preparedEffect struct {
-	ID         EffectID    `json:"id"`
-	Effect     Effect      `json:"effect"`
-	Phase      effectPhase `json:"phase"`
-	Settlement *Settlement `json:"settlement,omitzero"`
-	Diagnostic *Failure    `json:"diagnostic,omitzero"`
+	ID         EffectID
+	Effect     Effect
+	Phase      effectPhase
+	Settlement *Settlement
+	Diagnostic *Failure
+}
+
+type preparedEffectWire struct {
+	Effect     Effect                  `json:"effect"`
+	Phase      effectPhase             `json:"phase"`
+	Settlement *preparedSettlementWire `json:"settlement,omitzero"`
+	Diagnostic *Failure                `json:"diagnostic,omitzero"`
+}
+
+type preparedSettlementWire struct {
+	Status  SettlementStatus `json:"status"`
+	Payload json.RawMessage  `json:"payload"`
+}
+
+func (p preparedEffect) MarshalJSON() ([]byte, error) {
+	wire := preparedEffectWire{Effect: p.Effect, Phase: p.Phase, Diagnostic: p.Diagnostic}
+	if p.Settlement != nil {
+		wire.Settlement = &preparedSettlementWire{Status: p.Settlement.status, Payload: p.Settlement.payload}
+	}
+	return jsonv2.Marshal(wire)
+}
+
+// UnmarshalJSON leaves the record unbound until bindIDs supplies its identity.
+func (p *preparedEffect) UnmarshalJSON(data []byte) error {
+	wire, err := jsonwire.Decode[preparedEffectWire](data, "effect", "phase")
+	if err != nil {
+		return err
+	}
+	record := preparedEffect{Effect: wire.Effect, Phase: wire.Phase, Diagnostic: wire.Diagnostic}
+	if wire.Settlement != nil {
+		if !wire.Settlement.Status.Valid() {
+			return fmt.Errorf("%w: status is required", ErrInvalidSettlement)
+		}
+		payload, err := normalizeJSON(wire.Settlement.Payload, MaxPayloadBytes)
+		if err != nil {
+			return fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
+		}
+		record.Settlement = &Settlement{status: wire.Settlement.Status, payload: payload}
+	}
+	*p = record
+	return nil
 }
 
 // preparedEffects owns the sequential execution frontier. An uncertain result
@@ -51,6 +99,17 @@ func (p preparedEffects) unknownEffectIDs() []EffectID {
 		}
 	}
 	return ids
+}
+
+// bindIDs derives each record's EffectID from its batch position.
+func (p preparedEffects) bindIDs(processID ProcessID, sequence uint64) {
+	for index := range p {
+		id := processID.effectID(sequence, index)
+		p[index].ID = id
+		if p[index].Settlement != nil {
+			p[index].Settlement.effectID = id
+		}
+	}
 }
 
 func (p preparedEffects) next() (int, error) {
@@ -87,9 +146,6 @@ func (p *preparedEffect) validatePhase() error {
 	}
 	if !p.Settlement.Valid() {
 		return errors.New("prepared Effect settlement is invalid")
-	}
-	if p.Settlement.EffectID() != p.ID {
-		return errors.New("prepared Effect settlement identifies another Effect")
 	}
 	return nil
 }
@@ -214,14 +270,9 @@ func (p *preparedEffect) definitelySettled() bool {
 		p.Settlement.Status() != SettlementStatusUnknown
 }
 
-func (p *preparedEffect) validateIdentity(
-	processID ProcessID,
-	sequence uint64,
-	index int,
-) error {
-	wantID := processID.effectID(sequence, index)
-	if p.ID != wantID || !p.Effect.Valid() {
-		return errors.New("prepared Effect identity or payload changed")
+func (p *preparedEffect) validateEffect() error {
+	if !p.Effect.Valid() {
+		return errors.New("prepared Effect payload is invalid")
 	}
 	if p.Effect.Target() != EffectTargetFramework {
 		return nil

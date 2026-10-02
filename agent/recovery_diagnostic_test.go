@@ -76,7 +76,6 @@ func TestPreparedEffectReportsContradictorySettlements(t *testing.T) {
 		{"unknown phase", preparedEffect{}, (*preparedEffect).validatePhase, "prepared Effect phase is invalid"},
 		{"missing settlement", preparedEffect{Phase: effectPhaseSettled}, (*preparedEffect).validatePhase, "prepared Effect settlement presence disagrees with phase"},
 		{"invalid settlement", preparedEffect{Phase: effectPhaseSettled, Settlement: &invalid}, (*preparedEffect).validatePhase, "prepared Effect settlement is invalid"},
-		{"foreign settlement", preparedEffect{Phase: effectPhaseSettled, Settlement: &foreign}, (*preparedEffect).validatePhase, "prepared Effect settlement identifies another Effect"},
 		{"settle twice", preparedEffect{Phase: effectPhasePending, Settlement: &succeeded}, func(p *preparedEffect) error { return p.settle(succeeded, nil) }, "pending Effect already has a settlement"},
 		{"settle invalid", preparedEffect{Phase: effectPhasePending}, func(p *preparedEffect) error { return p.settle(invalid, nil) }, "incoming settlement is invalid"},
 		{"settle foreign", preparedEffect{Phase: effectPhasePending}, func(p *preparedEffect) error { return p.settle(foreign, nil) }, "incoming settlement identifies another Effect"},
