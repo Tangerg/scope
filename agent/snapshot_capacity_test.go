@@ -189,7 +189,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	}
 }
 
-func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
+func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 	process := admissionTestProcess(t, 0)
 	limits := admissionTestLimits()
 	limits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
@@ -197,15 +197,13 @@ func TestKnownWaitSettlementsAreAdmittedBeforeEarlierDispatcher(t *testing.T) {
 	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first")), payload))
 	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second")), payload))
 	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
-	before := controlValue(process.capture())
 	transition := controlValue(Continue(0, dispatch, first, second))
-	failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState})
-	if failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) || process.prepared != nil {
-		t.Fatalf("known settlement capacity was not reserved: %+v", failure)
+	if failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState}); failure != nil {
+		t.Fatalf("waits whose settlements their requests determine were charged twice: %v", failure.cause)
 	}
-	after := controlValue(process.capture())
-	if !bytes.Equal(before.data, after.data) {
-		t.Fatal("rejected local wait preparation changed the Process")
+	size := uint64(len(controlValue(process.capture()).JSON()))
+	if size > 2*uint64(len(payload))+(4<<10) {
+		t.Fatalf("prepared waits encoded %d bytes for %d payload bytes", size, 2*len(payload))
 	}
 }
 

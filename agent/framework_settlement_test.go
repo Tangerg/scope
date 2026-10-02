@@ -75,7 +75,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	}
 }
 
-func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
+func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
 	key := controlValue(ParseWaitKey("wait"))
 	childID := controlValue(ParseProcessID("process:child"))
@@ -83,31 +83,44 @@ func TestWaitSettlementMustMatchDeclaredRequest(t *testing.T) {
 		controlValue(NewWaitEffect(key, []byte(`{"prompt":"original"}`))),
 		controlValue(NewChildWaitEffect(ChildWaitSpec{Key: key, Children: []ProcessID{childID}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()})),
 	} {
-		for _, mutation := range []string{"status", "payload"} {
-			t.Run(string(effect.Payload())+"/"+mutation, func(t *testing.T) {
-				candidate := wire.clone()
-				candidate.Prepared.Intent = controlValue(Continue(0))
-				record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
-				if err := record.settleFramework(); err != nil {
-					t.Fatal(err)
-				}
-				candidate.Prepared.Effects = preparedEffects{record}
-				if _, err := newProcessSnapshot(candidate); err != nil {
-					t.Fatalf("valid wait rejected: %v", err)
-				}
-				status, payload := SettlementStatusSucceeded, record.Settlement.Payload()
-				if mutation == "status" {
-					status = SettlementStatusFailed
-				} else {
-					payload = []byte(`{"forged":true}`)
-				}
-				candidate.Prepared.Effects[0].Settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
-				encoded := controlValue(jsonv2.Marshal(candidate))
-				if _, err := ParseProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
-					t.Fatalf("forged wait settlement accepted: %v", err)
-				}
-			})
-		}
+		t.Run(string(effect.Payload()), func(t *testing.T) {
+			candidate := wire.clone()
+			candidate.Prepared.Intent = controlValue(Continue(0))
+			record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
+			if err := record.settleFramework(); err != nil {
+				t.Fatal(err)
+			}
+			candidate.Prepared.Effects = preparedEffects{record}
+			snapshot, err := newProcessSnapshot(candidate)
+			if err != nil {
+				t.Fatalf("valid wait rejected: %v", err)
+			}
+			restored := controlValue(controlValue(ParseProcessSnapshot(snapshot.JSON())).wire())
+			if settlement := restored.Prepared.Effects[0].Settlement; settlement == nil || !settlement.equal(*record.Settlement) {
+				t.Fatalf("restored wait settlement = %+v, want %+v", settlement, record.Settlement)
+			}
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			var prepared map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(fields["prepared"], &prepared); err != nil {
+				t.Fatal(err)
+			}
+			var effects []map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(prepared["effects"], &effects); err != nil {
+				t.Fatal(err)
+			}
+			if _, stored := effects[0]["settlement"]; stored {
+				t.Fatal("wait settlement was encoded beside the request that determines it")
+			}
+			effects[0]["settlement"] = json.RawMessage(`{"status":"succeeded","payload":{"forged":true}}`)
+			prepared["effects"] = controlValue(jsonv2.Marshal(effects))
+			fields["prepared"] = controlValue(jsonv2.Marshal(prepared))
+			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("stored wait settlement accepted: %v", err)
+			}
+		})
 	}
 }
 

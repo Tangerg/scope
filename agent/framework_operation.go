@@ -1,20 +1,20 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"slices"
-
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // The closed protocol binds decoding, preparation, execution and recovery for
 // each framework operation. Consumers cannot choose different interpretations
 // of the same payload at different lifecycle boundaries.
 type frameworkOperation interface {
+	// localOutcome reports the successful settlement payload an operation
+	// determines without any external answer; only such outcomes are derived
+	// rather than persisted.
+	localOutcome() (json.RawMessage, bool, error)
 	validate(*preparedEffect) error
 	settle(*preparedEffect) error
 	reserve(*preparedEffect, Failure) (uint64, error)
@@ -56,17 +56,11 @@ type waitOperation struct {
 	payload json.RawMessage
 }
 
-func (w waitOperation) validate(effect *preparedEffect) error {
-	if err := effect.validateWait(); err != nil {
-		return err
-	}
-	if effect.Settlement != nil && !bytes.Equal(effect.Settlement.payload, w.payload) {
-		return errors.New("wait Effect settlement differs from its request")
-	}
-	return nil
-}
+func (w waitOperation) localOutcome() (json.RawMessage, bool, error) { return w.payload, true, nil }
 
-func (w waitOperation) settle(effect *preparedEffect) error { return effect.settleWait(w.payload) }
+func (w waitOperation) validate(*preparedEffect) error { return nil }
+
+func (w waitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(w) }
 func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
 	if effect.Phase == effectPhasePlanned {
 		if err := effect.begin(); err != nil {
@@ -90,34 +84,14 @@ func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, prepared
 
 type childWaitOperation struct{ spec ChildWaitSpec }
 
-func (c childWaitOperation) validate(effect *preparedEffect) error {
-	if err := effect.validateWait(); err != nil {
-		return err
-	}
-	if effect.Settlement == nil {
-		return nil
-	}
-	opened, err := jsonwire.Decode[childWaitOpenedWire](effect.Settlement.payload)
-	if err != nil {
-		return err
-	}
-	got, err := opened.Spec.value()
-	if err != nil {
-		return err
-	}
-	if opened.Operation != childWaitSignalOpened || !got.equal(c.spec) {
-		return errors.New("child-wait Effect settlement differs from its request")
-	}
-	return nil
+func (c childWaitOperation) localOutcome() (json.RawMessage, bool, error) {
+	payload, err := childWaitOpenedPayload(c.spec)
+	return payload, true, err
 }
 
-func (c childWaitOperation) settle(effect *preparedEffect) error {
-	payload, err := encodeChildWaitOpened(c.spec)
-	if err != nil {
-		return err
-	}
-	return effect.settleWait(payload)
-}
+func (c childWaitOperation) validate(*preparedEffect) error { return nil }
+
+func (c childWaitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(c) }
 
 func (c childWaitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
 	if effect.Phase == effectPhasePlanned {
@@ -149,6 +123,8 @@ func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent Proce
 }
 
 type childStartOperation struct{ spec ChildSpec }
+
+func (childStartOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
 
 func (c childStartOperation) validate(effect *preparedEffect) error {
 	if effect.Settlement == nil {
@@ -232,6 +208,8 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 }
 
 type childControlOperation struct{ request childControlEffectWire }
+
+func (childControlOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
 
 func (c childControlOperation) validate(effect *preparedEffect) error {
 	if effect.Settlement == nil {

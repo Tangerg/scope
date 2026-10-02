@@ -36,8 +36,9 @@ func (e effectPhase) String() string {
 }
 
 // preparedEffect's identity follows from its Process, Step sequence, and batch
-// position. Memory keeps the derived EffectID on the record and its
-// settlement; the wire omits both, and bindIDs restores them after decoding.
+// position, and a wait's settlement follows from its request. Memory keeps
+// both on the record; the wire omits them, decoding derives the settlement,
+// and bindIDs restores the identities.
 type preparedEffect struct {
 	ID         EffectID
 	Effect     Effect
@@ -60,7 +61,11 @@ type preparedSettlementWire struct {
 
 func (p preparedEffect) MarshalJSON() ([]byte, error) {
 	wire := preparedEffectWire{Effect: p.Effect, Phase: p.Phase, Diagnostic: p.Diagnostic}
-	if p.Settlement != nil {
+	_, local, err := p.localOutcome()
+	if err != nil {
+		return nil, err
+	}
+	if p.Settlement != nil && !local {
 		wire.Settlement = &preparedSettlementWire{Status: p.Settlement.status, Payload: p.Settlement.payload}
 	}
 	return jsonv2.Marshal(wire)
@@ -73,7 +78,18 @@ func (p *preparedEffect) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	record := preparedEffect{Effect: wire.Effect, Phase: wire.Phase, Diagnostic: wire.Diagnostic}
-	if wire.Settlement != nil {
+	outcome, local, err := record.localOutcome()
+	if err != nil {
+		return err
+	}
+	if local {
+		if wire.Settlement != nil {
+			return errors.New("prepared Effect stores the settlement its request determines")
+		}
+		if record.Phase == effectPhaseSettled {
+			record.Settlement = &Settlement{status: SettlementStatusSucceeded, payload: outcome}
+		}
+	} else if wire.Settlement != nil {
 		if !wire.Settlement.Status.Valid() {
 			return fmt.Errorf("%w: status is required", ErrInvalidSettlement)
 		}
@@ -288,15 +304,6 @@ func (p *preparedEffect) validateFramework() error {
 	return operation.validate(p)
 }
 
-// A wait settles locally the moment it begins, so it never carries an
-// uncertain or failed outcome.
-func (p *preparedEffect) validateWait() error {
-	if p.Settlement != nil && p.Settlement.Status() != SettlementStatusSucceeded {
-		return errors.New("wait Effect settlement is not successful")
-	}
-	return nil
-}
-
 func (p *preparedEffect) settleFramework() error {
 	operation, err := decodeFrameworkOperation(p.Effect.Payload())
 	if err != nil {
@@ -317,12 +324,30 @@ func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
 	return p.settle(settlement, nil)
 }
 
-func (p *preparedEffect) settleWait(payload json.RawMessage) error {
+// settleLocally succeeds with the outcome operation determines by itself.
+func (p *preparedEffect) settleLocally(operation frameworkOperation) error {
+	payload, _, err := operation.localOutcome()
+	if err != nil {
+		return err
+	}
 	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
 	if err != nil {
 		return err
 	}
 	return p.settle(settlement, nil)
+}
+
+// localOutcome reports the settlement payload a framework operation fixes
+// without an external answer, which the wire therefore never stores.
+func (p preparedEffect) localOutcome() (json.RawMessage, bool, error) {
+	if p.Effect.Target() != EffectTargetFramework {
+		return nil, false, nil
+	}
+	operation, err := decodeFrameworkOperation(p.Effect.Payload())
+	if err != nil {
+		return nil, false, err
+	}
+	return operation.localOutcome()
 }
 
 // settlementSignal delivers the settled outcome to the Execution. Only a wait
