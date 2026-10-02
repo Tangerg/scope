@@ -68,8 +68,8 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				wantPhase = effectPhaseSettled
 			}
 			if process.status() != StatusFailed || record.Phase != wantPhase ||
-				!slices.Equal(process.termination.UnresolvedEffectIDs(), wantUnresolved) {
-				t.Fatalf("termination=%+v record=%+v", process.termination, record)
+				!slices.Equal(process.publishedTermination().UnresolvedEffectIDs(), wantUnresolved) {
+				t.Fatalf("termination=%+v record=%+v", process.publishedTermination(), record)
 			}
 			snapshot, err := runtime.captureTree()
 			if err != nil {

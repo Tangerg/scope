@@ -51,7 +51,7 @@ func (t *treeMembers) relation(processID ProcessID) ProcessRelation {
 
 func (t *treeMembers) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
 	return subtreeUnresolvedEffects(processID, t.childrenOf,
-		func(id ProcessID) Termination { return t.byID[id].termination })
+		func(id ProcessID) Termination { return t.byID[id].publishedTermination() })
 }
 
 func (t *treeMembers) add(process *processState) {

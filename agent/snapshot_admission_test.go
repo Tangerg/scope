@@ -18,15 +18,11 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 	var pendingSize int
 	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxQualifiedNameBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
-		var unresolved []EffectID
 		if p.Prepared != nil {
 			prepared := p.Prepared.clone()
 			p.Prepared = &prepared
 			for index := range prepared.Effects {
 				record := &prepared.Effects[index]
-				if record.unknown() || record.Phase == effectPhasePending {
-					unresolved = append(unresolved, record.ID)
-				}
 				if err := materializeSnapshotSettlement(record, failure); err != nil {
 					return 0, err
 				}
@@ -55,7 +51,7 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object adds more bytes than other terminal statuses
 		// and causes can add, while its message also fills the termination reason.
-		termination := failure.termination().withUnresolvedEffectIDs(unresolved)
+		termination := failure.termination()
 		p.Termination = &termination
 	}
 	encoded, err := jsonv2.Marshal(p)
@@ -192,7 +188,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 	}
 }
 
-func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
+func TestArithmeticAdmissionReservesLargeUncertainBatch(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 1)
 	root := runtime.members.get(runtime.rootID)
 	wire := root.snapshotWire()
@@ -206,7 +202,7 @@ func TestArithmeticAdmissionReservesLargeUnresolvedTermination(t *testing.T) {
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled, Settlement: &settlement})
 	}
 	if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
-		t.Fatalf("unresolved termination: %d != %d", got, want)
+		t.Fatalf("uncertain batch: %d != %d", got, want)
 	}
 }
 

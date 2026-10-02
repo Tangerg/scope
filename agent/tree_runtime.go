@@ -2233,7 +2233,7 @@ func (t *treeRuntime) terminatePreparedProcess(process *processState) {
 	}
 	process.preparedExecution = nil
 	process.execution = nil
-	t.installTerminationWithUnresolved(process, stepOutcome{}, process.unknownEffectIDs())
+	t.installTermination(process, stepOutcome{})
 }
 
 func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code string, err error) {
@@ -2246,12 +2246,7 @@ func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code 
 }
 
 func (t *treeRuntime) installTermination(process *processState, outcome stepOutcome) {
-	t.installTerminationWithUnresolved(process, outcome, nil)
-}
-
-func (t *treeRuntime) installTerminationWithUnresolved(process *processState, outcome stepOutcome, unresolvedEffectIDs []EffectID) {
-	termination := process.resolveStepTermination(outcome)
-	process.installTermination(termination.withUnresolvedEffectIDs(unresolvedEffectIDs), Payload{}, canonicalTime(time.Now()))
+	process.installTermination(process.resolveStepTermination(outcome), Payload{}, canonicalTime(time.Now()))
 }
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }

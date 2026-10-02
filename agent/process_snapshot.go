@@ -63,7 +63,8 @@ type ProcessSnapshot struct {
 // including single-answer wait history and an open, unanswered current wait
 // when the Process is Waiting or retains a wait while Paused. Prepared Effects
 // must fit the captured capability grant. Terminal prepared batches contain no
-// pending attempt, and their unknown identities must match the Termination.
+// pending attempt; their unknown identities are the Termination's unresolved
+// Effects, which the captured termination itself never repeats.
 func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	// Every always-emitted member is required: a decoded zero would silently
 	// reset usage, authority, mailbox history, or pending control intent.
@@ -305,16 +306,12 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		reservation := snapshotTextReservation{}
 		failure := reservation.failure()
-		var unresolved []EffectID
 		if p.Prepared != nil {
 			prepared := *p.Prepared
 			prepared.Effects = slices.Clone(prepared.Effects)
 			p.Prepared = &prepared
 			for index := range prepared.Effects {
 				record := &prepared.Effects[index]
-				if record.unknown() || record.Phase == effectPhasePending {
-					unresolved = append(unresolved, record.ID)
-				}
 				projection, growth, err := record.snapshotReservation()
 				if err != nil {
 					return 0, err
@@ -347,7 +344,7 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object adds more bytes than other terminal statuses
 		// and causes can add, while its message also fills the termination reason.
-		termination := failure.termination().withUnresolvedEffectIDs(unresolved)
+		termination := failure.termination()
 		p.Termination = &termination
 	}
 	encoded, err := jsonv2.Marshal(p)
@@ -596,14 +593,19 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 	if p.PendingControl != (pendingControlWire{}) {
 		return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
 	}
-	var unresolved []EffectID
-	if p.Prepared != nil {
-		unresolved = p.Prepared.Effects.unknownEffectIDs()
-	}
-	if !slices.Equal(p.Termination.UnresolvedEffectIDs(), unresolved) {
-		return fmt.Errorf("%w: termination and interrupted Effects disagree", ErrInvalidSnapshot)
+	if len(p.Termination.UnresolvedEffectIDs()) != 0 {
+		return fmt.Errorf("%w: termination stores a copy of its interrupted Effects", ErrInvalidSnapshot)
 	}
 	return nil
+}
+
+// publishedTermination attaches the prepared Effects left unknown, which own
+// the identities a captured termination leaves unresolved.
+func (p processSnapshotWire) publishedTermination() Termination {
+	if p.Termination == nil || p.Prepared == nil {
+		return lo.FromPtr(p.Termination)
+	}
+	return p.Termination.withUnresolvedEffectIDs(p.Prepared.Effects.unknownEffectIDs())
 }
 
 // result requires a validated capture, whose terminal status guarantees its
@@ -614,7 +616,7 @@ func (p processSnapshotWire) result() (Result, bool) {
 	}
 	return Result{
 		processID: p.ProcessID, startedAt: p.StartedAt, finishedAt: *p.FinishedAt,
-		output: p.Output, termination: *p.Termination, usage: p.usage(),
+		output: p.Output, termination: p.publishedTermination(), usage: p.usage(),
 	}, true
 }
 

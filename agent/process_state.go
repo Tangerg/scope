@@ -234,6 +234,16 @@ func (p *processState) prepareResolution(settlement Settlement, limits TreeLimit
 	return candidate, index, nil
 }
 
+// publishedTermination is the Termination callers observe. The prepared
+// Effects left unknown own the identities it leaves unresolved, so the
+// installed termination never stores a copy.
+func (p *processState) publishedTermination() Termination {
+	if !p.termination.Valid() {
+		return p.termination
+	}
+	return p.termination.withUnresolvedEffectIDs(p.unknownEffectIDs())
+}
+
 func (p *processState) unknownEffectIDs() []EffectID {
 	if p.prepared == nil {
 		return nil
@@ -315,7 +325,7 @@ func (p *processState) result() Result {
 	return Result{
 		processID: p.handle.processID, startedAt: p.handle.startedAt,
 		finishedAt: p.finishedAt, output: p.finalOutput,
-		termination: p.termination, usage: p.usage(),
+		termination: p.publishedTermination(), usage: p.usage(),
 	}
 }
 

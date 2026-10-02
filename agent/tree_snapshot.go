@@ -423,12 +423,7 @@ func (t *treeSnapshotValidation) matchesChildWaitOutcome(outcome ChildOutcome, b
 func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
 	return subtreeUnresolvedEffects(processID,
 		func(id ProcessID) []ProcessID { return t.childrenByParent[id] },
-		func(id ProcessID) Termination {
-			if termination := t.processes[id].Termination; termination != nil {
-				return *termination
-			}
-			return Termination{}
-		})
+		func(id ProcessID) Termination { return t.processes[id].publishedTermination() })
 }
 
 func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {
