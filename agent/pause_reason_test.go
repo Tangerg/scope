@@ -47,7 +47,7 @@ func TestPauseReasonSurvivesControlAndRestoration(t *testing.T) {
 			waitForStatus(t, process, StatusPaused)
 			tree := controlValue(ParseTreeSnapshot(controlValue(engine.CaptureTree(t.Context(), process.ID())).JSON()))
 			paused := controlValue(ParseProcessSnapshot(tree.ProcessSnapshots()[0].JSON()))
-			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || wire.Status != StatusPaused {
+			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || wire.status() != StatusPaused {
 				t.Fatal("capture changed the pause reason or status")
 			}
 			restoredEngine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)}))
@@ -104,8 +104,12 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 			if before.Digest() != after.Digest() {
 				t.Fatal("invalid Host Pause changed tree state or resource usage")
 			}
+			// An absent reason means there is no current or pending Pause.
+			if test.reason == "" {
+				return
+			}
 			wire := controlValue(before.ProcessSnapshots()[0].wire())
-			wire.Status, wire.PauseReason = StatusPaused, test.reason
+			wire.PauseReason = test.reason
 			if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("invalid current Pause capture: %v", err)
 			}
@@ -114,11 +118,7 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 					t.Fatalf("invalid current Pause parsing: %v", err)
 				}
 			}
-			// An absent pending reason means there is no Pause request.
-			if test.reason == "" {
-				return
-			}
-			wire.Status, wire.PauseReason = StatusWaiting, ""
+			wire.PauseReason = ""
 			wire.PendingControl.PauseReason = test.reason
 			if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("invalid pending Pause capture: %v", err)

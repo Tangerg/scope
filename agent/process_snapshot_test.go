@@ -79,7 +79,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, wire := range []processSnapshotWire{prepared, completed} {
-		t.Run(wire.Status.String(), func(t *testing.T) {
+		t.Run(wire.status().String(), func(t *testing.T) {
 			snapshot, err := newProcessSnapshot(wire)
 			if err != nil {
 				t.Fatal(err)

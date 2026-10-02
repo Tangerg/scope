@@ -105,9 +105,9 @@ func TestTerminationJSONRoundTripRejectsContradictoryState(t *testing.T) {
 	if !decoded.Valid() || decoded.Status() != StatusFailed || decoded.Cause() != TerminationCauseExternalFailure {
 		t.Fatalf("decoded termination=%+v", decoded)
 	}
-	contradictory := []byte(`{"status":"completed","cause":"external_failure","reason":"failed","failure":{"kind":"external","code":"dispatcher.failed","message":"failed"}}`)
-	if err := jsonv2.Unmarshal(contradictory, &decoded); err == nil {
-		t.Fatal("Termination accepted contradictory status and cause")
+	copied := []byte(`{"status":"failed","cause":"external_failure","reason":"failed","failure":{"kind":"external","code":"dispatcher.failed","message":"failed"}}`)
+	if err := jsonv2.Unmarshal(copied, &decoded); err == nil {
+		t.Fatal("Termination accepted a stored copy of the status its cause determines")
 	}
 }
 
@@ -121,15 +121,14 @@ func TestStatusRejectsUnoccupiedLifecycleState(t *testing.T) {
 	}
 }
 
-func TestProcessFinishedRejectsAStatusItsCauseDoesNotDetermine(t *testing.T) {
+func TestProcessFinishedDerivesStatusFromCause(t *testing.T) {
 	usage := Usage{CommittedSteps: 1}
-	for status, wantValid := range map[Status]bool{StatusCompleted: true, StatusFailed: false} {
-		payload := marshalEventPayload(processFinishedEventPayload{
-			ProcessStatus: status, TerminationCause: TerminationCauseCompletion, Usage: &usage,
-		})
-		fact, err := decodeProcessFinished(payload)
-		if (err == nil) != wantValid || wantValid && fact.Status() != StatusCompleted {
-			t.Fatalf("status %s with completion cause: fact=%+v err=%v", status, fact, err)
-		}
+	payload := marshalEventPayload(processFinishedEventPayload{TerminationCause: TerminationCauseCompletion, Usage: &usage})
+	if fact, err := decodeProcessFinished(payload); err != nil || fact.Status() != StatusCompleted {
+		t.Fatalf("completion cause: fact=%+v err=%v", fact, err)
+	}
+	copied := []byte(`{"process_status":"completed","termination_cause":"completion","usage":{"committed_steps":1,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}`)
+	if _, err := decodeProcessFinished(copied); err == nil {
+		t.Fatal("finished fact accepted a stored copy of the status its cause determines")
 	}
 }

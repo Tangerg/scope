@@ -16,7 +16,7 @@ import (
 // It must remain independent of the arithmetic used by production admission.
 func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64, error) {
 	var pendingSize int
-	if !p.Status.Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
+	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxQualifiedNameBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
 		var unresolved []EffectID
 		if p.Prepared != nil {
@@ -38,7 +38,6 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		reason := strings.Repeat("\x00", maxTerminationReasonBytes)
 		pauseReason := strings.Repeat("\x00", maxPauseReasonBytes)
 		p.PauseReason = pauseReason
-		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reason, PauseReason: pauseReason,
@@ -53,7 +52,6 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
-		p.Status = StatusFailed
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object adds more bytes than other terminal statuses
 		// and causes can add, while its message also fills the termination reason.
@@ -178,14 +176,13 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 	limits.MaxSnapshotBytes = NewQuota(1 << 30)
 	for _, process := range runtime.members.all() {
 		wire := process.snapshotWire()
-		for _, status := range []Status{StatusRunning, StatusWaiting, StatusPaused} {
-			wire.Status = status
-			wire.PauseReason = "<paused>"
+		for _, reason := range []string{"", "<paused>"} {
+			wire.PauseReason = reason
 			if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
-				t.Fatalf("%s: %d != %d", status, got, want)
+				t.Fatalf("%s: %d != %d", wire.status(), got, want)
 			}
 		}
-		wire.Status = StatusFailed
+		wire.PauseReason, wire.CurrentWaitID = "", nil
 		termination := controlValue(NewFailure(FailureKindExecution, "test.failure", "done")).termination()
 		wire.Termination = &termination
 		wire.FinishedAt = new(time.Now().UTC())

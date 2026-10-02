@@ -282,7 +282,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if childErr != nil {
 				t.Fatal(childErr)
 			}
-			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox, child.Status)
+			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox, child.status())
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
@@ -291,7 +291,6 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 				t.Fatal(openErr)
 			}
 			child.Mailbox = mailbox.wire()
-			child.Status = StatusWaiting
 			child.PauseReason = ""
 			child.CurrentWaitID = &registration.WaitID
 			changed, snapshotErr := newProcessSnapshot(child)

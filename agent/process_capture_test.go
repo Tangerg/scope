@@ -46,13 +46,13 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 	if !process.applyPendingPause() {
 		t.Fatal("pause not applied")
 	}
-	if wire := captureChange(); wire.Status != StatusPaused || wire.PauseReason != "operator pause" {
+	if wire := captureChange(); wire.status() != StatusPaused || wire.PauseReason != "operator pause" {
 		t.Fatal("pause is absent")
 	}
 	if err := process.resume(); err != nil {
 		t.Fatal(err)
 	}
-	if wire := captureChange(); wire.Status != StatusRunning || wire.PauseReason != "" {
+	if wire := captureChange(); wire.status() != StatusRunning || wire.PauseReason != "" {
 		t.Fatal("resume is absent")
 	}
 	signal := mustMailboxSignal(t, "signal:capture", WaitID{}, []byte(`{"value":"new"}`))

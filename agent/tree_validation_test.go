@@ -90,7 +90,7 @@ func TestDrainedSnapshotRejectsActiveDeepDescendant(t *testing.T) {
 	wire := snapshot.state.clone()
 	index := len(wire.ProcessSnapshots) - 1
 	leaf := wire.ProcessSnapshots[index].state
-	leaf.Status, leaf.PauseReason = StatusPaused, "unfinished descendant"
+	leaf.PauseReason = "unfinished descendant"
 	leaf.Termination, leaf.FinishedAt, leaf.Output = nil, nil, Payload{}
 	wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(leaf))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {

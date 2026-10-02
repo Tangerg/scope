@@ -94,12 +94,12 @@ func TestUnsupportedDeadlineFactsAreRejected(t *testing.T) {
 	if _, err := newDeadlineIntent(deadlineOwner("process"), "deadline reached"); !errors.Is(err, errInvalidTermination) {
 		t.Errorf("unsupported deadline intent: %v", err)
 	}
-	encoded := []byte(`{"status":"timed_out","cause":"process_deadline","reason":"deadline reached"}`)
+	encoded := []byte(`{"cause":"process_deadline","reason":"deadline reached"}`)
 	var termination Termination
 	if err := jsonv2.Unmarshal(encoded, &termination); !errors.Is(err, errInvalidTermination) {
 		t.Errorf("unsupported termination: %v", err)
 	}
-	if _, err := decodeProcessFinished(controlValue(jsonv2.Marshal(processFinishedEventPayload{ProcessStatus: StatusTimedOut, TerminationCause: TerminationCause("process_deadline"), Usage: new(Usage)}))); err == nil {
+	if _, err := decodeProcessFinished(controlValue(jsonv2.Marshal(processFinishedEventPayload{TerminationCause: TerminationCause("process_deadline"), Usage: new(Usage)}))); err == nil {
 		t.Error("finished fact accepted unsupported deadline")
 	}
 	process := admissionTestProcess(t, 0)

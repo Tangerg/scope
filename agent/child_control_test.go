@@ -255,7 +255,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
 	receipt.ArrivalSequence = 1
-	child := processSnapshotWire{ProcessID: childID, Status: StatusRunning,
+	child := processSnapshotWire{ProcessID: childID,
 		Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
 	for name, mutate := range map[string]func(*processSnapshotWire){
 		"missing receipt": func(child *processSnapshotWire) { child.Mailbox.Signals = nil },
@@ -303,7 +303,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	child.PendingControl.CancellationOwner = ""
-	child.Status = StatusCompleted
+	child.Termination = &Termination{cause: TerminationCauseCompletion}
 	validation.processes[childID] = child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("terminal cancellation rejected", err)

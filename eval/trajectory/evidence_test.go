@@ -299,9 +299,8 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 		fields := map[string]any{"process_sequence": rootSequence}
 		if event.Name() == agent.EventProcessFinished {
 			var payload struct {
-				Status agent.Status           `json:"process_status"`
-				Cause  agent.TerminationCause `json:"termination_cause"`
-				Usage  agent.Usage            `json:"usage"`
+				Cause agent.TerminationCause `json:"termination_cause"`
+				Usage agent.Usage            `json:"usage"`
 			}
 			if checkErr := jsonv2.Unmarshal(event.Payload(), &payload); checkErr != nil {
 				t.Fatal(checkErr)

@@ -82,7 +82,7 @@ func TestTerminationRestorationMatchesFailureKind(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				data, err := jsonv2.Marshal(terminationWire{Status: StatusFailed, Cause: cause, Reason: "failure", Failure: &failure})
+				data, err := jsonv2.Marshal(terminationWire{Cause: cause, Reason: "failure", Failure: &failure})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -107,8 +107,8 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, wire := range []terminationWire{
-				{Status: StatusCanceled, Cause: TerminationCauseHostCancellation, Reason: reason},
-				{Status: StatusKilled, Cause: TerminationCauseEngineKill, Reason: reason},
+				{Cause: TerminationCauseHostCancellation, Reason: reason},
+				{Cause: TerminationCauseEngineKill, Reason: reason},
 			} {
 				data, err := jsonv2.Marshal(wire)
 				if err != nil {
@@ -116,7 +116,7 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 				}
 				var restored Termination
 				if err := jsonv2.Unmarshal(data, &restored); !errors.Is(err, errInvalidTermination) {
-					t.Errorf("restore %s = %v, want invalid termination", wire.Status, err)
+					t.Errorf("restore %s = %v, want invalid termination", wire.Cause, err)
 				}
 			}
 		})

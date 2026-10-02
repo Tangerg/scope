@@ -95,19 +95,8 @@ func (p *processState) preparedStepSequence() uint64 { return p.committedSteps +
 // deployment is the exact binding the Process's handle owns.
 func (p *processState) deployment() Deployment { return p.handle.deployment }
 
-// Lifecycle is a projection of the facts that park or terminate execution.
-// Pausing preserves an unanswered wait; answering it does not resume a pause.
 func (p *processState) status() Status {
-	if p.termination.Valid() {
-		return p.termination.Status()
-	}
-	if p.pause.valid() {
-		return StatusPaused
-	}
-	if p.currentWaitID.Valid() {
-		return StatusWaiting
-	}
-	return StatusRunning
+	return lifecycleStatus(p.termination, p.pause.valid(), p.currentWaitID.Valid())
 }
 
 func (p *processState) adoptCandidate(candidate *processState) {
@@ -532,7 +521,6 @@ func (p *processState) effectiveTermination() Termination {
 func (p *processState) terminalEventPayload() json.RawMessage {
 	usage := p.usage()
 	eventPayload := processFinishedEventPayload{
-		ProcessStatus:    p.status(),
 		TerminationCause: p.termination.Cause(),
 		Usage:            &usage,
 	}
@@ -663,7 +651,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		ProcessID:     p.handle.processID,
 		Relation:      p.handle.relation.wire(),
 		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
-		Status: p.status(), CommittedSteps: p.committedSteps,
+		CommittedSteps:     p.committedSteps,
 		AllocatedResources: p.allocatedResources,
 		Budget:             p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),

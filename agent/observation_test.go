@@ -56,10 +56,9 @@ func TestProcessFinishedRejectsIncompleteUsage(t *testing.T) {
 		[]byte(`{"committed_steps":7,"prepared_effects":5,"accepted_signals":3,"dropped_deltas":null}`),
 	} {
 		payload := controlValue(jsonv2.Marshal(struct {
-			Status Status           `json:"process_status"`
-			Cause  TerminationCause `json:"termination_cause"`
-			Usage  json.RawMessage  `json:"usage"`
-		}{Status: StatusCompleted, Cause: TerminationCauseCompletion, Usage: usage}))
+			Cause TerminationCause `json:"termination_cause"`
+			Usage json.RawMessage  `json:"usage"`
+		}{Cause: TerminationCauseCompletion, Usage: usage}))
 		if _, err := newEvent(eventDraft{
 			deploymentRef: deployment.DeploymentRef(), relation: rootProcessRelation(processID),
 			name: EventProcessFinished, occurredAt: time.Unix(20, 0), payload: payload,
@@ -173,7 +172,7 @@ func FuzzEventJSONRoundTrip(f *testing.F) {
 	}{
 		{name: EventProcessStarted, payload: struct{}{}},
 		{name: EventProcessFinished, payload: processFinishedEventPayload{
-			ProcessStatus: StatusCompleted, TerminationCause: TerminationCauseCompletion, Usage: &usage,
+			TerminationCause: TerminationCauseCompletion, Usage: &usage,
 		}},
 		{name: EventSignalAccepted, payload: signalAcceptedEventPayload{
 			SignalID: "signal:event-fuzz",

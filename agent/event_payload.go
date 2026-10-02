@@ -90,7 +90,6 @@ type signalAcceptedEventPayload struct {
 }
 
 type processFinishedEventPayload struct {
-	ProcessStatus    Status           `json:"process_status"`
 	TerminationCause TerminationCause `json:"termination_cause"`
 	FailureKind      FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode      string           `json:"failure_code,omitempty"`
@@ -277,7 +276,7 @@ func decodeProcessFinished(payload json.RawMessage) (ProcessFinished, error) {
 		failure: FailureClassification{kind: wire.FailureKind, code: wire.FailureCode},
 		usage:   *wire.Usage,
 	}
-	if !fact.Valid() || wire.ProcessStatus != fact.Status() {
+	if !fact.Valid() {
 		return ProcessFinished{}, errors.New("invalid Process finished event fact")
 	}
 	return fact, nil

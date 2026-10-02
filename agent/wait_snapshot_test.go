@@ -87,7 +87,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			name: "paused unknown current wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				unknown, _ := ParseWaitID("wait:unknown")
-				wire.Status, wire.PauseReason, wire.CurrentWaitID = StatusPaused, "inspect", &unknown
+				wire.PauseReason, wire.CurrentWaitID = "inspect", &unknown
 			},
 		},
 		{
@@ -95,7 +95,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			mutate: func(wire *processSnapshotWire) {
 				signal, _ := answer.signal()
 				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(2, signal))
-				wire.Status, wire.PauseReason = StatusPaused, "inspect"
+				wire.PauseReason = "inspect"
 			},
 		},
 		{

@@ -19,7 +19,6 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 		{"identity", func(p *processSnapshotWire) { p.ProcessID = ProcessID{} }, "Process identity is invalid"},
 		{"deployment", func(p *processSnapshotWire) { p.DeploymentRef = DeploymentRef{} }, "Deployment reference is invalid"},
 		{"start", func(p *processSnapshotWire) { p.StartedAt = time.Time{} }, "Process start time is missing"},
-		{"status", func(p *processSnapshotWire) { p.Status = StatusInvalid }, "Process status is invalid"},
 		{"state", func(p *processSnapshotWire) { p.CommittedExecutionState = ExecutionState{} }, "committed Execution state is invalid"},
 		{"budget", func(p *processSnapshotWire) { p.Budget.Steps = NewQuota(0); p.CommittedSteps = 1 }, "usage and child allocations exceed the Process budget"},
 	} {

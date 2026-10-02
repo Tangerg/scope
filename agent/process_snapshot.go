@@ -68,7 +68,7 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	// Every always-emitted member is required: a decoded zero would silently
 	// reset usage, authority, mailbox history, or pending control intent.
 	wire, err := jsonwire.Decode[processSnapshotWire](data,
-		"process_id", "relation", "deployment_ref", "started_at", "status", "committed_steps",
+		"process_id", "relation", "deployment_ref", "started_at", "committed_steps",
 		"budget", "allocated_resources", "capabilities", "counters",
 		"committed_execution_state", "mailbox", "pending_control",
 	)
@@ -135,7 +135,7 @@ func (p ProcessSnapshot) Capabilities() CapabilitySet {
 }
 
 func (p ProcessSnapshot) Status() Status {
-	return p.state.Status
+	return p.state.status()
 }
 
 func (p ProcessSnapshot) Usage() Usage {
@@ -267,6 +267,7 @@ type pendingControlWire struct {
 	PauseReason        string            `json:"pause_reason,omitempty"`
 }
 
+// processSnapshotWire persists lifecycle facts, never the Status they project.
 type processSnapshotWire struct {
 	ProcessID               ProcessID           `json:"process_id"`
 	Relation                processRelationWire `json:"relation"`
@@ -274,7 +275,6 @@ type processSnapshotWire struct {
 	DeploymentRef           DeploymentRef       `json:"deployment_ref"`
 	StartedAt               time.Time           `json:"started_at"`
 	FinishedAt              *time.Time          `json:"finished_at,omitzero"`
-	Status                  Status              `json:"status"`
 	CommittedSteps          uint64              `json:"committed_steps"`
 	Budget                  Budget              `json:"budget"`
 	AllocatedResources      resourceAmounts     `json:"allocated_resources"`
@@ -303,7 +303,7 @@ const (
 // Dispatcher payloads are external outcomes, not predictable admission facts.
 func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 	var pendingSize, terminalGrowth, effectGrowth uint64
-	if !p.Status.Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
+	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		reservation := snapshotTextReservation{}
 		failure := reservation.failure()
 		var unresolved []EffectID
@@ -330,7 +330,6 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		// Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
 		p.PauseReason = reservation.reason(maxPauseReasonBytes)
-		p.Status = StatusRunning
 		p.Counters.DroppedDeltas = math.MaxUint64
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reservation.reason(maxTerminationReasonBytes), PauseReason: reservation.reason(maxPauseReasonBytes),
@@ -346,7 +345,6 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
-		p.Status = StatusFailed
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object adds more bytes than other terminal statuses
 		// and causes can add, while its message also fills the termination reason.
@@ -420,9 +418,6 @@ func (p processSnapshotWire) validateContract() error {
 	if p.StartedAt.IsZero() {
 		return fmt.Errorf("%w: Process start time is missing", ErrInvalidSnapshot)
 	}
-	if !p.Status.Valid() {
-		return fmt.Errorf("%w: Process status is invalid", ErrInvalidSnapshot)
-	}
 	if !p.CommittedExecutionState.Valid() {
 		return fmt.Errorf("%w: committed Execution state is invalid", ErrInvalidSnapshot)
 	}
@@ -464,7 +459,7 @@ func (p processSnapshotWire) validateProgress(mailbox signalMailbox) error {
 // consumption cannot exceed the pending suffix.
 func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedSteps uint64) {
 	remaining = uint64(len(p.Mailbox.Signals)) - p.Mailbox.SignalCursor
-	if p.Prepared != nil && !p.Status.Terminal() {
+	if p.Prepared != nil && !p.status().Terminal() {
 		remaining -= p.Prepared.consumedSignals()
 		reserved = p.Prepared.settlementSignalCount()
 		preparedSteps = 1
@@ -494,7 +489,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 	if p.Prepared == nil {
 		return nil
 	}
-	if p.Status != StatusRunning && !p.Status.Terminal() || p.Status == StatusCompleted {
+	if p.status() != StatusRunning && !p.status().Terminal() || p.status() == StatusCompleted {
 		return fmt.Errorf("%w: prepared Step requires Running or interrupted terminal status", ErrInvalidSnapshot)
 	}
 	if p.CommittedSteps == math.MaxUint64 {
@@ -507,7 +502,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 		if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
 			return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
 		}
-		if p.Status.Terminal() && record.Phase == effectPhasePending {
+		if p.status().Terminal() && record.Phase == effectPhasePending {
 			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 		}
 	}
@@ -525,7 +520,7 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 	if err := p.validateRelation(); err != nil {
 		return signalMailbox{}, err
 	}
-	mailbox, err := restoreSignalMailbox(p.Mailbox, p.Status)
+	mailbox, err := restoreSignalMailbox(p.Mailbox, p.status())
 	if err != nil {
 		return signalMailbox{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}
@@ -541,54 +536,49 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 	return mailbox, nil
 }
 
+func (p processSnapshotWire) status() Status {
+	return lifecycleStatus(lo.FromPtr(p.Termination), p.PauseReason != "", p.CurrentWaitID != nil)
+}
+
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	if err := p.validateTermination(); err != nil {
 		return err
 	}
-	if (p.Status == StatusCompleted) != p.Output.Valid() {
+	status := p.status()
+	if (status == StatusCompleted) != p.Output.Valid() {
 		return fmt.Errorf("%w: exactly a Completed Process contains Output", ErrInvalidSnapshot)
 	}
-	if err := p.validateCurrentWait(mailbox); err != nil {
-		return err
-	}
-	if _, err := newPause(p.PauseReason); p.Status == StatusPaused && err != nil {
+	if _, err := parsePause(p.PauseReason); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
-	if p.Status != StatusPaused && p.PauseReason != "" {
-		return fmt.Errorf("%w: pause reason requires Paused status", ErrInvalidSnapshot)
+	if !status.Terminal() {
+		return p.validateCurrentWait(mailbox)
 	}
-	if !p.Status.Terminal() {
-		return nil
+	if p.PauseReason != "" || p.CurrentWaitID != nil {
+		return fmt.Errorf("%w: terminal Process cannot retain a pause or current wait", ErrInvalidSnapshot)
 	}
 	return p.validateTerminalEvidence()
 }
 
 func (p processSnapshotWire) validateTermination() error {
-	terminal := p.Status.Terminal()
-	if terminal != (p.Termination != nil) || terminal != (p.FinishedAt != nil) {
-		return fmt.Errorf("%w: terminal status, termination, and finished time must agree", ErrInvalidSnapshot)
+	if (p.Termination != nil) != (p.FinishedAt != nil) {
+		return fmt.Errorf("%w: termination and finished time must agree", ErrInvalidSnapshot)
 	}
-	if !terminal {
+	if p.Termination == nil {
 		return nil
 	}
 	if p.FinishedAt.IsZero() {
 		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
 	}
-	if p.Termination.Status() != p.Status || !p.Termination.Valid() {
-		return fmt.Errorf("%w: termination does not match status", ErrInvalidSnapshot)
+	if !p.Termination.Valid() {
+		return fmt.Errorf("%w: termination is invalid", ErrInvalidSnapshot)
 	}
 	return nil
 }
 
 func (p processSnapshotWire) validateCurrentWait(mailbox signalMailbox) error {
 	if p.CurrentWaitID == nil {
-		if p.Status == StatusWaiting {
-			return fmt.Errorf("%w: waiting process requires current WaitID", ErrInvalidSnapshot)
-		}
 		return nil
-	}
-	if !p.Status.parked() {
-		return fmt.Errorf("%w: current WaitID requires Waiting or Paused status", ErrInvalidSnapshot)
 	}
 	if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
 		return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
@@ -613,7 +603,7 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 // result requires a validated capture, whose terminal status guarantees its
 // finish time and termination.
 func (p processSnapshotWire) result() (Result, bool) {
-	if !p.Status.Terminal() {
+	if !p.status().Terminal() {
 		return Result{}, false
 	}
 	return Result{

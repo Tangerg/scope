@@ -317,7 +317,7 @@ func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child pro
 	}
 	t.children[identity] = relation.ProcessID()
 	t.childCounts[identity.parent]++
-	if !child.Status.Terminal() {
+	if !child.status().Terminal() {
 		t.activeChildCounts[identity.parent]++
 	}
 	debit, ok := parent.Budget.allocation(child.Budget)
@@ -399,7 +399,7 @@ func (t *treeSnapshotValidation) validateChildWaitRegistration(
 ) error {
 	parent, exists := t.processes[encoded.ParentProcessID]
 	spec, err := encoded.Spec.value()
-	if !exists || err != nil || !encoded.WaitID.Valid() || parent.Status.Terminal() {
+	if !exists || err != nil || !encoded.WaitID.Valid() || parent.status().Terminal() {
 		return fmt.Errorf("%w: invalid child wait", ErrInvalidTreeSnapshot)
 	}
 	if facts == nil || facts.key != spec.Key {
@@ -519,7 +519,7 @@ func (t *treeSnapshotValidation) subtreeUnresolvedEffects(processID ProcessID) [
 }
 
 func (t *treeSnapshotValidation) subtreeTerminal(processID ProcessID) bool {
-	if !t.processes[processID].Status.Terminal() {
+	if !t.processes[processID].status().Terminal() {
 		return false
 	}
 	for _, childID := range t.childrenByParent[processID] {

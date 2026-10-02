@@ -89,3 +89,19 @@ func (s *Status) UnmarshalText(text []byte) error {
 	*s = value
 	return nil
 }
+
+// lifecycleStatus is the one projection of the facts that park or terminate
+// execution. Pausing preserves an unanswered wait; answering it does not
+// resume a pause.
+func lifecycleStatus(termination Termination, paused, waiting bool) Status {
+	switch {
+	case termination.Valid():
+		return termination.Status()
+	case paused:
+		return StatusPaused
+	case waiting:
+		return StatusWaiting
+	default:
+		return StatusRunning
+	}
+}

@@ -104,13 +104,12 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 func trajectoryFailureTermination(t *testing.T, original agent.Termination, cause agent.TerminationCause, failure agent.Failure) agent.Termination {
 	t.Helper()
 	encoded, err := jsonv2.Marshal(struct {
-		Status              agent.Status           `json:"status"`
 		Cause               agent.TerminationCause `json:"cause"`
 		Reason              string                 `json:"reason"`
 		Failure             agent.Failure          `json:"failure"`
 		UnresolvedEffectIDs []agent.EffectID       `json:"unresolved_effect_ids,omitempty"`
 	}{
-		Status: original.Status(), Cause: cause, Reason: failure.Message(), Failure: failure,
+		Cause: cause, Reason: failure.Message(), Failure: failure,
 		UnresolvedEffectIDs: original.UnresolvedEffectIDs(),
 	})
 	if err != nil {

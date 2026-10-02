@@ -327,7 +327,6 @@ func (t Termination) MarshalJSON() ([]byte, error) {
 		return nil, errInvalidTermination
 	}
 	wire := terminationWire{
-		Status:              t.Status(),
 		Cause:               t.cause,
 		Reason:              t.reason,
 		UnresolvedEffectIDs: t.UnresolvedEffectIDs(),
@@ -353,7 +352,7 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	if wire.Failure != nil {
 		value.failure = *wire.Failure
 	}
-	if !value.Valid() || wire.Status != value.Status() {
+	if !value.Valid() {
 		return errInvalidTermination
 	}
 	*t = value
@@ -361,7 +360,6 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 }
 
 type terminationWire struct {
-	Status              Status           `json:"status"`
 	Cause               TerminationCause `json:"cause"`
 	Reason              string           `json:"reason,omitempty"`
 	Failure             *Failure         `json:"failure,omitzero"`

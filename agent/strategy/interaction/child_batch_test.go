@@ -59,7 +59,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 								Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[0].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
 								Result: childResultTestWire{
 									ProcessID: want.Children[0], StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
-									Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`),
+									Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
 								},
 							}},
 						}
@@ -188,7 +188,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 			Boundary: agent.ChildWaitBoundaryDrained, Key: *batch.Invocations[1].ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{},
 			Result: childResultTestWire{
 				ProcessID: *batch.Invocations[1].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
-				Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`),
+				Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
 			},
 		}},
 	})
@@ -354,10 +354,10 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 		name, termination, code, message string
 		kind                             agent.FailureKind
 	}{
-		{"host failure", `{"status":"failed","cause":"external_failure","reason":"storage unavailable","failure":{"kind":"external","code":"tool.storage.failed","message":"storage unavailable"}}`, "tool.storage.failed", "storage unavailable", agent.FailureKindExternal},
-		{"panic", `{"status":"failed","cause":"panic","reason":"decoder panic","failure":{"kind":"panic","code":"engine.step.panicked","message":"decoder panic"}}`, "engine.step.panicked", "decoder panic", agent.FailureKindPanic},
-		{"canceled", `{"status":"canceled","cause":"host_cancellation","reason":"operator stopped job"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with canceled (host_cancellation): operator stopped job", agent.FailureKindExecution},
-		{"deadline", `{"status":"timed_out","cause":"host_deadline","reason":"worker deadline reached"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with timed_out (host_deadline): worker deadline reached", agent.FailureKindExecution},
+		{"host failure", `{"cause":"external_failure","reason":"storage unavailable","failure":{"kind":"external","code":"tool.storage.failed","message":"storage unavailable"}}`, "tool.storage.failed", "storage unavailable", agent.FailureKindExternal},
+		{"panic", `{"cause":"panic","reason":"decoder panic","failure":{"kind":"panic","code":"engine.step.panicked","message":"decoder panic"}}`, "engine.step.panicked", "decoder panic", agent.FailureKindPanic},
+		{"canceled", `{"cause":"host_cancellation","reason":"operator stopped job"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with canceled (host_cancellation): operator stopped job", agent.FailureKindExecution},
+		{"deadline", `{"cause":"host_deadline","reason":"worker deadline reached"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with timed_out (host_deadline): worker deadline reached", agent.FailureKindExecution},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseWaitingChildren)
@@ -396,7 +396,7 @@ func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
 		effectID, _ := agent.ParseEffectID("effect:remote-write")
 		outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: *invocation.ChildKey, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}, Result: childResultTestWire{
 			ProcessID: *invocation.ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
-			Termination: json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
+			Termination: json.RawMessage(`{"cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
 		}}
 	}
 	signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{Operation: "child_wait_satisfied", Key: wait.Key, Boundary: agent.ChildWaitBoundaryDrained, Outcomes: outcomes})
@@ -432,15 +432,15 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 					if kind == childCallsTool {
 						output, _ = agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
 					}
-					outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: key, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"status":"completed","cause":"completion"}`)}}
+					outcomes[index] = childOutcomeTestWire{Boundary: agent.ChildWaitBoundaryDrained, Key: key, SubtreeUnresolvedEffects: []agent.UnresolvedEffect{}, Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"cause":"completion"}`)}}
 				}
 				execution.state.ToolRound.Response.Output.Message = &message
 				if kind == childCallsDelegate {
 					effectID, _ := agent.ParseEffectID("effect:remote-write")
 					outcomes[failedIndex].SubtreeUnresolvedEffects = []agent.UnresolvedEffect{{ProcessID: outcomes[failedIndex].Result.ProcessID, EffectID: effectID}}
-					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"stopped","unresolved_effect_ids":["effect:remote-write"]}`)
+					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"cause":"engine_kill","reason":"stopped","unresolved_effect_ids":["effect:remote-write"]}`)
 				} else {
-					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"status":"killed","cause":"engine_kill","reason":"stopped"}`)
+					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"cause":"engine_kill","reason":"stopped"}`)
 				}
 				outcomes[failedIndex].Result.Output = agent.Payload{}
 				before, err := execution.Snapshot()
