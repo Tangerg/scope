@@ -114,7 +114,7 @@ func TestEventRejectsMismatchedFrameworkFactContracts(t *testing.T) {
 
 // A decoded phase is a projection of the event name's contract; a wire value
 // that disagrees with it is rejected rather than trusted.
-func TestEventDecodingRejectsAPhaseItsNameDoesNotFix(t *testing.T) {
+func TestEventPhaseFollowsItsName(t *testing.T) {
 	processID, _ := ParseProcessID("process:event-phase")
 	deployment := newChildTestDeployment(t)
 	for _, fact := range []eventDraft{
@@ -128,17 +128,16 @@ func TestEventDecodingRejectsAPhaseItsNameDoesNotFix(t *testing.T) {
 			t.Fatal(err)
 		}
 		data := controlValue(jsonv2.Marshal(event))
-		wrong := EventPhaseAttempt
-		if event.Phase() == EventPhaseAttempt {
-			wrong = EventPhaseCommitted
-		}
-		tampered := bytes.Replace(data, []byte(`"phase":"`+event.Phase().String()+`"`), []byte(`"phase":"`+wrong.String()+`"`), 1)
-		if bytes.Equal(tampered, data) {
-			t.Fatal("fixture did not encode its phase")
+		if bytes.Contains(data, []byte(`"phase"`)) {
+			t.Fatalf("%s encoded the phase its name fixes", fact.name)
 		}
 		var decoded Event
-		if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidEvent) {
-			t.Fatalf("%s decoded with phase %s: %v", fact.name, wrong, err)
+		if err := jsonv2.Unmarshal(data, &decoded); err != nil || decoded.Phase() != event.Phase() {
+			t.Fatalf("%s round trip phase = %s, %v", fact.name, decoded.Phase(), err)
+		}
+		stored := append(bytes.TrimSuffix(data, []byte("}")), []byte(`,"phase":"`+event.Phase().String()+`"}`)...)
+		if err := jsonv2.Unmarshal(stored, &decoded); !errors.Is(err, ErrInvalidEvent) {
+			t.Fatalf("%s decoded a stored copy of its phase: %v", fact.name, err)
 		}
 	}
 }

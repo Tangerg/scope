@@ -261,7 +261,6 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Relation:        e.relation.wire(),
 		StepSequence:    e.stepSequence,
 		Name:            e.name,
-		Phase:           e.phase(),
 		OccurredAt:      e.occurredAt,
 		Payload:         e.payload,
 	}
@@ -302,9 +301,6 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	}, wire.ProcessSequence)
 	if err != nil {
 		return err
-	}
-	if wire.Phase != value.Phase() {
-		return fmt.Errorf("%w: phase does not match its Framework fact", ErrInvalidEvent)
 	}
 	*e = value
 	return nil
@@ -379,6 +375,7 @@ func (e eventDraft) validateIdentity(scope eventIdentityScope) error {
 	return nil
 }
 
+// eventWire omits the phase its name's contract fixes.
 type eventWire struct {
 	ProcessSequence uint64              `json:"process_sequence"`
 	ProcessID       ProcessID           `json:"process_id"`
@@ -388,7 +385,6 @@ type eventWire struct {
 	StepSequence    uint64              `json:"step_sequence,omitzero"`
 	EffectID        *EffectID           `json:"effect_id,omitzero"`
 	Name            string              `json:"name"`
-	Phase           EventPhase          `json:"phase"`
 	OccurredAt      time.Time           `json:"occurred_at"`
 	Payload         json.RawMessage     `json:"payload"`
 }

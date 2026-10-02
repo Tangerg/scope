@@ -194,7 +194,7 @@ func TestBehaviorDigestIncludesAcknowledgedEffectResolution(t *testing.T) {
 		config := trajectoryConfig(base)
 		terminal := config.Events[len(config.Events)-1]
 		resolution := changeEvent(t, terminal, map[string]any{
-			"name": agent.EventEffectResolved, "phase": agent.EventPhaseCommitted,
+			"name":          agent.EventEffectResolved,
 			"step_sequence": 1, "effect_id": "effect:resolution",
 			"payload": map[string]any{"effect_target": agent.EffectTargetDispatcher, "settlement_status": status},
 		})

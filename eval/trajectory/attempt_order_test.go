@@ -49,7 +49,7 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 				events = append(events, changeAttemptEvent(t, event, sequence, second.AttemptID, agent.SettlementStatusSucceeded))
 				sequence++
 				events = append(events, changeEvent(t, event, map[string]any{
-					"process_sequence": sequence, "name": agent.EventEffectResolved, "phase": agent.EventPhaseCommitted,
+					"process_sequence": sequence, "name": agent.EventEffectResolved,
 					"payload": map[string]any{"effect_target": agent.EffectTargetDispatcher, "settlement_status": agent.SettlementStatusSucceeded},
 				}))
 				continue
