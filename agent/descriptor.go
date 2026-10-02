@@ -172,17 +172,14 @@ func (d Descriptor) MarshalJSON() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDescriptor
 	}
-	return jsonv2.Marshal(descriptorWire{
-		descriptorContractWire: d.contractWire(),
-		Digest:                 d.digest,
-	})
+	return jsonv2.Marshal(d.contractWire())
 }
 
 func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDescriptor)
 	}
-	wire, err := jsonwire.Decode[descriptorWire](data)
+	wire, err := jsonwire.Decode[descriptorContractWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDescriptor, err)
 	}
@@ -208,26 +205,20 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if wire.Digest != value.digest {
-		return fmt.Errorf("%w: digest does not match descriptor content", ErrInvalidDescriptor)
-	}
 	*d = value
 	return nil
 }
 
-func (Descriptor) JSONSchemaAlias() any { return descriptorWire{} }
+func (Descriptor) JSONSchemaAlias() any { return descriptorContractWire{} }
 
+// descriptorContractWire carries the contract a Descriptor digest is computed
+// from; the digest itself is never encoded.
 type descriptorContractWire struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"input_schema"`
 	OutputSchema json.RawMessage `json:"output_schema"`
 	SignalSchema json.RawMessage `json:"signal_schema"`
-}
-
-type descriptorWire struct {
-	descriptorContractWire
-	Digest Digest `json:"digest"`
 }
 
 func (d Descriptor) contractWire() descriptorContractWire {

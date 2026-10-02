@@ -87,7 +87,7 @@ func TestDescriptorDigestChangesWithContract(t *testing.T) {
 	}
 }
 
-func TestDescriptorJSONRejectsDrift(t *testing.T) {
+func TestDescriptorDigestFollowsItsContract(t *testing.T) {
 	descriptor := testDescriptor(t)
 	data, err := jsonv2.Marshal(descriptor)
 	if err != nil {
@@ -105,13 +105,15 @@ func TestDescriptorJSONRejectsDrift(t *testing.T) {
 	if unmarshalErr := jsonv2.Unmarshal(data, &wire); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
-	wire["description"] = "Tampered descriptor."
-	tampered, err := jsonv2.Marshal(wire)
-	if err != nil {
-		t.Fatal(err)
+	wire["description"] = "Changed descriptor."
+	changed := controlValue(jsonv2.Marshal(wire))
+	if err := jsonv2.Unmarshal(changed, &decoded); err != nil || decoded.Digest() == descriptor.Digest() {
+		t.Fatalf("changed contract kept its digest: %v", err)
 	}
-	if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
-		t.Fatalf("unmarshal tampered descriptor error = %v, want ErrInvalidDescriptor", err)
+	wire["description"], wire["digest"] = descriptor.Description(), descriptor.Digest().String()
+	stored := controlValue(jsonv2.Marshal(wire))
+	if err := jsonv2.Unmarshal(stored, &decoded); !errors.Is(err, ErrInvalidDescriptor) {
+		t.Fatalf("stored descriptor digest error = %v, want ErrInvalidDescriptor", err)
 	}
 }
 
@@ -162,7 +164,7 @@ func descriptorConfig(t *testing.T) DescriptorConfig {
 func TestDescriptorDecodingEnforcesConstructionRules(t *testing.T) {
 	descriptor := newEngineTestDefinition(t, "descriptor.valid", "complete").Descriptor()
 	for _, description := range []string{" leading", "", "trailing "} {
-		wire := descriptorWire{descriptorContractWire: descriptor.contractWire(), Digest: descriptor.Digest()}
+		wire := descriptor.contractWire()
 		wire.Description = description
 		data, err := jsonv2.Marshal(wire)
 		if err != nil {

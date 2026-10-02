@@ -36,7 +36,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 	}
 }
 
-func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
+func TestDeploymentRefDigestFollowsItsComponents(t *testing.T) {
 	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
@@ -57,13 +57,15 @@ func TestDeploymentRefStrictJSONRejectsTampering(t *testing.T) {
 	if unmarshalErr := jsonv2.Unmarshal(data, &wire); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
-	wire["name"] = "deployment.tampered"
-	tampered, err := jsonv2.Marshal(wire)
-	if err != nil {
-		t.Fatal(err)
+	wire["name"] = "deployment.changed"
+	changed := controlValue(jsonv2.Marshal(wire))
+	if err := jsonv2.Unmarshal(changed, &decoded); err != nil || decoded.Digest() == reference.Digest() {
+		t.Fatalf("changed identity kept its digest: %v", err)
 	}
-	if err := jsonv2.Unmarshal(tampered, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
-		t.Fatalf("tampered DeploymentRef error = %v, want ErrInvalidDeploymentRef", err)
+	wire["name"], wire["digest"] = reference.Name(), reference.Digest().String()
+	stored := controlValue(jsonv2.Marshal(wire))
+	if err := jsonv2.Unmarshal(stored, &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
+		t.Fatalf("stored DeploymentRef digest error = %v, want ErrInvalidDeploymentRef", err)
 	}
 }
 
@@ -114,7 +116,7 @@ func testDescriptorForFuzz(f *testing.F) Descriptor {
 	return descriptor
 }
 
-func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
+func TestDeploymentRefRejectsInvalidIdentity(t *testing.T) {
 	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
@@ -122,11 +124,7 @@ func TestDeploymentRefRejectsInvalidIdentityWithMatchingDigest(t *testing.T) {
 	for _, name := range []string{"", "Invalid.Name", "invalid name"} {
 		identity := reference.identityWire()
 		identity.Name = name
-		encodedIdentity, err := jsonv2.Marshal(identity)
-		if err != nil {
-			t.Fatal(err)
-		}
-		encoded, err := jsonv2.Marshal(deploymentRefWire{deploymentIdentityWire: identity, Digest: ComputeDigest(encodedIdentity)})
+		encoded, err := jsonv2.Marshal(identity)
 		if err != nil {
 			t.Fatal(err)
 		}

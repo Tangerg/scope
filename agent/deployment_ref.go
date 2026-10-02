@@ -83,17 +83,14 @@ func (d DeploymentRef) MarshalJSON() ([]byte, error) {
 	if !d.Valid() {
 		return nil, ErrInvalidDeploymentRef
 	}
-	return jsonv2.Marshal(deploymentRefWire{
-		deploymentIdentityWire: d.identityWire(),
-		Digest:                 d.digest,
-	})
+	return jsonv2.Marshal(d.identityWire())
 }
 
 func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDeploymentRef)
 	}
-	wire, err := jsonwire.Decode[deploymentRefWire](data)
+	wire, err := jsonwire.Decode[deploymentIdentityWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDeploymentRef, err)
 	}
@@ -103,23 +100,20 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 		implementationDigest: wire.ImplementationDigest,
 		configurationDigest:  wire.ConfigurationDigest,
 		bindingsDigest:       wire.BindingsDigest,
-		digest:               wire.Digest,
 	}
 	if !ValidQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
-		!value.configurationDigest.Valid() || !value.bindingsDigest.Valid() || !value.digest.Valid() {
+		!value.configurationDigest.Valid() || !value.bindingsDigest.Valid() {
 		return fmt.Errorf("%w: identity components are required", ErrInvalidDeploymentRef)
 	}
-	want, err := value.computeDigest()
-	if err != nil {
+	if value.digest, err = value.computeDigest(); err != nil {
 		return fmt.Errorf("%w: digest: %w", ErrInvalidDeploymentRef, err)
-	}
-	if want != value.digest {
-		return fmt.Errorf("%w: digest or identity component does not match", ErrInvalidDeploymentRef)
 	}
 	*d = value
 	return nil
 }
 
+// deploymentIdentityWire carries the components a DeploymentRef digest is
+// computed from; the digest itself is never encoded.
 type deploymentIdentityWire struct {
 	Name                 string `json:"name"`
 	ContractDigest       Digest `json:"contract_digest"`
@@ -128,12 +122,7 @@ type deploymentIdentityWire struct {
 	BindingsDigest       Digest `json:"bindings_digest"`
 }
 
-type deploymentRefWire struct {
-	deploymentIdentityWire
-	Digest Digest `json:"digest"`
-}
-
-func (DeploymentRef) JSONSchemaAlias() any { return deploymentRefWire{} }
+func (DeploymentRef) JSONSchemaAlias() any { return deploymentIdentityWire{} }
 
 func (d DeploymentRef) identityWire() deploymentIdentityWire {
 	return deploymentIdentityWire{
