@@ -71,7 +71,7 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 func BenchmarkCompetitionRecovery(b *testing.B) {
 	for _, count := range []int{64, 256, 1024} {
 		starts, outcomes := competitionOutcomes(b, count)
-		state := firstSuccessState{Phase: competitionCompleted, Starts: starts, Outcomes: outcomes}
+		state := firstSuccessState{Starts: starts, Outcomes: outcomes}
 		input, err := agent.EncodePayload("input")
 		if err != nil {
 			b.Fatal(err)

@@ -88,7 +88,7 @@ func (f *FirstSuccess) Start(input agent.Payload) (agent.Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	state := firstSuccessState{Phase: competitionReady, Candidates: candidates}
+	state := firstSuccessState{Candidates: candidates}
 	if err := state.validate(context.Background(), f.maxCandidates); err != nil {
 		return nil, fmt.Errorf("%w: %w", agent.ErrInvalidPayload, err)
 	}
@@ -121,7 +121,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch f.state.Phase {
+	switch f.state.phase() {
 	case competitionReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, fmt.Errorf("%w: competition accepts only child protocol Signals", ErrInvalidProtocol)
@@ -134,7 +134,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 			}
 			effects = append(effects, effect)
 		}
-		f.state.Phase = competitionAwaitingStarts
+		f.state.Starts = []agent.ChildStartResult{}
 		return agent.Continue(0, effects...)
 	case competitionAwaitingStarts:
 		return f.acceptStarts(signals)
@@ -192,7 +192,6 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	f.state.WaitID = &waitID
-	f.state.Phase = competitionWaiting
 	return agent.Wait(1, waitID)
 }
 
@@ -237,7 +236,6 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Transition, error) {
 	f.state.WaitID = nil
 	if f.state.Winner != nil || len(f.state.remaining()) == 0 {
-		f.state.Phase = competitionCompleted
 		output, err := agent.EncodePayload(f.state.result())
 		if err != nil {
 			return agent.Transition{}, err
@@ -252,7 +250,6 @@ func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Tran
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	f.state.Phase = competitionAwaitingOpen
 	return agent.Continue(consumed, effect)
 }
 

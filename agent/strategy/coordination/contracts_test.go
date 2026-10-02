@@ -157,12 +157,22 @@ func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 			if _, restoreErr := sample.definition.Restore(t.Context(), state); restoreErr != nil {
 				t.Fatalf("cancellation damaged the immutable state: %v", restoreErr)
 			}
-			for _, invalid := range []agent.ExecutionState{
+			invalidStates := []agent.ExecutionState{
 				foreign,
 				mutatedState(t, state, "unexpected", true),
-				mutatedState(t, state, "phase", "waiting"),
-				mutatedState(t, state, "phase", "future-phase"),
-			} {
+			}
+			if sample.name == "first-success" {
+				invalidStates = append(invalidStates,
+					mutatedState(t, state, "wait_id", "wait:unopened"),
+					mutatedState(t, state, "winner", "one"),
+				)
+			} else {
+				invalidStates = append(invalidStates,
+					mutatedState(t, state, "phase", "waiting"),
+					mutatedState(t, state, "phase", "future-phase"),
+				)
+			}
+			for _, invalid := range invalidStates {
 				if _, restoreErr := sample.definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, coordination.ErrInvalidExecutionState) {
 					t.Fatalf("malformed state was not rejected: %v", restoreErr)
 				}

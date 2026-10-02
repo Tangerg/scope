@@ -11,23 +11,39 @@ import (
 
 const firstSuccessWaitKeyPrefix = "coordination.first_success"
 
-type competitionPhase string
+type competitionPhase uint8
 
 const (
-	competitionReady          competitionPhase = "ready"
-	competitionAwaitingStarts competitionPhase = "awaiting_starts"
-	competitionAwaitingOpen   competitionPhase = "awaiting_open"
-	competitionWaiting        competitionPhase = "waiting"
-	competitionCompleted      competitionPhase = "completed"
+	competitionReady competitionPhase = iota
+	competitionAwaitingStarts
+	competitionAwaitingOpen
+	competitionWaiting
+	competitionCompleted
 )
 
 type firstSuccessState struct {
-	Phase      competitionPhase         `json:"phase"`
-	Candidates []agent.ChildSpec        `json:"candidates"`
-	Starts     []agent.ChildStartResult `json:"starts,omitempty"`
-	Outcomes   []agent.ChildOutcome     `json:"outcomes,omitempty"`
-	WaitID     *agent.WaitID            `json:"wait_id,omitzero"`
-	Winner     *agent.ChildKey          `json:"winner,omitzero"`
+	Candidates []agent.ChildSpec `json:"candidates"`
+	// Nil precedes declaration; an explicit empty slice records declared starts
+	// before the first receipt. Non-empty receipts carry that fact thereafter.
+	Starts   []agent.ChildStartResult `json:"starts,omitzero"`
+	Outcomes []agent.ChildOutcome     `json:"outcomes,omitempty"`
+	WaitID   *agent.WaitID            `json:"wait_id,omitzero"`
+	Winner   *agent.ChildKey          `json:"winner,omitzero"`
+}
+
+func (f firstSuccessState) phase() competitionPhase {
+	switch {
+	case f.Starts == nil:
+		return competitionReady
+	case len(f.Starts) < len(f.Candidates):
+		return competitionAwaitingStarts
+	case f.Winner != nil || len(f.remaining()) == 0:
+		return competitionCompleted
+	case f.WaitID != nil:
+		return competitionWaiting
+	default:
+		return competitionAwaitingOpen
+	}
 }
 
 func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) error {
@@ -62,49 +78,29 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 	if _, err := unobserved.batch().MatchOutcomes(f.Outcomes); err != nil {
 		return fmt.Errorf("%w: observed outcomes: %w", ErrInvalidExecutionState, err)
 	}
-	if f.Phase != competitionCompleted && f.Winner != nil {
+	if f.phase() != competitionCompleted && f.Winner != nil {
 		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidExecutionState)
 	}
 	return f.validatePhase()
 }
 
 func (f firstSuccessState) validatePhase() error {
-	switch f.Phase {
-	case competitionReady:
-		if len(f.Starts) != 0 || len(f.Outcomes) != 0 || f.WaitID != nil {
-			return fmt.Errorf("%w: ready competition retains progress", ErrInvalidExecutionState)
-		}
-	case competitionAwaitingStarts:
-		if len(f.Starts) >= len(f.Candidates) {
-			return fmt.Errorf("%w: awaiting starts has no pending candidate", ErrInvalidExecutionState)
-		}
+	switch f.phase() {
+	case competitionReady, competitionAwaitingStarts:
 		if len(f.Outcomes) != 0 || f.WaitID != nil {
 			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidExecutionState)
 		}
 	case competitionAwaitingOpen, competitionWaiting:
-		return f.validateWait()
+		if f.WaitID != nil && !f.WaitID.Valid() {
+			return fmt.Errorf("%w: competition WaitID is invalid", ErrInvalidExecutionState)
+		}
 	case competitionCompleted:
-		if len(f.Starts) != len(f.Candidates) || f.WaitID != nil {
-			return fmt.Errorf("%w: completed competition retains pending starts or wait", ErrInvalidExecutionState)
+		if f.WaitID != nil {
+			return fmt.Errorf("%w: completed competition retains a wait", ErrInvalidExecutionState)
 		}
 		if !f.result().Valid() {
 			return fmt.Errorf("%w: completed competition has an invalid result", ErrInvalidExecutionState)
 		}
-	default:
-		return fmt.Errorf("%w: unknown competition phase %q", ErrInvalidExecutionState, f.Phase)
-	}
-	return nil
-}
-
-func (f firstSuccessState) validateWait() error {
-	if len(f.Starts) != len(f.Candidates) {
-		return fmt.Errorf("%w: competition wait precedes completed starts", ErrInvalidExecutionState)
-	}
-	if len(f.remaining()) == 0 {
-		return fmt.Errorf("%w: competition wait has no remaining candidate", ErrInvalidExecutionState)
-	}
-	if (f.Phase == competitionWaiting) != (f.WaitID != nil) {
-		return fmt.Errorf("%w: competition WaitID does not match phase %q", ErrInvalidExecutionState, f.Phase)
 	}
 	return nil
 }

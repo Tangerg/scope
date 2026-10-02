@@ -2,14 +2,78 @@ package coordination
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 )
+
+func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 2)
+	source := competitionExecution(t, starts)
+	input, err := agent.EncodePayload(source.state.Candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := source.definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, expected := range [][]string{{"candidates"}, {"candidates", "starts"}, {"candidates", "starts"}} {
+		state, snapshotErr := execution.Snapshot()
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		var fields map[string]json.RawMessage
+		if decodeErr := jsonv2.Unmarshal(state.Payload(), &fields); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, expected) {
+			t.Fatalf("progress %d fields = %v, want %v", index, got, expected)
+		}
+		if index == 1 && string(fields["starts"]) != "[]" {
+			t.Fatalf("declaration before first receipt = %s, want []", fields["starts"])
+		}
+		execution, err = source.definition.Restore(t.Context(), state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var signals []agent.Signal
+		if index > 0 {
+			if _, err := execution.Step(t.Context(), nil); !errors.Is(err, ErrInvalidProtocol) {
+				t.Fatalf("declared starts were reissued without receipts: %v", err)
+			}
+			data, encodeErr := jsonv2.Marshal(struct {
+				ID      string                 `json:"id"`
+				Payload agent.ChildStartResult `json:"payload"`
+			}{"signal:engine:start", starts[index-1]})
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			var signal agent.Signal
+			if decodeErr := jsonv2.Unmarshal(data, &signal); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			signals = []agent.Signal{signal}
+		}
+		transition, stepErr := execution.Step(t.Context(), signals)
+		if stepErr != nil {
+			t.Fatal(stepErr)
+		}
+		wantEffects, wantConsumed := 2, uint32(0)
+		if index > 0 {
+			wantEffects, wantConsumed = index-1, 1
+		}
+		if transition.Kind() != agent.TransitionKindContinue || transition.ConsumedSignals() != wantConsumed || len(transition.Effects()) != wantEffects {
+			t.Fatalf("progress %d transition = %v", index, transition)
+		}
+	}
+}
 
 func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
 	starts, outcomes := competitionOutcomes(t, 6)
@@ -18,7 +82,6 @@ func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
 		{outcomes[1], outcomes[3], outcomes[5]},
 		{outcomes[0], outcomes[2], outcomes[4]},
 	} {
-		execution.state.Phase = competitionWaiting
 		execution.state.WaitID = new(competitionWaitID(t))
 		signal := competitionCompletion(t, execution.state, batch)
 		if _, err := execution.Step(t.Context(), []agent.Signal{signal}); err != nil {
@@ -92,7 +155,7 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := firstSuccessState{Phase: competitionWaiting, Starts: starts, WaitID: new(competitionWaitID(t))}
+	state := firstSuccessState{Starts: starts, WaitID: new(competitionWaitID(t))}
 	for _, start := range starts {
 		payload, err := agent.EncodePayload("input")
 		if err != nil {
