@@ -36,7 +36,6 @@ type executionState struct {
 	Phase             phase             `json:"phase"`
 	Input             json.RawMessage   `json:"input"`
 	WorldState        WorldState        `json:"world_state"`
-	PlanningPasses    uint64            `json:"planning_passes"`
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
 	Child             *childcall.Single `json:"child,omitzero"`
@@ -44,7 +43,7 @@ type executionState struct {
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
 	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "world_state", "planning_passes")
+	decoded, err := jsonwire.Decode[wire](data, "world_state")
 	if err != nil {
 		return err
 	}
@@ -94,6 +93,23 @@ func (e executionState) validateAttemptHistory(ctx context.Context, definition *
 	return ctx.Err()
 }
 
+// needsPlan reports whether the goal is unmet and another Action attempt is
+// still admitted, so the Planner must be asked for one.
+func (e executionState) needsPlan(definition *Definition) bool {
+	return !definition.goal.SatisfiedBy(e.WorldState) && definition.maxActionAttempts.Allows(e.attemptCount(), 1)
+}
+
+// planningPasses counts Planner calls. Every call before completion selected
+// one Action attempt; a completion that still needed a plan followed one more
+// call that found none.
+func (e executionState) planningPasses(definition *Definition) uint64 {
+	passes := e.attemptCount()
+	if e.Phase == phaseCompleted && e.needsPlan(definition) {
+		passes++
+	}
+	return passes
+}
+
 func (e executionState) attemptCount() uint64 {
 	count := uint64(len(e.Attempts))
 	if e.CurrentActionName != "" {
@@ -128,11 +144,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 		return nil
 	}
 	if e.Phase == phaseReadySense && len(e.Attempts) != 0 {
-		return fmt.Errorf("%w: ready_sense requires zero attempts and planning passes", ErrInvalidExecutionState)
-	}
-	// Before completion, every planning pass selected exactly one Action attempt.
-	if e.PlanningPasses != e.attemptCount() {
-		return fmt.Errorf("%w: planning passes disagree with Action attempts", ErrInvalidExecutionState)
+		return fmt.Errorf("%w: ready_sense requires zero attempts", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -203,7 +215,7 @@ func (e executionState) output(definition *Definition) Output {
 	}
 	return Output{
 		Outcome: outcome, WorldState: e.WorldState,
-		Attempts: e.Attempts, PlanningPasses: e.PlanningPasses,
+		Attempts: e.Attempts, PlanningPasses: e.planningPasses(definition),
 	}
 }
 

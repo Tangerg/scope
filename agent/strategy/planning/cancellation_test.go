@@ -55,7 +55,6 @@ func TestCanceledStepDoesNotAdvancePlanning(t *testing.T) {
 		t.Run(string(current), func(t *testing.T) {
 			state := executionState{Phase: current, Input: json.RawMessage(`{}`)}
 			if current == phaseAwaitingAction {
-				state.PlanningPasses = 1
 				state.CurrentActionName = "action.finish"
 			}
 			before, err := state.snapshot()

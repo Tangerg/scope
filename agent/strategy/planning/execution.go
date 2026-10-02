@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -87,14 +86,8 @@ func (e *execution) acceptSense(ctx context.Context, signals []agent.Signal) (ag
 }
 
 func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.Transition, error) {
-	if e.definition.goal.SatisfiedBy(e.state.WorldState) || !e.definition.maxActionAttempts.Allows(e.state.attemptCount(), 1) {
+	if !e.state.needsPlan(e.definition) {
 		return e.complete(ctx, consumedSignals)
-	}
-	if e.state.PlanningPasses == math.MaxUint64 {
-		return stepfail.Transition(
-			consumedSignals, agent.FailureKindExecution, failureCodePlanningLimitPlanningPasses,
-			"Planning exhausted its representable planning-pass count",
-		)
 	}
 	problem := e.definition.problem(e.state)
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
@@ -105,7 +98,6 @@ func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.T
 		return e.failPlanning(consumedSignals, agent.FailureKindExecution, failureCodePlanningPlannerFailed, err)
 	}
 	if !found {
-		e.state.PlanningPasses++
 		return e.complete(ctx, consumedSignals)
 	}
 	if err := problem.ValidatePlan(ctx, plan); err != nil {
@@ -140,7 +132,6 @@ func (e *execution) startAction(consumedSignals uint32, binding ActionBinding) (
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		e.state.PlanningPasses++
 		e.state.CurrentActionName = binding.action.name
 		e.state.Phase = phaseAwaitingAction
 		return agent.Continue(consumedSignals, effect)
@@ -174,7 +165,6 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.PlanningPasses++
 	e.state.CurrentActionName = binding.action.name
 	e.state.Child = &childcall.Single{}
 	e.state.Phase = phaseChild
@@ -296,7 +286,6 @@ const (
 	failureCodePlanningChildInputFailed       = "planning.child.input.failed"
 	failureCodePlanningChildInputInvalid      = "planning.child.input.invalid"
 	failureCodePlanningChildUnresolvedEffects = "planning.child.unresolved_effects"
-	failureCodePlanningLimitPlanningPasses    = "planning.limit.planning_passes"
 	failureCodePlanningPlannerContract        = "planning.planner.contract"
 	failureCodePlanningPlannerFailed          = "planning.planner.failed"
 	failureCodePlanningSensingFailed          = "planning.sensing.failed"

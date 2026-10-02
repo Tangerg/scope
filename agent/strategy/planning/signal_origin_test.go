@@ -24,7 +24,7 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 				t.Fatal(err)
 			}
 			if current == phaseAwaitingAction {
-				state.PlanningPasses, state.CurrentActionName = 1, "action.finish"
+				state.CurrentActionName = "action.finish"
 				payload, err = actionSignal(ActionSucceeded())
 				if err != nil {
 					t.Fatal(err)

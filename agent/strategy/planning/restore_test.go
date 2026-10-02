@@ -24,94 +24,67 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		valid   bool
 	}{
 		{
-			name:    "missing planning passes",
-			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]}}`),
-		},
-		{
-			name:    "null planning passes",
-			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":null}`),
+			name:    "stored planning passes",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0}`),
 		},
 		{
 			name:    "missing observed world",
-			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"planning_passes":1,"current_action_name":"finish"}`),
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"current_action_name":"finish"}`),
 		},
 		{
 			name:    "null observed world",
-			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":null,"planning_passes":1,"current_action_name":"finish"}`),
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":null,"current_action_name":"finish"}`),
 		},
 		{
-			name: "successful action awaits confirmation",
-			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"current_action_name":"finish"}`),
-			valid: true,
+			name:    "successful action awaits confirmation",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"current_action_name":"finish"}`),
+			valid:   true,
 		},
 		{
 			name: "failed action already recorded",
 			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
+				"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
 			valid: true,
 		},
 		{
-			name: "unreachable completion",
-			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1}`),
-			valid: true,
+			name:    "unreachable completion",
+			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]}}`),
+			valid:   true,
 		},
 		{
 			name: "unknown state member",
 			payload: json.RawMessage(`{"phase":"ready_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":0,"unexpected":true}`),
-		},
-		{
-			name:    "unreachable completion requires a planning pass",
-			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},"planning_passes":0}`),
-		},
-		{
-			name: "unreachable completion has excess planning passes",
-			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2}`),
+				"unexpected":true}`),
 		},
 		{
 			name: "already achieved completion",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
-				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":0}`),
+				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]}}`),
 			valid: true,
-		},
-		{
-			name: "achieved completion has an unaccounted planning pass",
-			payload: json.RawMessage(`{"phase":"completed","input":{},
-				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":1}`),
 		},
 		{
 			name: "achieved completion after an attempt",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
 				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"planning_passes":1,"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
+				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
 			valid: true,
 		},
 		{
 			name: "stuck completion after an excluded attempt",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
+				"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
 			valid: true,
-		},
-		{
-			name: "confirmation has no planning pass",
-			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":0,"current_action_name":"finish"}`),
 		},
 		{
 			name: "current action was excluded by failure",
 			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"current_action_name":"finish",
+				"current_action_name":"finish",
 				"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
 		},
 		{
 			name: "attempt follows exclusion",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"attempts":[
+				"attempts":[
 				{"action_name":"finish","status":"unconfirmed","diagnostic":"prediction failed"},
 				{"action_name":"finish","status":"succeeded"}]}`),
 		},
@@ -154,33 +127,31 @@ func TestRestoreCountsPendingActionTowardAttemptLimit(t *testing.T) {
 		valid   bool
 	}{
 		{
-			name: "last permitted action is pending",
-			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"current_action_name":"finish"}`),
-			valid: true,
+			name:    "last permitted action is pending",
+			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},"current_action_name":"finish"}`),
+			valid:   true,
 		},
 		{
-			name: "last permitted action awaits confirmation",
-			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"current_action_name":"finish"}`),
-			valid: true,
+			name:    "last permitted action awaits confirmation",
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"current_action_name":"finish"}`),
+			valid:   true,
 		},
 		{
 			name: "settled last action still permits sensing",
 			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":1,"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
+				"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
 			valid: true,
 		},
 		{
 			name: "pending action exceeds limit",
 			payload: json.RawMessage(`{"phase":"awaiting_action","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"current_action_name":"finish",
+				"current_action_name":"finish",
 				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
 		},
 		{
 			name: "unconfirmed action exceeds limit",
 			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
-				"planning_passes":2,"current_action_name":"finish",
+				"current_action_name":"finish",
 				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
 		},
 	}
@@ -215,7 +186,7 @@ func TestExecutionPreservesSignalDecodeCause(t *testing.T) {
 	definition := newManagedDefinition(t, managedDeploymentConfig{
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
 	})
-	state, err := agent.ParseExecutionState("planning", json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},"planning_passes":0}`))
+	state, err := agent.ParseExecutionState("planning", json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,13 +236,12 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		{"awaiting_action", json.RawMessage(`{}`), false},
 	} {
 		payload, encodeErr := jsonv2.Marshal(struct {
-			Phase          string          `json:"phase"`
-			Input          json.RawMessage `json:"input"`
-			WorldState     json.RawMessage `json:"world_state"`
-			PlanningPasses uint32          `json:"planning_passes"`
-			Action         string          `json:"current_action_name"`
-			Child          json.RawMessage `json:"child"`
-		}{test.phase, json.RawMessage(`{}`), json.RawMessage(`{"conditions":[]}`), 1, "finish", test.child})
+			Phase      string          `json:"phase"`
+			Input      json.RawMessage `json:"input"`
+			WorldState json.RawMessage `json:"world_state"`
+			Action     string          `json:"current_action_name"`
+			Child      json.RawMessage `json:"child"`
+		}{test.phase, json.RawMessage(`{}`), json.RawMessage(`{"conditions":[]}`), "finish", test.child})
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
