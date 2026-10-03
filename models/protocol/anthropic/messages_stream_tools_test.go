@@ -69,6 +69,28 @@ func TestStreamAcceptsArgumentsForAStartedToolBlock(t *testing.T) {
 	}
 }
 
+func TestStreamRejectsToolIdentitySharedByContentBlocks(t *testing.T) {
+	model := newToolStreamModel(t, []string{
+		`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu-1","name":"lookup","input":{}}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu-1","name":"lookup","input":{}}}`,
+		`{"type":"content_block_stop","index":1}`,
+	})
+	var lastErr error
+	for delta, err := range model.Stream(t.Context(), newToolStreamRequest(t)) {
+		if err != nil {
+			lastErr = err
+			break
+		}
+		if delta.FinishReason != "" {
+			t.Fatal("completed a stream whose independent blocks share a tool identity")
+		}
+	}
+	if !errors.Is(lastErr, corechat.ErrInvalidResponse) {
+		t.Fatalf("Stream error = %v, want ErrInvalidResponse", lastErr)
+	}
+}
+
 func newToolStreamRequest(t *testing.T) *corechat.Request {
 	t.Helper()
 	return &corechat.Request{

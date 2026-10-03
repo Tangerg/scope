@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -92,5 +93,22 @@ func TestChunkAccumulatorRejectsSecondTerminalEvent(t *testing.T) {
 	_, _, err := accumulator.add(messageStopEvent(types.StopReasonMaxTokens))
 	if err == nil || !strings.Contains(err.Error(), "more than one messageStop") {
 		t.Fatalf("add(second messageStop) = %v, want a duplicate-terminal error", err)
+	}
+}
+
+func TestChunkAccumulatorRejectsContentAfterMessageStop(t *testing.T) {
+	for name, event := range map[string]types.ConverseStreamOutput{
+		"start": &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{}},
+		"delta": textDeltaEvent("late content"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			accumulator := newProtocolChunkAccumulator("model")
+			if _, _, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn)); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := accumulator.add(event); !errors.Is(err, corechat.ErrInvalidResponse) {
+				t.Fatalf("content after messageStop = %v, want ErrInvalidResponse", err)
+			}
+		})
 	}
 }

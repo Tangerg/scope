@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -100,6 +101,56 @@ func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
 	call := response.Parts[0].ToolCall
 	if call.ID != "call-1" || call.Name != "weather" || call.Arguments != arguments {
 		t.Fatalf("tool call = %#v", call)
+	}
+}
+
+func TestProtocolChunkAccumulatorRejectsCompetingToolIdentities(t *testing.T) {
+	for name, conflicting := range map[string]types.ContentBlockStartEvent{
+		"repeated start": {
+			ContentBlockIndex: aws.Int32(0),
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				ToolUseId: aws.String("call-1"), Name: aws.String("weather"),
+			}},
+		},
+		"changed identity": {
+			ContentBlockIndex: aws.Int32(0),
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				ToolUseId: aws.String("call-2"), Name: aws.String("delete"),
+			}},
+		},
+		"reused id": {
+			ContentBlockIndex: aws.Int32(1),
+			Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+				ToolUseId: aws.String("call-1"), Name: aws.String("weather"),
+			}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			accumulator := newProtocolChunkAccumulator("model")
+			start := &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
+				ContentBlockIndex: aws.Int32(0),
+				Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+					ToolUseId: aws.String("call-1"), Name: aws.String("weather"),
+				}},
+			}}
+			if _, _, err := accumulator.add(start); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{Value: conflicting}); !errors.Is(err, corechat.ErrInvalidResponse) {
+				t.Fatalf("conflicting start = %v, want ErrInvalidResponse", err)
+			}
+			delta, _, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
+				ContentBlockIndex: aws.Int32(0),
+				Delta:             &types.ContentBlockDeltaMemberToolUse{Value: types.ToolUseBlockDelta{Input: aws.String(`{}`)}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := delta.Parts[0].ToolCall
+			if call.ID != "call-1" || call.Name != "weather" {
+				t.Fatalf("rejected event replaced the original tool identity: %#v", call)
+			}
+		})
 	}
 }
 

@@ -86,6 +86,59 @@ func TestStreamAcceptsAToolCallIdentifiedAfterItsArguments(t *testing.T) {
 	}
 }
 
+func TestStreamRejectsCompetingToolIdentities(t *testing.T) {
+	t.Parallel()
+	for name, conflicting := range map[string]string{
+		"changed id":   `{"index":0,"id":"call-2","function":{"name":"search","arguments":"{}"}}`,
+		"changed name": `{"index":0,"id":"call-1","function":{"name":"delete","arguments":"{}"}}`,
+		"reused id":    `{"index":1,"id":"call-1","function":{"name":"search","arguments":"{}"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			model := newToolStreamModel(t, []string{
+				`{"index":0,"id":"call-1","function":{"name":"search","arguments":"{}"}}`, conflicting,
+			})
+			var lastErr error
+			for delta, err := range model.Stream(t.Context(), newToolStreamRequest()) {
+				if err != nil {
+					lastErr = err
+					break
+				}
+				if delta.FinishReason != "" {
+					t.Fatal("completed a stream with competing tool identities")
+				}
+			}
+			if !errors.Is(lastErr, corechat.ErrInvalidResponse) {
+				t.Fatalf("Stream error = %v, want ErrInvalidResponse", lastErr)
+			}
+		})
+	}
+}
+
+func TestStreamAcceptsRepeatedToolIdentity(t *testing.T) {
+	model := newToolStreamModel(t, []string{
+		`{"index":0,"id":"call-1","function":{"name":"search","arguments":"{\"q\":"}}`,
+		`{"index":0,"id":"call-1","function":{"name":"search","arguments":"\"scope\"}"}}`,
+	})
+	var accumulated corechat.ResponseAccumulator
+	for delta, err := range model.Stream(t.Context(), newToolStreamRequest()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := accumulated.Add(delta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := accumulated.Response()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Output.Message.Parts
+	if len(parts) != 1 || parts[0].ToolCall.Arguments != `{"q":"scope"}` {
+		t.Fatalf("tool fragments = %#v", parts)
+	}
+}
+
 func newToolStreamRequest() *corechat.Request {
 	return &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("search for scope"))},

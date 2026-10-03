@@ -224,9 +224,20 @@ func (o *openAIStreamState) mapChunkTool(delta openaisdk.ChatCompletionChunkChoi
 	}
 	state := o.tools[delta.Index]
 	if delta.ID != "" {
+		if state.id != "" && state.id != delta.ID {
+			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed id from %q to %q", corechat.ErrInvalidResponse, delta.Index, state.id, delta.ID)
+		}
+		for index, tool := range o.tools {
+			if index != delta.Index && tool.id == delta.ID {
+				return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, delta.ID, delta.Index)
+			}
+		}
 		state.id = delta.ID
 	}
 	if delta.Function.Name != "" {
+		if state.name != "" && state.name != delta.Function.Name {
+			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed name from %q to %q", corechat.ErrInvalidResponse, delta.Index, state.name, delta.Function.Name)
+		}
 		state.name = delta.Function.Name
 	}
 	state.pendingArguments += delta.Function.Arguments

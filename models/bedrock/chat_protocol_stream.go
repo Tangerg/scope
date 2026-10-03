@@ -18,7 +18,6 @@ type protocolToolIdentity struct {
 type protocolChunkAccumulator struct {
 	model          string
 	tools          map[int32]protocolToolIdentity
-	finished       bool
 	finish         corechat.FinishReason
 	finishMetadata *corechat.OutputMetadata
 }
@@ -31,13 +30,16 @@ func newProtocolChunkAccumulator(model string) *protocolChunkAccumulator {
 // whether the event stream failed, which is a different question: an event
 // stream can end cleanly in the middle of a message, and the deltas already
 // yielded then describe a partial answer that nothing else marks as partial.
-func (p *protocolChunkAccumulator) terminated() bool { return p.finished }
+func (p *protocolChunkAccumulator) terminated() bool { return p.finish != "" }
 
 func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corechat.ResponseDelta, bool, error) {
 	response := &corechat.ResponseDelta{Metadata: &corechat.ResponseMetadata{Model: p.model}}
 
 	switch typed := event.(type) {
 	case *types.ConverseStreamOutputMemberContentBlockStart:
+		if p.terminated() {
+			return nil, false, fmt.Errorf("bedrock: stream: %w: content block started after messageStop", corechat.ErrInvalidResponse)
+		}
 		tool, ok := typed.Value.Start.(*types.ContentBlockStartMemberToolUse)
 		if !ok {
 			// toolUse is the only start payload Converse defines; any other
@@ -51,19 +53,30 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 			return nil, false, errors.New("bedrock: toolUse content block opened without an index, id, or name")
 		}
 		identity := protocolToolIdentity{id: *tool.Value.ToolUseId, name: *tool.Value.Name}
-		p.tools[*typed.Value.ContentBlockIndex] = identity
+		index := *typed.Value.ContentBlockIndex
+		if _, exists := p.tools[index]; exists {
+			return nil, false, fmt.Errorf("bedrock: stream: %w: tool content block %d started twice", corechat.ErrInvalidResponse, index)
+		}
+		for _, other := range p.tools {
+			if other.id == identity.id {
+				return nil, false, fmt.Errorf("bedrock: stream: %w: tool id %q reused at content block %d", corechat.ErrInvalidResponse, identity.id, index)
+			}
+		}
+		p.tools[index] = identity
 		response.Parts = []corechat.PartDelta{corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: identity.id, Name: identity.name})}
 	case *types.ConverseStreamOutputMemberContentBlockDelta:
+		if p.terminated() {
+			return nil, false, fmt.Errorf("bedrock: stream: %w: content block changed after messageStop", corechat.ErrInvalidResponse)
+		}
 		part, include, err := p.mapDelta(typed.Value)
 		if err != nil || !include {
 			return nil, false, err
 		}
 		response.Parts = []corechat.PartDelta{part}
 	case *types.ConverseStreamOutputMemberMessageStop:
-		if p.finished {
+		if p.terminated() {
 			return nil, false, errors.New("bedrock: stream emitted more than one messageStop event")
 		}
-		p.finished = true
 		// The finish reason is held rather than stamped here, because
 		// ConverseStream sends its metadata event — the one carrying usage —
 		// after messageStop. Putting the reason on the messageStop delta made
@@ -110,7 +123,7 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 // complete stamps the held finish reason onto the last delta of the stream, so
 // exactly one delta reports the end and it is the one a consumer sees last.
 func (p *protocolChunkAccumulator) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
-	if delta == nil || !p.finished {
+	if delta == nil || !p.terminated() {
 		return nil, fmt.Errorf("bedrock: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
 	delta.FinishReason = p.finish

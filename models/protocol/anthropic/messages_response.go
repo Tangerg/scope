@@ -446,6 +446,11 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 		}
 		return part, true, nil
 	case "tool_use":
+		for index, other := range p.tools {
+			if index != event.Index && other.id == block.ID && block.ID != "" {
+				return corechat.PartDelta{}, false, fmt.Errorf("anthropic: stream: %w: tool id %q reused at content block %d", corechat.ErrInvalidResponse, block.ID, event.Index)
+			}
+		}
 		tool := p.tools[event.Index]
 		tool.id = block.ID
 		tool.name = block.Name

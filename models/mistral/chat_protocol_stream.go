@@ -107,9 +107,20 @@ func (c *chatStreamState) mapToolDeltas(calls []chatToolCall) ([]corechat.PartDe
 		index := call.Index
 		tool := c.tools[index]
 		if call.ID != "" {
+			if tool.id != "" && tool.id != call.ID {
+				return nil, fmt.Errorf("%w: tool call %d changed id from %q to %q", corechat.ErrInvalidResponse, index, tool.id, call.ID)
+			}
+			for otherIndex, other := range c.tools {
+				if otherIndex != index && other.id == call.ID {
+					return nil, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, call.ID, index)
+				}
+			}
 			tool.id = call.ID
 		}
 		if call.Function.Name != "" {
+			if tool.name != "" && tool.name != call.Function.Name {
+				return nil, fmt.Errorf("%w: tool call %d changed name from %q to %q", corechat.ErrInvalidResponse, index, tool.name, call.Function.Name)
+			}
 			tool.name = call.Function.Name
 		}
 		arguments, err := mistralToolArguments(call.Function.Arguments)

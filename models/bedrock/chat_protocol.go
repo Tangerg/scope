@@ -33,7 +33,7 @@ const (
 
 // ChatRequestOptions carries serializable Bedrock Converse fields that have no
 // provider-neutral Core equivalent. Common model, message, tool, and sampling
-// fields are always derived from the Core request and take precedence.
+// fields are derived exclusively from the Core request.
 type ChatRequestOptions struct {
 	AdditionalModelRequestFields      map[string]any    `json:"additional_model_request_fields,omitempty"`
 	AdditionalModelResponseFieldPaths []string          `json:"additional_model_response_field_paths,omitempty"`
