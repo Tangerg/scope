@@ -595,12 +595,10 @@ func (p pendingControl) wire() pendingControlWire {
 		wire.KillReason = p.kill.reason
 	}
 	if p.deadline.valid() {
-		wire.DeadlineOwner = p.deadline.owner
-		wire.DeadlineReason = p.deadline.reason
+		wire.Deadline = &deadlineIntentWire{Owner: p.deadline.owner, Reason: p.deadline.reason}
 	}
 	if p.cancellation.valid() {
-		wire.CancellationOwner = p.cancellation.owner
-		wire.CancellationReason = p.cancellation.reason
+		wire.Cancellation = &cancellationIntentWire{Owner: p.cancellation.owner, Reason: p.cancellation.reason}
 	}
 	return wire
 }

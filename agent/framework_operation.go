@@ -234,7 +234,7 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 		return ErrInvalidChildControl
 	}
 	if c.request.Operation == frameworkOperationCancelChild {
-		if !child.status().Terminal() && !child.PendingControl.CancellationOwner.valid() {
+		if !child.status().Terminal() && child.PendingControl.Cancellation == nil {
 			return ErrInvalidChildControl
 		}
 		return nil

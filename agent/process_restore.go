@@ -108,13 +108,13 @@ func pendingControlFromWire(wire pendingControlWire) (pendingControl, error) {
 			return pendingControl{}, err
 		}
 	}
-	if wire.DeadlineOwner != "" || wire.DeadlineReason != "" {
-		if control.deadline, err = newDeadlineIntent(wire.DeadlineOwner, wire.DeadlineReason); err != nil {
+	if wire.Deadline != nil {
+		if control.deadline, err = newDeadlineIntent(wire.Deadline.Owner, wire.Deadline.Reason); err != nil {
 			return pendingControl{}, err
 		}
 	}
-	if wire.CancellationOwner != "" || wire.CancellationReason != "" {
-		if control.cancellation, err = newCancellationIntent(wire.CancellationOwner, wire.CancellationReason); err != nil {
+	if wire.Cancellation != nil {
+		if control.cancellation, err = newCancellationIntent(wire.Cancellation.Owner, wire.Cancellation.Reason); err != nil {
 			return pendingControl{}, err
 		}
 	}

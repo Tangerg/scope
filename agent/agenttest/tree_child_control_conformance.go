@@ -333,14 +333,16 @@ func assertChildControlCancelIntent(t *testing.T, child, priorChild agent.Proces
 	t.Helper()
 	var intent struct {
 		PendingControl struct {
-			Owner  string `json:"cancellation_owner"`
-			Reason string `json:"cancellation_reason"`
+			Cancellation struct {
+				Owner  string `json:"owner"`
+				Reason string `json:"reason"`
+			} `json:"cancellation"`
 		} `json:"pending_control"`
 	}
 	if err := jsonv2.Unmarshal(child.JSON(), &intent); err != nil {
 		t.Fatal(err)
 	}
-	if child.Status().Terminal() || intent.PendingControl.Owner != "parent" || intent.PendingControl.Reason != childControlCancelReason {
+	if child.Status().Terminal() || intent.PendingControl.Cancellation.Owner != "parent" || intent.PendingControl.Cancellation.Reason != childControlCancelReason {
 		t.Fatalf("cancellation receipt must retain intent before termination: status=%s intent=%+v", child.Status(), intent.PendingControl)
 	}
 	if child.Usage() != priorChild.Usage() {

@@ -37,8 +37,8 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		p.Counters.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reason, PauseReason: pauseReason,
-			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reason,
-			CancellationOwner: cancellationOwnerParent, CancellationReason: reason,
+			Deadline:     &deadlineIntentWire{Owner: deadlineOwnerParent, Reason: reason},
+			Cancellation: &cancellationIntentWire{Owner: cancellationOwnerParent, Reason: reason},
 		}
 		pending, err := jsonv2.Marshal(p)
 		if err != nil {

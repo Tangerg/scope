@@ -273,12 +273,12 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 		t.Fatal("cancellation without intent accepted")
 	}
-	child.PendingControl.CancellationOwner = cancellationOwnerParent
+	child.PendingControl.Cancellation = &cancellationIntentWire{Owner: cancellationOwnerParent, Reason: "stop"}
 	validation.processes[childID] = child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
-	child.PendingControl.CancellationOwner = ""
+	child.PendingControl.Cancellation = nil
 	child.Finish = &processFinish{Termination: Termination{cause: TerminationCauseCompletion}}
 	validation.processes[childID] = child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {

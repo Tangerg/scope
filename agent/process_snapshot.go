@@ -308,13 +308,23 @@ func (p ProcessSnapshot) wire() (processSnapshotWire, error) {
 }
 
 type pendingControlWire struct {
-	Failure            *Failure          `json:"failure,omitzero"`
-	KillReason         string            `json:"kill_reason,omitempty"`
-	DeadlineOwner      deadlineOwner     `json:"deadline_owner,omitempty"`
-	DeadlineReason     string            `json:"deadline_reason,omitempty"`
-	CancellationOwner  cancellationOwner `json:"cancellation_owner,omitempty"`
-	CancellationReason string            `json:"cancellation_reason,omitempty"`
-	PauseReason        string            `json:"pause_reason,omitempty"`
+	Failure      *Failure                `json:"failure,omitzero"`
+	KillReason   string                  `json:"kill_reason,omitempty"`
+	Deadline     *deadlineIntentWire     `json:"deadline,omitzero"`
+	Cancellation *cancellationIntentWire `json:"cancellation,omitzero"`
+	PauseReason  string                  `json:"pause_reason,omitempty"`
+}
+
+// deadlineIntentWire and cancellationIntentWire keep each intent's owner and
+// reason together, so the intent is present exactly when its record is.
+type deadlineIntentWire struct {
+	Owner  deadlineOwner `json:"owner"`
+	Reason string        `json:"reason"`
+}
+
+type cancellationIntentWire struct {
+	Owner  cancellationOwner `json:"owner"`
+	Reason string            `json:"reason"`
 }
 
 // processSnapshotWire persists lifecycle facts, never the Status they project.
@@ -376,8 +386,8 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		p.Counters.DroppedDeltas = math.MaxUint64
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reservation.reason(maxTerminationReasonBytes), PauseReason: reservation.reason(maxPauseReasonBytes),
-			DeadlineOwner: deadlineOwnerParent, DeadlineReason: reservation.reason(maxTerminationReasonBytes),
-			CancellationOwner: cancellationOwnerParent, CancellationReason: reservation.reason(maxTerminationReasonBytes),
+			Deadline:     &deadlineIntentWire{Owner: deadlineOwnerParent, Reason: reservation.reason(maxTerminationReasonBytes)},
+			Cancellation: &cancellationIntentWire{Owner: cancellationOwnerParent, Reason: reservation.reason(maxTerminationReasonBytes)},
 		}
 		pending, err := jsonv2.Marshal(p)
 		if err != nil {
