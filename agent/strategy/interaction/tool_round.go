@@ -80,7 +80,10 @@ func (t *toolCallRound) finishChildren(tools toolManifest, advertisedNames []str
 			return nil, err
 		}
 		advertisedNames = names
-		results = append(results, invocation.Result.clone())
+		// The Interaction's advertised set now owns these names.
+		result := invocation.Result.clone()
+		result.AdvertisedToolNames = nil
+		results = append(results, result)
 	}
 	t.Results = append(t.Results, results...)
 	t.ChildBatch = nil
@@ -97,6 +100,9 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 		}
 		if err := result.validateCall(calls[index]); err != nil {
 			return fmt.Errorf("%w: result %d: %w", ErrInvalidExecutionState, index, err)
+		}
+		if len(result.AdvertisedToolNames) != 0 {
+			return fmt.Errorf("%w: result %d retains advertisements the Interaction already applied", ErrInvalidExecutionState, index)
 		}
 		if t.Response.Output.FinishReason == chat.FinishReasonLength && !result.Rejected {
 			return fmt.Errorf("%w: truncated calls can only have rejected results", ErrInvalidExecutionState)
