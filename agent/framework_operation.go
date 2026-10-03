@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -11,12 +12,12 @@ import (
 // each framework operation. Consumers cannot choose different interpretations
 // of the same payload at different lifecycle boundaries.
 type frameworkOperation interface {
-	// localOutcome reports the successful settlement payload an operation
-	// determines without any external answer; only such outcomes are derived
-	// rather than persisted.
-	localOutcome() (json.RawMessage, bool, error)
-	validate(*preparedEffect) error
-	settle(*preparedEffect) error
+	// settlement builds the only settlement the request admits once execution
+	// adds its sole fact: an optional definite failure. Live settling,
+	// projections, and decoding all use it, so no stored copy can disagree.
+	settlement(id EffectID, failure Failure) (Settlement, error)
+	// settledFailure recovers that failure from a settlement built above.
+	settledFailure(Settlement) (Failure, error)
 	reserve(*preparedEffect, Failure) (uint64, error)
 	apply(*preparedStepFinalization, preparedEffect) error
 	validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error
@@ -56,18 +57,18 @@ type waitOperation struct {
 	payload json.RawMessage
 }
 
-func (w waitOperation) localOutcome() (json.RawMessage, bool, error) { return w.payload, true, nil }
-
-func (w waitOperation) validate(*preparedEffect) error { return nil }
-
-func (w waitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(w) }
-func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
-	if effect.phase() == effectPhasePlanned {
-		if err := effect.begin(); err != nil {
-			return 0, err
-		}
+// A wait settles locally the moment it begins, so it never fails.
+func (w waitOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+	if failure.Valid() {
+		return Settlement{}, errors.New("a wait Effect cannot fail")
 	}
-	return 0, w.settle(effect)
+	return NewSettlement(id, SettlementStatusSucceeded, w.payload)
+}
+
+func (waitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }
+
+func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
+	return 0, effect.settleLocally(w)
 }
 
 func (w waitOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
@@ -84,22 +85,22 @@ func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, prepared
 
 type childWaitOperation struct{ spec ChildWaitSpec }
 
-func (c childWaitOperation) localOutcome() (json.RawMessage, bool, error) {
+// A child wait settles locally the moment it begins, so it never fails.
+func (c childWaitOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+	if failure.Valid() {
+		return Settlement{}, errors.New("a child-wait Effect cannot fail")
+	}
 	payload, err := childWaitOpenedPayload(c.spec)
-	return payload, true, err
+	if err != nil {
+		return Settlement{}, err
+	}
+	return NewSettlement(id, SettlementStatusSucceeded, payload)
 }
 
-func (c childWaitOperation) validate(*preparedEffect) error { return nil }
-
-func (c childWaitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(c) }
+func (childWaitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }
 
 func (c childWaitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
-	if effect.phase() == effectPhasePlanned {
-		if err := effect.begin(); err != nil {
-			return 0, err
-		}
-	}
-	return 0, c.settle(effect)
+	return 0, effect.settleLocally(c)
 }
 
 func (c childWaitOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
@@ -124,38 +125,30 @@ func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent Proce
 
 type childStartOperation struct{ spec ChildSpec }
 
-func (childStartOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
-
-func (c childStartOperation) validate(effect *preparedEffect) error {
-	if effect.settlement() == nil {
-		return nil
+// A started child's identity follows from the Effect; the request fixes its
+// key and Deployment.
+func (c childStartOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+	result := ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure}
+	if !failure.Valid() {
+		result.processID = id.childProcessID()
 	}
-	spec := c.spec
-	result, err := decodeChildStartResult(effect.settlement().Payload())
+	payload, err := result.MarshalJSON()
 	if err != nil {
-		return err
+		return Settlement{}, err
 	}
-	if result.Key() != spec.Key || result.DeploymentRef() != spec.DeploymentRef {
-		return ErrInvalidChildStart
-	}
-	if id, started := result.ProcessID(); started && id != effect.ID.childProcessID() {
-		return ErrInvalidChildStart
-	}
-	if effect.settlement().Status() != result.settlementStatus() {
-		return ErrInvalidChildStart
-	}
-	return nil
+	return NewSettlement(id, result.settlementStatus(), payload)
 }
 
-func (c childStartOperation) settle(*preparedEffect) error {
-	return fmt.Errorf("%w: child start requires its job outcome", ErrInvalidEffect)
+func (childStartOperation) settledFailure(settlement Settlement) (Failure, error) {
+	result, err := decodeChildStartResult(settlement.payload)
+	return result.failure, err
 }
 
 func (c childStartOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
 	if effect.phase() != effectPhasePending {
 		return 0, nil
 	}
-	return snapshotFailureGrowth, effect.settleChildStart(ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure})
+	return snapshotFailureGrowth, effect.settleOperation(c, failure)
 }
 
 func (c childStartOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
@@ -209,33 +202,27 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 
 type childControlOperation struct{ request childControlEffectWire }
 
-func (childControlOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
-
-func (c childControlOperation) validate(effect *preparedEffect) error {
-	if effect.settlement() == nil {
-		return nil
+// The request fixes the recipient, operation, and delivered SignalID.
+func (c childControlOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+	result := c.request.result()
+	result.failure = failure
+	payload, err := result.MarshalJSON()
+	if err != nil {
+		return Settlement{}, err
 	}
-	result, err := decodeChildControlResult(effect.settlement().Payload())
-	if err != nil || !result.matches(c.request) {
-		return ErrInvalidChildControl
-	}
-	if effect.settlement().Status() != result.settlementStatus() {
-		return ErrInvalidChildControl
-	}
-	return nil
+	return NewSettlement(id, result.settlementStatus(), payload)
 }
 
-func (c childControlOperation) settle(*preparedEffect) error {
-	return fmt.Errorf("%w: child control requires its recipient outcome", ErrInvalidEffect)
+func (childControlOperation) settledFailure(settlement Settlement) (Failure, error) {
+	result, err := decodeChildControlResult(settlement.payload)
+	return result.failure, err
 }
 
 func (c childControlOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
 	if effect.phase() != effectPhasePending {
 		return 0, nil
 	}
-	result := c.request.result()
-	result.failure = failure
-	return snapshotFailureGrowth, effect.settleChildControl(result)
+	return snapshotFailureGrowth, effect.settleOperation(c, failure)
 }
 
 func (c childControlOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {

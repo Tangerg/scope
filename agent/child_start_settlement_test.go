@@ -7,7 +7,7 @@ import (
 func TestChildStartEncodingFailureDoesNotCreateUnknown(t *testing.T) {
 	id := controlValue(ParseEffectID("effect:child-start"))
 	record := preparedEffect{ID: id, progress: &effectProgress{}}
-	err := record.settleChildStart(ChildStartResult{})
+	err := record.settleOperation(childStartOperation{}, Failure{})
 	if err == nil {
 		t.Fatalf("encoding error = %v", err)
 	}

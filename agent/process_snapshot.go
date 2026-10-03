@@ -76,11 +76,34 @@ func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}
-	// An overflowing sequence leaves the batch unbound; validation rejects it.
-	if wire.Prepared != nil && wire.CommittedSteps < math.MaxUint64 {
-		wire.Prepared.Effects.bindIDs(wire.ProcessID, wire.CommittedSteps+1)
-	}
 	return processSnapshotFromWire(wire)
+}
+
+// UnmarshalJSON decodes the prepared Step against this record's identity and
+// committed progress, which number every prepared Effect and so determine its
+// identity and any Framework settlement.
+func (p *processSnapshotWire) UnmarshalJSON(data []byte) error {
+	type record processSnapshotWire
+	decoded, err := jsonwire.Decode[struct {
+		record
+		Prepared *preparedStepWire `json:"prepared,omitzero"`
+	}](data)
+	if err != nil {
+		return err
+	}
+	value := processSnapshotWire(decoded.record)
+	if decoded.Prepared != nil {
+		if value.CommittedSteps == math.MaxUint64 {
+			return errors.New("prepared Step sequence overflows")
+		}
+		prepared, err := decoded.Prepared.step(value.ProcessID, value.CommittedSteps+1)
+		if err != nil {
+			return fmt.Errorf("prepared Step: %w", err)
+		}
+		value.Prepared = &prepared
+	}
+	*p = value
+	return nil
 }
 
 // The caller transfers the wire's mutable containers. After validation, state

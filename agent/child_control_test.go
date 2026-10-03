@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -16,7 +17,6 @@ func controlValue[T any](value T, err error) T {
 
 func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	child := newProcessID()
-	other := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`{"direction":"inspect"}`)))
 	for _, operation := range []frameworkOperationKind{frameworkOperationSignalChild, frameworkOperationCancelChild} {
 		var effect Effect
@@ -57,40 +57,26 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				t.Fatal(err)
 			}
 			id := child.effectID(1, 0)
-			status := SettlementStatusSucceeded
-			if failed {
-				status = SettlementStatusFailed
-			}
-			record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, status, payload)))}}
-			if err := record.validateFramework(); err != nil {
+			control := controlValue(decodeChildControlEffect(effect.Payload()))
+			record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{}}
+			if err := record.settleOperation(childControlOperation{request: control}, result.failure); err != nil {
 				t.Fatal(err)
 			}
-			for name, mutate := range map[string]func(*preparedEffect){
-				"unknown": func(record *preparedEffect) {
-					record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusUnknown, []byte(`null`))))
-				},
-				"wrong status": func(record *preparedEffect) {
-					wrong := SettlementStatusFailed
-					if failed {
-						wrong = SettlementStatusSucceeded
-					}
-					record.progress.settlement = new(controlValue(NewSettlement(id, wrong, payload)))
-				},
-				"other recipient": func(record *preparedEffect) {
-					if operation == frameworkOperationSignalChild {
-						record.Effect = controlValue(NewChildSignalEffect(other, request))
-					} else {
-						record.Effect = controlValue(NewChildCancelEffect(other, "stop"))
-					}
-				},
-			} {
-				t.Run(string(operation)+"/"+name, func(t *testing.T) {
-					altered := record
-					mutate(&altered)
-					if err := altered.validateFramework(); err == nil {
-						t.Fatal("inconsistent settlement accepted")
-					}
-				})
+			if !bytes.Equal(record.settlement().Payload(), controlValue(normalizeJSON(payload, MaxPayloadBytes))) {
+				t.Fatalf("derived settlement = %s, want %s", record.settlement().Payload(), payload)
+			}
+			wire := controlValue(record.wire())
+			stored := wire.Progress.Settlement
+			if stored.Status != SettlementStatusInvalid || stored.Payload != nil || (stored.Failure != nil) != failed {
+				t.Fatalf("Framework settlement stored derived facts: %+v", stored)
+			}
+			restored := controlValue(wire.record(id))
+			if !restored.settlement().equal(*record.settlement()) {
+				t.Fatal("decoded settlement differs from the one its request determines")
+			}
+			wire.Progress.Settlement = &preparedSettlementWire{Status: record.settlement().Status(), Payload: payload}
+			if _, err := wire.record(id); err == nil {
+				t.Fatal("Framework settlement accepted a stored copy of its request")
 			}
 		}
 	}

@@ -87,7 +87,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 			candidate := wire.clone()
 			candidate.Prepared.Intent = controlValue(Continue(0))
 			record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, progress: &effectProgress{}}
-			if err := record.settleFramework(); err != nil {
+			if err := settleTestFramework(&record, Failure{}); err != nil {
 				t.Fatal(err)
 			}
 			candidate.Prepared.Effects = preparedEffects{record}
@@ -130,42 +130,18 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, Capabilities: CapabilitySet{}}
 	effect := controlValue(NewChildStartEffect(spec))
 	record := preparedEffect{ID: wire.ProcessID.effectID(1, 0), Effect: effect, progress: &effectProgress{}}
-	if err := record.settleChildStart(ChildStartResult{key: spec.Key, processID: record.ID.childProcessID(), deploymentRef: spec.DeploymentRef}); err != nil {
+	if err := settleTestFramework(&record, Failure{}); err != nil {
 		t.Fatal(err)
 	}
 	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = preparedEffects{record}
-	for _, mutation := range []string{"key", "deployment", "process", "status", "payload", "invalid identity"} {
-		t.Run(mutation, func(t *testing.T) {
-			candidate := wire.clone()
-			result := controlValue(decodeChildStartResult(record.settlement().Payload()))
-			status := SettlementStatusSucceeded
-			switch mutation {
-			case "key":
-				result.key = controlValue(ParseChildKey("different"))
-			case "deployment":
-				result.deploymentRef = wire.DeploymentRef
-			case "process":
-				result.processID = controlValue(ParseProcessID("process:other"))
-			case "status":
-				status = SettlementStatusFailed
-			}
-			payload := controlValue(result.MarshalJSON())
-			if mutation == "payload" {
-				payload = []byte(`{}`)
-			}
-			if mutation == "invalid identity" {
-				payload = []byte(`{"operation":"start_child","key":"bad key"}`)
-			}
-			candidate.Prepared.Effects[0].progress.settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
-			_, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(candidate)))
-			if !errors.Is(err, ErrInvalidSnapshot) {
-				t.Fatalf("contradictory child start accepted: %v", err)
-			}
-			if mutation == "invalid identity" && !errors.Is(err, ErrInvalidIdentity) {
-				t.Fatalf("child-start decode cause was lost: %v", err)
-			}
-		})
+	stored := controlValue(record.wire())
+	if stored.Progress.Settlement.Status != SettlementStatusInvalid || stored.Progress.Settlement.Payload != nil {
+		t.Fatalf("child start stored settlement facts its request determines: %+v", stored.Progress.Settlement)
+	}
+	stored.Progress.Settlement = &preparedSettlementWire{Status: SettlementStatusSucceeded, Payload: record.settlement().Payload()}
+	if _, err := stored.record(record.ID); err == nil {
+		t.Fatal("child start accepted a stored copy of its request")
 	}
 	snapshot := controlValue(newProcessSnapshot(wire))
 	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), RootID: wire.ProcessID, ProcessSnapshots: []ProcessSnapshot{snapshot}}); !errors.Is(err, ErrInvalidTreeSnapshot) {
@@ -268,5 +244,20 @@ func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
 	outcome.subtreeUnresolvedEffects = []UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}}
 	if !outcome.Valid() || outcome.SubtreeResolved() {
 		t.Fatal("a drained subtree with retained Unknown settlements reported resolved")
+	}
+}
+
+// settleTestFramework settles a Framework record as the runtime does: waits
+// settle as they begin, and other operations add only an optional failure.
+func settleTestFramework(record *preparedEffect, failure Failure) error {
+	operation, err := decodeFrameworkOperation(record.Effect.Payload())
+	if err != nil {
+		return err
+	}
+	switch operation.(type) {
+	case waitOperation, childWaitOperation:
+		return record.settleLocally(operation)
+	default:
+		return record.settleOperation(operation, failure)
 	}
 }

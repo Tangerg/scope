@@ -81,26 +81,14 @@ func materializeSnapshotSettlement(p *preparedEffect, failure Failure) error {
 	if operationErr != nil {
 		return operationErr
 	}
-	switch operation := operation.(type) {
+	switch operation.(type) {
 	case waitOperation, childWaitOperation:
-		if p.phase() == effectPhasePlanned {
-			if err := p.begin(); err != nil {
-				return err
-			}
-		}
-		return p.settleFramework()
-	case childStartOperation:
+		return p.settleLocally(operation)
+	case childStartOperation, childControlOperation:
 		if p.phase() != effectPhasePending {
 			return nil
 		}
-		return p.settleChildStart(ChildStartResult{key: operation.spec.Key, deploymentRef: operation.spec.DeploymentRef, failure: failure})
-	case childControlOperation:
-		if p.phase() != effectPhasePending {
-			return nil
-		}
-		result := operation.request.result()
-		result.failure = failure
-		return p.settleChildControl(result)
+		return p.settleOperation(operation, failure)
 	default:
 		return ErrInvalidEffect
 	}
@@ -137,12 +125,12 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 						record.progress = &effectProgress{}
 					}
 					if phase == effectPhaseSettled {
-						status := SettlementStatusSucceeded
 						if effect.Target() == EffectTargetDispatcher {
-							status = SettlementStatusUnknown
+							settlement := controlValue(NewSettlement(record.ID, SettlementStatusUnknown, payload))
+							record.progress.settlement = &settlement
+						} else if err := settleTestFramework(&record, Failure{}); err != nil {
+							t.Fatal(err)
 						}
-						settlement := controlValue(NewSettlement(record.ID, status, payload))
-						record.progress.settlement = &settlement
 						diagnostic := controlValue(NewFailure(FailureKindExternal, "test.failure", "<actual diagnostic>"))
 						record.progress.diagnostic = &diagnostic
 					}

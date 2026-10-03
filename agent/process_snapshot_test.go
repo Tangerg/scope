@@ -9,6 +9,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // newProcessSnapshot validates a copy of wire, so tests may keep editing the
@@ -321,29 +323,23 @@ func TestPreparedEffectWireHasOneProgressRepresentation(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := &wire.Prepared.Effects[0]
-	planned, err := jsonv2.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
+	planned := controlValue(jsonv2.Marshal(controlValue(record.wire())))
 	if bytes.Contains(planned, []byte(`"progress"`)) || bytes.Contains(planned, []byte(`"phase"`)) {
 		t.Fatalf("planned effect stores progress: %s", planned)
 	}
 	if beginErr := record.begin(); beginErr != nil {
 		t.Fatal(beginErr)
 	}
-	pending, err := jsonv2.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending := controlValue(jsonv2.Marshal(controlValue(record.wire())))
 	if !bytes.Contains(pending, []byte(`"progress":{}`)) {
 		t.Fatalf("pending permission disappeared: %s", pending)
 	}
-	var restored preparedEffect
-	if decodeErr := jsonv2.Unmarshal(pending, &restored); decodeErr != nil || restored.phase() != effectPhasePending {
-		t.Fatalf("restore pending effect: %v, phase = %s", decodeErr, restored.phase())
+	decoded := controlValue(jsonwire.Decode[preparedEffectWire](pending))
+	if restored := controlValue(decoded.record(record.ID)); restored.phase() != effectPhasePending {
+		t.Fatalf("restored pending effect phase = %s", restored.phase())
 	}
 	legacy := append(bytes.TrimSuffix(planned, []byte(`}`)), []byte(`,"phase":"planned"}`)...)
-	if err := jsonv2.Unmarshal(legacy, &restored); err == nil {
+	if _, err := jsonwire.Decode[preparedEffectWire](legacy); err == nil {
 		t.Fatalf("accepted legacy phase: %s", legacy)
 	}
 }

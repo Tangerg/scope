@@ -593,7 +593,7 @@ func (t *treeRuntime) controlChild(
 	} else {
 		result = t.applyChildControl(child, request)
 	}
-	if settlementErr := record.settleChildControl(result); settlementErr != nil {
+	if settlementErr := record.settleOperation(childControlOperation{request: request}, result.failure); settlementErr != nil {
 		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, settlementErr)
 		return
 	}
@@ -1502,7 +1502,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		}
 		switch operation := operation.(type) {
 		case waitOperation, childWaitOperation:
-			t.settleFramework(process, record, observation)
+			t.settleLocally(process, record, operation, observation)
 		case childStartOperation:
 			t.startChild(process, record, operation.spec, observation)
 		case childControlOperation:
@@ -1527,9 +1527,9 @@ func (t *treeRuntime) recoverPendingEffect(
 		// run, so retain a failed start instead of claiming it never began.
 		spec, err := decodeChildStartEffect(record.Effect.Payload())
 		if err == nil {
-			result := failedChildStart(spec, FailureKindExecution, failureCodeEngineChildStartInterrupted,
+			failure := newEngineFailure(FailureKindExecution, failureCodeEngineChildStartInterrupted,
 				errors.New("child publication interrupted by parent termination"))
-			err = record.settleChildStart(result)
+			err = record.settleOperation(childStartOperation{spec: spec}, failure)
 		}
 		if err != nil {
 			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
@@ -1832,7 +1832,11 @@ func (t *treeRuntime) applyChildStartSettlement(
 	if record == nil {
 		return SettlementStatusInvalid, errors.New("pending child-start Effect is missing")
 	}
-	if err := record.settleChildStart(result); err != nil {
+	operation, err := decodeFrameworkOperation(record.Effect.Payload())
+	if err != nil {
+		return SettlementStatusInvalid, err
+	}
+	if err := record.settleOperation(operation, result.failure); err != nil {
 		return SettlementStatusInvalid, err
 	}
 	return record.settlement().Status(), nil
@@ -2312,8 +2316,8 @@ func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) erro
 	return nil
 }
 
-func (t *treeRuntime) settleFramework(process *processState, record *preparedEffect, observation effectAttempt) {
-	if err := record.settleFramework(); err != nil {
+func (t *treeRuntime) settleLocally(process *processState, record *preparedEffect, operation frameworkOperation, observation effectAttempt) {
+	if err := record.settleLocally(operation); err != nil {
 		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 		return
 	}

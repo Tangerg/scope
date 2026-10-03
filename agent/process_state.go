@@ -606,10 +606,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 			continue
 		}
 		record = preparedEffect{ID: record.ID, Effect: record.Effect}
-		if err := record.begin(); err != nil {
-			return err
-		}
-		if err := record.settleFramework(); err != nil {
+		if err := record.settleLocally(operation); err != nil {
 			return err
 		}
 		if err := finalization.applySettlement(record); err != nil {

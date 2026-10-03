@@ -2,11 +2,9 @@ package agent
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
-	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/samber/lo"
 )
 
 // effectPhase stays private: callers act through typed boundaries, not by
@@ -37,7 +35,6 @@ func (e effectPhase) String() string {
 
 // EffectID follows from the enclosing Process, Step sequence, and batch position.
 // Progress exists once dispatch is permitted; its settlement owns completion.
-// Local wait results follow from the request and are reconstructed on decoding.
 type preparedEffect struct {
 	ID       EffectID
 	Effect   Effect
@@ -89,6 +86,9 @@ func (p preparedEffect) diagnostic() *Failure {
 	return p.progress.diagnostic
 }
 
+// preparedEffectWire omits what the record's position and request determine:
+// its EffectID and, for a Framework Effect, every settlement fact except an
+// optional failure.
 type preparedEffectWire struct {
 	Effect   Effect              `json:"effect"`
 	Progress *effectProgressWire `json:"progress,omitzero"`
@@ -99,63 +99,78 @@ type effectProgressWire struct {
 	Diagnostic *Failure                `json:"diagnostic,omitzero"`
 }
 
+// A Dispatcher settlement keeps its status and payload. A Framework
+// settlement keeps only the failure its request cannot determine.
 type preparedSettlementWire struct {
 	Status  SettlementStatus `json:"status,omitzero"`
 	Payload json.RawMessage  `json:"payload,omitzero"`
+	Failure *Failure         `json:"failure,omitzero"`
 }
 
-func (p preparedEffect) MarshalJSON() ([]byte, error) {
+func (p preparedEffect) wire() (preparedEffectWire, error) {
 	wire := preparedEffectWire{Effect: p.Effect}
-	_, local, err := p.localOutcome()
+	if p.progress == nil {
+		return wire, nil
+	}
+	wire.Progress = &effectProgressWire{Diagnostic: p.diagnostic()}
+	settlement := p.settlement()
+	if settlement == nil {
+		return wire, nil
+	}
+	if p.Effect.Target() != EffectTargetFramework {
+		wire.Progress.Settlement = &preparedSettlementWire{Status: settlement.status, Payload: settlement.payload}
+		return wire, nil
+	}
+	operation, err := decodeFrameworkOperation(p.Effect.payload)
 	if err != nil {
-		return nil, err
+		return preparedEffectWire{}, err
 	}
-	if p.progress != nil {
-		wire.Progress = &effectProgressWire{Diagnostic: p.diagnostic()}
-		if settlement := p.settlement(); settlement != nil {
-			wire.Progress.Settlement = &preparedSettlementWire{}
-			if !local {
-				wire.Progress.Settlement.Status = settlement.status
-				wire.Progress.Settlement.Payload = settlement.payload
-			}
-		}
+	failure, err := operation.settledFailure(*settlement)
+	if err != nil {
+		return preparedEffectWire{}, err
 	}
-	return jsonv2.Marshal(wire)
+	wire.Progress.Settlement = &preparedSettlementWire{}
+	if failure.Valid() {
+		wire.Progress.Settlement.Failure = &failure
+	}
+	return wire, nil
 }
 
-// UnmarshalJSON leaves the record unbound until bindIDs supplies its identity.
-func (p *preparedEffect) UnmarshalJSON(data []byte) error {
-	wire, err := jsonwire.Decode[preparedEffectWire](data, "effect")
-	if err != nil {
-		return err
+// record rebuilds the prepared Effect at id, deriving a Framework settlement
+// from its request and retained failure.
+func (w preparedEffectWire) record(id EffectID) (preparedEffect, error) {
+	record := preparedEffect{ID: id, Effect: w.Effect}
+	if w.Progress == nil {
+		return record, nil
 	}
-	record := preparedEffect{Effect: wire.Effect}
-	outcome, local, err := record.localOutcome()
-	if err != nil {
-		return err
+	record.progress = &effectProgress{diagnostic: w.Progress.Diagnostic}
+	stored := w.Progress.Settlement
+	if stored == nil {
+		return record, nil
 	}
-	if wire.Progress != nil {
-		record.progress = &effectProgress{diagnostic: wire.Progress.Diagnostic}
-		if settlement := wire.Progress.Settlement; settlement != nil {
-			if local {
-				if settlement.Status != SettlementStatusInvalid || settlement.Payload != nil {
-					return errors.New("prepared Effect stores the settlement its request determines")
-				}
-				record.progress.settlement = &Settlement{status: SettlementStatusSucceeded, payload: outcome}
-			} else {
-				if !settlement.Status.Valid() {
-					return fmt.Errorf("%w: status is required", ErrInvalidSettlement)
-				}
-				payload, err := normalizeJSON(settlement.Payload, MaxPayloadBytes)
-				if err != nil {
-					return fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
-				}
-				record.progress.settlement = &Settlement{status: settlement.Status, payload: payload}
-			}
+	var settlement Settlement
+	if w.Effect.Target() != EffectTargetFramework {
+		if stored.Failure != nil {
+			return preparedEffect{}, errors.New("prepared Dispatcher settlement stores a Framework failure")
+		}
+		var err error
+		if settlement, err = NewSettlement(id, stored.Status, stored.Payload); err != nil {
+			return preparedEffect{}, err
+		}
+	} else {
+		if stored.Status != SettlementStatusInvalid || stored.Payload != nil {
+			return preparedEffect{}, errors.New("prepared Framework settlement stores what its request determines")
+		}
+		operation, err := decodeFrameworkOperation(w.Effect.payload)
+		if err != nil {
+			return preparedEffect{}, err
+		}
+		if settlement, err = operation.settlement(id, lo.FromPtr(stored.Failure)); err != nil {
+			return preparedEffect{}, err
 		}
 	}
-	*p = record
-	return nil
+	record.progress.settlement = &settlement
+	return record, nil
 }
 
 // preparedEffects owns the sequential execution frontier. An uncertain result
@@ -170,17 +185,6 @@ func (p preparedEffects) unknownEffectIDs() []EffectID {
 		}
 	}
 	return ids
-}
-
-// bindIDs derives each record's EffectID from its batch position.
-func (p preparedEffects) bindIDs(processID ProcessID, sequence uint64) {
-	for index := range p {
-		id := processID.effectID(sequence, index)
-		p[index].ID = id
-		if p[index].settlement() != nil {
-			p[index].settlement().effectID = id
-		}
-	}
 }
 
 func (p preparedEffects) next() (int, error) {
@@ -290,18 +294,6 @@ func (p *preparedEffect) settleUnknown() error {
 	return p.settle(settlement, nil)
 }
 
-func (p *preparedEffect) settleChildControl(result ChildControlResult) error {
-	payload, err := result.MarshalJSON()
-	if err != nil {
-		return err
-	}
-	settlement, err := NewSettlement(p.ID, result.settlementStatus(), payload)
-	if err != nil {
-		return err
-	}
-	return p.settle(settlement, nil)
-}
-
 func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
 	if p == nil || p.settlement() == nil {
 		return errors.New("effect has no settled outcome")
@@ -333,64 +325,27 @@ func (p *preparedEffect) validateEffect() error {
 	if !p.Effect.Valid() {
 		return errors.New("prepared Effect payload is invalid")
 	}
-	if p.Effect.Target() != EffectTargetFramework {
-		return nil
-	}
-	return p.validateFramework()
+	return nil
 }
 
-func (p *preparedEffect) validateFramework() error {
-	operation, err := decodeFrameworkOperation(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	return operation.validate(p)
-}
-
-func (p *preparedEffect) settleFramework() error {
-	operation, err := decodeFrameworkOperation(p.Effect.Payload())
-	if err != nil {
-		return err
-	}
-	return operation.settle(p)
-}
-
-func (p *preparedEffect) settleChildStart(result ChildStartResult) error {
-	payload, err := result.MarshalJSON()
-	if err != nil {
-		return err
-	}
-	settlement, err := NewSettlement(p.ID, result.settlementStatus(), payload)
+// settleOperation settles a Framework Effect with the only fact its execution
+// adds to the request.
+func (p *preparedEffect) settleOperation(operation frameworkOperation, failure Failure) error {
+	settlement, err := operation.settlement(p.ID, failure)
 	if err != nil {
 		return err
 	}
 	return p.settle(settlement, nil)
 }
 
-// settleLocally succeeds with the outcome operation determines by itself.
+// settleLocally begins and succeeds a wait, whose request fixes its outcome.
 func (p *preparedEffect) settleLocally(operation frameworkOperation) error {
-	payload, _, err := operation.localOutcome()
-	if err != nil {
-		return err
+	if p.phase() == effectPhasePlanned {
+		if err := p.begin(); err != nil {
+			return err
+		}
 	}
-	settlement, err := NewSettlement(p.ID, SettlementStatusSucceeded, payload)
-	if err != nil {
-		return err
-	}
-	return p.settle(settlement, nil)
-}
-
-// localOutcome reports the settlement payload a framework operation fixes
-// without an external answer, which the wire therefore never stores.
-func (p preparedEffect) localOutcome() (json.RawMessage, bool, error) {
-	if p.Effect.Target() != EffectTargetFramework {
-		return nil, false, nil
-	}
-	operation, err := decodeFrameworkOperation(p.Effect.Payload())
-	if err != nil {
-		return nil, false, err
-	}
-	return operation.localOutcome()
+	return p.settleOperation(operation, Failure{})
 }
 
 // settlementSignal delivers the settled outcome to the Execution. Only a wait

@@ -146,7 +146,7 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 			ID:     processID.effectID(1, 0),
 			Effect: Effect{target: EffectTargetFramework, payload: json.RawMessage(payload)}, progress: &effectProgress{},
 		}
-		if err := record.settleFramework(); err == nil {
+		if err := settleTestFramework(&record, Failure{}); err == nil {
 			t.Fatalf("invalid local operation settled: %s", payload)
 		}
 		if record.phase() != effectPhasePending || record.settlement() != nil {

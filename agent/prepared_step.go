@@ -1,6 +1,7 @@
 package agent
 
 import (
+	jsonv2 "encoding/json/v2"
 	"errors"
 )
 
@@ -11,9 +12,42 @@ import (
 // The step always follows the committed one it would replace, so its sequence,
 // base state, and Effect identities belong to the enclosing Process record.
 type preparedStep struct {
-	CandidateState ExecutionState  `json:"candidate_state"`
-	Intent         Transition      `json:"intent"`
-	Effects        preparedEffects `json:"effects,omitempty"`
+	CandidateState ExecutionState
+	Intent         Transition
+	Effects        preparedEffects
+}
+
+// preparedStepWire is decoded only by the Process record that encloses it,
+// because that record's identity and committed progress number every Effect.
+type preparedStepWire struct {
+	CandidateState ExecutionState       `json:"candidate_state"`
+	Intent         Transition           `json:"intent"`
+	Effects        []preparedEffectWire `json:"effects,omitempty"`
+}
+
+func (p preparedStep) MarshalJSON() ([]byte, error) {
+	wire := preparedStepWire{CandidateState: p.CandidateState, Intent: p.Intent}
+	for _, record := range p.Effects {
+		effect, err := record.wire()
+		if err != nil {
+			return nil, err
+		}
+		wire.Effects = append(wire.Effects, effect)
+	}
+	return jsonv2.Marshal(wire)
+}
+
+// step rebuilds the prepared Step numbered sequence of processID.
+func (p preparedStepWire) step(processID ProcessID, sequence uint64) (preparedStep, error) {
+	step := preparedStep{CandidateState: p.CandidateState, Intent: p.Intent}
+	for index, wire := range p.Effects {
+		record, err := wire.record(processID.effectID(sequence, index))
+		if err != nil {
+			return preparedStep{}, err
+		}
+		step.Effects = append(step.Effects, record)
+	}
+	return step, nil
 }
 
 // nextEffect returns the execution frontier after checking the entire batch.
