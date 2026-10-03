@@ -35,21 +35,15 @@ func TestConfigMetadataAppliedToEveryDocument(t *testing.T) {
 	}
 }
 
-func TestConfigMetadataDoesNotClobberReaderKeys(t *testing.T) {
-	// A user key colliding with a reader-namespaced key must not win.
-	r, _ := markdown.NewReader(strings.NewReader(sample),
-		markdown.ReaderConfig{
-			HeadingSplitLevel: 1,
-			Metadata:          mustMetadata(t, map[string]any{markdown.MetadataHeading: "HIJACK"}),
-		},
-	)
-	docs, err := r.Read(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range docs {
-		if h, ok := metadataValue[string](t, d.Metadata, markdown.MetadataHeading); ok && h == "HIJACK" {
-			t.Fatal("reader-derived heading must take precedence over extra metadata")
+func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
+	for _, key := range []string{markdown.MetadataHeading, markdown.MetadataHeadingLevel, markdown.MetadataHeadingPath, markdown.MetadataSourceName} {
+		for _, level := range []int{0, 1} {
+			reader, err := markdown.NewReader(strings.NewReader("Content without a heading"), markdown.ReaderConfig{
+				HeadingSplitLevel: level, Metadata: mustMetadata(t, map[string]any{key: "forged"}),
+			})
+			if err == nil || reader != nil {
+				t.Fatalf("metadata key %q supplied a reader-owned fact: %v", key, err)
+			}
 		}
 	}
 }

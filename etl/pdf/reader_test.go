@@ -58,9 +58,7 @@ func TestNewReaderAcceptsConfig(t *testing.T) {
 func TestReadWholeExtractsRealPDFAndOwnsMetadata(t *testing.T) {
 	payload := testPDF(t, "First page", "Second page")
 	metadata, err := coremetadata.FromValues(map[string]any{
-		"custom":               "kept",
-		pdf.MetadataPagesTotal: 99,
-		pdf.MetadataSourceName: "wrong.pdf",
+		"custom": "kept",
 	})
 	if err != nil {
 		t.Fatalf("metadata: %v", err)

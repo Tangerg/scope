@@ -33,6 +33,17 @@ func TestConfigMetadataAppliedToEveryDocument(t *testing.T) {
 	}
 }
 
+func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
+	for _, key := range []string{html.MetadataTitle, html.MetadataDescription, html.MetadataCanonical, html.MetadataSelector, html.MetadataSourceName} {
+		reader, err := html.NewReader(strings.NewReader("<p>Content without page information</p>"), html.ReaderConfig{
+			Metadata: mustMetadata(t, map[string]any{key: "forged"}),
+		})
+		if err == nil || reader != nil {
+			t.Fatalf("metadata key %q supplied a reader-owned fact: %v", key, err)
+		}
+	}
+}
+
 func TestConfigMetadataRejectsInvalidValueAtConstruction(t *testing.T) {
 	_, err := html.NewReader(
 		strings.NewReader(samplePage),

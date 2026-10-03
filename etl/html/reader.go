@@ -28,8 +28,8 @@ const (
 
 // ReaderConfig controls HTML extraction. By default whitespace runs are collapsed;
 // PreserveWhitespace retains the source spacing instead. Metadata is cloned
-// by NewReader, and reader-derived html.* keys take precedence on conflict. A
-// zero SourceBudget uses [etl.DefaultMaxSourceBytes].
+// by NewReader and cannot contain the reader's title, description, canonical,
+// selector, or source keys. A zero SourceBudget uses [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
 	Selector           string
 	SourceName         string
@@ -64,6 +64,11 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("html reader: invalid metadata: %w", err)
+	}
+	for _, key := range [...]string{MetadataTitle, MetadataDescription, MetadataCanonical, MetadataSelector, MetadataSourceName} {
+		if _, exists := r.extraMetadata[key]; exists {
+			return nil, fmt.Errorf("html reader: metadata key %q is owned by the reader", key)
+		}
 	}
 	if r.selector != "" {
 		matcher, err := cascadia.Compile(r.selector)

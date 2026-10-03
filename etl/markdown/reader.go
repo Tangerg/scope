@@ -27,7 +27,7 @@ const (
 // ReaderConfig controls Markdown extraction. HeadingSplitLevel emits one document
 // per section split on headings at or above that level (1 = H1, 2 = H1+H2).
 // Zero disables splitting; non-zero values must be in [1, 6]. Metadata is
-// cloned by NewReader, and reader-derived markdown.* keys take precedence.
+// cloned by NewReader and cannot contain the reader's heading or source keys.
 // A zero SourceBudget uses [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
 	HeadingSplitLevel int
@@ -59,6 +59,11 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("markdown reader: invalid metadata: %w", err)
+	}
+	for _, key := range [...]string{MetadataHeading, MetadataHeadingLevel, MetadataHeadingPath, MetadataSourceName} {
+		if _, exists := r.extraMetadata[key]; exists {
+			return nil, fmt.Errorf("markdown reader: metadata key %q is owned by the reader", key)
+		}
 	}
 	if r.headingSplitLevel < 0 || r.headingSplitLevel > 6 {
 		return nil, fmt.Errorf("markdown reader: heading split level %d is outside [1, 6]", r.headingSplitLevel)

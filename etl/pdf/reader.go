@@ -26,7 +26,7 @@ var ErrPartialRead = errors.New("pdf reader: one or more pages could not be read
 
 // ReaderConfig controls PDF extraction. PerPage emits one document per readable
 // page. Password is used for encrypted PDFs. Metadata is cloned by NewReader,
-// and reader-derived pdf.* keys take precedence on conflict. A zero
+// and cannot contain the reader's page index, page total, or source keys. A zero
 // SourceBudget uses [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
 	PerPage      bool
@@ -75,6 +75,11 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("pdf reader: invalid metadata: %w", err)
+	}
+	for _, key := range [...]string{MetadataPageIndex, MetadataPagesTotal, MetadataSourceName} {
+		if _, exists := r.extraMetadata[key]; exists {
+			return nil, fmt.Errorf("pdf reader: metadata key %q is owned by the reader", key)
+		}
 	}
 	return r, nil
 }

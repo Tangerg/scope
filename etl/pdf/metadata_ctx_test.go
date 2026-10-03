@@ -26,6 +26,21 @@ func TestRead_HonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
+	for _, key := range []string{pdf.MetadataPageIndex, pdf.MetadataPagesTotal, pdf.MetadataSourceName} {
+		metadata, err := coremetadata.FromValues(map[string]any{key: "forged"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, perPage := range []bool{false, true} {
+			reader, err := pdf.NewReader(bytes.NewReader([]byte("%PDF-1.4")), 8, pdf.ReaderConfig{PerPage: perPage, Metadata: metadata})
+			if err == nil || reader != nil {
+				t.Fatalf("metadata key %q supplied a reader-owned fact: %v", key, err)
+			}
+		}
+	}
+}
+
 func TestConfigMetadataRejectsInvalidValueAtConstruction(t *testing.T) {
 	_, err := pdf.NewReader(
 		bytes.NewReader([]byte("%PDF-1.4")),
