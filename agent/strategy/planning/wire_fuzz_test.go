@@ -59,9 +59,9 @@ func FuzzPlanJSON(f *testing.F) {
 }
 
 func FuzzOutputJSON(f *testing.F) {
-	f.Add([]byte(`{"outcome":"unreachable","world_state":{"conditions":[]},"attempts":[],"planning_passes":1}`))
-	f.Add([]byte(`{"outcome":"stuck","world_state":{"conditions":[]},"attempts":[{"action_name":"action.finish","status":"failed","diagnostic":"refused"}],"planning_passes":1}`))
-	f.Add([]byte(`{"outcome":"achieved","world_state":{"conditions":[]},"attempts":[],"planning_passes":0}`))
+	f.Add([]byte(`{"outcome":"unreachable","world_state":{"conditions":[]},"attempts":[]}`))
+	f.Add([]byte(`{"outcome":"exhausted","world_state":{"conditions":[]},"attempts":[{"action_name":"action.finish","status":"failed","diagnostic":"refused"}]}`))
+	f.Add([]byte(`{"outcome":"achieved","world_state":{"conditions":[]},"attempts":[]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var output planning.Output
 		if err := jsonv2.Unmarshal(data, &output, jsonv2.RejectUnknownMembers(true)); err != nil {

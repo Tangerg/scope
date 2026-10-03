@@ -105,17 +105,6 @@ func (e executionState) needsPlan(definition *Definition) bool {
 	return !definition.goal.SatisfiedBy(e.WorldState) && definition.maxActionAttempts.Allows(e.attemptCount(), 1)
 }
 
-// planningPasses counts Planner calls. Every call before completion selected
-// one Action attempt; a completion that still needed a plan followed one more
-// call that found none.
-func (e executionState) planningPasses(definition *Definition) uint64 {
-	passes := e.attemptCount()
-	if e.Phase == phaseCompleted && e.needsPlan(definition) {
-		passes++
-	}
-	return passes
-}
-
 func (e executionState) attemptCount() uint64 {
 	count := uint64(len(e.Attempts))
 	if e.CurrentActionName != "" {
@@ -210,18 +199,20 @@ func (e *executionState) complete(ctx context.Context, definition *Definition) (
 	return output, nil
 }
 
+// output classifies completion: a completion that still needed a plan
+// followed a planning pass that found none, otherwise the attempt limit
+// admitted no further pass.
 func (e executionState) output(definition *Definition) Output {
-	outcome := OutcomeStuck
+	outcome := OutcomeExhausted
 	switch {
 	case definition.goal.SatisfiedBy(e.WorldState):
 		outcome = OutcomeAchieved
 	case len(e.Attempts) == 0:
 		outcome = OutcomeUnreachable
+	case e.needsPlan(definition):
+		outcome = OutcomeStuck
 	}
-	return Output{
-		Outcome: outcome, WorldState: e.WorldState,
-		Attempts: e.Attempts, PlanningPasses: e.planningPasses(definition),
-	}
+	return Output{Outcome: outcome, WorldState: e.WorldState, Attempts: e.Attempts}
 }
 
 func (e executionState) input() (agent.Payload, error) {

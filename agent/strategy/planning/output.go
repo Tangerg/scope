@@ -16,13 +16,16 @@ const (
 	OutcomeAchieved Outcome = "achieved"
 	// OutcomeUnreachable means the initial complete planning search found no plan.
 	OutcomeUnreachable Outcome = "unreachable"
-	// OutcomeStuck means attempts or the Action limit were exhausted without
-	// reaching the Goal.
+	// OutcomeStuck means that after attempted Actions a further planning pass
+	// found no plan to the Goal.
 	OutcomeStuck Outcome = "stuck"
+	// OutcomeExhausted means the Action attempt limit admitted no further
+	// attempt, so no further planning pass ran.
+	OutcomeExhausted Outcome = "exhausted"
 )
 
 func (o Outcome) Valid() bool {
-	return o == OutcomeAchieved || o == OutcomeUnreachable || o == OutcomeStuck
+	return o == OutcomeAchieved || o == OutcomeUnreachable || o == OutcomeStuck || o == OutcomeExhausted
 }
 
 func (o Outcome) String() string {
@@ -85,16 +88,25 @@ func (a Attempt) Validate() error {
 }
 
 // Output is the final semantic Planning result. WorldState is the last complete
-// observation, Attempts preserve selection order, and PlanningPasses counts
-// calls to Planner. No field is derived from Event or Delta history.
+// observation and Attempts preserve selection order. No field is derived from
+// Event or Delta history.
 type Output struct {
-	Outcome        Outcome    `json:"outcome" jsonschema:"enum=achieved,enum=unreachable,enum=stuck"`
-	WorldState     WorldState `json:"world_state"`
-	Attempts       []Attempt  `json:"attempts"`
-	PlanningPasses uint64     `json:"planning_passes"`
+	Outcome    Outcome    `json:"outcome" jsonschema:"enum=achieved,enum=unreachable,enum=stuck,enum=exhausted"`
+	WorldState WorldState `json:"world_state"`
+	Attempts   []Attempt  `json:"attempts"`
 }
 
-// Validate checks completed planning counters and ordered attempt facts. Goal
+// PlanningPasses counts calls to Planner: every attempt followed one pass, and
+// an unreachable or stuck result followed one more pass that found no plan.
+func (o Output) PlanningPasses() uint64 {
+	passes := uint64(len(o.Attempts))
+	if o.Outcome == OutcomeUnreachable || o.Outcome == OutcomeStuck {
+		passes++
+	}
+	return passes
+}
+
+// Validate checks the outcome against the ordered attempt facts. Goal
 // satisfaction, Action membership, and admission policy require the owning
 // Definition. A repeated Action name is a valid fact, even after a failed attempt.
 func (o Output) Validate() error {
@@ -104,20 +116,14 @@ func (o Output) Validate() error {
 	if err := validateAttempts(o.Attempts); err != nil {
 		return err
 	}
-	attempts := uint64(len(o.Attempts))
-	passes := o.PlanningPasses
 	switch o.Outcome {
-	case OutcomeAchieved:
-		if passes != attempts {
-			return fmt.Errorf("%w: achieved output requires one planning pass per attempt", ErrInvalidResult)
-		}
 	case OutcomeUnreachable:
-		if attempts != 0 || passes != 1 {
-			return fmt.Errorf("%w: unreachable output requires one initial planning pass and no attempts", ErrInvalidResult)
+		if len(o.Attempts) != 0 {
+			return fmt.Errorf("%w: unreachable output has attempted Actions", ErrInvalidResult)
 		}
-	case OutcomeStuck:
-		if attempts == 0 || passes != attempts && passes != attempts+1 {
-			return fmt.Errorf("%w: stuck output requires attempted Actions and at most one final unsuccessful planning pass", ErrInvalidResult)
+	case OutcomeStuck, OutcomeExhausted:
+		if len(o.Attempts) == 0 {
+			return fmt.Errorf("%w: %s output requires attempted Actions", ErrInvalidResult, o.Outcome)
 		}
 	}
 	return nil

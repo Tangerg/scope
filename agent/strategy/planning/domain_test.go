@@ -222,25 +222,26 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 	}{
 		{name: "already achieved", outcome: planning.OutcomeAchieved, valid: true},
 		{name: "achieved after action", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded}, passes: 1, valid: true},
-		{name: "achieved with missing pass", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded}},
-		{name: "achieved with extra pass", outcome: planning.OutcomeAchieved, passes: 1},
 		{name: "unreachable", outcome: planning.OutcomeUnreachable, passes: 1, valid: true},
-		{name: "unreachable after attempt", outcome: planning.OutcomeUnreachable, attempts: []planning.Attempt{failed}, passes: 1},
-		{name: "attempt limit exhausted", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 1, valid: true},
-		{name: "replanning exhausted", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 2, valid: true},
-		{name: "stuck with missing pass", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}},
-		{name: "stuck with extra passes", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 3},
+		{name: "unreachable after attempt", outcome: planning.OutcomeUnreachable, attempts: []planning.Attempt{failed}},
+		{name: "attempt limit exhausted", outcome: planning.OutcomeExhausted, attempts: []planning.Attempt{failed}, passes: 1, valid: true},
+		{name: "exhausted without attempts", outcome: planning.OutcomeExhausted},
+		{name: "replanning stuck", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 2, valid: true},
+		{name: "stuck without attempts", outcome: planning.OutcomeStuck},
 		{name: "repeated success", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded, succeeded}, passes: 2, valid: true},
 		{name: "attempt after failure", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{failed, succeeded}, passes: 2, valid: true},
-		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 2, valid: true},
+		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 3, valid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := planning.Output{Outcome: test.outcome, Attempts: test.attempts, PlanningPasses: test.passes}
+			output := planning.Output{Outcome: test.outcome, Attempts: test.attempts}
 			if test.outcome == planning.OutcomeAchieved {
 				output.WorldState = mustWorldState(t, done)
 			}
 			if err := output.Validate(); (err == nil) != test.valid || !test.valid && !errors.Is(err, planning.ErrInvalidResult) {
 				t.Fatalf("Validate = %v, want valid=%t", err, test.valid)
+			}
+			if test.valid && output.PlanningPasses() != test.passes {
+				t.Fatalf("PlanningPasses = %d, want %d", output.PlanningPasses(), test.passes)
 			}
 		})
 	}
@@ -293,7 +294,7 @@ func TestAttemptAndOutputValidationShareResultClassification(t *testing.T) {
 		if err := attempt.Validate(); !errors.Is(err, planning.ErrInvalidResult) {
 			t.Fatalf("attempt classification lost: %v", err)
 		}
-		if err := (planning.Output{Outcome: planning.OutcomeAchieved, Attempts: []planning.Attempt{attempt}, PlanningPasses: 1}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+		if err := (planning.Output{Outcome: planning.OutcomeAchieved, Attempts: []planning.Attempt{attempt}}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
 			t.Fatalf("nested attempt classification lost: %v", err)
 		}
 	}

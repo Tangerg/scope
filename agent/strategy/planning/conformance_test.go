@@ -70,7 +70,7 @@ func TestDefinitionConformance(t *testing.T) {
 		},
 		{ActionName: "successful", Status: planning.AttemptSucceeded},
 	}
-	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses != 3 ||
+	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses() != 3 ||
 		!slices.Equal(output.Attempts, wantAttempts) || world.observationCount() != 4 {
 		t.Fatalf("output=%+v observations=%d", output, world.observationCount())
 	}

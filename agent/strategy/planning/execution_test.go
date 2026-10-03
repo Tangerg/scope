@@ -38,7 +38,7 @@ func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
 
 	result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 	output := managedOutput(t, result)
-	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses != 2 ||
+	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses() != 2 ||
 		!slices.Equal(attemptNames(output.Attempts), []string{"action.prepare", "action.finish"}) ||
 		world.observationCount() != 3 {
 		t.Fatalf("output = %#v, observations = %d", output, world.observationCount())
@@ -129,7 +129,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 			goal: mustGoal(t, done), sensor: world,
 		})
 		output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
-		if output.Outcome != planning.OutcomeUnreachable || len(output.Attempts) != 0 || output.PlanningPasses != 1 {
+		if output.Outcome != planning.OutcomeUnreachable || len(output.Attempts) != 0 || output.PlanningPasses() != 1 {
 			t.Fatalf("output = %#v", output)
 		}
 	})
@@ -189,7 +189,7 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 			maxActionAttempts: agent.NewQuota(1),
 		})
 		output := managedOutput(t, runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment))
-		if output.Outcome != planning.OutcomeStuck || len(output.Attempts) != 1 ||
+		if output.Outcome != planning.OutcomeExhausted || output.PlanningPasses() != 1 || len(output.Attempts) != 1 ||
 			output.Attempts[0].ActionName != "action.first" || world.truth("world.done") != planning.TruthUnknown {
 			t.Fatalf("output = %#v", output)
 		}
@@ -413,7 +413,7 @@ func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 		}),
 	}, parent)
 	output := managedOutput(t, result)
-	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses != 2 || len(output.Attempts) != 1 ||
+	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses() != 2 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptFailed ||
 		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: agent: process admission rejected: child refused" || world.truth("world.done") != planning.TruthUnknown {
 		t.Fatalf("output = %#v", output)
