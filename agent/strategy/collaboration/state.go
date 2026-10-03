@@ -27,10 +27,18 @@ const (
 	phaseFailed
 )
 
+// turnExecution records what only the turn owns: its number, the working
+// state it opened with, and which task outcomes arrived after it opened. The
+// coordinator's Turn input is assembled from these, the current tasks and
+// controls, and the configured workers when the turn starts.
 type turnExecution struct {
-	Input   Turn                    `json:"input"`
-	Start   *agent.ChildStartResult `json:"start,omitzero"`
-	Outcome *agent.ChildOutcome     `json:"outcome,omitzero"`
+	Number uint64        `json:"number"`
+	State  agent.Payload `json:"state"`
+	// UnseenOutcomes lists, in arrival order, the tasks whose outcomes arrived
+	// while this turn ran and so are new to the next coordinator turn.
+	UnseenOutcomes []uint32                `json:"unseen_outcomes,omitempty"`
+	Start          *agent.ChildStartResult `json:"start,omitzero"`
+	Outcome        *agent.ChildOutcome     `json:"outcome,omitzero"`
 }
 
 func (t turnExecution) unresolved() bool {
@@ -117,7 +125,7 @@ func (e executionState) number() uint64 {
 	if e.Turn == nil {
 		return 0
 	}
-	return e.Turn.Input.Number
+	return e.Turn.Number
 }
 
 func (e executionState) decision() (Decision, error) {
@@ -132,7 +140,7 @@ func (e executionState) workingState(decision Decision) agent.Payload {
 		return e.InitialState
 	}
 	if decision.Mode == ModeUndecided {
-		return e.Turn.Input.State
+		return e.Turn.State
 	}
 	return decision.State
 }
@@ -237,6 +245,7 @@ func (e *executionState) recordOutcome(index int, outcome agent.ChildOutcome) {
 		return
 	}
 	e.Tasks[index].Outcome = &outcome
+	e.Turn.UnseenOutcomes = append(e.Turn.UnseenOutcomes, uint32(index))
 }
 
 func (e executionState) validateOutcomes(ctx context.Context, d *Definition) error {
@@ -479,15 +488,6 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.validateTurnWorkers(ctx, d); err != nil {
-		return err
-	}
-	if err := e.validateTurnTasks(ctx); err != nil {
-		return err
-	}
-	if err := e.validateTurnControls(ctx, d); err != nil {
-		return err
-	}
 	if err := e.validateTurnStart(d, ids, current); err != nil {
 		return err
 	}
@@ -501,62 +501,15 @@ func (e executionState) validateTurnInput(d *Definition) error {
 	if e.number() == 0 {
 		return fmt.Errorf("%w: turn requires a positive number", ErrInvalidExecutionState)
 	}
-	if len(e.Turn.Input.Tasks) > len(e.Tasks) {
-		return fmt.Errorf("%w: turn input contains undeclared tasks", ErrInvalidExecutionState)
-	}
-	if err := d.descriptor.ValidateInput(e.Turn.Input.State); err != nil {
+	if err := d.descriptor.ValidateInput(e.Turn.State); err != nil {
 		return fmt.Errorf("%w: turn input state: %w", ErrInvalidExecutionState, err)
 	}
-	return nil
-}
-
-func (e executionState) validateTurnWorkers(ctx context.Context, d *Definition) error {
-	if len(e.Turn.Input.Workers) != len(d.workers) {
-		return fmt.Errorf("%w: turn workers do not match the definition: count differs", ErrInvalidExecutionState)
-	}
-	for index, worker := range d.workers {
-		if err := ctx.Err(); err != nil {
-			return err
+	seen := make(map[uint32]struct{}, len(e.Turn.UnseenOutcomes))
+	for _, index := range e.Turn.UnseenOutcomes {
+		if _, repeated := seen[index]; repeated || uint64(index) >= uint64(len(e.Tasks)) || e.Tasks[index].Outcome == nil {
+			return fmt.Errorf("%w: unseen task outcome %d is not a recorded outcome", ErrInvalidExecutionState, index)
 		}
-		if e.Turn.Input.Workers[index].Digest() != worker.deployment.Descriptor().Digest() {
-			return fmt.Errorf("%w: turn worker %d does not match the definition", ErrInvalidExecutionState, index)
-		}
-	}
-	return nil
-}
-
-// The turn captured its tasks when it opened, so evidence that has since
-// changed means the turn is being judged against a state it never saw.
-func (e executionState) validateTurnTasks(ctx context.Context) error {
-	for index, task := range e.Turn.Input.Tasks {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		current := e.Tasks[index]
-		if !sameJSON(task.Request, current.Request) || task.Start == nil || !sameJSON(task.Start, current.Start) ||
-			task.Outcome != nil && !sameJSON(task.Outcome, current.Outcome) {
-			return fmt.Errorf("%w: turn task %d does not match current task evidence", ErrInvalidExecutionState, index)
-		}
-	}
-	return nil
-}
-
-func (e executionState) validateTurnControls(ctx context.Context, d *Definition) error {
-	if uint64(len(e.Turn.Input.Controls)) > uint64(d.maxControlsPerTurn) {
-		return fmt.Errorf("%w: turn controls exceed the per-turn bound", ErrInvalidExecutionState)
-	}
-	captured := (executionState{Tasks: e.Turn.Input.Tasks}).taskIndex()
-	for index, receipt := range e.Turn.Input.Controls {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		effect, err := receipt.Control.effect(captured[receipt.Control.Task])
-		if err != nil {
-			return fmt.Errorf("%w: turn control %d: %w", ErrInvalidExecutionState, index, err)
-		}
-		if receipt.Result == nil || !receipt.Result.Matches(effect) {
-			return fmt.Errorf("%w: turn control %d has no matching result", ErrInvalidExecutionState, index)
-		}
+		seen[index] = struct{}{}
 	}
 	return nil
 }
@@ -581,9 +534,8 @@ func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID
 }
 
 func (e executionState) validateUndecidedTurn(current phase) error {
-	if e.Turn.Outcome != nil && current != phaseFailed || len(e.Tasks) != len(e.Turn.Input.Tasks) ||
-		!sameJSON(e.Controls, nilIfEmpty(e.Turn.Input.Controls)) {
-		return fmt.Errorf("%w: turn without a decision changed tasks or controls", ErrInvalidExecutionState)
+	if e.Turn.Outcome != nil && current != phaseFailed {
+		return fmt.Errorf("%w: turn without a decision retains an outcome", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -600,7 +552,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 		return err
 	}
 	before := e
-	before.Tasks = e.Tasks[:len(e.Turn.Input.Tasks)]
+	before.Tasks = e.Tasks[:len(e.Tasks)-len(decision.Tasks)]
 	if err := before.validateDecision(ctx, d, decision); err != nil {
 		return fmt.Errorf("%w: applied decision: %w", ErrInvalidExecutionState, err)
 	}
@@ -608,10 +560,10 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 }
 
 func (e executionState) validateAppliedActions(ctx context.Context, decision Decision) error {
-	previousCount := len(e.Turn.Input.Tasks)
-	if len(e.Tasks) != previousCount+len(decision.Tasks) || len(e.Controls) != len(decision.Controls) {
+	if len(e.Tasks) < len(decision.Tasks) || len(e.Controls) != len(decision.Controls) {
 		return fmt.Errorf("%w: applied actions do not match the coordinator decision", ErrInvalidExecutionState)
 	}
+	previousCount := len(e.Tasks) - len(decision.Tasks)
 	for index, request := range decision.Tasks {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -692,22 +644,7 @@ func (e executionState) validateActions(ctx context.Context, definition *Definit
 }
 
 func (e executionState) hasUnseenOutcome() bool {
-	if e.Turn == nil {
-		return false
-	}
-	for index, task := range e.Tasks {
-		if task.Outcome != nil && (index >= len(e.Turn.Input.Tasks) || e.Turn.Input.Tasks[index].Outcome == nil) {
-			return true
-		}
-	}
-	return false
-}
-
-func nilIfEmpty[T any](values []T) []T {
-	if len(values) == 0 {
-		return nil
-	}
-	return values
+	return e.Turn != nil && len(e.Turn.UnseenOutcomes) != 0
 }
 
 func sameJSON(left, right any) bool {

@@ -78,7 +78,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			}
 			mutations := map[string]func(*executionState){
 				"retained initial state": func(state *executionState) { state.InitialState = input("forged") },
-				"invalid turn state":     func(state *executionState) { state.Turn.Input.State = require(agent.EncodePayload(42)) },
+				"invalid turn state":     func(state *executionState) { state.Turn.State = require(agent.EncodePayload(42)) },
 			}
 			if mode != "start" {
 				// Without its outcome, a turn that never started is a valid fresh turn.

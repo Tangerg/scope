@@ -91,7 +91,7 @@ func TestUnlimitedTurnAndWaitCountersStopBeforeWrap(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	execution := require(definition.Start(input("initial"))).(*execution)
 	require(execution.Step(t.Context(), nil))
-	execution.state.Turn.Input.Number = ^uint64(0)
+	execution.state.Turn.Number = ^uint64(0)
 	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.number() != ^uint64(0) {
 		t.Fatalf("turn identity wrapped: %v", err)
 	}
@@ -112,17 +112,17 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 		{
 			name: "turn input schema",
 			mutate: func(state *executionState) {
-				state.Turn.Input.State = require(agent.EncodePayload(42))
+				state.Turn.State = require(agent.EncodePayload(42))
 			},
 			context: "turn input state",
 			cause:   agent.ErrInvalidPayload,
 		},
 		{
-			name: "worker binding",
+			name: "unseen outcome",
 			mutate: func(state *executionState) {
-				state.Turn.Input.Workers = nil
+				state.Turn.UnseenOutcomes = []uint32{0}
 			},
-			context: "turn workers do not match the definition",
+			context: "unseen task outcome 0 is not a recorded outcome",
 		},
 		{
 			name: "wait identity",

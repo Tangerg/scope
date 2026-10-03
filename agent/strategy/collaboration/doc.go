@@ -22,7 +22,10 @@
 // Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
 // kind, code, and diagnostic; the failed turn remains restorable evidence.
-// The current Turn owns its number and input state. A resolved coordinator
+// The current Turn owns its number, input state, and the task outcomes that
+// arrived after it opened; the coordinator's Turn input is assembled from these,
+// the current tasks and controls, and the configured workers, never retained as
+// a copy. A resolved coordinator
 // outcome owns the Decision, including the next working state and mode;
 // recovery derives them directly without retaining writable copies. Initial
 // state is retained only until the first Turn takes ownership of it.

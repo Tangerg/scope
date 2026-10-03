@@ -71,7 +71,7 @@ func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	e.state.Turn = &turnExecution{Input: turn}
+	e.state.Turn = &turnExecution{Number: turn.Number, State: turn.State}
 	e.state.InitialState = agent.Payload{}
 	e.state.WaitID = nil
 	return agent.Continue(consumed, effect)

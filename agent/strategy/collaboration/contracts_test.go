@@ -180,19 +180,22 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		} else {
 			mutations["excess turns"] = func(state *executionState) {
 				maximum, _ := definition.maxTurns.Maximum()
-				state.Turn.Input.Number = maximum + 1
+				state.Turn.Number = maximum + 1
 			}
-			mutations["zero turn number"] = func(state *executionState) { state.Turn.Input.Number = 0 }
-			mutations["changed worker catalog"] = func(state *executionState) { state.Turn.Input.Workers = nil }
-			mutations["changed input state"] = func(state *executionState) { state.Turn.Input.State = require(agent.EncodePayload(1)) }
+			mutations["zero turn number"] = func(state *executionState) { state.Turn.Number = 0 }
+			mutations["changed input state"] = func(state *executionState) { state.Turn.State = require(agent.EncodePayload(1)) }
 			mutations["retained initial state"] = func(state *executionState) { state.InitialState = input("forged") }
 			if state.Turn.Start != nil {
-				mutations["changed turn number"] = func(state *executionState) { state.Turn.Input.Number++ }
+				mutations["changed turn number"] = func(state *executionState) { state.Turn.Number++ }
 			}
 		}
 		if len(state.Tasks) > 0 {
 			mutations["duplicate task"] = func(state *executionState) { state.Tasks = append(state.Tasks, state.Tasks[0]) }
-			mutations["changed task input"] = func(state *executionState) { state.Tasks[0].Request.Input = input("forged") }
+			// Only the current decision still evidences the requests it created;
+			// earlier requests are owned by their task records alone.
+			if decision, err := state.decision(); err == nil && len(decision.Tasks) == len(state.Tasks) {
+				mutations["changed task input"] = func(state *executionState) { state.Tasks[0].Request.Input = input("forged") }
+			}
 		}
 		if len(state.Tasks) > 0 && state.Tasks[0].Outcome != nil {
 			mutations["worker terminal boundary"] = func(state *executionState) {
@@ -207,9 +210,6 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 					t.Fatal(err)
 				}
 				state.Tasks[0].Outcome = &outcome
-				if state.Turn != nil && len(state.Turn.Input.Tasks) > 0 && state.Turn.Input.Tasks[0].Outcome != nil {
-					state.Turn.Input.Tasks[0].Outcome = &outcome
-				}
 			}
 		}
 		for name, mutate := range mutations {
