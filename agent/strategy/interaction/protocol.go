@@ -19,7 +19,6 @@ type operation string
 const (
 	operationModelCall     operation = "model_call"
 	operationToolCall      operation = "tool_call"
-	operationWaitOpened    operation = "wait_opened"
 	operationInputResponse operation = "input_response"
 	operationSteer         operation = "steer"
 )
@@ -100,7 +99,6 @@ type toolResume struct {
 type signalEnvelope struct {
 	ModelResult   *modelCallResult    `json:"model_result,omitzero"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitzero"`
-	WaitOpened    *toolInputRequest   `json:"wait_opened,omitzero"`
 	InputResponse json.RawMessage     `json:"input_response,omitzero"`
 	Steer         *steerInput         `json:"steer,omitzero"`
 }
@@ -292,8 +290,6 @@ func (s signalEnvelope) operation() operation {
 		return operationModelCall
 	case s.ToolResult != nil:
 		return operationToolCall
-	case s.WaitOpened != nil:
-		return operationWaitOpened
 	case len(s.InputResponse) != 0:
 		return operationInputResponse
 	case s.Steer != nil:
@@ -309,8 +305,6 @@ func (s signalEnvelope) validate() error {
 		return s.validateModelResult()
 	case operationToolCall:
 		return s.validateToolResult()
-	case operationWaitOpened:
-		return s.validateWaitOpened()
 	case operationInputResponse:
 		return s.validateInputResponse()
 	case operationSteer:
@@ -321,14 +315,14 @@ func (s signalEnvelope) validate() error {
 }
 
 func (s signalEnvelope) validateModelResult() error {
-	if s.ModelResult == nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
+	if s.ModelResult == nil || s.ToolResult != nil || len(s.InputResponse) != 0 || s.Steer != nil {
 		return fmt.Errorf("%w: model_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return s.ModelResult.validate()
 }
 
 func (s signalEnvelope) validateToolResult() error {
-	if s.ModelResult != nil || s.ToolResult == nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer != nil {
+	if s.ModelResult != nil || s.ToolResult == nil || len(s.InputResponse) != 0 || s.Steer != nil {
 		return fmt.Errorf("%w: tool_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return s.ToolResult.validate()
@@ -387,18 +381,8 @@ func (t toolCallResult) validateCall(call chat.ToolCall) error {
 	return nil
 }
 
-func (s signalEnvelope) validateWaitOpened() error {
-	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened == nil || len(s.InputResponse) != 0 || s.Steer != nil {
-		return fmt.Errorf("%w: wait_opened signal has an invalid payload set", ErrInvalidProtocol)
-	}
-	if !s.WaitOpened.valid() {
-		return fmt.Errorf("%w: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
-	}
-	return nil
-}
-
 func (s signalEnvelope) validateInputResponse() error {
-	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) == 0 || s.Steer != nil {
+	if s.ModelResult != nil || s.ToolResult != nil || len(s.InputResponse) == 0 || s.Steer != nil {
 		return fmt.Errorf("%w: input_response signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	if _, err := parseToolInputJSON(s.InputResponse); err != nil {
@@ -408,7 +392,7 @@ func (s signalEnvelope) validateInputResponse() error {
 }
 
 func (s signalEnvelope) validateSteer() error {
-	if s.ModelResult != nil || s.ToolResult != nil || s.WaitOpened != nil || len(s.InputResponse) != 0 || s.Steer == nil {
+	if s.ModelResult != nil || s.ToolResult != nil || len(s.InputResponse) != 0 || s.Steer == nil {
 		return fmt.Errorf("%w: steer signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return validateSteeringMessages(s.Steer.Messages)

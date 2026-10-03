@@ -133,7 +133,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 		t.Fatal("accepted unknown member")
 	}
 	mailbox := newSignalMailbox()
-	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, request.Payload()))
+	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, waitOpenedPayload()))
 	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal); err != nil {
 		t.Fatal(err)
 	}

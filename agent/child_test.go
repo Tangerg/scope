@@ -815,7 +815,7 @@ func (c *childTestExecution) start() (Transition, error) {
 func (c *childTestExecution) openExternalWait() (Transition, error) {
 	c.state.Phase = "external_wait_opened"
 	key, _ := ParseWaitKey("external_input")
-	effect, err := NewWaitEffect(key, json.RawMessage(`{"kind":"external_input"}`))
+	effect, err := NewWaitEffect(key)
 	if err != nil {
 		return Transition{}, err
 	}

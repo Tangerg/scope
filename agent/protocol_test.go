@@ -139,7 +139,7 @@ func TestSettlementPreservesUnknownWithoutImplyingRetry(t *testing.T) {
 
 func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T) {
 	key, _ := ParseWaitKey("approval:tool:1")
-	effect, err := NewWaitEffect(key, json.RawMessage(`{"kind":"approval_opened","tool":"shell"}`))
+	effect, err := NewWaitEffect(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T
 		t.Fatal(err)
 	}
 	wait, isWait := operation.(waitOperation)
-	if !isWait || wait.key != key || string(wait.payload) != `{"kind":"approval_opened","tool":"shell"}` {
+	if !isWait || wait.key != key {
 		t.Fatalf("decoded wait request = %#v", operation)
 	}
 
@@ -205,7 +205,7 @@ func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
 			}
 		})
 	}
-	framework := decode(`{"target":"framework","payload":{"operation":"wait","key":"approval","signal_payload":{}}}`)
+	framework := decode(`{"target":"framework","payload":{"operation":"wait","key":"approval"}}`)
 	dispatcher, err := NewDispatcherEffect(framework.Payload())
 	if err != nil {
 		t.Fatal(err)

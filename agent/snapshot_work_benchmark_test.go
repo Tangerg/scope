@@ -152,7 +152,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		signal, err := NewSignal(signalID, waitID, []byte(`{}`))
+		signal, err := NewSignal(signalID, waitID, waitOpenedPayload())
 		if err != nil {
 			t.Fatal(err)
 		}

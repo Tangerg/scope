@@ -149,7 +149,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{}`))
+	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{}`))
+	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, json.RawMessage(`{"kind":"wait_opened"}`))
+	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key := controlValue(ParseWaitKey("authority"))
 	id := controlValue(ParseWaitID("wait:authority"))
-	opening := mustMailboxSignal(t, "signal:engine:authority", id, json.RawMessage(`{}`))
+	opening := mustMailboxSignal(t, "signal:engine:authority", id, waitOpenedPayload())
 	if err := mailbox.openChildWait(ChildWaitSpec{Key: key}, opening); !errors.Is(err, errWaitState) {
 		t.Fatalf("openChildWait(invalid spec) error = %v", err)
 	}
@@ -367,7 +367,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 				if kind == WaitKindChildren {
 					spec := testChildWaitSpec(t, "reusable")
 					openTestChildWait(t, &mailbox, openingID, id, spec)
-				} else if err := mailbox.openWait(key, mustMailboxSignal(t, openingID, id, json.RawMessage(`{}`))); err != nil {
+				} else if err := mailbox.openWait(key, mustMailboxSignal(t, openingID, id, waitOpenedPayload())); err != nil {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox, StatusRunning)

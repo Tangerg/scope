@@ -158,11 +158,11 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	key, _ := ParseWaitKey("answer")
-	wait, err := NewWaitEffect(key, []byte(`{"prompt":"retained"}`))
+	wait, err := NewWaitEffect(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewWaitEffect(controlValue(ParseWaitKey("second")), []byte(`{"prompt":"second"}`))
+	second, err := NewWaitEffect(controlValue(ParseWaitKey("second")))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,8 +36,8 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 	}
 	switch header.Operation {
 	case frameworkOperationWait:
-		key, signal, err := decodeWaitRequestPayload(payload)
-		return waitOperation{key: key, payload: signal}, err
+		key, err := decodeWaitRequestPayload(payload)
+		return waitOperation{key: key}, err
 	case frameworkOperationWaitChildren:
 		spec, err := decodeChildWaitEffect(payload)
 		return childWaitOperation{spec: spec}, err
@@ -52,17 +52,14 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 	}
 }
 
-type waitOperation struct {
-	key     WaitKey
-	payload json.RawMessage
-}
+type waitOperation struct{ key WaitKey }
 
 // A wait settles locally the moment it begins, so it never fails.
 func (w waitOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
 	if failure.Valid() {
 		return Settlement{}, errors.New("a wait Effect cannot fail")
 	}
-	return NewSettlement(id, SettlementStatusSucceeded, w.payload)
+	return NewSettlement(id, SettlementStatusSucceeded, waitOpenedPayload())
 }
 
 func (waitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }

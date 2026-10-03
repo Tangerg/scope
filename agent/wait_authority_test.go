@@ -36,7 +36,7 @@ func (m *multipleWaitExecution) Step(ctx context.Context, signals []Signal) (Tra
 	switch phase {
 	case "ready":
 		key, _ := ParseWaitKey("secondary")
-		effect, err := NewWaitEffect(key, []byte(`{"kind":"wait_opened"}`))
+		effect, err := NewWaitEffect(key)
 		if err != nil {
 			return Transition{}, err
 		}

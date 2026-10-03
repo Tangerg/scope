@@ -199,7 +199,6 @@ const (
 	crashTreeRootWaitKey           = "child_completion"
 	crashTreeChildWaitKey          = "external_input"
 	crashTreeCancellationReason    = "cancel waiting child"
-	crashTreeWaitPayloadKind       = "external_input"
 	crashTreeChildStepBudget       = 3
 	crashTreeChildEffectBudget     = 1
 	crashTreeChildSignalBudget     = 2
@@ -431,13 +430,7 @@ func (c *crashTreeExecution) openChildWait(signals []agent.Signal) (agent.Transi
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	payload, err := jsonv2.Marshal(struct {
-		Kind string `json:"kind"`
-	}{Kind: crashTreeWaitPayloadKind})
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	effect, err := agent.NewWaitEffect(key, payload)
+	effect, err := agent.NewWaitEffect(key)
 	if err != nil {
 		return agent.Transition{}, err
 	}

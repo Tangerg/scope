@@ -139,6 +139,9 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		return agent.Transition{}, fmt.Errorf("%w: Tool expected a Signal", ErrInvalidExecutionState)
 	}
 	signal := signals[0]
+	if t.state.phase() == toolAwaitingWaitOpen {
+		return t.acceptWaitOpened(signal)
+	}
 	envelope, err := decodeSignal(signal.Payload())
 	if err != nil {
 		return agent.Transition{}, err
@@ -146,8 +149,6 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 	switch t.state.phase() {
 	case toolAwaitingResult:
 		return t.acceptResult(signal, envelope)
-	case toolAwaitingWaitOpen:
-		return t.acceptWaitOpened(signal, envelope)
 	case toolWaitingInput:
 		return t.acceptInputResponse(signal, envelope)
 	default:
@@ -155,13 +156,10 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 	}
 }
 
-func (t *toolExecution) acceptWaitOpened(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
-	if !signal.EngineOwned() || envelope.operation() != operationWaitOpened {
-		return agent.Transition{}, ErrInvalidExecutionState
-	}
-	waitID, addressed := signal.WaitID()
-	if !addressed || !t.state.Checkpoint.InputRequest.equal(*envelope.WaitOpened) {
-		return agent.Transition{}, ErrInvalidExecutionState
+func (t *toolExecution) acceptWaitOpened(signal agent.Signal) (agent.Transition, error) {
+	waitID, err := agent.ParseWaitOpened(signal)
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	t.state.WaitID = &waitID
 	return agent.Wait(1, waitID)
@@ -226,15 +224,11 @@ func (t *toolExecution) openInputWait(checkpoint toolCheckpoint) (agent.Transiti
 	if previous == math.MaxUint64 || checkpoint.PauseCount != previous+1 {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	payload, err := jsonv2.Marshal(signalEnvelope{WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewWaitEffect(key, payload)
+	effect, err := agent.NewWaitEffect(key)
 	if err != nil {
 		return agent.Transition{}, err
 	}

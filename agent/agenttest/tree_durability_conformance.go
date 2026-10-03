@@ -545,7 +545,7 @@ func (c *conformanceExecution) stepWait(signals []agent.Signal) (agent.Transitio
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		effect, err := agent.NewWaitEffect(key, []byte(`{"question":"continue?"}`))
+		effect, err := agent.NewWaitEffect(key)
 		if err != nil {
 			return agent.Transition{}, err
 		}

@@ -1,7 +1,6 @@
 package coordination
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -183,7 +182,7 @@ func (i *inputGateExecution) open(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewWaitEffect(key, i.state.Request.JSON())
+	effect, err := agent.NewWaitEffect(key)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -195,9 +194,9 @@ func (i *inputGateExecution) acceptOpening(signals []agent.Signal) (agent.Transi
 	if len(signals) == 0 {
 		return agent.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
 	}
-	waitID, addressed := signals[0].WaitID()
-	if !signals[0].EngineOwned() || !addressed || !bytes.Equal(signals[0].Payload(), i.state.Request.JSON()) {
-		return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
+	waitID, err := agent.ParseWaitOpened(signals[0])
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: input gate opening: %w", ErrInvalidProtocol, err)
 	}
 	i.state.WaitID = &waitID
 	return agent.Wait(1, waitID)

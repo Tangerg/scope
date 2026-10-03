@@ -205,8 +205,12 @@ func (s *signalMailbox) acceptRecord(record signalRecord) {
 	s.appendRecord(record)
 }
 
-// openWait opens a Host-answered wait.
+// openWait opens a Host-answered wait; its opening Signal only acknowledges
+// the minted WaitID.
 func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
+	if !bytes.Equal(waitOpenedPayload(), signal.payload) {
+		return fmt.Errorf("%w: wait opening Signal must be its acknowledgement", errWaitState)
+	}
 	return s.openSettledWait(waitRecord{externalKey: key}, signal)
 }
 
@@ -333,8 +337,8 @@ func (s *signalMailbox) contains(id SignalID) bool {
 }
 
 // signalRecordWire keeps a pending record's payload and a consumed record's
-// digest. A child-wait opening keeps neither, because every opening carries
-// the same acknowledgement.
+// digest. A wait opening keeps neither, because every opening of its kind
+// carries the same acknowledgement.
 type signalRecordWire struct {
 	ID            SignalID         `json:"id"`
 	WaitID        *WaitID          `json:"wait_id,omitzero"`
@@ -346,11 +350,14 @@ type signalRecordWire struct {
 // content derives the payload a pending record still carries and the digest
 // every record identifies.
 func (s signalRecordWire) content(consumed bool) (json.RawMessage, Digest, error) {
-	if s.Opens != nil && s.Opens.Spec != nil {
+	if s.Opens != nil {
 		if s.Payload != nil || s.PayloadDigest != nil {
-			return nil, Digest{}, fmt.Errorf("%w: child-wait opening stores its fixed acknowledgement", errMailboxCursor)
+			return nil, Digest{}, fmt.Errorf("%w: wait opening stores its fixed acknowledgement", errMailboxCursor)
 		}
-		payload := childWaitOpenedPayload()
+		payload := waitOpenedPayload()
+		if s.Opens.Spec != nil {
+			payload = childWaitOpenedPayload()
+		}
 		if consumed {
 			return nil, ComputeDigest(payload), nil
 		}
@@ -612,9 +619,7 @@ func (s *signalMailbox) wire() mailboxWire {
 		if record.opensWait {
 			wait := s.waits[record.waitID]
 			encoded.Opens = wait.openingWire()
-			if wait.child != nil {
-				encoded.Payload, encoded.PayloadDigest = nil, nil
-			}
+			encoded.Payload, encoded.PayloadDigest = nil, nil
 		}
 		wire.Signals = append(wire.Signals, encoded)
 	}

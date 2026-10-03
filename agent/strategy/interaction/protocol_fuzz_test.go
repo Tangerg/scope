@@ -83,7 +83,6 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: result.Output, AdvertisedToolNames: []string{"ask"}}}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
 		{ToolResult: &toolDispatchResult{Checkpoint: checkpoint}},
-		{WaitOpened: &checkpoint.InputRequest},
 		{InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {

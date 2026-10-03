@@ -60,19 +60,28 @@ func NewDispatcherEffect(payload json.RawMessage, required ...Capability) (Effec
 }
 
 // NewWaitEffect creates the Framework Effect that asks the Engine to mint one
-// WaitID for key. signalPayload remains Strategy-owned and is returned unchanged
-// in the internal Signal that carries the minted WaitID back to the Execution.
-func NewWaitEffect(key WaitKey, signalPayload json.RawMessage) (Effect, error) {
+// WaitID for key. ParseWaitOpened reads the minted WaitID from the Signal that
+// acknowledges it; the Execution keeps whatever the wait is about.
+func NewWaitEffect(key WaitKey) (Effect, error) {
 	if !key.Valid() {
 		return Effect{}, fmt.Errorf("%w: wait key: %w", ErrInvalidEffect, ErrInvalidIdentity)
 	}
-	normalized, err := normalizeJSON(signalPayload, MaxPayloadBytes)
-	if err != nil {
-		return Effect{}, fmt.Errorf("%w: wait signal payload: %w", ErrInvalidEffect, err)
+	return newFrameworkEffect(waitRequestWire{Operation: frameworkOperationWait, Key: key})
+}
+
+// ParseWaitOpened returns the WaitID that a NewWaitEffect settlement Signal
+// acknowledges, verifying its Engine-owned identity and fixed payload.
+func ParseWaitOpened(signal Signal) (WaitID, error) {
+	waitID, addressed := signal.WaitID()
+	if !signal.EngineOwned() || !addressed || !bytes.Equal(signal.Payload(), waitOpenedPayload()) {
+		return WaitID{}, fmt.Errorf("%w: not a wait opening", ErrInvalidSignal)
 	}
-	return newFrameworkEffect(waitRequestWire{
-		Operation: frameworkOperationWait, Key: key, SignalPayload: normalized,
-	})
+	return waitID, nil
+}
+
+// waitOpenedPayload is the normalized payload of every external wait opening.
+func waitOpenedPayload() json.RawMessage {
+	return json.RawMessage(`{"operation":"` + string(frameworkOperationWait) + `"}`)
 }
 
 // Typed constructors validate their requests before encoding, so only
@@ -179,23 +188,17 @@ const (
 )
 
 type waitRequestWire struct {
-	Operation     frameworkOperationKind `json:"operation"`
-	Key           WaitKey                `json:"key"`
-	SignalPayload json.RawMessage        `json:"signal_payload"`
+	Operation frameworkOperationKind `json:"operation"`
+	Key       WaitKey                `json:"key"`
 }
 
-func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, json.RawMessage, error) {
+func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, error) {
 	wire, err := jsonwire.Decode[waitRequestWire](payload)
 	if err != nil {
-		return WaitKey{}, nil, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
+		return WaitKey{}, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
 	}
 	if wire.Operation != frameworkOperationWait || !wire.Key.Valid() {
-		return WaitKey{}, nil, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
+		return WaitKey{}, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
-	// The enclosing Effect owns canonicalization and the byte bound. Decoding
-	// its RawMessage preserves those bytes without a second normalization.
-	if len(wire.SignalPayload) == 0 {
-		return WaitKey{}, nil, ErrInvalidEffect
-	}
-	return wire.Key, wire.SignalPayload, nil
+	return wire.Key, nil
 }

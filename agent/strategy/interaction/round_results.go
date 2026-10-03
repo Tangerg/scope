@@ -203,7 +203,7 @@ func (c childIndex) settledProcessResults(snapshot agent.TreeSnapshot, process a
 	for index, call := range calls {
 		result := state.ToolRound.knownResult(index)
 		if result == nil {
-			result, err = c.settledChildResult(process, refusals, state.ModelCallCount, uint32(index), call)
+			result, err = c.settledChildResult(snapshot, process, refusals, state.ModelCallCount, uint32(index), call)
 			if err != nil {
 				return RoundResults{}, err
 			}
@@ -225,13 +225,13 @@ func (c childIndex) settledProcessResults(snapshot agent.TreeSnapshot, process a
 	return round, nil
 }
 
-func (c childIndex) settledChildResult(process agent.ProcessSnapshot, refusals map[agent.ChildKey]agent.Failure, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
+func (c childIndex) settledChildResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, refusals map[agent.ChildKey]agent.Failure, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
 	toolKey, err := ToolChildKey(sequence, call)
 	if err != nil {
 		return nil, err
 	}
 	if child, found := c[process.ProcessID()][toolKey]; found {
-		return settledToolResult(child, sequence, index, call)
+		return settledToolResult(snapshot, child, sequence, index, call)
 	}
 	delegateKey, err := DelegateChildKey(sequence, call)
 	if err != nil {
@@ -267,7 +267,7 @@ func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {
 	return true
 }
 
-func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
+func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
 	state, err := decodeToolState(process.CommittedExecutionState())
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uin
 		}
 		return &completion, nil
 	}
-	for _, payload := range definitePayloads(process) {
+	for _, payload := range definiteDispatcherPayloads(snapshot, process) {
 		envelope, err := decodeSignal(payload)
 		if err != nil {
 			return nil, err
@@ -296,15 +296,20 @@ func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uin
 	return nil, nil
 }
 
-func definitePayloads(process agent.ProcessSnapshot) []json.RawMessage {
+// definiteDispatcherPayloads returns the definite dispatcher outcomes a Tool
+// child retains: its prepared dispatcher settlements and the settlement
+// Signals it has not consumed. Wait openings belong to the Engine.
+func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) []json.RawMessage {
 	var payloads []json.RawMessage
 	for _, settlement := range process.Settlements() {
-		if settlement.Status() != agent.SettlementStatusUnknown {
+		request, found := snapshot.EffectRequest(process.ProcessID(), settlement.EffectID())
+		if found && request.Effect().Target() == agent.EffectTargetDispatcher && settlement.Status() != agent.SettlementStatusUnknown {
 			payloads = append(payloads, settlement.Payload())
 		}
 	}
 	for _, receipt := range process.SignalReceipts() {
-		if signal, pending := receipt.PendingSignal(); pending && signal.EngineOwned() {
+		signal, pending := receipt.PendingSignal()
+		if _, addressed := signal.WaitID(); pending && signal.EngineOwned() && !addressed {
 			payloads = append(payloads, signal.Payload())
 		}
 	}

@@ -211,7 +211,7 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 	}
 	process.committedSteps = 0
 	process.counters.PreparedEffects = ^uint64(0)
-	effect := controlValue(NewWaitEffect(controlValue(ParseWaitKey("counter")), json.RawMessage(`{}`)))
+	effect := controlValue(NewWaitEffect(controlValue(ParseWaitKey("counter"))))
 	failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{transition: controlValue(Continue(0, effect)), candidate: process.execution, candidateState: process.committedExecutionState})
 	if failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) || process.prepared != nil || process.counters.PreparedEffects != ^uint64(0) {
 		t.Fatalf("effect overflow mutated state: %+v", failure)

@@ -75,7 +75,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 	key := controlValue(ParseWaitKey("wait"))
 	childID := controlValue(ParseProcessID("process:child"))
 	for _, effect := range []Effect{
-		controlValue(NewWaitEffect(key, []byte(`{"prompt":"original"}`))),
+		controlValue(NewWaitEffect(key)),
 		controlValue(NewChildWaitEffect(ChildWaitSpec{Key: key, Children: []ProcessID{childID}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()})),
 	} {
 		t.Run(string(effect.Payload()), func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 
 func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
-	wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("duplicate")), []byte(`"answer"`)))
+	wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("duplicate"))))
 	effects := []Effect{wire.Prepared.Effects[0].Effect, wait, wait}
 	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = nil

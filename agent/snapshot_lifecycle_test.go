@@ -291,7 +291,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(512 << 10)
 			}
 			dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
-			wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("after-dispatch")), json.RawMessage(`{}`)))
+			wait := controlValue(NewWaitEffect(controlValue(ParseWaitKey("after-dispatch"))))
 			if failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{
 				transition: controlValue(Continue(0, dispatch, wait)), candidate: process.execution, candidateState: process.committedExecutionState,
 			}); failure != nil {

@@ -194,8 +194,8 @@ func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 	limits := admissionTestLimits()
 	limits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
 	payload := json.RawMessage(`"` + strings.Repeat("x", 33<<14) + `"`)
-	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first")), payload))
-	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second")), payload))
+	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first"))))
+	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second"))))
 	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	transition := controlValue(Continue(0, dispatch, first, second))
 	if failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState}); failure != nil {

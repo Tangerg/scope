@@ -392,8 +392,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 	case "ready":
 		e.state.Phase = "wait_id"
 		key, _ := ParseWaitKey("approval")
-		payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "wait_opened"})
-		effect, err := NewWaitEffect(key, payload)
+		effect, err := NewWaitEffect(key)
 		if err != nil {
 			return Transition{}, err
 		}
