@@ -97,7 +97,6 @@ type Observer struct {
 
 	lifecycleMu sync.Mutex
 	inFlight    sync.WaitGroup
-	closed      bool
 	closeDone   chan struct{}
 	stateMu     sync.Mutex
 	processes   map[processKey]processSpanRecord
@@ -173,7 +172,6 @@ func NewObserver(config ObserverConfig) (*Observer, error) {
 		processes:   make(map[processKey]processSpanRecord),
 		steps:       make(map[stepKey]trace.Span),
 		effects:     make(map[effectKey]trace.Span),
-		closeDone:   make(chan struct{}),
 	}, nil
 }
 
@@ -325,7 +323,7 @@ func (o *Observer) OnEvent(ctx context.Context, event agent.Event) {
 func (o *Observer) beginObservation() bool {
 	o.lifecycleMu.Lock()
 	defer o.lifecycleMu.Unlock()
-	if o.closed {
+	if o.closeDone != nil {
 		return false
 	}
 	o.inFlight.Add(1)
@@ -340,13 +338,13 @@ func (o *Observer) Close() {
 		return
 	}
 	o.lifecycleMu.Lock()
-	if o.closed {
+	if o.closeDone != nil {
 		done := o.closeDone
 		o.lifecycleMu.Unlock()
 		<-done
 		return
 	}
-	o.closed = true
+	o.closeDone = make(chan struct{})
 	o.lifecycleMu.Unlock()
 	o.inFlight.Wait()
 	defer close(o.closeDone)
