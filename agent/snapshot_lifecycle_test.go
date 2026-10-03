@@ -139,23 +139,16 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 	for _, treeQuota := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tree=%t", treeQuota), func(t *testing.T) {
-			limit := func(limits *TreeLimits, quota Quota) {
-				if treeQuota {
-					limits.MaxSnapshotBytes = quota
-				} else {
-					limits.MaxProcessSnapshotBytes = quota
-				}
-			}
-			measured, measuredParent := immediateChildWaitScenario(t, func(limits *TreeLimits) { limit(limits, NewQuota(1<<30)) })
-			if failure := measured.finalizePrepared(measuredParent); failure != nil {
-				t.Fatalf("unconstrained finalization: %+v", failure)
-			}
-			admitted := controlValue(measuredParent.snapshotAdmissionSize(measured.treeLimits))
+			runtime, parent := immediateChildWaitScenario(t, func(limits *TreeLimits) {
+				limits.MaxProcessSnapshotBytes = NewQuota(1 << 30)
+			})
+			// The current tree fits exactly, so the answer's growth must exceed it.
 			if treeQuota {
-				admitted = smallestAdmittingTreeQuota(measured)
+				runtime.treeLimits.MaxProcessSnapshotBytes = Quota{}
+				runtime.treeLimits.MaxSnapshotBytes = NewQuota(smallestAdmittingTreeQuota(runtime))
+			} else {
+				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(controlValue(parent.snapshotAdmissionSize(runtime.treeLimits)))
 			}
-
-			runtime, parent := immediateChildWaitScenario(t, func(limits *TreeLimits) { limit(limits, NewQuota(admitted-1)) })
 			before := controlValue(runtime.captureTree())
 			if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) {
 				t.Fatalf("oversized immediate result = %+v", failure)
