@@ -165,18 +165,23 @@ func (t Transition) MarshalJSON() ([]byte, error) {
 	if !t.Valid() {
 		return nil, ErrInvalidTransition
 	}
-	wire := transitionWire{Kind: t.kind, ConsumedSignals: t.consumedSignals}
+	wire := transitionWire{ConsumedSignals: t.consumedSignals}
 	switch t.kind {
 	case TransitionKindContinue:
-		wire.Effects = t.effects
+		wire.Continue = new(t.effects)
+		if t.effects == nil {
+			wire.Continue = new([]Effect{})
+		}
+	case TransitionKindCheckpoint:
+		wire.Checkpoint = &struct{}{}
 	case TransitionKindWait:
-		wire.WaitID = &t.waitID
+		wire.Wait = &t.waitID
 	case TransitionKindPause:
-		wire.Reason = t.pause.reason
+		wire.Pause = &t.pause.reason
 	case TransitionKindComplete:
-		wire.Output = t.output.JSON()
+		wire.Complete = t.output.JSON()
 	case TransitionKindFail:
-		wire.Failure = &t.failure
+		wire.Fail = &t.failure
 	}
 	return jsonv2.Marshal(wire)
 }
@@ -198,37 +203,53 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 }
 
 func transitionFromWire(wire transitionWire) (Transition, error) {
-	requested, err := parsePause(wire.Reason)
-	if err != nil {
-		return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
+	value := Transition{consumedSignals: wire.ConsumedSignals}
+	members := 0
+	if wire.Continue != nil {
+		value.kind, value.effects = TransitionKindContinue, *wire.Continue
+		members++
 	}
-	value := Transition{kind: wire.Kind, consumedSignals: wire.ConsumedSignals,
-		effects: wire.Effects, pause: requested}
-	if wire.WaitID != nil {
-		value.waitID = *wire.WaitID
+	if wire.Checkpoint != nil {
+		value.kind = TransitionKindCheckpoint
+		members++
 	}
-	if wire.Failure != nil {
-		value.failure = *wire.Failure
+	if wire.Wait != nil {
+		value.kind, value.waitID = TransitionKindWait, *wire.Wait
+		members++
 	}
-	if len(wire.Output) != 0 {
-		output, err := ParsePayload(wire.Output)
+	if wire.Pause != nil {
+		requested, err := parsePause(*wire.Pause)
+		if err != nil {
+			return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
+		}
+		value.kind, value.pause = TransitionKindPause, requested
+		members++
+	}
+	if len(wire.Complete) != 0 {
+		output, err := ParsePayload(wire.Complete)
 		if err != nil {
 			return Transition{}, fmt.Errorf("%w: output: %w", ErrInvalidTransition, err)
 		}
-		value.output = output
+		value.kind, value.output = TransitionKindComplete, output
+		members++
 	}
-	if !value.Valid() {
-		return Transition{}, fmt.Errorf("%w: invalid kind or field set", ErrInvalidTransition)
+	if wire.Fail != nil {
+		value.kind, value.failure = TransitionKindFail, *wire.Fail
+		members++
+	}
+	if members != 1 || !value.Valid() {
+		return Transition{}, fmt.Errorf("%w: exactly one valid variant is required", ErrInvalidTransition)
 	}
 	return value, nil
 }
 
+// transitionWire names its variant by the one member it carries.
 type transitionWire struct {
-	Kind            TransitionKind  `json:"kind"`
 	ConsumedSignals uint32          `json:"consumed_signals"`
-	Effects         []Effect        `json:"effects,omitempty"`
-	WaitID          *WaitID         `json:"wait_id,omitzero"`
-	Reason          string          `json:"reason,omitempty"`
-	Output          json.RawMessage `json:"output,omitzero"`
-	Failure         *Failure        `json:"failure,omitzero"`
+	Continue        *[]Effect       `json:"continue,omitzero"`
+	Checkpoint      *struct{}       `json:"checkpoint,omitzero"`
+	Wait            *WaitID         `json:"wait,omitzero"`
+	Pause           *string         `json:"pause,omitzero"`
+	Complete        json.RawMessage `json:"complete,omitzero"`
+	Fail            *Failure        `json:"fail,omitzero"`
 }

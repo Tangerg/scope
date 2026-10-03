@@ -34,7 +34,7 @@ func TestTransitionConstructorsEnforceOwnedFields(t *testing.T) {
 	if err := jsonv2.Unmarshal(encoded, &restored); err != nil || restored.Kind() != TransitionKindCheckpoint || restored.ConsumedSignals() != 2 {
 		t.Fatalf("checkpoint round trip: %+v, %v", restored, err)
 	}
-	if err := jsonv2.Unmarshal([]byte(`{"kind":"checkpoint","consumed_signals":0,"effects":[{"target":"dispatcher","payload":{}}]}`), &restored); !errors.Is(err, ErrInvalidTransition) {
+	if err := jsonv2.Unmarshal([]byte(`{"consumed_signals":0,"checkpoint":{},"continue":[{"target":"dispatcher","payload":{}}]}`), &restored); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("checkpoint admitted external effects: %v", err)
 	}
 
@@ -70,14 +70,14 @@ func TestTransitionStrictUnionJSON(t *testing.T) {
 		t.Fatalf("decoded WaitID = %v, %t", got, ok)
 	}
 
-	invalid := []byte(`{"kind":"wait","consumed_signals":1,"wait_id":"wait:1","reason":"not allowed"}`)
+	invalid := []byte(`{"consumed_signals":1,"wait":"wait:1","pause":"not allowed"}`)
 	if err := jsonv2.Unmarshal(invalid, &decoded); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("invalid union error = %v, want ErrInvalidTransition", err)
 	}
 }
 
 func TestTransitionJSONRequiresExplicitSignalConsumption(t *testing.T) {
-	for _, raw := range []string{`{"kind":"continue"}`, `{"kind":"continue","consumed_signals":null}`} {
+	for _, raw := range []string{`{"continue":[]}`, `{"continue":[],"consumed_signals":null}`} {
 		transition, err := Continue(2)
 		if err != nil {
 			t.Fatal(err)
@@ -113,9 +113,9 @@ func TestFailureStrictRoundTrip(t *testing.T) {
 }
 
 func FuzzTransitionJSONRoundTrip(f *testing.F) {
-	f.Add([]byte(`{"kind":"continue","consumed_signals":1,"effects":[{"target":"dispatcher","payload":{"operation":"model"}}]}`))
-	f.Add([]byte(`{"kind":"continue","consumed_signals":0,"effects":[{"target":"framework","payload":{"operation":"wait","key":"approval","signal_payload":{"kind":"wait_id"}}}]}`))
-	f.Add([]byte(`{"kind":"wait","consumed_signals":1,"wait_id":"wait:1"}`))
+	f.Add([]byte(`{"consumed_signals":1,"continue":[{"target":"dispatcher","payload":{"operation":"model"}}]}`))
+	f.Add([]byte(`{"consumed_signals":0,"continue":[{"target":"framework","payload":{"operation":"wait","key":"approval","signal_payload":{"kind":"wait_id"}}}]}`))
+	f.Add([]byte(`{"consumed_signals":1,"wait":"wait:1"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var transition Transition
 		if err := jsonv2.Unmarshal(data, &transition); err != nil {
