@@ -37,7 +37,7 @@ func ExampleDefinition() {
 	}))
 	call := exampleValue(workflow.Call(workflow.CallConfig{ID: "decide", Deployment: model, Budget: budget}))
 	decode := exampleValue(workflow.Transform("decode_decision", func(_ context.Context, output interaction.Output) (collaboration.Decision, error) {
-		if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil {
+		if output.ModelResponse == nil {
 			return collaboration.Decision{}, errors.New("coordinator produced no model response")
 		}
 		value, err := agent.ParsePayload([]byte(output.ModelResponse.Text()))

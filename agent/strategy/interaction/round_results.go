@@ -68,6 +68,8 @@ const (
 	ResultRejected  ResultDisposition = "rejected"
 )
 
+const invalidEnumName = "invalid"
+
 func (r ResultDisposition) Valid() bool {
 	return r == ResultSucceeded || r == ResultFailed || r == ResultRejected
 }

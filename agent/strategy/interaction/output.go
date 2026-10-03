@@ -6,44 +6,16 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-const invalidEnumName = "invalid"
-
-type CompletionSource string
-
-const (
-	CompletionSourceInvalid CompletionSource = ""
-	// CompletionSourceModelResponse means the model produced a final response
-	// without requesting another tool round.
-	CompletionSourceModelResponse CompletionSource = "model_response"
-
-	// CompletionSourceDirectToolResults means every call in one model-requested
-	// batch targeted a DirectResultTool and returned successfully.
-	CompletionSourceDirectToolResults CompletionSource = "direct_tool_results"
-)
-
-func (c CompletionSource) Valid() bool {
-	return c == CompletionSourceModelResponse || c == CompletionSourceDirectToolResults
-}
-
-func (c CompletionSource) String() string {
-	if !c.Valid() {
-		return invalidEnumName
-	}
-	return string(c)
-}
-
-// Output is the final semantic Interaction result. ModelResponse is accumulated
-// independently of best-effort stream Delta delivery, so it remains complete
-// after observer loss or snapshot restoration.
+// Output is the final semantic Interaction result. Exactly one completion is
+// present: ModelResponse when the model produced a final response without
+// requesting another tool round, or DirectToolResults when every call in one
+// model-requested batch targeted a DirectResultTool and returned successfully.
+// ModelResponse is accumulated independently of best-effort stream Delta
+// delivery, so it remains complete after observer loss or snapshot restoration.
 type Output struct {
-	Source CompletionSource `json:"source"`
-
-	// ModelResponse is the authoritative accumulated response when Source is
-	// CompletionSourceModelResponse.
 	ModelResponse *chat.Response `json:"model_response,omitzero"`
 
-	// DirectToolResults preserves model ToolCall order when Source is
-	// CompletionSourceDirectToolResults.
+	// DirectToolResults preserves model ToolCall order.
 	DirectToolResults []chat.ToolResult `json:"direct_tool_results,omitempty"`
 
 	// ModelCalls is the number of model Effects issued by this Interaction.
@@ -51,22 +23,19 @@ type Output struct {
 }
 
 func (o Output) Validate() error {
-	if !o.Source.Valid() {
-		return fmt.Errorf("%w: output source is invalid", ErrInvalidResult)
-	}
 	if o.ModelCalls == 0 {
 		return fmt.Errorf("%w: output model_calls must be positive", ErrInvalidResult)
 	}
-	if o.Source == CompletionSourceModelResponse {
+	if (o.ModelResponse == nil) == (len(o.DirectToolResults) == 0) {
+		return fmt.Errorf("%w: output needs exactly one of a model response and direct tool results", ErrInvalidResult)
+	}
+	if o.ModelResponse != nil {
 		return o.validateModelResponse()
 	}
 	return o.validateDirectToolResults()
 }
 
 func (o Output) validateModelResponse() error {
-	if o.ModelResponse == nil || len(o.DirectToolResults) != 0 {
-		return fmt.Errorf("%w: model_response output requires only ModelResponse", ErrInvalidResult)
-	}
 	if err := o.ModelResponse.Validate(); err != nil {
 		return fmt.Errorf("%w: output model response: %w", ErrInvalidResult, err)
 	}
@@ -83,9 +52,6 @@ func (o Output) validateModelResponse() error {
 }
 
 func (o Output) validateDirectToolResults() error {
-	if o.ModelResponse != nil || len(o.DirectToolResults) == 0 {
-		return fmt.Errorf("%w: direct_tool_results output requires only DirectToolResults", ErrInvalidResult)
-	}
 	seen := make(map[string]struct{}, len(o.DirectToolResults))
 	for index, result := range o.DirectToolResults {
 		if err := result.Validate(); err != nil {

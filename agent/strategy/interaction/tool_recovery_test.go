@@ -284,7 +284,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 		t.Fatal("missing direct output")
 	}
 	output, err := payload.Decode[interaction.Output]()
-	if err != nil || output.Source != interaction.CompletionSourceDirectToolResults || len(output.DirectToolResults) != 1 || output.DirectToolResults[0].ID != "call" || output.DirectToolResults[0].Output.Content[0].Text != "resolved" {
+	if err != nil || len(output.DirectToolResults) != 1 || output.DirectToolResults[0].ID != "call" || output.DirectToolResults[0].Output.Content[0].Text != "resolved" {
 		t.Fatalf("direct recovery output = %+v, error = %v", output, err)
 	}
 	if uncertain.calls.Load() != 1 || model.Calls() != 1 {

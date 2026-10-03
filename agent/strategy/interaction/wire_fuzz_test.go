@@ -14,11 +14,11 @@ func FuzzOutputJSON(f *testing.F) {
 	message := chat.NewAssistantMessage(chat.NewTextPart("done"))
 	for _, output := range []interaction.Output{
 		{
-			Source: interaction.CompletionSourceModelResponse, ModelCalls: 2,
+			ModelCalls:    2,
 			ModelResponse: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}},
 		},
 		{
-			Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1,
+			ModelCalls: 1,
 			DirectToolResults: []chat.ToolResult{
 				{ID: "first", Name: "direct", Output: chat.NewTextToolOutput("done")},
 				{ID: "last", Name: "direct", Output: chat.ToolOutput{Details: json.RawMessage(`{"id":9007199254740993}`)}},
@@ -39,8 +39,8 @@ func FuzzOutputJSON(f *testing.F) {
 		f.Add([]byte(encoded.JSON()))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"source":"model_response","model_calls":0}`))
-	f.Add([]byte(`{"source":"direct_tool_results","model_calls":1,"direct_tool_results":[]}`))
+	f.Add([]byte(`{"model_calls":0}`))
+	f.Add([]byte(`{"model_calls":1,"direct_tool_results":[]}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		erased, err := agent.ParsePayload(payload)
 		if err != nil {

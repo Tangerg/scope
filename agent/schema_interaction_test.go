@@ -28,7 +28,6 @@ func TestSchemaForAcceptsInteractionProviderMetadataAndReasoningSignature(t *tes
 		"deepseek/openai_stream_chunk": json.RawMessage(`{"id":"chunk-1","choices":[]}`),
 	}
 	value := interaction.Output{
-		Source:        interaction.CompletionSourceModelResponse,
 		ModelResponse: response,
 		ModelCalls:    1,
 	}

@@ -57,7 +57,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil ||
+	if output.ModelResponse == nil ||
 		output.ModelCalls != 1 || output.ModelResponse.Text() != "done" {
 		t.Fatalf("output = %#v", output)
 	}
@@ -107,7 +107,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil ||
+	if output.ModelResponse == nil ||
 		output.ModelCalls != 2 || output.ModelResponse.Text() != "5" {
 		t.Fatalf("output = %#v", output)
 	}
@@ -441,7 +441,7 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Source != interaction.CompletionSourceDirectToolResults || output.ModelResponse != nil ||
+	if output.ModelResponse != nil ||
 		len(output.DirectToolResults) != 1 {
 		t.Fatalf("output = %#v", output)
 	}

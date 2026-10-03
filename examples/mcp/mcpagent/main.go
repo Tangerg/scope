@@ -199,7 +199,7 @@ func runBriefing(
 		return briefOutput{}, fmt.Errorf("decode interaction output: %w", err)
 	}
 	if output.ModelResponse == nil {
-		return briefOutput{}, fmt.Errorf("MCP briefing completed from source %q without a model response", output.Source)
+		return briefOutput{}, errors.New("MCP briefing completed with direct tool results instead of a model response")
 	}
 	var brief briefOutput
 	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &brief); err != nil {

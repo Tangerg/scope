@@ -63,7 +63,7 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse.Text() != "handled failure" {
+			if output.ModelResponse == nil || output.ModelResponse.Text() != "handled failure" {
 				t.Fatalf("output = %#v", output)
 			}
 		})
@@ -73,13 +73,13 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 func TestOutputRejectsUnfinishedCompletion(t *testing.T) {
 	for name, output := range map[string]interaction.Output{
 		"failed direct result": {
-			Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1,
+			ModelCalls: 1,
 			DirectToolResults: []chat.ToolResult{{
 				ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
 			}},
 		},
 		"pending tool call": {
-			Source: interaction.CompletionSourceModelResponse, ModelCalls: 1,
+			ModelCalls:    1,
 			ModelResponse: toolCallResponse(chat.ToolCall{ID: "pending", Name: "direct", Arguments: `{}`}),
 		},
 	} {
@@ -121,7 +121,7 @@ func TestDirectResultCompletionFailurePreservesItsCause(t *testing.T) {
 			})
 			validator := func(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 				validations++
-				if candidate.Output().Source != interaction.CompletionSourceDirectToolResults {
+				if len(candidate.Output().DirectToolResults) == 0 {
 					t.Error("validator did not receive the direct Tool result")
 				}
 				return test.decision, test.err
@@ -142,16 +142,17 @@ func TestDirectResultCompletionFailurePreservesItsCause(t *testing.T) {
 func TestPublicValidationPreservesResultClassificationAndCause(t *testing.T) {
 	for _, output := range []interaction.Output{
 		{},
-		{Source: interaction.CompletionSourceModelResponse},
-		{Source: interaction.CompletionSourceModelResponse, ModelCalls: 1},
-		{Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1},
-		{Source: interaction.CompletionSourceDirectToolResults, ModelCalls: 1, DirectToolResults: []chat.ToolResult{{}}},
+		{ModelResponse: &chat.Response{}},
+		{ModelCalls: 1},
+		{ModelCalls: 1, ModelResponse: &chat.Response{}, DirectToolResults: []chat.ToolResult{{}}},
+		{ModelCalls: 1},
+		{ModelCalls: 1, DirectToolResults: []chat.ToolResult{{}}},
 	} {
 		if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) {
 			t.Fatalf("result classification lost: %v", err)
 		}
 	}
-	output := interaction.Output{Source: interaction.CompletionSourceModelResponse, ModelCalls: 1, ModelResponse: &chat.Response{}}
+	output := interaction.Output{ModelCalls: 1, ModelResponse: &chat.Response{}}
 	if err := output.Validate(); !errors.Is(err, interaction.ErrInvalidResult) || !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("nested cause lost: %v", err)
 	}

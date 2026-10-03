@@ -172,7 +172,6 @@ func (e *execution) acceptFinalModelResponse(
 	}
 	if e.state.PendingSteer == nil {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
-			Source:        CompletionSourceModelResponse,
 			ModelResponse: response,
 			ModelCalls:    e.state.ModelCallCount,
 		}, []chat.Message{modelOutput.Message.Clone()})
@@ -313,7 +312,6 @@ func (e *execution) finishToolCallBatch(
 	e.state.ToolRound = nil
 	if direct {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
-			Source:            CompletionSourceDirectToolResults,
 			DirectToolResults: results,
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)

@@ -31,15 +31,16 @@ func TestDefinitionConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		source     interaction.CompletionSource
+		name       string
+		direct     bool
 		executable tool.Tool
 		modelCalls int
 		effects    uint64
 	}{
-		{interaction.CompletionSourceModelResponse, add, 2, 4},
-		{interaction.CompletionSourceDirectToolResults, directTool{Tool: add}, 1, 3},
+		{"model_response", false, add, 2, 4},
+		{"direct_tool_results", true, directTool{Tool: add}, 1, 3},
 	} {
-		t.Run(string(test.source), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			toolSet := testToolSet(t, interaction.ToolSetConfig{Tools: []tool.Tool{test.executable}})
 			definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
 				Name:          "interaction.conformance",
@@ -63,15 +64,15 @@ func TestDefinitionConformance(t *testing.T) {
 			result := conformancetest.Run(t, agent.DeploymentConfig{
 				Definition: definition, Dispatcher: dispatcher,
 				ImplementationDigest: agent.ComputeDigest([]byte("interaction-conformance")),
-				ConfigurationDigest:  agent.ComputeDigest([]byte(test.source)),
+				ConfigurationDigest:  agent.ComputeDigest([]byte(test.name)),
 			}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input)
 			if result.Usage().PreparedEffects != test.effects || model.Calls() != test.modelCalls {
 				t.Fatalf("tool-loop usage=%+v model calls=%d, want effects=%d calls=%d", result.Usage(), model.Calls(), test.effects, test.modelCalls)
 			}
 			erased, present := result.Output()
 			output, err := erased.Decode[interaction.Output]()
-			if !present || err != nil || output.Source != test.source {
-				t.Fatalf("output=%+v present=%t error=%v, want source=%s", output, present, err, test.source)
+			if !present || err != nil || (len(output.DirectToolResults) != 0) != test.direct {
+				t.Fatalf("output=%+v present=%t error=%v, want direct=%t", output, present, err, test.direct)
 			}
 		})
 	}

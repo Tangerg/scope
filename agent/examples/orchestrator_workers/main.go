@@ -290,7 +290,7 @@ func interactionInput[T any](_ context.Context, value T) (interaction.Input, err
 
 func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, error) {
 	var zero T
-	if output.Source != interaction.CompletionSourceModelResponse || output.ModelResponse == nil {
+	if output.ModelResponse == nil {
 		return zero, errors.New("interaction did not return a model response")
 	}
 	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &zero, jsonv2.RejectUnknownMembers(true)); err != nil {

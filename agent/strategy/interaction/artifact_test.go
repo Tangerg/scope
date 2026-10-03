@@ -206,7 +206,7 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 		if len(candidate.Artifacts()) != 0 {
 			return interaction.CompletionDecision{}, errors.New("ordinary Tool produced a Delegate Artifact")
 		}
-		if candidate.Output().Source == interaction.CompletionSourceDirectToolResults {
+		if len(candidate.Output().DirectToolResults) != 0 {
 			return interaction.CompletionDecision{Feedback: "Explain the direct result before completing."}, nil
 		}
 		return interaction.CompletionDecision{Accepted: true}, nil
