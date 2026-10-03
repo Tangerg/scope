@@ -134,7 +134,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, signals []agent.Signal
 			}
 			effects = append(effects, effect)
 		}
-		f.state.Starts = []agent.ChildStartResult{}
+		f.state.Starts = make([]*agent.ChildStartResult, len(f.state.Candidates))
 		return agent.Continue(0, effects...)
 	case competitionAwaitingStarts:
 		return f.acceptStarts(signals)
@@ -164,12 +164,11 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	f.state.Starts = append(f.state.Starts, make([]agent.ChildStartResult, len(indices))...)
 	for offset, index := range indices {
-		f.state.Starts[index] = starts[offset]
+		f.state.Starts[index] = &starts[offset]
 	}
 	consumed := uint32(count)
-	if len(f.state.Starts) != len(f.state.Candidates) {
+	if len(f.state.receipts()) != len(f.state.Candidates) {
 		return agent.Continue(consumed)
 	}
 	return f.continueCompetition(consumed)

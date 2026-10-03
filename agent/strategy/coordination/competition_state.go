@@ -3,7 +3,6 @@ package coordination
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
@@ -23,19 +22,31 @@ const (
 
 type firstSuccessState struct {
 	Candidates []agent.ChildSpec `json:"candidates"`
-	// Nil precedes declaration; an explicit empty slice records declared starts
-	// before the first receipt. Non-empty receipts carry that fact thereafter.
-	Starts   []agent.ChildStartResult `json:"starts,omitzero"`
-	Outcomes []agent.ChildOutcome     `json:"outcomes,omitempty"`
-	WaitID   *agent.WaitID            `json:"wait_id,omitzero"`
-	Winner   *agent.ChildKey          `json:"winner,omitzero"`
+	// Declaring the starts creates one slot per candidate; a nil slot awaits its
+	// receipt. Before declaration there are no slots.
+	Starts   []*agent.ChildStartResult `json:"starts,omitempty"`
+	Outcomes []agent.ChildOutcome      `json:"outcomes,omitempty"`
+	WaitID   *agent.WaitID             `json:"wait_id,omitzero"`
+	Winner   *agent.ChildKey           `json:"winner,omitzero"`
+}
+
+// receipts returns the start receipts, which fill their slots in candidate order.
+func (f firstSuccessState) receipts() []agent.ChildStartResult {
+	receipts := make([]agent.ChildStartResult, 0, len(f.Starts))
+	for _, started := range f.Starts {
+		if started == nil {
+			break
+		}
+		receipts = append(receipts, *started)
+	}
+	return receipts
 }
 
 func (f firstSuccessState) phase() competitionPhase {
 	switch {
-	case f.Starts == nil:
+	case len(f.Starts) == 0:
 		return competitionReady
-	case len(f.Starts) < len(f.Candidates):
+	case len(f.receipts()) < len(f.Candidates):
 		return competitionAwaitingStarts
 	case f.Winner != nil || len(f.remaining()) == 0:
 		return competitionCompleted
@@ -50,8 +61,15 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) || len(f.Starts) > len(f.Candidates) {
-		return fmt.Errorf("%w: candidate or start count exceeds its bound", ErrInvalidExecutionState)
+	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) ||
+		len(f.Starts) != 0 && len(f.Starts) != len(f.Candidates) {
+		return fmt.Errorf("%w: candidate or start slot count is invalid", ErrInvalidExecutionState)
+	}
+	receipts := f.receipts()
+	for _, started := range f.Starts[len(receipts):] {
+		if started != nil {
+			return fmt.Errorf("%w: start receipt follows an empty slot", ErrInvalidExecutionState)
+		}
 	}
 	keys := make(map[agent.ChildKey]struct{}, len(f.Candidates))
 	for _, candidate := range f.Candidates {
@@ -66,10 +84,10 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		}
 		keys[candidate.Key] = struct{}{}
 	}
-	if len(f.Starts) > 0 {
+	if len(receipts) > 0 {
 		pending := f
 		pending.Starts, pending.Outcomes, pending.WaitID = nil, nil, nil
-		if _, err := pending.batch().AcceptStarts(f.Starts); err != nil {
+		if _, err := pending.batch().AcceptStarts(receipts); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 	}
@@ -110,12 +128,12 @@ func (f firstSuccessState) batch() childcall.Batch {
 	if f.WaitID != nil {
 		batch.WaitID = *f.WaitID
 	}
-	next := 0
+	next, receipts := 0, f.receipts()
 	for index, candidate := range f.Candidates {
 		child := &batch.Children[index]
 		child.Key, child.Deployment = candidate.Key, candidate.DeploymentRef
-		if index < len(f.Starts) {
-			id, started := f.Starts[index].ProcessID()
+		if index < len(receipts) {
+			id, started := receipts[index].ProcessID()
 			child.ProcessID, child.Done = id, !started
 			if started && next < len(f.Outcomes) && f.Outcomes[next].Result().ProcessID() == id {
 				child.Done = true
@@ -149,7 +167,7 @@ func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.Child
 	// indices are ordered, previously unobserved candidates as returned by Complete.
 	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
 	prior, incoming := 0, 0
-	for index, started := range f.Starts {
+	for index, started := range f.receipts() {
 		if incoming < len(indices) && indices[incoming] == index {
 			merged = append(merged, outcomes[incoming])
 			incoming++
@@ -165,7 +183,7 @@ func (f firstSuccessState) result() FirstSuccessResult {
 	// FirstSuccessResult requires non-nil Outcomes, which slices.Clone(nil) would not produce.
 	outcomes := make([]agent.ChildOutcome, len(f.Outcomes))
 	copy(outcomes, f.Outcomes)
-	result := FirstSuccessResult{Starts: slices.Clone(f.Starts), Outcomes: outcomes}
+	result := FirstSuccessResult{Starts: f.receipts(), Outcomes: outcomes}
 	if f.Winner != nil {
 		result.Winner = new(*f.Winner)
 	}

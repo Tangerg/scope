@@ -36,8 +36,8 @@ func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
 		if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, expected) {
 			t.Fatalf("progress %d fields = %v, want %v", index, got, expected)
 		}
-		if index == 1 && string(fields["starts"]) != "[]" {
-			t.Fatalf("declaration before first receipt = %s, want []", fields["starts"])
+		if index == 1 && string(fields["starts"]) != "[null,null]" {
+			t.Fatalf("declaration before first receipt = %s, want one empty slot per candidate", fields["starts"])
 		}
 		execution, err = source.definition.Restore(t.Context(), state)
 		if err != nil {
@@ -155,7 +155,7 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := firstSuccessState{Starts: starts, WaitID: new(competitionWaitID(t))}
+	state := firstSuccessState{Starts: startSlots(starts), WaitID: new(competitionWaitID(t))}
 	for _, start := range starts {
 		payload, err := agent.EncodePayload("input")
 		if err != nil {
@@ -219,5 +219,36 @@ func TestRestoreStopsBetweenCandidates(t *testing.T) {
 	defer cancel()
 	if err := state.validate(ctx, 2); !errors.Is(err, context.Canceled) {
 		t.Fatalf("candidate validation = %v, want cancellation before malformed second candidate", err)
+	}
+}
+
+func startSlots(starts []agent.ChildStartResult) []*agent.ChildStartResult {
+	slots := make([]*agent.ChildStartResult, len(starts))
+	for index := range starts {
+		slots[index] = &starts[index]
+	}
+	return slots
+}
+
+func TestCompetitionStartSlotsMatchCandidatesInOrder(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 3)
+	execution := competitionExecution(t, starts)
+	for name, slots := range map[string][]*agent.ChildStartResult{
+		"missing slot":           startSlots(starts)[:2],
+		"receipt after gap":      {&starts[0], nil, &starts[2]},
+		"declared without slots": {},
+	} {
+		state := execution.state
+		state.Starts, state.WaitID = slots, nil
+		err := state.validate(t.Context(), execution.definition.maxCandidates)
+		if name == "declared without slots" {
+			if err != nil || state.phase() != competitionReady {
+				t.Fatalf("empty slots must mean an undeclared competition: phase=%d err=%v", state.phase(), err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
 	}
 }
