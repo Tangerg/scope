@@ -111,7 +111,7 @@ func treeCommitIdentityFixture(t *testing.T) (EffectBoundary, TreeCheckpoint, Tr
 	previousWriter := controlValue(parseTreeIncarnationID("incarnation:22222222222222222222222222222222"))
 	return controlValue(newEffectBoundary(2, EffectBoundaryKindPending, request, Settlement{}, previous, snapshot)),
 		controlValue(newTreeCheckpoint(2, TreeCheckpointKindProgress, previous, snapshot)),
-		controlValue(newTreeActivation(previousWriter, previous, snapshot.IncarnationID(), snapshot))
+		controlValue(newTreeActivation(previousWriter, previous, snapshot))
 }
 
 func settledIdentityFixture(t *testing.T, boundary EffectBoundary, kind EffectBoundaryKind, settlement Settlement) EffectBoundary {

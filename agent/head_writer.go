@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 )
 
@@ -54,7 +55,10 @@ func (h *headWriter) commitStart(ctx context.Context, snapshot TreeSnapshot) err
 // activate fences the previous writer of snapshot's tree and adopts snapshot,
 // which must carry this writer's identity, as the head of a fresh sequence.
 func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, snapshot TreeSnapshot) error {
-	activation, err := newTreeActivation(previous.IncarnationID(), previous.Digest(), h.identity, snapshot)
+	if snapshot.IncarnationID() != h.identity {
+		return errors.New("agent: activation snapshot does not belong to this writer")
+	}
+	activation, err := newTreeActivation(previous.IncarnationID(), previous.Digest(), snapshot)
 	if err != nil {
 		return err
 	}

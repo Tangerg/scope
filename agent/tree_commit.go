@@ -334,20 +334,17 @@ func classifyCheckpointCut(members iter.Seq2[Status, *preparedStep]) TreeCheckpo
 type TreeActivation struct {
 	previousIncarnationID TreeIncarnationID
 	previousTreeDigest    Digest
-	incarnationID         TreeIncarnationID
 	treeSnapshot          TreeSnapshot
 }
 
 func newTreeActivation(
 	previousIncarnationID TreeIncarnationID,
 	previousTreeDigest Digest,
-	incarnationID TreeIncarnationID,
 	treeSnapshot TreeSnapshot,
 ) (TreeActivation, error) {
 	activation := TreeActivation{
 		previousIncarnationID: previousIncarnationID,
 		previousTreeDigest:    previousTreeDigest,
-		incarnationID:         incarnationID,
 		treeSnapshot:          treeSnapshot,
 	}
 	if !activation.Valid() {
@@ -362,7 +359,7 @@ func (t TreeActivation) PreviousIncarnationID() TreeIncarnationID {
 
 func (t TreeActivation) PreviousTreeDigest() Digest { return t.previousTreeDigest }
 
-func (t TreeActivation) IncarnationID() TreeIncarnationID { return t.incarnationID }
+func (t TreeActivation) IncarnationID() TreeIncarnationID { return t.treeSnapshot.IncarnationID() }
 
 func (t TreeActivation) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
@@ -373,7 +370,7 @@ func (t TreeActivation) Identity() string {
 		return ""
 	}
 	return deriveIdentity(treeCommitIdentityPrefix, "tree-activation",
-		t.treeSnapshot.RootID().String(), t.incarnationID.String()).String()
+		t.treeSnapshot.RootID().String(), t.IncarnationID().String()).String()
 }
 
 // ContentDigest includes both the expected previous writer and head as well as
@@ -395,12 +392,8 @@ func (t TreeActivation) ContentDigest() (Digest, error) {
 }
 
 func (t TreeActivation) Valid() bool {
-	if !t.previousIncarnationID.Valid() || !t.previousTreeDigest.Valid() ||
-		!t.incarnationID.Valid() || t.previousIncarnationID == t.incarnationID ||
-		!t.treeSnapshot.Valid() {
-		return false
-	}
-	return t.treeSnapshot.IncarnationID() == t.incarnationID
+	return t.previousIncarnationID.Valid() && t.previousTreeDigest.Valid() &&
+		t.treeSnapshot.Valid() && t.previousIncarnationID != t.IncarnationID()
 }
 
 // TreeCommitter keeps all recoverable state on one authoritative head so a

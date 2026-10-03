@@ -101,7 +101,7 @@ func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
 	wire := controlValue(runtime.writer.head().wire())
 	wire.IncarnationID = newTreeIncarnationID()
 	prospective := controlValue(newTreeSnapshot(wire))
-	activation := controlValue(newTreeActivation(runtime.writer.head().IncarnationID(), runtime.writer.head().Digest(), wire.IncarnationID, prospective))
+	activation := controlValue(newTreeActivation(runtime.writer.head().IncarnationID(), runtime.writer.head().Digest(), prospective))
 	for range 2 {
 		if err := store.ActivateTree(t.Context(), activation); err != nil {
 			t.Fatal(err)
