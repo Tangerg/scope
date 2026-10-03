@@ -100,7 +100,7 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 				if hasDiagnostic != test.kind.Valid() || hasDiagnostic && (diagnostic.Kind() != test.kind || diagnostic.Code() != test.code || diagnostic.Message() == "" || len(diagnostic.Message()) > MaxDiagnosticBytes) {
 					t.Fatalf("snapshot diagnostic=%+v present=%t", diagnostic, hasDiagnostic)
 				}
-				parsed, parseErr := ParseProcessSnapshot(snapshot.JSON())
+				parsed, parseErr := parseTestProcessSnapshot(snapshot.JSON())
 				if parseErr != nil {
 					t.Fatal(parseErr)
 				}

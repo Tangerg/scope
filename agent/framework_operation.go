@@ -179,10 +179,10 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	if !exists {
 		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
 	}
-	if child.Relation.ParentID == nil || *child.Relation.ParentID != parent {
+	if actualParent, _ := child.Relation.ParentID(); actualParent != parent {
 		return fmt.Errorf("%w: child parent identity disagrees with start", ErrInvalidChildStart)
 	}
-	if child.Relation.ChildKey == nil || *child.Relation.ChildKey != c.spec.Key {
+	if key, _ := child.Relation.ChildKey(); key != c.spec.Key {
 		return fmt.Errorf("%w: child key disagrees with start", ErrInvalidChildStart)
 	}
 	if child.DeploymentRef != c.spec.DeploymentRef {
@@ -242,7 +242,7 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 		return err
 	}
 	child, present := t.processes[result.childID]
-	if !present || child.Relation.ParentID == nil || *child.Relation.ParentID != parent {
+	if actualParent, _ := child.Relation.ParentID(); !present || actualParent != parent {
 		return ErrInvalidChildControl
 	}
 	if result.operation == frameworkOperationCancelChild {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 )
 
@@ -25,16 +24,16 @@ type preparedStepWire struct {
 	Effects        []preparedEffectWire `json:"effects,omitempty"`
 }
 
-func (p preparedStep) MarshalJSON() ([]byte, error) {
+func (p preparedStep) wire() (preparedStepWire, error) {
 	wire := preparedStepWire{CandidateState: p.CandidateState, Intent: p.Intent}
 	for _, record := range p.Effects {
 		effect, err := record.wire()
 		if err != nil {
-			return nil, err
+			return preparedStepWire{}, err
 		}
 		wire.Effects = append(wire.Effects, effect)
 	}
-	return jsonv2.Marshal(wire)
+	return wire, nil
 }
 
 // step rebuilds the prepared Step numbered sequence of processID.

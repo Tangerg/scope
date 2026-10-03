@@ -48,8 +48,9 @@ func (w WaitKind) String() string {
 // An interrupted terminal Process retains its prepared batch as evidence:
 // settled operations keep their actual results, planned operations never run,
 // and the candidate state and input cursor were not adopted.
-// Parsing validates the captured state, not storage acknowledgment or tree
-// capacity; the enclosing [TreeSnapshot] owns the TreeLimits it must satisfy.
+// Its JSON keeps only the parent link of its relation, so it decodes only
+// within the [TreeSnapshot] that supplies the root and depth, and that tree
+// owns the TreeLimits it must satisfy.
 // [Engine.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
 	data  json.RawMessage
@@ -59,51 +60,80 @@ type ProcessSnapshot struct {
 	openChildWaits []ChildWaitOpened
 }
 
-// ParseProcessSnapshot strictly validates one Process snapshot wire value,
-// including single-answer wait history and an open, unanswered current wait
-// when the Process is Waiting or retains a wait while Paused. Prepared Effects
-// must fit the captured capability grant. Terminal prepared batches contain no
-// pending attempt; their unknown identities are the Termination's unresolved
-// Effects, which the captured termination itself never repeats.
-func ParseProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
-	// Every always-emitted member is required: a decoded zero would silently
-	// reset usage, authority, mailbox history, or pending control intent.
-	wire, err := jsonwire.Decode[processSnapshotWire](data,
-		"process_id", "relation", "deployment_ref", "started_at", "committed_steps",
-		"budget", "capabilities", "counters",
-		"committed_execution_state", "mailbox", "pending_control",
-	)
+// processSnapshotRecord carries a Process record's own fields without the
+// wire's encoding methods.
+type processSnapshotRecord processSnapshotWire
+
+// processSnapshotDocument is the persisted form of one Process record. Its
+// relation's root and depth follow from the enclosing tree, so it keeps only
+// the parent link; its prepared Effects are numbered by its own identity and
+// committed progress. Only a tree, which owns that context, decodes it.
+type processSnapshotDocument struct {
+	processSnapshotRecord
+	ParentID *ProcessID        `json:"parent_id,omitzero"`
+	ChildKey *ChildKey         `json:"child_key,omitzero"`
+	Prepared *preparedStepWire `json:"prepared,omitzero"`
+}
+
+// Every always-emitted member is required: a decoded zero would silently
+// reset usage, authority, mailbox history, or pending control intent.
+var processSnapshotRequiredMembers = []string{
+	"process_id", "deployment_ref", "started_at", "committed_steps",
+	"budget", "capabilities", "counters",
+	"committed_execution_state", "mailbox", "pending_control",
+}
+
+func decodeProcessSnapshotDocument(data json.RawMessage) (processSnapshotDocument, error) {
+	document, err := jsonwire.Decode[processSnapshotDocument](data, processSnapshotRequiredMembers...)
 	if err != nil {
-		return ProcessSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
+		return processSnapshotDocument{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
+	}
+	return document, nil
+}
+
+// link reports the parent and ChildKey the document names, or false for a root.
+func (d processSnapshotDocument) link() (childIdentity, bool, error) {
+	switch {
+	case d.ParentID == nil && d.ChildKey == nil:
+		return childIdentity{}, false, nil
+	case d.ParentID != nil && d.ChildKey != nil:
+		return childIdentity{parent: *d.ParentID, key: *d.ChildKey}, true, nil
+	default:
+		return childIdentity{}, false, fmt.Errorf("%w: a child needs both its parent and ChildKey", ErrInvalidSnapshot)
+	}
+}
+
+// snapshot completes the record at relation, which the tree derived from its
+// link, and validates it.
+func (d processSnapshotDocument) snapshot(relation ProcessRelation) (ProcessSnapshot, error) {
+	wire := processSnapshotWire(d.processSnapshotRecord)
+	wire.Relation = relation
+	if d.Prepared != nil {
+		if wire.CommittedSteps == math.MaxUint64 {
+			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
+		}
+		prepared, err := d.Prepared.step(wire.ProcessID, wire.CommittedSteps+1)
+		if err != nil {
+			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step: %w", ErrInvalidSnapshot, err)
+		}
+		wire.Prepared = &prepared
 	}
 	return processSnapshotFromWire(wire)
 }
 
-// UnmarshalJSON decodes the prepared Step against this record's identity and
-// committed progress, which number every prepared Effect and so determine its
-// identity and any Framework settlement.
-func (p *processSnapshotWire) UnmarshalJSON(data []byte) error {
-	type record processSnapshotWire
-	decoded, err := jsonwire.Decode[struct {
-		record
-		Prepared *preparedStepWire `json:"prepared,omitzero"`
-	}](data)
-	if err != nil {
-		return err
+func (p processSnapshotWire) MarshalJSON() ([]byte, error) {
+	document := processSnapshotDocument{processSnapshotRecord: processSnapshotRecord(p)}
+	if identity, child := p.Relation.childIdentity(); child {
+		document.ParentID, document.ChildKey = &identity.parent, &identity.key
 	}
-	value := processSnapshotWire(decoded.record)
-	if decoded.Prepared != nil {
-		if value.CommittedSteps == math.MaxUint64 {
-			return errors.New("prepared Step sequence overflows")
-		}
-		prepared, err := decoded.Prepared.step(value.ProcessID, value.CommittedSteps+1)
+	if p.Prepared != nil {
+		prepared, err := p.Prepared.wire()
 		if err != nil {
-			return fmt.Errorf("prepared Step: %w", err)
+			return nil, err
 		}
-		value.Prepared = &prepared
+		document.Prepared = &prepared
 	}
-	*p = value
-	return nil
+	return jsonv2.Marshal(document)
 }
 
 // The caller transfers the wire's mutable containers. After validation, state
@@ -151,7 +181,7 @@ func (p ProcessSnapshot) Relation() ProcessRelation {
 	if !p.Valid() {
 		return ProcessRelation{}
 	}
-	return mustProcessRelation(p.state.ProcessID, p.state.Relation)
+	return p.state.Relation
 }
 
 func (p ProcessSnapshot) Budget() Budget {
@@ -251,31 +281,11 @@ func (p ProcessSnapshot) WaitKind() (WaitKind, bool) {
 
 func (p ProcessSnapshot) Valid() bool { return len(p.data) > 0 }
 
-func mustProcessRelation(processID ProcessID, wire processRelationWire) ProcessRelation {
-	relation, err := processRelationFromWire(processID, wire)
-	if err != nil {
-		panic(err)
-	}
-	return relation
-}
-
 func (p ProcessSnapshot) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {
 		return nil, ErrInvalidSnapshot
 	}
 	return bytes.Clone(p.data), nil
-}
-
-func (p *ProcessSnapshot) UnmarshalJSON(data []byte) error {
-	if p == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidSnapshot)
-	}
-	value, err := ParseProcessSnapshot(data)
-	if err != nil {
-		return err
-	}
-	*p = value
-	return nil
 }
 
 func (p ProcessSnapshot) wire() (processSnapshotWire, error) {
@@ -297,24 +307,25 @@ type pendingControlWire struct {
 
 // processSnapshotWire persists lifecycle facts, never the Status they project.
 type processSnapshotWire struct {
-	ProcessID               ProcessID           `json:"process_id"`
-	Relation                processRelationWire `json:"relation"`
-	ChildRequestDigest      *Digest             `json:"child_request_digest,omitzero"`
-	DeploymentRef           DeploymentRef       `json:"deployment_ref"`
-	StartedAt               time.Time           `json:"started_at"`
-	FinishedAt              *time.Time          `json:"finished_at,omitzero"`
-	CommittedSteps          uint64              `json:"committed_steps"`
-	Budget                  Budget              `json:"budget"`
-	Capabilities            CapabilitySet       `json:"capabilities"`
-	Counters                processCounters     `json:"counters"`
-	CommittedExecutionState ExecutionState      `json:"committed_execution_state"`
-	Mailbox                 mailboxWire         `json:"mailbox"`
-	Prepared                *preparedStep       `json:"prepared,omitzero"`
-	CurrentWaitID           *WaitID             `json:"current_wait_id,omitzero"`
-	PauseReason             string              `json:"pause_reason,omitempty"`
-	PendingControl          pendingControlWire  `json:"pending_control"`
-	Output                  Payload             `json:"output,omitzero"`
-	Termination             *Termination        `json:"termination,omitzero"`
+	ProcessID ProcessID `json:"process_id"`
+	// Relation is complete in memory; the document persists only its link.
+	Relation                ProcessRelation    `json:"-"`
+	ChildRequestDigest      *Digest            `json:"child_request_digest,omitzero"`
+	DeploymentRef           DeploymentRef      `json:"deployment_ref"`
+	StartedAt               time.Time          `json:"started_at"`
+	FinishedAt              *time.Time         `json:"finished_at,omitzero"`
+	CommittedSteps          uint64             `json:"committed_steps"`
+	Budget                  Budget             `json:"budget"`
+	Capabilities            CapabilitySet      `json:"capabilities"`
+	Counters                processCounters    `json:"counters"`
+	CommittedExecutionState ExecutionState     `json:"committed_execution_state"`
+	Mailbox                 mailboxWire        `json:"mailbox"`
+	Prepared                *preparedStep      `json:"prepared,omitzero"`
+	CurrentWaitID           *WaitID            `json:"current_wait_id,omitzero"`
+	PauseReason             string             `json:"pause_reason,omitempty"`
+	PendingControl          pendingControlWire `json:"pending_control"`
+	Output                  Payload            `json:"output,omitzero"`
+	Termination             *Termination       `json:"termination,omitzero"`
 }
 
 // A one-byte placeholder keeps optional fields present in the real wire codec.
@@ -392,12 +403,6 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 // payloads need independent ownership before retention or mutable restoration.
 func (p processSnapshotWire) clone() processSnapshotWire {
 	clone := p
-	if p.Relation.ParentID != nil {
-		clone.Relation.ParentID = new(*p.Relation.ParentID)
-	}
-	if p.Relation.ChildKey != nil {
-		clone.Relation.ChildKey = new(*p.Relation.ChildKey)
-	}
 	if p.ChildRequestDigest != nil {
 		clone.ChildRequestDigest = new(*p.ChildRequestDigest)
 	}
@@ -453,9 +458,9 @@ func (p processSnapshotWire) validateContract() error {
 }
 
 func (p processSnapshotWire) validateRelation() error {
-	relation, err := processRelationFromWire(p.ProcessID, p.Relation)
-	if err != nil {
-		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, err)
+	relation := p.Relation
+	if !relation.Valid() || relation.ProcessID() != p.ProcessID {
+		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, ErrInvalidProcessRelation)
 	}
 	if relation.IsRoot() != (p.ChildRequestDigest == nil) ||
 		p.ChildRequestDigest != nil && !p.ChildRequestDigest.Valid() {
@@ -502,7 +507,7 @@ func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedStep
 // validateCapacity checks this validated capture against the tree policy that
 // owns its depth, mailbox, and encoded-size bounds.
 func (p ProcessSnapshot) validateCapacity(limits TreeLimits) error {
-	if !limits.admitsDepth(p.state.Relation.Depth) {
+	if !limits.admitsDepth(p.state.Relation.Depth()) {
 		return fmt.Errorf("%w: relation depth exceeds MaxDepth", ErrInvalidSnapshot)
 	}
 	pending := uint64(len(p.state.Mailbox.Signals)) - p.state.Mailbox.SignalCursor

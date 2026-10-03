@@ -225,7 +225,7 @@ func TestSnapshotRejectsMissingAndRetiredQuotaAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	delete(fields, "budget")
-	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("missing budget accepted: %v", err)
 	}
 	for _, name := range []string{"limits", "tree_limits", "allocated_resources"} {
@@ -234,7 +234,7 @@ func TestSnapshotRejectsMissingAndRetiredQuotaAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 		fields[name] = controlValue(jsonv2.Marshal(DefaultTreeLimits()))
-		if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+		if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Fatalf("retired per-Process %s accepted: %v", name, err)
 		}
 	}

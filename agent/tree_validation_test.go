@@ -60,7 +60,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 		if index > 0 {
 			key, _ := snapshot.Relation().ChildKey()
 			parent = childProcessRelation(snapshot.ProcessID(), parent, key)
-			process.Relation = parent.wire()
+			process.Relation = parent
 		}
 		wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(process))
 	}

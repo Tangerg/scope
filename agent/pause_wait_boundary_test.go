@@ -68,7 +68,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 				if _, waiting := snapshot.WaitID(); waiting || snapshot.Status() != StatusPaused {
 					t.Fatal("answer did not clear only the wait")
 				}
-				if _, err := ParseProcessSnapshot(snapshot.JSON()); err != nil {
+				if _, err := parseTestProcessSnapshot(snapshot.JSON()); err != nil {
 					t.Fatal(err)
 				}
 			}

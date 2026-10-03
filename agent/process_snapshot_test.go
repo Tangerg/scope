@@ -30,7 +30,7 @@ func TestSnapshotStrictlyRejectsUnknownFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseProcessSnapshot(data); err == nil {
+	if _, err := parseTestProcessSnapshot(data); err == nil {
 		t.Fatal("ParseSnapshot accepted an unknown application field")
 	}
 }
@@ -53,7 +53,7 @@ func TestSnapshotCanonicalizesRecordedInstants(t *testing.T) {
 	if bytes.Equal(rendered, snapshot.JSON()) {
 		t.Fatal("fixture did not change the rendered offset")
 	}
-	parsed, err := ParseProcessSnapshot(rendered)
+	parsed, err := parseTestProcessSnapshot(rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			parsed, err := ParseProcessSnapshot(snapshot.JSON())
+			parsed, err := parseTestProcessSnapshot(snapshot.JSON())
 			if err != nil || !bytes.Equal(snapshot.JSON(), parsed.JSON()) {
 				t.Fatalf("structured construction and parsing disagree: %v", err)
 			}
@@ -160,7 +160,7 @@ func TestPreparedSnapshotRejectsCopiedProgress(t *testing.T) {
 			}
 			prepared[name] = value
 			wire["prepared"] = controlValue(jsonv2.Marshal(prepared))
-			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
+			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("copied prepared progress accepted: %v", err)
 			}
 		})
@@ -191,7 +191,7 @@ func TestPreparedConsumptionUsesOnlyPendingSignals(t *testing.T) {
 	for _, consumed := range []uint32{0, 1, 2, math.MaxUint32} {
 		wire.Prepared.Intent = controlValue(Continue(consumed))
 		data := controlValue(jsonv2.Marshal(wire))
-		snapshot, parseErr := ParseProcessSnapshot(data)
+		snapshot, parseErr := parseTestProcessSnapshot(data)
 		if consumed > 1 {
 			if !errors.Is(parseErr, ErrInvalidSnapshot) {
 				t.Fatalf("consumption %d exceeds the pending suffix: %v", consumed, parseErr)
@@ -219,7 +219,7 @@ func TestSnapshotRejectsRetiredUsageRepresentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("retired usage accepted: %v", err)
 	}
 }
@@ -240,7 +240,7 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("prepared Step overflow error = %v, want ErrInvalidSnapshot", err)
 	}
 }
@@ -257,7 +257,7 @@ func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
-		_, parseErr := ParseProcessSnapshot(data)
+		_, parseErr := parseTestProcessSnapshot(data)
 		if count == 0 {
 			if !errors.Is(parseErr, ErrInvalidSnapshot) {
 				t.Errorf("uncounted prepared Effect parse error = %v; want ErrInvalidSnapshot", parseErr)
@@ -407,7 +407,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = ParseProcessSnapshot(data)
+			_, err = parseTestProcessSnapshot(data)
 			if sample.valid && err != nil {
 				t.Fatalf("legal progress rejected: %v", err)
 			}
@@ -422,7 +422,7 @@ func FuzzSnapshotJSONRoundTrip(f *testing.F) {
 	snapshot := completedEngineTestSnapshot(f)
 	f.Add([]byte(snapshot.JSON()))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		parsed, err := ParseProcessSnapshot(data)
+		parsed, err := parseTestProcessSnapshot(data)
 		if err != nil {
 			return
 		}
@@ -430,7 +430,7 @@ func FuzzSnapshotJSONRoundTrip(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reparsed, err := ParseProcessSnapshot(encoded)
+		reparsed, err := parseTestProcessSnapshot(encoded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -516,7 +516,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := ParseProcessSnapshot(snapshot.JSON())
+	restored, err := parseTestProcessSnapshot(snapshot.JSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +555,7 @@ func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 				t.Fatal(err)
 			}
 			delete(fields, name)
-			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("missing %s accepted: %v", name, err)
 			}
 		}
@@ -570,7 +570,7 @@ func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 			}
 			delete(counters, name)
 			fields["counters"] = controlValue(jsonv2.Marshal(counters))
-			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("missing counters.%s accepted: %v", name, err)
 			}
 		}
@@ -603,7 +603,20 @@ func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
 	effects[0]["id"] = controlValue(jsonv2.Marshal(wire.Prepared.Effects[0].ID))
 	prepared["effects"] = controlValue(jsonv2.Marshal(effects))
 	fields["prepared"] = controlValue(jsonv2.Marshal(prepared))
-	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("snapshot accepted a stored copy of a derived EffectID: %v", err)
 	}
+}
+
+// parseTestProcessSnapshot decodes a root Process record, the only record
+// whose relation needs no enclosing tree.
+func parseTestProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
+	document, err := decodeProcessSnapshotDocument(data)
+	if err != nil {
+		return ProcessSnapshot{}, err
+	}
+	if _, child, linkErr := document.link(); linkErr != nil || child {
+		return ProcessSnapshot{}, errors.Join(ErrInvalidSnapshot, linkErr, errors.New("test parses only root records"))
+	}
+	return document.snapshot(rootProcessRelation(document.ProcessID))
 }

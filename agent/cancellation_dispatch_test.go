@@ -201,7 +201,7 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ParseProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
+		if _, err := parseTestProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Errorf("%s accepted: %v", name, err)
 		}
 	}

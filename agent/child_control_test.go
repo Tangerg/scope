@@ -238,16 +238,19 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
+	childKey := controlValue(ParseChildKey("recipient"))
 	child := processSnapshotWire{ProcessID: childID,
-		Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
+		Relation: childProcessRelation(childID, rootProcessRelation(parentID), childKey), Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
 	for name, mutate := range map[string]func(*processSnapshotWire){
 		"missing receipt": func(child *processSnapshotWire) { child.Mailbox.Signals = nil },
 		"wrong payload": func(child *processSnapshotWire) {
 			child.Mailbox.Signals[0].Payload = []byte(`"other"`)
 		},
-		"wrong wait":   func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
-		"wrong parent": func(child *processSnapshotWire) { child.Relation.ParentID = new(newProcessID()) },
-		"not a child":  func(child *processSnapshotWire) { child.Relation.ParentID = nil },
+		"wrong wait": func(child *processSnapshotWire) { child.Mailbox.Signals[0].WaitID = new(id.waitID()) },
+		"wrong parent": func(child *processSnapshotWire) {
+			child.Relation = childProcessRelation(childID, rootProcessRelation(newProcessID()), childKey)
+		},
+		"not a child": func(child *processSnapshotWire) { child.Relation = rootProcessRelation(childID) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			altered := child

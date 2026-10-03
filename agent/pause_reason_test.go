@@ -46,7 +46,7 @@ func TestPauseReasonSurvivesControlAndRestoration(t *testing.T) {
 			}
 			waitForStatus(t, process, StatusPaused)
 			tree := controlValue(ParseTreeSnapshot(controlValue(engine.CaptureTree(t.Context(), process.ID())).JSON()))
-			paused := controlValue(ParseProcessSnapshot(tree.ProcessSnapshots()[0].JSON()))
+			paused := controlValue(parseTestProcessSnapshot(tree.ProcessSnapshots()[0].JSON()))
 			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || wire.status() != StatusPaused {
 				t.Fatal("capture changed the pause reason or status")
 			}
@@ -114,7 +114,7 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 				t.Fatalf("invalid current Pause capture: %v", err)
 			}
 			if encoded, err := jsonv2.Marshal(wire); err == nil {
-				if _, err := ParseProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
+				if _, err := parseTestProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
 					t.Fatalf("invalid current Pause parsing: %v", err)
 				}
 			}
@@ -124,7 +124,7 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 				t.Fatalf("invalid pending Pause capture: %v", err)
 			}
 			if encoded, err := jsonv2.Marshal(wire); err == nil {
-				if _, err := ParseProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
+				if _, err := parseTestProcessSnapshot(encoded); !errors.Is(err, ErrInvalidSnapshot) {
 					t.Fatalf("invalid pending Pause parsing: %v", err)
 				}
 			}
@@ -137,7 +137,7 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 	process := runtime.members.get(runtime.rootID)
 	process.pause = pause{reason: strings.Repeat("\x00", 4096)}
 	process.pendingControl.pause = pause{reason: strings.Repeat("\x01", 4096)}
-	snapshot := controlValue(ParseProcessSnapshot(controlValue(process.capture()).JSON()))
+	snapshot := controlValue(parseTestProcessSnapshot(controlValue(process.capture()).JSON()))
 	restored, err := prepareRestoredProcess(t.Context(), process.deployment(), snapshot)
 	if err != nil {
 		t.Fatal(err)

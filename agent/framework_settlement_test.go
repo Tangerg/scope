@@ -95,7 +95,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 			if err != nil {
 				t.Fatalf("valid wait rejected: %v", err)
 			}
-			restored := controlValue(controlValue(ParseProcessSnapshot(snapshot.JSON())).wire())
+			restored := controlValue(controlValue(parseTestProcessSnapshot(snapshot.JSON())).wire())
 			if settlement := restored.Prepared.Effects[0].settlement(); settlement == nil || !settlement.equal(*record.settlement()) {
 				t.Fatalf("restored wait settlement = %+v, want %+v", settlement, record.settlement())
 			}
@@ -117,7 +117,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 			effects[0]["settlement"] = json.RawMessage(`{"status":"succeeded","payload":{"forged":true}}`)
 			prepared["effects"] = controlValue(jsonv2.Marshal(effects))
 			fields["prepared"] = controlValue(jsonv2.Marshal(prepared))
-			if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("stored wait settlement accepted: %v", err)
 			}
 		})

@@ -645,7 +645,7 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 func (p *processState) snapshotWire() processSnapshotWire {
 	wire := processSnapshotWire{
 		ProcessID:     p.handle.processID,
-		Relation:      p.handle.relation.wire(),
+		Relation:      p.handle.relation,
 		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
 		CommittedSteps: p.committedSteps,
 		Budget:         p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,

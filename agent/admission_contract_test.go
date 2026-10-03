@@ -105,7 +105,7 @@ func TestUnsupportedDeadlineFactsAreRejected(t *testing.T) {
 	process := admissionTestProcess(t, 0)
 	wire := controlValue(controlValue(process.capture()).wire())
 	wire.PendingControl = pendingControlWire{DeadlineOwner: deadlineOwner("process"), DeadlineReason: "deadline reached"}
-	if _, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Errorf("snapshot accepted unsupported deadline: %v", err)
 	}
 }

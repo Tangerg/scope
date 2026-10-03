@@ -115,7 +115,7 @@ func TestPreparedSnapshotEnforcesEffectCapabilities(t *testing.T) {
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
-		_, parseErr := ParseProcessSnapshot(encoded)
+		_, parseErr := parseTestProcessSnapshot(encoded)
 		if allowed {
 			if parseErr != nil {
 				t.Fatalf("granted Effect rejected: %v", parseErr)

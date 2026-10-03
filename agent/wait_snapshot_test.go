@@ -120,7 +120,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, parseErr := ParseProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
+			if _, parseErr := parseTestProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
 				t.Errorf("Process parser = %v; want ErrInvalidSnapshot", parseErr)
 			}
 			var fields map[string]json.RawMessage

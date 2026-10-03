@@ -701,7 +701,7 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 	}
 	foreign := base.clone()
 	foreign.ProcessID, _ = ParseProcessID("foreign")
-	foreign.Relation = rootProcessRelation(foreign.ProcessID).wire()
+	foreign.Relation = rootProcessRelation(foreign.ProcessID)
 	foreignSnapshot, err := newProcessSnapshot(foreign)
 	if err != nil {
 		t.Fatal(err)
@@ -710,7 +710,7 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 	orphan.ProcessID, _ = ParseProcessID("orphan")
 	parentID, _ := ParseProcessID("absent")
 	key, _ := ParseChildKey("orphan")
-	orphan.Relation = processRelationWire{ParentID: &parentID, RootID: tree.RootID(), ChildKey: &key, Depth: 1}
+	orphan.Relation = childProcessRelation(orphan.ProcessID, ProcessRelation{processID: parentID, rootID: tree.RootID()}, key)
 	digest := ComputeDigest([]byte("orphan request"))
 	orphan.ChildRequestDigest = &digest
 	orphanSnapshot, err := newProcessSnapshot(orphan)

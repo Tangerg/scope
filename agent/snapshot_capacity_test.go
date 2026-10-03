@@ -163,7 +163,7 @@ func TestPreparedSnapshotHasOneEffectRepresentation(t *testing.T) {
 		t.Fatalf("duplicate representation accepted: %v", err)
 	}
 	obsolete := bytes.Replace(encoded, []byte(`"intent":`), []byte(`"transition":`), 1)
-	if _, err := ParseProcessSnapshot(obsolete); !errors.Is(err, ErrInvalidSnapshot) {
+	if _, err := parseTestProcessSnapshot(obsolete); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("obsolete schema accepted: %v", err)
 	}
 }

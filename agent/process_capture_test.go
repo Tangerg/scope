@@ -23,7 +23,7 @@ func TestRepeatedCaptureTracksControlSignalsAndReservations(t *testing.T) {
 		if bytes.Equal(previous.JSON(), snapshot.JSON()) {
 			t.Fatal("capture retained superseded protocol state")
 		}
-		parsed, err := ParseProcessSnapshot(snapshot.JSON())
+		parsed, err := parseTestProcessSnapshot(snapshot.JSON())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if bytes.Equal(pending.JSON(), settled.JSON()) {
 		t.Fatal("capture retained the pending Effect after settlement")
 	}
-	parsed, err := ParseProcessSnapshot(settled.JSON())
+	parsed, err := parseTestProcessSnapshot(settled.JSON())
 	if err != nil {
 		t.Fatal(err)
 	}

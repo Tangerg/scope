@@ -211,7 +211,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, parseErr := ParseProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
+			if _, parseErr := parseTestProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
 				t.Fatalf("unfunded reservation error=%v", parseErr)
 			}
 		})
