@@ -16,17 +16,21 @@ func TestDrainedTreeSnapshotRendersAnswersFromTheirChildren(t *testing.T) {
 	last := len(root.state.Mailbox.Signals) - 1
 	for _, test := range []struct {
 		name   string
-		change func(*signalRecordDocument)
+		change func([]signalRecordDocument)
 	}{
-		{"reversed", func(record *signalRecordDocument) { slices.Reverse(record.Answered) }},
-		{"duplicate", func(record *signalRecordDocument) { record.Answered[1] = record.Answered[0] }},
-		{"foreign child", func(record *signalRecordDocument) { record.Answered[0] = newProcessID() }},
-		{"missing children", func(record *signalRecordDocument) { record.Answered = nil }},
-		{"stored payload", func(record *signalRecordDocument) { record.Payload = root.state.Mailbox.Signals[last].Payload }},
+		{"reversed", func(records []signalRecordDocument) { slices.Reverse(records[last].Answered) }},
+		{"duplicate", func(records []signalRecordDocument) { records[last].Answered[1] = records[last].Answered[0] }},
+		{"foreign child", func(records []signalRecordDocument) { records[last].Answered[0] = newProcessID() }},
+		{"missing children", func(records []signalRecordDocument) { records[last].Answered = nil }},
+		{"stored payload", func(records []signalRecordDocument) { records[last].Payload = root.state.Mailbox.Signals[last].Payload }},
+		{"stored identity", func(records []signalRecordDocument) {
+			records[last].ID = new(records[last].WaitID.childWaitSignalID())
+		}},
+		{"unnamed opening", func(records []signalRecordDocument) { records[0].ID = nil }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			encoded := treeJSONWithDocument(t, snapshot, root.ProcessID(), func(document *processSnapshotDocument) {
-				test.change(&document.Mailbox.Signals[last])
+				test.change(document.Mailbox.Signals)
 			})
 			if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
 				t.Fatalf("invalid answer accepted: %v", err)

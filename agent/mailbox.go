@@ -430,9 +430,10 @@ type mailboxWire struct {
 	SignalCursor uint64             `json:"signal_cursor"`
 }
 
-// mailboxDocument is the persisted mailbox. A pending child-wait answer keeps
-// only the children it answered with, in request order: their retained records
-// determine its outcomes, so only the enclosing tree can decode it.
+// mailboxDocument is the persisted mailbox. A child-wait answer omits the
+// SignalID its wait derives, and while pending keeps only the children it
+// answered with, in request order: their retained records determine its
+// outcomes, so only the enclosing tree can decode it.
 type mailboxDocument struct {
 	Signals      []signalRecordDocument `json:"signals,omitempty"`
 	SignalCursor uint64                 `json:"signal_cursor"`
@@ -440,7 +441,26 @@ type mailboxDocument struct {
 
 type signalRecordDocument struct {
 	signalRecordWire
+	ID       *SignalID   `json:"id,omitzero"`
 	Answered []ProcessID `json:"answered,omitempty"`
+}
+
+// record restores the record's identity: a child-wait answer is the record
+// addressed to a wait it did not open without naming its own SignalID.
+func (s signalRecordDocument) record() (signalRecordWire, error) {
+	record := s.signalRecordWire
+	if s.ID != nil {
+		record.ID = *s.ID
+		if record.answersChildWait() {
+			return signalRecordWire{}, fmt.Errorf("%w: child-wait answer stores the SignalID its wait derives", errMailboxCursor)
+		}
+		return record, nil
+	}
+	if record.WaitID == nil || record.Opens != nil {
+		return signalRecordWire{}, fmt.Errorf("%w: only a child-wait answer omits its SignalID", errMailboxCursor)
+	}
+	record.ID = record.WaitID.childWaitSignalID()
+	return record, nil
 }
 
 // childOutcomeSource derives the outcome a direct child reached at boundary.
@@ -450,7 +470,11 @@ func (m mailboxWire) document() (mailboxDocument, error) {
 	document := mailboxDocument{SignalCursor: m.SignalCursor, Signals: make([]signalRecordDocument, len(m.Signals))}
 	for index, record := range m.Signals {
 		document.Signals[index].signalRecordWire = record
-		if uint64(index) < m.SignalCursor || !record.answersChildWait() {
+		if !record.answersChildWait() {
+			document.Signals[index].ID = new(record.ID)
+			continue
+		}
+		if uint64(index) < m.SignalCursor {
 			continue
 		}
 		signal, err := NewSignal(record.ID, *record.WaitID, record.Payload)
@@ -477,7 +501,10 @@ func (m mailboxDocument) wire(outcomes childOutcomeSource) (mailboxWire, error) 
 	wire := mailboxWire{SignalCursor: m.SignalCursor, Signals: make([]signalRecordWire, len(m.Signals))}
 	specs := make(map[WaitID]childWaitSpecWire)
 	for index, document := range m.Signals {
-		record := document.signalRecordWire
+		record, err := document.record()
+		if err != nil {
+			return mailboxWire{}, err
+		}
 		if record.Opens != nil && record.Opens.Spec != nil && record.WaitID != nil {
 			specs[*record.WaitID] = *record.Opens.Spec
 		}
@@ -502,9 +529,6 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 		return nil, fmt.Errorf("%w: pending child-wait answer stores content its children determine", errMailboxCursor)
 	}
 	waitID := *record.WaitID
-	if record.ID != waitID.childWaitSignalID() {
-		return nil, fmt.Errorf("%w: child-wait answer identity does not derive from its wait", errWaitState)
-	}
 	spec, err := opening.value()
 	if err != nil {
 		return nil, fmt.Errorf("%w: child-wait answer needs its opened wait: %w", errWaitState, err)
