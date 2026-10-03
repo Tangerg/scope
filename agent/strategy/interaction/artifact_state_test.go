@@ -174,3 +174,19 @@ func TestChildSignalFailuresPreserveProtocolCause(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenRoundKeepsItsArtifactsInItsResults(t *testing.T) {
+	execution := childBatchTestExecution(t, childCallsDelegate, phaseWaitingChildren)
+	output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
+	execution.state.ArtifactRecords = []artifactRecord{{
+		ModelCallSequence: execution.state.ModelCallCount, ToolCallIndex: 0, ToolCallID: "call_batch",
+		DelegateName: "delegate_fuzz", Output: output,
+	}}
+	captured, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execution.definition.Restore(t.Context(), captured); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("open round stored a copy of its own Delegate result: %v", err)
+	}
+}

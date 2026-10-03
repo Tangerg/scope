@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -102,12 +101,6 @@ func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) 
 func (a artifactRecord) follows(previous artifactRecord) bool {
 	return a.ModelCallSequence > previous.ModelCallSequence ||
 		a.ModelCallSequence == previous.ModelCallSequence && a.ToolCallIndex > previous.ToolCallIndex
-}
-
-func (a artifactRecord) matchesSettled(call chat.ToolCall, result chat.ToolResult) bool {
-	return call.ID == a.ToolCallID && call.Name == a.DelegateName && !result.IsError &&
-		result.ID == call.ID && result.Name == call.Name &&
-		bytes.Equal(result.Output.Details, a.Output.JSON()) && len(result.Output.Content) == 0
 }
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
@@ -301,11 +294,16 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 		toolCallID        string
 	}
 	seen := make(map[artifactIdentity]struct{}, len(e.ArtifactRecords))
+	// The current round's Delegate results are its Artifacts until it ends.
+	latest := e.ModelCallCount
+	if e.ToolRound != nil {
+		latest--
+	}
 	for index, artifact := range e.ArtifactRecords {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := artifact.validate(definition, e.ModelCallCount); err != nil {
+		if err := artifact.validate(definition, latest); err != nil {
 			return fmt.Errorf("%w: artifact %d %w", ErrInvalidExecutionState, index, err)
 		}
 		if index > 0 && !artifact.follows(e.ArtifactRecords[index-1]) {
@@ -317,34 +315,31 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 		}
 		seen[identity] = struct{}{}
 	}
-	return e.validateCurrentBatchArtifacts(ctx)
+	return ctx.Err()
 }
 
-func (e executionState) validateCurrentBatchArtifacts(ctx context.Context) error {
-	if e.ToolRound == nil || len(e.ArtifactRecords) == 0 ||
-		e.ArtifactRecords[len(e.ArtifactRecords)-1].ModelCallSequence != e.ModelCallCount {
-		return nil
-	}
+// recordRoundArtifacts outlives the round its successful Delegate results
+// belong to. Until the round ends those results are the Artifacts, so a
+// record is created only as the round's results leave for the model context.
+func (e *executionState) recordRoundArtifacts(definition *Definition) error {
 	calls, err := validatedToolCalls(e.ToolRound.Response)
 	if err != nil {
-		return fmt.Errorf("%w: current-round artifact has no pending ToolCall batch", ErrInvalidExecutionState)
+		return err
 	}
-	for _, artifact := range e.ArtifactRecords {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if artifact.ModelCallSequence != e.ModelCallCount {
+	for index, result := range e.ToolRound.Results {
+		if _, delegated := definition.delegate(calls[index].Name); !delegated || result.Result.IsError || result.Rejected {
 			continue
 		}
-		if uint64(artifact.ToolCallIndex) >= uint64(len(calls)) ||
-			uint64(artifact.ToolCallIndex) >= uint64(len(e.ToolRound.Results)) {
-			return fmt.Errorf("%w: current-round artifact is not settled", ErrInvalidExecutionState)
+		output, err := agent.ParsePayload(result.Result.Output.Details)
+		if err != nil {
+			return fmt.Errorf("%w: Delegate result output: %w", ErrInvalidExecutionState, err)
 		}
-		if !artifact.matchesSettled(calls[artifact.ToolCallIndex], e.ToolRound.Results[artifact.ToolCallIndex].Result) {
-			return fmt.Errorf("%w: current-round artifact does not match its settled ToolCall result", ErrInvalidExecutionState)
-		}
+		e.ArtifactRecords = append(e.ArtifactRecords, artifactRecord{
+			ModelCallSequence: e.ModelCallCount, ToolCallIndex: uint32(index),
+			ToolCallID: calls[index].ID, DelegateName: calls[index].Name, Output: output,
+		})
 	}
-	return ctx.Err()
+	return nil
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

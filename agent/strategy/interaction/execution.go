@@ -303,6 +303,9 @@ func (e *execution) finishToolCallBatch(
 		direct = direct && result.Direct
 	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
+	if err := e.state.recordRoundArtifacts(e.definition); err != nil {
+		return agent.Transition{}, err
+	}
 	e.state.ToolRound = nil
 	if direct {
 		return e.finishOrRetry(ctx, consumedSignals, Output{
@@ -637,11 +640,6 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	if !present || !found || delegate.outputSchema.Validate(output.JSON()) != nil {
 		return fmt.Errorf("%w: Delegate child output violates its frozen contract", ErrInvalidExecutionState)
 	}
-	e.state.ArtifactRecords = append(e.state.ArtifactRecords, artifactRecord{
-		ModelCallSequence: e.state.ModelCallCount,
-		ToolCallIndex:     e.state.ToolRound.nextCallIndex() + uint32(index),
-		ToolCallID:        call.ID, DelegateName: call.Name, Output: output,
-	})
 	return nil
 }
 
