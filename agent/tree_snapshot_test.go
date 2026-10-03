@@ -585,7 +585,7 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 	invalidOutput, _ := EncodePayload(struct {
 		Unexpected bool `json:"unexpected"`
 	}{Unexpected: true})
-	wire.Output = invalidOutput
+	wire.Finish.Output = invalidOutput
 	forged, err := newProcessSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)

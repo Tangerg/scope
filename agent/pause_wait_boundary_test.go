@@ -160,7 +160,7 @@ func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	if runtime.writer.committing() {
 		runtime.applyTreeCommitCompletion(<-runtime.writer.done)
 	}
-	if process.status() != StatusCompleted || controlValue(process.finalOutput.Decode[engineTestOutput]()).Value != "approved" {
+	if process.status() != StatusCompleted || controlValue(process.finish.Output.Decode[engineTestOutput]()).Value != "approved" {
 		t.Fatal("resumed wait lost its answer")
 	}
 }

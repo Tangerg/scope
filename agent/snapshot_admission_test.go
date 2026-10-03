@@ -48,10 +48,11 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
-		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object is larger than a control cause and reason.
-		termination := failure.termination()
-		p.Termination = &termination
+		p.Finish = &processFinish{
+			Termination: failure.termination(),
+			FinishedAt:  time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC),
+		}
 	}
 	encoded, err := jsonv2.Marshal(p)
 	if err != nil {
@@ -169,9 +170,10 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 			}
 		}
 		wire.PauseReason, wire.CurrentWaitID = "", nil
-		termination := controlValue(NewFailure(FailureKindExecution, "test.failure", "done")).termination()
-		wire.Termination = &termination
-		wire.FinishedAt = new(time.Now().UTC())
+		wire.Finish = &processFinish{
+			Termination: controlValue(NewFailure(FailureKindExecution, "test.failure", "done")).termination(),
+			FinishedAt:  time.Now().UTC(),
+		}
 		if got, want := controlValue(wire.admissionSize(limits)), uint64(len(controlValue(jsonv2.Marshal(wire)))); got != want {
 			t.Fatalf("terminal: %d != %d", got, want)
 		}

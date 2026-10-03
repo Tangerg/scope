@@ -23,7 +23,7 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 		t.Fatalf("pause child wait: %v", err)
 	}
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
-	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
+	second.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
 	runtime.finishIfTerminal(second)
 	if parent.status() != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
 		t.Fatal("child completion did not clear only the wait")
@@ -39,7 +39,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	parent := runtime.members.get(parentID)
 	waitID := parent.currentWaitID
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
-	second.installTermination(first.termination, first.finalOutput, first.finishedAt)
+	second.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
 	runtime.finishIfTerminal(second)
 	owners := runtime.members.childrenOf(runtime.rootID)
 	for _, ownerID := range owners {
@@ -86,7 +86,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	if other == parent {
 		other = runtime.members.get(owners[1])
 	}
-	other.installTermination(first.termination, first.finalOutput, first.finishedAt)
+	other.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
 	runtime.finishIfTerminal(other)
 	if openWaits() != 1 {
 		t.Fatal("terminating one parent closed another parent's wait")

@@ -158,7 +158,7 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 				t.Fatal("rejected finalization changed Process facts or opened child waits")
 			}
 			runtime.advancePrepared(parent)
-			failure, failed := parent.termination.Failure()
+			failure, failed := parent.finish.Termination.Failure()
 			if !failed || failure.Code() != failureCodeEngineLimitChildWaitSignal {
 				t.Fatalf("oversized completion did not terminate explicitly: %+v", failure)
 			}

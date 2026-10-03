@@ -59,7 +59,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := &processState{
-		handle: handle, finishedAt: parent.handle.startedAt, finalOutput: output, termination: termination,
+		handle: handle, finish: &processFinish{Termination: termination, FinishedAt: parent.handle.startedAt, Output: output},
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())

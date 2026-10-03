@@ -106,8 +106,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		key, _ := ParseChildKey(name)
 		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
-			finishedAt:  now,
-			termination: termination, finalOutput: output,
+			finish: &processFinish{Termination: termination, FinishedAt: now, Output: output},
 			handle: &processHandle{processID: id, relation: relation, startedAt: now, budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}},
 		}
 		if !last.result().Valid() {

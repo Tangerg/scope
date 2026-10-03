@@ -29,7 +29,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 	if process.status() != StatusFailed {
 		t.Fatalf("status = %s, want %s", process.status(), StatusFailed)
 	}
-	failure, present := process.termination.Failure()
+	failure, present := process.finish.Termination.Failure()
 	if !present || failure.Code() != "engine.limit.steps" {
 		t.Fatalf("failure = %+v, present = %t", failure, present)
 	}

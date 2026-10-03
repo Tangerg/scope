@@ -10,6 +10,10 @@ import (
 	"reflect"
 	"slices"
 	"time"
+
+	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 type processState struct {
@@ -21,7 +25,6 @@ type processState struct {
 	// snapshots and externally visible transitions in one deterministic order.
 	execution               Execution
 	preparedExecution       Execution
-	finishedAt              time.Time
 	committedSteps          uint64
 	processEventSequence    uint64
 	committedExecutionState ExecutionState
@@ -30,8 +33,7 @@ type processState struct {
 	currentWaitID           WaitID
 	pause                   pause
 	pendingControl          pendingControl
-	finalOutput             Payload
-	termination             Termination
+	finish                  *processFinish
 	snapshot                ProcessSnapshot
 	snapshotSealed          bool
 
@@ -96,7 +98,7 @@ func (p *processState) preparedStepSequence() uint64 { return p.committedSteps +
 func (p *processState) deployment() Deployment { return p.handle.deployment }
 
 func (p *processState) status() Status {
-	return lifecycleStatus(p.termination, p.pause.valid(), p.currentWaitID.Valid())
+	return lifecycleStatus(lo.FromPtr(p.finish).Termination, p.pause.valid(), p.currentWaitID.Valid())
 }
 
 func (p *processState) adoptCandidate(candidate *processState) {
@@ -238,10 +240,10 @@ func (p *processState) prepareResolution(settlement Settlement, limits TreeLimit
 // Effects left unknown own the identities it leaves unresolved, so the
 // installed termination never stores a copy.
 func (p *processState) publishedTermination() Termination {
-	if !p.termination.Valid() {
-		return p.termination
+	if p.finish == nil {
+		return Termination{}
 	}
-	return p.termination.withUnresolvedEffectIDs(p.unknownEffectIDs())
+	return p.finish.Termination.withUnresolvedEffectIDs(p.unknownEffectIDs())
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {
@@ -324,7 +326,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 func (p *processState) result() Result {
 	return Result{
 		processID: p.handle.processID, startedAt: p.handle.startedAt,
-		finishedAt: p.finishedAt, output: p.finalOutput,
+		finishedAt: lo.FromPtr(p.finish).FinishedAt, output: lo.FromPtr(p.finish).Output,
 		termination: p.publishedTermination(), usage: p.usage(),
 	}
 }
@@ -478,19 +480,35 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 	p.pendingControl.recordFailure(newEngineFailure(kind, code, err))
 }
 
+// processFinish is a terminal Process's committed ending: a Process has
+// finished exactly when it has one, and only a Completion carries Output.
+type processFinish struct {
+	Termination Termination `json:"termination"`
+	FinishedAt  time.Time   `json:"finished_at"`
+	Output      Payload     `json:"output,omitzero"`
+}
+
+func (p *processFinish) UnmarshalJSON(data []byte) error {
+	type wire processFinish
+	value, err := jsonwire.Decode[wire](data, "termination", "finished_at")
+	if err != nil {
+		return err
+	}
+	*p = processFinish(value)
+	return nil
+}
+
 func (p *processState) installTermination(termination Termination, output Payload, finishedAt time.Time) {
 	if p.status().Terminal() {
 		return
 	}
-	p.termination = termination
-	p.finishedAt = finishedAt
+	p.finish = &processFinish{Termination: termination, FinishedAt: finishedAt}
 	p.mailbox.closeAllWaits()
 	p.currentWaitID = WaitID{}
 	p.pause = pause{}
 	p.pendingControl = pendingControl{}
-	p.finalOutput = Payload{}
 	if p.status() == StatusCompleted {
-		p.finalOutput = output
+		p.finish.Output = output
 	}
 }
 
@@ -510,8 +528,8 @@ func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
 }
 
 func (p *processState) effectiveTermination() Termination {
-	if p.status().Terminal() {
-		return p.termination
+	if p.finish != nil {
+		return p.finish.Termination
 	}
 	return p.resolveStepTermination(stepOutcome{})
 }
@@ -521,11 +539,12 @@ func (p *processState) terminalEventPayload() json.RawMessage {
 	eventPayload := processFinishedEventPayload{
 		Usage: &usage,
 	}
-	if failure, failed := p.termination.Failure(); failed {
+	termination := lo.FromPtr(p.finish).Termination
+	if failure, failed := termination.Failure(); failed {
 		eventPayload.FailureKind = failure.Kind()
 		eventPayload.FailureCode = failure.Code()
 	} else {
-		eventPayload.TerminationCause = p.termination.Cause()
+		eventPayload.TerminationCause = termination.Cause()
 	}
 	return marshalEventPayload(eventPayload)
 }
@@ -656,18 +675,12 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		digest := p.handle.childRequestDigest
 		wire.ChildRequestDigest = &digest
 	}
-	if !p.finishedAt.IsZero() {
-		finishedAt := p.finishedAt
-		wire.FinishedAt = &finishedAt
-	}
 	if p.currentWaitID.Valid() {
 		waitID := p.currentWaitID
 		wire.CurrentWaitID = &waitID
 	}
-	wire.Output = p.finalOutput
-	if p.termination.Valid() {
-		termination := p.termination
-		wire.Termination = &termination
+	if p.finish != nil {
+		wire.Finish = new(*p.finish)
 	}
 	if p.prepared != nil {
 		prepared := p.prepared.clone()

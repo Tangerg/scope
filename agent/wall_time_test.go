@@ -40,10 +40,10 @@ func TestRestoreCompletesWithEarlierWallTime(t *testing.T) {
 					t.Fatalf("terminal snapshot rejected clock skew: %v", parseErr)
 				}
 				wire, err := captured.ProcessSnapshots()[0].wire()
-				if err != nil || wire.StartedAt != result.StartedAt() || *wire.FinishedAt != result.FinishedAt() {
+				if err != nil || wire.StartedAt != result.StartedAt() || wire.Finish.FinishedAt != result.FinishedAt() {
 					t.Fatalf("snapshot changed observed times: %v, %v", wire, err)
 				}
-				wire.FinishedAt = new(time.Time{})
+				wire.Finish.FinishedAt = time.Time{}
 				if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
 					t.Fatalf("missing terminal time accepted: %v", err)
 				}

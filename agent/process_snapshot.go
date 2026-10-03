@@ -153,9 +153,10 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	// A decoded instant may carry any offset; the canonical encoding, and so
 	// the digest, must not depend on how a store rendered it.
 	wire.StartedAt = canonicalTime(wire.StartedAt)
-	if wire.FinishedAt != nil {
-		finishedAt := canonicalTime(*wire.FinishedAt)
-		wire.FinishedAt = &finishedAt
+	if wire.Finish != nil {
+		finish := *wire.Finish
+		finish.FinishedAt = canonicalTime(finish.FinishedAt)
+		wire.Finish = &finish
 	}
 	mailbox, err := wire.validate()
 	if err != nil {
@@ -324,7 +325,6 @@ type processSnapshotWire struct {
 	ChildRequestDigest      *Digest            `json:"child_request_digest,omitzero"`
 	DeploymentRef           DeploymentRef      `json:"deployment_ref"`
 	StartedAt               time.Time          `json:"started_at"`
-	FinishedAt              *time.Time         `json:"finished_at,omitzero"`
 	CommittedSteps          uint64             `json:"committed_steps"`
 	Budget                  Budget             `json:"budget"`
 	Capabilities            CapabilitySet      `json:"capabilities"`
@@ -335,8 +335,7 @@ type processSnapshotWire struct {
 	CurrentWaitID           *WaitID            `json:"current_wait_id,omitzero"`
 	PauseReason             string             `json:"pause_reason,omitempty"`
 	PendingControl          pendingControlWire `json:"pending_control"`
-	Output                  Payload            `json:"output,omitzero"`
-	Termination             *Termination       `json:"termination,omitzero"`
+	Finish                  *processFinish     `json:"finish,omitzero"`
 }
 
 // A one-byte placeholder keeps optional fields present in the real wire codec.
@@ -390,10 +389,11 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
-		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
 		// The maximal failure object is larger than a control cause and reason.
-		termination := failure.termination()
-		p.Termination = &termination
+		p.Finish = &processFinish{
+			Termination: failure.termination(),
+			FinishedAt:  time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC),
+		}
 	}
 	encoded, err := jsonv2.Marshal(p)
 	if err != nil {
@@ -417,17 +417,14 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	if p.ChildRequestDigest != nil {
 		clone.ChildRequestDigest = new(*p.ChildRequestDigest)
 	}
-	if p.FinishedAt != nil {
-		clone.FinishedAt = new(*p.FinishedAt)
-	}
 	if p.CurrentWaitID != nil {
 		clone.CurrentWaitID = new(*p.CurrentWaitID)
 	}
 	if p.PendingControl.Failure != nil {
 		clone.PendingControl.Failure = new(*p.PendingControl.Failure)
 	}
-	if p.Termination != nil {
-		clone.Termination = new(*p.Termination)
+	if p.Finish != nil {
+		clone.Finish = new(*p.Finish)
 	}
 	clone.Mailbox.Signals = slices.Clone(p.Mailbox.Signals)
 	for index, signal := range p.Mailbox.Signals {
@@ -585,15 +582,15 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 }
 
 func (p processSnapshotWire) status() Status {
-	return lifecycleStatus(lo.FromPtr(p.Termination), p.PauseReason != "", p.CurrentWaitID != nil)
+	return lifecycleStatus(lo.FromPtr(p.Finish).Termination, p.PauseReason != "", p.CurrentWaitID != nil)
 }
 
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
-	if err := p.validateTermination(); err != nil {
+	if err := p.validateFinish(); err != nil {
 		return err
 	}
 	status := p.status()
-	if (status == StatusCompleted) != p.Output.Valid() {
+	if (status == StatusCompleted) != lo.FromPtr(p.Finish).Output.Valid() {
 		return fmt.Errorf("%w: exactly a Completed Process contains Output", ErrInvalidSnapshot)
 	}
 	if _, err := parsePause(p.PauseReason); err != nil {
@@ -608,17 +605,14 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	return p.validateTerminalEvidence()
 }
 
-func (p processSnapshotWire) validateTermination() error {
-	if (p.Termination != nil) != (p.FinishedAt != nil) {
-		return fmt.Errorf("%w: termination and finished time must agree", ErrInvalidSnapshot)
-	}
-	if p.Termination == nil {
+func (p processSnapshotWire) validateFinish() error {
+	if p.Finish == nil {
 		return nil
 	}
-	if p.FinishedAt.IsZero() {
+	if p.Finish.FinishedAt.IsZero() {
 		return fmt.Errorf("%w: finished time is required", ErrInvalidSnapshot)
 	}
-	if !p.Termination.Valid() {
+	if !p.Finish.Termination.Valid() {
 		return fmt.Errorf("%w: termination is invalid", ErrInvalidSnapshot)
 	}
 	return nil
@@ -638,7 +632,7 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 	if p.PendingControl != (pendingControlWire{}) {
 		return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
 	}
-	if len(p.Termination.UnresolvedEffectIDs()) != 0 {
+	if len(p.Finish.Termination.UnresolvedEffectIDs()) != 0 {
 		return fmt.Errorf("%w: termination stores a copy of its interrupted Effects", ErrInvalidSnapshot)
 	}
 	return nil
@@ -647,10 +641,11 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 // publishedTermination attaches the prepared Effects left unknown, which own
 // the identities a captured termination leaves unresolved.
 func (p processSnapshotWire) publishedTermination() Termination {
-	if p.Termination == nil || p.Prepared == nil {
-		return lo.FromPtr(p.Termination)
+	termination := lo.FromPtr(p.Finish).Termination
+	if p.Finish == nil || p.Prepared == nil {
+		return termination
 	}
-	return p.Termination.withUnresolvedEffectIDs(p.Prepared.Effects.unknownEffectIDs())
+	return termination.withUnresolvedEffectIDs(p.Prepared.Effects.unknownEffectIDs())
 }
 
 // result requires a validated capture, whose terminal status guarantees its
@@ -660,8 +655,8 @@ func (p processSnapshotWire) result() (Result, bool) {
 		return Result{}, false
 	}
 	return Result{
-		processID: p.ProcessID, startedAt: p.StartedAt, finishedAt: *p.FinishedAt,
-		output: p.Output, termination: p.publishedTermination(), usage: p.usage(),
+		processID: p.ProcessID, startedAt: p.StartedAt, finishedAt: p.Finish.FinishedAt,
+		output: p.Finish.Output, termination: p.publishedTermination(), usage: p.usage(),
 	}, true
 }
 

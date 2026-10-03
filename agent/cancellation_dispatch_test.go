@@ -188,8 +188,7 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 			wire.Prepared.Effects[0].progress = &effectProgress{}
 		},
 		"stored termination uncertainty": func(wire *processSnapshotWire) {
-			termination := wire.Termination.withUnresolvedEffectIDs(wire.Prepared.Effects.unknownEffectIDs())
-			wire.Termination = &termination
+			wire.Finish.Termination = wire.Finish.Termination.withUnresolvedEffectIDs(wire.Prepared.Effects.unknownEffectIDs())
 		},
 	} {
 		wire, err := snapshot.wire()

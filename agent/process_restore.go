@@ -21,8 +21,8 @@ func prepareRestoredProcess(
 			"%w: exact Deployment does not match", ErrInvalidSnapshot,
 		)
 	}
-	if wire.Output.Valid() {
-		if validateOutputErr := deployment.Descriptor().ValidateOutput(wire.Output); validateOutputErr != nil {
+	if output := lo.FromPtr(wire.Finish).Output; output.Valid() {
+		if validateOutputErr := deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, fmt.Errorf(
 				"%w: output schema: %w", ErrInvalidSnapshot, validateOutputErr,
 			)
@@ -67,9 +67,6 @@ func restoreProcessState(
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		counters: wire.Counters,
 	}
-	if wire.FinishedAt != nil {
-		process.finishedAt = *wire.FinishedAt
-	}
 	if wire.CurrentWaitID != nil {
 		process.currentWaitID = *wire.CurrentWaitID
 	}
@@ -78,9 +75,8 @@ func restoreProcessState(
 		return nil, fmt.Errorf("%w: pause: %w", ErrInvalidSnapshot, err)
 	}
 	process.pause = current
-	process.finalOutput = wire.Output
-	if wire.Termination != nil {
-		process.termination = *wire.Termination
+	if wire.Finish != nil {
+		process.finish = new(*wire.Finish)
 	}
 	control, err := pendingControlFromWire(wire.PendingControl)
 	if err != nil {

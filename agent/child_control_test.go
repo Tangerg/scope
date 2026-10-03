@@ -286,7 +286,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	child.PendingControl.CancellationOwner = ""
-	child.Termination = &Termination{cause: TerminationCauseCompletion}
+	child.Finish = &processFinish{Termination: Termination{cause: TerminationCauseCompletion}}
 	validation.processes[childID] = child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("terminal cancellation rejected", err)

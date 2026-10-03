@@ -64,7 +64,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	}
 	child := wire.ProcessSnapshots[1].state
 	key, _ := wire.ProcessSnapshots[1].Relation().ChildKey()
-	result := controlValue((resultWire{ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: *child.FinishedAt, Output: child.Output, Termination: *child.Termination, Usage: child.usage()}).value())
+	result := controlValue((resultWire{ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: child.Finish.FinishedAt, Output: child.Finish.Output, Termination: child.Finish.Termination, Usage: child.usage()}).value())
 	wait := wire.ProcessSnapshots[0].openChildWaits[0]
 	spec := wait.spec.clone()
 	spec.Children = []ProcessID{child.ProcessID}
@@ -86,7 +86,7 @@ func TestDrainedSnapshotRejectsActiveDeepDescendant(t *testing.T) {
 	index := len(wire.ProcessSnapshots) - 1
 	leaf := wire.ProcessSnapshots[index].state
 	leaf.PauseReason = "unfinished descendant"
-	leaf.Termination, leaf.FinishedAt, leaf.Output = nil, nil, Payload{}
+	leaf.Finish = nil
 	wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(leaf))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("drained outcome accepted active descendant: %v", err)

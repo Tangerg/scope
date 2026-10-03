@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"maps"
 	"math"
 	"testing"
 	"time"
@@ -41,14 +42,22 @@ func TestSnapshotCanonicalizesRecordedInstants(t *testing.T) {
 	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
+	var finish map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(fields["finish"], &finish); err != nil {
+		t.Fatal(err)
+	}
 	offset := time.FixedZone("offset", 8*60*60)
-	for _, name := range []string{"started_at", "finished_at"} {
+	for _, member := range []struct {
+		fields map[string]json.RawMessage
+		name   string
+	}{{fields, "started_at"}, {finish, "finished_at"}} {
 		var instant time.Time
-		if err := jsonv2.Unmarshal(fields[name], &instant); err != nil {
+		if err := jsonv2.Unmarshal(member.fields[member.name], &instant); err != nil {
 			t.Fatal(err)
 		}
-		fields[name] = controlValue(jsonv2.Marshal(instant.In(offset)))
+		member.fields[member.name] = controlValue(jsonv2.Marshal(instant.In(offset)))
 	}
+	fields["finish"] = controlValue(jsonv2.Marshal(finish))
 	rendered := controlValue(jsonv2.Marshal(fields))
 	if bytes.Equal(rendered, snapshot.JSON()) {
 		t.Fatal("fixture did not change the rendered offset")
@@ -98,9 +107,9 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 					value.Prepared.Effects[0].ID = EffectID{}
 					*value.PendingControl.Failure = Failure{}
 				}
-				if value.FinishedAt != nil {
-					*value.FinishedAt = value.StartedAt
-					*value.Termination = Termination{}
+				if value.Finish != nil {
+					value.Finish.FinishedAt = value.StartedAt
+					value.Finish.Termination = Termination{}
 				}
 			}
 			mutate(wire)
@@ -508,7 +517,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.Output, err = ParsePayload([]byte(`null`))
+	wire.Finish.Output, err = ParsePayload([]byte(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +550,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 			t.Fatalf("child output = %s", output.JSON())
 		}
 	}
-	wire.Output = Payload{}
+	wire.Finish.Output = Payload{}
 	if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("missing output = %v", err)
 	}
@@ -621,4 +630,24 @@ func parseTestProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	return document.snapshot(rootProcessRelation(document.ProcessID), func(ProcessID, ChildWaitBoundary) (ChildOutcome, error) {
 		return ChildOutcome{}, errors.New("test root records have no children")
 	})
+}
+
+func TestSnapshotFinishRequiresItsTerminationAndTime(t *testing.T) {
+	snapshot := completedEngineTestSnapshot(t)
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, missing := range []string{"termination", "finished_at"} {
+		var finish map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(fields["finish"], &finish); err != nil {
+			t.Fatal(err)
+		}
+		delete(finish, missing)
+		candidate := maps.Clone(fields)
+		candidate["finish"] = controlValue(jsonv2.Marshal(finish))
+		if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(candidate))); !errors.Is(err, ErrInvalidSnapshot) {
+			t.Fatalf("finish without %s accepted: %v", missing, err)
+		}
+	}
 }
