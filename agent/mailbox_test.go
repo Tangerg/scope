@@ -336,10 +336,10 @@ func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 	}
 	openTestChildWait(t, &mailbox, "signal:engine:announced", waitID, spec)
 	restored := restoredMailbox(t, mailbox, StatusRunning)
-	if pending := restored.pending(); len(pending) != 1 || !bytes.Equal(pending[0].payload, controlValue(childWaitOpenedPayload(spec))) {
-		t.Fatal("restored opening lost the payload its spec determines")
+	if pending := restored.pending(); len(pending) != 1 || !bytes.Equal(pending[0].payload, childWaitOpenedPayload()) {
+		t.Fatal("restored opening lost its acknowledgement")
 	}
-	payload := controlValue(childWaitOpenedPayload(spec))
+	payload := childWaitOpenedPayload()
 	for name, mutate := range map[string]func(*signalRecordWire){
 		"payload": func(record *signalRecordWire) { record.Payload = payload },
 		"digest":  func(record *signalRecordWire) { record.PayloadDigest = new(ComputeDigest(payload)) },
@@ -440,7 +440,7 @@ func testChildWaitSpec(t testing.TB, key string) ChildWaitSpec {
 // openTestChildWait opens spec with the Signal the Engine would announce it by.
 func openTestChildWait(t testing.TB, mailbox *signalMailbox, signalID string, waitID WaitID, spec ChildWaitSpec) {
 	t.Helper()
-	opening := mustMailboxSignal(t, signalID, waitID, controlValue(encodeChildWaitOpened(spec)))
+	opening := mustMailboxSignal(t, signalID, waitID, childWaitOpenedPayload())
 	if err := mailbox.openChildWait(spec, opening); err != nil {
 		t.Fatal(err)
 	}

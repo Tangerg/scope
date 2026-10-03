@@ -60,23 +60,29 @@ func NewChildStartEffect(spec ChildSpec) (Effect, error) {
 	return newFrameworkEffect(childStartEffectWire{Operation: frameworkOperationStartChild, Spec: spec})
 }
 
-// ChildStartResult is the definite result of one NewChildStartEffect Effect. Success
-// contains the Engine-created child ProcessID; failure contains a stable
-// Framework Failure and never masquerades as an unknown external outcome.
-type ChildStartResult struct {
-	key           ChildKey
-	processID     ProcessID
-	deploymentRef DeploymentRef
-	failure       Failure
+// ParseChildStartEffect returns the ChildSpec a NewChildStartEffect Effect
+// declares, so a settlement can be read against the request that owns its
+// key and Deployment.
+func ParseChildStartEffect(effect Effect) (ChildSpec, error) {
+	if !effect.Valid() || effect.Target() != EffectTargetFramework {
+		return ChildSpec{}, ErrInvalidChildStart
+	}
+	return decodeChildStartEffect(effect.payload)
 }
 
-func (c ChildStartResult) Key() ChildKey { return c.key }
+// ChildStartResult is the definite result of one NewChildStartEffect Effect. Success
+// contains the Engine-created child ProcessID; failure contains a stable
+// Framework Failure and never masquerades as an unknown external outcome. The
+// requesting ChildSpec owns the key and Deployment; the result carries only
+// what the start established.
+type ChildStartResult struct {
+	processID ProcessID
+	failure   Failure
+}
 
 func (c ChildStartResult) ProcessID() (ProcessID, bool) {
 	return c.processID, c.processID.Valid()
 }
-
-func (c ChildStartResult) DeploymentRef() DeploymentRef { return c.deploymentRef }
 
 // Failure returns the definite start failure and true when no child was created.
 func (c ChildStartResult) Failure() (Failure, bool) {
@@ -84,8 +90,7 @@ func (c ChildStartResult) Failure() (Failure, bool) {
 }
 
 func (c ChildStartResult) Valid() bool {
-	return c.key.Valid() && c.deploymentRef.Valid() &&
-		(c.processID.Valid() != c.failure.Valid())
+	return c.processID.Valid() != c.failure.Valid()
 }
 
 // settlementStatus is the status of the child-start Effect that returns c.
@@ -96,15 +101,11 @@ func (c ChildStartResult) settlementStatus() SettlementStatus {
 	return SettlementStatusSucceeded
 }
 
-func (c ChildStartResult) Matches(key ChildKey, deployment DeploymentRef) bool {
-	return c.Valid() && c.key == key && c.deploymentRef == deployment
-}
-
 func (c ChildStartResult) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildStart
 	}
-	wire := childStartResultWire{Operation: frameworkOperationStartChild, Key: c.key, DeploymentRef: c.deploymentRef}
+	wire := childStartResultWire{Operation: frameworkOperationStartChild}
 	if c.processID.Valid() {
 		wire.ProcessID = &c.processID
 	} else {
@@ -145,11 +146,9 @@ type childStartEffectWire struct {
 }
 
 type childStartResultWire struct {
-	Operation     frameworkOperationKind `json:"operation"`
-	Key           ChildKey               `json:"key"`
-	ProcessID     *ProcessID             `json:"process_id,omitzero"`
-	DeploymentRef DeploymentRef          `json:"deployment_ref"`
-	Failure       *Failure               `json:"failure,omitzero"`
+	Operation frameworkOperationKind `json:"operation"`
+	ProcessID *ProcessID             `json:"process_id,omitzero"`
+	Failure   *Failure               `json:"failure,omitzero"`
 }
 
 func decodeChildStartEffect(payload json.RawMessage) (ChildSpec, error) {
@@ -176,9 +175,7 @@ func decodeChildStartResult(payload json.RawMessage) (ChildStartResult, error) {
 	if wire.Failure != nil {
 		failure = *wire.Failure
 	}
-	result := ChildStartResult{
-		key: wire.Key, processID: processID, deploymentRef: wire.DeploymentRef, failure: failure,
-	}
+	result := ChildStartResult{processID: processID, failure: failure}
 	if wire.Operation != frameworkOperationStartChild || !result.Valid() {
 		return ChildStartResult{}, ErrInvalidChildStart
 	}

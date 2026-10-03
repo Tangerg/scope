@@ -57,7 +57,7 @@ type ProcessSnapshot struct {
 	state processSnapshotWire
 	// openChildWaits projects the mailbox replay validation already performed,
 	// so tree validation can check each wait without replaying it again.
-	openChildWaits []ChildWaitOpened
+	openChildWaits []openedChildWait
 }
 
 // processSnapshotRecord carries a Process record's own fields without the

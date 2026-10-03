@@ -20,8 +20,8 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 		started := time.Now()
 		gate := bind(t, inputGate(t), nil)
 		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
-		definition := competition(t, func(_ context.Context, outcome agent.ChildOutcome) (bool, error) {
-			return outcome.Key().String() == "input", nil
+		definition := competition(t, func(_ context.Context, candidate agent.ChildKey, _ agent.ChildOutcome) (bool, error) {
+			return candidate.String() == "input", nil
 		}, 3)
 		deployment := bind(t, definition, nil)
 		candidates := []agent.ChildSpec{
@@ -86,8 +86,8 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 			t.Fatalf("restored input accepted=%t error=%v", accepted, deliveryErr)
 		}
 		report := completedOutput[coordination.FirstSuccessResult](t, restored)
-		if !report.Valid() || report.Winner == nil || report.Winner.String() != "input" || len(report.Starts) != 3 ||
-			!slices.Equal(outcomeKeys(report), []string{"rejected", "input"}) {
+		if !report.Valid() || report.Winner == nil || winnerKey(report, candidates) != "input" || len(report.Starts) != 3 ||
+			!slices.Equal(outcomeKeys(report, candidates), []string{"rejected", "input"}) {
 			t.Fatalf("competition report = %+v", report)
 		}
 		inputOutput, _ := report.Outcomes[1].Result().Output()
@@ -114,7 +114,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
-		definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
+		definition := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
 		probe := &heldStepDefinition{Definition: definition, entered: make(chan agent.Signal, 1), release: make(chan struct{})}
 		release := sync.OnceFunc(func() { close(probe.release) })
 		defer release()
@@ -141,8 +141,8 @@ func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *test
 		}
 		release()
 		report := completedOutput[coordination.FirstSuccessResult](t, root)
-		if !report.Valid() || report.Winner == nil || report.Winner.String() != "declared-first" ||
-			!slices.Equal(outcomeKeys(report), []string{"declared-first", "finished-first"}) {
+		if !report.Valid() || report.Winner == nil || winnerKey(report, candidates) != "declared-first" ||
+			!slices.Equal(outcomeKeys(report, candidates), []string{"declared-first", "finished-first"}) {
 			t.Fatalf("simultaneous visible outcomes lost request order: %+v", report)
 		}
 		closeEngine(t, engine)
@@ -153,7 +153,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 	synctest.Test(t, func(t *testing.T) {
 		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		accepted := make(chan agent.ChildOutcome, 2)
-		definition := competition(t, func(_ context.Context, outcome agent.ChildOutcome) (bool, error) {
+		definition := competition(t, func(_ context.Context, _ agent.ChildKey, outcome agent.ChildOutcome) (bool, error) {
 			accepted <- outcome
 			return true, nil
 		}, 2)
@@ -199,7 +199,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 		}
 		release()
 		report := completedOutput[coordination.FirstSuccessResult](t, root)
-		if report.Winner == nil || report.Winner.String() != "completed-first" {
+		if report.Winner == nil || winnerKey(report, candidates) != "completed-first" {
 			t.Fatalf("winner=%v", report.Winner)
 		}
 		if err := root.Join(t.Context()); err != nil {
@@ -212,7 +212,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
-		definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return false, nil }, 2)
+		definition := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return false, nil }, 2)
 		deployment := bind(t, definition, nil)
 		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{timer.DeploymentRef(): timer}})
 		if err != nil {
@@ -228,7 +228,7 @@ func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 		}
 		report := completedOutput[coordination.FirstSuccessResult](t, root)
 		if !report.Valid() || report.Winner != nil || len(report.Starts) != 2 ||
-			!slices.Equal(outcomeKeys(report), []string{"rejected-result"}) {
+			!slices.Equal(outcomeKeys(report, candidates), []string{"rejected-result"}) {
 			t.Fatalf("all-rejected competition = %+v", report)
 		}
 		if failure, failed := report.Starts[0].Failure(); !failed || failure.Code() != "engine.child.input.invalid" {
@@ -243,7 +243,7 @@ func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 
 func TestFirstSuccessBoundsAndDefinitionConformance(t *testing.T) {
 	timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
-	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
+	definition := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 	spec := candidate(t, "candidate", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	for _, candidates := range [][]agent.ChildSpec{nil, {}, {spec, spec}} {
 		if _, err := definition.Start(encodedInput(t, candidates)); !errors.Is(err, agent.ErrInvalidPayload) {
@@ -286,10 +286,19 @@ func child(t testing.TB, engine *agent.Engine, root *agent.Process, key string) 
 	return nil
 }
 
-func outcomeKeys(report coordination.FirstSuccessResult) []string {
+// outcomeKeys names each outcome by its candidate; Starts follows request order.
+func outcomeKeys(report coordination.FirstSuccessResult, candidates []agent.ChildSpec) []string {
 	var keys []string
 	for _, outcome := range report.Outcomes {
-		keys = append(keys, outcome.Key().String())
+		for index, started := range report.Starts {
+			if id, present := started.ProcessID(); present && id == outcome.Result().ProcessID() {
+				keys = append(keys, candidates[index].Key.String())
+			}
+		}
 	}
 	return keys
+}
+
+func winnerKey(report coordination.FirstSuccessResult, candidates []agent.ChildSpec) string {
+	return candidates[*report.Winner].Key.String()
 }

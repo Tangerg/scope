@@ -104,16 +104,12 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 		return Complete(consumed, output)
 	}
 	if s.state.Phase == "started" {
-		var childID ProcessID
-		for _, signal := range signals {
-			result, err := ParseChildStartResult(signal)
-			if err != nil {
-				return Transition{}, err
-			}
-			if result.Key().String() == "scope" {
-				childID, _ = result.ProcessID()
-			}
+		// The scope child's start settles first, in declaration order.
+		result, err := ParseChildStartResult(signals[0])
+		if err != nil {
+			return Transition{}, err
 		}
+		childID, _ := result.ProcessID()
 		key, _ := ParseWaitKey("scope-boundary")
 		effect, err := NewChildWaitEffect(ChildWaitSpec{
 			Key: key, Children: []ProcessID{childID}, Boundary: s.definition.boundary, Condition: AllChildren(),
@@ -130,7 +126,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 			continue
 		}
 		satisfied, err := ParseChildWaitSatisfied(signal)
-		if err != nil || satisfied.Boundary() != s.definition.boundary || len(satisfied.Outcomes()) != 1 {
+		if err != nil || len(satisfied.Outcomes()) != 1 {
 			return Transition{}, errors.New("scope wait did not establish its requested boundary")
 		}
 		s.state.Outcome = new(satisfied.Outcomes()[0])

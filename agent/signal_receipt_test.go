@@ -23,7 +23,7 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 			if test.wait {
 				waitID = controlValue(ParseWaitID("wait:receipt"))
 				spec := testChildWaitSpec(t, "receipt")
-				opening = mustMailboxSignal(t, "signal:engine:opening", waitID, controlValue(encodeChildWaitOpened(spec)))
+				opening = mustMailboxSignal(t, "signal:engine:opening", waitID, childWaitOpenedPayload())
 				open := func() error { return mailbox.openChildWait(spec, opening) }
 				if test.external {
 					open = func() error { return mailbox.openWait(spec.Key, opening) }

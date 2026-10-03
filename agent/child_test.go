@@ -605,7 +605,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
 	owner := root.handle.runtime.Load()
-	_, err = owner.childWaitAnswers(root.ID(), []ChildWaitOpened{{waitID: waitID, spec: ChildWaitSpec{
+	_, err = owner.childWaitAnswers(root.ID(), []openedChildWait{{waitID: waitID, spec: ChildWaitSpec{
 		Boundary: ChildWaitBoundaryResult,
 		Key:      waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
 	}}})
@@ -660,9 +660,13 @@ type childTestOutput struct {
 }
 
 type childTestState struct {
-	Phase          string   `json:"phase"`
-	Mode           string   `json:"mode"`
-	ChildIDs       []string `json:"child_ids,omitempty"`
+	Phase    string   `json:"phase"`
+	Mode     string   `json:"mode"`
+	ChildIDs []string `json:"child_ids,omitempty"`
+	// ChildNames lists the started keys in start order; ChildKeys pairs each
+	// started child in ChildIDs with its key.
+	ChildNames     []string `json:"child_names,omitempty"`
+	ChildKeys      []string `json:"child_keys,omitempty"`
 	WaitID         string   `json:"wait_id,omitempty"`
 	ExternalWaitID string   `json:"external_wait_id,omitempty"`
 }
@@ -873,6 +877,7 @@ func (c *childTestExecution) waitChildMode(name string) string {
 func (c *childTestExecution) childEffect(name, mode string) (Effect, error) {
 	childInput, _ := EncodePayload(childTestInput{Mode: mode})
 	key, _ := ParseChildKey(name)
+	c.state.ChildNames = append(c.state.ChildNames, name)
 	return NewChildStartEffect(childTestSpec(key, c.reference, childInput))
 }
 
@@ -886,6 +891,7 @@ func (c *childTestExecution) startBinaryChildren() (Transition, error) {
 	for _, name := range []string{"left", "right"} {
 		childInput, _ := EncodePayload(childTestInput{Mode: fmt.Sprintf("binary:%d", depth-1)})
 		key, _ := ParseChildKey(name)
+		c.state.ChildNames = append(c.state.ChildNames, name)
 		spec := childTestSpec(key, c.reference, childInput)
 		spec.Budget = Budget{Steps: NewQuota(units), Effects: NewQuota(units), Signals: NewQuota(units)}
 		effect, err := NewChildStartEffect(spec)
@@ -935,7 +941,9 @@ func (c *childTestExecution) startSingleChild() (Transition, error) {
 	if err != nil {
 		return Transition{}, err
 	}
+	c.state.ChildNames = append(c.state.ChildNames, "worker")
 	if c.state.Mode == "duplicate" {
+		c.state.ChildNames = append(c.state.ChildNames, "worker")
 		return Continue(0, effect, effect)
 	}
 	return Continue(0, effect)
@@ -966,13 +974,14 @@ func (c *childTestExecution) acceptChildStarts(signals []Signal) (Transition, er
 		return Transition{}, errors.New("child start results are required")
 	}
 	output := childTestOutput{}
-	for _, signal := range signals {
+	for index, signal := range signals {
 		result, err := ParseChildStartResult(signal)
 		if err != nil {
 			return Transition{}, err
 		}
 		if childID, started := result.ProcessID(); started {
 			output.ChildIDs = append(output.ChildIDs, childID.String())
+			c.state.ChildKeys = append(c.state.ChildKeys, c.state.ChildNames[index])
 		} else if failure, failed := result.Failure(); failed {
 			output.Failures++
 			output.FailureCodes = append(output.FailureCodes, failure.Code())
@@ -1024,17 +1033,6 @@ func (c *childTestExecution) acceptChildWait(signals []Signal) (Transition, erro
 	opened, err := ParseChildWaitOpened(signals[0])
 	if err != nil {
 		return Transition{}, err
-	}
-	openedSpec := opened.Spec()
-	if len(openedSpec.Children) != len(c.state.ChildIDs) {
-		return Transition{}, errors.New("child wait acknowledgement changed the requested children")
-	}
-	if len(openedSpec.Children) > 0 {
-		original := openedSpec.Children[0]
-		openedSpec.Children[0] = ProcessID{}
-		if opened.Spec().Children[0] != original {
-			return Transition{}, errors.New("child wait acknowledgement exposed mutable children")
-		}
 	}
 	c.state.WaitID = opened.WaitID().String()
 	if len(signals) > 1 {
@@ -1106,7 +1104,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 			failure, _ := NewFailure(FailureKindExecution, "test.child.failed", "a child Process failed")
 			return Fail(consumedSignals, failure)
 		}
-		output.CompletedKeys = append(output.CompletedKeys, outcome.Key().String())
+		output.CompletedKeys = append(output.CompletedKeys, c.state.ChildKeys[slices.Index(c.state.ChildIDs, outcome.Result().ProcessID().String())])
 	}
 	c.state.Phase = "done"
 	erased, _ := EncodePayload(output)

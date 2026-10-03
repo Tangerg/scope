@@ -58,7 +58,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if completed.WaitID() != waitID || completed.Boundary() != ChildWaitBoundaryResult {
+		if _, drained := completed.Outcomes()[0].SubtreeUnresolvedEffects(); completed.WaitID() != waitID || drained {
 			t.Fatal("completion lost the parent's active wait")
 		}
 		var got []ProcessID
@@ -190,7 +190,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			b.Fatal(err)
 		}
 		parent.currentWaitID = waitID
-		opened := []ChildWaitOpened{{waitID: waitID, spec: spec}}
+		opened := []openedChildWait{{waitID: waitID, spec: spec}}
 		if answers, err := runtime.childWaitAnswers(parent.handle.processID, opened); err != nil || len(answers) != 0 {
 			b.Fatalf("opened wait answers=%d error=%v", len(answers), err)
 		}

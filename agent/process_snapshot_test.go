@@ -534,9 +534,11 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	if !present || !hasOutput || string(output.JSON()) != `null` {
 		t.Fatalf("lost null output: %s", output.JSON())
 	}
-	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
-		key, _ := ParseChildKey("null-child")
-		original := ChildOutcome{key: key, result: result, boundary: boundary}
+	for _, drained := range []bool{false, true} {
+		original := ChildOutcome{result: result}
+		if drained {
+			original.subtreeUnresolvedEffects = new([]UnresolvedEffect{})
+		}
 		data, err := jsonv2.Marshal(original)
 		if err != nil {
 			t.Fatal(err)

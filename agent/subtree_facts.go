@@ -4,7 +4,8 @@ import "slices"
 
 // Live and recovered trees share this rule through read-only accessors.
 func subtreeUnresolvedEffects(root ProcessID, children func(ProcessID) []ProcessID, termination func(ProcessID) Termination) []UnresolvedEffect {
-	var effects []UnresolvedEffect
+	// A drained subtree reports its list even when empty.
+	effects := []UnresolvedEffect{}
 	var visit func(ProcessID)
 	visit = func(id ProcessID) {
 		for _, effectID := range termination(id).UnresolvedEffectIDs() {

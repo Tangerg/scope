@@ -62,8 +62,8 @@ func (f *fanoutChildState) recordStart(start agent.ChildStartResult) {
 	}
 }
 
-func (f fanoutChildState) child(key agent.ChildKey, deployment agent.DeploymentRef) childcall.Child {
-	child := childcall.Child{Key: key, Deployment: deployment, Done: f.ChildProcessID == nil && f.Failure != nil}
+func (f fanoutChildState) child(key agent.ChildKey) childcall.Child {
+	child := childcall.Child{Key: key, Done: f.ChildProcessID == nil && f.Failure != nil}
 	if f.ChildProcessID != nil {
 		child.ProcessID = *f.ChildProcessID
 	}

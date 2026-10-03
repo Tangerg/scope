@@ -26,7 +26,7 @@ func TestCoordinationRejectsUnaddressedInputBeforeProtocolStep(t *testing.T) {
 			t.Fatal(err)
 		}
 		child := bind(t, definition, nil)
-		root := competition(t, func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil }, 1)
+		root := competition(t, func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 		conformancetest.Run(t, agent.DeploymentConfig{Definition: root, ImplementationDigest: agent.ComputeDigest([]byte("competition")), ConfigurationDigest: agent.ComputeDigest([]byte("competition"))}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), DeploymentResolver: resolver{child.DeploymentRef(): child}}, encodedInput(t, []agent.ChildSpec{candidate(t, "winner", child, encodedInput(t, "done"))}))
 	})
 }

@@ -199,15 +199,7 @@ func signalFromRequest(t testing.TB, request agent.SignalRequest) agent.Signal {
 
 func childWaitOpenedTestSignal(t testing.TB) agent.Signal {
 	t.Helper()
-	payload := json.RawMessage(`{
-		"operation":"child_wait_opened",
-		"spec":{
-			"key":"interaction.delegate.wait.test",
-			"children":["process:delegate-wait-child"],
-			"boundary":"subtree_drained",
-			"condition":{"kind":"all"}
-		}
-	}`)
+	payload := json.RawMessage(`{"operation":"child_wait_opened"}`)
 	id, err := agent.ParseSignalID("signal:engine:delegate-wait-opened")
 	if err != nil {
 		t.Fatal(err)

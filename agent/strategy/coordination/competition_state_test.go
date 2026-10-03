@@ -150,18 +150,18 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 	t.Helper()
 	definition, err := NewFirstSuccess(FirstSuccessConfig{
 		Name: "test.competition", Description: "Exercise ordered outcome adoption.", MaxCandidates: uint32(len(starts)),
-		Accept: func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return false, nil },
+		Accept: func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return false, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := firstSuccessState{Starts: startSlots(starts), WaitID: new(competitionWaitID(t))}
-	for _, start := range starts {
+	for index := range starts {
 		payload, err := agent.EncodePayload("input")
 		if err != nil {
 			t.Fatal(err)
 		}
-		state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: payload, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}})
+		state.Candidates = append(state.Candidates, agent.ChildSpec{Key: candidateKey(t, index), DeploymentRef: benchmarkDeploymentRef(t), Input: payload, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}})
 	}
 	if err := state.validate(t.Context(), definition.maxCandidates); err != nil {
 		t.Fatal(err)
@@ -180,16 +180,10 @@ func competitionWaitID(t *testing.T) agent.WaitID {
 
 func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []agent.ChildOutcome) agent.Signal {
 	t.Helper()
-	spec, err := state.waitSpec()
-	if err != nil {
-		t.Fatal(err)
-	}
 	payload := struct {
-		Operation string                  `json:"operation"`
-		Key       agent.WaitKey           `json:"key"`
-		Boundary  agent.ChildWaitBoundary `json:"boundary"`
-		Outcomes  []agent.ChildOutcome    `json:"outcomes"`
-	}{"child_wait_satisfied", spec.Key, spec.Boundary, outcomes}
+		Operation string               `json:"operation"`
+		Outcomes  []agent.ChildOutcome `json:"outcomes"`
+	}{"child_wait_satisfied", outcomes}
 	data, err := jsonv2.Marshal(struct {
 		ID      string       `json:"id"`
 		WaitID  agent.WaitID `json:"wait_id"`
@@ -206,7 +200,7 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []age
 }
 
 func sameOutcome(left, right agent.ChildOutcome) bool {
-	return left.Key() == right.Key() && left.Result().ProcessID() == right.Result().ProcessID() &&
+	return left.Result().ProcessID() == right.Result().ProcessID() &&
 		left.Result().Status() == right.Result().Status()
 }
 

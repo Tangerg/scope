@@ -137,7 +137,7 @@ func (t *treeMembers) allTerminal() bool {
 // childWaitAnswer returns the answer Signal once enough watched children have
 // reached the wait's boundary. Opening the wait proved membership, and
 // children stay retained until tree release.
-func (t *treeMembers) childWaitAnswer(opened ChildWaitOpened) (Signal, bool, error) {
+func (t *treeMembers) childWaitAnswer(opened openedChildWait) (Signal, bool, error) {
 	spec := opened.spec
 	outcomes := make([]ChildOutcome, 0, len(spec.Children))
 	for _, childID := range spec.Children {
@@ -149,17 +149,16 @@ func (t *treeMembers) childWaitAnswer(opened ChildWaitOpened) (Signal, bool, err
 		if !ready {
 			continue
 		}
-		key, _ := child.handle.relation.ChildKey()
-		outcome := ChildOutcome{key: key, result: child.result(), boundary: spec.Boundary}
+		outcome := ChildOutcome{result: child.result()}
 		if spec.Boundary == ChildWaitBoundaryDrained {
-			outcome.subtreeUnresolvedEffects = t.subtreeUnresolvedEffects(childID)
+			outcome.subtreeUnresolvedEffects = new(t.subtreeUnresolvedEffects(childID))
 		}
 		outcomes = append(outcomes, outcome)
 	}
 	if uint32(len(outcomes)) < spec.required() {
 		return Signal{}, false, nil
 	}
-	signal, err := encodeChildWaitSatisfied(opened.waitID, spec.Key, spec.Boundary, outcomes)
+	signal, err := encodeChildWaitSatisfied(opened.waitID, outcomes)
 	if err != nil {
 		return Signal{}, false, err
 	}

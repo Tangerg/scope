@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -326,7 +325,7 @@ func (c compositionState) validChildren() bool {
 }
 
 func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
-	if c.WaitID == nil || completed.WaitID() != *c.WaitID || completed.Key().String() != compositionWaitKey {
+	if c.WaitID == nil || completed.WaitID() != *c.WaitID {
 		return nil, errors.New("composition received another wait's result")
 	}
 	outcomes := completed.Outcomes()
@@ -334,7 +333,7 @@ func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]ag
 		return nil, agent.ErrInvalidChildWait
 	}
 	for index, outcome := range outcomes {
-		if outcome.Key().String() != compositionChildKeys[index] || outcome.Result().ProcessID() != c.ChildIDs[index] {
+		if outcome.Result().ProcessID() != c.ChildIDs[index] {
 			return nil, agent.ErrInvalidChildWait
 		}
 	}
@@ -366,10 +365,6 @@ func (c *compositionExecution) Step(
 		opened, err := agent.ParseChildWaitOpened(signals[0])
 		if err != nil {
 			return agent.Transition{}, err
-		}
-		spec := opened.Spec()
-		if spec.Key.String() != compositionWaitKey || !slices.Equal(spec.Children, c.state.ChildIDs) || spec.Condition != agent.AllChildren() {
-			return agent.Transition{}, agent.ErrInvalidChildWait
 		}
 		waitID := opened.WaitID()
 		c.state.WaitID = &waitID
@@ -425,15 +420,11 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, errors.New("composition requires two child-start results")
 	}
 	children := make([]agent.ProcessID, compositionChildCount)
-	references := [...]agent.DeploymentRef{c.local, c.model}
 	var failure *agent.Failure
 	for index, signal := range signals {
 		started, err := agent.ParseChildStartResult(signal)
 		if err != nil {
 			return agent.Transition{}, err
-		}
-		if started.Key().String() != compositionChildKeys[index] || started.DeploymentRef() != references[index] {
-			return agent.Transition{}, agent.ErrInvalidChildStart
 		}
 		if startFailure, failed := started.Failure(); failed {
 			if failure == nil {

@@ -203,13 +203,13 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 		return agent.Transition{}, err
 	}
 	if phase == childcall.PhaseAwaitingOpening {
-		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
+		waitID, openErr := e.state.Child.AcceptOpening(signal)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, openErr)
 		}
 		return agent.Wait(1, waitID)
 	}
-	outcome, err := e.state.Child.Complete(signal, key, waitKey, agent.ChildWaitBoundaryDrained)
+	outcome, err := e.state.Child.Complete(signal, waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
 	}
@@ -226,11 +226,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 }
 
 func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (agent.Transition, error) {
-	binding, found := e.definition.binding(e.state.CurrentActionName)
-	if !found || binding.target != bindingTargetChild {
-		return agent.Transition{}, ErrInvalidExecutionState
-	}
-	result, err := e.state.Child.AcceptStart(signal, key, binding.childDeployment.DeploymentRef())
+	result, err := e.state.Child.AcceptStart(signal)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child start: %w", ErrInvalidProtocol, err)
 	}

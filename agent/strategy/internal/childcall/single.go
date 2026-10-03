@@ -41,7 +41,7 @@ func (s Single) Window(signals []agent.Signal) (agent.Signal, error) {
 			return agent.Signal{}, err
 		}
 		completed, err := agent.ParseChildWaitSatisfied(signals[1])
-		if err != nil || !completed.Matches(opened.WaitID(), opened.Spec()) {
+		if err != nil || completed.WaitID() != opened.WaitID() {
 			return agent.Signal{}, errors.New("childcall: opening suffix is not its completion")
 		}
 	}
@@ -65,18 +65,15 @@ func (s Single) Phase() Phase {
 // Strategy-owned wait key from the actual invocation identity.
 func (s Single) ProcessID() agent.ProcessID { return s.processID }
 
-// AcceptStart records only a successfully started, exactly correlated child.
-// A definite start failure leaves progress unchanged for the Strategy to handle.
-func (s *Single) AcceptStart(signal agent.Signal, key agent.ChildKey, deployment agent.DeploymentRef) (agent.ChildStartResult, error) {
+// AcceptStart records only a successfully started child. A definite start
+// failure leaves progress unchanged for the Strategy to handle.
+func (s *Single) AcceptStart(signal agent.Signal) (agent.ChildStartResult, error) {
 	if s.Phase() != PhaseAwaitingStart {
 		return agent.ChildStartResult{}, errors.New("childcall: start already settled")
 	}
 	result, err := agent.ParseChildStartResult(signal)
 	if err != nil {
 		return agent.ChildStartResult{}, err
-	}
-	if !result.Matches(key, deployment) {
-		return agent.ChildStartResult{}, errors.New("childcall: start does not match the declared child")
 	}
 	if processID, started := result.ProcessID(); started {
 		s.processID = processID
@@ -97,7 +94,7 @@ func (s Single) WaitEffect(key agent.WaitKey, boundary agent.ChildWaitBoundary) 
 	return agent.NewChildWaitEffect(s.waitSpec(key, boundary))
 }
 
-func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.WaitID, error) {
+func (s *Single) AcceptOpening(signal agent.Signal) (agent.WaitID, error) {
 	if s.Phase() != PhaseAwaitingOpening {
 		return agent.WaitID{}, errors.New("childcall: opening requires a started child without an open wait")
 	}
@@ -105,17 +102,14 @@ func (s *Single) AcceptOpening(signal agent.Signal, key agent.WaitKey, boundary 
 	if err != nil {
 		return agent.WaitID{}, err
 	}
-	if !opened.Matches(s.waitSpec(key, boundary)) {
-		return agent.WaitID{}, errors.New("childcall: opening does not match the declared wait")
-	}
 	s.waitID = opened.WaitID()
 	return s.waitID, nil
 }
 
-// Complete extracts one exactly correlated outcome without interpreting its
+// Complete extracts the single child's outcome without interpreting its
 // termination or subtree facts. The Strategy retires the invocation after
 // applying its policy.
-func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.ChildOutcome, error) {
+func (s Single) Complete(signal agent.Signal, waitKey agent.WaitKey, boundary agent.ChildWaitBoundary) (agent.ChildOutcome, error) {
 	if s.Phase() != PhaseAwaitingCompletion {
 		return agent.ChildOutcome{}, errors.New("childcall: completion requires an open wait")
 	}
@@ -126,11 +120,8 @@ func (s Single) Complete(signal agent.Signal, key agent.ChildKey, waitKey agent.
 	if !completed.Matches(s.waitID, s.waitSpec(waitKey, boundary)) {
 		return agent.ChildOutcome{}, errors.New("childcall: completion does not match the active wait")
 	}
-	outcomes := completed.Outcomes()
-	if len(outcomes) != 1 || !outcomes[0].Matches(key, s.processID) {
-		return agent.ChildOutcome{}, errors.New("childcall: completion does not identify the single child")
-	}
-	return outcomes[0], nil
+	// Matching the single-child wait admits exactly its one outcome.
+	return completed.Outcomes()[0], nil
 }
 
 type singleWire struct {

@@ -17,7 +17,7 @@ import (
 
 func TestFirstSuccessRejectsExternalChildStartWithoutChangingProgress(t *testing.T) {
 	timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
-	definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
+	definition := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return true, nil }, 1)
 	spec := candidate(t, "one", timer, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	execution, err := definition.Start(encodedInput(t, []agent.ChildSpec{spec}))
 	if err != nil {
@@ -125,7 +125,7 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 
 func TestCoordinationRejectsMalformedRestoration(t *testing.T) {
 	deadline := deadlineBinding(t, coordination.DeadlineDispatcher{})
-	first := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
+	first := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return true, nil }, 2)
 	spec := candidate(t, "one", deadline, encodedInput(t, time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)))
 	for _, sample := range []struct {
 		name       string
@@ -189,7 +189,7 @@ func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 		timer := deadlineBinding(t, coordination.DeadlineDispatcher{})
 		policyFailure := errors.New("business predicate could not evaluate the result")
 		for _, failedStarts := range []bool{false, true} {
-			definition := competition(t, func(_ context.Context, _ agent.ChildOutcome) (bool, error) {
+			definition := competition(t, func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) {
 				return false, policyFailure
 			}, 1)
 			deployment := bind(t, definition, nil)

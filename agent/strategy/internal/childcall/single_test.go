@@ -1,25 +1,22 @@
 package childcall_test
 
 import (
-	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/childcall"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
 )
 
 func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
-	ref, key, waitKey := invocation(t)
+	waitKey := invocation(t)
 	var progress childcall.Single
 	roundTrip(t, &progress, childcall.PhaseAwaitingStart)
-	start := startSignal(t, ref, key, "child", nil)
-	if _, err := progress.AcceptStart(start, key, ref); err != nil {
+	start := startSignal(t, "child", nil)
+	if _, err := progress.AcceptStart(start); err != nil {
 		t.Fatal(err)
 	}
 	roundTrip(t, &progress, childcall.PhaseAwaitingOpening)
@@ -38,83 +35,52 @@ func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("wait effect=%s", effect.Payload())
 	}
-	opening := openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all")
-	waitID, err := progress.AcceptOpening(opening, waitKey, agent.ChildWaitBoundaryDrained)
+	waitID, err := progress.AcceptOpening(openingSignal(t, "wait"))
 	if err != nil || waitID.String() != "wait" {
 		t.Fatalf("wait ID=%s error=%v", waitID, err)
 	}
 	roundTrip(t, &progress, childcall.PhaseAwaitingCompletion)
-	result, err := progress.Complete(completionSignal(t, "wait", "children", "subtree_drained", "call", "child"), key, waitKey, agent.ChildWaitBoundaryDrained)
+	result, err := progress.Complete(completionSignal(t, "wait", true, "child"), waitKey, agent.ChildWaitBoundaryDrained)
 	if err != nil || result.Result().ProcessID() != progress.ProcessID() || result.Result().Status() != agent.StatusCompleted {
 		t.Fatalf("completion=%+v error=%v", result, err)
 	}
 }
 
 func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
-	ref, key, waitKey := invocation(t)
-	var otherKey agent.ChildKey
-	if err := jsonv2.Unmarshal([]byte(`"other"`), &otherKey); err != nil {
-		t.Fatal(err)
-	}
-	start := startSignal(t, ref, key, "child", nil)
+	waitKey := invocation(t)
+	start := startSignal(t, "child", nil)
 	var progress childcall.Single
-	if _, err := progress.AcceptStart(start, otherKey, ref); err == nil || progress.Phase() != childcall.PhaseAwaitingStart {
-		t.Fatal("mismatched child start advanced progress")
+	if _, err := progress.AcceptStart(start); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := progress.AcceptStart(start, key, agent.DeploymentRef{}); err == nil || progress.Phase() != childcall.PhaseAwaitingStart {
-		t.Fatal("mismatched Deployment advanced progress")
-	}
-	if _, err := progress.AcceptStart(start, key, ref); err != nil {
+	if _, err := progress.AcceptOpening(openingSignal(t, "wait")); err != nil {
 		t.Fatal(err)
 	}
 	for name, signal := range map[string]agent.Signal{
-		"wait key":    openingSignal(t, "wait", "other", "subtree_drained", []string{"child"}, "all"),
-		"boundary":    openingSignal(t, "wait", "children", "terminal_result", []string{"child"}, "all"),
-		"child":       openingSignal(t, "wait", "children", "subtree_drained", []string{"other"}, "all"),
-		"extra child": openingSignal(t, "wait", "children", "subtree_drained", []string{"child", "other"}, "all"),
-		"condition":   openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "any"),
-	} {
-		t.Run("opening/"+name, func(t *testing.T) {
-			if _, err := agent.ParseChildWaitOpened(signal); err != nil {
-				t.Fatalf("invalid fixture: %v", err)
-			}
-			if _, err := progress.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained); err == nil || progress.Phase() != childcall.PhaseAwaitingOpening {
-				t.Fatal("mismatched wait opening advanced progress")
-			}
-		})
-	}
-	if _, err := progress.AcceptOpening(openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all"), waitKey, agent.ChildWaitBoundaryDrained); err != nil {
-		t.Fatal(err)
-	}
-	for name, signal := range map[string]agent.Signal{
-		"wait ID":    completionSignal(t, "other", "children", "subtree_drained", "call", "child"),
-		"wait key":   completionSignal(t, "wait", "other", "subtree_drained", "call", "child"),
-		"boundary":   completionSignal(t, "wait", "children", "terminal_result", "call", "child"),
-		"child key":  completionSignal(t, "wait", "children", "subtree_drained", "other", "child"),
-		"process ID": completionSignal(t, "wait", "children", "subtree_drained", "call", "other"),
+		"wait ID":    completionSignal(t, "other", true, "child"),
+		"boundary":   completionSignal(t, "wait", false, "child"),
+		"process ID": completionSignal(t, "wait", true, "other"),
 	} {
 		t.Run("completion/"+name, func(t *testing.T) {
 			if _, err := agent.ParseChildWaitSatisfied(signal); err != nil {
 				t.Fatalf("invalid fixture: %v", err)
 			}
-			if _, err := progress.Complete(signal, key, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+			if _, err := progress.Complete(signal, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
 				t.Fatal("mismatched completion returned a result")
 			}
 		})
 	}
 	var extra struct {
 		Operation string            `json:"operation"`
-		Key       string            `json:"key"`
-		Boundary  string            `json:"boundary"`
 		Outcomes  []json.RawMessage `json:"outcomes"`
 	}
-	if err := jsonv2.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "call", "child").Payload(), &extra); err != nil {
+	if err := jsonv2.Unmarshal(completionSignal(t, "wait", true, "child").Payload(), &extra); err != nil {
 		t.Fatal(err)
 	}
 	var other struct {
 		Outcomes []json.RawMessage `json:"outcomes"`
 	}
-	if err := jsonv2.Unmarshal(completionSignal(t, "wait", "children", "subtree_drained", "other", "other").Payload(), &other); err != nil {
+	if err := jsonv2.Unmarshal(completionSignal(t, "wait", true, "other").Payload(), &other); err != nil {
 		t.Fatal(err)
 	}
 	extra.Outcomes = append(extra.Outcomes, other.Outcomes...)
@@ -122,14 +88,14 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 	if _, err := agent.ParseChildWaitSatisfied(extraSignal); err != nil {
 		t.Fatalf("invalid multi-outcome fixture: %v", err)
 	}
-	if _, err := progress.Complete(extraSignal, key, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+	if _, err := progress.Complete(extraSignal, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
 		t.Fatal("single-child completion accepted an additional outcome")
 	}
 	before := string(encoded(t, progress))
-	if _, err := progress.AcceptStart(start, key, ref); err == nil {
+	if _, err := progress.AcceptStart(start); err == nil {
 		t.Fatal("an open wait accepted a repeated start")
 	}
-	if _, err := progress.AcceptOpening(openingSignal(t, "other", "children", "subtree_drained", []string{"child"}, "all"), waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+	if _, err := progress.AcceptOpening(openingSignal(t, "other")); err == nil {
 		t.Fatal("an open wait accepted a replacement opening")
 	}
 	if string(encoded(t, progress)) != before {
@@ -138,13 +104,12 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 }
 
 func TestSingleLeavesStartFailureToStrategy(t *testing.T) {
-	ref, key, _ := invocation(t)
 	failure, err := agent.NewFailure(agent.FailureKindExternal, "child.start.failed", "unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var progress childcall.Single
-	result, err := progress.AcceptStart(startSignal(t, ref, key, "", &failure), key, ref)
+	result, err := progress.AcceptStart(startSignal(t, "", &failure))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,19 +120,17 @@ func TestSingleLeavesStartFailureToStrategy(t *testing.T) {
 }
 
 func TestSingleDrainedCompletionRequiresKnownSubtreeState(t *testing.T) {
-	ref, key, waitKey := invocation(t)
+	waitKey := invocation(t)
 	var progress childcall.Single
-	if _, err := progress.AcceptStart(startSignal(t, ref, key, "child", nil), key, ref); err != nil {
+	if _, err := progress.AcceptStart(startSignal(t, "child", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := progress.AcceptOpening(openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all"), waitKey, agent.ChildWaitBoundaryDrained); err != nil {
+	if _, err := progress.AcceptOpening(openingSignal(t, "wait")); err != nil {
 		t.Fatal(err)
 	}
 	before := string(encoded(t, progress))
-	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
-	payload := strings.Replace(string(completion.Payload()), `"boundary":"subtree_drained"`, `"boundary":"terminal_result"`, 1)
-	unknown := signal(t, "wait", json.RawMessage(payload))
-	if _, err := progress.Complete(unknown, key, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+	unknown := completionSignal(t, "wait", false, "child")
+	if _, err := progress.Complete(unknown, waitKey, agent.ChildWaitBoundaryDrained); err == nil {
 		t.Fatal("drained completion accepted an unknown subtree")
 	}
 	if string(encoded(t, progress)) != before {
@@ -197,34 +160,13 @@ func TestSingleRestoreRejectsMalformedProgressAtomically(t *testing.T) {
 	}
 }
 
-func invocation(t *testing.T) (agent.DeploymentRef, agent.ChildKey, agent.WaitKey) {
+func invocation(t *testing.T) agent.WaitKey {
 	t.Helper()
-	stage, err := workflow.Transform("identity", func(_ context.Context, value int) (int, error) { return value, nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
-		Name: "test.childcall", Description: "Exercise the child protocol.", Stages: []workflow.Stage{stage},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, ImplementationDigest: agent.ComputeDigest([]byte("implementation")),
-		ConfigurationDigest: agent.ComputeDigest([]byte("configuration")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := agent.ParseChildKey("call")
-	if err != nil {
-		t.Fatal(err)
-	}
 	waitKey, err := agent.ParseWaitKey("children")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment.DeploymentRef(), key, waitKey
+	return waitKey
 }
 
 func roundTrip(t *testing.T, progress *childcall.Single, want childcall.Phase) {
@@ -240,29 +182,29 @@ func roundTrip(t *testing.T, progress *childcall.Single, want childcall.Phase) {
 	*progress = restored
 }
 
-func startSignal(t *testing.T, ref agent.DeploymentRef, key agent.ChildKey, process string, failure *agent.Failure) agent.Signal {
+func startSignal(t *testing.T, process string, failure *agent.Failure) agent.Signal {
 	t.Helper()
 	return signal(t, "", struct {
-		Operation     string              `json:"operation"`
-		Key           agent.ChildKey      `json:"key"`
-		DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
-		ProcessID     string              `json:"process_id,omitempty"`
-		Failure       *agent.Failure      `json:"failure,omitzero"`
-	}{"start_child", key, ref, process, failure})
+		Operation string         `json:"operation"`
+		ProcessID string         `json:"process_id,omitempty"`
+		Failure   *agent.Failure `json:"failure,omitzero"`
+	}{"start_child", process, failure})
 }
 
-func openingSignal(t *testing.T, waitID, key, boundary string, children []string, condition string) agent.Signal {
+func openingSignal(t *testing.T, waitID string) agent.Signal {
 	t.Helper()
-	payload := fmt.Sprintf(`{"operation":"child_wait_opened","spec":{"key":%q,"children":%s,"boundary":%q,"condition":{"kind":%q}}}`, key, encoded(t, children), boundary, condition)
-	return signal(t, waitID, json.RawMessage(payload))
+	return signal(t, waitID, json.RawMessage(`{"operation":"child_wait_opened"}`))
 }
 
-func completionSignal(t *testing.T, waitID, waitKey, boundary, childKey, processID string) agent.Signal {
+// completionSignal answers waitID with processID's completed outcome, carrying
+// an empty subtree list exactly when drained.
+func completionSignal(t *testing.T, waitID string, drained bool, processID string) agent.Signal {
 	t.Helper()
-	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","key":%q,"boundary":%q,"outcomes":[{"boundary":%q,"key":%q,"subtree_unresolved_effects":[],"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}}]}`, waitKey, boundary, boundary, childKey, processID)
-	if boundary != "subtree_drained" {
-		payload = strings.Replace(payload, `"subtree_unresolved_effects":[],`, "", 1)
+	subtree := ""
+	if drained {
+		subtree = `,"subtree_unresolved_effects":[]`
 	}
+	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","outcomes":[{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}%s}]}`, processID, subtree)
 	return signal(t, waitID, json.RawMessage(payload))
 }
 
@@ -290,11 +232,10 @@ func encoded(t *testing.T, value any) []byte {
 }
 
 func TestSingleOwnsWindowShape(t *testing.T) {
-	ref, key, waitKey := invocation(t)
 	var progress childcall.Single
-	start := startSignal(t, ref, key, "child", nil)
-	opening := openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all")
-	completion := completionSignal(t, "wait", "children", "subtree_drained", "call", "child")
+	start := startSignal(t, "child", nil)
+	opening := openingSignal(t, "wait")
+	completion := completionSignal(t, "wait", true, "child")
 	var foreign agent.Signal
 	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:external","payload":{}}`), &foreign); err != nil {
 		t.Fatal(err)
@@ -317,16 +258,43 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 		}
 		switch phase {
 		case childcall.PhaseAwaitingStart:
-			if _, err := progress.AcceptStart(start, key, ref); err != nil {
+			if _, err := progress.AcceptStart(start); err != nil {
 				t.Fatal(err)
 			}
 		case childcall.PhaseAwaitingOpening:
 			if _, err := progress.Window([]agent.Signal{opening, completion}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := progress.AcceptOpening(opening, waitKey, agent.ChildWaitBoundaryDrained); err != nil {
+			if _, err := progress.AcceptOpening(opening); err != nil {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+func TestSingleRejectsUndecodableResponsesWithoutAdvancing(t *testing.T) {
+	waitKey := invocation(t)
+	foreign := signal(t, "", json.RawMessage(`{"operation":"unrelated"}`))
+	var progress childcall.Single
+	if _, err := progress.WaitEffect(waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+		t.Fatal("wait preceded the child start")
+	}
+	if _, err := progress.AcceptStart(foreign); err == nil || progress.Phase() != childcall.PhaseAwaitingStart {
+		t.Fatal("undecodable start advanced progress")
+	}
+	if _, err := progress.AcceptStart(startSignal(t, "child", nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := progress.AcceptOpening(signal(t, "wait", json.RawMessage(`{"operation":"unrelated"}`))); err == nil || progress.Phase() != childcall.PhaseAwaitingOpening {
+		t.Fatal("undecodable opening advanced progress")
+	}
+	if _, err := progress.Complete(completionSignal(t, "wait", true, "child"), waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+		t.Fatal("completion preceded its opening")
+	}
+	if _, err := progress.AcceptOpening(openingSignal(t, "wait")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := progress.Complete(signal(t, "wait", json.RawMessage(`{"operation":"unrelated"}`)), waitKey, agent.ChildWaitBoundaryDrained); err == nil {
+		t.Fatal("undecodable completion returned a result")
 	}
 }

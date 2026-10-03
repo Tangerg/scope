@@ -26,7 +26,7 @@ type preparedStepFinalization struct {
 	process          *processState
 	prepared         *preparedStep
 	mailbox          signalMailbox
-	openedChildWaits []ChildWaitOpened
+	openedChildWaits []openedChildWait
 	commit           preparedStepCommit
 }
 

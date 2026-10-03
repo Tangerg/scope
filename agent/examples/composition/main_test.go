@@ -359,12 +359,14 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 				t.Fatalf("kind=%s, want wait", transition.Kind())
 			}
 		})
-		t.Run(sample.Name+" rejects unrelated wait", func(t *testing.T) {
-			if _, err := restoreComposition(t, base, sample).Step(t.Context(), []agent.Signal{unrelatedWaitSignal(t, sample.Signals[0])}); err == nil {
-				t.Fatal("unrelated wait was accepted")
-			}
-		})
 	}
+	// An opening acknowledges whichever WaitID the Engine minted; only the
+	// completion can answer another wait.
+	t.Run(completion.Name+" rejects unrelated wait", func(t *testing.T) {
+		if _, err := restoreComposition(t, base, completion).Step(t.Context(), []agent.Signal{unrelatedWaitSignal(t, completion.Signals[0])}); err == nil {
+			t.Fatal("unrelated wait was accepted")
+		}
+	})
 	if err := engine.ReleaseTree(t.Context(), result.ProcessID()); err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +407,8 @@ func unrelatedWaitSignal(t *testing.T, signal agent.Signal) agent.Signal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded = bytes.ReplaceAll(encoded, []byte(`"composition"`), []byte(`"unrelated"`))
+	waitID, _ := signal.WaitID()
+	encoded = bytes.ReplaceAll(encoded, []byte(`"`+waitID.String()+`"`), []byte(`"wait:unrelated"`))
 	var unrelated agent.Signal
 	if err := jsonv2.Unmarshal(encoded, &unrelated); err != nil {
 		t.Fatal(err)

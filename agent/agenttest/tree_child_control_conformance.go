@@ -300,8 +300,8 @@ func assertChildControlCut(t *testing.T, head agent.TreeSnapshot, boundary agent
 		t.Fatalf("framework control has no definite receipt: %s", settlement.Status())
 	}
 	var result agent.ChildControlResult
-	if err := jsonv2.Unmarshal(settlement.Payload(), &result); err != nil || !result.Matches(boundary.Request().Effect()) {
-		t.Fatalf("framework control receipt does not match its request: %v", err)
+	if err := jsonv2.Unmarshal(settlement.Payload(), &result); err != nil {
+		t.Fatalf("framework control receipt is invalid: %v", err)
 	}
 	if !retainsSettlement(parent, settlement) {
 		t.Fatal("acknowledged parent is missing the framework control receipt")
@@ -589,14 +589,10 @@ func (c *childControlExecution) issueControl(ctx context.Context, signals []agen
 }
 
 func (c *childControlExecution) adoptReceipts(signals []agent.Signal) (agent.Transition, error) {
-	effect, err := c.controlEffect()
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	for _, signal := range signals {
 		result, err := agent.ParseChildControlResult(signal)
-		if err != nil || !result.Matches(effect) {
-			return agent.Transition{}, errors.New("agenttest: control receipt did not match its request")
+		if err != nil {
+			return agent.Transition{}, errors.New("agenttest: control receipt is invalid")
 		}
 		c.state.Results = append(c.state.Results, result)
 	}

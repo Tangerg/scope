@@ -70,7 +70,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				loserCalls.Add(1)
 				return nil, errors.New("remote result lost")
 			}))
-			race := contractDeployment(contractValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "contract.competition", Description: "Choose a result before all remote effects are known.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil }})), nil)
+			race := contractDeployment(contractValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "contract.competition", Description: "Choose a result before all remote effects are known.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return true, nil }})), nil)
 			childBudget := agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}
 			candidates := []agent.ChildSpec{
 				{Key: contractValue(agent.ParseChildKey("winner")), DeploymentRef: gate.DeploymentRef(), Input: contractValue(agent.EncodePayload("finish")), Budget: childBudget},

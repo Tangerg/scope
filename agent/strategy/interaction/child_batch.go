@@ -156,7 +156,7 @@ func (c childCallBatch) validateWait(keys []agent.ChildKey) error {
 	if c.WaitID != nil && !c.WaitID.Valid() {
 		return fmt.Errorf("%w: waiting children require an Engine WaitID", ErrInvalidExecutionState)
 	}
-	if err := c.protocolBatch(keys, nil).Validate(); err != nil {
+	if err := c.protocolBatch(keys).Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	return nil
@@ -290,10 +290,10 @@ func (c childCallBatch) waitSpec(modelCallSequence uint64, callIndex uint32, key
 	if c.Kind == childCallsDelegate {
 		condition = agent.AllChildren()
 	}
-	return c.protocolBatch(keys, nil).WaitSpec(key, agent.ChildWaitBoundaryDrained, condition)
+	return c.protocolBatch(keys).WaitSpec(key, agent.ChildWaitBoundaryDrained, condition)
 }
 
-func (c childCallBatch) protocolBatch(keys []agent.ChildKey, bindings []agent.DeploymentRef) childcall.Batch {
+func (c childCallBatch) protocolBatch(keys []agent.ChildKey) childcall.Batch {
 	batch := childcall.Batch{Children: make([]childcall.Child, len(c.Invocations))}
 	if c.WaitID != nil {
 		batch.WaitID = *c.WaitID
@@ -311,16 +311,13 @@ func (c childCallBatch) protocolBatch(keys []agent.ChildKey, bindings []agent.De
 		if invocation.ProcessID != nil {
 			child.ProcessID = *invocation.ProcessID
 		}
-		if len(bindings) == len(c.Invocations) {
-			child.Deployment = bindings[index]
-		}
 	}
 	return batch
 }
 
-func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, keys []agent.ChildKey, bindings []agent.DeploymentRef) ([]int, error) {
-	batch := c.protocolBatch(keys, bindings)
-	if len(bindings) != len(c.Invocations) || len(starts) != batch.PendingStarts() {
+func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, keys []agent.ChildKey) ([]int, error) {
+	batch := c.protocolBatch(keys)
+	if len(starts) != batch.PendingStarts() {
 		return nil, fmt.Errorf("%w: child start count does not match the pending batch", ErrInvalidExecutionState)
 	}
 	indices, err := batch.AcceptStarts(starts)
@@ -335,8 +332,8 @@ func (c *childCallBatch) acceptStarts(starts []agent.ChildStartResult, keys []ag
 	return indices, nil
 }
 
-func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, want agent.ChildWaitSpec, keys []agent.ChildKey) error {
-	waitID, err := c.protocolBatch(keys, nil).AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, keys []agent.ChildKey) error {
+	waitID, err := c.protocolBatch(keys).AcceptOpening(opened)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
@@ -345,7 +342,7 @@ func (c *childCallBatch) acceptWaitOpened(opened agent.ChildWaitOpened, want age
 }
 
 func (c childCallBatch) validateCompletions(completed agent.ChildWaitSatisfied, want agent.ChildWaitSpec, keys []agent.ChildKey) ([]int, error) {
-	indices, err := c.protocolBatch(keys, nil).Complete(completed, want.Key, want.Boundary, want.Condition)
+	indices, err := c.protocolBatch(keys).Complete(completed, want.Key, want.Boundary, want.Condition)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}

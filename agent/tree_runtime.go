@@ -477,43 +477,29 @@ func (t *treeRuntime) prepareChildStart(
 	spec ChildSpec,
 ) childStartPreparation {
 	if !spec.Valid() || !process.handle.relation.Valid() {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
 	}
 	childID := effectID.childProcessID()
 	relation := childProcessRelation(childID, process.handle.relation, spec.Key)
 	requestDigest, err := spec.digest()
 	if err != nil {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, failureCodeEngineChildRequestInvalid, err,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, err)}
 	}
 	if existing, exists := t.engine.Process(childID); exists {
 		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef &&
 			existing.handle.childRequestDigest == requestDigest {
-			return childStartPreparation{result: ChildStartResult{
-				key: spec.Key, processID: childID, deploymentRef: spec.DeploymentRef,
-			}}
+			return childStartPreparation{result: ChildStartResult{processID: childID}}
 		}
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart)}
 	}
 	if !process.handle.capabilities.Allows(spec.Capabilities) {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
 	}
 	if !t.canStartChild(process) {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
 	}
 	if !process.reserveProvisionalChildBudget(spec.Budget, t.members.childAllocation(process.handle.processID)) {
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
 	}
 	transferred := false
 	defer func() {
@@ -525,18 +511,12 @@ func (t *treeRuntime) prepareChildStart(
 		relation, spec.DeploymentRef, requestDigest,
 	); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
-			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr,
-			)}
+			return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
 		}
 		if errors.Is(reserveProcessStartErr, ErrEngineClosed) {
-			return childStartPreparation{result: failedChildStart(
-				spec, FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr,
-			)}
+			return childStartPreparation{result: failedChildStart(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
 		}
-		return childStartPreparation{result: failedChildStart(
-			spec, FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr,
-		)}
+		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
 	}
 	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
@@ -1791,9 +1771,7 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 			if !errors.Is(err, ErrResourceLimitExceeded) {
 				return err
 			}
-			pending.result = childStartJobResult{result: failedChildStart(
-				pending.plan.spec, FailureKindExecution, failureCodeEngineChildTreeLimit, err,
-			)}
+			pending.result = childStartJobResult{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
 			_, err = t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
 			return err
 		}
@@ -2195,7 +2173,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 
 // childWaitAnswers checks the child waits a prepared Step opens against tree
 // membership and returns the answers the current tree already satisfies.
-func (t *treeRuntime) childWaitAnswers(processID ProcessID, opened []ChildWaitOpened) ([]Signal, error) {
+func (t *treeRuntime) childWaitAnswers(processID ProcessID, opened []openedChildWait) ([]Signal, error) {
 	var immediate []Signal
 	for _, wait := range opened {
 		if err := wait.spec.validateRelations(processID, t.members.relation); err != nil {

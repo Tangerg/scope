@@ -125,15 +125,11 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	want, err := e.state.waitSpec(e.definition)
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	batch, err := e.state.batch(e.definition)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	id, err := batch.AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	id, err := batch.AcceptOpening(opened)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -242,7 +238,6 @@ func (e *execution) acceptTaskStarts(signals []agent.Signal) (consumed uint32, s
 }
 
 func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32) (total uint32, settled bool, err error) {
-	tasks := e.state.taskIndex()
 	for index := range e.state.Controls {
 		receipt := &e.state.Controls[index]
 		if receipt.Result != nil {
@@ -254,10 +249,6 @@ func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32
 		result, parseErr := agent.ParseChildControlResult(signals[consumed])
 		if parseErr != nil {
 			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, parseErr)
-		}
-		effect, effectErr := receipt.Control.effect(tasks[receipt.Control.Task])
-		if effectErr != nil || !result.Matches(effect) {
-			return 0, false, ErrInvalidProtocol
 		}
 		receipt.Result = &result
 		consumed++

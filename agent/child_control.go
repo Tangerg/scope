@@ -38,27 +38,17 @@ func NewChildCancelEffect(childID ProcessID, reason string) (Effect, error) {
 	}.effect()
 }
 
-// ChildControlResult is a definite tree-local admission result. SignalID is
-// present for every signal attempt, including rejected delivery. Failure
+// ChildControlResult is a definite tree-local admission result. Failure
 // preserves rejected authority, wait, or resource admission without failing
-// the sending Strategy implicitly.
+// the sending Strategy implicitly. The declaring Effect owns the recipient and
+// any delivered SignalID; the result carries only whether admission failed.
 type ChildControlResult struct {
-	childID   ProcessID
-	signalID  SignalID
 	failure   Failure
 	operation frameworkOperationKind
 }
 
-func (c ChildControlResult) ChildID() ProcessID { return c.childID }
-
-func (c ChildControlResult) SignalID() (SignalID, bool) {
-	return c.signalID, c.signalID.Valid()
-}
-
 func (c ChildControlResult) Failure() (Failure, bool) { return c.failure, c.failure.Valid() }
 
-// Matches checks the operation and concrete recipient of the declared Effect.
-// The enclosing settlement Signal retains the Engine-owned effect identity.
 // settlementStatus is the status of the child-control Effect that returns c.
 func (c ChildControlResult) settlementStatus() SettlementStatus {
 	if c.failure.Valid() {
@@ -67,34 +57,15 @@ func (c ChildControlResult) settlementStatus() SettlementStatus {
 	return SettlementStatusSucceeded
 }
 
-func (c ChildControlResult) Matches(effect Effect) bool {
-	if !c.Valid() || !effect.Valid() || effect.Target() != EffectTargetFramework {
-		return false
-	}
-	request, err := decodeChildControlEffect(effect.Payload())
-	return err == nil && c.matches(request)
-}
-
-func (c ChildControlResult) matches(request childControlEffectWire) bool {
-	return request.Operation == c.operation && request.ChildID == c.childID &&
-		(!c.signalID.Valid() || request.Signal != nil && request.Signal.ID() == c.signalID)
-}
-
 func (c ChildControlResult) Valid() bool {
-	if !c.childID.Valid() || c.operation != frameworkOperationSignalChild && c.operation != frameworkOperationCancelChild {
-		return false
-	}
-	return c.signalID.Valid() == (c.operation == frameworkOperationSignalChild)
+	return c.operation == frameworkOperationSignalChild || c.operation == frameworkOperationCancelChild
 }
 
 func (c ChildControlResult) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildControl
 	}
-	wire := childControlResultWire{Operation: c.operation, ChildID: c.childID}
-	if c.signalID.Valid() {
-		wire.SignalID = &c.signalID
-	}
+	wire := childControlResultWire{Operation: c.operation}
 	if c.failure.Valid() {
 		wire.Failure = &c.failure
 	}
@@ -168,8 +139,6 @@ func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, 
 
 type childControlResultWire struct {
 	Operation frameworkOperationKind `json:"operation"`
-	ChildID   ProcessID              `json:"child_id"`
-	SignalID  *SignalID              `json:"signal_id,omitzero"`
 	Failure   *Failure               `json:"failure,omitzero"`
 }
 
@@ -178,10 +147,7 @@ func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, erro
 	if err != nil {
 		return ChildControlResult{}, fmt.Errorf("%w: result: %w", ErrInvalidChildControl, err)
 	}
-	result := ChildControlResult{childID: wire.ChildID, operation: wire.Operation}
-	if wire.SignalID != nil {
-		result.signalID = *wire.SignalID
-	}
+	result := ChildControlResult{operation: wire.Operation}
 	if wire.Failure != nil {
 		result.failure = *wire.Failure
 	}
@@ -192,9 +158,5 @@ func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, erro
 }
 
 func (c childControlEffectWire) result() ChildControlResult {
-	result := ChildControlResult{childID: c.ChildID, operation: c.Operation}
-	if c.Signal != nil {
-		result.signalID = c.Signal.ID()
-	}
-	return result
+	return ChildControlResult{operation: c.Operation}
 }

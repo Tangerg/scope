@@ -113,7 +113,7 @@ func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
 		candidates = append(candidates, agent.ChildSpec{Key: safetyValue(agent.ParseChildKey(key)), DeploymentRef: timer.DeploymentRef(), Input: safetyValue(agent.EncodePayload(time.Unix(1, 0).UTC())), Budget: budget})
 	}
 	definition := &safetyCompetition{descriptor: safetyValue(agent.NewDescriptor(agent.DescriptorConfig{Name: "safety.competition", Description: "Complete while a loser retains uncertainty.", InputSchema: safetyValue(agent.SchemaFor[I]()), OutputSchema: safetyValue(agent.SchemaFor[O]())})),
-		competition: safetyValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "safety.first_success", Description: "Select a winner.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil }})), candidates: safetyValue(agent.EncodePayload(candidates)), output: safetyValue(agent.EncodePayload(output))}
+		competition: safetyValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "safety.first_success", Description: "Select a winner.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return true, nil }})), candidates: safetyValue(agent.EncodePayload(candidates)), output: safetyValue(agent.EncodePayload(output))}
 	child := safetyBinding(definition, nil)
 	return child, safetyResolver{child.DeploymentRef(): child, timer.DeploymentRef(): timer}
 }

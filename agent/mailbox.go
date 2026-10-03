@@ -210,15 +210,14 @@ func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
 	return s.openSettledWait(waitRecord{externalKey: key}, signal)
 }
 
-// openChildWait opens an Engine-answered wait over spec. Its opening Signal
-// must announce exactly spec, which is all the persisted opening keeps.
+// openChildWait opens an Engine-answered wait over spec, which the persisted
+// opening keeps; its opening Signal only acknowledges the minted WaitID.
 func (s *signalMailbox) openChildWait(spec ChildWaitSpec, signal Signal) error {
 	if !spec.Valid() {
 		return fmt.Errorf("%w: %w", errWaitState, ErrInvalidChildWait)
 	}
-	announced, err := childWaitOpenedPayload(spec)
-	if err != nil || !bytes.Equal(announced, signal.payload) {
-		return fmt.Errorf("%w: child wait opening Signal must announce its spec", errWaitState)
+	if !bytes.Equal(childWaitOpenedPayload(), signal.payload) {
+		return fmt.Errorf("%w: child wait opening Signal must be its acknowledgement", errWaitState)
 	}
 	return s.openSettledWait(newChildWaitRecord(spec), signal)
 }
@@ -334,8 +333,8 @@ func (s *signalMailbox) contains(id SignalID) bool {
 }
 
 // signalRecordWire keeps a pending record's payload and a consumed record's
-// digest. A child-wait opening keeps neither, because its spec determines the
-// payload that announced it.
+// digest. A child-wait opening keeps neither, because every opening carries
+// the same acknowledgement.
 type signalRecordWire struct {
 	ID            SignalID         `json:"id"`
 	WaitID        *WaitID          `json:"wait_id,omitzero"`
@@ -349,16 +348,9 @@ type signalRecordWire struct {
 func (s signalRecordWire) content(consumed bool) (json.RawMessage, Digest, error) {
 	if s.Opens != nil && s.Opens.Spec != nil {
 		if s.Payload != nil || s.PayloadDigest != nil {
-			return nil, Digest{}, fmt.Errorf("%w: child-wait opening stores content its spec determines", errMailboxCursor)
+			return nil, Digest{}, fmt.Errorf("%w: child-wait opening stores its fixed acknowledgement", errMailboxCursor)
 		}
-		spec, err := s.Opens.Spec.value()
-		if err != nil {
-			return nil, Digest{}, fmt.Errorf("%w: %w", errWaitState, err)
-		}
-		payload, err := childWaitOpenedPayload(spec)
-		if err != nil {
-			return nil, Digest{}, fmt.Errorf("%w: %w", errWaitState, err)
-		}
+		payload := childWaitOpenedPayload()
 		if consumed {
 			return nil, ComputeDigest(payload), nil
 		}
@@ -496,7 +488,7 @@ func (m mailboxWire) document() (mailboxDocument, error) {
 }
 
 // wire renders each pending child-wait answer from the outcomes its answered
-// children reached; the wait it answers supplies the key and boundary.
+// children reached; the wait it answers supplies the boundary.
 func (m mailboxDocument) wire(outcomes childOutcomeSource) (mailboxWire, error) {
 	wire := mailboxWire{SignalCursor: m.SignalCursor, Signals: make([]signalRecordWire, len(m.Signals))}
 	specs := make(map[WaitID]childWaitSpecWire)
@@ -533,7 +525,7 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 	if err != nil {
 		return nil, fmt.Errorf("%w: child-wait answer needs its opened wait: %w", errWaitState, err)
 	}
-	satisfied := ChildWaitSatisfied{waitID: waitID, key: spec.Key, boundary: spec.Boundary}
+	satisfied := ChildWaitSatisfied{waitID: waitID}
 	for _, child := range answered {
 		outcome, outcomeErr := outcomes(child, spec.Boundary)
 		if outcomeErr != nil {
@@ -544,7 +536,7 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 	if !satisfied.Matches(waitID, spec) {
 		return nil, fmt.Errorf("%w: answered children do not satisfy their wait", errWaitState)
 	}
-	signal, err := encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, satisfied.outcomes)
+	signal, err := encodeChildWaitSatisfied(waitID, satisfied.outcomes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: child-wait answer: %w", errWaitState, err)
 	}
@@ -570,16 +562,22 @@ func (m mailboxWire) receipts() []SignalReceipt {
 	return receipts
 }
 
+// openedChildWait is a child wait the mailbox opened, with the spec it owns.
+type openedChildWait struct {
+	waitID WaitID
+	spec   ChildWaitSpec
+}
+
 // openChildWaits returns the child waits that still constrain tree membership,
 // in WaitID order so notification does not depend on map iteration.
-func (s *signalMailbox) openChildWaits() []ChildWaitOpened {
-	var waits []ChildWaitOpened
+func (s *signalMailbox) openChildWaits() []openedChildWait {
+	var waits []openedChildWait
 	for id, wait := range s.waits {
 		if wait.child != nil && !wait.closed {
-			waits = append(waits, ChildWaitOpened{waitID: id, spec: *wait.child})
+			waits = append(waits, openedChildWait{waitID: id, spec: *wait.child})
 		}
 	}
-	slices.SortFunc(waits, func(left, right ChildWaitOpened) int {
+	slices.SortFunc(waits, func(left, right openedChildWait) int {
 		return cmp.Compare(left.waitID.String(), right.waitID.String())
 	})
 	return waits
@@ -587,8 +585,8 @@ func (s *signalMailbox) openChildWaits() []ChildWaitOpened {
 
 // awaitingChild returns the open, unanswered child waits that observe childID
 // at boundary.
-func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBoundary) []ChildWaitOpened {
-	var waits []ChildWaitOpened
+func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBoundary) []openedChildWait {
+	var waits []openedChildWait
 	for _, opened := range s.openChildWaits() {
 		if !s.waits[opened.waitID].answered && opened.spec.Boundary == boundary &&
 			slices.Contains(opened.spec.Children, childID) {

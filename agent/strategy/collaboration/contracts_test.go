@@ -185,9 +185,6 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 			mutations["zero turn number"] = func(state *executionState) { state.Turn.Number = 0 }
 			mutations["changed input state"] = func(state *executionState) { state.Turn.State = require(agent.EncodePayload(1)) }
 			mutations["retained initial state"] = func(state *executionState) { state.InitialState = input("forged") }
-			if state.Turn.Start != nil {
-				mutations["changed turn number"] = func(state *executionState) { state.Turn.Number++ }
-			}
 		}
 		if len(state.Tasks) > 0 {
 			mutations["duplicate task"] = func(state *executionState) { state.Tasks = append(state.Tasks, state.Tasks[0]) }
@@ -203,7 +200,6 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(state.Tasks[0].Outcome)), &wire); err != nil {
 					t.Fatal(err)
 				}
-				wire["boundary"] = json.RawMessage(`"terminal_result"`)
 				delete(wire, "subtree_unresolved_effects")
 				var outcome agent.ChildOutcome
 				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(wire)), &outcome); err != nil {

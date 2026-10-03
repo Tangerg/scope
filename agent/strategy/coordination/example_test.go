@@ -42,7 +42,7 @@ func ExampleFirstSuccess() {
 	}
 	race, err := coordination.NewFirstSuccess(coordination.FirstSuccessConfig{
 		Name: "example.coordination", Description: "Select the first completed work, input, or deadline.", MaxCandidates: 3,
-		Accept: func(_ context.Context, _ agent.ChildOutcome) (bool, error) { return true, nil },
+		Accept: func(_ context.Context, _ agent.ChildKey, _ agent.ChildOutcome) (bool, error) { return true, nil },
 	})
 	if err != nil {
 		panic(err)
@@ -93,9 +93,11 @@ func ExampleFirstSuccess() {
 	if err != nil || !report.Valid() || report.Winner == nil {
 		panic("competition produced no successful candidate")
 	}
-	fmt.Println("winner:", report.Winner)
+	// Winner indexes the request, and Starts answers it in the same order.
+	fmt.Println("winner:", requests[*report.Winner].Key)
+	winner, _ := report.Starts[*report.Winner].ProcessID()
 	for _, outcome := range report.Outcomes {
-		if outcome.Key() == *report.Winner {
+		if outcome.Result().ProcessID() == winner {
 			value, _ := outcome.Result().Output()
 			answer, decodeErr := value.Decode[string]()
 			if decodeErr != nil {

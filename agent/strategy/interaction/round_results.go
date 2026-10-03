@@ -110,7 +110,7 @@ func SettledResults(snapshot agent.TreeSnapshot) ([]RoundResults, error) {
 	children := newChildIndex(processes)
 	var rounds []RoundResults
 	for index := len(processes) - 1; index >= 0; index-- {
-		round, err := children.settledProcessResults(processes[index])
+		round, err := children.settledProcessResults(snapshot, processes[index])
 		if err != nil {
 			return nil, err
 		}
@@ -190,16 +190,20 @@ func newChildIndex(processes []agent.ProcessSnapshot) childIndex {
 	return children
 }
 
-func (c childIndex) settledProcessResults(process agent.ProcessSnapshot) (RoundResults, error) {
+func (c childIndex) settledProcessResults(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) (RoundResults, error) {
 	state, calls, err := pendingRound(process)
 	if err != nil || state == nil {
+		return RoundResults{}, err
+	}
+	refusals, err := delegateStartRefusals(snapshot, process, state)
+	if err != nil {
 		return RoundResults{}, err
 	}
 	round := RoundResults{relation: process.Relation(), sequence: state.ModelCallCount, callCount: uint32(len(calls))}
 	for index, call := range calls {
 		result := state.ToolRound.knownResult(index)
 		if result == nil {
-			result, err = c.settledChildResult(process, state.ModelCallCount, uint32(index), call)
+			result, err = c.settledChildResult(process, refusals, state.ModelCallCount, uint32(index), call)
 			if err != nil {
 				return RoundResults{}, err
 			}
@@ -221,7 +225,7 @@ func (c childIndex) settledProcessResults(process agent.ProcessSnapshot) (RoundR
 	return round, nil
 }
 
-func (c childIndex) settledChildResult(process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
+func (c childIndex) settledChildResult(process agent.ProcessSnapshot, refusals map[agent.ChildKey]agent.Failure, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
 	toolKey, err := ToolChildKey(sequence, call)
 	if err != nil {
 		return nil, err
@@ -235,7 +239,10 @@ func (c childIndex) settledChildResult(process agent.ProcessSnapshot, sequence u
 	}
 	child, found := c[process.ProcessID()][delegateKey]
 	if !found {
-		return rejectedDelegateStart(process, delegateKey, call), nil
+		if failure, refused := refusals[delegateKey]; refused {
+			return rejectedDelegateStartResult(call, failure), nil
+		}
+		return nil, nil
 	}
 	if !c.subtreeSettled(child) {
 		return nil, nil
@@ -304,20 +311,65 @@ func definitePayloads(process agent.ProcessSnapshot) []json.RawMessage {
 	return payloads
 }
 
-func rejectedDelegateStart(process agent.ProcessSnapshot, key agent.ChildKey, call chat.ToolCall) *toolCallResult {
-	for _, payload := range definitePayloads(process) {
-		var start agent.ChildStartResult
-		// The parent also retains model, steer and child-wait Signals. Only the
-		// Framework's strict child-start decoder can supply a start refusal.
-		if err := jsonv2.Unmarshal(payload, &start); err != nil {
+// delegateStartRefusals reads each definite child-start refusal against the
+// request that owns its key: a prepared settlement names its Effect, and a
+// pending settlement answers the next unstarted invocation of the committed
+// Delegate batch, because starts settle in declaration order.
+func delegateStartRefusals(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, state *executionState) (map[agent.ChildKey]agent.Failure, error) {
+	refusals := make(map[agent.ChildKey]agent.Failure)
+	for _, settlement := range process.Settlements() {
+		request, found := snapshot.EffectRequest(process.ProcessID(), settlement.EffectID())
+		if !found || settlement.Status() != agent.SettlementStatusFailed {
 			continue
 		}
-		if start.Key() != key {
+		spec, err := agent.ParseChildStartEffect(request.Effect())
+		if err != nil {
 			continue
+		}
+		var start agent.ChildStartResult
+		if err := jsonv2.Unmarshal(settlement.Payload(), &start); err != nil {
+			return nil, err
 		}
 		if failure, failed := start.Failure(); failed {
-			return rejectedDelegateStartResult(call, failure)
+			refusals[spec.Key] = failure
 		}
 	}
-	return nil
+	batch := state.ToolRound.ChildBatch
+	if batch == nil || batch.Kind != childCallsDelegate {
+		return refusals, nil
+	}
+	calls, err := state.ToolRound.activeCalls(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	keys, err := batch.childKeys(state.ModelCallCount, calls)
+	if err != nil {
+		return nil, err
+	}
+	var unstarted []agent.ChildKey
+	for index, invocation := range batch.Invocations {
+		if invocation != nil && invocation.ProcessID == nil && invocation.Result == nil {
+			unstarted = append(unstarted, keys[index])
+		}
+	}
+	for _, receipt := range process.SignalReceipts() {
+		signal, pending := receipt.PendingSignal()
+		if !pending {
+			continue
+		}
+		// The parent also retains model, steer and child-wait Signals. Only the
+		// Framework's strict child-start decoder accepts a start settlement.
+		start, err := agent.ParseChildStartResult(signal)
+		if err != nil {
+			continue
+		}
+		if len(unstarted) == 0 {
+			return nil, fmt.Errorf("%w: child start answers no pending Delegate", ErrInvalidExecutionState)
+		}
+		if failure, failed := start.Failure(); failed {
+			refusals[unstarted[0]] = failure
+		}
+		unstarted = unstarted[1:]
+	}
+	return refusals, nil
 }

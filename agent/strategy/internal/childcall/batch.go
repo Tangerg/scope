@@ -11,14 +11,13 @@ import (
 var ErrInvalidBatch = errors.New("childcall: invalid batch")
 
 // Child is a projection of one Strategy-owned invocation. Done means that the
-// Strategy has handled its outcome or rejected it without a Process. Deployment
-// is required only while awaiting a start; completed entries still retain their
-// ProcessID so a later admission cannot reuse an earlier child's identity.
+// Strategy has handled its outcome or rejected it without a Process; completed
+// entries still retain their ProcessID so a later admission cannot reuse an
+// earlier child's identity.
 type Child struct {
-	Key        agent.ChildKey
-	Deployment agent.DeploymentRef
-	ProcessID  agent.ProcessID
-	Done       bool
+	Key       agent.ChildKey
+	ProcessID agent.ProcessID
+	Done      bool
 }
 
 // Batch owns ordered handshake validation over a Strategy's current invocation
@@ -78,8 +77,10 @@ func (b Batch) Validate() error {
 	return nil
 }
 
-// AcceptStarts validates an ordered prefix of pending admissions atomically.
-// Callers decide whether their signal window must settle all pending admissions.
+// AcceptStarts validates an ordered prefix of pending admissions atomically;
+// starts settle in declaration order, so the i-th start answers the i-th
+// pending child. Callers decide whether their signal window must settle all
+// pending admissions.
 func (b Batch) AcceptStarts(starts []agent.ChildStartResult) ([]int, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err
@@ -102,8 +103,8 @@ func (b Batch) AcceptStarts(starts []agent.ChildStartResult) ([]int, error) {
 			break
 		}
 		start := starts[len(indices)]
-		if !start.Matches(child.Key, child.Deployment) {
-			return nil, errors.New("childcall: start does not match its declared child")
+		if !start.Valid() {
+			return nil, errors.New("childcall: invalid start response")
 		}
 		if id, started := start.ProcessID(); started {
 			if _, duplicate := seen[id]; duplicate {
@@ -138,22 +139,18 @@ func (b Batch) WaitSpec(key agent.WaitKey, boundary agent.ChildWaitBoundary, con
 	return spec, nil
 }
 
-func (b Batch) AcceptOpening(opened agent.ChildWaitOpened, key agent.WaitKey, boundary agent.ChildWaitBoundary, condition agent.ChildWaitCondition) (agent.WaitID, error) {
-	spec, err := b.WaitSpec(key, boundary, condition)
-	if err != nil {
+func (b Batch) AcceptOpening(opened agent.ChildWaitOpened) (agent.WaitID, error) {
+	if err := b.Validate(); err != nil {
 		return agent.WaitID{}, err
 	}
-	if b.Phase() != PhaseAwaitingOpening {
+	if b.Phase() != PhaseAwaitingOpening || !opened.Valid() {
 		return agent.WaitID{}, errors.New("childcall: opening is out of phase")
-	}
-	if !opened.Matches(spec) {
-		return agent.WaitID{}, errors.New("childcall: opening does not match the declared wait")
 	}
 	return opened.WaitID(), nil
 }
 
-// Complete validates the wait, count, order, keys, and Process identities before
-// returning the matching child indices. No earlier outcome is adopted on error.
+// Complete validates the wait, boundary, count, order, and Process identities
+// before returning the matching child indices. No earlier outcome is adopted on error.
 func (b Batch) Complete(completed agent.ChildWaitSatisfied, key agent.WaitKey, boundary agent.ChildWaitBoundary, condition agent.ChildWaitCondition) ([]int, error) {
 	spec, err := b.WaitSpec(key, boundary, condition)
 	if err != nil {
@@ -169,8 +166,8 @@ func (b Batch) Complete(completed agent.ChildWaitSatisfied, key agent.WaitKey, b
 }
 
 // MatchOutcomes validates an ordered subset of unhandled child outcomes without
-// a live wait. Restore and result validators use it to check retained evidence;
-// live callers use Complete to establish the wait boundary first.
+// a live wait. Result validators use it to correlate outcomes with their
+// children; live callers use Complete to establish the wait boundary first.
 func (b Batch) MatchOutcomes(outcomes []agent.ChildOutcome) ([]int, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err
@@ -181,8 +178,8 @@ func (b Batch) MatchOutcomes(outcomes []agent.ChildOutcome) ([]int, error) {
 		for next < len(b.Children) && (b.Children[next].Done || b.Children[next].ProcessID != outcome.Result().ProcessID()) {
 			next++
 		}
-		if next == len(b.Children) || !outcome.Matches(b.Children[next].Key, b.Children[next].ProcessID) {
-			return nil, fmt.Errorf("childcall: outcome %s does not match its declared child", outcome.Key())
+		if next == len(b.Children) || !outcome.Valid() {
+			return nil, fmt.Errorf("childcall: outcome %s does not match its declared child", outcome.Result().ProcessID())
 		}
 		indices = append(indices, next)
 		next++

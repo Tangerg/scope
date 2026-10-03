@@ -386,22 +386,6 @@ func acceptModelResultSignal(signal agent.Signal, duplicate bool) error {
 	return nil
 }
 
-func (e *execution) childBindings(calls []chat.ToolCall) ([]agent.DeploymentRef, error) {
-	bindings := make([]agent.DeploymentRef, len(calls))
-	for index, call := range calls {
-		if e.state.ToolRound.ChildBatch.Kind == childCallsTool {
-			bindings[index] = e.definition.toolDeployment.DeploymentRef()
-			continue
-		}
-		delegate, found := e.definition.delegate(call.Name)
-		if !found {
-			return nil, ErrInvalidExecutionState
-		}
-		bindings[index] = delegate.deployment.DeploymentRef()
-	}
-	return bindings, nil
-}
-
 func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
 	starts, steer, consumed, err := collectChildStarts(signals)
 	if err != nil {
@@ -414,16 +398,12 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	bindings, err := e.childBindings(calls)
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	batch := e.state.ToolRound.ChildBatch
 	keys, err := batch.childKeys(e.state.ModelCallCount, calls)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	indices, err := batch.acceptStarts(starts, keys, bindings)
+	indices, err := batch.acceptStarts(starts, keys)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -486,11 +466,7 @@ func (e *execution) acceptChildWaitOpen(ctx context.Context, signals []agent.Sig
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	want, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, want, keys); err != nil {
+	if err := e.state.ToolRound.ChildBatch.acceptWaitOpened(opened, keys); err != nil {
 		return agent.Transition{}, err
 	}
 	return agent.Wait(consumed, opened.WaitID())

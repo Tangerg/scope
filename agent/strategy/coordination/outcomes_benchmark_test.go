@@ -33,7 +33,8 @@ func BenchmarkRecordOutcomes(b *testing.B) {
 	}
 }
 
-func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []agent.ChildOutcome) {
+// benchmarkDeploymentRef names the Deployment every test candidate requests.
+func benchmarkDeploymentRef(t testing.TB) agent.DeploymentRef {
 	t.Helper()
 	schema, err := agent.SchemaFor[string]()
 	if err != nil {
@@ -47,20 +48,29 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := jsonv2.Marshal(deployment.DeploymentRef())
+	return deployment.DeploymentRef()
+}
+
+func candidateKey(t testing.TB, index int) agent.ChildKey {
+	t.Helper()
+	key, err := agent.ParseChildKey(fmt.Sprintf("candidate_%04d", index))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return key
+}
+
+func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []agent.ChildOutcome) {
+	t.Helper()
 	starts := make([]agent.ChildStartResult, count)
 	outcomes := make([]agent.ChildOutcome, count)
 	for index := range count {
-		key := fmt.Sprintf("candidate_%04d", index)
 		id := fmt.Sprintf("child_%04d", index)
-		start := fmt.Sprintf(`{"operation":"start_child","key":%q,"deployment_ref":%s,"process_id":%q}`, key, ref, id)
+		start := fmt.Sprintf(`{"operation":"start_child","process_id":%q}`, id)
 		if err := jsonv2.Unmarshal([]byte(start), &starts[index]); err != nil {
 			t.Fatal(err)
 		}
-		outcome := fmt.Sprintf(`{"boundary":"terminal_result","key":%q,"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}}`, key, id)
+		outcome := fmt.Sprintf(`{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}}`, id)
 		if err := jsonv2.Unmarshal([]byte(outcome), &outcomes[index]); err != nil {
 			t.Fatal(err)
 		}
@@ -76,10 +86,10 @@ func BenchmarkCompetitionRecovery(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		for _, start := range starts {
-			state.Candidates = append(state.Candidates, agent.ChildSpec{Key: start.Key(), DeploymentRef: start.DeploymentRef(), Input: input})
+		for index := range starts {
+			state.Candidates = append(state.Candidates, agent.ChildSpec{Key: candidateKey(b, index), DeploymentRef: benchmarkDeploymentRef(b), Input: input})
 		}
-		definition, err := NewFirstSuccess(FirstSuccessConfig{Name: "benchmark.competition", Description: "Measure recovery.", MaxCandidates: uint32(count), Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return false, nil }})
+		definition, err := NewFirstSuccess(FirstSuccessConfig{Name: "benchmark.competition", Description: "Measure recovery.", MaxCandidates: uint32(count), Accept: func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return false, nil }})
 		if err != nil {
 			b.Fatal(err)
 		}

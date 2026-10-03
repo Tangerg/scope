@@ -90,11 +90,7 @@ func (c childWaitOperation) settlement(id EffectID, failure Failure) (Settlement
 	if failure.Valid() {
 		return Settlement{}, errors.New("a child-wait Effect cannot fail")
 	}
-	payload, err := childWaitOpenedPayload(c.spec)
-	if err != nil {
-		return Settlement{}, err
-	}
-	return NewSettlement(id, SettlementStatusSucceeded, payload)
+	return NewSettlement(id, SettlementStatusSucceeded, childWaitOpenedPayload())
 }
 
 func (childWaitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }
@@ -112,7 +108,7 @@ func (c childWaitOperation) apply(finalization *preparedStepFinalization, record
 	if err := finalization.mailbox.openChildWait(c.spec, signal); err != nil {
 		return err
 	}
-	finalization.openedChildWaits = append(finalization.openedChildWaits, ChildWaitOpened{waitID: waitID, spec: c.spec})
+	finalization.openedChildWaits = append(finalization.openedChildWaits, openedChildWait{waitID: waitID, spec: c.spec})
 	return nil
 }
 
@@ -125,10 +121,9 @@ func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent Proce
 
 type childStartOperation struct{ spec ChildSpec }
 
-// A started child's identity follows from the Effect; the request fixes its
-// key and Deployment.
+// A started child's identity follows from the Effect.
 func (c childStartOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
-	result := ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure}
+	result := ChildStartResult{failure: failure}
 	if !failure.Valid() {
 		result.processID = id.childProcessID()
 	}
@@ -241,18 +236,18 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 	if err != nil || result.failure.Valid() {
 		return err
 	}
-	child, present := t.processes[result.childID]
+	child, present := t.processes[c.request.ChildID]
 	if actualParent, _ := child.Relation.ParentID(); !present || actualParent != parent {
 		return ErrInvalidChildControl
 	}
-	if result.operation == frameworkOperationCancelChild {
+	if c.request.Operation == frameworkOperationCancelChild {
 		if !child.status().Terminal() && !child.PendingControl.CancellationOwner.valid() {
 			return ErrInvalidChildControl
 		}
 		return nil
 	}
 	for _, receipt := range child.Mailbox.receipts() {
-		if receipt.ID() != result.signalID {
+		if receipt.ID() != c.request.Signal.ID() {
 			continue
 		}
 		if !receipt.Matches(*c.request.Signal) {

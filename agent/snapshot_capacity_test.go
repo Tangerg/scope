@@ -307,7 +307,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if mode == "capture_failed" {
 				root.committedExecutionState = ExecutionState{}
 			}
-			result := childStartJobResult{result: failedChildStart(spec, FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
+			result := childStartJobResult{result: failedChildStart(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
 			if root.provisionalChildBudget != nil || runtime.members.childAllocation(root.handle.processID) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")

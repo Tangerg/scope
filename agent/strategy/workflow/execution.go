@@ -106,20 +106,6 @@ func (e *execution) startSingleChild(consumedSignals uint32, binding childBindin
 	return agent.Continue(consumedSignals, effect)
 }
 
-func (e *execution) singleChildBinding() (childBinding, bool) {
-	stage := e.stage()
-	switch stage.kind {
-	case StageKindCall:
-		return stage.call, true
-	case StageKindSwitch:
-		return stage.switcher.binding(e.state.SelectedCaseID)
-	case StageKindLoop:
-		return stage.loop.binding, true
-	default:
-		return childBinding{}, false
-	}
-}
-
 func (e *execution) stageInvocationLabel() string {
 	stage := e.stage()
 	switch stage.kind {
@@ -137,25 +123,21 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	key, err := e.childKey()
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	waitKey, err := e.waitKey()
 	if err != nil {
 		return agent.Transition{}, err
 	}
 	switch e.state.Child.Phase() {
 	case childcall.PhaseAwaitingStart:
-		return e.acceptChildStart(signal, key, waitKey)
+		return e.acceptChildStart(signal, waitKey)
 	case childcall.PhaseAwaitingOpening:
-		waitID, openErr := e.state.Child.AcceptOpening(signal, waitKey, agent.ChildWaitBoundaryDrained)
+		waitID, openErr := e.state.Child.AcceptOpening(signal)
 		if openErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child wait opening: %w", ErrInvalidProtocol, e.stage().id, openErr)
 		}
 		return agent.Wait(1, waitID)
 	default:
-		outcome, completeErr := e.state.Child.Complete(signal, key, waitKey, agent.ChildWaitBoundaryDrained)
+		outcome, completeErr := e.state.Child.Complete(signal, waitKey, agent.ChildWaitBoundaryDrained)
 		if completeErr != nil {
 			return agent.Transition{}, fmt.Errorf("%w: Stage %q child completion: %w", ErrInvalidProtocol, e.stage().id, completeErr)
 		}
@@ -163,12 +145,8 @@ func (e *execution) advanceChild(ctx context.Context, signals []agent.Signal) (a
 	}
 }
 
-func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey, waitKey agent.WaitKey) (agent.Transition, error) {
-	binding, bound := e.singleChildBinding()
-	if !bound {
-		return agent.Transition{}, ErrInvalidExecutionState
-	}
-	result, err := e.state.Child.AcceptStart(signal, key, binding.deploymentRef())
+func (e *execution) acceptChildStart(signal agent.Signal, waitKey agent.WaitKey) (agent.Transition, error) {
+	result, err := e.state.Child.AcceptStart(signal)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: Stage %q child start: %w", ErrInvalidProtocol, e.stage().id, err)
 	}
@@ -333,15 +311,11 @@ func (e *execution) fanoutBatch() (childcall.Batch, error) {
 	}
 	for offset, progress := range e.state.ActiveFanoutWindow {
 		index := e.state.fanoutWindowStart() + uint32(offset)
-		member, found := e.stage().fanout.source.member(index)
-		if !found {
-			return childcall.Batch{}, fmt.Errorf("%w: Stage %q has no fan-out member %d", ErrInvalidExecutionState, e.stage().id, index)
-		}
 		key, err := e.fanoutChildKey(index)
 		if err != nil {
 			return childcall.Batch{}, err
 		}
-		batch.Children[offset] = progress.child(key, member.binding.deploymentRef())
+		batch.Children[offset] = progress.child(key)
 	}
 	return batch, nil
 }
@@ -404,11 +378,7 @@ func (e *execution) acceptFanoutWaitOpen(signals []agent.Signal) (agent.Transiti
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	key, err := e.fanoutWaitKey()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	waitID, err := batch.AcceptOpening(opened, key, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+	waitID, err := batch.AcceptOpening(opened)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}

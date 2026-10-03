@@ -13,15 +13,16 @@ import (
 )
 
 func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
-	ref, key, waitKey := invocation(t)
+	waitKey := invocation(t)
+	key, _ := agent.ParseChildKey("call")
 	second, _ := agent.ParseChildKey("second")
 	failedKey, _ := agent.ParseChildKey("failed")
-	batch := childcall.Batch{Children: []childcall.Child{{Key: key, Deployment: ref}, {Key: second, Deployment: ref}, {Key: failedKey, Deployment: ref}}}
+	batch := childcall.Batch{Children: []childcall.Child{{Key: key}, {Key: second}, {Key: failedKey}}}
 	failure, _ := agent.NewFailure(agent.FailureKindExternal, "start.denied", "denied")
 	starts := []agent.ChildStartResult{
-		batchStart(t, startSignal(t, ref, key, "child", nil)),
-		batchStart(t, startSignal(t, ref, second, "second-child", nil)),
-		batchStart(t, startSignal(t, ref, failedKey, "", &failure)),
+		batchStart(t, startSignal(t, "child", nil)),
+		batchStart(t, startSignal(t, "second-child", nil)),
+		batchStart(t, startSignal(t, "", &failure)),
 	}
 	if batch.Phase() != childcall.PhaseAwaitingStart || batch.PendingStarts() != 3 {
 		t.Fatal("missing pending starts")
@@ -47,11 +48,11 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 	if err != nil || len(spec.Children) != 2 || spec.Children[0].String() != "child" || spec.Children[1].String() != "second-child" {
 		t.Fatalf("wait = %+v, %v", spec, err)
 	}
-	opened, err := agent.ParseChildWaitOpened(openingSignal(t, "wait", "children", "subtree_drained", []string{"child", "second-child"}, "all"))
+	opened, err := agent.ParseChildWaitOpened(openingSignal(t, "wait"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitID, err := batch.AcceptOpening(opened, waitKey, spec.Boundary, spec.Condition)
+	waitID, err := batch.AcceptOpening(opened)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,9 +60,9 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 	if batch.Phase() != childcall.PhaseAwaitingCompletion {
 		t.Fatal("open wait did not reach completion")
 	}
-	first := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}})
-	secondResult := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"second", "second-child"}})
-	all := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}, {"second", "second-child"}})
+	first := batchCompletion(t, "wait", true, "child")
+	secondResult := batchCompletion(t, "wait", true, "second-child")
+	all := batchCompletion(t, "wait", true, "child", "second-child")
 	if indices, err := batch.Complete(all, waitKey, spec.Boundary, spec.Condition); err != nil || !slices.Equal(indices, []int{0, 1}) {
 		t.Fatalf("all = %v, %v", indices, err)
 	}
@@ -79,11 +80,10 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, completed := range map[string]agent.ChildWaitSatisfied{
-		"wrong wait":      batchCompletion(t, "other", "children", "subtree_drained", [][2]string{{"call", "child"}}),
-		"wrong key":       batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"wrong", "child"}}),
-		"foreign process": batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "foreign"}}),
-		"reversed":        batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"second", "second-child"}, {"call", "child"}}),
-		"wrong boundary":  batchCompletion(t, "wait", "children", "terminal_result", [][2]string{{"call", "child"}}),
+		"wrong wait":      batchCompletion(t, "other", true, "child"),
+		"foreign process": batchCompletion(t, "wait", true, "foreign"),
+		"reversed":        batchCompletion(t, "wait", true, "second-child", "child"),
+		"wrong boundary":  batchCompletion(t, "wait", false, "child"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := batch.Complete(completed, waitKey, spec.Boundary, agent.AnyChild()); err == nil {
@@ -101,14 +101,15 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 }
 
 func TestBatchRejectsMalformedAndOutOfPhaseProgress(t *testing.T) {
-	ref, key, waitKey := invocation(t)
+	waitKey := invocation(t)
+	key, _ := agent.ParseChildKey("call")
 	id, _ := agent.ParseProcessID("child")
 	waitID, _ := agent.ParseWaitID("wait")
 	second, _ := agent.ParseChildKey("second")
-	pending := childcall.Batch{Children: []childcall.Child{{Key: key, Deployment: ref}, {Key: second, Deployment: ref}}}
-	start := batchStart(t, startSignal(t, ref, key, "child", nil))
-	duplicate := batchStart(t, startSignal(t, ref, second, "child", nil))
-	for _, starts := range [][]agent.ChildStartResult{nil, {duplicate}, {start, duplicate}, {start, start, duplicate}} {
+	pending := childcall.Batch{Children: []childcall.Child{{Key: key}, {Key: second}}}
+	start := batchStart(t, startSignal(t, "child", nil))
+	duplicate := batchStart(t, startSignal(t, "child", nil))
+	for _, starts := range [][]agent.ChildStartResult{nil, {start, duplicate}, {start, start, duplicate}} {
 		if _, err := pending.AcceptStarts(starts); err == nil {
 			t.Fatal("invalid starts accepted")
 		}
@@ -121,15 +122,15 @@ func TestBatchRejectsMalformedAndOutOfPhaseProgress(t *testing.T) {
 	if _, err := pending.AcceptStarts([]agent.ChildStartResult{duplicate}); err == nil {
 		t.Fatal("prior Process identity reused")
 	}
-	opened, err := agent.ParseChildWaitOpened(openingSignal(t, "wait", "children", "subtree_drained", []string{"child"}, "all"))
+	opened, err := agent.ParseChildWaitOpened(openingSignal(t, "wait"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}})
+	completed := batchCompletion(t, "wait", true, "child")
 	if _, err := pending.WaitSpec(waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
 		t.Fatal("wait preceded admission")
 	}
-	if _, err := pending.AcceptOpening(opened, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
+	if _, err := pending.AcceptOpening(opened); err == nil {
 		t.Fatal("opening preceded admission")
 	}
 	if _, err := pending.Complete(completed, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
@@ -139,11 +140,8 @@ func TestBatchRejectsMalformedAndOutOfPhaseProgress(t *testing.T) {
 	if _, err := active.AcceptStarts([]agent.ChildStartResult{start}); err == nil {
 		t.Fatal("repeated start accepted")
 	}
-	if _, err := active.AcceptOpening(opened, waitKey, agent.ChildWaitBoundaryDrained, agent.AnyChild()); err == nil {
-		t.Fatal("wrong wait condition accepted")
-	}
-	if _, err := active.AcceptOpening(opened, agent.WaitKey{}, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
-		t.Fatal("invalid wait accepted")
+	if _, err := active.AcceptOpening(agent.ChildWaitOpened{}); err == nil {
+		t.Fatal("invalid opening accepted")
 	}
 	for _, batch := range []childcall.Batch{
 		{Children: []childcall.Child{{}}},
@@ -178,7 +176,8 @@ func batchStart(t *testing.T, signal agent.Signal) agent.ChildStartResult {
 }
 
 func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
-	_, key, waitKey := invocation(t)
+	waitKey := invocation(t)
+	key, _ := agent.ParseChildKey("call")
 	id, _ := agent.ParseProcessID("child")
 	waitID, _ := agent.ParseWaitID("wait")
 	for _, batch := range []childcall.Batch{
@@ -191,7 +190,7 @@ func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
 		}
 		_, startErr := batch.AcceptStarts(nil)
 		_, specErr := batch.WaitSpec(waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
-		_, openErr := batch.AcceptOpening(agent.ChildWaitOpened{}, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
+		_, openErr := batch.AcceptOpening(agent.ChildWaitOpened{})
 		_, completionErr := batch.Complete(agent.ChildWaitSatisfied{}, waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren())
 		_, outcomeErr := batch.MatchOutcomes(nil)
 		for operation, err := range map[string]error{"start": startErr, "wait": specErr, "opening": openErr, "completion": completionErr, "outcomes": outcomeErr} {
@@ -203,10 +202,10 @@ func TestBatchStructuralErrorsPrecedePhaseErrors(t *testing.T) {
 }
 
 func TestBatchMatchesRetainedOutcomesWithoutAWait(t *testing.T) {
-	_, key, _ := invocation(t)
+	key, _ := agent.ParseChildKey("call")
 	id, _ := agent.ParseProcessID("child")
 	batch := childcall.Batch{Children: []childcall.Child{{Key: key, ProcessID: id}}}
-	outcomes := batchCompletion(t, "wait", "children", "subtree_drained", [][2]string{{"call", "child"}}).Outcomes()
+	outcomes := batchCompletion(t, "wait", true, "child").Outcomes()
 	if indices, err := batch.MatchOutcomes(outcomes); err != nil || !slices.Equal(indices, []int{0}) {
 		t.Fatalf("retained outcomes = %v, %v", indices, err)
 	}
@@ -217,11 +216,11 @@ func TestBatchMatchesRetainedOutcomesWithoutAWait(t *testing.T) {
 	}
 }
 
-func batchCompletion(t *testing.T, waitID, key, boundary string, children [][2]string) agent.ChildWaitSatisfied {
+func batchCompletion(t *testing.T, waitID string, drained bool, processIDs ...string) agent.ChildWaitSatisfied {
 	t.Helper()
 	var outcomes []agent.ChildOutcome
-	for _, child := range children {
-		value, err := agent.ParseChildWaitSatisfied(completionSignal(t, waitID, key, boundary, child[0], child[1]))
+	for _, processID := range processIDs {
+		value, err := agent.ParseChildWaitSatisfied(completionSignal(t, waitID, drained, processID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -229,10 +228,8 @@ func batchCompletion(t *testing.T, waitID, key, boundary string, children [][2]s
 	}
 	payload := struct {
 		Operation string               `json:"operation"`
-		Key       string               `json:"key"`
-		Boundary  string               `json:"boundary"`
 		Outcomes  []agent.ChildOutcome `json:"outcomes"`
-	}{"child_wait_satisfied", key, boundary, outcomes}
+	}{"child_wait_satisfied", outcomes}
 	data, err := jsonv2.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -242,4 +239,24 @@ func batchCompletion(t *testing.T, waitID, key, boundary string, children [][2]s
 		t.Fatal(err)
 	}
 	return value
+}
+
+func TestBatchRejectsInvalidResponses(t *testing.T) {
+	waitKey := invocation(t)
+	key, _ := agent.ParseChildKey("call")
+	pending := childcall.Batch{Children: []childcall.Child{{Key: key}}}
+	if _, err := pending.AcceptStarts([]agent.ChildStartResult{{}}); err == nil {
+		t.Fatal("invalid start accepted")
+	}
+	id, _ := agent.ParseProcessID("child")
+	active := childcall.Batch{Children: []childcall.Child{{Key: key, ProcessID: id}}}
+	if _, err := active.Complete(batchCompletion(t, "wait", true, "child"), agent.WaitKey{}, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
+		t.Fatal("completion with an invalid wait accepted")
+	}
+	if _, err := active.Complete(batchCompletion(t, "wait", true, "child"), waitKey, agent.ChildWaitBoundaryDrained, agent.AllChildren()); err == nil {
+		t.Fatal("completion preceded its opening")
+	}
+	if _, err := active.MatchOutcomes([]agent.ChildOutcome{{}}); err == nil {
+		t.Fatal("invalid outcome matched")
+	}
 }

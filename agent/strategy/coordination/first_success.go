@@ -13,7 +13,7 @@ const firstSuccessStateKind = "coordination.first_success"
 // SuccessPredicate decides whether a completed child satisfies the business
 // goal. It runs inside Step and must be bounded, deterministic, side-effect-free,
 // and honor ctx cancellation. Non-completed children never satisfy success.
-type SuccessPredicate func(ctx context.Context, outcome agent.ChildOutcome) (bool, error)
+type SuccessPredicate func(ctx context.Context, candidate agent.ChildKey, outcome agent.ChildOutcome) (bool, error)
 
 // FirstSuccessConfig binds a finite candidate bound and pure decision policy.
 // The Deployment configuration digest must identify both values.
@@ -182,11 +182,7 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Tr
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, err)
 	}
-	want, err := f.state.waitSpec()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	waitID, err := f.state.batch().AcceptOpening(opened, want.Key, want.Boundary, want.Condition)
+	waitID, err := f.state.batch().AcceptOpening(opened)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -212,20 +208,20 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	}
 	outcomes := satisfied.Outcomes()
 	f.state.recordOutcomes(indices, outcomes)
-	for _, outcome := range outcomes {
+	for offset, outcome := range outcomes {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
 		if outcome.Result().Status() != agent.StatusCompleted {
 			continue
 		}
-		accepted, err := f.definition.accept(ctx, outcome)
+		candidate := f.state.Candidates[indices[offset]].Key
+		accepted, err := f.definition.accept(ctx, candidate, outcome)
 		if err != nil {
-			return agent.Transition{}, fmt.Errorf("coordination: evaluate candidate %s: %w", outcome.Key(), err)
+			return agent.Transition{}, fmt.Errorf("coordination: evaluate candidate %s: %w", candidate, err)
 		}
 		if accepted {
-			winner := outcome.Key()
-			f.state.Winner = &winner
+			f.state.Winner = new(uint32(indices[offset]))
 			break
 		}
 	}

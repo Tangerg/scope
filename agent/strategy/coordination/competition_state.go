@@ -27,7 +27,8 @@ type firstSuccessState struct {
 	Starts   []*agent.ChildStartResult `json:"starts,omitempty"`
 	Outcomes []agent.ChildOutcome      `json:"outcomes,omitempty"`
 	WaitID   *agent.WaitID             `json:"wait_id,omitzero"`
-	Winner   *agent.ChildKey           `json:"winner,omitzero"`
+	// Winner is the accepted candidate's index in request order.
+	Winner *uint32 `json:"winner,omitzero"`
 }
 
 // receipts returns the start receipts, which fill their slots in candidate order.
@@ -131,7 +132,7 @@ func (f firstSuccessState) batch() childcall.Batch {
 	next, receipts := 0, f.receipts()
 	for index, candidate := range f.Candidates {
 		child := &batch.Children[index]
-		child.Key, child.Deployment = candidate.Key, candidate.DeploymentRef
+		child.Key = candidate.Key
 		if index < len(receipts) {
 			id, started := receipts[index].ProcessID()
 			child.ProcessID, child.Done = id, !started
@@ -168,10 +169,11 @@ func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.Child
 	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
 	prior, incoming := 0, 0
 	for index, started := range f.receipts() {
+		id, _ := started.ProcessID()
 		if incoming < len(indices) && indices[incoming] == index {
 			merged = append(merged, outcomes[incoming])
 			incoming++
-		} else if prior < len(f.Outcomes) && f.Outcomes[prior].Key() == started.Key() {
+		} else if prior < len(f.Outcomes) && f.Outcomes[prior].Result().ProcessID() == id {
 			merged = append(merged, f.Outcomes[prior])
 			prior++
 		}

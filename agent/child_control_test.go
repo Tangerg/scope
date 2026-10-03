@@ -30,20 +30,14 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			t.Fatalf("effect codec: %v", err)
 		}
 		for _, failed := range []bool{false, true} {
-			result := ChildControlResult{childID: child, operation: operation}
+			result := ChildControlResult{operation: operation}
 			if failed {
 				result.failure = controlValue(NewFailure(FailureKindContract, "test.rejected", "not admitted"))
 			}
-			if operation == frameworkOperationSignalChild {
-				result.signalID = request.ID()
-			}
 			payload := controlValue(jsonv2.Marshal(result))
 			var decoded ChildControlResult
-			if err := jsonv2.Unmarshal(payload, &decoded); err != nil || !decoded.Matches(effect) || decoded.ChildID() != child {
+			if err := jsonv2.Unmarshal(payload, &decoded); err != nil || decoded != result {
 				t.Fatalf("result codec: %v", err)
-			}
-			if _, present := decoded.SignalID(); present != (operation == frameworkOperationSignalChild) {
-				t.Fatal("incorrect signal identity presence")
 			}
 			if _, present := decoded.Failure(); present != failed {
 				t.Fatal("incorrect failure presence")
@@ -53,7 +47,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				t.Fatal(err)
 			}
 			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
-			if got, err := ParseChildControlResult(signal); err != nil || !got.Matches(effect) {
+			if got, err := ParseChildControlResult(signal); err != nil || got != result {
 				t.Fatal(err)
 			}
 			id := child.effectID(1, 0)
@@ -200,7 +194,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			}
 			wire := controlValue(decodeChildControlEffect(effect.Payload()))
 			duplicate := runtime.applyChildControl(child, wire)
-			if !duplicate.Matches(effect) || child.usage().AcceptedSignals != 1 {
+			if !duplicate.Valid() || child.usage().AcceptedSignals != 1 {
 				t.Fatal("deduplication changed accounting")
 			}
 			child.pause = pause{reason: "await operator"}
@@ -234,7 +228,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	childID := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:cut")), WaitID{}, []byte(`"instruction"`)))
 	effect := controlValue(NewChildSignalEffect(childID, request))
-	result := ChildControlResult{childID: childID, operation: frameworkOperationSignalChild, signalID: request.ID()}
+	result := ChildControlResult{operation: frameworkOperationSignalChild}
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
@@ -274,7 +268,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal("consumed receipt lost proof", err)
 	}
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
-	canceled := ChildControlResult{childID: childID, operation: frameworkOperationCancelChild}
+	canceled := ChildControlResult{operation: frameworkOperationCancelChild}
 	record.Effect = cancel
 	record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {

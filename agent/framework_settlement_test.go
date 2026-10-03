@@ -13,7 +13,7 @@ func TestChildOutcomeRequiresUsageFacts(t *testing.T) {
 	if !terminal || result.Usage().CommittedSteps == 0 {
 		t.Fatal("fixture did not retain committed work")
 	}
-	original := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: ChildWaitBoundaryResult}
+	original := ChildOutcome{result: result}
 	for _, usage := range []json.RawMessage{nil, []byte(`null`), []byte(`{}`)} {
 		var fields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(result.wire())), &fields); err != nil {
@@ -25,10 +25,8 @@ func TestChildOutcomeRequiresUsageFacts(t *testing.T) {
 			fields["usage"] = usage
 		}
 		data := controlValue(jsonv2.Marshal(struct {
-			Key      ChildKey          `json:"key"`
-			Boundary ChildWaitBoundary `json:"boundary"`
-			Result   json.RawMessage   `json:"result"`
-		}{Key: original.Key(), Boundary: original.Boundary(), Result: controlValue(jsonv2.Marshal(fields))}))
+			Result json.RawMessage `json:"result"`
+		}{Result: controlValue(jsonv2.Marshal(fields))}))
 		decoded := original
 		if err := jsonv2.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidChildWait) {
 			t.Errorf("child outcome accepted usage %s: %v", usage, err)
@@ -40,18 +38,15 @@ func TestChildOutcomeRequiresUsageFacts(t *testing.T) {
 }
 
 func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
-	deployment := newChildTestDeployment(t)
 	effectID := controlValue(ParseProcessID("process:framework")).effectID(1, 0)
 	childID := effectID.childProcessID()
-	key := controlValue(ParseChildKey("child"))
 	waitID := effectID.waitID()
-	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: []ProcessID{childID}, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}
-	start := ChildStartResult{key: key, processID: childID, deploymentRef: deployment.DeploymentRef()}
-	control := ChildControlResult{childID: childID, operation: frameworkOperationCancelChild}
+	start := ChildStartResult{processID: childID}
+	control := ChildControlResult{operation: frameworkOperationCancelChild}
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
-	completed := controlValue(encodeChildWaitSatisfied(waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary, subtreeUnresolvedEffects: []UnresolvedEffect{}}}))
+	completed := controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	for _, test := range []struct {
 		name   string
 		signal Signal
@@ -59,7 +54,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	}{
 		{"start", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(start.MarshalJSON()))), func(signal Signal) error { _, err := ParseChildStartResult(signal); return err }},
 		{"control", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(jsonv2.Marshal(control)))), func(signal Signal) error { _, err := ParseChildControlResult(signal); return err }},
-		{"opening", controlValue(NewSignal(effectID.settlementSignalID(), waitID, controlValue(encodeChildWaitOpened(spec)))), func(signal Signal) error { _, err := ParseChildWaitOpened(signal); return err }},
+		{"opening", controlValue(NewSignal(effectID.settlementSignalID(), waitID, childWaitOpenedPayload())), func(signal Signal) error { _, err := ParseChildWaitOpened(signal); return err }},
 		{"completion", completed, func(signal Signal) error { _, err := ParseChildWaitSatisfied(signal); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -204,46 +199,37 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestChildOutcomeBoundarySurvivesEmptySubtreeRoundTrip(t *testing.T) {
+func TestChildOutcomeDrainedSubtreeSurvivesEmptyRoundTrip(t *testing.T) {
 	id := controlValue(ParseProcessID("child"))
 	now := time.Unix(1, 0).UTC()
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "failed"))
 	result := Result{processID: id, startedAt: now, finishedAt: now, termination: failure.termination()}
-	for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
-		for _, effects := range [][]UnresolvedEffect{nil, {}} {
-			outcome := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: boundary, subtreeUnresolvedEffects: effects}
-			data := controlValue(jsonv2.Marshal(outcome))
-			var restored ChildOutcome
-			if err := jsonv2.Unmarshal(data, &restored); err != nil {
-				t.Fatal(err)
-			}
-			unresolved, known := restored.SubtreeUnresolvedEffects()
-			if !restored.Valid() || restored.Boundary() != boundary || len(unresolved) != 0 || known != (boundary == ChildWaitBoundaryDrained) {
-				t.Fatalf("lost boundary: %s, known=%t", data, known)
-			}
-			if restored.SubtreeResolved() != (boundary == ChildWaitBoundaryDrained) {
-				t.Fatalf("%s outcome with an empty subtree reports resolved=%t", boundary, restored.SubtreeResolved())
-			}
-			wire := outcome.wire()
-			wire.Boundary = ChildWaitBoundaryInvalid
-			if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(wire)), &restored); !errors.Is(err, ErrInvalidChildWait) {
-				t.Fatalf("outcome without its own boundary accepted: %v", err)
-			}
-			if restored.Boundary() != boundary {
-				t.Fatal("rejected decode changed the outcome")
-			}
+	for _, drained := range []bool{false, true} {
+		outcome := ChildOutcome{result: result}
+		if drained {
+			outcome.subtreeUnresolvedEffects = new([]UnresolvedEffect{})
+		}
+		data := controlValue(jsonv2.Marshal(outcome))
+		var restored ChildOutcome
+		if err := jsonv2.Unmarshal(data, &restored); err != nil {
+			t.Fatal(err)
+		}
+		unresolved, known := restored.SubtreeUnresolvedEffects()
+		if !restored.Valid() || len(unresolved) != 0 || known != drained {
+			t.Fatalf("lost drained subtree: %s, known=%t", data, known)
+		}
+		if restored.SubtreeResolved() != drained {
+			t.Fatalf("drained=%t outcome with an empty subtree reports resolved=%t", drained, restored.SubtreeResolved())
 		}
 	}
-	outcome := ChildOutcome{key: controlValue(ParseChildKey("child")), result: result, boundary: ChildWaitBoundaryResult,
-		subtreeUnresolvedEffects: []UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}}}
-	if outcome.Valid() {
-		t.Fatal("result boundary accepted subtree evidence")
-	}
 	descendant := controlValue(ParseProcessID("grandchild"))
-	outcome.boundary = ChildWaitBoundaryDrained
-	outcome.subtreeUnresolvedEffects = []UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}}
+	outcome := ChildOutcome{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}})}
 	if !outcome.Valid() || outcome.SubtreeResolved() {
 		t.Fatal("a drained subtree with retained Unknown settlements reported resolved")
+	}
+	outcome.subtreeUnresolvedEffects = new([]UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}})
+	if outcome.Valid() {
+		t.Fatal("subtree evidence contradicted the child's own termination")
 	}
 }
 

@@ -171,17 +171,16 @@ func (d *decodedProcesses) childOutcome(parent, child ProcessID, boundary ChildW
 	if !terminal {
 		return ChildOutcome{}, errors.New("answered child has no Result")
 	}
-	key, _ := snapshot.Relation().ChildKey()
-	outcome := ChildOutcome{key: key, result: result, boundary: boundary}
+	outcome := ChildOutcome{result: result}
 	if boundary != ChildWaitBoundaryDrained {
 		return outcome, nil
 	}
 	if !d.subtreeTerminal(child) {
 		return ChildOutcome{}, errors.New("answered child has not drained")
 	}
-	outcome.subtreeUnresolvedEffects = subtreeUnresolvedEffects(child,
+	outcome.subtreeUnresolvedEffects = new(subtreeUnresolvedEffects(child,
 		func(id ProcessID) []ProcessID { return d.children[id] },
-		func(id ProcessID) Termination { return d.byID[id].state.publishedTermination() })
+		func(id ProcessID) Termination { return d.byID[id].state.publishedTermination() }))
 	return outcome, nil
 }
 

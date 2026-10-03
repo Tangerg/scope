@@ -193,9 +193,8 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 		batch.WaitID = *e.WaitID
 	}
 	for index, task := range e.Tasks {
-		worker, _ := d.worker(task.Request.Worker)
 		child := &batch.Children[index]
-		child.Key, child.Deployment = task.Request.Key, worker.deployment.DeploymentRef()
+		child.Key = task.Request.Key
 		if task.Start != nil {
 			id, started := task.Start.ProcessID()
 			child.ProcessID, child.Done = id, !started || task.Outcome != nil
@@ -206,7 +205,7 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 		if err != nil {
 			return childcall.Batch{}, err
 		}
-		child := childcall.Child{Key: key, Deployment: d.coordinator.deployment.DeploymentRef()}
+		child := childcall.Child{Key: key}
 		if e.Turn.Start != nil {
 			id, started := e.Turn.Start.ProcessID()
 			child.ProcessID, child.Done = id, !started || e.Turn.Outcome != nil
@@ -275,8 +274,8 @@ func (e executionState) validateOutcomes(ctx context.Context, d *Definition) err
 		expected = append(expected, len(e.Tasks))
 	}
 	for _, outcome := range outcomes {
-		if outcome.Boundary() != agent.ChildWaitBoundaryDrained {
-			return fmt.Errorf("%w: child outcome requires drained boundary", ErrInvalidExecutionState)
+		if _, drained := outcome.SubtreeUnresolvedEffects(); !drained {
+			return fmt.Errorf("%w: child outcome lacks its drained subtree", ErrInvalidExecutionState)
 		}
 	}
 	indices, err := batch.MatchOutcomes(outcomes)
@@ -432,9 +431,6 @@ func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, 
 			if pending > 0 {
 				return 0, nil, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidExecutionState, index)
 			}
-			if !task.Start.Matches(task.Request.Key, worker.deployment.DeploymentRef()) {
-				return 0, nil, fmt.Errorf("%w: task %d start does not match its request", ErrInvalidExecutionState, index)
-			}
 			if id, present := task.Start.ProcessID(); present {
 				if _, duplicate := ids[id]; duplicate {
 					return 0, nil, fmt.Errorf("%w: task %d reuses process %q", ErrInvalidExecutionState, index, id)
@@ -469,16 +465,13 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		effect, err := receipt.Control.effect(tasks[receipt.Control.Task])
-		if err != nil {
+		if _, err := receipt.Control.effect(tasks[receipt.Control.Task]); err != nil {
 			return 0, fmt.Errorf("%w: control %d: %w", ErrInvalidExecutionState, index, err)
 		}
 		if receipt.Result == nil {
 			pendingControls++
 		} else if pending > 0 || pendingControls > 0 {
 			return 0, fmt.Errorf("%w: control %d result precedes pending work", ErrInvalidExecutionState, index)
-		} else if !receipt.Result.Matches(effect) {
-			return 0, fmt.Errorf("%w: control %d result does not match its effect", ErrInvalidExecutionState, index)
 		}
 	}
 	return pendingControls, nil
@@ -517,13 +510,6 @@ func (e executionState) validateTurnInput(d *Definition) error {
 func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
 	if e.Turn.Start == nil {
 		return nil
-	}
-	key, err := turnKey(e.number())
-	if err != nil {
-		return fmt.Errorf("%w: turn key: %w", ErrInvalidExecutionState, err)
-	}
-	if !e.Turn.Start.Matches(key, d.coordinator.deployment.DeploymentRef()) {
-		return fmt.Errorf("%w: turn start does not match the coordinator request", ErrInvalidExecutionState)
 	}
 	id, present := e.Turn.Start.ProcessID()
 	_, reused := ids[id]

@@ -63,7 +63,6 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 		wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(process))
 	}
 	child := wire.ProcessSnapshots[1].state
-	key, _ := wire.ProcessSnapshots[1].Relation().ChildKey()
 	result := controlValue((resultWire{ProcessID: child.ProcessID, StartedAt: child.StartedAt, FinishedAt: child.Finish.FinishedAt, Output: child.Finish.Output, Termination: child.Finish.Termination, Usage: child.usage()}).value())
 	wait := wire.ProcessSnapshots[0].openChildWaits[0]
 	spec := wait.spec.clone()
@@ -71,7 +70,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	root := wire.ProcessSnapshots[0].state
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
-	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{{key: key, result: result, boundary: spec.Boundary}}))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	root.Mailbox.Signals[1].Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	return controlValue(newTreeSnapshot(wire))
@@ -111,19 +110,19 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	if err := mailbox.commit(uint32(count)); err != nil {
 		t.Fatal(err)
 	}
-	var retained []ChildWaitOpened
+	var retained []openedChildWait
 	for index := range count {
 		waitID := controlValue(ParseWaitID(fmt.Sprintf("wait:retained-%d", index)))
 		spec := original.spec.clone()
 		spec.Key = controlValue(ParseWaitKey(fmt.Sprintf("retained-%d", index)))
 		openTestChildWait(t, &mailbox, fmt.Sprintf("signal:engine:retained-%d", index), waitID, spec)
-		retained = append(retained, ChildWaitOpened{waitID: waitID, spec: spec})
+		retained = append(retained, openedChildWait{waitID: waitID, spec: spec})
 	}
 	if err := mailbox.commit(uint32(count)); err != nil {
 		t.Fatal(err)
 	}
 	for _, wait := range retained {
-		signal := controlValue(encodeChildWaitSatisfied(wait.waitID, wait.spec.Key, wait.spec.Boundary, outcomes))
+		signal := controlValue(encodeChildWaitSatisfied(wait.waitID, outcomes))
 		if _, err := mailbox.enqueue(StatusPaused, signal, signalSourceChildWait); err != nil {
 			t.Fatal(err)
 		}
@@ -149,18 +148,20 @@ func TestTreeSnapshotRendersEachAnswerFromItsOwnWait(t *testing.T) {
 		}
 	})
 	parsed := controlValue(ParseTreeSnapshot(encoded))
-	boundaries := make(map[string]ChildWaitBoundary)
+	keys := make(map[WaitID]string)
+	for _, opened := range parsed.ProcessSnapshots()[0].openChildWaits {
+		keys[opened.waitID] = opened.spec.Key.String()
+	}
+	drained := make(map[string]bool)
 	for _, receipt := range parsed.ProcessSnapshots()[0].SignalReceipts() {
 		if pending, ok := receipt.PendingSignal(); ok {
 			satisfied := controlValue(ParseChildWaitSatisfied(pending))
-			boundaries[satisfied.Key().String()] = satisfied.Boundary()
+			_, drained[keys[satisfied.WaitID()]] = satisfied.Outcomes()[0].SubtreeUnresolvedEffects()
 		}
 	}
-	want := map[string]ChildWaitBoundary{
-		"retained-0": ChildWaitBoundaryDrained, "retained-1": ChildWaitBoundaryResult, "retained-2": ChildWaitBoundaryDrained,
-	}
-	if !maps.Equal(boundaries, want) {
-		t.Fatalf("answer boundaries = %v, want %v", boundaries, want)
+	want := map[string]bool{"retained-0": true, "retained-1": false, "retained-2": true}
+	if !maps.Equal(drained, want) {
+		t.Fatalf("drained answers = %v, want %v", drained, want)
 	}
 }
 
@@ -180,7 +181,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
 	record := &root.Mailbox.Signals[1]
 	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
-	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, spec.Key, spec.Boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {

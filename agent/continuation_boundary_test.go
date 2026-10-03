@@ -38,7 +38,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		}
 		competition, err := coordination.NewFirstSuccess(coordination.FirstSuccessConfig{
 			Name: "example.episode.competition", Description: "Complete while retaining the losing worker's uncertainty.", MaxCandidates: 2,
-			Accept: func(context.Context, agent.ChildOutcome) (bool, error) { return true, nil },
+			Accept: func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return true, nil },
 		})
 		if err != nil {
 			t.Fatal(err)
