@@ -33,7 +33,7 @@ type TreeSnapshot struct {
 // children they answered with, and a retained successful child-start
 // settlement must identify a captured child matching the complete request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
-	document, err := jsonwire.Decode[treeSnapshotDocument](data, "root_id", "incarnation_id", "tree_limits", "process_snapshots")
+	document, err := jsonwire.Decode[treeSnapshotDocument](data, "incarnation_id", "tree_limits", "process_snapshots")
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -45,22 +45,21 @@ func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 		return TreeSnapshot{}, err
 	}
 	return treeSnapshotFromWire(treeSnapshotWire{
-		RootID: document.RootID, IncarnationID: document.IncarnationID,
-		TreeLimits: document.TreeLimits, ProcessSnapshots: processes,
+		IncarnationID: document.IncarnationID, TreeLimits: document.TreeLimits, ProcessSnapshots: processes,
 	})
 }
 
 // treeSnapshotDocument is the persisted tree. Its Process records decode
-// together because each relation's root and depth follow from the tree.
+// together because each relation's root and depth follow from the tree; the
+// root is the one record without a parent link.
 type treeSnapshotDocument struct {
-	RootID           ProcessID         `json:"root_id"`
 	IncarnationID    TreeIncarnationID `json:"incarnation_id"`
 	TreeLimits       TreeLimits        `json:"tree_limits"`
 	ProcessSnapshots []json.RawMessage `json:"process_snapshots"`
 }
 
 // processSnapshots derives every relation from the parent links: the record
-// without a parent must be RootID, and every other record descends from it.
+// without a parent is the one root, and every other record descends from it.
 func (t treeSnapshotDocument) processSnapshots() ([]ProcessSnapshot, error) {
 	documents := make(map[ProcessID]processSnapshotDocument, len(t.ProcessSnapshots))
 	order := make([]ProcessID, 0, len(t.ProcessSnapshots))
@@ -74,6 +73,20 @@ func (t treeSnapshotDocument) processSnapshots() ([]ProcessSnapshot, error) {
 		}
 		documents[document.ProcessID] = document
 		order = append(order, document.ProcessID)
+	}
+	// Relating in identity order reports the same first error for any input order.
+	slices.SortFunc(order, func(left, right ProcessID) int { return cmp.Compare(left.String(), right.String()) })
+	roots := 0
+	for _, id := range order {
+		if documents[id].ParentID == nil {
+			roots++
+		}
+	}
+	switch {
+	case roots == 0:
+		return nil, fmt.Errorf("%w: root Process is missing", ErrInvalidTreeSnapshot)
+	case roots > 1:
+		return nil, fmt.Errorf("%w: Process belongs to another tree", ErrInvalidTreeSnapshot)
 	}
 	relations := make(map[ProcessID]ProcessRelation, len(documents))
 	var relate func(ProcessID, int) (ProcessRelation, error)
@@ -96,14 +109,10 @@ func (t treeSnapshotDocument) processSnapshots() ([]ProcessSnapshot, error) {
 				return ProcessRelation{}, err
 			}
 			relation = childProcessRelation(id, parent, identity.key)
-		} else if id != t.RootID {
-			return ProcessRelation{}, fmt.Errorf("%w: Process belongs to another tree contract", ErrInvalidTreeSnapshot)
 		}
 		relations[id] = relation
 		return relation, nil
 	}
-	// Relating in identity order reports the same first error for any input order.
-	slices.SortFunc(order, func(left, right ProcessID) int { return cmp.Compare(left.String(), right.String()) })
 	for _, id := range order {
 		if _, err := relate(id, 0); err != nil {
 			return nil, err
@@ -220,7 +229,7 @@ func (t TreeSnapshot) JSON() json.RawMessage { return bytes.Clone(t.data) }
 // snapshot. The zero value has size zero.
 func (t TreeSnapshot) EncodedSize() int { return len(t.data) }
 
-func (t TreeSnapshot) RootID() ProcessID { return t.state.RootID }
+func (t TreeSnapshot) RootID() ProcessID { return t.state.rootID() }
 
 func (t TreeSnapshot) Digest() Digest { return t.digest }
 
@@ -255,7 +264,7 @@ func (t TreeSnapshot) EffectRequest(processID ProcessID, id EffectID) (EffectReq
 }
 
 func (t TreeSnapshot) Valid() bool {
-	return len(t.data) > 0 && t.digest.Valid() && t.state.RootID.Valid() &&
+	return len(t.data) > 0 && t.digest.Valid() && t.state.rootID().Valid() &&
 		t.state.IncarnationID.Valid() && len(t.state.ProcessSnapshots) > 0
 }
 
@@ -288,7 +297,6 @@ func (t TreeSnapshot) wire() (treeSnapshotWire, error) {
 // treeSnapshotWire holds only tree-wide facts. Each child wait belongs to the
 // mailbox of the Process that opened it.
 type treeSnapshotWire struct {
-	RootID           ProcessID         `json:"root_id"`
 	IncarnationID    TreeIncarnationID `json:"incarnation_id"`
 	TreeLimits       TreeLimits        `json:"tree_limits"`
 	ProcessSnapshots []ProcessSnapshot `json:"process_snapshots"`
@@ -297,7 +305,6 @@ type treeSnapshotWire struct {
 // treeSnapshotHeaderWire carries the members treeSnapshotWire encodes before
 // its Process snapshots, in the same order and under the same names.
 type treeSnapshotHeaderWire struct {
-	RootID        ProcessID         `json:"root_id"`
 	IncarnationID TreeIncarnationID `json:"incarnation_id"`
 	TreeLimits    TreeLimits        `json:"tree_limits"`
 }
@@ -309,7 +316,7 @@ type treeSnapshotHeaderWire struct {
 // the wire with each snapshot's bytes as its value.
 func (t treeSnapshotWire) encode() ([]byte, error) {
 	header, err := jsonv2.Marshal(treeSnapshotHeaderWire{
-		RootID: t.RootID, IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits,
+		IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits,
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return nil, err
@@ -329,6 +336,14 @@ func (t treeSnapshotWire) encode() ([]byte, error) {
 	}
 	encoded = append(encoded, ']')
 	return append(encoded, '}'), nil
+}
+
+// rootID follows from the canonical order, in which the root comes first.
+func (t treeSnapshotWire) rootID() ProcessID {
+	if len(t.ProcessSnapshots) == 0 {
+		return ProcessID{}
+	}
+	return t.ProcessSnapshots[0].Relation().RootID()
 }
 
 func (t treeSnapshotWire) clone() treeSnapshotWire {
@@ -362,8 +377,7 @@ type treeSnapshotValidation struct {
 }
 
 func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, error) {
-	if !wire.RootID.Valid() ||
-		!wire.IncarnationID.Valid() || len(wire.ProcessSnapshots) == 0 {
+	if !wire.rootID().Valid() || !wire.IncarnationID.Valid() {
 		return nil, fmt.Errorf("%w: incomplete tree identity", ErrInvalidTreeSnapshot)
 	}
 	if err := wire.TreeLimits.validate(); err != nil {
@@ -383,13 +397,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		}
 		processes[processWire.ProcessID] = processWire
 	}
-	root, exists := processes[wire.RootID]
-	if !exists {
-		return nil, fmt.Errorf("%w: root Process is missing", ErrInvalidTreeSnapshot)
-	}
-	rootRelation := root.Relation
-	if !rootRelation.IsRoot() || rootRelation.RootID() != wire.RootID ||
-		!wire.TreeLimits.admitsTreeSize(uint64(len(processes))) {
+	if !wire.ProcessSnapshots[0].Relation().IsRoot() || !wire.TreeLimits.admitsTreeSize(uint64(len(processes))) {
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)
 	}
 	return &treeSnapshotValidation{
@@ -404,12 +412,12 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 
 func (t *treeSnapshotValidation) validateRelations() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		id, processWire := snapshot.ProcessID(), snapshot.state
+		processWire := snapshot.state
 		relation := processWire.Relation
-		if relation.RootID() != t.wire.RootID {
-			return fmt.Errorf("%w: Process belongs to another tree contract", ErrInvalidTreeSnapshot)
+		if relation.RootID() != t.wire.rootID() {
+			return fmt.Errorf("%w: Process belongs to another tree", ErrInvalidTreeSnapshot)
 		}
-		if id == t.wire.RootID {
+		if relation.IsRoot() {
 			continue
 		}
 		if err := t.recordChild(relation, processWire); err != nil {

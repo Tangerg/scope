@@ -644,7 +644,7 @@ func (e *Engine) RestoreTree(
 	if err != nil {
 		return nil, err
 	}
-	operation, err := e.acquireTreeOperation(ctx, restoration.wire.RootID)
+	operation, err := e.acquireTreeOperation(ctx, restoration.wire.rootID())
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +719,7 @@ func (e *Engine) newRestoration(
 	if err != nil {
 		return nil, err
 	}
-	rootSnapshot := wire.processSnapshot(wire.RootID)
+	rootSnapshot := wire.processSnapshot(wire.rootID())
 	if !rootSnapshot.Valid() || rootSnapshot.DeploymentRef() != rootDeployment.DeploymentRef() {
 		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
 	}
@@ -758,7 +758,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 	if e.closeDone != nil {
 		return ErrEngineClosed
 	}
-	rootID := restoration.wire.RootID
+	rootID := restoration.wire.rootID()
 	if e.treeRestoreReservations[rootID] != nil || e.trees[rootID] != nil {
 		return ErrProcessAlreadyExists
 	}
@@ -788,13 +788,13 @@ func (e *Engine) releaseRestoredTree(restoration *treeRestoration) {
 			delete(e.restoredChildren, identity)
 		}
 	}
-	delete(e.treeRestoreReservations, restoration.wire.RootID)
+	delete(e.treeRestoreReservations, restoration.wire.rootID())
 }
 
 func (e *Engine) discardRestoredTree(restoration *treeRestoration) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if restoration != nil && e.treeRestoreReservations[restoration.wire.RootID] == restoration {
+	if restoration != nil && e.treeRestoreReservations[restoration.wire.rootID()] == restoration {
 		e.releaseRestoredTree(restoration)
 	}
 }
@@ -802,7 +802,7 @@ func (e *Engine) discardRestoredTree(restoration *treeRestoration) {
 func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	rootID := restoration.wire.RootID
+	rootID := restoration.wire.rootID()
 	if e.closeDone != nil || e.treeRestoreReservations[rootID] != restoration {
 		panic("agent: invalid restored tree reservation")
 	}

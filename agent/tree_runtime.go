@@ -1206,7 +1206,7 @@ func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
 }
 
 func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
-	wire := treeSnapshotWire{RootID: t.rootID, TreeLimits: t.treeLimits, ProcessSnapshots: make([]ProcessSnapshot, 0, t.members.len())}
+	wire := treeSnapshotWire{TreeLimits: t.treeLimits, ProcessSnapshots: make([]ProcessSnapshot, 0, t.members.len())}
 	wire.IncarnationID = t.writer.incarnation()
 	return wire
 }

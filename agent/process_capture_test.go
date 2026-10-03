@@ -88,7 +88,7 @@ func TestDurabilityFailureDiscardsOnlyUnacknowledgedChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	incarnation := newTreeIncarnationID()
-	head, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: runtime.treeLimits, RootID: runtime.rootID, IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
+	head, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{acknowledged}})
 	if err != nil {
 		t.Fatal(err)
 	}

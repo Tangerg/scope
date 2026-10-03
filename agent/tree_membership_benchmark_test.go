@@ -156,7 +156,7 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 	for _, count := range []int{1, 128, 1024} {
 		b.Run(fmt.Sprint(count), func(b *testing.B) {
 			runtime := newWaitingSnapshotTree(b, count)
-			restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID(), RootID: runtime.rootID}}
+			restoration := &treeRestoration{wire: treeSnapshotWire{TreeLimits: runtime.treeLimits, IncarnationID: newTreeIncarnationID()}}
 			for _, process := range runtime.members.ordered() {
 				restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 			}

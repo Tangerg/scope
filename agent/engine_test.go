@@ -1427,7 +1427,6 @@ func waitForUnknownSettlementContext(ctx context.Context, t testing.TB, process 
 func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
 	t.Helper()
 	tree, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
-		RootID:           snapshot.ProcessID(),
 		ProcessSnapshots: []ProcessSnapshot{snapshot},
 	})
 	if err != nil {

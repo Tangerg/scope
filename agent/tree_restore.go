@@ -20,7 +20,7 @@ func (t *treeRestoration) prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.runtime = newTreeRuntime(t.engine, t.wire.RootID, t.wire.TreeLimits, ctx, processes...)
+	t.runtime = newTreeRuntime(t.engine, t.wire.rootID(), t.wire.TreeLimits, ctx, processes...)
 	if err := t.runtime.validateSnapshotCapacity(); err != nil {
 		return fmt.Errorf("%w: snapshot capacity: %w", ErrInvalidTreeSnapshot, err)
 	}
