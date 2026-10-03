@@ -30,7 +30,7 @@ func (p *preparedStep) pendingEffect(id EffectID) (int, *preparedEffect) {
 	if p != nil {
 		for index := range p.Effects {
 			record := &p.Effects[index]
-			if record.ID == id && record.Phase == effectPhasePending {
+			if record.ID == id && record.phase() == effectPhasePending {
 				return index, record
 			}
 		}
@@ -108,15 +108,7 @@ func (p *preparedStep) clone() preparedStep {
 	clone.Effects = make([]preparedEffect, len(p.Effects))
 	for index, effect := range p.Effects {
 		clone.Effects[index] = preparedEffect{
-			ID: effect.ID, Effect: effect.Effect.clone(), Phase: effect.Phase,
-		}
-		if effect.Diagnostic != nil {
-			diagnostic := *effect.Diagnostic
-			clone.Effects[index].Diagnostic = &diagnostic
-		}
-		if effect.Settlement != nil {
-			settlement := *effect.Settlement
-			clone.Effects[index].Settlement = &settlement
+			ID: effect.ID, Effect: effect.Effect.clone(), progress: effect.progress.clone(),
 		}
 	}
 	return clone

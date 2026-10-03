@@ -73,16 +73,14 @@ func TestPreparedEffectReportsContradictorySettlements(t *testing.T) {
 		transition func(*preparedEffect) error
 		detail     string
 	}{
-		{"unknown phase", preparedEffect{}, (*preparedEffect).validatePhase, "prepared Effect phase is invalid"},
-		{"missing settlement", preparedEffect{Phase: effectPhaseSettled}, (*preparedEffect).validatePhase, "prepared Effect settlement presence disagrees with phase"},
-		{"invalid settlement", preparedEffect{Phase: effectPhaseSettled, Settlement: &invalid}, (*preparedEffect).validatePhase, "prepared Effect settlement is invalid"},
-		{"settle twice", preparedEffect{Phase: effectPhasePending, Settlement: &succeeded}, func(p *preparedEffect) error { return p.settle(succeeded, nil) }, "pending Effect already has a settlement"},
-		{"settle invalid", preparedEffect{Phase: effectPhasePending}, func(p *preparedEffect) error { return p.settle(invalid, nil) }, "incoming settlement is invalid"},
-		{"settle foreign", preparedEffect{Phase: effectPhasePending}, func(p *preparedEffect) error { return p.settle(foreign, nil) }, "incoming settlement identifies another Effect"},
-		{"resolve definite", preparedEffect{Phase: effectPhaseSettled, Settlement: &succeeded}, func(p *preparedEffect) error { return p.resolveUnknown(succeeded) }, "effect outcome is already definite"},
-		{"resolve invalid", preparedEffect{Phase: effectPhaseSettled, Settlement: &unknown}, func(p *preparedEffect) error { return p.resolveUnknown(invalid) }, "resolution must supply a definite settlement"},
-		{"resolve unknown", preparedEffect{Phase: effectPhaseSettled, Settlement: &unknown}, func(p *preparedEffect) error { return p.resolveUnknown(unknown) }, "resolution must supply a definite settlement"},
-		{"resolve foreign", preparedEffect{Phase: effectPhaseSettled, Settlement: &unknown}, func(p *preparedEffect) error { return p.resolveUnknown(foreign) }, "resolution identifies another Effect"},
+		{"invalid settlement", preparedEffect{progress: &effectProgress{settlement: &invalid}}, (*preparedEffect).validatePhase, "prepared Effect settlement is invalid"},
+		{"settle twice", preparedEffect{progress: &effectProgress{settlement: &succeeded}}, func(p *preparedEffect) error { return p.settle(succeeded, nil) }, "effect is not pending"},
+		{"settle invalid", preparedEffect{progress: &effectProgress{}}, func(p *preparedEffect) error { return p.settle(invalid, nil) }, "incoming settlement is invalid"},
+		{"settle foreign", preparedEffect{progress: &effectProgress{}}, func(p *preparedEffect) error { return p.settle(foreign, nil) }, "incoming settlement identifies another Effect"},
+		{"resolve definite", preparedEffect{progress: &effectProgress{settlement: &succeeded}}, func(p *preparedEffect) error { return p.resolveUnknown(succeeded) }, "effect outcome is already definite"},
+		{"resolve invalid", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(invalid) }, "resolution must supply a definite settlement"},
+		{"resolve unknown", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(unknown) }, "resolution must supply a definite settlement"},
+		{"resolve foreign", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(foreign) }, "resolution identifies another Effect"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			record := test.record
@@ -91,7 +89,7 @@ func TestPreparedEffectReportsContradictorySettlements(t *testing.T) {
 			if err == nil || err.Error() != test.detail {
 				t.Fatalf("rejection=%v, want %q", err, test.detail)
 			}
-			if record.Phase != test.record.Phase || record.Settlement != test.record.Settlement {
+			if record.phase() != test.record.phase() || record.settlement() != test.record.settlement() {
 				t.Fatal("rejected transition changed the Effect outcome")
 			}
 		})

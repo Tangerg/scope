@@ -32,7 +32,11 @@ func ExamplePlanner_Plan() {
 		panic(err)
 	}
 
-	fmt.Println(found, len(plan.Actions()), plan.TotalCost())
+	cost, err := problem.EvaluatePlan(context.Background(), plan)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(found, len(plan.Actions()), cost)
 	// Output:
 	// true 0 0
 }

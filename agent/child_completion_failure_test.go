@@ -154,7 +154,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhasePending}
+	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{}}
 	if err := record.settleUnknown(); err != nil {
 		t.Fatal(err)
 	}

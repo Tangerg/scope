@@ -29,6 +29,13 @@ type toolExecutionState struct {
 	WaitID     *agent.WaitID   `json:"wait_id,omitzero"`
 }
 
+func (t toolExecutionState) phase() toolPhase {
+	if t.Phase == toolAwaitingWaitOpen && t.WaitID != nil {
+		return toolWaitingInput
+	}
+	return t.Phase
+}
+
 func (t toolExecutionState) validate() error {
 	if err := t.Call.validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
@@ -45,14 +52,13 @@ func (t toolExecutionState) validate() error {
 }
 
 func (t toolExecutionState) continuationMatchesPhase() bool {
-	if (t.WaitID != nil) != (t.Phase == toolWaitingInput) ||
-		t.WaitID != nil && !t.WaitID.Valid() {
+	if t.WaitID != nil && (t.Phase != toolAwaitingWaitOpen || !t.WaitID.Valid()) {
 		return false
 	}
 	switch t.Phase {
 	case toolReady, toolCompleted:
 		return t.Checkpoint == nil
-	case toolAwaitingWaitOpen, toolWaitingInput:
+	case toolAwaitingWaitOpen:
 		return t.Checkpoint != nil
 	case toolAwaitingResult:
 		return true
@@ -137,7 +143,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	switch t.state.Phase {
+	switch t.state.phase() {
 	case toolAwaitingResult:
 		return t.acceptResult(signal, envelope)
 	case toolAwaitingWaitOpen:
@@ -158,7 +164,6 @@ func (t *toolExecution) acceptWaitOpened(signal agent.Signal, envelope signalEnv
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	t.state.WaitID = &waitID
-	t.state.Phase = toolWaitingInput
 	return agent.Wait(1, waitID)
 }
 

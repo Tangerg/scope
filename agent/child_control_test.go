@@ -61,20 +61,20 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if failed {
 				status = SettlementStatusFailed
 			}
-			record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled, Settlement: new(controlValue(NewSettlement(id, status, payload)))}
+			record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, status, payload)))}}
 			if err := record.validateFramework(); err != nil {
 				t.Fatal(err)
 			}
 			for name, mutate := range map[string]func(*preparedEffect){
 				"unknown": func(record *preparedEffect) {
-					record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusUnknown, []byte(`null`))))
+					record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusUnknown, []byte(`null`))))
 				},
 				"wrong status": func(record *preparedEffect) {
 					wrong := SettlementStatusFailed
 					if failed {
 						wrong = SettlementStatusSucceeded
 					}
-					record.Settlement = new(controlValue(NewSettlement(id, wrong, payload)))
+					record.progress.settlement = new(controlValue(NewSettlement(id, wrong, payload)))
 				},
 				"other recipient": func(record *preparedEffect) {
 					if operation == frameworkOperationSignalChild {
@@ -201,7 +201,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			if !record.definitelySettled() {
 				t.Fatal("control not settled")
 			}
-			result := controlValue(decodeChildControlResult(record.Settlement.Payload()))
+			result := controlValue(decodeChildControlResult(record.settlement().Payload()))
 			failure, failed := result.Failure()
 			if target != "direct" {
 				if !failed || failure.Code() != failureCodeEngineChildControlNotOwned || child.mailbox.pendingCount() != 0 {
@@ -250,8 +250,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	effect := controlValue(NewChildSignalEffect(childID, request))
 	result := ChildControlResult{childID: childID, operation: frameworkOperationSignalChild, signalID: request.ID()}
 	id := parentID.effectID(1, 0)
-	record := preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled,
-		Settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}
+	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
 	child := processSnapshotWire{ProcessID: childID,
 		Relation: processRelationWire{ParentID: &parentID}, Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
@@ -288,7 +287,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
 	canceled := ChildControlResult{childID: childID, operation: frameworkOperationCancelChild}
 	record.Effect = cancel
-	record.Settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
+	record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 		t.Fatal("cancellation without intent accepted")
 	}

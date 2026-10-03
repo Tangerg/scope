@@ -501,7 +501,7 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	}
 	parent := stopped.members.get(root.ID())
 	_, record := parent.prepared.pendingEffect(runtimeErr.UnresolvedEffectIDs()[0])
-	if record == nil || record.Settlement != nil {
+	if record == nil || record.settlement() != nil {
 		t.Fatal("late child admission replaced pending evidence after a fault")
 	}
 }

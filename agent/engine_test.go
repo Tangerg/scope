@@ -620,7 +620,7 @@ func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 	processSnapshots := boundaries[0].TreeSnapshot().ProcessSnapshots()
 	wire, err := processSnapshots[0].wire()
 	if err != nil || wire.Prepared == nil ||
-		wire.Prepared.Effects[0].Phase != effectPhasePending {
+		wire.Prepared.Effects[0].phase() != effectPhasePending {
 		t.Fatalf("pending boundary does not contain pending Effect: %v", err)
 	}
 }
@@ -691,10 +691,10 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 	}
 	snapshot := waitForUnknownSettlement(t, process)
 	wire, _ := snapshot.wire()
-	if len(wire.Prepared.Effects) != 2 || wire.Prepared.Effects[0].Settlement == nil ||
-		wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded ||
-		wire.Prepared.Effects[1].Settlement == nil ||
-		wire.Prepared.Effects[1].Settlement.Status() != SettlementStatusUnknown {
+	if len(wire.Prepared.Effects) != 2 || wire.Prepared.Effects[0].settlement() == nil ||
+		wire.Prepared.Effects[0].settlement().Status() != SettlementStatusSucceeded ||
+		wire.Prepared.Effects[1].settlement() == nil ||
+		wire.Prepared.Effects[1].settlement().Status() != SettlementStatusUnknown {
 		t.Fatalf("prepared batch=%+v", wire.Prepared.Effects)
 	}
 	tree, err := engine.CaptureTree(context.Background(), process.ID())

@@ -226,14 +226,14 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		child json.RawMessage
 		valid bool
 	}{
-		{"child", json.RawMessage(`{}`), true},
-		{"child", json.RawMessage(`{"process_id":"child"}`), true},
-		{"child", json.RawMessage(`{"process_id":"child","wait_id":"wait"}`), true},
-		{"child", json.RawMessage(`null`), false},
-		{"child", json.RawMessage(`{"wait_id":"wait"}`), false},
-		{"child", json.RawMessage(`{"process_id":"child","unknown":true}`), false},
+		{"awaiting_action", json.RawMessage(`{}`), true},
+		{"awaiting_action", json.RawMessage(`{"process_id":"child"}`), true},
+		{"awaiting_action", json.RawMessage(`{"process_id":"child","wait_id":"wait"}`), true},
+		{"awaiting_action", json.RawMessage(`null`), false},
+		{"awaiting_action", json.RawMessage(`{"wait_id":"wait"}`), false},
+		{"awaiting_action", json.RawMessage(`{"process_id":"child","unknown":true}`), false},
 		{"awaiting_sense", json.RawMessage(`{}`), false},
-		{"awaiting_action", json.RawMessage(`{}`), false},
+		{"child", json.RawMessage(`{}`), false},
 	} {
 		payload, encodeErr := jsonv2.Marshal(struct {
 			Phase      string          `json:"phase"`

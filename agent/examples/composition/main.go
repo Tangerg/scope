@@ -292,15 +292,27 @@ type compositionState struct {
 	WaitID   *agent.WaitID     `json:"wait_id,omitzero"`
 }
 
+func (c compositionState) phase() compositionPhase {
+	if c.Phase == compositionAwaitingChildStarts && len(c.ChildIDs) != 0 {
+		if c.WaitID != nil {
+			return compositionWaitingChildren
+		}
+		return compositionAwaitingChildWaitOpen
+	}
+	return c.Phase
+}
+
 func (c compositionState) validate() error {
 	valid := false
 	switch c.Phase {
-	case compositionReady, compositionAwaitingChildStarts, compositionCompleted:
+	case compositionReady, compositionCompleted:
 		valid = len(c.ChildIDs) == 0 && c.WaitID == nil
-	case compositionAwaitingChildWaitOpen:
-		valid = c.validChildren() && c.WaitID == nil
-	case compositionWaitingChildren:
-		valid = c.validChildren() && c.WaitID != nil && c.WaitID.Valid()
+	case compositionAwaitingChildStarts:
+		if len(c.ChildIDs) == 0 {
+			valid = c.WaitID == nil
+		} else {
+			valid = c.validChildren() && (c.WaitID == nil || c.WaitID.Valid())
+		}
 	}
 	if !valid {
 		return agent.ErrInvalidExecutionState
@@ -339,7 +351,7 @@ func (c *compositionExecution) Step(
 	_ context.Context,
 	signals []agent.Signal,
 ) (agent.Transition, error) {
-	switch c.state.Phase {
+	switch c.state.phase() {
 	case compositionReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, agent.ErrInvalidSignal
@@ -361,7 +373,6 @@ func (c *compositionExecution) Step(
 		}
 		waitID := opened.WaitID()
 		c.state.WaitID = &waitID
-		c.state.Phase = compositionWaitingChildren
 		return agent.Wait(1, opened.WaitID())
 	case compositionWaitingChildren:
 		return c.complete(signals)
@@ -451,7 +462,6 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, err
 	}
 	c.state.ChildIDs = children
-	c.state.Phase = compositionAwaitingChildWaitOpen
 	return agent.Continue(compositionChildCount, waitEffect)
 }
 

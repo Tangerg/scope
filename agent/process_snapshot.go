@@ -174,8 +174,8 @@ func (p ProcessSnapshot) Settlements() []Settlement {
 	var settlements []Settlement
 	if p.state.Prepared != nil {
 		for _, record := range p.state.Prepared.Effects {
-			if record.Settlement != nil {
-				settlements = append(settlements, record.Settlement.clone())
+			if record.settlement() != nil {
+				settlements = append(settlements, record.settlement().clone())
 			}
 		}
 	}
@@ -197,8 +197,8 @@ func (p ProcessSnapshot) preparedEffect(stepSequence uint64, batchIndex uint32) 
 func (p ProcessSnapshot) EffectDiagnostic(id EffectID) (Failure, bool) {
 	if p.state.Prepared != nil {
 		for _, effect := range p.state.Prepared.Effects {
-			if effect.ID == id && effect.Diagnostic != nil {
-				return *effect.Diagnostic, true
+			if effect.ID == id && effect.diagnostic() != nil {
+				return *effect.diagnostic(), true
 			}
 		}
 	}
@@ -341,13 +341,12 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 			return 0, err
 		}
 		pendingSize = uint64(len(pending)) + reservation.growth
-		terminalGrowth = snapshotFailureGrowth + uint64(6*MaxDiagnosticBytes-len(snapshotReservationText))
+		terminalGrowth = snapshotFailureGrowth
 		p.PendingControl = pendingControlWire{}
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
-		// The maximal failure object adds more bytes than other terminal statuses
-		// and causes can add, while its message also fills the termination reason.
+		// The maximal failure object is larger than a control cause and reason.
 		termination := failure.termination()
 		p.Termination = &termination
 	}
@@ -512,7 +511,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 		if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
 			return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
 		}
-		if p.status().Terminal() && record.Phase == effectPhasePending {
+		if p.status().Terminal() && record.phase() == effectPhasePending {
 			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 		}
 	}

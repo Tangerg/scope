@@ -264,3 +264,41 @@ func (h *heldStepExecution) Step(ctx context.Context, signals []agent.Signal) (a
 	}
 	return h.Execution.Step(ctx, signals)
 }
+
+func TestInputGateRestoreDerivesWaitingFromWaitIdentity(t *testing.T) {
+	gate := inputGate(t)
+	for _, sample := range []struct {
+		phase, wait string
+		valid       bool
+	}{
+		{"awaiting_open", "", true},
+		{"awaiting_open", `,"wait_id":"wait:gate"`, true},
+		{"waiting", `,"wait_id":"wait:gate"`, false},
+		{"ready", `,"wait_id":"wait:gate"`, false},
+	} {
+		state, err := agent.ParseExecutionState("coordination.input_gate", []byte(`{"phase":"`+sample.phase+`","request":"request"`+sample.wait+`}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := gate.Restore(t.Context(), state)
+		if !sample.valid {
+			if !errors.Is(err, coordination.ErrInvalidExecutionState) {
+				t.Fatalf("Restore %s: %v", state.Payload(), err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sample.wait != "" {
+			var answer agent.Signal
+			if err := jsonv2.Unmarshal([]byte(`{"id":"signal:answer","wait_id":"wait:gate","payload":"answer"}`), &answer); err != nil {
+				t.Fatal(err)
+			}
+			transition, err := restored.Step(t.Context(), []agent.Signal{answer})
+			if err != nil || transition.Kind() != agent.TransitionKindComplete {
+				t.Fatalf("restored gate did not consume answer: %v", err)
+			}
+		}
+	}
+}

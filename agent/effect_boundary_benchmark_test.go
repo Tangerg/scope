@@ -56,7 +56,7 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 	if failure := prepareTestStep(root, runtime.treeLimits, stepJobResult{transition: transition, candidateState: root.committedExecutionState}); failure != nil {
 		t.Fatal(failure.cause)
 	}
-	root.prepared.Effects[0].Phase = effectPhasePending
+	root.prepared.Effects[0].progress = &effectProgress{}
 	snapshot, err := runtime.captureTree()
 	if err != nil {
 		t.Fatal(err)

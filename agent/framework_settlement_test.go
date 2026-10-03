@@ -86,7 +86,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 		t.Run(string(effect.Payload()), func(t *testing.T) {
 			candidate := wire.clone()
 			candidate.Prepared.Intent = controlValue(Continue(0))
-			record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
+			record := preparedEffect{ID: candidate.ProcessID.effectID(1, 0), Effect: effect, progress: &effectProgress{}}
 			if err := record.settleFramework(); err != nil {
 				t.Fatal(err)
 			}
@@ -96,8 +96,8 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 				t.Fatalf("valid wait rejected: %v", err)
 			}
 			restored := controlValue(controlValue(ParseProcessSnapshot(snapshot.JSON())).wire())
-			if settlement := restored.Prepared.Effects[0].Settlement; settlement == nil || !settlement.equal(*record.Settlement) {
-				t.Fatalf("restored wait settlement = %+v, want %+v", settlement, record.Settlement)
+			if settlement := restored.Prepared.Effects[0].settlement(); settlement == nil || !settlement.equal(*record.settlement()) {
+				t.Fatalf("restored wait settlement = %+v, want %+v", settlement, record.settlement())
 			}
 			var fields map[string]json.RawMessage
 			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
@@ -129,7 +129,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	deployment := newChildTestDeployment(t)
 	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, Capabilities: CapabilitySet{}}
 	effect := controlValue(NewChildStartEffect(spec))
-	record := preparedEffect{ID: wire.ProcessID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
+	record := preparedEffect{ID: wire.ProcessID.effectID(1, 0), Effect: effect, progress: &effectProgress{}}
 	if err := record.settleChildStart(ChildStartResult{key: spec.Key, processID: record.ID.childProcessID(), deploymentRef: spec.DeploymentRef}); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	for _, mutation := range []string{"key", "deployment", "process", "status", "payload", "invalid identity"} {
 		t.Run(mutation, func(t *testing.T) {
 			candidate := wire.clone()
-			result := controlValue(decodeChildStartResult(record.Settlement.Payload()))
+			result := controlValue(decodeChildStartResult(record.settlement().Payload()))
 			status := SettlementStatusSucceeded
 			switch mutation {
 			case "key":
@@ -157,7 +157,7 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			if mutation == "invalid identity" {
 				payload = []byte(`{"operation":"start_child","key":"bad key"}`)
 			}
-			candidate.Prepared.Effects[0].Settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
+			candidate.Prepared.Effects[0].progress.settlement = new(controlValue(NewSettlement(record.ID, status, payload)))
 			_, err := ParseProcessSnapshot(controlValue(jsonv2.Marshal(candidate)))
 			if !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("contradictory child start accepted: %v", err)
@@ -210,7 +210,7 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	wire.Prepared.Intent = controlValue(Continue(0))
 	wire.Prepared.Effects = nil
 	for index, effect := range effects {
-		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: wire.ProcessID.effectID(1, index), Effect: effect, Phase: effectPhasePlanned})
+		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: wire.ProcessID.effectID(1, index), Effect: effect})
 	}
 	wire.Counters.PreparedEffects = uint64(len(effects))
 	snapshot := controlValue(newProcessSnapshot(wire))

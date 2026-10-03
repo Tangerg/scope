@@ -28,26 +28,19 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	type outcomeCase struct {
 		name, code, message string
 		kind                agent.FailureKind
-		cause               agent.TerminationCause
 		conflict            bool
 	}
 	cases := []outcomeCase{
-		{name: "unchanged", kind: original.Kind(), cause: recorded.Termination().Cause(), code: original.Code(), message: original.Message()},
-		{name: "diagnostic only", kind: original.Kind(), cause: recorded.Termination().Cause(), code: original.Code(), message: "another diagnostic"},
-		{name: "failure code", kind: original.Kind(), cause: recorded.Termination().Cause(), code: "test.different", message: original.Message(), conflict: true},
+		{name: "unchanged", kind: original.Kind(), code: original.Code(), message: original.Message()},
+		{name: "diagnostic only", kind: original.Kind(), code: original.Code(), message: "another diagnostic"},
+		{name: "failure code", kind: original.Kind(), code: "test.different", message: original.Message(), conflict: true},
 	}
-	for _, classification := range []struct {
-		kind  agent.FailureKind
-		cause agent.TerminationCause
-	}{
-		{kind: agent.FailureKindExecution, cause: agent.TerminationCauseExecutionFailure},
-		{kind: agent.FailureKindContract, cause: agent.TerminationCauseContractFailure},
-		{kind: agent.FailureKindExternal, cause: agent.TerminationCauseExternalFailure},
-		{kind: agent.FailureKindPanic, cause: agent.TerminationCausePanic},
+	for _, kind := range []agent.FailureKind{
+		agent.FailureKindExecution, agent.FailureKindContract, agent.FailureKindExternal, agent.FailureKindPanic,
 	} {
-		if classification.kind != original.Kind() {
+		if kind != original.Kind() {
 			cases = append(cases, outcomeCase{
-				name: classification.kind.String(), kind: classification.kind, cause: classification.cause,
+				name: kind.String(), kind: kind,
 				code: original.Code(), message: original.Message(), conflict: true,
 			})
 		}
@@ -62,7 +55,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			termination := trajectoryFailureTermination(t, recorded.Termination(), testCase.cause, failure)
+			termination := trajectoryFailureTermination(t, recorded.Termination(), failure)
 			constructed, constructErr := trajectory.New(trajectory.Config{
 				RootProcessID: recorded.RootProcessID(), Termination: termination,
 				RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Events: recorded.Events(),
@@ -101,15 +94,13 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	}
 }
 
-func trajectoryFailureTermination(t *testing.T, original agent.Termination, cause agent.TerminationCause, failure agent.Failure) agent.Termination {
+func trajectoryFailureTermination(t *testing.T, original agent.Termination, failure agent.Failure) agent.Termination {
 	t.Helper()
 	encoded, err := jsonv2.Marshal(struct {
-		Cause               agent.TerminationCause `json:"cause"`
-		Reason              string                 `json:"reason"`
-		Failure             agent.Failure          `json:"failure"`
-		UnresolvedEffectIDs []agent.EffectID       `json:"unresolved_effect_ids,omitempty"`
+		Failure             agent.Failure    `json:"failure"`
+		UnresolvedEffectIDs []agent.EffectID `json:"unresolved_effect_ids,omitempty"`
 	}{
-		Cause: cause, Reason: failure.Message(), Failure: failure,
+		Failure:             failure,
 		UnresolvedEffectIDs: original.UnresolvedEffectIDs(),
 	})
 	if err != nil {

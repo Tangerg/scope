@@ -56,8 +56,8 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			var restored Failure
-			if err := jsonv2.Unmarshal(data, &restored); err != nil {
-				t.Fatal(err)
+			if restoreErr := jsonv2.Unmarshal(data, &restored); restoreErr != nil {
+				t.Fatal(restoreErr)
 			}
 			if restored != failure {
 				t.Fatal("failure changed during JSON round trip")
@@ -72,31 +72,66 @@ func TestFailureRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
-func TestTerminationRestorationMatchesFailureKind(t *testing.T) {
-	kinds := []FailureKind{FailureKindExecution, FailureKindContract, FailureKindExternal, FailureKindPanic}
-	causes := []TerminationCause{TerminationCauseExecutionFailure, TerminationCauseContractFailure, TerminationCauseExternalFailure, TerminationCausePanic}
-	for kindIndex, kind := range kinds {
-		for causeIndex, cause := range causes {
-			t.Run(string(kind)+"/"+string(cause), func(t *testing.T) {
-				failure, err := NewFailure(kind, "step.failed", "failure")
-				if err != nil {
-					t.Fatal(err)
+func TestFailureOwnsTerminationClassificationAndDiagnostic(t *testing.T) {
+	for _, kind := range []FailureKind{FailureKindExecution, FailureKindContract, FailureKindExternal, FailureKindPanic} {
+		t.Run(string(kind), func(t *testing.T) {
+			failure, err := NewFailure(kind, "step.failed", "failure")
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := jsonv2.Marshal(failure.termination())
+			if err != nil {
+				t.Fatal(err)
+			}
+			failureJSON, err := jsonv2.Marshal(failure)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != `{"failure":`+string(failureJSON)+`}` {
+				t.Fatalf("termination duplicates failure facts: %s", data)
+			}
+			var restored Termination
+			if restoreErr := jsonv2.Unmarshal(data, &restored); restoreErr != nil {
+				t.Fatal(restoreErr)
+			}
+			if restored.Status() != StatusFailed || restored.Cause() != kind.terminationCause() || restored.Reason() != failure.Message() {
+				t.Fatalf("restored failure changed: %+v", restored)
+			}
+			for _, wire := range []terminationWire{
+				{Cause: kind.terminationCause(), Failure: &failure},
+				{Reason: failure.Message(), Failure: &failure},
+				{Cause: TerminationCauseCompletion, Failure: &failure},
+			} {
+				wireData, marshalErr := jsonv2.Marshal(wire)
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
 				}
-				data, err := jsonv2.Marshal(terminationWire{Cause: cause, Reason: "failure", Failure: &failure})
-				if err != nil {
-					t.Fatal(err)
+				if restoreErr := jsonv2.Unmarshal(wireData, &restored); !errors.Is(restoreErr, errInvalidTermination) {
+					t.Fatalf("accepted duplicate terminal facts %s: %v", wireData, restoreErr)
 				}
-				var restored Termination
-				err = jsonv2.Unmarshal(data, &restored)
-				if kindIndex == causeIndex {
-					if err != nil || restored.Cause() != cause {
-						t.Fatalf("restore matching failure = %v, cause = %s", err, restored.Cause())
-					}
-				} else if !errors.Is(err, errInvalidTermination) {
-					t.Fatalf("restore contradictory failure = %v, want invalid termination", err)
-				}
-			})
-		}
+			}
+			usage := Usage{CommittedSteps: 1}
+			wire := processFinishedEventPayload{FailureKind: kind, FailureCode: failure.Code(), Usage: &usage}
+			data, err = jsonv2.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "termination_cause") {
+				t.Fatalf("event duplicates failure cause: %s", data)
+			}
+			fact, err := decodeProcessFinished(data)
+			if err != nil || fact.Status() != StatusFailed || fact.Cause() != kind.terminationCause() {
+				t.Fatalf("finished event = %+v, error = %v", fact, err)
+			}
+			wire.TerminationCause = kind.terminationCause()
+			data, err = jsonv2.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeProcessFinished(data); err == nil {
+				t.Fatalf("accepted duplicate finished cause: %s", data)
+			}
+		})
 	}
 }
 

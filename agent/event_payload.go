@@ -90,7 +90,7 @@ type signalAcceptedEventPayload struct {
 }
 
 type processFinishedEventPayload struct {
-	TerminationCause TerminationCause `json:"termination_cause"`
+	TerminationCause TerminationCause `json:"termination_cause,omitzero"`
 	FailureKind      FailureKind      `json:"failure_kind,omitzero"`
 	FailureCode      string           `json:"failure_code,omitempty"`
 	Usage            *Usage           `json:"usage"`
@@ -124,9 +124,14 @@ type ProcessFinished struct {
 	usage   Usage
 }
 
-func (p ProcessFinished) Status() Status { return p.cause.status() }
+func (p ProcessFinished) Status() Status { return p.Cause().status() }
 
-func (p ProcessFinished) Cause() TerminationCause { return p.cause }
+func (p ProcessFinished) Cause() TerminationCause {
+	if p.failure.Valid() {
+		return p.failure.Kind().terminationCause()
+	}
+	return p.cause
+}
 
 // Failure is present exactly when the Process failed.
 func (p ProcessFinished) Failure() (FailureClassification, bool) {
@@ -142,7 +147,7 @@ func (p ProcessFinished) Valid() bool {
 	if p.Status() != StatusFailed {
 		return p.failure == FailureClassification{}
 	}
-	return p.failure.Valid() && p.cause == p.failure.kind.terminationCause()
+	return p.failure.Valid() && p.cause == TerminationCauseInvalid
 }
 
 // RuntimeStopped describes an instance failure, not a logical Process

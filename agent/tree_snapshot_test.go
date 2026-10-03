@@ -452,7 +452,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 		}
 		if wire.Prepared != nil {
 			for _, effect := range wire.Prepared.Effects {
-				if effect.Settlement == nil || effect.Settlement.Status() == SettlementStatusUnknown {
+				if effect.settlement() == nil || effect.settlement().Status() == SettlementStatusUnknown {
 					t.Fatalf("Process %s captured an unsettled Effect", snapshot.ProcessID())
 				}
 			}

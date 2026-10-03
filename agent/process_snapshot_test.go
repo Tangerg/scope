@@ -266,52 +266,85 @@ func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
 	}
 }
 
-func TestPreparedEffectPhaseOwnsMonotonicTransitions(t *testing.T) {
+func TestPreparedEffectProgressOwnsMonotonicTransitions(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	wire, err := snapshot.wire()
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := &wire.Prepared.Effects[0]
-	if record.Phase != effectPhasePlanned {
-		t.Fatalf("initial phase = %s, want %s", record.Phase, effectPhasePlanned)
+	if record.phase() != effectPhasePlanned {
+		t.Fatalf("initial phase = %s, want %s", record.phase(), effectPhasePlanned)
 	}
-	if beginErr := record.begin(); beginErr != nil || record.Phase != effectPhasePending {
-		t.Fatalf("begin phase = %s, error = %v", record.Phase, beginErr)
+	if beginErr := record.begin(); beginErr != nil || record.phase() != effectPhasePending {
+		t.Fatalf("begin phase = %s, error = %v", record.phase(), beginErr)
 	}
 	settlement, err := NewSettlement(record.ID, SettlementStatusUnknown, json.RawMessage(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if settleErr := record.settle(settlement, nil); settleErr != nil || !record.unknown() {
-		t.Fatalf("settle phase = %s, unknown = %t, error = %v", record.Phase, record.unknown(), settleErr)
+		t.Fatalf("settle phase = %s, unknown = %t, error = %v", record.phase(), record.unknown(), settleErr)
 	}
 	definite, err := NewSettlement(record.ID, SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := record.resolveUnknown(definite); err != nil || !record.definitelySettled() {
-		t.Fatalf("resolve phase = %s, definite = %t, error = %v", record.Phase, record.definitelySettled(), err)
+	if resolveErr := record.resolveUnknown(definite); resolveErr != nil || !record.definitelySettled() {
+		t.Fatalf("resolve phase = %s, definite = %t, error = %v", record.phase(), record.definitelySettled(), resolveErr)
 	}
-	if err := record.begin(); err == nil {
+	if beginErr := record.begin(); beginErr == nil {
 		t.Fatal("settled Effect moved backward to pending")
 	}
 }
 
-func TestPreparedEffectPhaseAndSettlementMustAgree(t *testing.T) {
-	snapshot := preparedEngineTestSnapshot(t)
-	wire, err := snapshot.wire()
+func TestPreparedEffectCandidatesOwnDispatchProgress(t *testing.T) {
+	id := controlValue(ParseProcessID("process:progress-owner")).effectID(1, 0)
+	effect := controlValue(NewDispatcherEffect([]byte(`{"request":"work"}`)))
+	prepared := preparedStep{Effects: preparedEffects{{ID: id, Effect: effect, progress: &effectProgress{}}}}
+	before := controlValue(jsonv2.Marshal(prepared.Effects))
+	clone := prepared.clone()
+	if err := clone.Effects[0].settleUnknown(); err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Effects[0].phase() != effectPhasePending || !clone.Effects[0].unknown() {
+		t.Fatal("candidate settlement advanced its source dispatch permission")
+	}
+	if after := controlValue(jsonv2.Marshal(prepared.Effects)); !bytes.Equal(before, after) {
+		t.Fatal("candidate changed the source wire progress")
+	}
+}
+
+func TestPreparedEffectWireHasOneProgressRepresentation(t *testing.T) {
+	wire, err := preparedEngineTestSnapshot(t).wire()
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := &wire.Prepared.Effects[0]
-	record.Phase = effectPhaseSettled
-	data, err := jsonv2.Marshal(wire)
+	planned, err := jsonv2.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
-		t.Fatalf("phase/settlement mismatch error = %v, want ErrInvalidSnapshot", err)
+	if bytes.Contains(planned, []byte(`"progress"`)) || bytes.Contains(planned, []byte(`"phase"`)) {
+		t.Fatalf("planned effect stores progress: %s", planned)
+	}
+	if beginErr := record.begin(); beginErr != nil {
+		t.Fatal(beginErr)
+	}
+	pending, err := jsonv2.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(pending, []byte(`"progress":{}`)) {
+		t.Fatalf("pending permission disappeared: %s", pending)
+	}
+	var restored preparedEffect
+	if decodeErr := jsonv2.Unmarshal(pending, &restored); decodeErr != nil || restored.phase() != effectPhasePending {
+		t.Fatalf("restore pending effect: %v, phase = %s", decodeErr, restored.phase())
+	}
+	legacy := append(bytes.TrimSuffix(planned, []byte(`}`)), []byte(`,"phase":"planned"}`)...)
+	if err := jsonv2.Unmarshal(legacy, &restored); err == nil {
+		t.Fatalf("accepted legacy phase: %s", legacy)
 	}
 }
 
@@ -355,14 +388,17 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 				effects[index] = effect
 				record := preparedEffect{
 					ID:     wire.ProcessID.effectID(wire.CommittedSteps+1, index),
-					Effect: effect, Phase: item.phase,
+					Effect: effect,
+				}
+				if item.phase != effectPhasePlanned {
+					record.progress = &effectProgress{}
 				}
 				if item.settlement.Valid() {
 					settlement, settlementErr := NewSettlement(record.ID, item.settlement, json.RawMessage(`null`))
 					if settlementErr != nil {
 						t.Fatal(settlementErr)
 					}
-					record.Settlement = &settlement
+					record.progress.settlement = &settlement
 				}
 				wire.Prepared.Effects[index] = record
 			}
@@ -460,7 +496,7 @@ func preparedEngineTestSnapshot(t testing.TB) ProcessSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.Prepared.Effects[0].Phase = effectPhasePlanned
+	wire.Prepared.Effects[0].progress = nil
 	snapshot, err = newProcessSnapshot(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -552,8 +588,8 @@ func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
 		if record.ID != wire.ProcessID.effectID(wire.CommittedSteps+1, index) {
 			t.Fatalf("decoded Effect %d identity = %s", index, record.ID)
 		}
-		if record.Settlement != nil && record.Settlement.EffectID() != record.ID {
-			t.Fatalf("decoded settlement %d identifies %s", index, record.Settlement.EffectID())
+		if record.settlement() != nil && record.settlement().EffectID() != record.ID {
+			t.Fatalf("decoded settlement %d identifies %s", index, record.settlement().EffectID())
 		}
 	}
 	var fields map[string]json.RawMessage

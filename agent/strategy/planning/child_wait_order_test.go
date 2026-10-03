@@ -44,7 +44,7 @@ func (f fixtureGatedExecution) Step(ctx context.Context, signals []agent.Signal)
 	if err := jsonv2.Unmarshal(s.Payload(), &state); err != nil {
 		return agent.Transition{}, err
 	}
-	if state.Phase == "child" && state.Child != nil && state.Child.ProcessID == "" {
+	if state.Child != nil && state.Child.ProcessID == "" {
 		select {
 		case <-f.gate:
 		case <-ctx.Done():

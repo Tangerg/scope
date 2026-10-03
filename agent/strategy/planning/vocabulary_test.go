@@ -127,21 +127,18 @@ func TestNewGoalRequiresAtLeastOneCondition(t *testing.T) {
 	}
 }
 
-func TestEmptyPlanMustHaveZeroCost(t *testing.T) {
-	empty, err := planning.NewPlan(nil, 0)
+func TestEmptyPlanRepresentsAnEmptyActionSequence(t *testing.T) {
+	empty, err := planning.NewPlan(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if empty.TotalCost() != 0 || len(empty.Actions()) != 0 {
+	if len(empty.Actions()) != 0 {
 		t.Fatalf("empty plan = %#v", empty)
 	}
 	if !empty.Valid() {
-		t.Fatal("an empty zero-cost plan reported itself invalid")
+		t.Fatal("an empty plan reported itself invalid")
 	}
 
-	if _, err := planning.NewPlan(nil, 1); !errors.Is(err, planning.ErrInvalidPlan) {
-		t.Fatalf("NewPlan error = %v, want ErrInvalidPlan", err)
-	}
 }
 
 func TestTruthIsAClosedVocabulary(t *testing.T) {

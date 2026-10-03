@@ -177,8 +177,8 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 		process.currentWaitID = WaitID{}
 		process.counters.PreparedEffects = 2
 		process.prepared = &preparedStep{Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
-			{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePlanned},
-			{ID: process.handle.processID.effectID(1, 1), Effect: effect, Phase: effectPhasePlanned},
+			{ID: process.handle.processID.effectID(1, 0), Effect: effect},
+			{ID: process.handle.processID.effectID(1, 1), Effect: effect},
 		}}
 		if _, err := process.snapshotAdmissionSize(runtime.treeLimits); err != nil {
 			t.Fatalf("individual process exceeds capacity: %v", err)
@@ -233,7 +233,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		Key: controlValue(ParseChildKey("large-child")), DeploymentRef: deployment.DeploymentRef(),
 		Input: controlValue(EncodePayload(engineTestInput{Value: strings.Repeat("x", 22<<14)})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
 	}
-	root.prepared.Effects = preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}}
+	root.prepared.Effects = preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), progress: &effectProgress{}}}
 	root.counters.PreparedEffects = 1
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("parent and existing tree must fit before initialization: %v", err)
@@ -261,7 +261,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
-	if runtime.members.childAllocation(root.handle.processID) != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+	if runtime.members.childAllocation(root.handle.processID) != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
 		t.Fatal("rejection retained child resources or lost the failed start fact")
 	}
 	assertNoPendingProcessStarts(t, runtime.engine)
@@ -287,7 +287,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			root.prepared = &preparedStep{
 				CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)),
-				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), Phase: effectPhasePending}},
+				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), progress: &effectProgress{}}},
 			}
 			root.counters.PreparedEffects = 1
 			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment().DeploymentRef(), Digest{}); err != nil {
@@ -326,7 +326,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if wantFault := mode == "commit_failed" || mode == "capture_failed"; (runtime.fault != nil) != wantFault {
 				t.Fatalf("runtime fault = %v, want failure %t", runtime.fault, wantFault)
 			}
-			if root.prepared.Effects[0].Settlement.Status() != SettlementStatusFailed {
+			if root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
 				t.Fatal("rejection lost its failed settlement")
 			}
 		})

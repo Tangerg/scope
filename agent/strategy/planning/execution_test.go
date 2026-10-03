@@ -213,11 +213,11 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 		action := mustAction(t, planning.ActionConfig{
 			Name: "action.finish", Description: "Finish the work.", Effects: []planning.Condition{done},
 		})
-		planned, err := planning.NewPlannedAction(action.Name())
+		planned, err := planning.NewPlannedAction("action.unbound")
 		if err != nil {
 			t.Fatal(err)
 		}
-		invalidCost, err := planning.NewPlan([]planning.PlannedAction{planned}, 99)
+		invalidPlan, err := planning.NewPlan([]planning.PlannedAction{planned})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +227,7 @@ func TestManagedPlanningClassifiesObservationAndPlannerFailures(t *testing.T) {
 			sensor:    world,
 			executors: map[string]planning.ActionExecutor{"action.finish": world.apply(action)},
 			planner: planning.PlannerFunc(func(context.Context, planning.Problem) (planning.Plan, bool, error) {
-				return invalidCost, true, nil
+				return invalidPlan, true, nil
 			}),
 		})
 		result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)

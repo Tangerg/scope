@@ -72,7 +72,7 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			processWire := wireValues["process_snapshots"].([]any)[0].(map[string]any)
 			prepared := processWire["prepared"].(map[string]any)
 			record := prepared["effects"].([]any)[0].(map[string]any)
-			record["phase"] = "planned"
+			delete(record, "progress")
 			if omitRequired {
 				processWire["capabilities"] = []any{}
 				delete(record["effect"].(map[string]any), "required_capabilities")

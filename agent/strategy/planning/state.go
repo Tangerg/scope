@@ -24,8 +24,7 @@ const (
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction,
-		phaseChild, phaseCompleted:
+	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction, phaseCompleted:
 		return true
 	default:
 		return false
@@ -39,6 +38,13 @@ type executionState struct {
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
 	Child             *childcall.Single `json:"child,omitzero"`
+}
+
+func (e executionState) phase() phase {
+	if e.Phase == phaseAwaitingAction && e.Child != nil {
+		return phaseChild
+	}
+	return e.Phase
 }
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
@@ -129,8 +135,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
-	if e.Phase == phaseAwaitingAction && binding.target != bindingTargetDispatcher ||
-		e.Phase == phaseChild && binding.target != bindingTargetChild {
+	if e.Phase == phaseAwaitingAction && (e.Child != nil) != (binding.target == bindingTargetChild) {
 		return fmt.Errorf("%w: current Action does not match the execution phase", ErrInvalidExecutionState)
 	}
 	return nil
@@ -150,7 +155,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 }
 
 func (e executionState) validatePhase() error {
-	if (e.Child != nil) != (e.Phase == phaseChild) {
+	if e.Child != nil && e.Phase != phaseAwaitingAction {
 		return fmt.Errorf("%w: child state disagrees with execution phase", ErrInvalidExecutionState)
 	}
 	hasAction := e.CurrentActionName != ""
@@ -159,7 +164,7 @@ func (e executionState) validatePhase() error {
 		if hasAction {
 			return fmt.Errorf("%w: phase %q cannot have a current Action", ErrInvalidExecutionState, e.Phase)
 		}
-	case phaseAwaitingAction, phaseChild:
+	case phaseAwaitingAction:
 		if !hasAction {
 			return fmt.Errorf("%w: phase %q requires a current Action", ErrInvalidExecutionState, e.Phase)
 		}

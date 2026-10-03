@@ -187,20 +187,23 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, err := planning.NewPlan([]planning.PlannedAction{planned}, 2)
+	valid, err := planning.NewPlan([]planning.PlannedAction{planned})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := problem.ValidatePlan(t.Context(), valid); err != nil {
-		t.Fatal(err)
+	if cost, evaluationErr := problem.EvaluatePlan(t.Context(), valid); evaluationErr != nil || cost != 2 {
+		t.Fatalf("evaluated cost = %v, error = %v", cost, evaluationErr)
 	}
-	wrongCost, _ := planning.NewPlan([]planning.PlannedAction{planned}, 3)
-	if err := problem.ValidatePlan(t.Context(), wrongCost); !errors.Is(err, planning.ErrInvalidPlan) {
-		t.Fatalf("wrong-cost error = %v", err)
+	if data := mustJSON(t, valid); string(data) != `{"actions":["action.finish"]}` {
+		t.Fatalf("Plan repeats predictive metadata: %s", data)
+	}
+	var retired planning.Plan
+	if decodeErr := jsonv2.Unmarshal([]byte(`{"actions":["action.finish"],"total_cost":2}`), &retired); !errors.Is(decodeErr, planning.ErrInvalidPlan) {
+		t.Fatalf("retired cost owner accepted: %v", decodeErr)
 	}
 	unknown, _ := planning.NewPlannedAction("action.unknown")
-	unknownPlan, _ := planning.NewPlan([]planning.PlannedAction{unknown}, 2)
-	if err := problem.ValidatePlan(t.Context(), unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
+	unknownPlan, _ := planning.NewPlan([]planning.PlannedAction{unknown})
+	if _, err := problem.EvaluatePlan(t.Context(), unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
 		t.Fatalf("unknown-Action error = %v", err)
 	}
 }
@@ -299,7 +302,7 @@ func TestAttemptAndOutputValidationShareResultClassification(t *testing.T) {
 	}
 }
 
-func TestValidatePlanStopsAfterCanceledCost(t *testing.T) {
+func TestEvaluatePlanStopsAfterCanceledCost(t *testing.T) {
 	for _, count := range []int{1, 2} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -320,11 +323,11 @@ func TestValidatePlanStopsAfterCanceledCost(t *testing.T) {
 			for i := range actions {
 				actions[i] = planned
 			}
-			plan, err := planning.NewPlan(actions, float64(count))
+			plan, err := planning.NewPlan(actions)
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = problem.ValidatePlan(ctx, plan)
+			_, err = problem.EvaluatePlan(ctx, plan)
 			if !errors.Is(err, context.Canceled) || calls != 1 {
 				t.Fatalf("error=%v calls=%d", err, calls)
 			}

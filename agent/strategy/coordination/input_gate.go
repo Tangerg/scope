@@ -103,6 +103,13 @@ type inputGateState struct {
 	WaitID  *agent.WaitID `json:"wait_id,omitzero"`
 }
 
+func (i inputGateState) phase() gatePhase {
+	if i.Phase == gateAwaitingOpen && i.WaitID != nil {
+		return gateWaiting
+	}
+	return i.Phase
+}
+
 func (i inputGateState) validate(ctx context.Context, definition *InputGate) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -110,12 +117,16 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 	if err := definition.descriptor.ValidateInput(i.Request); err != nil {
 		return fmt.Errorf("%w: opening request: %w", ErrInvalidExecutionState, err)
 	}
+	if i.WaitID != nil && !i.WaitID.Valid() {
+		return fmt.Errorf("%w: invalid gate wait", ErrInvalidExecutionState)
+	}
 	switch i.Phase {
-	case gateReady, gateAwaitingOpen:
+	case gateReady:
 		if i.WaitID != nil {
 			return fmt.Errorf("%w: unopened gate retains a wait", ErrInvalidExecutionState)
 		}
-	case gateWaiting, gateCompleted:
+	case gateAwaitingOpen:
+	case gateCompleted:
 		// A completed gate's answer is the Engine-owned Output, never repeated here.
 		if i.WaitID == nil {
 			return fmt.Errorf("%w: opened gate requires a WaitID", ErrInvalidExecutionState)
@@ -152,7 +163,7 @@ func (i *inputGateExecution) Step(ctx context.Context, signals []agent.Signal) (
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch i.state.Phase {
+	switch i.state.phase() {
 	case gateReady:
 		return i.open(signals)
 	case gateAwaitingOpen:
@@ -189,7 +200,6 @@ func (i *inputGateExecution) acceptOpening(signals []agent.Signal) (agent.Transi
 		return agent.Transition{}, fmt.Errorf("%w: input gate opening disagrees with its request", ErrInvalidProtocol)
 	}
 	i.state.WaitID = &waitID
-	i.state.Phase = gateWaiting
 	return agent.Wait(1, waitID)
 }
 

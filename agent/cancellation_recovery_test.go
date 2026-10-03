@@ -48,7 +48,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if wire.Prepared == nil || wire.Prepared.Effects[0].Phase != effectPhasePlanned || wire.Prepared.Effects[0].Settlement != nil {
+		if wire.Prepared == nil || wire.Prepared.Effects[0].phase() != effectPhasePlanned || wire.Prepared.Effects[0].settlement() != nil {
 			t.Errorf("unused dispatch evidence = %+v", wire.Prepared)
 		}
 		boundaries := committer.effectBoundaries()
@@ -95,7 +95,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if wire.PendingControl.KillReason == "" || wire.Prepared == nil || wire.Prepared.Effects[0].Phase != effectPhasePending {
+		if wire.PendingControl.KillReason == "" || wire.Prepared == nil || wire.Prepared.Effects[0].phase() != effectPhasePending {
 			t.Fatalf("missing pending cancellation boundary: %+v", wire)
 		}
 		release()

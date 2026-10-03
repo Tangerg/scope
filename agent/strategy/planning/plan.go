@@ -3,7 +3,6 @@ package planning
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"math"
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -50,40 +49,28 @@ func (p *PlannedAction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Plan is an immutable ordered Action sequence and its predicted total cost.
-// An empty Plan with zero cost is valid and represents an already-satisfied
+// Plan is an immutable ordered Action sequence. Cost belongs to the Actions
+// evaluated by Problem, never to the Planner's answer.
+// An empty Plan is valid and represents an already-satisfied
 // Goal; Planner's separate found result distinguishes it from no solution.
 type Plan struct {
-	actions   []PlannedAction
-	totalCost float64
+	actions []PlannedAction
 }
 
-func NewPlan(actions []PlannedAction, totalCost float64) (Plan, error) {
-	if math.IsNaN(totalCost) || math.IsInf(totalCost, 0) || totalCost < 0 {
-		return Plan{}, fmt.Errorf("%w: invalid total cost %v", ErrInvalidPlan, totalCost)
-	}
+func NewPlan(actions []PlannedAction) (Plan, error) {
 	values := slices.Clone(actions)
 	for index, action := range values {
 		if !action.Valid() {
 			return Plan{}, fmt.Errorf("%w: Action %d", ErrInvalidPlan, index)
 		}
 	}
-	if len(values) == 0 && totalCost != 0 {
-		return Plan{}, fmt.Errorf("%w: empty Plan must have zero cost", ErrInvalidPlan)
-	}
-	return Plan{actions: values, totalCost: totalCost}, nil
+	return Plan{actions: values}, nil
 }
 
 // Actions returns independently owned Action references in execution order.
 func (p Plan) Actions() []PlannedAction { return slices.Clone(p.actions) }
 
-func (p Plan) TotalCost() float64 { return p.totalCost }
-
 func (p Plan) Valid() bool {
-	if math.IsNaN(p.totalCost) || math.IsInf(p.totalCost, 0) || p.totalCost < 0 ||
-		len(p.actions) == 0 && p.totalCost != 0 {
-		return false
-	}
 	for _, action := range p.actions {
 		if !action.Valid() {
 			return false
@@ -100,18 +87,18 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 	if actions == nil {
 		actions = []PlannedAction{}
 	}
-	return jsonv2.Marshal(planWire{Actions: actions, TotalCost: p.totalCost})
+	return jsonv2.Marshal(planWire{Actions: actions})
 }
 
 func (p *Plan) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidPlan)
 	}
-	wire, err := jsonwire.Decode[planWire](data)
+	wire, err := jsonwire.Decode[planWire](data, "actions")
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidPlan, err)
 	}
-	value, err := NewPlan(wire.Actions, wire.TotalCost)
+	value, err := NewPlan(wire.Actions)
 	if err != nil {
 		return err
 	}
@@ -120,6 +107,5 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 }
 
 type planWire struct {
-	Actions   []PlannedAction `json:"actions"`
-	TotalCost float64         `json:"total_cost"`
+	Actions []PlannedAction `json:"actions"`
 }

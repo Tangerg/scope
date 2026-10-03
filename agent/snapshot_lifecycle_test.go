@@ -301,7 +301,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			if err := record.settle(unknown, errors.New("connection lost")); err != nil {
 				t.Fatal(err)
 			}
-			diagnostic := *record.Diagnostic
+			diagnostic := *record.diagnostic()
 			message := strings.Repeat("<", MaxDiagnosticBytes)
 			process.recordFailure(FailureKindExecution, strings.Repeat("x", maxQualifiedNameBytes), errors.New(message))
 			runtime.terminatePreparedProcess(process)
@@ -449,7 +449,7 @@ func TestDispatchPermissionRequiresUncertainOutcomeCapacity(t *testing.T) {
 					t.Fatal("rejected permission dispatched or invented uncertain execution")
 				}
 				snapshot := inspectProcessSnapshot(t, process)
-				if snapshot.state.Prepared == nil || snapshot.state.Prepared.Effects[0].Phase != effectPhasePlanned {
+				if snapshot.state.Prepared == nil || snapshot.state.Prepared.Effects[0].phase() != effectPhasePlanned {
 					t.Fatal("rejected permission changed the planned Effect evidence")
 				}
 			})

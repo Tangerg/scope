@@ -68,10 +68,10 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 		}
 		for index, effect := range wire.Prepared.Effects {
 			if index < 2 {
-				if !effect.definitelySettled() || string(effect.Settlement.Payload()) != `{"done":true}` {
+				if !effect.definitelySettled() || string(effect.settlement().Payload()) != `{"done":true}` {
 					t.Errorf("settled prefix[%d] = %+v", index, effect)
 				}
-			} else if effect.Phase != effectPhasePlanned || effect.Settlement != nil {
+			} else if effect.phase() != effectPhasePlanned || effect.settlement() != nil {
 				t.Errorf("unstarted tail[%d] = %+v", index, effect)
 			}
 		}

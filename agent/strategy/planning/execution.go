@@ -27,7 +27,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.Phase {
+	switch e.state.phase() {
 	case phaseReadySense:
 		if len(signals) != 0 {
 			return agent.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
@@ -100,7 +100,7 @@ func (e *execution) decide(ctx context.Context, consumedSignals uint32) (agent.T
 	if !found {
 		return e.complete(ctx, consumedSignals)
 	}
-	if err := problem.ValidatePlan(ctx, plan); err != nil {
+	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
 		return e.failPlanning(consumedSignals, agent.FailureKindContract, failureCodePlanningPlannerContract, err)
 	}
 	binding, found := e.definition.binding(plan.actions[0].name)
@@ -167,7 +167,7 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 	}
 	e.state.CurrentActionName = binding.action.name
 	e.state.Child = &childcall.Single{}
-	e.state.Phase = phaseChild
+	e.state.Phase = phaseAwaitingAction
 	return agent.Continue(consumedSignals, effect)
 }
 

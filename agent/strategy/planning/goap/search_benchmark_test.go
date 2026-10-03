@@ -18,8 +18,8 @@ func BenchmarkPlannerChain(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				plan, found, err := planner.Plan(b.Context(), problem)
-				if err != nil || !found || len(plan.Actions()) != count || plan.TotalCost() != float64(count) {
-					b.Fatalf("invalid chain result: found=%t cost=%v err=%v", found, plan.TotalCost(), err)
+				if err != nil || !found || len(plan.Actions()) != count {
+					b.Fatalf("invalid chain result: found=%t err=%v", found, err)
 				}
 			}
 		})

@@ -50,51 +50,47 @@ func (p Problem) Action(name string) (Action, bool) {
 
 func (p Problem) Valid() bool { return p.goal.Valid() }
 
-// ValidatePlan verifies that every referenced Action exists and is applicable
-// in sequence, the reported cost equals the evaluated path cost, and the
+// EvaluatePlan returns the cost of an applicable Action sequence whose
 // predicted final state satisfies the Goal. Cancellation is checked between
 // actions and after each bounded Cost callback.
-func (p Problem) ValidatePlan(ctx context.Context, plan Plan) error {
+func (p Problem) EvaluatePlan(ctx context.Context, plan Plan) (float64, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	if !p.Valid() || !plan.Valid() {
-		return ErrInvalidPlan
+		return 0, ErrInvalidPlan
 	}
 	state := p.initial
 	totalCost := 0.0
 	for index, planned := range plan.actions {
 		if cancelErr := ctx.Err(); cancelErr != nil {
-			return cancelErr
+			return 0, cancelErr
 		}
 		action, found := p.Action(planned.name)
 		if !found {
-			return fmt.Errorf("%w: Action %d references unknown %q", ErrInvalidPlan, index, planned.name)
+			return 0, fmt.Errorf("%w: Action %d references unknown %q", ErrInvalidPlan, index, planned.name)
 		}
 		if !action.Applicable(state) {
-			return fmt.Errorf("%w: Action %q is not applicable at step %d", ErrInvalidPlan, planned.name, index)
+			return 0, fmt.Errorf("%w: Action %q is not applicable at step %d", ErrInvalidPlan, planned.name, index)
 		}
 		cost, err := action.Cost(state)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if cancelErr := ctx.Err(); cancelErr != nil {
-			return cancelErr
+			return 0, cancelErr
 		}
 		totalCost += cost
 		if math.IsInf(totalCost, 0) {
-			return fmt.Errorf("%w: total cost overflow", ErrInvalidPlan)
+			return 0, fmt.Errorf("%w: total cost overflow", ErrInvalidPlan)
 		}
 		state, err = action.Apply(state)
 		if err != nil {
-			return fmt.Errorf("%w: apply Action %q: %w", ErrInvalidPlan, planned.name, err)
+			return 0, fmt.Errorf("%w: apply Action %q: %w", ErrInvalidPlan, planned.name, err)
 		}
 	}
-	if totalCost != plan.totalCost {
-		return fmt.Errorf("%w: total cost %v does not equal evaluated cost %v", ErrInvalidPlan, plan.totalCost, totalCost)
-	}
 	if !p.goal.SatisfiedBy(state) {
-		return fmt.Errorf("%w: predicted final state does not satisfy Goal %q", ErrInvalidPlan, p.goal.name)
+		return 0, fmt.Errorf("%w: predicted final state does not satisfy Goal %q", ErrInvalidPlan, p.goal.name)
 	}
-	return nil
+	return totalCost, nil
 }

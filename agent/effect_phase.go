@@ -35,69 +35,124 @@ func (e effectPhase) String() string {
 	return string(e)
 }
 
-// preparedEffect's identity follows from its Process, Step sequence, and batch
-// position, and a wait's settlement follows from its request. Memory keeps
-// both on the record; the wire omits them, decoding derives the settlement,
-// and bindIDs restores the identities.
+// EffectID follows from the enclosing Process, Step sequence, and batch position.
+// Progress exists once dispatch is permitted; its settlement owns completion.
+// Local wait results follow from the request and are reconstructed on decoding.
 type preparedEffect struct {
-	ID         EffectID
-	Effect     Effect
-	Phase      effectPhase
-	Settlement *Settlement
-	Diagnostic *Failure
+	ID       EffectID
+	Effect   Effect
+	progress *effectProgress
+}
+
+type effectProgress struct {
+	settlement *Settlement
+	diagnostic *Failure
+}
+
+func (e *effectProgress) clone() *effectProgress {
+	if e == nil {
+		return nil
+	}
+	clone := *e
+	if e.settlement != nil {
+		settlement := *e.settlement
+		clone.settlement = &settlement
+	}
+	if e.diagnostic != nil {
+		diagnostic := *e.diagnostic
+		clone.diagnostic = &diagnostic
+	}
+	return &clone
+}
+
+func (p preparedEffect) phase() effectPhase {
+	if p.progress == nil {
+		return effectPhasePlanned
+	}
+	if p.progress.settlement == nil {
+		return effectPhasePending
+	}
+	return effectPhaseSettled
+}
+
+func (p preparedEffect) settlement() *Settlement {
+	if p.progress == nil {
+		return nil
+	}
+	return p.progress.settlement
+}
+
+func (p preparedEffect) diagnostic() *Failure {
+	if p.progress == nil {
+		return nil
+	}
+	return p.progress.diagnostic
 }
 
 type preparedEffectWire struct {
-	Effect     Effect                  `json:"effect"`
-	Phase      effectPhase             `json:"phase"`
+	Effect   Effect              `json:"effect"`
+	Progress *effectProgressWire `json:"progress,omitzero"`
+}
+
+type effectProgressWire struct {
 	Settlement *preparedSettlementWire `json:"settlement,omitzero"`
 	Diagnostic *Failure                `json:"diagnostic,omitzero"`
 }
 
 type preparedSettlementWire struct {
-	Status  SettlementStatus `json:"status"`
-	Payload json.RawMessage  `json:"payload"`
+	Status  SettlementStatus `json:"status,omitzero"`
+	Payload json.RawMessage  `json:"payload,omitzero"`
 }
 
 func (p preparedEffect) MarshalJSON() ([]byte, error) {
-	wire := preparedEffectWire{Effect: p.Effect, Phase: p.Phase, Diagnostic: p.Diagnostic}
+	wire := preparedEffectWire{Effect: p.Effect}
 	_, local, err := p.localOutcome()
 	if err != nil {
 		return nil, err
 	}
-	if p.Settlement != nil && !local {
-		wire.Settlement = &preparedSettlementWire{Status: p.Settlement.status, Payload: p.Settlement.payload}
+	if p.progress != nil {
+		wire.Progress = &effectProgressWire{Diagnostic: p.diagnostic()}
+		if settlement := p.settlement(); settlement != nil {
+			wire.Progress.Settlement = &preparedSettlementWire{}
+			if !local {
+				wire.Progress.Settlement.Status = settlement.status
+				wire.Progress.Settlement.Payload = settlement.payload
+			}
+		}
 	}
 	return jsonv2.Marshal(wire)
 }
 
 // UnmarshalJSON leaves the record unbound until bindIDs supplies its identity.
 func (p *preparedEffect) UnmarshalJSON(data []byte) error {
-	wire, err := jsonwire.Decode[preparedEffectWire](data, "effect", "phase")
+	wire, err := jsonwire.Decode[preparedEffectWire](data, "effect")
 	if err != nil {
 		return err
 	}
-	record := preparedEffect{Effect: wire.Effect, Phase: wire.Phase, Diagnostic: wire.Diagnostic}
+	record := preparedEffect{Effect: wire.Effect}
 	outcome, local, err := record.localOutcome()
 	if err != nil {
 		return err
 	}
-	if local {
-		if wire.Settlement != nil {
-			return errors.New("prepared Effect stores the settlement its request determines")
+	if wire.Progress != nil {
+		record.progress = &effectProgress{diagnostic: wire.Progress.Diagnostic}
+		if settlement := wire.Progress.Settlement; settlement != nil {
+			if local {
+				if settlement.Status != SettlementStatusInvalid || settlement.Payload != nil {
+					return errors.New("prepared Effect stores the settlement its request determines")
+				}
+				record.progress.settlement = &Settlement{status: SettlementStatusSucceeded, payload: outcome}
+			} else {
+				if !settlement.Status.Valid() {
+					return fmt.Errorf("%w: status is required", ErrInvalidSettlement)
+				}
+				payload, err := normalizeJSON(settlement.Payload, MaxPayloadBytes)
+				if err != nil {
+					return fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
+				}
+				record.progress.settlement = &Settlement{status: settlement.Status, payload: payload}
+			}
 		}
-		if record.Phase == effectPhaseSettled {
-			record.Settlement = &Settlement{status: SettlementStatusSucceeded, payload: outcome}
-		}
-	} else if wire.Settlement != nil {
-		if !wire.Settlement.Status.Valid() {
-			return fmt.Errorf("%w: status is required", ErrInvalidSettlement)
-		}
-		payload, err := normalizeJSON(wire.Settlement.Payload, MaxPayloadBytes)
-		if err != nil {
-			return fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
-		}
-		record.Settlement = &Settlement{status: wire.Settlement.Status, payload: payload}
 	}
 	*p = record
 	return nil
@@ -122,8 +177,8 @@ func (p preparedEffects) bindIDs(processID ProcessID, sequence uint64) {
 	for index := range p {
 		id := processID.effectID(sequence, index)
 		p[index].ID = id
-		if p[index].Settlement != nil {
-			p[index].Settlement.effectID = id
+		if p[index].settlement() != nil {
+			p[index].settlement().effectID = id
 		}
 	}
 }
@@ -135,7 +190,7 @@ func (p preparedEffects) next() (int, error) {
 			return 0, err
 		}
 		if found {
-			if record.Phase != effectPhasePlanned {
+			if record.phase() != effectPhasePlanned {
 				return 0, errors.New("started Effect follows an incomplete Effect")
 			}
 			continue
@@ -148,29 +203,20 @@ func (p preparedEffects) next() (int, error) {
 }
 
 func (p *preparedEffect) validatePhase() error {
-	if p.Diagnostic != nil && (!p.Diagnostic.Valid() || p.Phase != effectPhaseSettled) {
+	if diagnostic := p.diagnostic(); diagnostic != nil && (!diagnostic.Valid() || p.settlement() == nil) {
 		return errors.New("invalid effect diagnostic")
 	}
-	if !p.Phase.valid() {
-		return errors.New("prepared Effect phase is invalid")
-	}
-	if (p.Phase == effectPhaseSettled) != (p.Settlement != nil) {
-		return errors.New("prepared Effect settlement presence disagrees with phase")
-	}
-	if p.Settlement == nil {
-		return nil
-	}
-	if !p.Settlement.Valid() {
+	if settlement := p.settlement(); settlement != nil && !settlement.Valid() {
 		return errors.New("prepared Effect settlement is invalid")
 	}
 	return nil
 }
 
 func (p *preparedEffect) begin() error {
-	if p == nil || p.Phase != effectPhasePlanned || p.Settlement != nil {
+	if p == nil || p.phase() != effectPhasePlanned {
 		return errors.New("effect is not planned")
 	}
-	p.Phase = effectPhasePending
+	p.progress = &effectProgress{}
 	return nil
 }
 
@@ -179,16 +225,17 @@ func (p *preparedEffect) begin() error {
 // its bounded refusal, and uncertain dispatch must retain its diagnostic.
 // The return value accounts for reserved text omitted from the compact projection.
 func (p preparedEffect) snapshotReservation() (preparedEffect, uint64, error) {
-	if p.Settlement != nil {
+	p.progress = p.progress.clone()
+	if p.settlement() != nil {
 		return p, 0, nil
 	}
 	failure := snapshotReservationFailure()
 	if p.Effect.Target() == EffectTargetDispatcher {
-		if p.Phase == effectPhasePending {
+		if p.phase() == effectPhasePending {
 			if err := p.settleUnknown(); err != nil {
 				return p, 0, err
 			}
-			p.Diagnostic = &failure
+			p.progress.diagnostic = &failure
 			return p, snapshotFailureGrowth, nil
 		}
 		return p, 0, nil
@@ -205,19 +252,16 @@ func (p preparedEffect) snapshotReservation() (preparedEffect, uint64, error) {
 // owning incarnation can revoke an unused permission; recovery cannot prove it
 // was unused and must retain an uncertain outcome instead.
 func (p *preparedEffect) revokeDispatch() error {
-	if p == nil || p.Phase != effectPhasePending || p.Settlement != nil {
+	if p == nil || p.phase() != effectPhasePending {
 		return errors.New("only a pending dispatch permission can be revoked")
 	}
-	p.Phase = effectPhasePlanned
+	p.progress = nil
 	return nil
 }
 
 func (p *preparedEffect) settle(settlement Settlement, cause error) error {
-	if p == nil || p.Phase != effectPhasePending {
+	if p == nil || p.phase() != effectPhasePending {
 		return errors.New("effect is not pending")
-	}
-	if p.Settlement != nil {
-		return errors.New("pending Effect already has a settlement")
 	}
 	if !settlement.Valid() {
 		return errors.New("incoming settlement is invalid")
@@ -225,11 +269,10 @@ func (p *preparedEffect) settle(settlement Settlement, cause error) error {
 	if settlement.EffectID() != p.ID {
 		return errors.New("incoming settlement identifies another Effect")
 	}
-	p.Phase = effectPhaseSettled
-	p.Settlement = &settlement
+	p.progress.settlement = &settlement
 	if cause != nil {
 		diagnostic := dispatchFailure(cause)
-		p.Diagnostic = &diagnostic
+		p.progress.diagnostic = &diagnostic
 	}
 	return nil
 }
@@ -260,10 +303,10 @@ func (p *preparedEffect) settleChildControl(result ChildControlResult) error {
 }
 
 func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
-	if p == nil || p.Phase != effectPhaseSettled || p.Settlement == nil {
+	if p == nil || p.settlement() == nil {
 		return errors.New("effect has no settled outcome")
 	}
-	if p.Settlement.Status() != SettlementStatusUnknown {
+	if p.settlement().Status() != SettlementStatusUnknown {
 		return errors.New("effect outcome is already definite")
 	}
 	if !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
@@ -272,18 +315,18 @@ func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
 	if settlement.EffectID() != p.ID {
 		return errors.New("resolution identifies another Effect")
 	}
-	p.Settlement = &settlement
+	p.progress.settlement = &settlement
 	return nil
 }
 
 func (p *preparedEffect) unknown() bool {
-	return p.Phase == effectPhaseSettled && p.Settlement != nil &&
-		p.Settlement.Status() == SettlementStatusUnknown
+	return p.settlement() != nil &&
+		p.settlement().Status() == SettlementStatusUnknown
 }
 
 func (p *preparedEffect) definitelySettled() bool {
-	return p.Phase == effectPhaseSettled && p.Settlement != nil &&
-		p.Settlement.Status() != SettlementStatusUnknown
+	return p.settlement() != nil &&
+		p.settlement().Status() != SettlementStatusUnknown
 }
 
 func (p *preparedEffect) validateEffect() error {
@@ -353,5 +396,5 @@ func (p preparedEffect) localOutcome() (json.RawMessage, bool, error) {
 // settlementSignal delivers the settled outcome to the Execution. Only a wait
 // opening addresses the wait its Effect identity derives.
 func (p *preparedEffect) settlementSignal(waitID WaitID) (Signal, error) {
-	return NewSignal(p.ID.settlementSignalID(), waitID, p.Settlement.Payload())
+	return NewSignal(p.ID.settlementSignalID(), waitID, p.settlement().Payload())
 }

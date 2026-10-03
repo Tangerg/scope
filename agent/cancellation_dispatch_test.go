@@ -89,8 +89,8 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 						t.Fatalf("interrupted batch evidence = %+v", wire.Prepared)
 					}
 					settled, planned := wire.Prepared.Effects[0], wire.Prepared.Effects[1]
-					if settled.Phase != effectPhaseSettled || settled.Settlement.Status() != status ||
-						planned.Phase != effectPhasePlanned || planned.Settlement != nil {
+					if settled.phase() != effectPhaseSettled || settled.settlement().Status() != status ||
+						planned.phase() != effectPhasePlanned || planned.settlement() != nil {
 						t.Errorf("interrupted Effects = %+v", wire.Prepared.Effects)
 					}
 					state, err := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
@@ -98,8 +98,8 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 						wire.Mailbox.SignalCursor != 0 || wire.usage().AcceptedSignals != 0 || wire.usage().PreparedEffects != 2 {
 						t.Errorf("interrupted candidate changed committed facts: state=%+v usage=%+v cursor=%d error=%v", state, wire.usage(), wire.Mailbox.SignalCursor, err)
 					}
-					if status != SettlementStatusUnknown && string(settled.Settlement.Payload()) != `{"done":true}` {
-						t.Errorf("settlement payload = %s", settled.Settlement.Payload())
+					if status != SettlementStatusUnknown && string(settled.settlement().Payload()) != `{"done":true}` {
+						t.Errorf("settlement payload = %s", settled.settlement().Payload())
 					}
 					tree := interruptedTreeSnapshot(t, engine, process, config)
 					restoredEngine, err := NewEngine(config)
@@ -185,8 +185,7 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 	t.Helper()
 	for name, change := range map[string]func(*processSnapshotWire){
 		"pending terminal effect": func(wire *processSnapshotWire) {
-			wire.Prepared.Effects[0].Phase = effectPhasePending
-			wire.Prepared.Effects[0].Settlement = nil
+			wire.Prepared.Effects[0].progress = &effectProgress{}
 		},
 		"stored termination uncertainty": func(wire *processSnapshotWire) {
 			termination := wire.Termination.withUnresolvedEffectIDs(wire.Prepared.Effects.unknownEffectIDs())

@@ -130,7 +130,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	prepared := &preparedStep{Intent: transition}
 	for index, effect := range effects {
 		record := preparedEffect{
-			ID: parent.handle.processID.effectID(2, index), Effect: effect, Phase: effectPhasePending,
+			ID: parent.handle.processID.effectID(2, index), Effect: effect, progress: &effectProgress{},
 		}
 		if err := record.settleFramework(); err != nil {
 			t.Fatal(err)
@@ -162,7 +162,7 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("worker-result")), Children: []ProcessID{childID},
 		Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
 	record := preparedEffect{
-		ID: parent.handle.processID.effectID(2, 0), Effect: controlValue(NewChildWaitEffect(spec)), Phase: effectPhasePending,
+		ID: parent.handle.processID.effectID(2, 0), Effect: controlValue(NewChildWaitEffect(spec)), progress: &effectProgress{},
 	}
 	if err := record.settleFramework(); err != nil {
 		t.Fatal(err)

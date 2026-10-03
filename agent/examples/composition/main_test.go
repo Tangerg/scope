@@ -94,7 +94,7 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 		`{"phase":"unknown","prompt":"x"}`,
 		`{"phase":"ready","prompt":"x","child_ids":["child"]}`,
 		`{"phase":"waiting_children","prompt":"x"}`,
-		`{"phase":"awaiting_child_wait_open","prompt":"x","child_ids":["same","same"]}`,
+		`{"phase":"awaiting_child_starts","prompt":"x","child_ids":["same","same"]}`,
 	} {
 		t.Run(payload, func(t *testing.T) {
 			state, err := agent.ParseExecutionState("example.composition", []byte(payload))
@@ -386,7 +386,7 @@ func childWaitSamples(t *testing.T, samples []agenttest.ExecutionConformanceCase
 		if err := jsonv2.Unmarshal(sample.State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		switch state.Phase {
+		switch state.phase() {
 		case compositionAwaitingChildWaitOpen:
 			opening = sample
 		case compositionWaitingChildren:

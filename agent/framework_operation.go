@@ -62,7 +62,7 @@ func (w waitOperation) validate(*preparedEffect) error { return nil }
 
 func (w waitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(w) }
 func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
-	if effect.Phase == effectPhasePlanned {
+	if effect.phase() == effectPhasePlanned {
 		if err := effect.begin(); err != nil {
 			return 0, err
 		}
@@ -94,7 +94,7 @@ func (c childWaitOperation) validate(*preparedEffect) error { return nil }
 func (c childWaitOperation) settle(effect *preparedEffect) error { return effect.settleLocally(c) }
 
 func (c childWaitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error) {
-	if effect.Phase == effectPhasePlanned {
+	if effect.phase() == effectPhasePlanned {
 		if err := effect.begin(); err != nil {
 			return 0, err
 		}
@@ -127,11 +127,11 @@ type childStartOperation struct{ spec ChildSpec }
 func (childStartOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
 
 func (c childStartOperation) validate(effect *preparedEffect) error {
-	if effect.Settlement == nil {
+	if effect.settlement() == nil {
 		return nil
 	}
 	spec := c.spec
-	result, err := decodeChildStartResult(effect.Settlement.Payload())
+	result, err := decodeChildStartResult(effect.settlement().Payload())
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (c childStartOperation) validate(effect *preparedEffect) error {
 	if id, started := result.ProcessID(); started && id != effect.ID.childProcessID() {
 		return ErrInvalidChildStart
 	}
-	if effect.Settlement.Status() != result.settlementStatus() {
+	if effect.settlement().Status() != result.settlementStatus() {
 		return ErrInvalidChildStart
 	}
 	return nil
@@ -152,7 +152,7 @@ func (c childStartOperation) settle(*preparedEffect) error {
 }
 
 func (c childStartOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
-	if effect.Phase != effectPhasePending {
+	if effect.phase() != effectPhasePending {
 		return 0, nil
 	}
 	return snapshotFailureGrowth, effect.settleChildStart(ChildStartResult{key: c.spec.Key, deploymentRef: c.spec.DeploymentRef, failure: failure})
@@ -170,7 +170,7 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	if !record.definitelySettled() {
 		return nil
 	}
-	result, err := decodeChildStartResult(record.Settlement.Payload())
+	result, err := decodeChildStartResult(record.settlement().Payload())
 	if err != nil {
 		return err
 	}
@@ -212,14 +212,14 @@ type childControlOperation struct{ request childControlEffectWire }
 func (childControlOperation) localOutcome() (json.RawMessage, bool, error) { return nil, false, nil }
 
 func (c childControlOperation) validate(effect *preparedEffect) error {
-	if effect.Settlement == nil {
+	if effect.settlement() == nil {
 		return nil
 	}
-	result, err := decodeChildControlResult(effect.Settlement.Payload())
+	result, err := decodeChildControlResult(effect.settlement().Payload())
 	if err != nil || !result.matches(c.request) {
 		return ErrInvalidChildControl
 	}
-	if effect.Settlement.Status() != result.settlementStatus() {
+	if effect.settlement().Status() != result.settlementStatus() {
 		return ErrInvalidChildControl
 	}
 	return nil
@@ -230,7 +230,7 @@ func (c childControlOperation) settle(*preparedEffect) error {
 }
 
 func (c childControlOperation) reserve(effect *preparedEffect, failure Failure) (uint64, error) {
-	if effect.Phase != effectPhasePending {
+	if effect.phase() != effectPhasePending {
 		return 0, nil
 	}
 	result := c.request.result()
@@ -250,7 +250,7 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 	if !record.definitelySettled() {
 		return nil
 	}
-	result, err := decodeChildControlResult(record.Settlement.Payload())
+	result, err := decodeChildControlResult(record.settlement().Payload())
 	if err != nil || result.failure.Valid() {
 		return err
 	}

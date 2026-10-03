@@ -49,8 +49,7 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		p.PauseReason = ""
 		p.CurrentWaitID = nil
 		p.FinishedAt = new(time.Date(9999, time.December, 31, 23, 59, 59, 999999999, time.UTC))
-		// The maximal failure object adds more bytes than other terminal statuses
-		// and causes can add, while its message also fills the termination reason.
+		// The maximal failure object is larger than a control cause and reason.
 		termination := failure.termination()
 		p.Termination = &termination
 	}
@@ -66,15 +65,15 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 }
 
 func materializeSnapshotSettlement(p *preparedEffect, failure Failure) error {
-	if p.Settlement != nil {
+	if p.settlement() != nil {
 		return nil
 	}
 	if p.Effect.Target() == EffectTargetDispatcher {
-		if p.Phase == effectPhasePending {
+		if p.phase() == effectPhasePending {
 			if err := p.settleUnknown(); err != nil {
 				return err
 			}
-			p.Diagnostic = &failure
+			p.progress.diagnostic = &failure
 		}
 		return nil
 	}
@@ -84,19 +83,19 @@ func materializeSnapshotSettlement(p *preparedEffect, failure Failure) error {
 	}
 	switch operation := operation.(type) {
 	case waitOperation, childWaitOperation:
-		if p.Phase == effectPhasePlanned {
+		if p.phase() == effectPhasePlanned {
 			if err := p.begin(); err != nil {
 				return err
 			}
 		}
 		return p.settleFramework()
 	case childStartOperation:
-		if p.Phase != effectPhasePending {
+		if p.phase() != effectPhasePending {
 			return nil
 		}
 		return p.settleChildStart(ChildStartResult{key: operation.spec.Key, deploymentRef: operation.spec.DeploymentRef, failure: failure})
 	case childControlOperation:
-		if p.Phase != effectPhasePending {
+		if p.phase() != effectPhasePending {
 			return nil
 		}
 		result := operation.request.result()
@@ -133,16 +132,19 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 					} else {
 						limits.MaxProcessSnapshotBytes = NewQuota(1 << 30)
 					}
-					record := preparedEffect{ID: root.handle.processID.effectID(1, 0), Effect: effect, Phase: phase}
+					record := preparedEffect{ID: root.handle.processID.effectID(1, 0), Effect: effect}
+					if phase != effectPhasePlanned {
+						record.progress = &effectProgress{}
+					}
 					if phase == effectPhaseSettled {
 						status := SettlementStatusSucceeded
 						if effect.Target() == EffectTargetDispatcher {
 							status = SettlementStatusUnknown
 						}
 						settlement := controlValue(NewSettlement(record.ID, status, payload))
-						record.Settlement = &settlement
+						record.progress.settlement = &settlement
 						diagnostic := controlValue(NewFailure(FailureKindExternal, "test.failure", "<actual diagnostic>"))
-						record.Diagnostic = &diagnostic
+						record.progress.diagnostic = &diagnostic
 					}
 					wire.Prepared = &preparedStep{CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)), Effects: preparedEffects{record}}
 					before := controlValue(jsonv2.Marshal(wire))
@@ -199,7 +201,7 @@ func TestArithmeticAdmissionReservesLargeUncertainBatch(t *testing.T) {
 	for index := range 3000 {
 		id := root.handle.processID.effectID(1, index)
 		settlement := controlValue(NewSettlement(id, SettlementStatusUnknown, json.RawMessage(`null`)))
-		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, Phase: effectPhaseSettled, Settlement: &settlement})
+		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: &settlement}})
 	}
 	if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
 		t.Fatalf("uncertain batch: %d != %d", got, want)

@@ -175,10 +175,10 @@ func (e EffectBoundary) matchesProspectiveTree() bool {
 		return false
 	}
 	if e.kind == EffectBoundaryKindPending {
-		return record.Phase == effectPhasePending && record.Settlement == nil
+		return record.phase() == effectPhasePending && record.settlement() == nil
 	}
-	return record.Phase == effectPhaseSettled && record.Settlement != nil &&
-		record.Settlement.equal(e.settlement)
+	return record.phase() == effectPhaseSettled && record.settlement() != nil &&
+		record.settlement().equal(e.settlement)
 }
 
 // TreeCheckpointKind distinguishes absent-head creation from writer-fenced

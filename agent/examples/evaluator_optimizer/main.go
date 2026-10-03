@@ -86,78 +86,63 @@ func (a attempt) validAt(revision uint32) bool {
 }
 
 type optimizationState struct {
-	Objective string    `json:"objective"`
-	History   []attempt `json:"history"`
-	Current   candidate `json:"current"`
-	Best      attempt   `json:"best"`
-	HasBest   bool      `json:"has_best"`
-	Accepted  bool      `json:"accepted"`
+	Objective string     `json:"objective"`
+	History   []attempt  `json:"history"`
+	Current   *candidate `json:"current,omitzero"`
 }
 
-func (o optimizationState) validatePending(threshold float64) error {
-	if err := o.validateHistory(threshold); err != nil {
+func (o optimizationState) validatePending() error {
+	if err := o.validateHistory(); err != nil {
 		return err
 	}
 	wantRevision := uint32(len(o.History) + 1)
-	if o.Current.Revision != wantRevision || strings.TrimSpace(o.Current.Content) == "" {
+	if o.Current == nil || o.Current.Revision != wantRevision || strings.TrimSpace(o.Current.Content) == "" {
 		return errors.New("optimizer did not produce the next complete revision")
 	}
 	return nil
 }
 
-func (o optimizationState) validateSettled(threshold float64) error {
-	if err := o.validateHistory(threshold); err != nil {
+func (o optimizationState) validateSettled() error {
+	if err := o.validateHistory(); err != nil {
 		return err
 	}
-	if len(o.History) == 0 {
-		if o.Current != (candidate{}) {
-			return errors.New("initial state contains a current candidate")
-		}
-		return nil
-	}
-	if o.Current != o.History[len(o.History)-1].Candidate {
-		return errors.New("current candidate is not the latest evaluated revision")
+	if o.Current != nil {
+		return errors.New("evaluated candidate must belong only to history")
 	}
 	return nil
 }
 
-func (o optimizationState) validateHistory(threshold float64) error {
+func (o optimizationState) validateHistory() error {
 	if strings.TrimSpace(o.Objective) == "" || o.Objective != strings.TrimSpace(o.Objective) {
 		return errors.New("optimization objective must be non-empty and trimmed")
 	}
 	if o.History == nil {
 		return errors.New("optimization history must be initialized")
 	}
-	if len(o.History) == 0 {
-		if o.HasBest || o.Best != (attempt{}) || o.Accepted {
-			return errors.New("empty history contains derived result state")
+	for index, recorded := range o.History {
+		if !recorded.validAt(uint32(index + 1)) {
+			return fmt.Errorf("attempt %d is invalid", index)
 		}
-		return nil
-	}
-	best, err := o.earliestBest()
-	if err != nil {
-		return err
-	}
-	if !o.HasBest || o.Best != best {
-		return errors.New("best attempt is not the earliest highest-scoring attempt")
-	}
-	if o.Accepted != (best.Assessment.Score >= threshold) {
-		return errors.New("acceptance state does not match the configured threshold")
 	}
 	return nil
 }
 
-func (o optimizationState) earliestBest() (attempt, error) {
+func (o optimizationState) earliestBest() (attempt, bool) {
+	if len(o.History) == 0 {
+		return attempt{}, false
+	}
 	best := o.History[0]
-	for index, recorded := range o.History {
-		if !recorded.validAt(uint32(index + 1)) {
-			return attempt{}, fmt.Errorf("attempt %d is invalid", index)
-		}
+	for _, recorded := range o.History[1:] {
 		if recorded.Assessment.Score > best.Assessment.Score {
 			best = recorded
 		}
 	}
-	return best, nil
+	return best, true
+}
+
+func (o optimizationState) accepted(threshold float64) bool {
+	best, present := o.earliestBest()
+	return present && best.Assessment.Score >= threshold
 }
 
 type optimizationReport struct {
@@ -232,7 +217,7 @@ func newEvaluatorOptimizer(
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	optimizer, err := newOptimizerDeployment(threshold)
+	optimizer, err := newOptimizerDeployment()
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -271,15 +256,13 @@ func validateScoreSchedule(
 	return frozenScores, nil
 }
 
-func newOptimizerDeployment(threshold float64) (agent.Deployment, error) {
+func newOptimizerDeployment() (agent.Deployment, error) {
 	return transformDeployment(
 		"example.evaluator_optimizer.optimizer",
 		"Produce one revised candidate from the objective and latest evaluator feedback.",
-		struct {
-			Threshold float64 `json:"threshold"`
-		}{Threshold: threshold},
+		struct{}{},
 		func(_ context.Context, state optimizationState) (optimizationState, error) {
-			if err := state.validateSettled(threshold); err != nil {
+			if err := state.validateSettled(); err != nil {
 				return optimizationState{}, err
 			}
 			revision := uint32(len(state.History) + 1)
@@ -287,7 +270,7 @@ func newOptimizerDeployment(threshold float64) (agent.Deployment, error) {
 			if len(state.History) > 0 {
 				content += "; addressed: " + state.History[len(state.History)-1].Assessment.Feedback
 			}
-			state.Current = candidate{Revision: revision, Content: content}
+			state.Current = &candidate{Revision: revision, Content: content}
 			return state, nil
 		},
 	)
@@ -302,7 +285,7 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 			Threshold float64   `json:"threshold"`
 		}{Scores: scores, Threshold: threshold},
 		func(_ context.Context, state optimizationState) (optimizationState, error) {
-			if validatePendingStateErr := state.validatePending(threshold); validatePendingStateErr != nil {
+			if validatePendingStateErr := state.validatePending(); validatePendingStateErr != nil {
 				return optimizationState{}, validatePendingStateErr
 			}
 			index := len(state.History)
@@ -312,16 +295,12 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 				feedback = "accept this revision"
 			}
 			latest := attempt{
-				Candidate:  state.Current,
+				Candidate:  *state.Current,
 				Assessment: assessment{Score: score, Feedback: feedback},
 			}
 			state.History = append(slices.Clone(state.History), latest)
-			if !state.HasBest || score > state.Best.Assessment.Score {
-				state.Best = latest
-				state.HasBest = true
-			}
-			state.Accepted = state.Best.Assessment.Score >= threshold
-			if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
+			state.Current = nil
+			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {
 				return optimizationState{}, validateSettledStateErr
 			}
 			return state, nil
@@ -375,18 +354,19 @@ func initializeOptimization(_ context.Context, request optimizationRequest) (opt
 
 func finalizeOptimization(result workflow.LoopResult[optimizationState], threshold float64) (optimizationReport, error) {
 	state := result.Value
-	if !result.Valid() || result.Satisfied != state.Accepted {
+	if !result.Valid() || result.Satisfied != state.accepted(threshold) {
 		return optimizationReport{}, errors.New("loop result and acceptance state disagree")
 	}
-	if err := state.validateSettled(threshold); err != nil {
+	if err := state.validateSettled(); err != nil {
 		return optimizationReport{}, err
 	}
-	if !state.HasBest || uint64(len(state.History)) != result.Iterations {
+	best, present := state.earliestBest()
+	if !present || uint64(len(state.History)) != result.Iterations {
 		return optimizationReport{}, errors.New("loop result has incomplete attempt history")
 	}
 	return optimizationReport{
-		Objective: state.Objective, History: slices.Clone(state.History), Best: state.Best,
-		Accepted: state.Accepted, Iterations: result.Iterations,
+		Objective: state.Objective, History: slices.Clone(state.History), Best: best,
+		Accepted: state.accepted(threshold), Iterations: result.Iterations,
 	}, nil
 }
 
@@ -406,10 +386,10 @@ func newOptimizationRoot(
 		ID: "refine", Body: iteration, Budget: iterationBudget,
 		MaxIterations: agent.NewQuota(uint64(maxIterations)),
 		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
-			if validateSettledStateErr := state.validateSettled(threshold); validateSettledStateErr != nil {
+			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
 			}
-			return state.Accepted, nil
+			return state.accepted(threshold), nil
 		},
 	})
 	if err != nil {

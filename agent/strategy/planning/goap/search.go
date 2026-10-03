@@ -165,7 +165,7 @@ func (s *search) plan(ctx context.Context, goal searchNode) (planning.Plan, erro
 	if err != nil {
 		return planning.Plan{}, err
 	}
-	return planning.NewPlan(actions, goal.cost)
+	return planning.NewPlan(actions)
 }
 
 func (s *search) reconstruct(ctx context.Context, goalKey string) ([]planning.PlannedAction, error) {

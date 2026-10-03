@@ -32,8 +32,8 @@ func FuzzWorldStateJSON(f *testing.F) {
 }
 
 func FuzzPlanJSON(f *testing.F) {
-	f.Add([]byte(`{"actions":[],"total_cost":0}`))
-	f.Add([]byte(`{"actions":["action.prepare","action.finish"],"total_cost":2}`))
+	f.Add([]byte(`{"actions":[]}`))
+	f.Add([]byte(`{"actions":["action.prepare","action.finish"]}`))
 	f.Add([]byte(`{"actions":[],"total_cost":1}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var plan planning.Plan

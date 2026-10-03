@@ -597,7 +597,7 @@ func (t *treeRuntime) controlChild(
 		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, settlementErr)
 		return
 	}
-	t.events.publishSettlement(parent, record.ID, EffectTargetFramework, record.Settlement.Status(), observation, nil)
+	t.events.publishSettlement(parent, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
 	t.enqueueProcess(parent.handle.processID)
 	t.commitSettledEffect(parent, index, *record)
 }
@@ -658,7 +658,7 @@ func (t *treeRuntime) startPendingEffectCommit(
 // commitSettledEffect makes record's adopted settlement durable. A settlement
 // that cannot be committed stops the writer with record left unresolved.
 func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint32, record preparedEffect) {
-	err := t.commitEffect(process, treeCommitEffectSettled, EffectBoundaryKindSettled, batchIndex, record, *record.Settlement, nil)
+	err := t.commitEffect(process, treeCommitEffectSettled, EffectBoundaryKindSettled, batchIndex, record, *record.settlement(), nil)
 	if err != nil {
 		t.failRuntime(err, process.handle.processID, record.ID)
 	}
@@ -1466,7 +1466,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 }
 
 func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
-	if record.Phase == effectPhasePlanned {
+	if record.phase() == effectPhasePlanned {
 		candidate := process.candidate()
 		if err := candidate.prepared.Effects[index].begin(); err != nil {
 			t.failProcessContract(process, failureCodeEngineEffectPhaseInvalid, err)
@@ -1486,7 +1486,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 			return
 		}
 	}
-	if record.Phase == effectPhasePending &&
+	if record.phase() == effectPhasePending &&
 		record.Effect.Target() == EffectTargetDispatcher &&
 		process.restoredPending.matches(record.ID) {
 		t.recoverPendingEffect(process, uint32(index), record)
@@ -1835,7 +1835,7 @@ func (t *treeRuntime) applyChildStartSettlement(
 	if err := record.settleChildStart(result); err != nil {
 		return SettlementStatusInvalid, err
 	}
-	return record.Settlement.Status(), nil
+	return record.settlement().Status(), nil
 }
 
 func (t *treeRuntime) failProcessContract(process *processState, code string, err error) {
@@ -2215,7 +2215,7 @@ func (t *treeRuntime) terminatePreparedProcess(process *processState) {
 	}
 	for index := range process.prepared.Effects {
 		record := &process.prepared.Effects[index]
-		if record.Phase != effectPhasePending {
+		if record.phase() != effectPhasePending {
 			continue
 		}
 		if process.restoredPending.matches(record.ID) {
@@ -2317,6 +2317,6 @@ func (t *treeRuntime) settleFramework(process *processState, record *preparedEff
 		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
 		return
 	}
-	t.events.publishSettlement(process, record.ID, EffectTargetFramework, record.Settlement.Status(), observation, nil)
+	t.events.publishSettlement(process, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
 	t.enqueueProcess(process.handle.processID)
 }

@@ -407,8 +407,8 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 		name, termination, code, message string
 		kind                             agent.FailureKind
 	}{
-		{"host failure", `{"cause":"external_failure","reason":"storage unavailable","failure":{"kind":"external","code":"tool.storage.failed","message":"storage unavailable"}}`, "tool.storage.failed", "storage unavailable", agent.FailureKindExternal},
-		{"panic", `{"cause":"panic","reason":"decoder panic","failure":{"kind":"panic","code":"engine.step.panicked","message":"decoder panic"}}`, "engine.step.panicked", "decoder panic", agent.FailureKindPanic},
+		{"host failure", `{"failure":{"kind":"external","code":"tool.storage.failed","message":"storage unavailable"}}`, "tool.storage.failed", "storage unavailable", agent.FailureKindExternal},
+		{"panic", `{"failure":{"kind":"panic","code":"engine.step.panicked","message":"decoder panic"}}`, "engine.step.panicked", "decoder panic", agent.FailureKindPanic},
 		{"canceled", `{"cause":"host_cancellation","reason":"operator stopped job"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with canceled (host_cancellation): operator stopped job", agent.FailureKindExecution},
 		{"deadline", `{"cause":"host_deadline","reason":"worker deadline reached"}`, "interaction.tool.process_failed", "Tool child process:child-batch ended with timed_out (host_deadline): worker deadline reached", agent.FailureKindExecution},
 	} {

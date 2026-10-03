@@ -355,7 +355,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		if err := p.deployment().validateEffect(record.Effect); err != nil {
 			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
 		}
-		if record.Phase != effectPhasePending {
+		if record.phase() != effectPhasePending {
 			continue
 		}
 		policy := ReplayPolicyNever
@@ -447,7 +447,6 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
 			ID: p.handle.processID.effectID(sequence, index), Effect: effect,
-			Phase: effectPhasePlanned,
 		})
 	}
 	if err := p.validatePreparedWaits(&prepared); err != nil {
@@ -520,12 +519,13 @@ func (p *processState) effectiveTermination() Termination {
 func (p *processState) terminalEventPayload() json.RawMessage {
 	usage := p.usage()
 	eventPayload := processFinishedEventPayload{
-		TerminationCause: p.termination.Cause(),
-		Usage:            &usage,
+		Usage: &usage,
 	}
 	if failure, failed := p.termination.Failure(); failed {
 		eventPayload.FailureKind = failure.Kind()
 		eventPayload.FailureCode = failure.Code()
+	} else {
+		eventPayload.TerminationCause = p.termination.Cause()
 	}
 	return marshalEventPayload(eventPayload)
 }
@@ -605,7 +605,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 		default:
 			continue
 		}
-		record = preparedEffect{ID: record.ID, Effect: record.Effect, Phase: effectPhasePlanned}
+		record = preparedEffect{ID: record.ID, Effect: record.Effect}
 		if err := record.begin(); err != nil {
 			return err
 		}

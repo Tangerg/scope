@@ -81,7 +81,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 		{Phase: toolAwaitingResult, Call: call},
 		{Phase: toolAwaitingResult, Call: call, Checkpoint: checkpoint},
 		{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint},
-		{Phase: toolWaitingInput, Call: call, Checkpoint: checkpoint, WaitID: &waitID},
+		{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint, WaitID: &waitID},
 		{Phase: toolCompleted, Call: call},
 	} {
 		captured, captureErr := (&toolExecution{state: state}).Snapshot()
@@ -143,5 +143,42 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 				t.Fatalf("classification = %s/%s", failure.Kind(), failure.Code())
 			}
 		})
+	}
+}
+
+func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
+	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, err := agent.ParseWaitID("wait:tool-input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: request}
+	definition, err := newToolDefinition("interaction.waiting.tools", "Resume one waiting Tool.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := toolExecutionState{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint, WaitID: &waitID}
+	captured, err := (&toolExecution{state: state}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := definition.Restore(t.Context(), captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.(*toolExecution).state.phase() != toolWaitingInput {
+		t.Fatal("restored wait tried to accept a second opening")
+	}
+	state.Phase = toolWaitingInput
+	legacy, err := (&toolExecution{state: state}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := definition.Restore(t.Context(), legacy); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("accepted duplicate waiting phase: %v", err)
 	}
 }

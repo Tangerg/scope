@@ -47,7 +47,7 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 		return planning.Plan{}, false, err
 	}
 	if problem.Goal().SatisfiedBy(problem.InitialState()) {
-		plan, err := planning.NewPlan(nil, 0)
+		plan, err := planning.NewPlan(nil)
 		return plan, true, err
 	}
 	if !p.maxGeneratedNodes.Allows(1) {
@@ -66,7 +66,7 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	if err != nil {
 		return planning.Plan{}, false, err
 	}
-	if err := problem.ValidatePlan(ctx, plan); err != nil {
+	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
 		return planning.Plan{}, false, fmt.Errorf("goap: validate result: %w", err)
 	}
 	if err := ctx.Err(); err != nil {

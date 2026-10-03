@@ -152,11 +152,11 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := wire.Prepared.Effects[0].Settlement; got == nil || got.Status() != SettlementStatusSucceeded ||
+	if got := wire.Prepared.Effects[0].settlement(); got == nil || got.Status() != SettlementStatusSucceeded ||
 		!bytes.Equal(got.Payload(), settlement.Payload()) {
 		t.Fatalf("settlement evidence changed: %+v", got)
 	}
-	if wire, err := pending.wire(); err != nil || wire.Prepared.Effects[0].Settlement != nil {
+	if wire, err := pending.wire(); err != nil || wire.Prepared.Effects[0].settlement() != nil {
 		t.Fatalf("settlement mutated the earlier capture: %v", err)
 	}
 }
@@ -227,7 +227,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 	if err := other.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	if process.prepared.Effects[0].Phase != effectPhasePlanned || process.mailbox.pendingCount() != 1 {
+	if process.prepared.Effects[0].phase() != effectPhasePlanned || process.mailbox.pendingCount() != 1 {
 		t.Fatal("candidate shared mutable protocol state with its source")
 	}
 }

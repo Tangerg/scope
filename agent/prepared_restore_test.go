@@ -30,7 +30,10 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire.Prepared.Effects[0].Phase = test.phase
+			if test.phase == effectPhasePending {
+				wire.Prepared.Effects[0].progress = &effectProgress{}
+			}
+
 			invalid, err := newProcessSnapshot(wire)
 			if err != nil {
 				t.Fatal(err)

@@ -17,17 +17,17 @@ func TestTreeCommitCanonicalIdentityAndContent(t *testing.T) {
 		{
 			"Effect", boundary.Identity(), boundary.ContentDigest,
 			"commit:dd3bd92daf50dd536c10f0820182387862285f9baf85999ef5c6ebe4d730fb52",
-			"sha256:4e53625dd27fbb2dcaaf2191dc8ea534f4232e3326afa3a45d9c324e7f1c1cd2",
+			"sha256:4623c1faf34c9fa2ea65c4005b29958085a6a4932e86bbf1a08b7ebc88562de4",
 		},
 		{
 			"checkpoint", checkpoint.Identity(), checkpoint.ContentDigest,
 			"commit:b1709ed5c05ad3aad4cb95d0fbc4c7c31e7bfe42a6534b12a22c47d8918b8dda",
-			"sha256:19e7f4bf26fe48144b8dbadf481b08dcda4d30bcff912a7e0821bfb63b05db32",
+			"sha256:2fb32967cd5053a73efde7616311562e473ec6ec6c89598cf7d90c1dece5c5bd",
 		},
 		{
 			"activation", activation.Identity(), activation.ContentDigest,
 			"commit:e31e5b013e3a77b32ee9f64318160c171ad470f3eb1e8b2f7e6e6f2faabec024",
-			"sha256:956b9f2685e301025339b2397c0758af1e4994b3c4d86f17c157eb93a29325bc",
+			"sha256:223d82604219d51bb8fdd7964fb0f92d46352ab3996992e794aaea3ec133f02e",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -118,8 +118,7 @@ func settledIdentityFixture(t *testing.T, boundary EffectBoundary, kind EffectBo
 	t.Helper()
 	wire := controlValue(boundary.treeSnapshot.wire())
 	process := controlValue(wire.ProcessSnapshots[0].wire())
-	process.Prepared.Effects[0].Phase = effectPhaseSettled
-	process.Prepared.Effects[0].Settlement = &settlement
+	process.Prepared.Effects[0].progress = &effectProgress{settlement: &settlement}
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
 	snapshot := controlValue(newTreeSnapshot(wire))
 	return controlValue(newEffectBoundary(boundary.sequence+1, kind, boundary.request, settlement, boundary.treeSnapshot.Digest(), snapshot))

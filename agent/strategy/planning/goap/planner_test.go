@@ -27,8 +27,8 @@ func TestPlannerFindsCheapestMultiRoutePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !found || plan.TotalCost() != 2 || !slices.Equal(actionNames(plan), []string{"action.forage", "action.build"}) {
-		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), plan.TotalCost(), found)
+	if !found || evaluatedCost(t, problem, plan) != 2 || !slices.Equal(actionNames(plan), []string{"action.forage", "action.build"}) {
+		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), evaluatedCost(t, problem, plan), found)
 	}
 }
 
@@ -57,8 +57,8 @@ func TestPlannerEvaluatesDynamicCostAtTransitionSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !found || plan.TotalCost() != 2 || !slices.Equal(actionNames(plan), []string{"action.unlock", "action.fast"}) {
-		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), plan.TotalCost(), found)
+	if !found || evaluatedCost(t, problem, plan) != 2 || !slices.Equal(actionNames(plan), []string{"action.unlock", "action.fast"}) {
+		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), evaluatedCost(t, problem, plan), found)
 	}
 }
 
@@ -78,8 +78,8 @@ func TestPlannerReplacesAStatePredecessorOnlyWithCheaperPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"action.prepare", "action.cheap_resource", "action.finish"}
-	if !found || plan.TotalCost() != 3 || !slices.Equal(actionNames(plan), want) {
-		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), plan.TotalCost(), found)
+	if !found || evaluatedCost(t, problem, plan) != 3 || !slices.Equal(actionNames(plan), want) {
+		t.Fatalf("plan = %v cost=%v found=%t", actionNames(plan), evaluatedCost(t, problem, plan), found)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestPlannerDistinguishesSatisfiedUnreachableAndBoundedSearch(t *testing.T) 
 	t.Run("already satisfied", func(t *testing.T) {
 		problem := mustProblem(t, world(t, done), goal(t, done))
 		plan, found, err := goap.New(goap.Config{}).Plan(t.Context(), problem)
-		if err != nil || !found || len(plan.Actions()) != 0 || plan.TotalCost() != 0 {
+		if err != nil || !found || len(plan.Actions()) != 0 || evaluatedCost(t, problem, plan) != 0 {
 			t.Fatalf("plan=%v found=%t error=%v", plan, found, err)
 		}
 	})
@@ -210,7 +210,7 @@ func TestPlannerCountsCheaperReplacementNodes(t *testing.T) {
 			if found || !errors.Is(err, goap.ErrGenerationLimitReached) {
 				t.Fatalf("limit=%d found=%t error=%v", limit, found, err)
 			}
-		} else if err != nil || !found || plan.TotalCost() != 1 || !slices.Equal(actionNames(plan), []string{"action.cheapest"}) {
+		} else if err != nil || !found || evaluatedCost(t, problem, plan) != 1 || !slices.Equal(actionNames(plan), []string{"action.cheapest"}) {
 			t.Fatalf("limit=%d plan=%v found=%t error=%v", limit, plan, found, err)
 		}
 	}
@@ -324,4 +324,13 @@ func TestPlannerStopsExpansionWhenCostCancelsContext(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("cost callbacks after cancellation: %d", calls)
 	}
+}
+
+func evaluatedCost(t *testing.T, problem planning.Problem, plan planning.Plan) float64 {
+	t.Helper()
+	cost, err := problem.EvaluatePlan(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cost
 }

@@ -109,7 +109,7 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 					t.Fatal("diagnostic changed during snapshot round trip")
 				}
 				wire, err := snapshot.wire()
-				if err != nil || string(wire.Prepared.Effects[0].Settlement.Payload()) != "null" {
+				if err != nil || string(wire.Prepared.Effects[0].settlement().Payload()) != "null" {
 					t.Fatalf("Unknown settlement changed its model-visible payload: %v", err)
 				}
 			})
@@ -128,7 +128,7 @@ func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := preparedEffect{ID: process.handle.processID.effectID(1, 0), Effect: effect, Phase: effectPhasePending}
+	record := preparedEffect{ID: process.handle.processID.effectID(1, 0), Effect: effect, progress: &effectProgress{}}
 	process.prepared = &preparedStep{Effects: preparedEffects{record}}
 	runtime.startDispatch(process, 0, record, nil)
 	completion := receiveTreeRuntimeProbe(t, runtime.completions)
@@ -144,12 +144,12 @@ func TestLocalFrameworkSettlementDoesNotInventUnknown(t *testing.T) {
 	for _, payload := range []string{`{`, `{"operation":"unsupported"}`, `{"operation":"wait"}`, `{"operation":"wait_children"}`, `{"operation":"start_child"}`} {
 		record := preparedEffect{
 			ID:     processID.effectID(1, 0),
-			Effect: Effect{target: EffectTargetFramework, payload: json.RawMessage(payload)}, Phase: effectPhasePending,
+			Effect: Effect{target: EffectTargetFramework, payload: json.RawMessage(payload)}, progress: &effectProgress{},
 		}
 		if err := record.settleFramework(); err == nil {
 			t.Fatalf("invalid local operation settled: %s", payload)
 		}
-		if record.Phase != effectPhasePending || record.Settlement != nil {
+		if record.phase() != effectPhasePending || record.settlement() != nil {
 			t.Fatalf("failed local preparation changed evidence: %+v", record)
 		}
 	}
@@ -185,8 +185,8 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil || wire.Prepared == nil || len(wire.Prepared.Effects) != 2 {
 		t.Fatalf("contract failure discarded evidence: %v", err)
 	}
-	if wire.status() != StatusFailed || wire.Prepared.Effects[0].Settlement.Status() != SettlementStatusSucceeded ||
-		wire.Prepared.Effects[1].Phase != effectPhasePlanned || len(wire.Mailbox.Signals) != 0 ||
+	if wire.status() != StatusFailed || wire.Prepared.Effects[0].settlement().Status() != SettlementStatusSucceeded ||
+		wire.Prepared.Effects[1].phase() != effectPhasePlanned || len(wire.Mailbox.Signals) != 0 ||
 		wire.usage() != (Usage{PreparedEffects: 2}) || len(wire.Termination.UnresolvedEffectIDs()) != 0 {
 		t.Fatalf("contract failure changed settled evidence or adopted candidate: %+v", wire)
 	}

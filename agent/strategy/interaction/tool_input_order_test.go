@@ -185,7 +185,7 @@ type heldToolOpeningExecution struct {
 }
 
 func (h *heldToolOpeningExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	if h.Execution.(*toolExecution).state.Phase == toolAwaitingWaitOpen && h.definition.held.CompareAndSwap(false, true) {
+	if h.Execution.(*toolExecution).state.phase() == toolAwaitingWaitOpen && h.definition.held.CompareAndSwap(false, true) {
 		close(h.definition.entered)
 		<-ctx.Done()
 		return agent.Transition{}, ctx.Err()

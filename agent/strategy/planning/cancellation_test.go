@@ -121,14 +121,14 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 
 func TestManagedPlanValidationCancellation(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		cause     error
-		totalCost float64
+		name  string
+		cause error
+		cost  float64
 	}{
-		{name: "valid", totalCost: 2},
-		{name: "canceled", cause: context.Canceled, totalCost: 2},
-		{name: "deadline", cause: context.DeadlineExceeded, totalCost: 2},
-		{name: "invalid cost", totalCost: 3},
+		{name: "valid", cost: 1},
+		{name: "canceled", cause: context.Canceled, cost: 1},
+		{name: "deadline", cause: context.DeadlineExceeded, cost: 1},
+		{name: "invalid cost", cost: -1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				plan, err := NewPlan([]PlannedAction{planned, planned}, test.totalCost)
+				plan, err := NewPlan([]PlannedAction{planned, planned})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -162,7 +162,7 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 						close(enteredCost)
 						<-ctx.Done()
 					}
-					return 1, nil
+					return test.cost, nil
 				})
 				state, err := (executionState{Phase: phaseAwaitingSense, Input: json.RawMessage(`{}`)}).snapshot()
 				if err != nil {
@@ -187,10 +187,14 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 					}
 					return
 				}
-				if err != nil || !transition.Valid() || calls != 2 {
+				wantCalls := 2
+				if test.cost < 0 {
+					wantCalls = 1
+				}
+				if err != nil || !transition.Valid() || calls != wantCalls {
 					t.Fatalf("validation: transition=%+v, error=%v, Cost calls=%d", transition, err, calls)
 				}
-				if test.totalCost != 2 {
+				if test.cost < 0 {
 					failure, failed := transition.Failure()
 					if !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != failureCodePlanningPlannerContract {
 						t.Fatalf("invalid plan failure = %+v", transition)

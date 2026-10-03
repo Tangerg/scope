@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"maps"
 	"math"
 	"strings"
 	"testing"
+
+	agent "github.com/Tangerg/scope/agent"
 )
 
 func TestRun(t *testing.T) {
@@ -119,5 +123,36 @@ func TestConfigurationIsExplicitAndFinite(t *testing.T) {
 				t.Fatal("invalid evaluator-optimizer configuration was accepted")
 			}
 		})
+	}
+}
+
+func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
+	state := optimizationState{Objective: "one history", History: []attempt{
+		{Candidate: candidate{Revision: 1, Content: "draft"}, Assessment: assessment{Score: 0.95, Feedback: "accepted"}},
+	}}
+	if err := state.validateSettled(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := jsonv2.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"objective":"one history","history":[{"candidate":{"revision":1,"content":"draft"},"assessment":{"score":0.95,"feedback":"accepted"}}]}`
+	if string(data) != want {
+		t.Fatalf("evaluated state duplicates history: %s", data)
+	}
+	for _, member := range []string{`"best":{}`, `"has_best":true`, `"accepted":true`} {
+		legacy := strings.TrimSuffix(want, "}") + "," + member + "}"
+		payload, err := agent.ParsePayload([]byte(legacy))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := payload.Decode[optimizationState](); !errors.Is(err, jsonv2.ErrUnknownName) {
+			t.Fatalf("accepted second owner %s: %v", member, err)
+		}
+	}
+	state.Current = &state.History[0].Candidate
+	if err := state.validateSettled(); err == nil {
+		t.Fatal("evaluated candidate remained independently writable")
 	}
 }
