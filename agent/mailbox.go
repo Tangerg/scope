@@ -82,14 +82,21 @@ func (s signalRecord) wire() signalRecordWire {
 // waitRecord owns one wait's lifecycle. A child wait also owns the spec the
 // Engine evaluates against tree membership; its key is the spec's key.
 type waitRecord struct {
-	key      WaitKey
-	child    *ChildWaitSpec
-	answered bool
-	closed   bool
+	externalKey WaitKey
+	child       *ChildWaitSpec
+	answered    bool
+	closed      bool
 }
 
 func newChildWaitRecord(spec ChildWaitSpec) waitRecord {
-	return waitRecord{key: spec.Key, child: new(spec.clone())}
+	return waitRecord{child: new(spec.clone())}
+}
+
+func (w waitRecord) key() WaitKey {
+	if w.child != nil {
+		return w.child.Key
+	}
+	return w.externalKey
 }
 
 func (w waitRecord) kind() WaitKind {
@@ -108,7 +115,7 @@ func (w waitRecord) openingWire() *waitOpeningWire {
 	if w.child != nil {
 		return &waitOpeningWire{Spec: new(w.child.wire())}
 	}
-	return &waitOpeningWire{Key: new(w.key)}
+	return &waitOpeningWire{Key: new(w.externalKey)}
 }
 
 // signalMailbox has reference semantics. candidate must clone it before any
@@ -200,7 +207,7 @@ func (s *signalMailbox) acceptRecord(record signalRecord) {
 
 // openWait opens a Host-answered wait.
 func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
-	return s.openSettledWait(waitRecord{key: key}, signal)
+	return s.openSettledWait(waitRecord{externalKey: key}, signal)
 }
 
 // openChildWait opens an Engine-answered wait over spec. Its opening Signal
@@ -225,7 +232,7 @@ func (s *signalMailbox) openSettledWait(wait waitRecord, signal Signal) error {
 }
 
 func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) error {
-	id, key := record.waitID, wait.key
+	id, key := record.waitID, wait.key()
 	if !key.Valid() {
 		return fmt.Errorf("%w: invalid wait key", errWaitState)
 	}
@@ -239,7 +246,7 @@ func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) err
 		return fmt.Errorf("%w: duplicate opening SignalID", errWaitState)
 	}
 	for _, wait := range s.waits {
-		if wait.key == key && !wait.closed {
+		if wait.key() == key && !wait.closed {
 			return fmt.Errorf("%w: wait key is already open", errWaitState)
 		}
 	}
@@ -399,7 +406,7 @@ func (w waitOpeningWire) clone() waitOpeningWire {
 func (w waitOpeningWire) wait() (waitRecord, error) {
 	switch {
 	case w.Key != nil && w.Spec == nil:
-		return waitRecord{key: *w.Key}, nil
+		return waitRecord{externalKey: *w.Key}, nil
 	case w.Key == nil && w.Spec != nil:
 		spec, err := w.Spec.value()
 		if err != nil {
