@@ -618,5 +618,7 @@ func parseTestProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if _, child, linkErr := document.link(); linkErr != nil || child {
 		return ProcessSnapshot{}, errors.Join(ErrInvalidSnapshot, linkErr, errors.New("test parses only root records"))
 	}
-	return document.snapshot(rootProcessRelation(document.ProcessID))
+	return document.snapshot(rootProcessRelation(document.ProcessID), func(ProcessID, ChildWaitBoundary) (ChildOutcome, error) {
+		return ChildOutcome{}, errors.New("test root records have no children")
+	})
 }

@@ -823,3 +823,27 @@ func treeJSONWithProcess(t testing.TB, tree TreeSnapshot, processID ProcessID, m
 	fields["process_snapshots"] = controlValue(jsonv2.Marshal(processes))
 	return controlValue(jsonv2.Marshal(fields))
 }
+
+// treeJSONWithDocument re-encodes tree with one persisted Process document
+// mutated, so parsing exercises how the tree decodes it.
+func treeJSONWithDocument(t testing.TB, tree TreeSnapshot, processID ProcessID, mutate func(*processSnapshotDocument)) []byte {
+	t.Helper()
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(tree.JSON(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	var processes []json.RawMessage
+	if err := jsonv2.Unmarshal(fields["process_snapshots"], &processes); err != nil {
+		t.Fatal(err)
+	}
+	for index, snapshot := range tree.ProcessSnapshots() {
+		if snapshot.ProcessID() != processID {
+			continue
+		}
+		document := controlValue(decodeProcessSnapshotDocument(processes[index]))
+		mutate(&document)
+		processes[index] = controlValue(jsonv2.Marshal(document))
+	}
+	fields["process_snapshots"] = controlValue(jsonv2.Marshal(processes))
+	return controlValue(jsonv2.Marshal(fields))
+}

@@ -67,11 +67,13 @@ type processSnapshotRecord processSnapshotWire
 // processSnapshotDocument is the persisted form of one Process record. Its
 // relation's root and depth follow from the enclosing tree, so it keeps only
 // the parent link; its prepared Effects are numbered by its own identity and
-// committed progress. Only a tree, which owns that context, decodes it.
+// committed progress; its pending child-wait answers render from its retained
+// children. Only a tree, which owns that context, decodes it.
 type processSnapshotDocument struct {
 	processSnapshotRecord
 	ParentID *ProcessID        `json:"parent_id,omitzero"`
 	ChildKey *ChildKey         `json:"child_key,omitzero"`
+	Mailbox  mailboxDocument   `json:"mailbox"`
 	Prepared *preparedStepWire `json:"prepared,omitzero"`
 }
 
@@ -104,10 +106,15 @@ func (p processSnapshotDocument) link() (childIdentity, bool, error) {
 }
 
 // snapshot completes the record at relation, which the tree derived from its
-// link, and validates it.
-func (p processSnapshotDocument) snapshot(relation ProcessRelation) (ProcessSnapshot, error) {
+// link, with the outcomes its children reached, and validates it.
+func (p processSnapshotDocument) snapshot(relation ProcessRelation, outcomes childOutcomeSource) (ProcessSnapshot, error) {
 	wire := processSnapshotWire(p.processSnapshotRecord)
 	wire.Relation = relation
+	mailbox, err := p.Mailbox.wire(outcomes)
+	if err != nil {
+		return ProcessSnapshot{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
+	}
+	wire.Mailbox = mailbox
 	if p.Prepared != nil {
 		if wire.CommittedSteps == math.MaxUint64 {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
@@ -122,7 +129,11 @@ func (p processSnapshotDocument) snapshot(relation ProcessRelation) (ProcessSnap
 }
 
 func (p processSnapshotWire) MarshalJSON() ([]byte, error) {
-	document := processSnapshotDocument{processSnapshotRecord: processSnapshotRecord(p)}
+	mailbox, err := p.Mailbox.document()
+	if err != nil {
+		return nil, err
+	}
+	document := processSnapshotDocument{processSnapshotRecord: processSnapshotRecord(p), Mailbox: mailbox}
 	if identity, child := p.Relation.childIdentity(); child {
 		document.ParentID, document.ChildKey = &identity.parent, &identity.key
 	}

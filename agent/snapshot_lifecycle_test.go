@@ -139,36 +139,23 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 	for _, treeQuota := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tree=%t", treeQuota), func(t *testing.T) {
-			runtime := newWaitingSnapshotTree(t, 2)
-			parent := runtime.members.get(runtime.rootID)
-			var child *processState
-			for _, member := range runtime.members.all() {
+			limit := func(limits *TreeLimits, quota Quota) {
 				if treeQuota {
-					runtime.treeLimits.MaxSnapshotBytes = NewQuota(528 << 10)
+					limits.MaxSnapshotBytes = quota
 				} else {
-					runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(320 << 10)
-				}
-				if member != parent {
-					child = member
+					limits.MaxProcessSnapshotBytes = quota
 				}
 			}
-			child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-				controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{strings.Repeat("x", 200<<10)}})), child.handle.startedAt)
-			child.mailbox.closeAllWaits()
-			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:padding")), WaitID{}, controlValue(jsonv2.Marshal(strings.Repeat("x", 150<<10)))))
-			if _, err := runtime.admitSignals(parent, []Signal{signal}, signalSourceExternal); err != nil {
-				t.Fatal(err)
+			measured, measuredParent := immediateChildWaitScenario(t, func(limits *TreeLimits) { limit(limits, NewQuota(1<<30)) })
+			if failure := measured.finalizePrepared(measuredParent); failure != nil {
+				t.Fatalf("unconstrained finalization: %+v", failure)
 			}
-			effect := controlValue(NewChildWaitEffect(ChildWaitSpec{
-				Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
-				Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
-			}))
-			if failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
-				transition: controlValue(Continue(0, effect)), candidate: parent.execution, candidateState: parent.committedExecutionState,
-			}); failure != nil {
-				t.Fatalf("preparation: %+v", failure)
+			admitted := controlValue(measuredParent.snapshotAdmissionSize(measured.treeLimits))
+			if treeQuota {
+				admitted = smallestAdmittingTreeQuota(measured)
 			}
-			runtime.advancePrepared(parent)
+
+			runtime, parent := immediateChildWaitScenario(t, func(limits *TreeLimits) { limit(limits, NewQuota(admitted-1)) })
 			before := controlValue(runtime.captureTree())
 			if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, ErrResourceLimitExceeded) {
 				t.Fatalf("oversized immediate result = %+v", failure)
@@ -185,6 +172,44 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 			_ = controlValue(runtime.captureTree())
 		})
 	}
+}
+
+// immediateChildWaitScenario prepares a root Step that waits for a child the
+// tree already finished, so finalization admits the answer immediately.
+func immediateChildWaitScenario(t *testing.T, limit func(*TreeLimits)) (*treeRuntime, *processState) {
+	t.Helper()
+	runtime := newWaitingSnapshotTree(t, 2)
+	limit(&runtime.treeLimits)
+	parent := runtime.members.get(runtime.rootID)
+	child := runtime.members.get(runtime.members.childrenOf(runtime.rootID)[0])
+	child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
+		controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})), child.handle.startedAt)
+	child.mailbox.closeAllWaits()
+	effect := controlValue(NewChildWaitEffect(ChildWaitSpec{
+		Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
+		Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
+	}))
+	if failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
+		transition: controlValue(Continue(0, effect)), candidate: parent.execution, candidateState: parent.committedExecutionState,
+	}); failure != nil {
+		t.Fatalf("preparation: %+v", failure)
+	}
+	runtime.advancePrepared(parent)
+	return runtime, parent
+}
+
+func smallestAdmittingTreeQuota(runtime *treeRuntime) uint64 {
+	low, high := uint64(0), uint64(1<<30)
+	for low < high {
+		middle := low + (high-low)/2
+		runtime.treeLimits.MaxSnapshotBytes = NewQuota(middle)
+		if runtime.validateSnapshotCapacity() == nil {
+			high = middle
+		} else {
+			low = middle + 1
+		}
+	}
+	return low
 }
 
 func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testing.T) {

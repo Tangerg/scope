@@ -1,51 +1,45 @@
 package agent
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"testing"
 )
 
-func TestDrainedTreeSnapshotOutcomeOrder(t *testing.T) {
+func TestDrainedTreeSnapshotRendersAnswersFromTheirChildren(t *testing.T) {
 	snapshot := drainedSnapshotFixture(t, 4)
-	wait := snapshot.state.ProcessSnapshots[0].openChildWaits[0]
-	root := snapshot.state.ProcessSnapshots[0].state
-	record := root.Mailbox.Signals[len(root.Mailbox.Signals)-1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
+	root := snapshot.state.ProcessSnapshots[0]
+	last := len(root.state.Mailbox.Signals) - 1
 	for _, test := range []struct {
 		name   string
-		change func([]ChildOutcome) []ChildOutcome
+		change func(*signalRecordDocument)
 	}{
-		{"reversed", func(outcomes []ChildOutcome) []ChildOutcome { slices.Reverse(outcomes); return outcomes }},
-		{"duplicate", func(outcomes []ChildOutcome) []ChildOutcome { outcomes[1] = outcomes[0]; return outcomes }},
-		{"foreign child", func(outcomes []ChildOutcome) []ChildOutcome {
-			outcomes[0].result.processID = newProcessID()
-			return outcomes
-		}},
+		{"reversed", func(record *signalRecordDocument) { slices.Reverse(record.Answered) }},
+		{"duplicate", func(record *signalRecordDocument) { record.Answered[1] = record.Answered[0] }},
+		{"foreign child", func(record *signalRecordDocument) { record.Answered[0] = newProcessID() }},
+		{"missing children", func(record *signalRecordDocument) { record.Answered = nil }},
+		{"stored payload", func(record *signalRecordDocument) { record.Payload = root.state.Mailbox.Signals[last].Payload }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			candidate := snapshot.state.clone()
-			process := root
-			process.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
-			outcomes := test.change(slices.Clone(satisfied.outcomes))
-			payload := childWaitSatisfiedWire{Operation: childWaitSignalSatisfied, Key: wait.spec.Key, Boundary: ChildWaitBoundaryDrained}
-			for _, outcome := range outcomes {
-				payload.Outcomes = append(payload.Outcomes, outcome.wire())
-			}
-			record.Payload = controlValue(normalizeJSON(controlValue(jsonv2.Marshal(payload)), MaxPayloadBytes))
-			process.Mailbox.Signals[len(process.Mailbox.Signals)-1] = record
-			candidate.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
-			encoded := controlValue(jsonv2.Marshal(candidate))
+			encoded := treeJSONWithDocument(t, snapshot, root.ProcessID(), func(document *processSnapshotDocument) {
+				test.change(&document.Mailbox.Signals[last])
+			})
 			if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
-				t.Fatalf("invalid outcomes accepted: %v", err)
+				t.Fatalf("invalid answer accepted: %v", err)
 			}
 		})
 	}
 	parsed := controlValue(ParseTreeSnapshot(snapshot.JSON()))
 	if parsed.Digest() != snapshot.Digest() {
 		t.Fatal("canonical round trip changed snapshot")
+	}
+	rendered := parsed.ProcessSnapshots()[0].state.Mailbox.Signals[last].Payload
+	if !bytes.Equal(rendered, root.state.Mailbox.Signals[last].Payload) {
+		t.Fatal("decoded answer differs from the admitted answer")
 	}
 }
 
@@ -135,7 +129,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	return controlValue(newTreeSnapshot(wire))
 }
 
-func TestTreeSnapshotKeepsWaitSignalsSeparated(t *testing.T) {
+func TestTreeSnapshotRendersEachAnswerFromItsOwnWait(t *testing.T) {
 	snapshot := retainedWaitsSnapshotFixture(t, 3)
 	if _, err := ParseTreeSnapshot(snapshot.JSON()); err != nil {
 		t.Fatal(err)
@@ -150,8 +144,19 @@ func TestTreeSnapshotKeepsWaitSignalsSeparated(t *testing.T) {
 			}
 		}
 	})
-	if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
-		t.Fatalf("changed wait escaped its retained signals: %v", err)
+	parsed := controlValue(ParseTreeSnapshot(encoded))
+	boundaries := make(map[string]ChildWaitBoundary)
+	for _, receipt := range parsed.ProcessSnapshots()[0].SignalReceipts() {
+		if pending, ok := receipt.PendingSignal(); ok {
+			satisfied := controlValue(ParseChildWaitSatisfied(pending))
+			boundaries[satisfied.Key().String()] = satisfied.Boundary()
+		}
+	}
+	want := map[string]ChildWaitBoundary{
+		"retained-0": ChildWaitBoundaryDrained, "retained-1": ChildWaitBoundaryResult, "retained-2": ChildWaitBoundaryDrained,
+	}
+	if !maps.Equal(boundaries, want) {
+		t.Fatalf("answer boundaries = %v, want %v", boundaries, want)
 	}
 }
 

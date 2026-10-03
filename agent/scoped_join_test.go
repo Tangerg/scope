@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -210,16 +211,13 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						if !known || !slices.Equal(unresolved, want) || len(state.Outcome.Result().Termination().UnresolvedEffectIDs()) != 0 {
 							t.Fatalf("subtree projection=%v known=%v local result=%+v", unresolved, known, state.Outcome.Result())
 						}
-						validation := controlValue(newTreeSnapshotValidation(parsed.state))
-						if !validation.matchesChildWaitOutcome(*state.Outcome, boundary) {
-							t.Fatal("valid subtree projection rejected")
+						decoded := newDecodedProcesses(len(parsed.state.ProcessSnapshots))
+						for _, snapshot := range parsed.state.ProcessSnapshots {
+							decoded.add(snapshot)
 						}
-						for _, forged := range [][]UnresolvedEffect{{}, {{ProcessID: recoveredScope.ID(), EffectID: want[0].EffectID}}} {
-							outcome := *state.Outcome
-							outcome.subtreeUnresolvedEffects = forged
-							if validation.matchesChildWaitOutcome(outcome, boundary) {
-								t.Fatal("forged subtree projection accepted")
-							}
+						derived := controlValue(decoded.childOutcome(recoveredRoot.ID(), recoveredScope.ID(), boundary))
+						if !bytes.Equal(controlValue(jsonv2.Marshal(derived)), controlValue(jsonv2.Marshal(*state.Outcome))) {
+							t.Fatal("retained subtree projection differs from the captured tree")
 						}
 						unresolved[0] = UnresolvedEffect{}
 						if unchanged, _ := state.Outcome.SubtreeUnresolvedEffects(); !slices.Equal(unchanged, want) {
