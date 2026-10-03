@@ -92,12 +92,12 @@ func decodeProcessSnapshotDocument(data json.RawMessage) (processSnapshotDocumen
 }
 
 // link reports the parent and ChildKey the document names, or false for a root.
-func (d processSnapshotDocument) link() (childIdentity, bool, error) {
+func (p processSnapshotDocument) link() (childIdentity, bool, error) {
 	switch {
-	case d.ParentID == nil && d.ChildKey == nil:
+	case p.ParentID == nil && p.ChildKey == nil:
 		return childIdentity{}, false, nil
-	case d.ParentID != nil && d.ChildKey != nil:
-		return childIdentity{parent: *d.ParentID, key: *d.ChildKey}, true, nil
+	case p.ParentID != nil && p.ChildKey != nil:
+		return childIdentity{parent: *p.ParentID, key: *p.ChildKey}, true, nil
 	default:
 		return childIdentity{}, false, fmt.Errorf("%w: a child needs both its parent and ChildKey", ErrInvalidSnapshot)
 	}
@@ -105,14 +105,14 @@ func (d processSnapshotDocument) link() (childIdentity, bool, error) {
 
 // snapshot completes the record at relation, which the tree derived from its
 // link, and validates it.
-func (d processSnapshotDocument) snapshot(relation ProcessRelation) (ProcessSnapshot, error) {
-	wire := processSnapshotWire(d.processSnapshotRecord)
+func (p processSnapshotDocument) snapshot(relation ProcessRelation) (ProcessSnapshot, error) {
+	wire := processSnapshotWire(p.processSnapshotRecord)
 	wire.Relation = relation
-	if d.Prepared != nil {
+	if p.Prepared != nil {
 		if wire.CommittedSteps == math.MaxUint64 {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 		}
-		prepared, err := d.Prepared.step(wire.ProcessID, wire.CommittedSteps+1)
+		prepared, err := p.Prepared.step(wire.ProcessID, wire.CommittedSteps+1)
 		if err != nil {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step: %w", ErrInvalidSnapshot, err)
 		}

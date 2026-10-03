@@ -138,18 +138,18 @@ func (p preparedEffect) wire() (preparedEffectWire, error) {
 
 // record rebuilds the prepared Effect at id, deriving a Framework settlement
 // from its request and retained failure.
-func (w preparedEffectWire) record(id EffectID) (preparedEffect, error) {
-	record := preparedEffect{ID: id, Effect: w.Effect}
-	if w.Progress == nil {
+func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
+	record := preparedEffect{ID: id, Effect: p.Effect}
+	if p.Progress == nil {
 		return record, nil
 	}
-	record.progress = &effectProgress{diagnostic: w.Progress.Diagnostic}
-	stored := w.Progress.Settlement
+	record.progress = &effectProgress{diagnostic: p.Progress.Diagnostic}
+	stored := p.Progress.Settlement
 	if stored == nil {
 		return record, nil
 	}
 	var settlement Settlement
-	if w.Effect.Target() != EffectTargetFramework {
+	if p.Effect.Target() != EffectTargetFramework {
 		if stored.Failure != nil {
 			return preparedEffect{}, errors.New("prepared Dispatcher settlement stores a Framework failure")
 		}
@@ -161,7 +161,7 @@ func (w preparedEffectWire) record(id EffectID) (preparedEffect, error) {
 		if stored.Status != SettlementStatusInvalid || stored.Payload != nil {
 			return preparedEffect{}, errors.New("prepared Framework settlement stores what its request determines")
 		}
-		operation, err := decodeFrameworkOperation(w.Effect.payload)
+		operation, err := decodeFrameworkOperation(p.Effect.payload)
 		if err != nil {
 			return preparedEffect{}, err
 		}
