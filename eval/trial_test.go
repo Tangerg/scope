@@ -43,7 +43,7 @@ func TestTrialPreservesCandidateAndIndependentAssessmentFailure(t *testing.T) {
 	if err != nil || result.Execution == nil || result.ExecutionError != nil {
 		t.Fatalf("Run() = %+v, %v", result, err)
 	}
-	if got := result.Case.Result.Results; len(got) != 2 || got[0].Status != eval.AssessmentCompleted || got[1].Status != eval.AssessmentFailed || !errors.Is(got[1].Err, graderError) {
+	if got := result.Case.Result.Results; len(got) != 2 || got[0].Status() != eval.AssessmentCompleted || got[1].Status() != eval.AssessmentFailed || !errors.Is(got[1].Err, graderError) {
 		t.Fatalf("independent assessments = %+v", got)
 	}
 	if result.Case.Result.Complete() || result.Case.Result.Verdict() != eval.VerdictUnspecified {
@@ -82,7 +82,7 @@ func TestTrialDiscardsInvalidTargetReceiptAndKeepsPlannedAssessments(t *testing.
 		if err == nil || result.Execution != nil || result.ExecutionError == nil {
 			t.Fatalf("invalid receipt accepted: %+v, %v", result, err)
 		}
-		if got := result.Case.Result.Results; len(got) != 1 || got[0].ID != "official-tests" || got[0].Status != eval.AssessmentNotEvaluated || got[0].Report != nil {
+		if got := result.Case.Result.Results; len(got) != 1 || got[0].ID != "official-tests" || got[0].Status() != eval.AssessmentNotEvaluated || got[0].Report != nil {
 			t.Fatalf("planned assessment lost: %+v", got)
 		}
 	}
@@ -110,7 +110,7 @@ func TestTrialPreservesReceiptWhenContextStopsBeforeGrading(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || result.Execution == nil || result.Execution.Output == nil || *result.Execution.Output != "" {
 		t.Fatalf("canceled receipt = %+v, %v", result, err)
 	}
-	if got := result.Case.Result.Results[0]; got.Status != eval.AssessmentNotEvaluated || !errors.Is(got.Err, context.Canceled) {
+	if got := result.Case.Result.Results[0]; got.Status() != eval.AssessmentNotEvaluated || !errors.Is(got.Err, context.Canceled) {
 		t.Fatalf("canceled assessment = %+v", got)
 	}
 }

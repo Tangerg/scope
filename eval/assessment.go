@@ -38,20 +38,16 @@ func (a Assessment[T]) Validate() error {
 
 func (a Assessment[T]) run(ctx context.Context, subject T) AssessmentResult {
 	if err := ctx.Err(); err != nil {
-		return AssessmentResult{ID: a.ID, Status: AssessmentNotEvaluated, Err: ErrNotEvaluated}
+		return AssessmentResult{ID: a.ID, Err: errors.Join(ErrNotEvaluated, err)}
 	}
 	report, err := a.Evaluator.Evaluate(ctx, subject)
 	if err == nil {
 		err = report.Validate()
 	}
 	if err != nil {
-		status := AssessmentFailed
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			status = AssessmentCanceled
-		}
-		return AssessmentResult{ID: a.ID, Status: status, Err: err}
+		return AssessmentResult{ID: a.ID, Err: err}
 	}
-	return AssessmentResult{ID: a.ID, Status: AssessmentCompleted, Report: &report}
+	return AssessmentResult{ID: a.ID, Report: &report}
 }
 
 // AssessmentStatus describes execution, independently of a quality verdict.
@@ -66,33 +62,40 @@ const (
 
 // AssessmentResult has a Report only after successful evaluation. A failed
 // evaluator's returned Report is discarded under the Evaluator contract.
+// ErrNotEvaluated marks work that never started, preserving any cause through
+// errors.Is. Status is derived from these facts rather than stored separately.
 type AssessmentResult struct {
 	ID     AssessmentID
-	Status AssessmentStatus
 	Report *Report
 	Err    error
+}
+
+// Status is zero when result facts are missing or competing.
+func (a AssessmentResult) Status() AssessmentStatus {
+	if (a.Report != nil) == (a.Err != nil) {
+		return ""
+	}
+	switch {
+	case errors.Is(a.Err, ErrNotEvaluated):
+		return AssessmentNotEvaluated
+	case errors.Is(a.Err, context.Canceled), errors.Is(a.Err, context.DeadlineExceeded):
+		return AssessmentCanceled
+	case a.Err != nil:
+		return AssessmentFailed
+	default:
+		return AssessmentCompleted
+	}
 }
 
 func (a AssessmentResult) Validate() error {
 	if err := a.ID.Validate(); err != nil {
 		return err
 	}
-	switch a.Status {
-	case AssessmentCompleted:
-		if a.Err != nil || a.Report == nil {
-			return fmt.Errorf("%w: completed assessment %q requires a report and no error", ErrInvalidAssessment, a.ID)
-		}
+	if a.Status() == "" {
+		return fmt.Errorf("%w: assessment %q requires either a report or an error", ErrInvalidAssessment, a.ID)
+	}
+	if a.Report != nil {
 		return a.Report.Validate()
-	case AssessmentFailed, AssessmentCanceled, AssessmentNotEvaluated:
-		if a.Err == nil || a.Report != nil {
-			return fmt.Errorf("%w: incomplete assessment %q requires an error and no report", ErrInvalidAssessment, a.ID)
-		}
-		canceled := errors.Is(a.Err, context.Canceled) || errors.Is(a.Err, context.DeadlineExceeded)
-		if a.Status == AssessmentCanceled && !canceled || a.Status == AssessmentFailed && canceled {
-			return fmt.Errorf("%w: assessment %q status does not match its cancellation error", ErrInvalidAssessment, a.ID)
-		}
-	default:
-		return fmt.Errorf("%w: assessment %q has unknown status %q", ErrInvalidAssessment, a.ID, a.Status)
 	}
 	return nil
 }

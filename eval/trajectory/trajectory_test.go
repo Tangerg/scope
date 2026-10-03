@@ -101,7 +101,7 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	}
 	call := recorded.ToolCalls()[0]
 	if call.Call.Name != "weather" || call.Call.Arguments != `{"city":"Paris"}` ||
-		call.Outcome != trajectory.ToolOutcomeSucceeded || call.Result == nil {
+		call.Outcome() != trajectory.ToolOutcomeSucceeded || call.Result == nil {
 		t.Fatalf("recorded tool call = %#v", call)
 	}
 }
@@ -289,7 +289,7 @@ func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
 			call := trajectory.ToolCall{
 				EffectID: effectID, ProcessID: processID, StepSequence: 1, ModelCall: 1,
 				Call:    chat.ToolCall{ID: "call-1", Name: "weather", Arguments: raw},
-				Outcome: trajectory.ToolOutcomeUnknown,
+				Unknown: true,
 			}
 			if validateErr := call.Validate(); !errors.Is(validateErr, trajectory.ErrInvalidTrajectory) {
 				t.Fatalf("ToolCall.Validate = %v, want ErrInvalidTrajectory", validateErr)

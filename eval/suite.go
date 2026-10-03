@@ -68,7 +68,7 @@ func (s *Suite[T]) Run(ctx context.Context, subject T) (SuiteResult, error) {
 	if s == nil || len(s.assessments) == 0 {
 		return SuiteResult{}, fmt.Errorf("%w: uninitialized suite", ErrInvalidEvaluatorConfig)
 	}
-	result := s.unevaluated(ErrNotEvaluated)
+	result := s.unevaluated(nil)
 	group := new(errgroup.Group)
 	groupContext := ctx
 	if s.errorPolicy == ErrorFailFast {
@@ -90,8 +90,8 @@ func (s *Suite[T]) Run(ctx context.Context, subject T) (SuiteResult, error) {
 	runErr := group.Wait()
 	if err := ctx.Err(); err != nil {
 		for index := range result.Results {
-			if result.Results[index].Status == AssessmentNotEvaluated {
-				result.Results[index].Err = err
+			if result.Results[index].Status() == AssessmentNotEvaluated {
+				result.Results[index].Err = errors.Join(ErrNotEvaluated, err)
 			}
 		}
 		return result, err
@@ -102,7 +102,7 @@ func (s *Suite[T]) Run(ctx context.Context, subject T) (SuiteResult, error) {
 func (s *Suite[T]) unevaluated(err error) SuiteResult {
 	result := SuiteResult{Results: make([]AssessmentResult, len(s.assessments))}
 	for index, assessment := range s.assessments {
-		result.Results[index] = AssessmentResult{ID: assessment.ID, Status: AssessmentNotEvaluated, Err: err}
+		result.Results[index] = AssessmentResult{ID: assessment.ID, Err: errors.Join(ErrNotEvaluated, err)}
 	}
 	return result
 }
@@ -150,7 +150,7 @@ func (s SuiteResult) Complete() bool {
 		return false
 	}
 	for _, result := range s.Results {
-		if result.Status != AssessmentCompleted {
+		if result.Status() != AssessmentCompleted {
 			return false
 		}
 	}

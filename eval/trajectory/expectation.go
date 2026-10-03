@@ -100,10 +100,10 @@ func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
 			return false, nil
 		}
 	}
-	if actual.Outcome == ToolOutcomeUnknown && t.Outcome != ToolOutcomeInvalid && t.Outcome != ToolOutcomeUnknown {
+	if actual.Outcome() == ToolOutcomeUnknown && t.Outcome != ToolOutcomeInvalid && t.Outcome != ToolOutcomeUnknown {
 		return false, fmt.Errorf("%w: Tool outcome is unknown; expected %s", ErrIncompleteRecording, t.Outcome)
 	}
-	return t.Outcome == ToolOutcomeInvalid || actual.Outcome == t.Outcome, nil
+	return t.Outcome == ToolOutcomeInvalid || actual.Outcome() == t.Outcome, nil
 }
 
 // Limits defines optional upper bounds. Pointers distinguish an asserted zero

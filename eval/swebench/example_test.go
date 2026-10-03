@@ -106,7 +106,7 @@ func ExampleSubmission_Collect() {
 	report, err := experiment.Run(ctx)
 	check(err)
 	fmt.Printf("official: %d/%d resolved\n", collection.Summary().Resolved, collection.Summary().Total)
-	fmt.Println("assessment:", report.Cases()[0].Result.Results[0].Status)
+	fmt.Println("assessment:", report.Cases()[0].Result.Results[0].Status())
 	fmt.Println("decision:", report.Cases()[0].Result.Results[0].Report.Verdict())
 	// Output:
 	// harness: swebench.harness.run_evaluation

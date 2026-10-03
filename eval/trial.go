@@ -54,7 +54,7 @@ func (t *Trial[I, O]) Run(ctx context.Context, caseValue Case[I]) (TrialResult[O
 		return TrialResult[O]{}, err
 	}
 	result := TrialResult[O]{Case: CaseResult{
-		ID: caseValue.ID, Metadata: caseValue.Metadata.Clone(), Result: t.suite.unevaluated(ErrNotEvaluated),
+		ID: caseValue.ID, Metadata: caseValue.Metadata.Clone(), Result: t.suite.unevaluated(nil),
 	}}
 	if err := ctx.Err(); err != nil {
 		result.ExecutionError = err

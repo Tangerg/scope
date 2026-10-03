@@ -25,7 +25,7 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 		if err := second.AttemptID.UnmarshalText([]byte(identities[1])); err != nil {
 			t.Fatal(err)
 		}
-		first.Outcome, first.Result, first.Failure = trajectory.ToolOutcomeUnknown, nil, "uncertain first attempt"
+		first.Unknown, first.Result, first.Failure = true, nil, "uncertain first attempt"
 		config.ToolCalls = []trajectory.ToolCall{first, second}
 		var events []agent.Event
 		var started agent.Event

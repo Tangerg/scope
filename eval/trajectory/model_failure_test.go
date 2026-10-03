@@ -102,7 +102,7 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 					t.Fatal(err)
 				}
 				calls := recorded.ModelCalls()
-				if len(calls) != 1 || calls[0].Outcome != trajectory.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
+				if len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
 					t.Fatalf("failed model evidence = %+v", calls)
 				}
 				call := calls[0]
@@ -173,7 +173,7 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 		if recorded.Termination().Valid() || !recorded.Output().IsZero() || recorded.HistoryComplete() {
 			t.Fatal("runtime failure invented a committed root result")
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != trajectory.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
 			t.Fatalf("observed response was retracted: %+v", calls)
 		}
 		stopped := false
@@ -248,7 +248,7 @@ func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T)
 			t.Fatalf("two attempts did not satisfy physical coverage: %v", digestErr)
 		}
 		for _, call := range recorded.ModelCalls() {
-			if call.AttemptID == firstID && call.Outcome != trajectory.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome != trajectory.ModelOutcomeSucceeded {
+			if call.AttemptID == firstID && call.Outcome() != trajectory.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome() != trajectory.ModelOutcomeSucceeded {
 				t.Fatal("replay overwrote the earlier Unknown")
 			}
 		}
@@ -301,7 +301,7 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != trajectory.ModelOutcomeUnknown {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeUnknown {
 			t.Fatalf("investigation rewrote physical history: %+v", calls)
 		}
 		resolved := false

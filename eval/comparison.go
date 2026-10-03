@@ -149,7 +149,7 @@ func caseObservations(cases []CaseResult, key observationKey) (map[CaseID]*Repor
 	observations := make(map[CaseID]*Report, len(cases))
 	for _, result := range cases {
 		for _, assessment := range result.Result.Results {
-			if assessment.ID != key.assessment || assessment.Status != AssessmentCompleted {
+			if assessment.ID != key.assessment || assessment.Status() != AssessmentCompleted {
 				continue
 			}
 			identity, err := assessment.Report.Metric.identity()

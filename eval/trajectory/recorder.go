@@ -22,23 +22,18 @@ const (
 	MaxRecordingCalls  = 8192
 )
 
-type modelObservation struct {
-	call    ModelCall
-	started bool
-	settled bool
-}
-
+// Admission can settle a tool without starting execution, so the start
+// observation is independent of the settlement that determines Outcome.
 type toolObservation struct {
 	call    ToolCall
 	started bool
-	settled bool
 }
 
 // recordedEvidence is mutated only under its recording's lock and only until
 // seal hands it to Take.
 type recordedEvidence struct {
 	events    []agent.Event
-	models    map[attemptIdentity]modelObservation
+	models    map[attemptIdentity]ModelCall
 	tools     map[attemptIdentity]toolObservation
 	startedAt time.Time
 	gaps      EvidenceGaps
@@ -61,40 +56,31 @@ func (r *recordedEvidence) appendEvent(event agent.Event) {
 
 func (r *recordedEvidence) startModel(invocation interaction.ModelInvocation, request *chat.Request) {
 	identity := modelAttempt(invocation)
-	observation, exists := r.models[identity]
-	if !exists && r.callsFull() || observation.started {
+	_, exists := r.models[identity]
+	if r.callsFull() || exists {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	observation.call = ModelCall{
+	r.models[identity] = ModelCall{
 		ProcessID: identity.processID, TreeIncarnationID: identity.incarnation,
 		EffectID: identity.effectID, AttemptID: identity.attemptID, StepSequence: invocation.StepSequence(),
-		CallSequence: invocation.ModelCallSequence(), Request: request.Clone(), Outcome: ModelOutcomeUnobserved,
+		CallSequence: invocation.ModelCallSequence(), Request: request.Clone(),
 	}
-	observation.started = true
-	r.models[identity] = observation
 }
 
 func (r *recordedEvidence) settleModel(invocation interaction.ModelInvocation, settlement interaction.ModelSettlement) {
 	identity := modelAttempt(invocation)
-	observation, exists := r.models[identity]
-	if !exists || observation.settled {
+	call, exists := r.models[identity]
+	if !exists || call.Outcome() != ModelOutcomeUnobserved {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	switch {
-	case settlement.Response != nil && !settlement.Unknown && settlement.Failure == "":
-		observation.call.Outcome = ModelOutcomeSucceeded
-		observation.call.Response = settlement.Response.Clone()
-	case settlement.Response == nil && settlement.Unknown:
-		observation.call.Outcome = ModelOutcomeUnknown
-		observation.call.Failure = settlement.Failure
-	default:
+	call.Response, call.Unknown, call.Failure = settlement.Response.Clone(), settlement.Unknown, settlement.Failure
+	if call.Outcome() == ModelOutcomeUnobserved || call.Validate() != nil {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	observation.settled = true
-	r.models[identity] = observation
+	r.models[identity] = call
 }
 
 func (r *recordedEvidence) startTool(invocation interaction.ToolInvocation) {
@@ -103,8 +89,8 @@ func (r *recordedEvidence) startTool(invocation interaction.ToolInvocation) {
 		return
 	}
 	identity, call := recordedInvocation(invocation)
-	observation := r.tools[identity]
-	if observation.started {
+	observation, exists := r.tools[identity]
+	if exists {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
@@ -116,23 +102,20 @@ func (r *recordedEvidence) startTool(invocation interaction.ToolInvocation) {
 func (r *recordedEvidence) settleTool(invocation interaction.ToolInvocation, settlement interaction.ToolSettlement) {
 	identity, call := recordedInvocation(invocation)
 	observation, exists := r.tools[identity]
-	if !exists && r.callsFull() || observation.settled {
+	if !exists && r.callsFull() || exists && observation.call.Outcome() != ToolOutcomeUnobserved {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	outcome, result, failure := recordedOutcome(settlement)
-	if outcome == ToolOutcomeInvalid {
+	if exists {
+		call = observation.call
+	}
+	call.Result, call.InputRequired, call.Unknown, call.Failure = settlement.Result, settlement.InputRequired, settlement.Unknown, settlement.Failure
+	call.Evidence = settlement.Evidence
+	if call.Outcome() == ToolOutcomeUnobserved || call.Validate() != nil {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	if !observation.started {
-		observation.call = call
-	}
-	observation.call.Outcome, observation.call.Result, observation.call.Failure = outcome, result, failure
-	if settlement.Evidence != nil {
-		observation.call.Evidence = new(settlement.Evidence.Clone())
-	}
-	observation.settled = true
+	observation.call = call.Clone()
 	r.tools[identity] = observation
 }
 
@@ -142,14 +125,14 @@ func (r *recordedEvidence) calls() ([]ModelCall, []ToolCall) {
 		observed[event.ProcessID()] = true
 	}
 	var models []ModelCall
-	for _, observation := range r.models {
-		if r.retain(observed, observation.call.ProcessID, observation.started && observation.settled) {
-			models = append(models, observation.call)
+	for _, call := range r.models {
+		if r.retain(observed, call.ProcessID, call.Outcome() != ModelOutcomeUnobserved) {
+			models = append(models, call)
 		}
 	}
 	var tools []ToolCall
 	for _, observation := range r.tools {
-		if r.retain(observed, observation.call.ProcessID, observation.started && observation.settled) {
+		if r.retain(observed, observation.call.ProcessID, observation.started && observation.call.Outcome() != ToolOutcomeUnobserved) {
 			tools = append(tools, observation.call)
 		}
 	}
@@ -185,7 +168,7 @@ type recording struct {
 
 func newRecording(event agent.Event) *recording {
 	entry := &recording{recordedEvidence: recordedEvidence{
-		models: make(map[attemptIdentity]modelObservation),
+		models: make(map[attemptIdentity]ModelCall),
 		tools:  make(map[attemptIdentity]toolObservation),
 	}}
 	if event.Name() == agent.EventProcessStarted {
@@ -377,36 +360,7 @@ func recordedInvocation(invocation interaction.ToolInvocation) (attemptIdentity,
 	call := ToolCall{
 		ProcessID: identity.processID, TreeIncarnationID: incarnation, EffectID: identity.effectID, AttemptID: attempt,
 		StepSequence: invocation.StepSequence(), ModelCall: invocation.ModelCallSequence(),
-		Index: invocation.ToolCallIndex(), Call: invocation.ToolCall(), Outcome: ToolOutcomeUnobserved,
+		Index: invocation.ToolCallIndex(), Call: invocation.ToolCall(),
 	}
 	return identity, call
-}
-
-func recordedOutcome(settlement interaction.ToolSettlement) (ToolOutcome, *chat.ToolResult, string) {
-	modes := 0
-	for _, selected := range [...]bool{
-		settlement.Result != nil, settlement.InputRequired,
-		settlement.Failure != "" && !settlement.Unknown, settlement.Unknown,
-	} {
-		if selected {
-			modes++
-		}
-	}
-	if modes != 1 || settlement.Evidence != nil && !settlement.Unknown {
-		return ToolOutcomeInvalid, nil, ""
-	}
-	switch {
-	case settlement.Result != nil:
-		result := settlement.Result.Clone()
-		if result.IsError {
-			return ToolOutcomeError, &result, ""
-		}
-		return ToolOutcomeSucceeded, &result, ""
-	case settlement.InputRequired:
-		return ToolOutcomeInputRequired, nil, ""
-	case settlement.Unknown:
-		return ToolOutcomeUnknown, nil, settlement.Failure
-	default:
-		return ToolOutcomeFailed, nil, settlement.Failure
-	}
 }

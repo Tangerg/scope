@@ -83,7 +83,7 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := recorded.ToolCalls()
-	if len(calls) != 1 || calls[0].Outcome != trajectory.ToolOutcomeUnknown ||
+	if len(calls) != 1 || calls[0].Outcome() != trajectory.ToolOutcomeUnknown ||
 		calls[0].Result != nil || calls[0].Evidence == nil || calls[0].Evidence.Content[0].Text != "partial observation" || !strings.Contains(calls[0].Failure, "tool boundary unavailable") {
 		t.Fatalf("host failure recording = %#v", calls)
 	}
@@ -136,7 +136,7 @@ func TestIncompleteTakeConsumesSessionAndLateCallbacksDoNotReopenIt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if incomplete.HistoryComplete() || incomplete.Gaps().UnpairedCalls != 1 || len(incomplete.ToolCalls()) != 1 || incomplete.ToolCalls()[0].Outcome != trajectory.ToolOutcomeUnobserved {
+	if incomplete.HistoryComplete() || incomplete.Gaps().UnpairedCalls != 1 || len(incomplete.ToolCalls()) != 1 || incomplete.ToolCalls()[0].Outcome() != trajectory.ToolOutcomeUnobserved {
 		t.Fatalf("unpaired evidence was hidden: gaps=%+v calls=%+v", incomplete.Gaps(), incomplete.ToolCalls())
 	}
 	recorder.OnToolSettled(t.Context(), observer.invocation, observer.settlement)
@@ -163,7 +163,39 @@ func TestMalformedToolSettlementBecomesObservationGap(t *testing.T) {
 		t.Fatalf("malformed settlement was not an explicit gap: %+v", gaps)
 	}
 	calls := recorded.ToolCalls()
-	if len(calls) != 1 || calls[0].Outcome != trajectory.ToolOutcomeUnobserved || calls[0].Result != nil || calls[0].Evidence != nil {
+	if len(calls) != 1 || calls[0].Outcome() != trajectory.ToolOutcomeUnobserved || calls[0].Result != nil || calls[0].Evidence != nil {
 		t.Fatalf("malformed settlement became evidence: %+v", calls)
+	}
+}
+
+type settlementOnlyObserver struct {
+	*trajectory.Recorder
+	invocation interaction.ToolInvocation
+	settlement interaction.ToolSettlement
+}
+
+func (s *settlementOnlyObserver) OnToolStarted(context.Context, interaction.ToolInvocation) {}
+
+func (s *settlementOnlyObserver) OnToolSettled(ctx context.Context, invocation interaction.ToolInvocation, settlement interaction.ToolSettlement) {
+	s.invocation, s.settlement = invocation, settlement
+	s.Recorder.OnToolSettled(ctx, invocation, settlement)
+}
+
+func TestLateToolStartPreservesObservedSettlement(t *testing.T) {
+	recorder := new(trajectory.Recorder)
+	observer := &settlementOnlyObserver{Recorder: recorder}
+	process := runRecordedInteraction(t, recorder, observer, fixtureWeatherTool{})
+	recorder.OnToolStarted(t.Context(), observer.invocation)
+	recorder.OnToolSettled(t.Context(), observer.invocation, observer.settlement)
+	recorded, err := recorder.Take(t.Context(), process, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gaps := recorded.Gaps(); gaps.DroppedCallObservations != 2 || gaps.UnpairedCalls != 1 {
+		t.Fatalf("duplicate callbacks were not explicit observation gaps: %+v", gaps)
+	}
+	calls := recorded.ToolCalls()
+	if len(calls) != 1 || calls[0].Outcome() != trajectory.ToolOutcomeSucceeded || calls[0].Result == nil {
+		t.Fatalf("late start overwrote the settled tool call: %+v", calls)
 	}
 }

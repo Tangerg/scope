@@ -195,8 +195,8 @@ type metricSamples struct {
 func (s *summaryBuilder) add(result CaseResult) error {
 	s.countCase(result.Result)
 	for _, assessment := range result.Result.Results {
-		s.assessment(assessment.ID).count(assessment.Status)
-		if assessment.Status != AssessmentCompleted {
+		s.assessment(assessment.ID).count(assessment.Status())
+		if assessment.Status() != AssessmentCompleted {
 			continue
 		}
 		if err := s.observe(assessment.ID, *assessment.Report); err != nil {
@@ -210,7 +210,7 @@ func (s *summaryBuilder) countCase(result SuiteResult) {
 	if !result.Complete() {
 		s.summary.Errors++
 		if slices.ContainsFunc(result.Results, func(assessment AssessmentResult) bool {
-			return assessment.Status == AssessmentCompleted
+			return assessment.Status() == AssessmentCompleted
 		}) {
 			s.summary.Partial++
 		}

@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// ToolOutcome is the complete host-boundary outcome of one started Tool call.
+// ToolOutcome classifies the retained settlement of one Tool call.
 type ToolOutcome string
 
 const (
@@ -57,9 +57,27 @@ type ModelCall struct {
 	StepSequence      uint64                  `json:"step_sequence"`
 	CallSequence      uint64                  `json:"call_sequence"`
 	Request           *chat.Request           `json:"request"`
-	Outcome           ModelOutcome            `json:"outcome"`
 	Response          *chat.Response          `json:"response,omitzero"`
+	Unknown           bool                    `json:"unknown,omitzero"`
 	Failure           string                  `json:"failure,omitempty"`
+}
+
+// Outcome derives completion from the response or explicit uncertainty.
+// Without either, the settlement was not observed. Competing facts are invalid.
+func (m ModelCall) Outcome() ModelOutcome {
+	if m.Response != nil {
+		if m.Unknown || m.Failure != "" {
+			return ModelOutcomeInvalid
+		}
+		return ModelOutcomeSucceeded
+	}
+	if m.Unknown {
+		return ModelOutcomeUnknown
+	}
+	if m.Failure != "" {
+		return ModelOutcomeInvalid
+	}
+	return ModelOutcomeUnobserved
 }
 
 func (m ModelCall) Clone() ModelCall {
@@ -79,17 +97,11 @@ func (m ModelCall) Validate() error {
 }
 
 func (m ModelCall) validateSettlement() error {
-	if !m.Outcome.Valid() || m.Failure != strings.TrimSpace(m.Failure) {
+	if m.Outcome() == ModelOutcomeInvalid || m.Failure != strings.TrimSpace(m.Failure) {
 		return fmt.Errorf("%w: invalid model outcome", ErrInvalidTrajectory)
 	}
-	if m.Outcome != ModelOutcomeSucceeded {
-		if m.Response != nil || m.Outcome == ModelOutcomeUnobserved && m.Failure != "" {
-			return fmt.Errorf("%w: unresolved model call cannot carry a response", ErrInvalidTrajectory)
-		}
+	if m.Response == nil {
 		return nil
-	}
-	if m.Response == nil || m.Failure != "" {
-		return fmt.Errorf("%w: successful model call requires one response", ErrInvalidTrajectory)
 	}
 	if err := m.Response.Validate(); err != nil {
 		return fmt.Errorf("%w: model response: %w", ErrInvalidTrajectory, err)
@@ -114,7 +126,8 @@ func (m ModelCall) toolDecisions() []chat.ToolCall {
 	return decisions
 }
 
-// ToolCall is one settled Tool boundary attributed to an Agent Process Step.
+// ToolCall records a Tool boundary attributed to an Agent Process Step.
+// Outcome distinguishes its retained settlement from a missing observation.
 type ToolCall struct {
 	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
 	EffectID          agent.EffectID          `json:"effect_id"`
@@ -124,13 +137,44 @@ type ToolCall struct {
 	ModelCall         uint64                  `json:"model_call"`
 	Index             uint32                  `json:"index"`
 	Call              chat.ToolCall           `json:"call"`
-	Outcome           ToolOutcome             `json:"outcome"`
 	Result            *chat.ToolResult        `json:"result,omitzero"`
+	InputRequired     bool                    `json:"input_required,omitzero"`
+	Unknown           bool                    `json:"unknown,omitzero"`
 	// Evidence is non-final output for Unknown. It is never a ToolResult.
 	Evidence *chat.ToolOutput `json:"evidence,omitzero"`
 	// Failure describes a failed call or diagnoses an unknown outcome without
 	// claiming that the external operation definitely failed.
 	Failure string `json:"failure,omitempty"`
+}
+
+// Outcome projects the retained settlement. Result alone owns its success or
+// error classification; uncertainty is distinct from a missing observation.
+// Competing settlement facts have an invalid outcome.
+func (t ToolCall) Outcome() ToolOutcome {
+	modes := 0
+	for _, selected := range [...]bool{t.Result != nil, t.InputRequired, t.Unknown, t.Failure != "" && !t.Unknown} {
+		if selected {
+			modes++
+		}
+	}
+	if modes > 1 {
+		return ToolOutcomeInvalid
+	}
+	switch {
+	case t.Result != nil:
+		if t.Result.IsError {
+			return ToolOutcomeError
+		}
+		return ToolOutcomeSucceeded
+	case t.Unknown:
+		return ToolOutcomeUnknown
+	case t.InputRequired:
+		return ToolOutcomeInputRequired
+	case t.Failure != "":
+		return ToolOutcomeFailed
+	default:
+		return ToolOutcomeUnobserved
+	}
 }
 
 func (t ToolCall) Clone() ToolCall {
@@ -154,9 +198,6 @@ func (t ToolCall) Validate() error {
 	if _, err := canonicalArguments(t.Call.Arguments); err != nil {
 		return fmt.Errorf("%w: tool call arguments: %w", ErrInvalidTrajectory, err)
 	}
-	if !t.Outcome.Valid() {
-		return fmt.Errorf("%w: tool outcome is invalid", ErrInvalidTrajectory)
-	}
 	if err := t.validateEvidence(); err != nil {
 		return err
 	}
@@ -170,7 +211,7 @@ func (t ToolCall) validateEvidence() error {
 	if t.Evidence == nil {
 		return nil
 	}
-	if t.Outcome != ToolOutcomeUnknown {
+	if t.Outcome() != ToolOutcomeUnknown {
 		return fmt.Errorf("%w: only unknown tool calls may retain non-final evidence", ErrInvalidTrajectory)
 	}
 	if err := t.Evidence.Validate(); err != nil {
@@ -180,28 +221,8 @@ func (t ToolCall) validateEvidence() error {
 }
 
 func (t ToolCall) validateSettlement() error {
-	switch t.Outcome {
-	case ToolOutcomeSucceeded:
-		if t.Result == nil || t.Result.IsError || t.Failure != "" {
-			return fmt.Errorf("%w: succeeded tool call requires one non-error result", ErrInvalidTrajectory)
-		}
-	case ToolOutcomeError:
-		if t.Result == nil || !t.Result.IsError || t.Failure != "" {
-			return fmt.Errorf("%w: error tool call requires one error result", ErrInvalidTrajectory)
-		}
-	case ToolOutcomeFailed:
-		failure := strings.TrimSpace(t.Failure)
-		if t.Result != nil || failure == "" || t.Failure != failure {
-			return fmt.Errorf("%w: failed tool call requires one failure", ErrInvalidTrajectory)
-		}
-	case ToolOutcomeInputRequired, ToolOutcomeUnobserved:
-		if t.Result != nil || t.Failure != "" {
-			return fmt.Errorf("%w: %s tool call cannot carry a result or failure", ErrInvalidTrajectory, t.Outcome)
-		}
-	case ToolOutcomeUnknown:
-		if t.Result != nil || t.Failure != strings.TrimSpace(t.Failure) {
-			return fmt.Errorf("%w: unknown tool call permits only an optional failure diagnostic", ErrInvalidTrajectory)
-		}
+	if t.Outcome() == ToolOutcomeInvalid || t.Failure != strings.TrimSpace(t.Failure) {
+		return fmt.Errorf("%w: tool call carries competing settlements or an invalid failure diagnostic", ErrInvalidTrajectory)
 	}
 	return nil
 }

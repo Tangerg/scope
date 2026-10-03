@@ -73,7 +73,7 @@ type behaviorToolDecision struct {
 }
 
 func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
-	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome}
+	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome()}
 	for _, decision := range call.toolDecisions() {
 		arguments, err := canonicalArguments(decision.Arguments)
 		if err != nil {
@@ -109,7 +109,7 @@ func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
 	tool := behaviorTool{
 		ProcessPath: path, Step: call.StepSequence,
 		ModelCall: call.ModelCall, Index: call.Index, Name: call.Call.Name,
-		Arguments: arguments, Outcome: call.Outcome,
+		Arguments: arguments, Outcome: call.Outcome(),
 	}
 	if call.Result != nil {
 		result := call.Result.Clone()

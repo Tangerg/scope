@@ -41,9 +41,9 @@ func TestSuiteCollectPreservesIndependentSuccessAndFailure(t *testing.T) {
 				t.Fatalf("assessment[%d] identity = %q", index, result.Results[index].ID)
 			}
 		}
-		if result.Results[0].Status != eval.AssessmentCompleted || result.Results[0].Report == nil ||
-			result.Results[1].Status != eval.AssessmentFailed || result.Results[1].Report != nil ||
-			result.Results[2].Status != eval.AssessmentCompleted || result.Results[2].Report == nil {
+		if result.Results[0].Status() != eval.AssessmentCompleted || result.Results[0].Report == nil ||
+			result.Results[1].Status() != eval.AssessmentFailed || result.Results[1].Report != nil ||
+			result.Results[2].Status() != eval.AssessmentCompleted || result.Results[2].Report == nil {
 			t.Fatalf("partial results were lost or an error report was consumed: %#v", result.Results)
 		}
 		report, err := eval.NewExperimentReport("fixed-input", []eval.CaseResult{{ID: "case", Result: result}})
@@ -96,7 +96,7 @@ func TestSuiteCollectDoesNotCancelAnInFlightIndependentAssessment(t *testing.T) 
 		synctest.Wait()
 		close(release)
 		<-done
-		if runErr != nil || result.Results[1].Status != eval.AssessmentCompleted || result.Results[1].Report == nil {
+		if runErr != nil || result.Results[1].Status() != eval.AssessmentCompleted || result.Results[1].Report == nil {
 			t.Fatalf("independent assessment canceled: %#v, %v", result, runErr)
 		}
 	})
@@ -129,7 +129,7 @@ func TestSuiteFailFastAndCancellationKeepAllPlannedIdentities(t *testing.T) {
 		if canceled {
 			wantStatus, wantError = eval.AssessmentCanceled, context.Canceled
 		}
-		if !errors.Is(err, wantError) || result.Validate() != nil || len(result.Results) != 2 || result.Results[0].ID != "first" || result.Results[0].Status != wantStatus || result.Results[1].ID != "later" || result.Results[1].Status != eval.AssessmentNotEvaluated {
+		if !errors.Is(err, wantError) || result.Validate() != nil || len(result.Results) != 2 || result.Results[0].ID != "first" || result.Results[0].Status() != wantStatus || result.Results[1].ID != "later" || result.Results[1].Status() != eval.AssessmentNotEvaluated {
 			t.Fatalf("fail-fast result = %#v, %v", result, err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestSuiteValidatesIdentityAndRejectsInvalidEvaluatorReports(t *testing.T) {
 	}
 	suite := testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) { return eval.Report{}, nil }))
 	result, err := suite.Run(t.Context(), 1)
-	if err != nil || result.Results[0].ID != "evaluation" || result.Results[0].Status != eval.AssessmentFailed || result.Results[0].Report != nil || !errors.Is(result.Err(), eval.ErrInvalidReport) {
+	if err != nil || result.Results[0].ID != "evaluation" || result.Results[0].Status() != eval.AssessmentFailed || result.Results[0].Report != nil || !errors.Is(result.Err(), eval.ErrInvalidReport) {
 		t.Fatalf("invalid evaluator report accepted: %#v, %v", result, err)
 	}
 }

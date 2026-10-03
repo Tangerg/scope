@@ -757,10 +757,10 @@ type classifiedAttempt struct {
 func (t Trajectory) semanticCalls() []semanticCall {
 	calls := make([]semanticCall, 0, len(t.modelCalls)+len(t.toolCalls))
 	for _, call := range t.modelCalls {
-		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome == ModelOutcomeUnobserved})
+		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome() == ModelOutcomeUnobserved})
 	}
 	for _, call := range t.toolCalls {
-		calls = append(calls, semanticCall{effectRoleTool, call.attempt(), call.StepSequence, call.Outcome == ToolOutcomeUnobserved})
+		calls = append(calls, semanticCall{effectRoleTool, call.attempt(), call.StepSequence, call.Outcome() == ToolOutcomeUnobserved})
 	}
 	return calls
 }

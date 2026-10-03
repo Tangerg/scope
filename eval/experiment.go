@@ -82,7 +82,7 @@ func (e Experiment[T]) Run(ctx context.Context) (ExperimentReport, error) {
 	cases := e.dataset.cases
 	results := make([]CaseResult, len(cases))
 	for index, caseValue := range cases {
-		results[index] = CaseResult{ID: caseValue.ID, Metadata: caseValue.Metadata.Clone(), Result: e.suite.unevaluated(ErrNotEvaluated)}
+		results[index] = CaseResult{ID: caseValue.ID, Metadata: caseValue.Metadata.Clone(), Result: e.suite.unevaluated(nil)}
 	}
 	if len(cases) == 0 {
 		report, err := NewExperimentReport(e.dataset.fixtureID, results)
