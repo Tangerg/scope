@@ -70,7 +70,7 @@ func (c *childInvocationState) validateResult(kind childCallKind, call chat.Tool
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if kind == childCallsDelegate {
-		if c.ProcessID != nil || !c.Result.Result.IsError || c.Result.Direct || len(c.Result.AdvertisedToolNames) != 0 {
+		if c.ProcessID != nil || !c.Result.IsError || c.Result.Direct || len(c.Result.AdvertisedToolNames) != 0 {
 			return fmt.Errorf("%w: pending Delegate batch retains a completed child", ErrInvalidExecutionState)
 		}
 		return nil

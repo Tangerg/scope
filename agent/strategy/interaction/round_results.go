@@ -208,7 +208,7 @@ func (c childIndex) settledProcessResults(process agent.ProcessSnapshot) (RoundR
 		if validationErr := result.validateCall(call); validationErr != nil {
 			return RoundResults{}, validationErr
 		}
-		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.Result.Clone(), Disposition: result.disposition()})
+		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.toolResult(call), Disposition: result.disposition()})
 	}
 	if len(round.entries) == 0 {
 		return RoundResults{}, nil
@@ -243,7 +243,7 @@ func (c childIndex) settledChildResult(process agent.ProcessSnapshot, sequence u
 	if err != nil {
 		return nil, err
 	}
-	return &toolCallResult{Result: converted}, nil
+	return new(newToolCallResult(converted)), nil
 }
 
 func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {

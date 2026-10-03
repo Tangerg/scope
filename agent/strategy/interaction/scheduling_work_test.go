@@ -106,8 +106,7 @@ func schedulingCalls(execution *execution) []chat.ToolCall {
 }
 
 func finishSchedulingTestBatch(execution *execution) {
-	call := execution.state.ToolRound.Response.Output.Message.Parts[execution.state.ToolRound.nextCallIndex()].ToolCall
-	execution.state.ToolRound.Results = append(execution.state.ToolRound.Results, toolCallResult{Result: chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput("done")}})
+	execution.state.ToolRound.Results = append(execution.state.ToolRound.Results, toolCallResult{Output: chat.NewTextToolOutput("done")})
 	execution.state.ToolRound.ChildBatch = nil
 }
 

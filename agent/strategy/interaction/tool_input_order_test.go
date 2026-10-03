@@ -138,9 +138,9 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if err != nil || !present {
 					t.Fatalf("Tool output is missing: %v", err)
 				}
-				text, isText := decoded.Result.Output.Text()
-				if !isText || text != "confirmed" || decoded.Result.IsError || initialCalls.Load() != 1 || resumedCalls.Load() != 1 {
-					t.Fatalf("Tool output=%+v initial/resumed calls=%d/%d", decoded.Result, initialCalls.Load(), resumedCalls.Load())
+				text, isText := decoded.Output.Text()
+				if !isText || text != "confirmed" || decoded.IsError || initialCalls.Load() != 1 || resumedCalls.Load() != 1 {
+					t.Fatalf("Tool output=%+v initial/resumed calls=%d/%d", decoded, initialCalls.Load(), resumedCalls.Load())
 				}
 				if result.Usage() != (agent.Usage{CommittedSteps: 5, PreparedEffects: 3, AcceptedSignals: 4}) {
 					t.Fatalf("Tool continuation changed resource usage: %+v", result.Usage())

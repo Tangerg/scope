@@ -39,7 +39,7 @@ func TestToolDeploymentSeparatesInvocationAndCompletion(t *testing.T) {
 			t.Fatalf("Start accepted continuation: %s", raw)
 		}
 	}
-	output, err := agent.EncodePayload(toolCallResult{Result: chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("done")}})
+	output, err := agent.EncodePayload(toolCallResult{Output: chat.NewTextToolOutput("done")})
 	if err != nil {
 		t.Fatal(err)
 	}

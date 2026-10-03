@@ -120,15 +120,10 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 {
 				t.Fatal("recovery replayed an established or unknown Tool attempt")
 			}
-			recoveredResult := chat.ToolResult{ID: "call_uncertain", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")}
-			for _, invalid := range []chat.ToolResult{
-				{ID: "wrong", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")},
-				{ID: "call_uncertain", Name: "first", Output: chat.NewTextToolOutput("resolved")},
-				{ID: "call_uncertain", Name: "uncertain", Output: chat.ToolOutput{Content: []chat.ToolContent{{Kind: "invalid"}}}},
-			} {
-				if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, invalid, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
-					t.Fatalf("invalid recovery result accepted: %v", settlementErr)
-				}
+			recoveredResult := chat.NewTextToolOutput("resolved")
+			invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: "invalid"}}}
+			if _, settlementErr := tools.SettleToolResult(gate.unknownRequest, invalid, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
+				t.Fatalf("invalid recovery result accepted: %v", settlementErr)
 			}
 			if _, settlementErr := tools.SettleToolResult(agent.EffectRequest{}, recoveredResult, interaction.ResultSucceeded, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 				t.Fatalf("invalid recovery request accepted: %v", settlementErr)
@@ -251,7 +246,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	resolved := chat.ToolResult{ID: "call", Name: "uncertain", Output: chat.NewTextToolOutput("resolved")}
+	resolved := chat.NewTextToolOutput("resolved")
 	other, err := interaction.NewToolSet(interaction.ToolSetConfig{
 		Name: "other.tools", Description: "A different binding.", Tools: []tool.Tool{uncertain},
 		ImplementationDigest: agent.ComputeDigest([]byte("other")), ConfigurationDigest: agent.ComputeDigest([]byte("other")),
@@ -263,7 +258,6 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 		t.Fatalf("foreign binding accepted request: %v", settlementErr)
 	}
 	failed := resolved.Clone()
-	failed.IsError = true
 	if _, settlementErr := tools.SettleToolResult(request, failed, interaction.ResultFailed, nil); settlementErr != nil {
 		t.Fatalf("definite Tool failure inherited direct-return policy: %v", settlementErr)
 	}
@@ -376,18 +370,11 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					if !found {
 						t.Fatal("missing retained request")
 					}
-					result := chat.ToolResult{ID: "call", Name: "recover", Output: chat.NewTextToolOutput("confirmed"), IsError: disposition != interaction.ResultSucceeded}
+					result := chat.NewTextToolOutput("confirmed")
 					for _, invalid := range []interaction.ResultDisposition{interaction.ResultInvalid, "unknown"} {
 						if _, settlementErr := tools.SettleToolResult(request, result, invalid, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
 							t.Fatalf("invalid disposition accepted: %v", settlementErr)
 						}
-					}
-					contradictory := interaction.ResultSucceeded
-					if disposition == interaction.ResultSucceeded {
-						contradictory = interaction.ResultRejected
-					}
-					if _, settlementErr := tools.SettleToolResult(request, result, contradictory, nil); !errors.Is(settlementErr, interaction.ErrInvalidProtocol) {
-						t.Fatalf("contradictory disposition accepted: %v", settlementErr)
 					}
 					settlement, settlementErr := tools.SettleToolResult(request, result, disposition, nil)
 					if settlementErr != nil {

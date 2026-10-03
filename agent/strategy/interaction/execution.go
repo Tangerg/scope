@@ -296,14 +296,18 @@ func (e *execution) finishToolCallBatch(
 	consumedSignals uint32,
 	assistant *chat.Message,
 ) (agent.Transition, error) {
+	calls, err := validatedToolCalls(e.state.ToolRound.Response)
+	if err != nil {
+		return agent.Transition{}, err
+	}
 	results := make([]chat.ToolResult, len(e.state.ToolRound.Results))
 	direct := e.state.PendingSteer == nil
 	for index, result := range e.state.ToolRound.Results {
-		results[index] = result.Result.Clone()
+		results[index] = result.toolResult(calls[index])
 		direct = direct && result.Direct
 	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
-	if err := e.state.recordRoundArtifacts(e.definition); err != nil {
+	if err = e.state.recordRoundArtifacts(e.definition); err != nil {
 		return agent.Transition{}, err
 	}
 	e.state.ToolRound = nil
@@ -314,7 +318,7 @@ func (e *execution) finishToolCallBatch(
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)
 	}
-	if err := e.state.appendToContext("continuation request", completionContext...); err != nil {
+	if err = e.state.appendToContext("continuation request", completionContext...); err != nil {
 		return agent.Transition{}, err
 	}
 	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
@@ -631,7 +635,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	if err != nil {
 		return err
 	}
-	e.state.ToolRound.ChildBatch.Invocations[index].Result = &toolCallResult{Result: converted}
+	e.state.ToolRound.ChildBatch.Invocations[index].Result = new(newToolCallResult(converted))
 	if result.Status() != agent.StatusCompleted {
 		return nil
 	}

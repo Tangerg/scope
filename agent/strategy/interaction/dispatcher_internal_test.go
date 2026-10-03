@@ -66,7 +66,7 @@ func TestFailedDirectResultCannotEnterProtocol(t *testing.T) {
 	}
 	payload, err := jsonv2.Marshal(signalEnvelope{
 		Operation:  operationToolCall,
-		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Result: result, Direct: true}},
+		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, Direct: true}},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)

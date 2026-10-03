@@ -87,15 +87,15 @@ func (t ToolSet) Deployment() agent.Deployment { return t.deployment }
 // SettleToolResult converts an investigated external outcome into the same
 // completion protocol used by live dispatch, without calling or replaying the
 // Tool. request must be the original Engine-minted request for this exact
-// Deployment and result must match its call. Direct-return policy comes only
-// from the binding. disposition must agree with result.IsError; rejected and
-// failed results cannot advertise Tools.
-func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolResult, disposition ResultDisposition, advertisedToolNames []string) (agent.Settlement, error) {
+// Deployment; its call identifies the result, and disposition alone decides
+// whether the output reports an error. Direct-return policy comes only from
+// the binding; rejected and failed results cannot advertise Tools.
+func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolOutput, disposition ResultDisposition, advertisedToolNames []string) (agent.Settlement, error) {
 	if !t.Configured() || !request.Valid() || request.DeploymentRef() != t.deployment.DeploymentRef() {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)
 	}
-	if !disposition.Valid() || result.IsError != (disposition != ResultSucceeded) {
-		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery disposition disagrees with result", ErrInvalidProtocol)
+	if !disposition.Valid() {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery disposition is invalid", ErrInvalidProtocol)
 	}
 	invocation, err := ToolInvocationFromRequest(request)
 	if err != nil {
@@ -109,6 +109,7 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, result chat.ToolR
 	if err := t.manifest.validateAdvertisements(advertisedToolNames); err != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}
+	result := chat.ToolResult{ID: call.ID, Name: call.Name, Output: output, IsError: disposition != ResultSucceeded}
 	completion := prepared.completion(result, disposition == ResultRejected, advertisedToolNames)
 	if err := completion.validateCall(call); err != nil {
 		return agent.Settlement{}, err

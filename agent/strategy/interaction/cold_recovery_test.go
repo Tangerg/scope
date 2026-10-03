@@ -98,9 +98,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 				if _, dispatched := invocation.AttemptID(); dispatched {
 					t.Fatal("recovered logical request invented a physical attempt")
 				}
-				settlement, err = tools.SettleToolResult(request, chat.ToolResult{
-					ID: "call", Name: "uncertain", Output: chat.NewTextToolOutput("recovered"),
-				}, interaction.ResultSucceeded, nil)
+				settlement, err = tools.SettleToolResult(request, chat.NewTextToolOutput("recovered"), interaction.ResultSucceeded, nil)
 			}
 			if err != nil {
 				t.Fatal(err)

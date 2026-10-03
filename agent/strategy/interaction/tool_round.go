@@ -106,7 +106,9 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 }
 
 func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
-	t.Results = append(t.Results, toolCallResult{Result: rejectedToolResult(call, diagnostic), Rejected: true})
+	result := newToolCallResult(rejectedToolResult(call, diagnostic))
+	result.Rejected = true
+	t.Results = append(t.Results, result)
 }
 
 func (t *toolCallRound) validateComplete(ctx context.Context) error {

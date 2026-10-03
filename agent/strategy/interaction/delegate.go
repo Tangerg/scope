@@ -105,7 +105,9 @@ func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult 
 // both report the same model-visible refusal.
 func rejectedDelegateStartResult(call chat.ToolCall, failure agent.Failure) *toolCallResult {
 	result := delegateErrorResult(call, "child start failed: "+failure.Code()+": "+failure.Message())
-	return &toolCallResult{Result: result, Rejected: true}
+	completion := newToolCallResult(result)
+	completion.Rejected = true
+	return &completion
 }
 
 func (d Delegate) prepareInput(call chat.ToolCall) (agent.Payload, error) {

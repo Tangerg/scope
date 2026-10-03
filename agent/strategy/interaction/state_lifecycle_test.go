@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -118,11 +119,10 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"complete", func(*executionState) {}},
-		{"foreign result", func(state *executionState) { state.ToolRound.Results[0].Result.ID = "other" }},
 		{"rejected success", func(state *executionState) { state.ToolRound.Results[0].Rejected = true }},
 		{"direct failure", func(state *executionState) {
 			state.ToolRound.Results[0].Direct = true
-			state.ToolRound.Results[0].Result.IsError = true
+			state.ToolRound.Results[0].IsError = true
 		}},
 		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
 		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
@@ -131,7 +131,7 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
 			execution.state.ToolRound.ChildBatch = nil
-			execution.state.ToolRound.Results = []toolCallResult{{Result: chat.ToolResult{ID: "call_batch", Name: "delegate_fuzz", Output: chat.NewTextToolOutput("done")}}}
+			execution.state.ToolRound.Results = []toolCallResult{{Output: chat.NewTextToolOutput("done")}}
 			test.change(&execution.state)
 			state, err := execution.state.snapshot()
 			if err != nil {
@@ -151,8 +151,8 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 	second := chat.ToolResult{ID: "second", Name: "tool", Output: chat.NewTextToolOutput("second result")}
 	round := &toolCallRound{ChildBatch: &childCallBatch{
 		Kind: childCallsTool, Invocations: []*childInvocationState{
-			{Result: &toolCallResult{Result: first, Direct: true, AdvertisedToolNames: []string{"first"}}},
-			{Result: &toolCallResult{Result: second, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
+			{Result: &toolCallResult{Output: first.Output, IsError: first.IsError, Direct: true, AdvertisedToolNames: []string{"first"}}},
+			{Result: &toolCallResult{Output: second.Output, IsError: second.IsError, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
 		},
 	}}
 	before, err := jsonv2.Marshal(round)
@@ -172,7 +172,7 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(names, []string{"existing", "first", "second"}) || round.ChildBatch != nil ||
-		len(round.Results) != 2 || round.Results[0].Result.ID != first.ID || round.Results[1].Result.ID != second.ID {
+		len(round.Results) != 2 || !reflect.DeepEqual(round.Results[0].Output, first.Output) || !reflect.DeepEqual(round.Results[1].Output, second.Output) {
 		t.Fatalf("settlement lost order, advertisement, or direct-result eligibility: %+v, %v", round, names)
 	}
 }
