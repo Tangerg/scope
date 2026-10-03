@@ -56,19 +56,6 @@ type nativeThinkValue struct {
 	value any
 }
 
-// newNativeThinkLevel builds a think value from a thinking level, which is the
-// vocabulary /api/chat documents alongside the boolean form: "low", "medium",
-// "high" or "max". It owns that list so the wire decoder and the option mapping
-// cannot disagree about what the daemon accepts.
-func newNativeThinkLevel(level string) (*nativeThinkValue, error) {
-	switch level {
-	case "high", "medium", "low", "max":
-		return &nativeThinkValue{value: level}, nil
-	default:
-		return nil, fmt.Errorf("ollama: invalid think value %q, want one of high, medium, low, max", level)
-	}
-}
-
 func (n *nativeThinkValue) UnmarshalJSON(data []byte) error {
 	var boolean bool
 	if err := jsonv2.Unmarshal(data, &boolean); err == nil {
@@ -79,12 +66,13 @@ func (n *nativeThinkValue) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &level); err != nil {
 		return errors.New("ollama: think must be a boolean or one of high, medium, low, max")
 	}
-	value, err := newNativeThinkLevel(level)
-	if err != nil {
-		return err
+	switch level {
+	case "high", "medium", "low", "max":
+		n.value = level
+		return nil
+	default:
+		return fmt.Errorf("ollama: invalid think value %q, want one of high, medium, low, max", level)
 	}
-	*n = *value
-	return nil
 }
 
 func (n nativeThinkValue) MarshalJSON() ([]byte, error) {

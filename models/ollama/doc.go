@@ -8,11 +8,10 @@
 // without it. A stream whose body ends before that chunk fails with
 // [chat.ErrInvalidResponse], because to a delta consumer a truncated body looks
 // exactly like a completed answer.
-// Reasoning. A reasoning effort names a thinking level, which is what
-// /api/chat's think parameter accepts (low, medium, high, max), so the
-// portable option reaches the daemon. An empty effort leaves think untouched,
-// including a boolean set through the request extension — no portable effort
-// can express "do not think", so that stays the extension's job.
+// Reasoning. Native chat's think field is configured exclusively through
+// RequestExtensionKey. It accepts booleans and thinking levels (low, medium,
+// high, max). Core ReasoningEffort is rejected by native chat so two request
+// representations cannot compete for the same field.
 //
 // Embedding input is truncated by default. /api/embed's truncate parameter
 // "defaults to true", so a text past the model's context window is embedded

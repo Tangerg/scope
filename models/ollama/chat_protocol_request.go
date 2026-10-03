@@ -16,8 +16,8 @@ import (
 
 const (
 	// RequestExtensionKey stores official Ollama /api/chat request fields that
-	// have no provider-neutral Core equivalent. Core model, messages, tools,
-	// streaming, and common options take precedence.
+	// have no provider-neutral Core equivalent. Core-owned fields are rejected;
+	// think belongs exclusively here because it admits both booleans and levels.
 	RequestExtensionKey = "ollama/request"
 
 	protocolGeneratedToolPrefix = "ollama/generated/"
@@ -37,6 +37,9 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	}
 	if req.ToolChoice != nil {
 		return nil, errors.New("ollama: tool choice is not supported by the native chat API")
+	}
+	if options.ReasoningEffort != "" {
+		return nil, errors.New("ollama: options.reasoning_effort is unsupported by native chat; set think through the ollama/request extension")
 	}
 
 	apiReq, err := decodeProtocolRequestExtension(req)
@@ -88,20 +91,6 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	}
 	if options.TopP != nil {
 		apiReq.Options["top_p"] = float32(*options.TopP)
-	}
-	// A reasoning effort names a thinking level, which is exactly what
-	// /api/chat's think parameter accepts, so the portable option reaches the
-	// daemon rather than being dropped on the way. Every other option above
-	// overwrites whatever the native extension set; an empty effort does not,
-	// because empty means "the model's default" and a caller who set think
-	// natively has already chosen something else — including the boolean form,
-	// which no portable effort can express.
-	if options.ReasoningEffort != "" {
-		think, err := newNativeThinkLevel(string(options.ReasoningEffort))
-		if err != nil {
-			return nil, err
-		}
-		apiReq.Think = think
 	}
 	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > 20 {
 		return nil, errors.New("ollama: top_logprobs must be between 0 and 20")
