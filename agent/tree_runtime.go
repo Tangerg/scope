@@ -481,13 +481,10 @@ func (t *treeRuntime) prepareChildStart(
 	}
 	childID := effectID.childProcessID()
 	relation := childProcessRelation(childID, process.handle.relation, spec.Key)
-	requestDigest, err := spec.digest()
-	if err != nil {
-		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, err)}
-	}
+	// The child identity derives from this Effect, so a published child with it
+	// was started by this very request.
 	if existing, exists := t.engine.Process(childID); exists {
-		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef &&
-			existing.handle.childRequestDigest == requestDigest {
+		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef {
 			return childStartPreparation{result: ChildStartResult{processID: childID}}
 		}
 		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart)}
@@ -508,7 +505,7 @@ func (t *treeRuntime) prepareChildStart(
 		}
 	}()
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
-		relation, spec.DeploymentRef, requestDigest,
+		relation, spec.DeploymentRef,
 	); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
@@ -523,7 +520,6 @@ func (t *treeRuntime) prepareChildStart(
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment(),
 		spec: spec, childID: childID, relation: relation,
-		requestDigest: requestDigest,
 	}}
 }
 
@@ -1759,7 +1755,6 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		handle := newProcessHandle(
 			pending.plan.relation,
 			pending.result.deployment,
-			pending.plan.requestDigest,
 			pending.plan.spec.Budget,
 			pending.plan.spec.Capabilities,
 			pending.result.startedAt)

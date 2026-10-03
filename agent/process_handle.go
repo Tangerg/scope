@@ -11,14 +11,13 @@ import (
 type processHandle struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
 	// so callers can inspect them without contending with the runtime owner goroutine.
-	processID          ProcessID
-	deployment         Deployment
-	relation           ProcessRelation
-	childRequestDigest Digest
-	budget             Budget
-	capabilities       CapabilitySet
-	startedAt          time.Time
-	runtime            atomic.Pointer[treeRuntime]
+	processID    ProcessID
+	deployment   Deployment
+	relation     ProcessRelation
+	budget       Budget
+	capabilities CapabilitySet
+	startedAt    time.Time
+	runtime      atomic.Pointer[treeRuntime]
 
 	// Await joins outcome publication and immediate parent/child bookkeeping.
 	// Join additionally waits for owned descendant work and acknowledgments.
@@ -35,20 +34,16 @@ type processHandle struct {
 	joinErr    *RuntimeError
 }
 
-// A child's request digest is part of its identity, so it is fixed here with
-// the rest; a root has none.
 func newProcessHandle(
 	relation ProcessRelation,
 	deployment Deployment,
-	childRequestDigest Digest,
 	budget Budget,
 	capabilities CapabilitySet,
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
 		processID: relation.ProcessID(), deployment: deployment, relation: relation,
-		childRequestDigest: childRequestDigest,
-		budget:             budget, capabilities: capabilities, startedAt: startedAt,
+		budget: budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}

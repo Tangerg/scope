@@ -671,10 +671,6 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),
 		PauseReason: p.pause.reason, PendingControl: p.pendingControl.wire(),
 	}
-	if p.handle.childRequestDigest.Valid() {
-		digest := p.handle.childRequestDigest
-		wire.ChildRequestDigest = &digest
-	}
 	if p.currentWaitID.Valid() {
 		waitID := p.currentWaitID
 		wire.CurrentWaitID = &waitID

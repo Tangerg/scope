@@ -20,7 +20,6 @@ type childStartPlan struct {
 	spec             ChildSpec
 	childID          ProcessID
 	relation         ProcessRelation
-	requestDigest    Digest
 }
 
 type childStartJobResult struct {

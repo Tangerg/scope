@@ -238,7 +238,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("parent and existing tree must fit before initialization: %v", err)
 	}
-	if err := runtime.engine.reserveProcessStart(root.handle.relation, deployment.DeploymentRef(), Digest{}); err != nil {
+	if err := runtime.engine.reserveProcessStart(root.handle.relation, deployment.DeploymentRef()); err != nil {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(root.handle)
@@ -290,7 +290,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), progress: &effectProgress{}}},
 			}
 			root.counters.PreparedEffects = 1
-			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment().DeploymentRef(), Digest{}); err != nil {
+			if err := runtime.engine.reserveProcessStart(root.handle.relation, root.deployment().DeploymentRef()); err != nil {
 				t.Fatal(err)
 			}
 			runtime.engine.publishProcessStart(root.handle)

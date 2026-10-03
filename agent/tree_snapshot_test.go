@@ -659,7 +659,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
 	conflict := restoration.wire.ProcessSnapshots[1]
-	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef(), Digest{}); err != nil {
+	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef()); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
@@ -670,7 +670,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		t.Helper()
 		for _, process := range restoration.wire.ProcessSnapshots {
 			id := process.ProcessID()
-			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef(), Digest{})
+			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef())
 			if !errors.Is(err, want) {
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
 			}
@@ -710,8 +710,6 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 	parentID, _ := ParseProcessID("absent")
 	key, _ := ParseChildKey("orphan")
 	orphan.Relation = childProcessRelation(orphan.ProcessID, ProcessRelation{processID: parentID, rootID: tree.RootID()}, key)
-	digest := ComputeDigest([]byte("orphan request"))
-	orphan.ChildRequestDigest = &digest
 	orphanSnapshot, err := newProcessSnapshot(orphan)
 	if err != nil {
 		t.Fatal(err)

@@ -166,10 +166,6 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	if !started {
 		return nil
 	}
-	digest, err := c.spec.digest()
-	if err != nil {
-		return err
-	}
 	child, exists := t.processes[childID]
 	if !exists {
 		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
@@ -188,9 +184,6 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	}
 	if !slices.Equal(child.Capabilities.Values(), c.spec.Capabilities.Values()) {
 		return fmt.Errorf("%w: child capabilities disagree with start", ErrInvalidChildStart)
-	}
-	if child.ChildRequestDigest == nil || *child.ChildRequestDigest != digest {
-		return fmt.Errorf("%w: child request digest disagrees with start", ErrInvalidChildStart)
 	}
 	return nil
 }

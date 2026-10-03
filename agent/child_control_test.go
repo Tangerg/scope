@@ -149,7 +149,6 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			_, child := newChildCompletionTestProcess(t)
 			key := controlValue(ParseChildKey("worker"))
 			child.handle.relation = childProcessRelation(child.handle.processID, parent.handle.relation, key)
-			child.handle.childRequestDigest = ComputeDigest([]byte("control fixture"))
 			child.handle.budget = Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}
 			runtime.addProcess(child)
 			recipient := child.handle.processID

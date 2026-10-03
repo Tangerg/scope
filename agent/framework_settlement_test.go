@@ -147,14 +147,14 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.ProcessID), spec.Key)
-	handle := newProcessHandle(relation, deployment, controlValue(spec.digest()), spec.Budget, spec.Capabilities, wire.StartedAt)
+	handle := newProcessHandle(relation, deployment, spec.Budget, spec.Capabilities, wire.StartedAt)
 	child := newProcessState(handle, execution, state)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
 	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
 		t.Fatalf("matching child rejected: %v", err)
 	}
-	for _, mutation := range []string{"allocation", "deployment", "request"} {
+	for _, mutation := range []string{"allocation", "deployment"} {
 		t.Run("child/"+mutation, func(t *testing.T) {
 			parentWire := wire.clone()
 			childWire := controlValue(childSnapshot.wire())
@@ -163,8 +163,6 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
 			case "deployment":
 				childWire.DeploymentRef = parentWire.DeploymentRef
-			case "request":
-				childWire.ChildRequestDigest = new(ComputeDigest([]byte("different input")))
 			}
 			tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), controlValue(newProcessSnapshot(childWire))}}
 			if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) {

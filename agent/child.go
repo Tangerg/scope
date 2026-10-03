@@ -42,14 +42,6 @@ func (c ChildSpec) Valid() bool {
 		c.Capabilities.Valid()
 }
 
-func (c ChildSpec) digest() (Digest, error) {
-	payload, err := jsonv2.Marshal(c)
-	if err != nil {
-		return Digest{}, err
-	}
-	return ComputeDigest(payload), nil
-}
-
 // NewChildStartEffect creates a Framework-owned Effect requesting one independently
 // managed child Process. The Engine derives the child ProcessID; Execution code
 // cannot construct or start the Process directly.

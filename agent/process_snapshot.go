@@ -322,7 +322,6 @@ type processSnapshotWire struct {
 	ProcessID ProcessID `json:"process_id"`
 	// Relation is complete in memory; the document persists only its link.
 	Relation                ProcessRelation    `json:"-"`
-	ChildRequestDigest      *Digest            `json:"child_request_digest,omitzero"`
 	DeploymentRef           DeploymentRef      `json:"deployment_ref"`
 	StartedAt               time.Time          `json:"started_at"`
 	CommittedSteps          uint64             `json:"committed_steps"`
@@ -414,9 +413,6 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 // payloads need independent ownership before retention or mutable restoration.
 func (p processSnapshotWire) clone() processSnapshotWire {
 	clone := p
-	if p.ChildRequestDigest != nil {
-		clone.ChildRequestDigest = new(*p.ChildRequestDigest)
-	}
 	if p.CurrentWaitID != nil {
 		clone.CurrentWaitID = new(*p.CurrentWaitID)
 	}
@@ -469,10 +465,6 @@ func (p processSnapshotWire) validateRelation() error {
 	relation := p.Relation
 	if !relation.Valid() || relation.ProcessID() != p.ProcessID {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, ErrInvalidProcessRelation)
-	}
-	if relation.IsRoot() != (p.ChildRequestDigest == nil) ||
-		p.ChildRequestDigest != nil && !p.ChildRequestDigest.Valid() {
-		return fmt.Errorf("%w: child request digest does not match relation", ErrInvalidSnapshot)
 	}
 	return nil
 }

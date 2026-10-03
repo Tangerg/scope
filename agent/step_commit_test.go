@@ -14,7 +14,7 @@ func TestStepCannotConsumeBudgetReservedAtUint64Boundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	handle := newProcessHandle(
-		rootProcessRelation(processID), Deployment{}, Digest{},
+		rootProcessRelation(processID), Deployment{},
 		Budget{Steps: NewQuota(maxUint64), Effects: NewQuota(maxUint64), Signals: NewQuota(maxUint64)},
 		CapabilitySet{}, time.Now())
 	process := &processState{handle: handle, committedSteps: maxUint64 - 1, mailbox: newSignalMailbox()}
@@ -108,7 +108,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment(), Digest{}, parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
+		parent.deployment(), parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.execution,
 		parent.committedExecutionState))
 	missingID, _ := ParseProcessID("process:missing-child")
@@ -156,7 +156,7 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	childKey := controlValue(ParseChildKey("worker"))
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
-		parent.deployment(), Digest{}, parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
+		parent.deployment(), parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 	runtime.addProcess(newProcessState(handle, parent.execution,
 		parent.committedExecutionState))
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("worker-result")), Children: []ProcessID{childID},

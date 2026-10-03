@@ -235,7 +235,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	id := newProcessID()
 	relation := rootProcessRelation(id)
 	admission := newProcessAdmission(relation, deployment, e.budget, e.capabilities)
-	if err := e.reserveProcessStart(relation, deployment.DeploymentRef(), Digest{}); err != nil {
+	if err := e.reserveProcessStart(relation, deployment.DeploymentRef()); err != nil {
 		return nil, err
 	}
 	published := false
@@ -256,7 +256,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
-	handle := newProcessHandle(relation, deployment, Digest{}, e.budget, e.capabilities, startedAt)
+	handle := newProcessHandle(relation, deployment, e.budget, e.capabilities, startedAt)
 	process := newProcessState(handle, execution, state)
 	runtime := newTreeRuntime(e, relation.RootID(), e.treeLimits, ctx, process)
 
@@ -380,19 +380,11 @@ func (e *Engine) startClose() (<-chan struct{}, error) {
 	return done, nil
 }
 
-func (e *Engine) reserveProcessStart(
-	relation ProcessRelation,
-	deploymentRef DeploymentRef,
-	childRequestDigest Digest,
-) error {
+func (e *Engine) reserveProcessStart(relation ProcessRelation, deploymentRef DeploymentRef) error {
 	if !relation.Valid() || !deploymentRef.Valid() {
 		return ErrInvalidProcessRelation
 	}
-	reservation := processStartReservation{
-		relation:           relation,
-		deploymentRef:      deploymentRef,
-		childRequestDigest: childRequestDigest,
-	}
+	reservation := processStartReservation{relation: relation, deploymentRef: deploymentRef}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closeDone != nil {
@@ -423,9 +415,6 @@ func (e *Engine) childIdentityTaken(identity childIdentity) bool {
 
 // Hold e.mu so root publication cannot overtake its admission reservation.
 func (e *Engine) reserveRootStart(reservation processStartReservation) error {
-	if reservation.childRequestDigest.Valid() {
-		return ErrInvalidProcessRelation
-	}
 	e.startReservations[reservation.relation.ProcessID()] = reservation
 	return nil
 }
@@ -435,7 +424,7 @@ func (e *Engine) reserveRootStart(reservation processStartReservation) error {
 func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	relation := reservation.relation
 	identity, isChild := relation.childIdentity()
-	if !reservation.childRequestDigest.Valid() || !isChild {
+	if !isChild {
 		return ErrInvalidProcessRelation
 	}
 	if e.childIdentityTaken(identity) {
@@ -468,8 +457,7 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	defer e.mu.Unlock()
 	reservation, exists := e.startReservations[handle.processID]
 	if !exists || reservation.relation != handle.relation ||
-		reservation.deploymentRef != handle.deploymentRef() ||
-		reservation.childRequestDigest != handle.childRequestDigest || e.closeDone != nil ||
+		reservation.deploymentRef != handle.deploymentRef() || e.closeDone != nil ||
 		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
@@ -872,7 +860,6 @@ func (e *Engine) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 }
 
 type processStartReservation struct {
-	relation           ProcessRelation
-	deploymentRef      DeploymentRef
-	childRequestDigest Digest
+	relation      ProcessRelation
+	deploymentRef DeploymentRef
 }

@@ -50,7 +50,7 @@ func prepareRestoredProcess(
 			return nil, fmt.Errorf("%w: pending Signal: %w", ErrInvalidSnapshot, signalErr)
 		}
 	}
-	handle := newProcessHandle(wire.Relation, deployment, lo.FromPtr(wire.ChildRequestDigest), wire.Budget, wire.Capabilities, wire.StartedAt)
+	handle := newProcessHandle(wire.Relation, deployment, wire.Budget, wire.Capabilities, wire.StartedAt)
 	return restoreProcessState(ctx, handle, execution, mailbox, wire)
 }
 
