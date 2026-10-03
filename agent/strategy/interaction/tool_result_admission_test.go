@@ -51,7 +51,7 @@ func TestRestoreRejectsFailedToolAdvertisements(t *testing.T) {
 		ModelCallCount: 1, WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("work"))}},
 		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, ChildBatch: &childCallBatch{
 			Kind: childCallsTool, WaitID: &waitID, Invocations: []*childInvocationState{
-				{ProcessID: &firstID, Result: &toolCallResult{IsError: true, Output: chat.NewTextToolOutput("failed"), AdvertisedToolNames: []string{"first"}}},
+				{ProcessID: &firstID, Result: &toolCallResult{Disposition: ResultFailed, Output: chat.NewTextToolOutput("failed"), AdvertisedToolNames: []string{"first"}}},
 				{ProcessID: &secondID},
 			},
 		}},

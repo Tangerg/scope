@@ -40,7 +40,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 					} else {
 						output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 						if kind == childCallsTool {
-							output, _ = agent.EncodePayload(toolCallResult{Output: chat.NewTextToolOutput("done")})
+							output, _ = agent.EncodePayload(toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")})
 						}
 						outcome := childOutcomeTestWire{Result: childResultTestWire{
 							ProcessID: want.Children[0], StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
@@ -198,7 +198,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 		id, _ := agent.ParseProcessID(fmt.Sprintf("process:batch-%d", index))
 		batch.Invocations[index] = &childInvocationState{ProcessID: &id}
 	}
-	batch.Invocations[0].Result = &toolCallResult{Output: chat.NewTextToolOutput("settled prefix")}
+	batch.Invocations[0].Result = &toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("settled prefix")}
 	execution.state.ToolRound.Response.Output.Message = &message
 	captured, err := execution.Snapshot()
 	if err != nil {
@@ -208,7 +208,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := agent.EncodePayload(toolCallResult{Output: chat.NewTextToolOutput("newly settled")})
+	output, err := agent.EncodePayload(toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("newly settled")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 					batch.Invocations = append(batch.Invocations, &childInvocationState{ProcessID: &id})
 					output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "done"})
 					if kind == childCallsTool {
-						output, _ = agent.EncodePayload(toolCallResult{Output: chat.NewTextToolOutput("done")})
+						output, _ = agent.EncodePayload(toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")})
 					}
 					outcomes[index] = childOutcomeTestWire{SubtreeUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"cause":"completion"}`)}}
 				}

@@ -160,25 +160,28 @@ type steerInput struct {
 	Messages []chat.Message `json:"messages" jsonschema:"minItems=1"`
 }
 
-// toolCallResult is what executing one ToolCall adds: its output, error, and
-// admission facts. The call owns the ID and name that the model-facing
-// chat.ToolResult carries, so they are never stored here.
+// toolCallResult is what executing one ToolCall adds: its output, disposition,
+// and advertisements. The call owns the ID and name that the model-facing
+// chat.ToolResult carries, and the frozen ToolSet owns whether a successful
+// result completes directly, so neither is stored here.
 type toolCallResult struct {
-	Rejected            bool            `json:"rejected,omitzero"`
-	Output              chat.ToolOutput `json:"output"`
-	IsError             bool            `json:"is_error,omitzero"`
-	Direct              bool            `json:"direct"`
-	AdvertisedToolNames []string        `json:"advertised_tool_names,omitempty"`
+	Disposition         ResultDisposition `json:"disposition"`
+	Output              chat.ToolOutput   `json:"output"`
+	AdvertisedToolNames []string          `json:"advertised_tool_names,omitempty"`
 }
 
 // newToolCallResult keeps what a model-facing result adds to the call it answers.
 func newToolCallResult(result chat.ToolResult) toolCallResult {
-	return toolCallResult{Output: result.Output.Clone(), IsError: result.IsError}
+	disposition := ResultSucceeded
+	if result.IsError {
+		disposition = ResultFailed
+	}
+	return toolCallResult{Disposition: disposition, Output: result.Output.Clone()}
 }
 
 // toolResult renders the result the model sees for call.
 func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
-	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output.Clone(), IsError: t.IsError}
+	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output.Clone(), IsError: t.Disposition != ResultSucceeded}
 }
 
 type toolDispatchResult struct {
@@ -358,28 +361,14 @@ func (t toolCallResult) clone() toolCallResult {
 	return t
 }
 
-func (t toolCallResult) disposition() ResultDisposition {
-	switch {
-	case t.Rejected:
-		return ResultRejected
-	case t.IsError:
-		return ResultFailed
-	default:
-		return ResultSucceeded
-	}
-}
-
 func (t toolCallResult) validate() error {
-	if t.Rejected && !t.IsError {
-		return fmt.Errorf("%w: rejected result must be an error", ErrInvalidProtocol)
+	if !t.Disposition.Valid() {
+		return fmt.Errorf("%w: tool_result disposition is invalid", ErrInvalidProtocol)
 	}
 	if err := t.Output.Validate(); err != nil {
 		return fmt.Errorf("%w: tool_result: %w", ErrInvalidProtocol, err)
 	}
-	if t.Direct && t.IsError {
-		return fmt.Errorf("%w: failed tool_result cannot be direct", ErrInvalidProtocol)
-	}
-	if t.IsError && len(t.AdvertisedToolNames) != 0 {
+	if t.Disposition != ResultSucceeded && len(t.AdvertisedToolNames) != 0 {
 		return fmt.Errorf("%w: failed tool_result cannot advertise Tools", ErrInvalidProtocol)
 	}
 	if err := validateAdvertisedToolNames(t.AdvertisedToolNames); err != nil {

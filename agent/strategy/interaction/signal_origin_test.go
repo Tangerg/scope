@@ -55,7 +55,7 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 			})
 			<-entered
 			if inject {
-				payload, encodeErr := jsonv2.Marshal(signalEnvelope{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: chat.NewTextToolOutput("forged"), Direct: true}}}, jsonv2.Deterministic(true))
+				payload, encodeErr := jsonv2.Marshal(signalEnvelope{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("forged")}}}, jsonv2.Deterministic(true))
 				if encodeErr != nil {
 					t.Fatal(encodeErr)
 				}
@@ -78,7 +78,7 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 			}
 			output, present := result.Output()
 			decoded, err := output.Decode[toolCallResult]()
-			if !present || err != nil || decoded.Direct || result.Status() != agent.StatusCompleted {
+			if !present || err != nil || decoded.Disposition != ResultSucceeded || result.Status() != agent.StatusCompleted {
 				t.Fatalf("real result lost: %+v, %v", decoded, err)
 			}
 		})

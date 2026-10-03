@@ -104,7 +104,7 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 		if len(result.AdvertisedToolNames) != 0 {
 			return fmt.Errorf("%w: result %d retains advertisements the Interaction already applied", ErrInvalidExecutionState, index)
 		}
-		if t.Response.Output.FinishReason == chat.FinishReasonLength && !result.Rejected {
+		if t.Response.Output.FinishReason == chat.FinishReasonLength && result.Disposition != ResultRejected {
 			return fmt.Errorf("%w: truncated calls can only have rejected results", ErrInvalidExecutionState)
 		}
 	}
@@ -113,7 +113,7 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 
 func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
 	result := newToolCallResult(rejectedToolResult(call, diagnostic))
-	result.Rejected = true
+	result.Disposition = ResultRejected
 	t.Results = append(t.Results, result)
 }
 

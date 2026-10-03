@@ -27,8 +27,10 @@ type preparedToolCall struct {
 
 func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, advertised []string) *toolCallResult {
 	completion := newToolCallResult(result)
-	completion.Rejected, completion.AdvertisedToolNames = rejected, advertised
-	completion.Direct = p.binding != nil && p.binding.direct && !result.IsError
+	completion.AdvertisedToolNames = advertised
+	if rejected {
+		completion.Disposition = ResultRejected
+	}
 	return &completion
 }
 

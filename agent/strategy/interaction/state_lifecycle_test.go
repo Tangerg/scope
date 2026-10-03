@@ -119,11 +119,7 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"complete", func(*executionState) {}},
-		{"rejected success", func(state *executionState) { state.ToolRound.Results[0].Rejected = true }},
-		{"direct failure", func(state *executionState) {
-			state.ToolRound.Results[0].Direct = true
-			state.ToolRound.Results[0].IsError = true
-		}},
+		{"missing disposition", func(state *executionState) { state.ToolRound.Results[0].Disposition = ResultInvalid }},
 		{"truncated execution", func(state *executionState) { state.ToolRound.Response.Output.FinishReason = chat.FinishReasonLength }},
 		{"unfinished child", func(state *executionState) { state.ToolRound.ChildBatch = &childCallBatch{} }},
 		{"completed with pending work", func(state *executionState) { state.Completed = true }},
@@ -131,7 +127,7 @@ func TestRestoreValidatesCompleteRoundAdmission(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
 			execution.state.ToolRound.ChildBatch = nil
-			execution.state.ToolRound.Results = []toolCallResult{{Output: chat.NewTextToolOutput("done")}}
+			execution.state.ToolRound.Results = []toolCallResult{{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")}}
 			test.change(&execution.state)
 			state, err := execution.state.snapshot()
 			if err != nil {
@@ -151,8 +147,8 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 	second := chat.ToolResult{ID: "second", Name: "tool", Output: chat.NewTextToolOutput("second result")}
 	round := &toolCallRound{ChildBatch: &childCallBatch{
 		Kind: childCallsTool, Invocations: []*childInvocationState{
-			{Result: &toolCallResult{Output: first.Output, IsError: first.IsError, Direct: true, AdvertisedToolNames: []string{"first"}}},
-			{Result: &toolCallResult{Output: second.Output, IsError: second.IsError, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
+			{Result: &toolCallResult{Disposition: ResultSucceeded, Output: first.Output, AdvertisedToolNames: []string{"first"}}},
+			{Result: &toolCallResult{Disposition: ResultSucceeded, Output: second.Output, AdvertisedToolNames: []string{"duplicate", "duplicate"}}},
 		},
 	}}
 	before, err := jsonv2.Marshal(round)

@@ -73,7 +73,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	for name, binding := range dispatcher.tools {
 		manifest.entries[name] = toolManifestEntry{
 			contract: binding.binding.Contract(), deferred: binding.deferred,
-			concurrent: binding.concurrent,
+			direct: binding.direct, concurrent: binding.concurrent,
 		}
 	}
 	return ToolSet{deployment: deployment, manifest: manifest, dispatcher: dispatcher}, nil
@@ -133,6 +133,10 @@ func (t ToolSet) ObservationFailures() ObservationFailures {
 type toolManifest struct {
 	initialDefinitions []chat.ToolDefinition
 	entries            map[string]toolManifestEntry
+}
+
+func (t toolManifest) completesDirectly(name string) bool {
+	return t.entries[name].direct
 }
 
 func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string, error) {
@@ -202,8 +206,11 @@ func (t toolManifest) concurrentBatchEnd(ctx context.Context, calls []chat.ToolC
 }
 
 type toolManifestEntry struct {
-	contract   tool.Contract
-	deferred   bool
+	contract tool.Contract
+	deferred bool
+	// direct marks a Tool whose successful result completes the Interaction
+	// without another model call.
+	direct     bool
 	concurrent func(tool.Invocation) (string, bool)
 }
 

@@ -85,7 +85,7 @@ func TestRoundCheckpointPropagatesInvalidSteer(t *testing.T) {
 			execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
 			execution.state.ToolRound.ChildBatch = nil
 			if complete {
-				execution.state.ToolRound.Results = []toolCallResult{{Output: chat.NewTextToolOutput("done")}}
+				execution.state.ToolRound.Results = []toolCallResult{{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")}}
 			}
 			if err := execution.state.validate(t.Context(), execution.definition); err != nil {
 				t.Fatal(err)

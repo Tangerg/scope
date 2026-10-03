@@ -327,7 +327,7 @@ func (e *executionState) recordRoundArtifacts(definition *Definition) error {
 		return err
 	}
 	for index, result := range e.ToolRound.Results {
-		if _, delegated := definition.delegate(calls[index].Name); !delegated || result.IsError || result.Rejected {
+		if _, delegated := definition.delegate(calls[index].Name); !delegated || result.Disposition != ResultSucceeded {
 			continue
 		}
 		output, err := agent.ParsePayload(result.Output.Details)

@@ -214,7 +214,7 @@ func (c childIndex) settledProcessResults(snapshot agent.TreeSnapshot, process a
 		if validationErr := result.validateCall(call); validationErr != nil {
 			return RoundResults{}, validationErr
 		}
-		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.toolResult(call), Disposition: result.disposition()})
+		round.entries = append(round.entries, ResultEntry{ToolCallIndex: uint32(index), Call: call, Result: result.toolResult(call), Disposition: result.Disposition})
 	}
 	if len(round.entries) == 0 {
 		return RoundResults{}, nil

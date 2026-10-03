@@ -139,7 +139,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 					t.Fatalf("Tool output is missing: %v", err)
 				}
 				text, isText := decoded.Output.Text()
-				if !isText || text != "confirmed" || decoded.IsError || initialCalls.Load() != 1 || resumedCalls.Load() != 1 {
+				if !isText || text != "confirmed" || decoded.Disposition != ResultSucceeded || initialCalls.Load() != 1 || resumedCalls.Load() != 1 {
 					t.Fatalf("Tool output=%+v initial/resumed calls=%d/%d", decoded, initialCalls.Load(), resumedCalls.Load())
 				}
 				if result.Usage() != (agent.Usage{CommittedSteps: 5, PreparedEffects: 3, AcceptedSignals: 4}) {

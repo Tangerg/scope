@@ -60,18 +60,15 @@ func TestToolDispatcherSettlesLocalProtocolRejections(t *testing.T) {
 	}
 }
 
-func TestFailedDirectResultCannotEnterProtocol(t *testing.T) {
-	result := chat.ToolResult{
-		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
-	}
+func TestResultWithoutDispositionCannotEnterProtocol(t *testing.T) {
 	payload, err := jsonv2.Marshal(signalEnvelope{
-		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, Direct: true}},
+		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: chat.NewTextToolOutput("failure")}},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, decodeErr := decodeSignal(payload); decodeErr == nil {
-		t.Fatal("failed direct result entered the tool protocol")
+		t.Fatal("result without a disposition entered the tool protocol")
 	}
 }
 

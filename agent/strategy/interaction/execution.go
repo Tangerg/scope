@@ -303,7 +303,7 @@ func (e *execution) finishToolCallBatch(
 	direct := e.state.PendingSteer == nil
 	for index, result := range e.state.ToolRound.Results {
 		results[index] = result.toolResult(calls[index])
-		direct = direct && result.Direct
+		direct = direct && result.Disposition == ResultSucceeded && e.definition.tools.completesDirectly(calls[index].Name)
 	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
 	if err = e.state.recordRoundArtifacts(e.definition); err != nil {

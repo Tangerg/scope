@@ -106,7 +106,7 @@ func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult 
 func rejectedDelegateStartResult(call chat.ToolCall, failure agent.Failure) *toolCallResult {
 	result := delegateErrorResult(call, "child start failed: "+failure.Code()+": "+failure.Message())
 	completion := newToolCallResult(result)
-	completion.Rejected = true
+	completion.Disposition = ResultRejected
 	return &completion
 }
 

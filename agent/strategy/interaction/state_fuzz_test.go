@@ -190,7 +190,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
-				IsError: true, Output: chat.NewTextToolOutput("worker unavailable"), Rejected: true,
+				Disposition: ResultRejected, Output: chat.NewTextToolOutput("worker unavailable"),
 			}}},
 		},
 		{
