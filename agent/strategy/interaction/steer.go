@@ -11,8 +11,7 @@ import (
 
 // The admission shape excludes dispatcher results and Tool input responses.
 type steerSignal struct {
-	Operation operation  `json:"operation" jsonschema:"enum=steer"`
-	Steer     steerInput `json:"steer"`
+	Steer steerInput `json:"steer"`
 }
 
 type steerBatch struct {
@@ -54,8 +53,8 @@ func (s *steerBatch) collectSignal(signal agent.Signal) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	if envelope.Operation != operationSteer {
-		return true, fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.Operation)
+	if envelope.operation() != operationSteer {
+		return true, fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.operation())
 	}
 	if err := s.appendSignal(signal, envelope.Steer.Messages); err != nil {
 		return true, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
@@ -90,8 +89,7 @@ func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRe
 		return agent.SignalRequest{}, err
 	}
 	payload, err := jsonv2.Marshal(steerSignal{
-		Operation: operationSteer,
-		Steer:     steerInput{Messages: cloneMessages(messages)},
+		Steer: steerInput{Messages: cloneMessages(messages)},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.SignalRequest{}, err

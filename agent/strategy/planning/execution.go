@@ -179,7 +179,7 @@ func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, erro
 	if envelope.HostError != "" {
 		return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
 	}
-	if !envelope.Action.Succeeded {
+	if envelope.Action.Diagnostic != "" {
 		e.state.recordFailedAction(envelope.Action.Diagnostic)
 	}
 	return e.requestSense(1)

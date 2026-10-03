@@ -165,7 +165,7 @@ func ToolInvocationFromRequest(request agent.EffectRequest) (ToolInvocation, err
 	if err != nil {
 		return ToolInvocation{}, err
 	}
-	if envelope.Operation != operationToolCall {
+	if envelope.operation() != operationToolCall {
 		return ToolInvocation{}, fmt.Errorf("%w: Tool attribution requires a tool_call", ErrInvalidProtocol)
 	}
 	call := envelope.ToolCall.Invocation

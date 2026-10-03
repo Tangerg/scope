@@ -289,7 +289,7 @@ func settledToolResult(process agent.ProcessSnapshot, sequence uint64, index uin
 		if err != nil {
 			return nil, err
 		}
-		if envelope.Operation == operationToolCall && envelope.ToolResult.Completion != nil {
+		if envelope.operation() == operationToolCall && envelope.ToolResult.Completion != nil {
 			return envelope.ToolResult.Completion, nil
 		}
 	}

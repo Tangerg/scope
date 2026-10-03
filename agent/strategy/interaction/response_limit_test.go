@@ -185,13 +185,13 @@ func TestResponseLimitMeasuresCanonicalSettlementBoundaries(t *testing.T) {
 func TestResponseAdmissionReservesMinimumCompleteProtocol(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		for _, replacement := range []string{"", strings.Repeat("<>&\u2028\u2029", 20)} {
-			base := `{"operation":"model_call","model_result":{}}`
+			base := `{"model_result":{}}`
 			if replacement != "" {
 				messages, err := agent.EncodePayload([]chat.Message{chat.NewUserMessage(chat.NewTextPart(replacement))})
 				if err != nil {
 					t.Fatal(err)
 				}
-				base = `{"operation":"model_call","model_result":{"replacement_messages":` + string(messages.JSON()) + `}}`
+				base = `{"model_result":{"replacement_messages":` + string(messages.JSON()) + `}}`
 			}
 			for _, limit := range []int{1, len(base) + 1} {
 				var calls atomic.Int32
@@ -246,7 +246,6 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire, err := payload.Decode[struct {
-		Operation   string `json:"operation"`
 		ModelResult struct {
 			HostError string `json:"host_error"`
 		} `json:"model_result"`
@@ -255,8 +254,8 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "interaction: reduce model context: " + strings.Repeat("<", agent.MaxDiagnosticBytes-len("interaction: reduce model context: "))
-	if wire.Operation != "model_call" || wire.ModelResult.HostError != want || len(wire.ModelResult.HostError) != agent.MaxDiagnosticBytes {
-		t.Fatalf("diagnostic was not bounded at its owner: operation=%s bytes=%d", wire.Operation, len(wire.ModelResult.HostError))
+	if wire.ModelResult.HostError != want || len(wire.ModelResult.HostError) != agent.MaxDiagnosticBytes {
+		t.Fatalf("diagnostic was not bounded at its owner: bytes=%d", len(wire.ModelResult.HostError))
 	}
 }
 

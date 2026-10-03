@@ -18,7 +18,6 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 	call := chat.ToolCall{ID: "call", Name: "ask", Arguments: `{}`}
 	for _, effect := range []effectEnvelope{
 		{
-			Operation: operationModelCall,
 			ModelCall: &modelCall{
 				ModelCallSequence: 1,
 				Request: chat.Request{Messages: []chat.Message{
@@ -27,9 +26,8 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 				AdvertisedToolNames: []string{"ask"}, AppliedSteerSignalIDs: []agent.SignalID{signalID},
 			},
 		},
-		{Operation: operationToolCall, ToolCall: &toolDispatchRequest{Invocation: toolCall{ModelCallSequence: 1, Call: call}}},
+		{ToolCall: &toolDispatchRequest{Invocation: toolCall{ModelCallSequence: 1, Call: call}}},
 		{
-			Operation: operationToolCall,
 			ToolCall: &toolDispatchRequest{
 				Invocation: toolCall{ModelCallSequence: 1, ToolCallIndex: 2, Call: call},
 				Resume:     &toolResume{Checkpoint: *fuzzToolCheckpoint(f), InputResponse: json.RawMessage(`"Ada"`)},
@@ -46,7 +44,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		f.Add([]byte(encoded))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"operation":"tool_call","tool_call":{"model_call_sequence":1,"call":{"id":"call","name":"ask"},"input_response":"Ada"}}`))
+	f.Add([]byte(`{"tool_call":{"model_call_sequence":1,"call":{"id":"call","name":"ask"},"input_response":"Ada"}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		effect, err := decodeEffect(payload)
 		if err != nil {
@@ -77,18 +75,18 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 	failed := chat.ToolResult{ID: "call", Name: "ask", IsError: true, Output: chat.NewTextToolOutput("refused")}
 	checkpoint := fuzzToolCheckpoint(f)
 	for _, signal := range []signalEnvelope{
-		{Operation: operationModelCall, ModelResult: &modelCallResult{Response: response}},
-		{Operation: operationModelCall, ModelResult: &modelCallResult{
+		{ModelResult: &modelCallResult{Response: response}},
+		{ModelResult: &modelCallResult{
 			Response: response, ReplacementMessages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("summary"))},
 		}},
-		{Operation: operationModelCall, ModelResult: &modelCallResult{HostError: "request preparation failed"}},
-		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, AdvertisedToolNames: []string{"ask"}}}},
-		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, Direct: true}}},
-		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: failed.Output, IsError: failed.IsError}}},
-		{Operation: operationToolCall, ToolResult: &toolDispatchResult{Checkpoint: checkpoint}},
-		{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest},
-		{Operation: operationInputResponse, InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
-		{Operation: operationSteer, Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
+		{ModelResult: &modelCallResult{HostError: "request preparation failed"}},
+		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, AdvertisedToolNames: []string{"ask"}}}},
+		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, Direct: true}}},
+		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: failed.Output, IsError: failed.IsError}}},
+		{ToolResult: &toolDispatchResult{Checkpoint: checkpoint}},
+		{WaitOpened: &checkpoint.InputRequest},
+		{InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
+		{Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {
 		encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
 		if err != nil {
@@ -100,8 +98,8 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		f.Add([]byte(encoded))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"operation":"model_call","model_result":{"error":"provider","host_error":"host"}}`))
-	f.Add([]byte(`{"operation":"input_response","input_response":{},"steer":{"messages":[]}}`))
+	f.Add([]byte(`{"model_result":{"error":"provider","host_error":"host"}}`))
+	f.Add([]byte(`{"input_response":{},"steer":{"messages":[]}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		signal, err := decodeSignal(payload)
 		if err != nil {
@@ -139,11 +137,11 @@ func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
 }
 
 func TestInputResponseRequiresPresentJSON(t *testing.T) {
-	if _, err := decodeSignal([]byte(`{"operation":"input_response"}`)); err == nil {
+	if _, err := decodeSignal([]byte(`{}`)); err == nil {
 		t.Fatal("accepted a missing answer")
 	}
 	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
-		signal, err := decodeSignal([]byte(`{"operation":"input_response","input_response":` + raw + `}`))
+		signal, err := decodeSignal([]byte(`{"input_response":` + raw + `}`))
 		if err != nil {
 			t.Fatal(err)
 		}

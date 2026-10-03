@@ -194,7 +194,6 @@ func NewToolInputResponseSignal(
 		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
 	}
 	payload, err := jsonv2.Marshal(signalEnvelope{
-		Operation:     operationInputResponse,
 		InputResponse: input.JSON(),
 	}, jsonv2.Deterministic(true))
 	if err != nil {

@@ -102,7 +102,7 @@ func (d *Dispatcher) Dispatch(
 	if err := d.descriptor.ValidateInput(envelope.Input); err != nil {
 		return planningFailureSettlement(request.ID(), fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err))
 	}
-	switch envelope.Operation {
+	switch envelope.operation() {
 	case operationSense:
 		return d.sense(ctx, request.ID(), envelope.Input)
 	case operationAction:
@@ -117,7 +117,7 @@ func (d *Dispatcher) Dispatch(
 // always require explicit resolution after an unknown attempt.
 func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
 	envelope, err := decodeEffect(effect.Payload())
-	if err == nil && envelope.Operation == operationSense {
+	if err == nil && envelope.operation() == operationSense {
 		return agent.ReplayPolicySameIdentity
 	}
 	return agent.ReplayPolicyNever

@@ -16,10 +16,17 @@ const (
 	operationAction operation = "action"
 )
 
+// effectEnvelope is a sense request unless it names an Action.
 type effectEnvelope struct {
-	Operation operation     `json:"operation"`
-	Input     agent.Payload `json:"input"`
-	Action    *actionCall   `json:"action,omitzero"`
+	Input  agent.Payload `json:"input"`
+	Action *actionCall   `json:"action,omitzero"`
+}
+
+func (e effectEnvelope) operation() operation {
+	if e.Action != nil {
+		return operationAction
+	}
+	return operationSense
 }
 
 type actionCall struct {
@@ -28,11 +35,19 @@ type actionCall struct {
 	WorldState  WorldState `json:"world_state"`
 }
 
+// signalEnvelope carries exactly one of a host rejection, a sensing result,
+// and an Action result; the member present names the operation it settles.
 type signalEnvelope struct {
 	HostError string            `json:"host_error,omitempty"`
-	Operation operation         `json:"operation,omitempty"`
 	Sensing   *senseResult      `json:"sensing,omitzero"`
 	Action    *actionResultWire `json:"action,omitzero"`
+}
+
+func (s signalEnvelope) operation() operation {
+	if s.Action != nil {
+		return operationAction
+	}
+	return operationSense
 }
 
 type senseResult struct {
@@ -47,22 +62,20 @@ func (s senseResult) valid() bool {
 	return s.WorldState != nil
 }
 
+// actionResultWire reports a failure exactly by its diagnostic.
 type actionResultWire struct {
-	Succeeded  bool   `json:"succeeded"`
 	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
 func (a actionResultWire) result() ActionResult {
-	return ActionResult{succeeded: a.Succeeded, diagnostic: a.Diagnostic}
+	return ActionResult{succeeded: a.Diagnostic == "", diagnostic: a.Diagnostic}
 }
 
 func newSenseEffect(input agent.Payload) (agent.Effect, error) {
 	if !input.Valid() {
 		return agent.Effect{}, ErrInvalidProtocol
 	}
-	payload, err := jsonv2.Marshal(effectEnvelope{
-		Operation: operationSense, Input: input,
-	}, jsonv2.Deterministic(true))
+	payload, err := jsonv2.Marshal(effectEnvelope{Input: input}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Effect{}, err
 	}
@@ -75,8 +88,7 @@ func newActionEffect(input agent.Payload, binding ActionBinding, state WorldStat
 		return agent.Effect{}, ErrInvalidProtocol
 	}
 	payload, err := jsonv2.Marshal(effectEnvelope{
-		Operation: operationAction,
-		Input:     input,
+		Input: input,
 		Action: &actionCall{
 			Name: binding.action.name, Description: binding.action.description, WorldState: state,
 		},
@@ -102,14 +114,7 @@ func (e effectEnvelope) valid() bool {
 	if !e.Input.Valid() {
 		return false
 	}
-	switch e.Operation {
-	case operationSense:
-		return e.Action == nil
-	case operationAction:
-		return e.Action != nil && agent.ValidQualifiedName(e.Action.Name) && agent.ValidDescription(e.Action.Description)
-	default:
-		return false
-	}
+	return e.Action == nil || agent.ValidQualifiedName(e.Action.Name) && agent.ValidDescription(e.Action.Description)
 }
 
 func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
@@ -120,9 +125,7 @@ func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
 		cloned := state
 		result.WorldState = &cloned
 	}
-	return jsonv2.Marshal(signalEnvelope{
-		Operation: operationSense, Sensing: result,
-	}, jsonv2.Deterministic(true))
+	return jsonv2.Marshal(signalEnvelope{Sensing: result}, jsonv2.Deterministic(true))
 }
 
 func actionSignal(result ActionResult) (json.RawMessage, error) {
@@ -130,10 +133,7 @@ func actionSignal(result ActionResult) (json.RawMessage, error) {
 		return nil, ErrInvalidProtocol
 	}
 	return jsonv2.Marshal(signalEnvelope{
-		Operation: operationAction,
-		Action: &actionResultWire{
-			Succeeded: result.Succeeded(), Diagnostic: result.Diagnostic(),
-		},
+		Action: &actionResultWire{Diagnostic: result.Diagnostic()},
 	}, jsonv2.Deterministic(true))
 }
 
@@ -151,11 +151,11 @@ func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
 func (s signalEnvelope) valid() bool {
 	switch {
 	case s.HostError != "":
-		return agent.ValidDiagnostic(s.HostError) && s.Operation == "" && s.Sensing == nil && s.Action == nil
-	case s.Operation == operationSense:
-		return s.Sensing != nil && s.Action == nil && s.Sensing.valid()
-	case s.Operation == operationAction:
-		return s.Action != nil && s.Sensing == nil && s.Action.result().Valid()
+		return agent.ValidDiagnostic(s.HostError) && s.Sensing == nil && s.Action == nil
+	case s.Sensing != nil:
+		return s.Action == nil && s.Sensing.valid()
+	case s.Action != nil:
+		return s.Action.result().Valid()
 	default:
 		return false
 	}
@@ -172,7 +172,7 @@ func decodeSettlement(signals []agent.Signal, expected operation) (signalEnvelop
 	if err != nil {
 		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal: %w", ErrInvalidProtocol, expected, err)
 	}
-	if envelope.HostError == "" && envelope.Operation != expected {
+	if envelope.HostError == "" && envelope.operation() != expected {
 		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal", ErrInvalidProtocol, expected)
 	}
 	return envelope, nil

@@ -111,7 +111,7 @@ func (d *Dispatcher) Dispatch(
 	if err != nil {
 		return modelHostFailureSettlement(request.ID(), err)
 	}
-	switch envelope.Operation {
+	switch envelope.operation() {
 	case operationModelCall:
 		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
@@ -169,14 +169,14 @@ func (d *Dispatcher) dispatchModel(
 	if d.contextReducer != nil && !reflect.DeepEqual(call.Request.Messages, modelRequest.Messages) {
 		result.ReplacementMessages = cloneMessages(modelRequest.Messages)
 	}
-	base, err := agent.EncodePayload(signalEnvelope{Operation: operationModelCall, ModelResult: result})
+	base, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
 		return modelHostFailureSettlement(request.ID(), err)
 	}
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
 	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
-	minimum, err := agent.EncodePayload(signalEnvelope{Operation: operationModelCall, ModelResult: result})
+	minimum, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
 		return modelHostFailureSettlement(request.ID(), err)
 	}
@@ -203,7 +203,7 @@ func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *ch
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	if envelope.Operation != operationModelCall {
+	if envelope.operation() != operationModelCall {
 		return agent.Settlement{}, fmt.Errorf("%w: model recovery requires a model_call", ErrInvalidProtocol)
 	}
 	definitions, err := d.modelDefinitions(envelope.ModelCall.AdvertisedToolNames)
@@ -330,7 +330,6 @@ func (d *Dispatcher) callModel(
 
 func modelHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(signalEnvelope{
-		Operation:   operationModelCall,
 		ModelResult: &modelCallResult{HostError: agent.NormalizeDiagnostic(cause.Error())},
 	}, jsonv2.Deterministic(true))
 	if err != nil {

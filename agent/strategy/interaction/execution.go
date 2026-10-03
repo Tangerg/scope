@@ -333,8 +333,8 @@ func collectSteerSignals(signals []agent.Signal) (steerBatch, uint32, error) {
 		if err != nil {
 			return steerBatch{}, 0, err
 		}
-		if envelope.Operation != operationSteer {
-			return steerBatch{}, 0, fmt.Errorf("%w: unexpected %q Signal", ErrInvalidExecutionState, envelope.Operation)
+		if envelope.operation() != operationSteer {
+			return steerBatch{}, 0, fmt.Errorf("%w: unexpected %q Signal", ErrInvalidExecutionState, envelope.operation())
 		}
 		if err := batch.appendSignal(signal, envelope.Steer.Messages); err != nil {
 			return steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
@@ -352,7 +352,7 @@ func collectModelResult(signals []agent.Signal) (signalEnvelope, steerBatch, uin
 		if err != nil {
 			return signalEnvelope{}, steerBatch{}, 0, err
 		}
-		switch envelope.Operation {
+		switch envelope.operation() {
 		case operationSteer:
 			if err := steer.appendSignal(signal, envelope.Steer.Messages); err != nil {
 				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
@@ -364,7 +364,7 @@ func collectModelResult(signals []agent.Signal) (signalEnvelope, steerBatch, uin
 			found = true
 			result = envelope
 		default:
-			return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.Operation, operationModelCall)
+			return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), operationModelCall)
 		}
 	}
 	if !found {

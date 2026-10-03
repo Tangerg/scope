@@ -57,14 +57,14 @@ func TestToolDeploymentSeparatesInvocationAndCompletion(t *testing.T) {
 
 func TestToolProtocolRejectsSupersededAndIncompleteShapes(t *testing.T) {
 	for _, payload := range []string{
-		`{"operation":"tool_call","tool_call":{"model_call_sequence":1,"call":{"id":"call","name":"ask","arguments":"{}"}}}`,
-		`{"operation":"tool_call","tool_call":{"invocation":{"model_call_sequence":1,"call":{"id":"call","name":"ask","arguments":"{}"}},"resume":{}}}`,
+		`{"tool_call":{"model_call_sequence":1,"call":{"id":"call","name":"ask","arguments":"{}"}}}`,
+		`{"tool_call":{"invocation":{"model_call_sequence":1,"call":{"id":"call","name":"ask","arguments":"{}"}},"resume":{}}}`,
 	} {
 		if _, err := decodeEffect(json.RawMessage(payload)); err == nil {
 			t.Fatalf("accepted invalid dispatch request: %s", payload)
 		}
 	}
-	if _, err := decodeSignal(json.RawMessage(`{"operation":"tool_call","tool_result":{"result":{"id":"call","name":"ask"},"direct":false}}`)); err == nil {
+	if _, err := decodeSignal(json.RawMessage(`{"tool_result":{"result":{"id":"call","name":"ask"},"direct":false}}`)); err == nil {
 		t.Fatal("accepted superseded result encoding")
 	}
 }
@@ -134,8 +134,8 @@ func TestToolInputRequestPreservesJSONNumbers(t *testing.T) {
 func TestProtocolRejectionsHaveStableClassification(t *testing.T) {
 	for _, payload := range []json.RawMessage{
 		[]byte(`{"operation":"unsupported"}`),
-		[]byte(`{"operation":"model_call","tool_call":{}}`),
-		[]byte(`{"operation":"model_call","extra":true}`),
+		[]byte(`{"tool_call":{}}`),
+		[]byte(`{"extra":true}`),
 	} {
 		if _, err := decodeEffect(payload); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatalf("effect rejection has no protocol classification: %v", err)

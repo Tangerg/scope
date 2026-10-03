@@ -24,10 +24,22 @@ const (
 	operationSteer         operation = "steer"
 )
 
+// effectEnvelope carries exactly one request; the member present names its
+// operation.
 type effectEnvelope struct {
-	Operation operation            `json:"operation"`
 	ModelCall *modelCall           `json:"model_call,omitzero"`
 	ToolCall  *toolDispatchRequest `json:"tool_call,omitzero"`
+}
+
+func (e effectEnvelope) operation() operation {
+	switch {
+	case e.ModelCall != nil:
+		return operationModelCall
+	case e.ToolCall != nil:
+		return operationToolCall
+	default:
+		return ""
+	}
 }
 
 type modelCall struct {
@@ -83,8 +95,9 @@ type toolResume struct {
 	InputResponse json.RawMessage `json:"input_response"`
 }
 
+// signalEnvelope carries exactly one result or input; the member present
+// names its operation.
 type signalEnvelope struct {
-	Operation     operation           `json:"operation"`
 	ModelResult   *modelCallResult    `json:"model_result,omitzero"`
 	ToolResult    *toolDispatchResult `json:"tool_result,omitzero"`
 	WaitOpened    *toolInputRequest   `json:"wait_opened,omitzero"`
@@ -129,7 +142,7 @@ func (m modelCallResult) validate() error {
 }
 
 func (m modelCallResult) settlement(id agent.EffectID, maxBytes int) (agent.Settlement, error) {
-	signal := signalEnvelope{Operation: operationModelCall, ModelResult: &m}
+	signal := signalEnvelope{ModelResult: &m}
 	if err := signal.validateModelResult(); err != nil {
 		return agent.Settlement{}, err
 	}
@@ -203,7 +216,6 @@ func newModelEffect(
 		return effectEnvelope{}, fmt.Errorf("%w: model request: %w", ErrInvalidProtocol, err)
 	}
 	return effectEnvelope{
-		Operation: operationModelCall,
 		ModelCall: &modelCall{
 			ModelCallSequence:     modelCallSequence,
 			Request:               *cloned,
@@ -214,7 +226,7 @@ func newModelEffect(
 }
 
 func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
-	envelope := effectEnvelope{Operation: operationToolCall, ToolCall: &call}
+	envelope := effectEnvelope{ToolCall: &call}
 	if err := envelope.validateToolCall(); err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -222,7 +234,7 @@ func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
 }
 
 func (e effectEnvelope) validate() error {
-	switch e.Operation {
+	switch e.operation() {
 	case operationModelCall:
 		return e.validateModelCall()
 	case operationToolCall:
@@ -271,8 +283,25 @@ func (e effectEnvelope) validateToolCall() error {
 	return err
 }
 
+func (s signalEnvelope) operation() operation {
+	switch {
+	case s.ModelResult != nil:
+		return operationModelCall
+	case s.ToolResult != nil:
+		return operationToolCall
+	case s.WaitOpened != nil:
+		return operationWaitOpened
+	case len(s.InputResponse) != 0:
+		return operationInputResponse
+	case s.Steer != nil:
+		return operationSteer
+	default:
+		return ""
+	}
+}
+
 func (s signalEnvelope) validate() error {
-	switch s.Operation {
+	switch s.operation() {
 	case operationModelCall:
 		return s.validateModelResult()
 	case operationToolCall:
@@ -306,7 +335,7 @@ func (t toolDispatchResult) settlement(id agent.EffectID) (agent.Settlement, err
 	if err := t.validate(); err != nil {
 		return agent.Settlement{}, err
 	}
-	payload, err := agent.EncodePayload(signalEnvelope{Operation: operationToolCall, ToolResult: &t})
+	payload, err := agent.EncodePayload(signalEnvelope{ToolResult: &t})
 	if err != nil {
 		return agent.Settlement{}, err
 	}

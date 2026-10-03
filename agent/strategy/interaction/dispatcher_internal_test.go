@@ -65,7 +65,6 @@ func TestFailedDirectResultCannotEnterProtocol(t *testing.T) {
 		ID: "failed", Name: "direct", IsError: true, Output: chat.NewTextToolOutput("failure"),
 	}
 	payload, err := jsonv2.Marshal(signalEnvelope{
-		Operation:  operationToolCall,
 		ToolResult: &toolDispatchResult{Completion: &toolCallResult{Output: result.Output, IsError: result.IsError, Direct: true}},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
@@ -78,7 +77,6 @@ func TestFailedDirectResultCannotEnterProtocol(t *testing.T) {
 
 func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 	modelHost := signalEnvelope{
-		Operation:   operationModelCall,
 		ModelResult: &modelCallResult{HostError: "journal unavailable"},
 	}
 	if err := modelHost.validate(); err != nil {
@@ -95,7 +93,7 @@ func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
 }
 
 func TestModelResultRejectsProviderErrorMember(t *testing.T) {
-	_, err := decodeSignal(json.RawMessage(`{"operation":"model_call","model_result":{"error":"provider unavailable"}}`))
+	_, err := decodeSignal(json.RawMessage(`{"model_result":{"error":"provider unavailable"}}`))
 	if !errors.Is(err, ErrInvalidProtocol) || !errors.Is(err, jsonv2.ErrUnknownName) {
 		t.Fatalf("decodeSignal = %v, want ErrInvalidProtocol wrapping an unknown member", err)
 	}

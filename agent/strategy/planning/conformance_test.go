@@ -88,8 +88,8 @@ func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, raw := range []string{
-		`null`, `{}`, `{"operation":"sense","input":"wrong-schema"}`,
-		`{"operation":"action","input":{},"action":{"name":"missing","description":"Missing action.","world_state":{}}}`,
+		`null`, `{}`, `{"input":"wrong-schema"}`,
+		`{"input":{},"action":{"name":"missing","description":"Missing action.","world_state":{}}}`,
 	} {
 		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
 		if effectErr != nil {

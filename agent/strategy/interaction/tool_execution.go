@@ -156,7 +156,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 }
 
 func (t *toolExecution) acceptWaitOpened(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
-	if !signal.EngineOwned() || envelope.Operation != operationWaitOpened {
+	if !signal.EngineOwned() || envelope.operation() != operationWaitOpened {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	waitID, addressed := signal.WaitID()
@@ -169,7 +169,7 @@ func (t *toolExecution) acceptWaitOpened(signal agent.Signal, envelope signalEnv
 
 func (t *toolExecution) acceptInputResponse(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
 	waitID, addressed := signal.WaitID()
-	if envelope.Operation != operationInputResponse || !addressed || waitID != *t.state.WaitID {
+	if envelope.operation() != operationInputResponse || !addressed || waitID != *t.state.WaitID {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	return t.request(1, toolDispatchRequest{
@@ -197,7 +197,7 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 }
 
 func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
-	if _, addressed := signal.WaitID(); !signal.EngineOwned() || addressed || envelope.Operation != operationToolCall {
+	if _, addressed := signal.WaitID(); !signal.EngineOwned() || addressed || envelope.operation() != operationToolCall {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	outcome := envelope.ToolResult
@@ -226,7 +226,7 @@ func (t *toolExecution) openInputWait(checkpoint toolCheckpoint) (agent.Transiti
 	if previous == math.MaxUint64 || checkpoint.PauseCount != previous+1 {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
-	payload, err := jsonv2.Marshal(signalEnvelope{Operation: operationWaitOpened, WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
+	payload, err := jsonv2.Marshal(signalEnvelope{WaitOpened: &checkpoint.InputRequest}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Transition{}, err
 	}

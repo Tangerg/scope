@@ -39,7 +39,7 @@ func TestToolCallRequiresExplicitPosition(t *testing.T) {
 				t.Fatal(err)
 			}
 			restored, restoreErr := definition.Restore(t.Context(), state)
-			_, dispatchErr := decodeEffect(json.RawMessage(`{"operation":"tool_call","tool_call":{"invocation":` + call + `}}`))
+			_, dispatchErr := decodeEffect(json.RawMessage(`{"tool_call":{"invocation":` + call + `}}`))
 			if !test.valid {
 				if !errors.Is(startErr, ErrInvalidInput) || !errors.Is(restoreErr, ErrInvalidExecutionState) || !errors.Is(dispatchErr, ErrInvalidProtocol) {
 					t.Fatalf("lost position accepted: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)

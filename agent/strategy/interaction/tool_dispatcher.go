@@ -48,7 +48,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	if err != nil {
 		return protocolFailureSettlement(request.ID(), err)
 	}
-	if envelope.Operation != operationToolCall || envelope.ToolCall == nil {
+	if envelope.operation() != operationToolCall || envelope.ToolCall == nil {
 		return protocolFailureSettlement(request.ID(), errors.New("interaction: Tool dispatcher requires one tool_call"))
 	}
 	call := envelope.ToolCall.Invocation
