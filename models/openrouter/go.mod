@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/core v0.42.0
 	github.com/Tangerg/scope/models/protocol/anthropic v0.42.0
-	github.com/Tangerg/scope/models/protocol/openai v0.42.0
+	github.com/Tangerg/scope/models/protocol/openai v0.42.1-0.20261004234212-ce772758b587
 )
 
 require (
