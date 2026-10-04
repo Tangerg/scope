@@ -148,9 +148,6 @@ func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
-	if !result.Deadline.Equal(d.state.Deadline) {
-		return agent.Transition{}, fmt.Errorf("%w: timer settlement disagrees with its deadline", ErrInvalidProtocol)
-	}
 	if !result.Reached {
 		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
 		if failureErr != nil {

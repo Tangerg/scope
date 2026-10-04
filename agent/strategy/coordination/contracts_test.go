@@ -77,10 +77,9 @@ func TestCoordinationRejectsExternalTimerAndWaitOpening(t *testing.T) {
 		payload    any
 	}{
 		{name: "timer", definition: deadlineBinding(t, coordination.DeadlineDispatcher{}).Definition(), input: encodedInput(t, deadline), payload: struct {
-			Deadline time.Time `json:"deadline"`
-			Reached  bool      `json:"reached"`
-		}{Deadline: deadline, Reached: true}},
-		{name: "wait opening", definition: inputGate(t), input: encodedInput(t, "request"), waitID: "wait:external", payload: "request"},
+			Reached bool `json:"reached"`
+		}{Reached: true}},
+		{name: "wait opening", definition: inputGate(t), input: encodedInput(t, "request"), waitID: "wait:external", payload: map[string]string{"operation": "wait"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			execution, err := test.definition.Start(test.input)

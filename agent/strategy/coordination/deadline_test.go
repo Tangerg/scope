@@ -181,8 +181,8 @@ func (r *recordingTimer) identities() []agent.EffectID {
 
 func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
 	for _, payload := range []string{
-		`{"deadline":"2026-09-10T12:00:00Z","reached":true}`,
-		`{"deadline":42,"reached":true}`,
+		`{"reached":"yes"}`,
+		`{"deadline":"2026-09-09T12:00:00Z","reached":true}`,
 	} {
 		dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{{SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(payload)}}})
 		if err != nil {

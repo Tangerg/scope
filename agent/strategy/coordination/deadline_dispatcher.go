@@ -21,9 +21,10 @@ type timerRequest struct {
 	Deadline time.Time `json:"deadline"`
 }
 
+// timerResult reports only whether the requested deadline was reached; the
+// request owns the deadline.
 type timerResult struct {
-	Deadline time.Time `json:"deadline"`
-	Reached  bool      `json:"reached"`
+	Reached bool `json:"reached"`
 }
 
 func newTimerEffect(deadline time.Time) (agent.Effect, error) {
@@ -69,7 +70,7 @@ func (DeadlineDispatcher) Dispatch(ctx context.Context, request agent.EffectRequ
 	if err != nil {
 		return timerFailureSettlement(request.ID(), err)
 	}
-	result := timerResult{Deadline: operation.Deadline}
+	var result timerResult
 	if ctx.Err() == nil {
 		result.Reached = waitUntil(ctx, operation.Deadline)
 	}
