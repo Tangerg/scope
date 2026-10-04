@@ -52,6 +52,11 @@
 // Responses Call and Stream share terminal-state mapping: incomplete generation
 // preserves its stop reason, failed generation returns an error, and a stream
 // ending before a terminal response returns chat.ErrInvalidResponse.
+// Each Responses reasoning segment keeps a distinct Core Part. Part.Text owns
+// visible summary or content text; ReasoningState retains segment identities and
+// one completed native item without text copies. Replay requires that complete
+// state and its Core text parts. Previously stored full native reasoning items
+// are rejected. Preserve signed content and native fields when replaying.
 //
 // Provider packages with an OpenAI-compatible endpoint reuse the protocol
 // through [NewCompatibleChatCompletions] and select one typed [Dialect]. This

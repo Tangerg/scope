@@ -20,10 +20,13 @@ type responsesStreamState struct {
 	model      string
 	createdAt  time.Time
 	tools      map[string]responsesToolIdentity
+	reasoning  map[string]responsesReasoningSegment
 }
 
 func newResponsesStreamState() *responsesStreamState {
-	return &responsesStreamState{tools: make(map[string]responsesToolIdentity)}
+	return &responsesStreamState{
+		tools: make(map[string]responsesToolIdentity), reasoning: make(map[string]responsesReasoningSegment),
+	}
 }
 
 func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion) (*corechat.ResponseDelta, bool, error) {
@@ -75,25 +78,49 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		}
 		return r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: identity.id, Name: identity.name, Arguments: typed.Delta}))
 	case responses.ResponseReasoningTextDeltaEvent:
-		if typed.Delta == "" {
-			return nil, false, nil
-		}
-		return r.deltaResponse(corechat.NewReasoningDelta(typed.Delta, nil))
+		return r.reasoningDelta(typed.Delta, responsesReasoningSegment{
+			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
+		})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
-		if typed.Delta == "" {
+		return r.reasoningDelta(typed.Delta, responsesReasoningSegment{
+			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
+		})
+	case responses.ResponseReasoningSummaryPartAddedEvent:
+		return r.reasoningDelta(typed.Part.Text, responsesReasoningSegment{
+			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
+		})
+	case responses.ResponseContentPartAddedEvent:
+		if typed.Part.Type != responsesReasoningContentText {
 			return nil, false, nil
 		}
-		return r.deltaResponse(corechat.NewReasoningDelta(typed.Delta, nil))
+		return r.reasoningDelta(typed.Part.Text, responsesReasoningSegment{
+			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
+		})
 	case responses.ResponseOutputItemDoneEvent:
 		if typed.Item.Type != responsesItemTypeReasoning {
 			return nil, false, nil
 		}
 		reasoning := typed.Item.AsReasoning()
-		signature, err := encodeResponsesReasoningFrame(reasoning.ToParam())
+		state, err := completedResponsesReasoningState(reasoning)
 		if err != nil {
 			return nil, false, fmt.Errorf("openai responses: stream reasoning item: %w", err)
 		}
-		return r.deltaResponse(corechat.NewReasoningDelta("", signature))
+		frame, err := encodeResponsesReasoningFrame(state)
+		if err != nil {
+			return nil, false, fmt.Errorf("openai responses: stream reasoning item: %w", err)
+		}
+		part := corechat.NewReasoningDelta("", frame)
+		if segment, exists := r.reasoning[reasoning.ID]; exists {
+			err = part.Metadata.Set(responsesReasoningIdentityKey, segment)
+		} else {
+			err = part.Metadata.Set(responsesReasoningIdentityKey, struct {
+				ItemID string `json:"item_id"`
+			}{ItemID: reasoning.ID})
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		return r.deltaResponse(part)
 	case responses.ResponseCompletedEvent:
 		delta, err := responsesTerminalDelta(&typed.Response)
 		return delta, err == nil, err
@@ -108,6 +135,19 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	default:
 		return nil, false, nil
 	}
+}
+
+func (r *responsesStreamState) reasoningDelta(text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, bool, error) {
+	frame, err := encodeResponsesReasoningFrame(responsesReasoningState{Segment: &segment})
+	if err != nil {
+		return nil, false, err
+	}
+	part := corechat.NewReasoningDelta(text, frame)
+	if err := part.Metadata.Set(responsesReasoningIdentityKey, segment); err != nil {
+		return nil, false, err
+	}
+	r.reasoning[segment.ItemID] = segment
+	return r.deltaResponse(part)
 }
 
 func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, bool, error) {

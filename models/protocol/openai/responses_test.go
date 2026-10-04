@@ -75,7 +75,7 @@ func TestResponsesChatModel_Call_InterleavedOutput(t *testing.T) {
 		t.Errorf("reasoning text = %q", reasoning.Text)
 	}
 	if len(reasoning.ReasoningState) == 0 || string(reasoning.ReasoningState) == "enc_xyz" {
-		t.Errorf("reasoning signature did not preserve the full reasoning item")
+		t.Errorf("reasoning state did not preserve the native item fields")
 	}
 
 	if msg.Parts[1].Text != "先查天气：" {
@@ -207,7 +207,7 @@ func TestResponsesChatModel_Stream_InterleavedDeltas(t *testing.T) {
 		t.Errorf("reasoning text = %q", reasoning.Text)
 	}
 	if len(reasoning.ReasoningState) == 0 || string(reasoning.ReasoningState) == "enc_xyz" {
-		t.Errorf("reasoning signature did not preserve the full reasoning item")
+		t.Errorf("reasoning state did not preserve the native item fields")
 	}
 
 	if msg.Parts[1].Text != "先查天气：" {
@@ -254,9 +254,18 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Call: %v", err)
 	}
+	message := response.Output.Message.Clone()
+	message.Parts[0].Text = "edited summary"
+	encoded, err := jsonv2.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jsonv2.Unmarshal(encoded, &message); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := model.Call(t.Context(), &chat.Request{Messages: []chat.Message{
 		userMessage,
-		response.Output.Message.Clone(),
+		message,
 		chat.NewToolMessage(chat.ToolResult{
 			ID: "call_w", Name: "weather", Output: chat.NewTextToolOutput("sunny"),
 		}),
@@ -279,7 +288,7 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 		t.Fatalf("reasoning item identity changed: %#v", reasoning)
 	}
 	summary := reasoning["summary"].([]any)
-	if len(summary) != 1 || summary[0].(map[string]any)["text"] != "想想看" {
+	if len(summary) != 1 || summary[0].(map[string]any)["text"] != "edited summary" {
 		t.Fatalf("reasoning summary changed: %#v", summary)
 	}
 }
@@ -332,7 +341,7 @@ func responsesInterleavedEvents() []modeltest.AnthropicEvent {
 
 		// reasoning item: added (id pickup) + text delta + done (signature)
 		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[],"status":"in_progress"}}`},
-		{Event: "response.reasoning_text.delta", Data: `{"type":"response.reasoning_text.delta","sequence_number":3,"item_id":"rs_1","output_index":0,"content_index":0,"delta":"想想看"}`},
+		{Event: "response.reasoning_summary_text.delta", Data: `{"type":"response.reasoning_summary_text.delta","sequence_number":3,"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"想想看"}`},
 		{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"}}`},
 
 		// first text message: added + delta

@@ -173,6 +173,7 @@ func mapResponsesUserContent(parts []corechat.Part) (responses.ResponseInputMess
 
 func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInputItemUnionParam, error) {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(parts))
+	replays := make(map[string]*responsesReasoningReplay)
 	for partIndex := range parts {
 		part := parts[partIndex]
 		switch part.Kind {
@@ -184,19 +185,28 @@ func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInpu
 			if len(part.ReasoningState) == 0 {
 				continue
 			}
-			reasoningItems, framed, err := decodeResponsesReasoningFrames(part.ReasoningState)
+			states, framed, err := decodeResponsesReasoningFrames(part.ReasoningState)
 			if err != nil {
-				return nil, fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
+				return nil, fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
 			}
 			if !framed {
-				// A signature from another provider is not valid OpenAI Responses
+				// Replay state from another provider is not valid OpenAI Responses
 				// replay state. The visible text remains portable but is not sent as
 				// a reasoning item without the provider-issued identity.
 				continue
 			}
-			for index := range reasoningItems {
-				item := reasoningItems[index]
-				items = append(items, responses.ResponseInputItemUnionParam{OfReasoning: &item})
+			id, err := states[0].itemID()
+			if err != nil {
+				return nil, err
+			}
+			replay, exists := replays[id]
+			if !exists {
+				replay = &responsesReasoningReplay{itemID: id}
+				replays[id] = replay
+				items = append(items, responses.ResponseInputItemUnionParam{OfReasoning: &responses.ResponseReasoningItemParam{ID: id}})
+			}
+			if err := replay.add(part, states); err != nil {
+				return nil, fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
 			}
 		case corechat.PartToolCall:
 			items = append(items, responses.ResponseInputItemUnionParam{OfFunctionCall: &responses.ResponseFunctionToolCallParam{
@@ -205,6 +215,18 @@ func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInpu
 		default:
 			return nil, fmt.Errorf("parts[%d]: unsupported assistant part %q", partIndex, part.Kind)
 		}
+	}
+	for index := range items {
+		if items[index].OfReasoning == nil {
+			continue
+		}
+		id := items[index].OfReasoning.ID
+		replay := replays[id]
+		item, err := replay.param()
+		if err != nil {
+			return nil, fmt.Errorf("reasoning item %q: %w", id, err)
+		}
+		items[index] = responses.ResponseInputItemUnionParam{OfReasoning: &item}
 	}
 	return items, nil
 }
