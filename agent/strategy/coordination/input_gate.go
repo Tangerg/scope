@@ -23,8 +23,9 @@ type InputGateConfig struct {
 	AnswerSchema  agent.Schema
 }
 
-// InputGate publishes its initial input as the wait-opening payload and returns
-// one addressed answer as an immutable agent.Signal. Unaddressed inputs are not
+// InputGate retains its initial request in Strategy state, opens an external
+// wait, and returns one addressed answer as an immutable agent.Signal. The
+// opening only acknowledges its WaitID. Unaddressed inputs are not
 // part of this protocol and are rejected at admission, including while the
 // final Step runs. A router retains responsibility for rejected input.
 type InputGate struct {

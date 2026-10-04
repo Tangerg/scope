@@ -13,7 +13,7 @@ import (
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
 // Malformed timer payloads settle Failed with a JSON diagnostic string. Valid
-// timer operations settle with their absolute deadline and whether it was reached;
+// timer operations settle with whether the requested deadline was reached;
 // cancellation never leaves an unknown external outcome.
 type DeadlineDispatcher struct{}
 
