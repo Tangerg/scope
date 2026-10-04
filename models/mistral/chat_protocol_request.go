@@ -165,25 +165,57 @@ func mistralMediaURI(value *media.Media) (string, error) {
 func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 	message := chatMessage{Role: chatRoleAssistant}
 	content := make([]any, 0, len(parts))
+	var thinking *thinkingReplay
+	flushThinking := func() error {
+		if thinking == nil {
+			return nil
+		}
+		chunk, err := thinking.chunk()
+		if err != nil {
+			return err
+		}
+		content = append(content, chunk)
+		thinking = nil
+		return nil
+	}
 	for partIndex := range parts {
 		part := parts[partIndex]
+		if part.Kind != corechat.PartReasoning {
+			if err := flushThinking(); err != nil {
+				return chatMessage{}, err
+			}
+		}
 		switch part.Kind {
 		case corechat.PartText:
 			content = append(content, textChunk{Type: contentTypeText, Text: part.Text})
 		case corechat.PartRefusal:
 			content = append(content, textChunk{Type: contentTypeText, Text: part.Text})
 		case corechat.PartReasoning:
-			frames, framed, err := decodeThinkingFrames(part.ReasoningState)
+			state, framed, err := decodeThinkingFrame(part.ReasoningState)
 			if err != nil {
 				return chatMessage{}, fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
 			}
 			if framed {
-				chunk, err := coalesceThinkingFrames(frames)
-				if err != nil {
-					return chatMessage{}, fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
+				if thinking != nil && thinking.block != state.Block {
+					if err := flushThinking(); err != nil {
+						return chatMessage{}, err
+					}
 				}
-				content = append(content, chunk)
+				if thinking == nil {
+					thinking = &thinkingReplay{block: state.Block}
+				}
+				if err := thinking.add(state, part.Text); err != nil {
+					return chatMessage{}, fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
+				}
+				if state.closed() {
+					if err := flushThinking(); err != nil {
+						return chatMessage{}, err
+					}
+				}
 				continue
+			}
+			if err := flushThinking(); err != nil {
+				return chatMessage{}, err
 			}
 			if part.Text != "" {
 				content = append(content, thinkChunk{
@@ -211,6 +243,9 @@ func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 		default:
 			return chatMessage{}, fmt.Errorf("parts[%d]: unsupported assistant part %q", partIndex, part.Kind)
 		}
+	}
+	if err := flushThinking(); err != nil {
+		return chatMessage{}, err
 	}
 	if len(content) == 1 {
 		if text, ok := content[0].(textChunk); ok {

@@ -33,4 +33,10 @@
 // Core Options.ReasoningEffort is the only request control for reasoning
 // intensity. Native request extensions reject that field and other unknown
 // fields instead of accepting a second configuration source.
+//
+// Reasoning replay. Each native thinking child has its own Core reasoning Part.
+// Part.Text owns visible text; ReasoningState retains native fields, references,
+// signatures, and block boundaries without text copies. Replay reconstructs the
+// native thinking content from current Core parts. Previously stored full thinking
+// chunks are rejected. Preserve signed content and native fields when replaying.
 package mistral

@@ -7,7 +7,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -32,67 +31,12 @@ func mapMistralContentChunk(raw json.RawMessage) (corechat.Part, bool, error) {
 			return corechat.Part{}, false, err
 		}
 		return corechat.NewTextPart(chunk.Text), chunk.Text != "", nil
-	case contentTypeThinking:
-		part, err := mapMistralThinkingChunk(raw)
-		return part, err == nil, err
 	case contentTypeImageURL:
 		part, err := mapMistralImageChunk(raw)
 		return part, err == nil, err
 	default:
 		return corechat.Part{}, false, fmt.Errorf("unsupported content type %q", discriminator.Type)
 	}
-}
-
-func mapMistralContentDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, nil
-	}
-	if trimmed[0] == '"' {
-		var text string
-		if err := jsonv2.Unmarshal(trimmed, &text); err != nil {
-			return nil, err
-		}
-		if text == "" {
-			return nil, nil
-		}
-		return []corechat.PartDelta{corechat.NewTextDelta(text)}, nil
-	}
-	var chunks []json.RawMessage
-	if err := jsonv2.Unmarshal(trimmed, &chunks); err != nil {
-		return nil, err
-	}
-	deltas := make([]corechat.PartDelta, 0, len(chunks))
-	for index := range chunks {
-		citations, reference, err := mapMistralReferenceChunk(chunks[index])
-		if err != nil {
-			return nil, fmt.Errorf("chunk[%d]: %w", index, err)
-		}
-		if reference {
-			for citationIndex := range citations {
-				deltas = append(deltas, corechat.NewCitationDelta(citations[citationIndex]))
-			}
-			continue
-		}
-		part, include, err := mapMistralContentChunk(chunks[index])
-		if err != nil {
-			return nil, fmt.Errorf("chunk[%d]: %w", index, err)
-		}
-		if !include {
-			continue
-		}
-		switch part.Kind {
-		case corechat.PartText:
-			deltas = append(deltas, corechat.NewTextDelta(part.Text))
-		case corechat.PartReasoning:
-			deltas = append(deltas, corechat.NewReasoningDelta(part.Text, part.ReasoningState))
-		case corechat.PartMedia:
-			deltas = append(deltas, corechat.NewMediaDelta(part.Media))
-		default:
-			return nil, fmt.Errorf("chunk[%d]: unsupported stream part %q", index, part.Kind)
-		}
-	}
-	return deltas, nil
 }
 
 func mapMistralReferenceChunk(raw json.RawMessage) ([]corechat.Citation, bool, error) {
@@ -133,27 +77,6 @@ func mistralReferenceID(raw json.RawMessage) (string, error) {
 		return "", errors.New("reference ID must be a string or number")
 	}
 	return number.String(), nil
-}
-
-func mapMistralThinkingChunk(raw json.RawMessage) (corechat.Part, error) {
-	var chunk struct {
-		Thinking []json.RawMessage `json:"thinking"`
-	}
-	if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
-		return corechat.Part{}, err
-	}
-	var reasoning strings.Builder
-	for nestedIndex := range chunk.Thinking {
-		var nested textChunk
-		if err := jsonv2.Unmarshal(chunk.Thinking[nestedIndex], &nested); err == nil && nested.Type == contentTypeText {
-			reasoning.WriteString(nested.Text)
-		}
-	}
-	frame, err := encodeThinkingFrame(raw)
-	if err != nil {
-		return corechat.Part{}, err
-	}
-	return corechat.NewReasoningPart(reasoning.String(), frame), nil
 }
 
 func mapMistralImageChunk(raw json.RawMessage) (corechat.Part, error) {

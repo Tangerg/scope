@@ -47,7 +47,15 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Call: %v", err)
 	}
-	message := assertThinkingResponse(t, requests, maxTokens, firstResponse)
+	message := assertThinkingResponse(t, requests, maxTokens, firstResponse).Clone()
+	message.Parts[0].Text = "edited reasoning"
+	encoded, err := jsonv2.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jsonv2.Unmarshal(encoded, &message); err != nil {
+		t.Fatal(err)
+	}
 
 	secondRequest := &corechat.Request{Messages: []corechat.Message{
 		firstRequest.Messages[0],
@@ -73,7 +81,7 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 		t.Fatalf("thinking replay = %#v", thinking)
 	}
 	nested := thinking["thinking"].([]any)
-	if len(nested) != 1 || nested[0].(map[string]any)["text"] != "inspect inputs" {
+	if len(nested) != 1 || nested[0].(map[string]any)["text"] != "edited reasoning" {
 		t.Fatalf("nested thinking replay = %#v", nested)
 	}
 }
@@ -249,7 +257,7 @@ func TestChatCoalescesStreamedThinkingForReplay(t *testing.T) {
 		t.Fatalf("aggregated = %#v", aggregated)
 	}
 	message := aggregated.Output.Message
-	if len(message.Parts) != 2 || message.Parts[0].Text != "plan next" || message.Parts[1].Text != "answer done" {
+	if len(message.Parts) != 3 || message.Parts[0].Text != "plan " || message.Parts[1].Text != "next" || message.Parts[2].Text != "answer done" {
 		t.Fatalf("aggregated parts = %#v", message.Parts)
 	}
 	if _, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{

@@ -1,6 +1,9 @@
 package mistral
 
 import (
+	"bytes"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,8 +19,10 @@ type chatStreamTool struct {
 }
 
 type chatStreamState struct {
-	tools    map[int]chatStreamTool
-	finished bool
+	tools            map[int]chatStreamTool
+	finished         bool
+	thinkingBlock    uint64
+	thinkingPosition uint64
 }
 
 func newChatStreamState() *chatStreamState {
@@ -47,7 +52,7 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		if wireChoice.Index != firstChoiceIndex {
 			return nil, fmt.Errorf("mistral: stream choice index is %d, want %d", wireChoice.Index, firstChoiceIndex)
 		}
-		parts, err := mapMistralContentDeltas(wireChoice.Delta.Content)
+		parts, err := c.mapContentDeltas(wireChoice.Delta.Content)
 		if err != nil {
 			return nil, fmt.Errorf("mistral: stream output content: %w", err)
 		}
@@ -138,6 +143,133 @@ func (c *chatStreamState) mapToolDeltas(calls []chatToolCall) ([]corechat.PartDe
 		parts = append(parts, corechat.NewToolCallDelta(corechat.ToolCallDelta{
 			ID: tool.id, Name: tool.name, Arguments: deltaArguments,
 		}))
+	}
+	return parts, nil
+}
+
+func (c *chatStreamState) mapContentDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := jsonv2.Unmarshal(trimmed, &text); err != nil {
+			return nil, err
+		}
+		if text == "" {
+			return nil, nil
+		}
+		return []corechat.PartDelta{corechat.NewTextDelta(text)}, nil
+	}
+	var chunks []json.RawMessage
+	if err := jsonv2.Unmarshal(trimmed, &chunks); err != nil {
+		return nil, err
+	}
+	deltas := make([]corechat.PartDelta, 0, len(chunks))
+	for index := range chunks {
+		citations, reference, err := mapMistralReferenceChunk(chunks[index])
+		if err != nil {
+			return nil, fmt.Errorf("chunk[%d]: %w", index, err)
+		}
+		if reference {
+			for citationIndex := range citations {
+				deltas = append(deltas, corechat.NewCitationDelta(citations[citationIndex]))
+			}
+			continue
+		}
+		var discriminator struct {
+			Type contentType `json:"type"`
+		}
+		if err = jsonv2.Unmarshal(chunks[index], &discriminator); err != nil {
+			return nil, fmt.Errorf("chunk[%d]: %w", index, err)
+		}
+		if discriminator.Type == contentTypeThinking {
+			parts, thinkingErr := c.mapThinkingDeltas(chunks[index])
+			if thinkingErr != nil {
+				return nil, fmt.Errorf("chunk[%d]: %w", index, thinkingErr)
+			}
+			deltas = append(deltas, parts...)
+			continue
+		}
+		part, include, err := mapMistralContentChunk(chunks[index])
+		if err != nil {
+			return nil, fmt.Errorf("chunk[%d]: %w", index, err)
+		}
+		if !include {
+			continue
+		}
+		switch part.Kind {
+		case corechat.PartText:
+			deltas = append(deltas, corechat.NewTextDelta(part.Text))
+		case corechat.PartMedia:
+			deltas = append(deltas, corechat.NewMediaDelta(part.Media))
+		default:
+			return nil, fmt.Errorf("chunk[%d]: unsupported stream part %q", index, part.Kind)
+		}
+	}
+	return deltas, nil
+}
+
+func (c *chatStreamState) mapThinkingDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) {
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	var children []map[string]json.RawMessage
+	if len(fields["thinking"]) == 0 || bytes.Equal(bytes.TrimSpace(fields["thinking"]), []byte("null")) {
+		return nil, errors.New("thinking content must be an array")
+	}
+	if err := jsonv2.Unmarshal(fields["thinking"], &children); err != nil {
+		return nil, err
+	}
+	delete(fields, "type")
+	delete(fields, "thinking")
+	if c.thinkingBlock == 0 {
+		c.thinkingBlock = 1
+	}
+	parts := make([]corechat.PartDelta, 0, max(1, len(children)))
+	for index := range max(1, len(children)) {
+		state := thinkingPartState{Block: c.thinkingBlock}
+		text := ""
+		if len(children) > 0 {
+			state.Content = children[index]
+			kind, err := state.contentType()
+			if err != nil {
+				return nil, fmt.Errorf("thinking[%d]: %w", index, err)
+			}
+			if kind == contentTypeText {
+				var value *string
+				if err := jsonv2.Unmarshal(state.Content["text"], &value); err != nil {
+					return nil, fmt.Errorf("thinking[%d].text: %w", index, err)
+				}
+				if value == nil {
+					return nil, fmt.Errorf("thinking[%d].text is required", index)
+				}
+				text = *value
+				delete(state.Content, "text")
+			}
+		}
+		if index == max(1, len(children))-1 {
+			state.Fields = fields
+		}
+		frame, err := encodeThinkingFrame(state)
+		if err != nil {
+			return nil, err
+		}
+		part := corechat.NewReasoningDelta(text, frame)
+		identity := struct {
+			Block    uint64 `json:"block"`
+			Position uint64 `json:"position"`
+		}{Block: c.thinkingBlock, Position: c.thinkingPosition}
+		if err := part.Metadata.Set(thinkingPartIdentityKey, identity); err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+		c.thinkingPosition++
+		if state.closed() {
+			c.thinkingBlock++
+		}
 	}
 	return parts, nil
 }
