@@ -282,15 +282,7 @@ type indexSchema struct {
 			Name      string `json:"name"`
 			Algorithm string `json:"algorithm"`
 		} `json:"profiles"`
-		Algorithms []struct {
-			Name           string `json:"name"`
-			HNSWParameters struct {
-				Metric SimilarityMetric `json:"metric"`
-			} `json:"hnswParameters"`
-			ExhaustiveKNNParameters struct {
-				Metric SimilarityMetric `json:"metric"`
-			} `json:"exhaustiveKnnParameters"`
-		} `json:"algorithms"`
+		Algorithms []indexAlgorithm `json:"algorithms"`
 	} `json:"vectorSearch"`
 }
 
@@ -375,12 +367,9 @@ func (i *indexSchema) validateMetric(embeddingField string, want SimilarityMetri
 		if algorithm.Name != algorithmName {
 			continue
 		}
-		// Exactly one parameter block is populated, chosen by the algorithm's
-		// kind; reading whichever carries a metric avoids depending on a kind
-		// string this store has no other use for.
-		metric := cmp.Or(algorithm.HNSWParameters.Metric, algorithm.ExhaustiveKNNParameters.Metric)
-		if metric == "" {
-			return fmt.Errorf("%w: algorithm %q declares no metric", ErrIncompatibleIndex, algorithmName)
+		metric, err := algorithm.metric()
+		if err != nil {
+			return err
 		}
 		if metric != want {
 			return fmt.Errorf("%w: field %q searches through algorithm %q with metric %q, but the store is configured for %q",

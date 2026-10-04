@@ -1,10 +1,73 @@
 package azureaisearch
 
 import (
+	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+
+	"github.com/Tangerg/scope/core/embedding"
 )
+
+func TestNewStoreRequiresOneMetricOwnerPerIndexAlgorithm(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		algorithm string
+		metric    SimilarityMetric
+		valid     bool
+	}{
+		{"hnsw", `{"name":"a","kind":"hnsw","hnswParameters":{"metric":"cosine"}}`, SimilarityCosine, true},
+		{"exhaustive knn", `{"name":"a","kind":"exhaustiveKnn","exhaustiveKnnParameters":{"metric":"dotProduct"}}`, SimilarityDot, true},
+		{"missing kind", `{"name":"a","hnswParameters":{"metric":"cosine"}}`, SimilarityCosine, false},
+		{"unknown kind", `{"name":"a","kind":"future","hnswParameters":{"metric":"cosine"}}`, SimilarityCosine, false},
+		{"hnsw with knn parameters", `{"name":"a","kind":"hnsw","exhaustiveKnnParameters":{"metric":"cosine"}}`, SimilarityCosine, false},
+		{"knn with hnsw parameters", `{"name":"a","kind":"exhaustiveKnn","hnswParameters":{"metric":"cosine"}}`, SimilarityCosine, false},
+		{"hnsw with conflicting blocks", `{"name":"a","kind":"hnsw","hnswParameters":{"metric":"cosine"},"exhaustiveKnnParameters":{"metric":"dotProduct"}}`, SimilarityCosine, false},
+		{"knn with competing hnsw block", `{"name":"a","kind":"exhaustiveKnn","hnswParameters":{"metric":"cosine"},"exhaustiveKnnParameters":{"metric":"dotProduct"}}`, SimilarityCosine, false},
+		{"duplicate equal metrics", `{"name":"a","kind":"hnsw","hnswParameters":{"metric":"cosine"},"exhaustiveKnnParameters":{"metric":"cosine"}}`, SimilarityCosine, false},
+		{"empty competing block", `{"name":"a","kind":"hnsw","hnswParameters":{"metric":"cosine"},"exhaustiveKnnParameters":{}}`, SimilarityCosine, false},
+		{"missing parameters", `{"name":"a","kind":"hnsw"}`, SimilarityCosine, false},
+		{"null parameters", `{"name":"a","kind":"hnsw","hnswParameters":null}`, SimilarityCosine, false},
+		{"missing metric", `{"name":"a","kind":"hnsw","hnswParameters":{}}`, SimilarityCosine, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodGet || request.URL.Path != "/indexes/documents" {
+					t.Errorf("unexpected index request: %s %s", request.Method, request.URL.Path)
+					http.Error(writer, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				reads.Add(1)
+				fmt.Fprintf(writer, `{"fields":[{"name":"id","key":true,"filterable":true,"sortable":true},{"name":"vector","vectorSearchProfile":"p"}],"vectorSearch":{"profiles":[{"name":"p","algorithm":"a"}],"algorithms":[%s]}}`, test.algorithm)
+			}))
+			t.Cleanup(server.Close)
+			store, err := NewStore(t.Context(), StoreConfig{
+				Endpoint: server.URL, APIKey: "test", IndexName: "documents", HTTPClient: server.Client(),
+				IDField: "id", ContentField: "content", EmbeddingField: "vector",
+				SimilarityMetric: test.metric, DocumentBatcher: writeTestBatcher{},
+				EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+					t.Error("construction called the embedding model")
+					return nil, errors.New("unexpected embedding call")
+				}),
+			})
+			if test.valid {
+				if err != nil || store == nil {
+					t.Fatalf("NewStore = %v, %v; want a store", store, err)
+				}
+			} else if !errors.Is(err, ErrIncompatibleIndex) || store != nil {
+				t.Fatalf("NewStore = %v, %v; want no store and ErrIncompatibleIndex", store, err)
+			}
+			if got := reads.Load(); got != 1 {
+				t.Fatalf("index reads = %d, want 1", got)
+			}
+		})
+	}
+}
 
 // @search.score is metric-specific, so the store applies a metric-specific
 // transformation to it. The configured metric used to be an unchecked

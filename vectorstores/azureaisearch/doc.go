@@ -73,9 +73,12 @@
 // select that field and use its profile without a second store-level setting.
 // Because the transformation below is metric-specific, [NewStore] reads the
 // index definition and follows the vector field to its profile, the profile to
-// its algorithm, and the algorithm to its metric, refusing a configured value
-// that disagrees with [ErrIncompatibleIndex]. Azure treats an index definition
-// as an object rather than content, so that read needs the admin key
+// its algorithm, and the algorithm to its metric. A configured value that
+// disagrees returns [ErrIncompatibleIndex]. The algorithm's kind selects its
+// sole parameter block; missing or unsupported kinds, mismatched blocks, and
+// declarations with multiple parameter blocks are refused during construction.
+// Azure treats an index definition as an object rather than content, so that
+// read needs the admin key
 // [StoreConfig.APIKey] already documents — a query key is scoped to
 // /indexes/{name}/docs and answers 403 here, as does an Entra role without
 // Microsoft.Search/searchServices/indexes/read. The same read catches a vector
