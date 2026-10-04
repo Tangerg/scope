@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -150,9 +149,6 @@ type GrepInput struct {
 	IgnoreCase bool
 	Multiline  bool
 
-	// Context applies to both sides; a non-zero BeforeContext or AfterContext
-	// overrides it for that side.
-	Context       int
 	BeforeContext int
 	AfterContext  int
 
@@ -161,7 +157,7 @@ type GrepInput struct {
 }
 
 func (g GrepInput) resultLimit() (int, error) {
-	for _, lines := range []int{g.Context, g.BeforeContext, g.AfterContext} {
+	for _, lines := range []int{g.BeforeContext, g.AfterContext} {
 		if lines < 0 || lines > maximumContextLines {
 			return 0, fmt.Errorf("%w: grep context lines must be between 0 and %d", ErrInvalidInput, maximumContextLines)
 		}
@@ -176,19 +172,14 @@ func (g GrepInput) resultLimit() (int, error) {
 	return limit, nil
 }
 
-func (g GrepInput) contextLines() (before, after int) {
-	return cmp.Or(g.BeforeContext, g.Context), cmp.Or(g.AfterContext, g.Context)
-}
-
 func (g GrepInput) ripgrepArguments(mode GrepOutputMode) []string {
 	args := []string{"--json", "--no-config", "--no-follow"}
 	if mode == GrepOutputContent {
-		before, after := g.contextLines()
-		if before > 0 {
-			args = append(args, "--before-context", strconv.Itoa(before))
+		if g.BeforeContext > 0 {
+			args = append(args, "--before-context", strconv.Itoa(g.BeforeContext))
 		}
-		if after > 0 {
-			args = append(args, "--after-context", strconv.Itoa(after))
+		if g.AfterContext > 0 {
+			args = append(args, "--after-context", strconv.Itoa(g.AfterContext))
 		}
 	}
 	if g.IgnoreCase {

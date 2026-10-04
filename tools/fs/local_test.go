@@ -631,17 +631,46 @@ func TestLocalExecutor_Grep_InvalidMode(t *testing.T) {
 }
 
 func TestLocalExecutor_Grep_AsymmetricContext(t *testing.T) {
-	before, after := (GrepInput{Context: 3}).contextLines()
-	if before != 3 || after != 3 {
-		t.Errorf("Context=3 → before=%d after=%d, want 3,3", before, after)
-	}
-	before, after = (GrepInput{BeforeContext: 5, AfterContext: 1}).contextLines()
-	if before != 5 || after != 1 {
-		t.Errorf("explicit B=5 A=1 → before=%d after=%d", before, after)
-	}
-	before, after = (GrepInput{Context: 2, BeforeContext: 10}).contextLines()
-	if before != 10 || after != 2 {
-		t.Errorf("Context=2 + B=10 → before=%d after=%d, want 10,2 (explicit wins for before, fallback for after)", before, after)
+	skipWithoutRipgrep(t)
+	dir := t.TempDir()
+	writeTemp(t, dir, "context.txt", "before two\nbefore one\nmatch\nafter one\nafter two\n")
+	executor := mustLocalExecutor(t, dir)
+	for _, test := range []struct {
+		name          string
+		before, after int
+		want          []GrepLine
+	}{
+		{"before only", 2, 0, []GrepLine{
+			{Path: "context.txt", Line: 1, Text: "before two", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 2, Text: "before one", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+		}},
+		{"after only", 0, 2, []GrepLine{
+			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 4, Text: "after one", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 5, Text: "after two", Kind: GrepLineContext},
+		}},
+		{"both", 1, 2, []GrepLine{
+			{Path: "context.txt", Line: 2, Text: "before one", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 4, Text: "after one", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 5, Text: "after two", Kind: GrepLineContext},
+		}},
+		{"neither", 0, 0, []GrepLine{
+			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			out, err := executor.Grep(t.Context(), GrepInput{
+				Pattern: "match", BeforeContext: test.before, AfterContext: test.after,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(out.Lines, test.want) || out.Truncated {
+				t.Fatalf("Grep = %#v, want %#v without truncation", out, test.want)
+			}
+		})
 	}
 }
 
@@ -650,7 +679,7 @@ func TestLocalExecutor_Grep_ReturnsStructuredContext(t *testing.T) {
 	dir := t.TempDir()
 	writeTemp(t, dir, "with:colon.txt", "before\nmatch here\nafter\n")
 	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{
-		Pattern: "match", Context: 1,
+		Pattern: "match", BeforeContext: 1, AfterContext: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
