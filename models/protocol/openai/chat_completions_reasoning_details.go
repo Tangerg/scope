@@ -16,7 +16,12 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-const reasoningDetailFrameHeaderSize = 10
+const (
+	reasoningDetailFrameHeaderSize = 10
+	reasoningDetailIdentityKey     = "openai/reasoning_detail_identity"
+	reasoningDetailText            = "reasoning.text"
+	reasoningDetailSummary         = "reasoning.summary"
+)
 
 var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
 
@@ -31,28 +36,32 @@ type ReasoningDetailsConfig struct {
 }
 
 func (r ReasoningDetailsConfig) Validate() error {
-	if strings.TrimSpace(r.Provider) == "" {
-		return errors.New("openai: reasoning details provider is required")
-	}
-	if strings.TrimSpace(r.Provider) != r.Provider {
-		return errors.New("openai: reasoning details provider must not have surrounding whitespace")
+	if err := validateProvider(r.Provider); err != nil {
+		return fmt.Errorf("openai: reasoning details provider: %w", err)
 	}
 	if len(r.Provider) > int(^uint16(0)) {
 		return errors.New("openai: reasoning details provider exceeds framing limit")
 	}
-	if r.TextField == "" {
-		return errors.New("openai: reasoning details text field is required")
+	if r.TextField != reasoningField && r.TextField != reasoningContentField {
+		return fmt.Errorf("openai: unsupported reasoning text field %q", r.TextField)
 	}
 	if r.DetailsField == "" {
 		return errors.New("openai: reasoning details field is required")
 	}
+	if r.DetailsField == r.TextField || strings.TrimSpace(r.DetailsField) != r.DetailsField {
+		return errors.New("openai: reasoning details field must be distinct and have no surrounding whitespace")
+	}
+	switch r.DetailsField {
+	case "role", "content", "name", "tool_calls", "function_call", "refusal", "audio":
+		return fmt.Errorf("openai: reasoning details field %q is owned by Core", r.DetailsField)
+	}
 	return nil
 }
 
-// ReasoningDetailsDialect preserves structured reasoning details losslessly in
-// Core reasoning signatures. The resulting signatures are safe to concatenate
-// while accumulating streaming deltas and are replayed only to the provider
-// that produced them.
+// ReasoningDetailsDialect keeps visible text in Part.Text and native replay
+// fields in ReasoningState. Detail identities keep separate blocks from merging
+// during accumulation. Replay uses the current text and preserves native fields;
+// callers remain responsible for preserving content covered by provider signatures.
 func ReasoningDetailsDialect(config ReasoningDetailsConfig) (Dialect, error) {
 	if err := config.Validate(); err != nil {
 		return Dialect{}, err
@@ -107,14 +116,14 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 	return nil
 }
 
-func (r reasoningDetailsCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error {
-	return r.prependReasoning(source.JSON.ExtraFields, target)
+func (r reasoningDetailsCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, sequence uint64) error {
+	return r.prependReasoning(source.JSON.ExtraFields, target, sequence)
 }
 
-func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field, target *corechat.Message) error {
+func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field, target *corechat.Message, sequence uint64) error {
 	detailsField, hasDetails := fields[r.config.DetailsField]
 	if hasDetails && detailsField.Raw() != "" && detailsField.Raw() != "null" {
-		parts, err := r.decodeDetails([]byte(detailsField.Raw()))
+		parts, err := r.decodeDetails([]byte(detailsField.Raw()), sequence)
 		if err != nil {
 			return err
 		}
@@ -126,14 +135,14 @@ func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field
 	return prependTextReasoning(fields, r.config.Provider, r.config.TextField, target)
 }
 
-func (r reasoningDetailsCodec) decodeDetails(raw []byte) ([]corechat.Part, error) {
+func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]corechat.Part, error) {
 	var details []json.RawMessage
 	if err := jsonv2.Unmarshal(raw, &details); err != nil {
 		return nil, fmt.Errorf("%s: decode %s: %w", r.config.Provider, r.config.DetailsField, err)
 	}
 	parts := make([]corechat.Part, 0, len(details))
 	for index := range details {
-		part, err := r.decodeDetail(details[index])
+		part, err := r.decodeDetail(details[index], index, sequence)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s[%d]: %w", r.config.Provider, r.config.DetailsField, index, err)
 		}
@@ -142,30 +151,52 @@ func (r reasoningDetailsCodec) decodeDetails(raw []byte) ([]corechat.Part, error
 	return parts, nil
 }
 
-func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage) (corechat.Part, error) {
-	var detail struct {
-		Type    string `json:"type"`
-		Text    string `json:"text"`
-		Summary string `json:"summary"`
-	}
-	if err := jsonv2.Unmarshal(raw, &detail); err != nil {
+func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequence uint64) (corechat.Part, error) {
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
 		return corechat.Part{}, err
 	}
-	if detail.Type == "" {
-		return corechat.Part{}, errors.New("detail type is required")
-	}
-	text := ""
-	switch detail.Type {
-	case "reasoning.text":
-		text = detail.Text
-	case "reasoning.summary":
-		text = detail.Summary
-	}
-	frame, err := r.encodeFrame(raw)
+	field, err := reasoningDetailTextField(fields)
 	if err != nil {
 		return corechat.Part{}, err
 	}
-	return corechat.NewReasoningPart(text, frame), nil
+	text := ""
+	if field != "" {
+		text, _, err = decodeOptionalString(fields[field])
+		if err != nil {
+			return corechat.Part{}, err
+		}
+		delete(fields, field)
+	}
+	state, err := jsonv2.Marshal(fields, jsonv2.Deterministic(true))
+	if err != nil {
+		return corechat.Part{}, err
+	}
+	frame, err := r.encodeFrame(state)
+	if err != nil {
+		return corechat.Part{}, err
+	}
+	part := corechat.NewReasoningPart(text, frame)
+	identity := struct {
+		Provider string          `json:"provider"`
+		Type     json.RawMessage `json:"type"`
+		ID       json.RawMessage `json:"id,omitzero"`
+		Format   json.RawMessage `json:"format,omitzero"`
+		Index    json.RawMessage `json:"index,omitzero"`
+		Chunk    uint64          `json:"chunk,omitzero"`
+	}{Provider: r.config.Provider, Type: fields["type"], ID: fields["id"], Format: fields["format"], Index: fields["index"]}
+	if !hasReasoningDetailIdentity(fields) {
+		// Anonymous blocks have no cross-chunk identity to justify merging them.
+		identity.Chunk = sequence
+		identity.Index, err = jsonv2.Marshal(index)
+		if err != nil {
+			return corechat.Part{}, err
+		}
+	}
+	if err := part.Metadata.Set(reasoningDetailIdentityKey, identity); err != nil {
+		return corechat.Part{}, err
+	}
+	return part, nil
 }
 
 func (r reasoningDetailsCodec) encodeFrame(raw json.RawMessage) ([]byte, error) {
@@ -202,7 +233,34 @@ func (r reasoningDetailsCodec) mapHistory(parts []corechat.Part) ([]json.RawMess
 			plain.WriteString(part.Text)
 			continue
 		}
-		frames = append(frames, decoded...)
+		decoded, err = coalesceReasoningDetailFrames(decoded)
+		if err != nil {
+			return nil, "", fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
+		}
+		if len(decoded) != 1 {
+			return nil, "", fmt.Errorf("parts[%d].reasoning state contains multiple detail identities", partIndex)
+		}
+		var fields map[string]json.RawMessage
+		if err = jsonv2.Unmarshal(decoded[0], &fields); err != nil {
+			return nil, "", err
+		}
+		field, err := reasoningDetailTextField(fields)
+		if err != nil {
+			return nil, "", err
+		}
+		if field != "" {
+			fields[field], err = jsonv2.Marshal(part.Text)
+			if err != nil {
+				return nil, "", err
+			}
+		} else if part.Text != "" {
+			return nil, "", fmt.Errorf("parts[%d].reasoning text has no native field", partIndex)
+		}
+		reconstructed, err := jsonv2.Marshal(fields, jsonv2.Deterministic(true))
+		if err != nil {
+			return nil, "", err
+		}
+		frames = append(frames, reconstructed)
 	}
 	details, err := coalesceReasoningDetailFrames(frames)
 	if err != nil {
@@ -239,6 +297,17 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 		if !jsontext.Value(raw).IsValid() {
 			return nil, true, false, errors.New("frame contains invalid JSON")
 		}
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
+			return nil, true, false, err
+		}
+		field, err := reasoningDetailTextField(fields)
+		if err != nil {
+			return nil, true, false, err
+		}
+		if _, exists := fields[field]; field != "" && exists {
+			return nil, true, false, errors.New("reasoning state must not contain Core-owned text")
+		}
 		if provider != r.config.Provider {
 			ownProvider = false
 		} else {
@@ -247,6 +316,23 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 		offset += payloadLength
 	}
 	return frames, true, ownProvider, nil
+}
+
+func reasoningDetailTextField(fields map[string]json.RawMessage) (string, error) {
+	var kind string
+	if err := jsonv2.Unmarshal(fields["type"], &kind); err != nil {
+		return "", fmt.Errorf("detail type: %w", err)
+	}
+	switch kind {
+	case "":
+		return "", errors.New("detail type is required")
+	case reasoningDetailText:
+		return "text", nil
+	case reasoningDetailSummary:
+		return "summary", nil
+	default:
+		return "", nil
+	}
 }
 
 func coalesceReasoningDetailFrames(frames []json.RawMessage) ([]json.RawMessage, error) {
@@ -311,7 +397,13 @@ func sameReasoningDetailIdentity(left, right map[string]json.RawMessage) bool {
 			return false
 		}
 	}
-	return len(left["id"]) > 0 || len(left["index"]) > 0
+	return hasReasoningDetailIdentity(left)
+}
+
+func hasReasoningDetailIdentity(fields map[string]json.RawMessage) bool {
+	id, index := fields["id"], fields["index"]
+	return len(id) != 0 && !bytes.Equal(id, []byte("null")) && !bytes.Equal(id, []byte(`""`)) ||
+		len(index) != 0 && !bytes.Equal(index, []byte("null"))
 }
 
 func decodeOptionalString(raw json.RawMessage) (string, bool, error) {

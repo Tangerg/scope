@@ -55,13 +55,13 @@ func TestChatPreservesStructuredReasoningDetails(t *testing.T) {
 		t.Fatalf("first Call: %v", err)
 	}
 	message := firstResponse.Output.Message
-	if message == nil || len(message.Parts) != 2 {
+	if message == nil || len(message.Parts) != 4 {
 		t.Fatalf("response message = %#v", message)
 	}
-	if message.Parts[0].Text != "step oneshort summary" || len(message.Parts[0].ReasoningState) == 0 {
+	if message.Parts[0].Text != "step one" || len(message.Parts[0].ReasoningState) == 0 {
 		t.Errorf("text reasoning = %#v", message.Parts[0])
 	}
-	if message.Parts[1].Text != "final answer" {
+	if message.Parts[1].Text != "" || len(message.Parts[1].ReasoningState) == 0 || message.Parts[2].Text != "short summary" || len(message.Parts[2].ReasoningState) == 0 || message.Parts[3].Text != "final answer" {
 		t.Errorf("summary/answer = %#v", message.Parts)
 	}
 

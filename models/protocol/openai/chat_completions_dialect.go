@@ -37,7 +37,7 @@ type requestDialect interface {
 }
 
 type responseDialect interface {
-	FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error
+	FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, sequence uint64) error
 }
 
 // CompatibleRequest exposes the stable subset of a compatible request that a
@@ -271,7 +271,7 @@ func (t textReasoningCodec) PrepareRequest(source *corechat.Request, target *ope
 	return nil
 }
 
-func (t textReasoningCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message) error {
+func (t textReasoningCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, _ uint64) error {
 	return prependTextReasoning(source.JSON.ExtraFields, t.provider, t.field, target)
 }
 

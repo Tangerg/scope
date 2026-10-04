@@ -23,6 +23,7 @@ type openAIStreamTool struct {
 
 type openAIStreamState struct {
 	tools      map[int64]openAIStreamTool
+	sequence   uint64
 	dialect    responseDialect
 	chunkKey   string
 	refused    bool
@@ -43,6 +44,7 @@ func newOpenAIStreamState(dialect Dialect) *openAIStreamState {
 }
 
 func (o *openAIStreamState) mapChunk(chunk openaisdk.ChatCompletionChunk) (*corechat.ResponseDelta, error) {
+	o.sequence++
 	mapped := &corechat.ResponseDelta{
 		Metadata: &corechat.ResponseMetadata{
 			ID:    chunk.ID,
@@ -140,7 +142,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		message.Parts = append(message.Parts, corechat.NewTextPart(choice.Delta.Content))
 	}
 	if o.dialect != nil {
-		if err := o.dialect.FinalizeDelta(choice.Delta, message); err != nil {
+		if err := o.dialect.FinalizeDelta(choice.Delta, message, o.sequence); err != nil {
 			return nil, "", fmt.Errorf("response dialect: %w", err)
 		}
 	}
