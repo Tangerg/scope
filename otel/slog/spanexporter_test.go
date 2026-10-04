@@ -41,7 +41,15 @@ func (c *captureHandler) Records() []stdslog.Record {
 func attrMap(r stdslog.Record) map[string]any {
 	m := make(map[string]any, r.NumAttrs())
 	r.Attrs(func(a stdslog.Attr) bool {
-		m[a.Key] = a.Value.Any()
+		if a.Value.Kind() == stdslog.KindGroup {
+			group := make(map[string]any)
+			for _, attr := range a.Value.Group() {
+				group[attr.Key] = attr.Value.Any()
+			}
+			m[a.Key] = group
+		} else {
+			m[a.Key] = a.Value.Any()
+		}
 		return true
 	})
 	return m
@@ -85,11 +93,15 @@ func TestExporter_SuccessSpan(t *testing.T) {
 	if attrs["name"] != "unit.test.op" {
 		t.Errorf("want name=unit.test.op, got %v", attrs["name"])
 	}
-	if attrs["gen_ai.provider.name"] != "openai" {
-		t.Errorf("want gen_ai.provider.name=openai, got %v", attrs["gen_ai.provider.name"])
+	attributes, ok := attrs["attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("attributes group missing: %v", attrs)
 	}
-	if attrs["gen_ai.request.max_tokens"] != int64(1024) {
-		t.Errorf("want gen_ai.request.max_tokens=1024, got %v", attrs["gen_ai.request.max_tokens"])
+	if attributes["gen_ai.provider.name"] != "openai" {
+		t.Errorf("want gen_ai.provider.name=openai, got %v", attributes["gen_ai.provider.name"])
+	}
+	if attributes["gen_ai.request.max_tokens"] != int64(1024) {
+		t.Errorf("want gen_ai.request.max_tokens=1024, got %v", attributes["gen_ai.request.max_tokens"])
 	}
 	if _, ok := attrs["trace_id"]; !ok {
 		t.Error("trace_id attribute missing")

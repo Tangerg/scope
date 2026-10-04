@@ -10,8 +10,8 @@ import (
 )
 
 // SpanExporter writes one slog record per finished span. Error spans use the
-// error log level; attributes and event names retain their OTel keys. Trace
-// structure is represented by trace_id, span_id, and parent_span_id.
+// error log level. Attributes retain their OTel keys in the attributes group.
+// Trace structure is represented by trace_id, span_id, and parent_span_id.
 type SpanExporter struct {
 	logger   *stdslog.Logger
 	shutdown atomic.Bool
@@ -40,7 +40,7 @@ func (s *SpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnl
 		if s.shutdown.Load() {
 			return nil
 		}
-		attrs := make([]stdslog.Attr, 0, 6+len(span.Attributes()))
+		attrs := make([]stdslog.Attr, 0, 7)
 
 		sc := span.SpanContext()
 		attrs = append(attrs,
@@ -54,9 +54,11 @@ func (s *SpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnl
 			attrs = append(attrs, stdslog.String("parent_span_id", parent.SpanID().String()))
 		}
 
+		attributes := make([]stdslog.Attr, 0, len(span.Attributes()))
 		for _, kv := range span.Attributes() {
-			attrs = append(attrs, stdslog.Any(string(kv.Key), kv.Value.AsInterface()))
+			attributes = append(attributes, stdslog.Any(string(kv.Key), kv.Value.AsInterface()))
 		}
+		attrs = append(attrs, stdslog.GroupAttrs("attributes", attributes...))
 
 		if evs := span.Events(); len(evs) > 0 {
 			names := make([]string, len(evs))

@@ -12,6 +12,7 @@ import (
 
 // LogExporter writes one slog record per OTel log record. Severity maps to
 // slog levels; trace_id and span_id come from the record's own trace context.
+// Application attributes retain their OTel keys within the attributes group.
 // Use a logger that does not feed this LoggerProvider to avoid a feedback loop.
 type LogExporter struct {
 	logger   *stdslog.Logger
@@ -41,7 +42,7 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		if l.shutdown.Load() {
 			return sdklog.ErrExporterShutdown
 		}
-		attrs := make([]stdslog.Attr, 0, rec.AttributesLen()+3)
+		attrs := make([]stdslog.Attr, 0, 5)
 		if tid := rec.TraceID(); tid.IsValid() {
 			attrs = append(attrs, stdslog.String("trace_id", tid.String()))
 		}
@@ -54,10 +55,12 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		if eventName := rec.EventName(); eventName != "" {
 			attrs = append(attrs, stdslog.String("event_name", eventName))
 		}
+		attributes := make([]stdslog.Attr, 0, rec.AttributesLen())
 		rec.WalkAttributes(func(kv attribute.KeyValue) bool {
-			attrs = append(attrs, logKVToSlog(kv))
+			attributes = append(attributes, logKVToSlog(kv))
 			return true
 		})
+		attrs = append(attrs, stdslog.GroupAttrs("attributes", attributes...))
 		l.logger.LogAttrs(ctx, severityToLevel(rec.Severity()), rec.Body().String(), attrs...)
 	}
 	return nil

@@ -39,7 +39,7 @@ func TestLogExporter_EmitViaProvider(t *testing.T) {
 	if !strings.Contains(out, "session created") {
 		t.Fatalf("body not in output: %q", out)
 	}
-	if !strings.Contains(out, "ses_42") {
+	if !strings.Contains(out, "attributes.gen_ai.conversation.id=ses_42") {
 		t.Fatalf("attribute not in output: %q", out)
 	}
 	if !strings.Contains(out, "event_name=gen_ai.client.operation.exception") {
