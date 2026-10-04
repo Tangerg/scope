@@ -1,7 +1,6 @@
 package collaboration
 
 import (
-	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -100,13 +99,98 @@ type executionState struct {
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
 }
 
+// executionStateRecord carries the state's own fields without its encoding
+// methods.
+type executionStateRecord executionState
+
+// executionStateDocument is the persisted state. While the current turn holds
+// the Decision that declared them, the newest tasks and every control receipt
+// keep only their kernel facts: the Decision owns their requests. The next
+// turn replaces that Decision, so the records it leaves behind keep their own.
+type executionStateDocument struct {
+	executionStateRecord
+	Tasks    []taskDocument           `json:"tasks,omitempty"`
+	Controls []controlReceiptDocument `json:"controls,omitempty"`
+}
+
+type taskDocument struct {
+	Task
+	Request *TaskRequest `json:"request,omitzero"`
+}
+
+type controlReceiptDocument struct {
+	ControlReceipt
+	Control *Control `json:"control,omitzero"`
+}
+
+func (e executionState) MarshalJSON() ([]byte, error) {
+	decision, err := e.decision()
+	if err != nil {
+		return nil, err
+	}
+	declared := len(e.Tasks) - len(decision.Tasks)
+	if declared < 0 || len(decision.Controls) != 0 && len(e.Controls) != len(decision.Controls) {
+		return nil, fmt.Errorf("%w: applied actions do not match the coordinator decision", ErrInvalidExecutionState)
+	}
+	document := executionStateDocument{executionStateRecord: executionStateRecord(e)}
+	for index, task := range e.Tasks {
+		entry := taskDocument{Task: task}
+		if index < declared {
+			entry.Request = new(task.Request)
+		}
+		document.Tasks = append(document.Tasks, entry)
+	}
+	for _, receipt := range e.Controls {
+		entry := controlReceiptDocument{ControlReceipt: receipt}
+		if len(decision.Controls) == 0 {
+			entry.Control = new(receipt.Control)
+		}
+		document.Controls = append(document.Controls, entry)
+	}
+	return jsonv2.Marshal(document)
+}
+
 func (e *executionState) UnmarshalJSON(data []byte) error {
-	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "wait_sequence")
+	document, err := jsonwire.Decode[executionStateDocument](data, "wait_sequence")
 	if err != nil {
 		return err
 	}
-	*e = executionState(decoded)
+	state := executionState(document.executionStateRecord)
+	decision, err := state.decision()
+	if err != nil {
+		return err
+	}
+	declared := len(document.Tasks) - len(decision.Tasks)
+	if declared < 0 || len(decision.Controls) != 0 && len(document.Controls) != len(decision.Controls) {
+		return fmt.Errorf("%w: applied actions do not match the coordinator decision", ErrInvalidExecutionState)
+	}
+	state.Tasks = nil
+	for index, entry := range document.Tasks {
+		task := entry.Task
+		switch {
+		case index < declared && entry.Request != nil:
+			task.Request = *entry.Request
+		case index >= declared && entry.Request == nil:
+			task.Request = decision.Tasks[index-declared]
+		default:
+			return fmt.Errorf("%w: task %d request belongs to the decision that declared it", ErrInvalidExecutionState, index)
+		}
+		state.Tasks = append(state.Tasks, task)
+	}
+	state.Controls = nil
+	for index, entry := range document.Controls {
+		receipt := entry.ControlReceipt
+		switch {
+		case len(decision.Controls) == 0 && entry.Control != nil:
+			receipt.Control = *entry.Control
+		case len(decision.Controls) != 0 && entry.Control == nil:
+			receipt.Control = decision.Controls[index]
+		default:
+			return fmt.Errorf("%w: control %d belongs to the decision that declared it", ErrInvalidExecutionState, index)
+		}
+		state.Controls = append(state.Controls, receipt)
+	}
+	*e = state
 	return nil
 }
 
@@ -538,39 +622,12 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 	if err := d.coordinator.deployment.Descriptor().ValidateOutput(output); err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidExecutionState, err)
 	}
-	if err := e.validateAppliedActions(ctx, decision); err != nil {
-		return err
-	}
 	before := e
 	before.Tasks = e.Tasks[:len(e.Tasks)-len(decision.Tasks)]
 	if err := before.validateDecision(ctx, d, decision); err != nil {
 		return fmt.Errorf("%w: applied decision: %w", ErrInvalidExecutionState, err)
 	}
 	return ctx.Err()
-}
-
-func (e executionState) validateAppliedActions(ctx context.Context, decision Decision) error {
-	if len(e.Tasks) < len(decision.Tasks) || len(e.Controls) != len(decision.Controls) {
-		return fmt.Errorf("%w: applied actions do not match the coordinator decision", ErrInvalidExecutionState)
-	}
-	previousCount := len(e.Tasks) - len(decision.Tasks)
-	for index, request := range decision.Tasks {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !sameJSON(request, e.Tasks[previousCount+index].Request) {
-			return fmt.Errorf("%w: applied task %d does not match the coordinator decision", ErrInvalidExecutionState, index)
-		}
-	}
-	for index, control := range decision.Controls {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !sameJSON(control, e.Controls[index].Control) {
-			return fmt.Errorf("%w: applied control %d does not match the coordinator decision", ErrInvalidExecutionState, index)
-		}
-	}
-	return nil
 }
 
 func (e executionState) validateDecision(ctx context.Context, definition *Definition, decision Decision) error {
@@ -635,15 +692,6 @@ func (e executionState) validateActions(ctx context.Context, definition *Definit
 
 func (e executionState) hasUnseenOutcome() bool {
 	return e.Turn != nil && len(e.Turn.UnseenOutcomes) != 0
-}
-
-func sameJSON(left, right any) bool {
-	first, err := jsonv2.Marshal(left)
-	if err != nil {
-		return false
-	}
-	second, err := jsonv2.Marshal(right)
-	return err == nil && bytes.Equal(first, second)
 }
 
 const turnPrefix = "collaboration.turn."

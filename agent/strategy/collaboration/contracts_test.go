@@ -160,6 +160,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	cases := append([]agenttest.ExecutionConformanceCase{}, trace.cases...)
 	trace.mu.Unlock()
 	phases := make(map[phase]bool)
+	var declared []agent.ExecutionState
 	for index := range cases {
 		var state executionState
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
@@ -188,10 +189,10 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		}
 		if len(state.Tasks) > 0 {
 			mutations["duplicate task"] = func(state *executionState) { state.Tasks = append(state.Tasks, state.Tasks[0]) }
-			// Only the current decision still evidences the requests it created;
-			// earlier requests are owned by their task records alone.
+			// The current decision owns the requests it declared; a task it
+			// declared must not repeat its request.
 			if decision, err := state.decision(); err == nil && len(decision.Tasks) == len(state.Tasks) {
-				mutations["changed task input"] = func(state *executionState) { state.Tasks[0].Request.Input = input("forged") }
+				declared = append(declared, cases[index].State)
 			}
 		}
 		if len(state.Tasks) > 0 && state.Tasks[0].Outcome != nil {
@@ -224,6 +225,20 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		payload := strings.TrimSuffix(string(cases[index].State.Payload()), "}") + `,"unknown":true}`
 		if _, err := definition.Restore(t.Context(), require(agent.ParseExecutionState(stateKind, []byte(payload)))); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatal(err)
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("no captured state holds decision-declared tasks")
+	}
+	for _, state := range declared {
+		var wire map[string]any
+		if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
+			t.Fatal(err)
+		}
+		wire["tasks"].([]any)[0].(map[string]any)["request"] = map[string]any{"key": "forged", "worker": "forged", "input": "forged"}
+		altered := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(wire))))
+		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("decision-declared task repeated its request: %v", err)
 		}
 	}
 	for _, phase := range []phase{phaseReady, phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting} {
