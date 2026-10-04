@@ -1,7 +1,7 @@
 github.com/Tangerg/go-sdk v1.8.1-scope.1 h1:8V8k8aeqbEDgLlH3T4+DZnf0DM1dSOGofkAXb3dZjKM=
 github.com/Tangerg/go-sdk v1.8.1-scope.1/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
-github.com/Tangerg/scope/agent v0.42.0 h1:AZrUW49TsgNfxFBcA+GhegHWTOM2+f8Xnjot6oGrw4Q=
-github.com/Tangerg/scope/agent v0.42.0/go.mod h1:lFpvTHYJxrGwJMJ/SYcblh0La04ELN3Nka3cPVrwgvU=
+github.com/Tangerg/scope/agent v0.42.1-0.20261004032220-046d4a82fe8a h1:WPdsS1OqIZs3BFFrzdz344tcAUc/AfugjBMbnPwsOEk=
+github.com/Tangerg/scope/agent v0.42.1-0.20261004032220-046d4a82fe8a/go.mod h1:lFpvTHYJxrGwJMJ/SYcblh0La04ELN3Nka3cPVrwgvU=
 github.com/Tangerg/scope/core v0.42.0 h1:ha/C8QM8Uv/EDpymmfs/+l+bCzrmzXRhpa18dj6YcMk=
 github.com/Tangerg/scope/core v0.42.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/Tangerg/scope/mcp v0.42.0 h1:nYKIrups9ItOrE3fxwb4Trf9TaMg4JCLzSvBDk7f1Os=
