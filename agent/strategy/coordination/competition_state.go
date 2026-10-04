@@ -22,32 +22,40 @@ const (
 
 type firstSuccessState struct {
 	Candidates []agent.ChildSpec `json:"candidates"`
-	// Declaring the starts creates one slot per candidate; a nil slot awaits its
-	// receipt. Before declaration there are no slots.
-	Starts   []*agent.ChildStartResult `json:"starts,omitempty"`
-	Outcomes []agent.ChildOutcome      `json:"outcomes,omitempty"`
-	WaitID   *agent.WaitID             `json:"wait_id,omitzero"`
+	// Declaring the starts creates one result per candidate; a nil result
+	// awaits its start receipt. Before declaration there are no results.
+	Results []*CandidateResult `json:"results,omitempty"`
+	WaitID  *agent.WaitID      `json:"wait_id,omitzero"`
 	// Winner is the accepted candidate's index in request order.
 	Winner *uint32 `json:"winner,omitzero"`
 }
 
-// receipts returns the start receipts, which fill their slots in candidate order.
-func (f firstSuccessState) receipts() []agent.ChildStartResult {
-	receipts := make([]agent.ChildStartResult, 0, len(f.Starts))
-	for _, started := range f.Starts {
-		if started == nil {
-			break
+// admitted counts the results whose start receipts arrived; receipts fill
+// the results in candidate order.
+func (f firstSuccessState) admitted() int {
+	for index, result := range f.Results {
+		if result == nil {
+			return index
 		}
-		receipts = append(receipts, *started)
 	}
-	return receipts
+	return len(f.Results)
+}
+
+func (f firstSuccessState) observed() int {
+	count := 0
+	for _, result := range f.Results {
+		if result != nil && result.Outcome != nil {
+			count++
+		}
+	}
+	return count
 }
 
 func (f firstSuccessState) phase() competitionPhase {
 	switch {
-	case len(f.Starts) == 0:
+	case len(f.Results) == 0:
 		return competitionReady
-	case len(f.receipts()) < len(f.Candidates):
+	case f.admitted() < len(f.Candidates):
 		return competitionAwaitingStarts
 	case f.Winner != nil || len(f.remaining()) == 0:
 		return competitionCompleted
@@ -63,13 +71,15 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		return err
 	}
 	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maxCandidates) ||
-		len(f.Starts) != 0 && len(f.Starts) != len(f.Candidates) {
-		return fmt.Errorf("%w: candidate or start slot count is invalid", ErrInvalidExecutionState)
+		len(f.Results) != 0 && len(f.Results) != len(f.Candidates) {
+		return fmt.Errorf("%w: candidate or result count is invalid", ErrInvalidExecutionState)
 	}
-	receipts := f.receipts()
-	for _, started := range f.Starts[len(receipts):] {
-		if started != nil {
-			return fmt.Errorf("%w: start receipt follows an empty slot", ErrInvalidExecutionState)
+	for index, result := range f.Results {
+		if index >= f.admitted() && result != nil {
+			return fmt.Errorf("%w: start receipt follows an empty result", ErrInvalidExecutionState)
+		}
+		if result != nil && !result.Valid() {
+			return fmt.Errorf("%w: candidate %d result is invalid", ErrInvalidExecutionState, index)
 		}
 	}
 	keys := make(map[agent.ChildKey]struct{}, len(f.Candidates))
@@ -85,17 +95,8 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		}
 		keys[candidate.Key] = struct{}{}
 	}
-	if len(receipts) > 0 {
-		pending := f
-		pending.Starts, pending.Outcomes, pending.WaitID = nil, nil, nil
-		if _, err := pending.batch().AcceptStarts(receipts); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-		}
-	}
-	unobserved := f
-	unobserved.Outcomes, unobserved.WaitID = nil, nil
-	if _, err := unobserved.batch().MatchOutcomes(f.Outcomes); err != nil {
-		return fmt.Errorf("%w: observed outcomes: %w", ErrInvalidExecutionState, err)
+	if err := f.batch().Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if f.phase() != competitionCompleted && f.Winner != nil {
 		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidExecutionState)
@@ -106,7 +107,7 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 func (f firstSuccessState) validatePhase() error {
 	switch f.phase() {
 	case competitionReady, competitionAwaitingStarts:
-		if len(f.Outcomes) != 0 || f.WaitID != nil {
+		if f.observed() != 0 || f.WaitID != nil {
 			return fmt.Errorf("%w: outcomes or wait precede completed starts", ErrInvalidExecutionState)
 		}
 	case competitionAwaitingOpen, competitionWaiting:
@@ -129,17 +130,13 @@ func (f firstSuccessState) batch() childcall.Batch {
 	if f.WaitID != nil {
 		batch.WaitID = *f.WaitID
 	}
-	next, receipts := 0, f.receipts()
 	for index, candidate := range f.Candidates {
 		child := &batch.Children[index]
 		child.Key = candidate.Key
-		if index < len(receipts) {
-			id, started := receipts[index].ProcessID()
-			child.ProcessID, child.Done = id, !started
-			if started && next < len(f.Outcomes) && f.Outcomes[next].Result().ProcessID() == id {
-				child.Done = true
-				next++
-			}
+		if index < len(f.Results) && f.Results[index] != nil {
+			result := f.Results[index]
+			child.ProcessID, _ = result.processID()
+			child.Done = !result.running()
 		}
 	}
 	return batch
@@ -147,9 +144,10 @@ func (f firstSuccessState) batch() childcall.Batch {
 
 func (f firstSuccessState) remaining() []agent.ProcessID {
 	var children []agent.ProcessID
-	for _, child := range f.batch().Children {
-		if child.ProcessID.Valid() && !child.Done {
-			children = append(children, child.ProcessID)
+	for _, result := range f.Results {
+		if result != nil && result.running() {
+			id, _ := result.Start.ProcessID()
+			children = append(children, id)
 		}
 	}
 	return children
@@ -157,35 +155,28 @@ func (f firstSuccessState) remaining() []agent.ProcessID {
 
 // Every satisfied wait adds an outcome, so the outcome count keys a fresh wait.
 func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
-	key, err := agent.ParseWaitKey(fmt.Sprintf("%s.%d", firstSuccessWaitKeyPrefix, len(f.Outcomes)))
+	key, err := agent.ParseWaitKey(fmt.Sprintf("%s.%d", firstSuccessWaitKeyPrefix, f.observed()))
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
 	return f.batch().WaitSpec(key, agent.ChildWaitBoundaryResult, agent.AnyChild())
 }
 
+// recordOutcomes replaces each observed candidate's start receipt with its
+// outcome; indices are the candidates Complete matched.
 func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.ChildOutcome) {
-	// indices are ordered, previously unobserved candidates as returned by Complete.
-	merged := make([]agent.ChildOutcome, 0, len(f.Outcomes)+len(outcomes))
-	prior, incoming := 0, 0
-	for index, started := range f.receipts() {
-		id, _ := started.ProcessID()
-		if incoming < len(indices) && indices[incoming] == index {
-			merged = append(merged, outcomes[incoming])
-			incoming++
-		} else if prior < len(f.Outcomes) && f.Outcomes[prior].Result().ProcessID() == id {
-			merged = append(merged, f.Outcomes[prior])
-			prior++
-		}
+	for offset, index := range indices {
+		f.Results[index] = &CandidateResult{Outcome: &outcomes[offset]}
 	}
-	f.Outcomes = merged
 }
 
 func (f firstSuccessState) result() FirstSuccessResult {
-	// FirstSuccessResult requires non-nil Outcomes, which slices.Clone(nil) would not produce.
-	outcomes := make([]agent.ChildOutcome, len(f.Outcomes))
-	copy(outcomes, f.Outcomes)
-	result := FirstSuccessResult{Starts: f.receipts(), Outcomes: outcomes}
+	result := FirstSuccessResult{Candidates: make([]CandidateResult, len(f.Results))}
+	for index, candidate := range f.Results {
+		if candidate != nil {
+			result.Candidates[index] = *candidate
+		}
+	}
 	if f.Winner != nil {
 		result.Winner = new(*f.Winner)
 	}

@@ -208,7 +208,7 @@ func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 			final := result(t, root)
 			if failedStarts {
 				report := completedOutput[coordination.FirstSuccessResult](t, root)
-				if !report.Valid() || report.Winner != nil || len(report.Outcomes) != 0 || len(report.Starts) != 1 {
+				if !report.Valid() || report.Winner != nil || len(report.Candidates) != 1 || report.Candidates[0].Outcome != nil {
 					t.Fatalf("failed start did not produce a complete report: %+v", report)
 				}
 			} else {

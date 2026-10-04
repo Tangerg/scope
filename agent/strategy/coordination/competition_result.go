@@ -4,70 +4,69 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// FirstSuccessResult preserves child-start facts and the terminal outcomes seen
-// before selection. Both slices retain request order, so Starts[i] answers the
-// i-th candidate. Children absent from Outcomes may still be settling when this
-// result is published.
+// FirstSuccessResult answers each candidate in request order. Candidates
+// still running when a winner is published keep their start receipt.
 type FirstSuccessResult struct {
 	// Winner is the accepted candidate's index in request order.
-	Winner *uint32                  `json:"winner,omitzero"`
-	Starts []agent.ChildStartResult `json:"starts"`
-	// Outcomes is a non-nil ordered collection, including when every start failed.
-	Outcomes []agent.ChildOutcome `json:"outcomes"`
+	Winner     *uint32           `json:"winner,omitzero"`
+	Candidates []CandidateResult `json:"candidates"`
 }
 
 func (f FirstSuccessResult) Valid() bool {
-	if len(f.Starts) == 0 || f.Outcomes == nil {
+	if len(f.Candidates) == 0 {
 		return false
 	}
-	// Outcomes follow the started candidates in request order.
-	next := 0
-	for _, outcome := range f.Outcomes {
-		if !outcome.Valid() {
+	running := false
+	for _, candidate := range f.Candidates {
+		if !candidate.Valid() {
 			return false
 		}
-		for next < len(f.Starts) && !f.started(next, outcome.Result().ProcessID()) {
-			next++
-		}
-		if next == len(f.Starts) {
-			return false
-		}
-		next++
+		running = running || candidate.running()
 	}
-	for _, started := range f.Starts {
-		if !started.Valid() {
-			return false
-		}
+	if f.Winner == nil {
+		// Without a winner the competition ends only after every child finished.
+		return !running
 	}
-	if f.Winner != nil {
-		return f.winnerCompleted()
+	if uint64(*f.Winner) >= uint64(len(f.Candidates)) {
+		return false
 	}
-	startedCount := 0
-	for _, started := range f.Starts {
-		if _, present := started.ProcessID(); present {
-			startedCount++
-		}
-	}
-	return startedCount == len(f.Outcomes)
+	winner := f.Candidates[*f.Winner].Outcome
+	return winner != nil && winner.Result().Status() == agent.StatusCompleted
 }
 
-func (f FirstSuccessResult) started(index int, id agent.ProcessID) bool {
-	started, present := f.Starts[index].ProcessID()
-	return present && started == id
+// CandidateResult holds one candidate's kernel facts: its start receipt after
+// a failed admission or while the child runs, replaced by the child's
+// terminal outcome once observed. Exactly one is present, and the outcome's
+// Result names the child.
+type CandidateResult struct {
+	Start   *agent.ChildStartResult `json:"start,omitzero"`
+	Outcome *agent.ChildOutcome     `json:"outcome,omitzero"`
 }
 
-func (f FirstSuccessResult) winnerCompleted() bool {
-	if uint64(*f.Winner) >= uint64(len(f.Starts)) {
+func (c CandidateResult) Valid() bool {
+	switch {
+	case c.Start != nil && c.Outcome == nil:
+		return c.Start.Valid()
+	case c.Start == nil && c.Outcome != nil:
+		_, drained := c.Outcome.SubtreeUnresolvedEffects()
+		return c.Outcome.Valid() && !drained
+	default:
 		return false
 	}
-	id, present := f.Starts[*f.Winner].ProcessID()
-	if !present {
+}
+
+func (c CandidateResult) running() bool {
+	if c.Start == nil {
 		return false
 	}
-	for _, outcome := range f.Outcomes {
-		if outcome.Result().ProcessID() == id {
-			return outcome.Result().Status() == agent.StatusCompleted
-		}
+	_, started := c.Start.ProcessID()
+	return started
+}
+
+// processID names the candidate's child while it runs or after it finished.
+func (c CandidateResult) processID() (agent.ProcessID, bool) {
+	if c.Outcome != nil {
+		return c.Outcome.Result().ProcessID(), true
 	}
-	return false
+	return c.Start.ProcessID()
 }

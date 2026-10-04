@@ -23,10 +23,12 @@ func BenchmarkRecordOutcomes(b *testing.B) {
 					indices = append(indices, index)
 				}
 			}
-			state := firstSuccessState{Starts: startSlots(starts)}
 			b.ReportAllocs()
 			for b.Loop() {
-				state.Outcomes = append(state.Outcomes[:0], prior...)
+				state := firstSuccessState{Results: startSlots(starts)}
+				for index := 0; index < len(prior); index++ {
+					state.Results[2*index] = &CandidateResult{Outcome: &prior[index]}
+				}
 				state.recordOutcomes(indices, incoming)
 			}
 		})
@@ -81,7 +83,10 @@ func competitionOutcomes(t testing.TB, count int) ([]agent.ChildStartResult, []a
 func BenchmarkCompetitionRecovery(b *testing.B) {
 	for _, count := range []int{64, 256, 1024} {
 		starts, outcomes := competitionOutcomes(b, count)
-		state := firstSuccessState{Starts: startSlots(starts), Outcomes: outcomes}
+		state := firstSuccessState{Results: startSlots(starts)}
+		for index := range outcomes {
+			state.Results[index] = &CandidateResult{Outcome: &outcomes[index]}
+		}
 		input, err := agent.EncodePayload("input")
 		if err != nil {
 			b.Fatal(err)

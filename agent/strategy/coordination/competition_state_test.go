@@ -24,7 +24,7 @@ func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index, expected := range [][]string{{"candidates"}, {"candidates", "starts"}, {"candidates", "starts"}} {
+	for index, expected := range [][]string{{"candidates"}, {"candidates", "results"}, {"candidates", "results"}} {
 		state, snapshotErr := execution.Snapshot()
 		if snapshotErr != nil {
 			t.Fatal(snapshotErr)
@@ -36,8 +36,8 @@ func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
 		if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, expected) {
 			t.Fatalf("progress %d fields = %v, want %v", index, got, expected)
 		}
-		if index == 1 && string(fields["starts"]) != "[null,null]" {
-			t.Fatalf("declaration before first receipt = %s, want one empty slot per candidate", fields["starts"])
+		if index == 1 && string(fields["results"]) != "[null,null]" {
+			t.Fatalf("declaration before first receipt = %s, want one empty result per candidate", fields["results"])
 		}
 		execution, err = source.definition.Restore(t.Context(), state)
 		if err != nil {
@@ -88,7 +88,7 @@ func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !slices.EqualFunc(execution.state.Outcomes, outcomes, sameOutcome) {
+	if !slices.EqualFunc(observedOutcomes(execution.state), outcomes, sameOutcome) {
 		t.Fatal("merged outcomes changed candidate order or contents")
 	}
 	if !execution.state.result().Valid() {
@@ -110,7 +110,7 @@ func TestCompetitionRejectsInvalidOutcomeBatchesAtomically(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			execution := competitionExecution(t, starts[:3])
-			execution.state.Outcomes = []agent.ChildOutcome{outcomes[1]}
+			execution.state.Results[1] = &CandidateResult{Outcome: &outcomes[1]}
 			before, err := execution.Snapshot()
 			if err != nil {
 				t.Fatal(err)
@@ -130,19 +130,16 @@ func TestCompetitionRejectsInvalidOutcomeBatchesAtomically(t *testing.T) {
 	}
 }
 
-func TestCompetitionRejectsForeignRetainedOutcomesOnRestore(t *testing.T) {
-	starts, outcomes := competitionOutcomes(t, 3)
-	execution := competitionExecution(t, starts[:2])
-	execution.state.Outcomes = []agent.ChildOutcome{outcomes[2]}
+func TestCompetitionRejectsDuplicatedChildrenOnRestore(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 2)
+	execution := competitionExecution(t, starts)
+	execution.state.Results[0] = &CandidateResult{Outcome: &outcomes[1]}
 	snapshot, err := execution.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := execution.definition.Restore(t.Context(), snapshot); !errors.Is(err, ErrInvalidExecutionState) {
-		t.Fatalf("foreign retained outcome accepted on restore: %v", err)
-	}
-	if execution.state.result().Valid() {
-		t.Fatal("foreign retained outcome accepted as a public result")
+		t.Fatalf("an outcome naming another candidate's child was accepted on restore: %v", err)
 	}
 }
 
@@ -155,7 +152,7 @@ func competitionExecution(t *testing.T, starts []agent.ChildStartResult) *firstS
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := firstSuccessState{Starts: startSlots(starts), WaitID: new(competitionWaitID(t))}
+	state := firstSuccessState{Results: startSlots(starts), WaitID: new(competitionWaitID(t))}
 	for index := range starts {
 		payload, err := agent.EncodePayload("input")
 		if err != nil {
@@ -216,24 +213,36 @@ func TestRestoreStopsBetweenCandidates(t *testing.T) {
 	}
 }
 
-func startSlots(starts []agent.ChildStartResult) []*agent.ChildStartResult {
-	slots := make([]*agent.ChildStartResult, len(starts))
+func startSlots(starts []agent.ChildStartResult) []*CandidateResult {
+	results := make([]*CandidateResult, len(starts))
 	for index := range starts {
-		slots[index] = &starts[index]
+		results[index] = &CandidateResult{Start: &starts[index]}
 	}
-	return slots
+	return results
+}
+
+// observedOutcomes lists the outcomes that replaced start receipts, in
+// candidate order.
+func observedOutcomes(state firstSuccessState) []agent.ChildOutcome {
+	var outcomes []agent.ChildOutcome
+	for _, result := range state.Results {
+		if result != nil && result.Outcome != nil {
+			outcomes = append(outcomes, *result.Outcome)
+		}
+	}
+	return outcomes
 }
 
 func TestCompetitionStartSlotsMatchCandidatesInOrder(t *testing.T) {
 	starts, _ := competitionOutcomes(t, 3)
 	execution := competitionExecution(t, starts)
-	for name, slots := range map[string][]*agent.ChildStartResult{
+	for name, slots := range map[string][]*CandidateResult{
 		"missing slot":           startSlots(starts)[:2],
-		"receipt after gap":      {&starts[0], nil, &starts[2]},
+		"receipt after gap":      {{Start: &starts[0]}, nil, {Start: &starts[2]}},
 		"declared without slots": {},
 	} {
 		state := execution.state
-		state.Starts, state.WaitID = slots, nil
+		state.Results, state.WaitID = slots, nil
 		err := state.validate(t.Context(), execution.definition.maxCandidates)
 		if name == "declared without slots" {
 			if err != nil || state.phase() != competitionReady {

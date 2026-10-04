@@ -86,11 +86,11 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 			t.Fatalf("restored input accepted=%t error=%v", accepted, deliveryErr)
 		}
 		report := completedOutput[coordination.FirstSuccessResult](t, restored)
-		if !report.Valid() || report.Winner == nil || winnerKey(report, candidates) != "input" || len(report.Starts) != 3 ||
+		if !report.Valid() || report.Winner == nil || winnerKey(report, candidates) != "input" || len(report.Candidates) != 3 ||
 			!slices.Equal(outcomeKeys(report, candidates), []string{"rejected", "input"}) {
 			t.Fatalf("competition report = %+v", report)
 		}
-		inputOutput, _ := report.Outcomes[1].Result().Output()
+		inputOutput, _ := report.Candidates[1].Outcome.Result().Output()
 		original, decodeErr := inputOutput.Decode[agent.Signal]()
 		if decodeErr != nil || original.ID() != signalID || string(original.Payload()) != `"replace"` {
 			t.Fatalf("selected input lost its identity: %+v error=%v", original, decodeErr)
@@ -227,14 +227,15 @@ func TestFirstSuccessRetainsFailedAdmissionAndAllRejectedResults(t *testing.T) {
 			t.Fatal(err)
 		}
 		report := completedOutput[coordination.FirstSuccessResult](t, root)
-		if !report.Valid() || report.Winner != nil || len(report.Starts) != 2 ||
+		if !report.Valid() || report.Winner != nil || len(report.Candidates) != 2 ||
 			!slices.Equal(outcomeKeys(report, candidates), []string{"rejected-result"}) {
 			t.Fatalf("all-rejected competition = %+v", report)
 		}
-		if failure, failed := report.Starts[0].Failure(); !failed || failure.Code() != "engine.child.input.invalid" {
+		start := report.Candidates[0].Start
+		if failure, failed := start.Failure(); !failed || failure.Code() != "engine.child.input.invalid" {
 			t.Fatalf("failed admission fact = %+v, failed=%t", failure, failed)
 		}
-		if _, present := report.Starts[0].ProcessID(); present {
+		if _, present := start.ProcessID(); present {
 			t.Fatal("failed admission published a candidate Process")
 		}
 		closeEngine(t, engine)
@@ -286,14 +287,12 @@ func child(t testing.TB, engine *agent.Engine, root *agent.Process, key string) 
 	return nil
 }
 
-// outcomeKeys names each outcome by its candidate; Starts follows request order.
+// outcomeKeys names each observed candidate; Candidates follows request order.
 func outcomeKeys(report coordination.FirstSuccessResult, candidates []agent.ChildSpec) []string {
 	var keys []string
-	for _, outcome := range report.Outcomes {
-		for index, started := range report.Starts {
-			if id, present := started.ProcessID(); present && id == outcome.Result().ProcessID() {
-				keys = append(keys, candidates[index].Key.String())
-			}
+	for index, candidate := range report.Candidates {
+		if candidate.Outcome != nil {
+			keys = append(keys, candidates[index].Key.String())
 		}
 	}
 	return keys

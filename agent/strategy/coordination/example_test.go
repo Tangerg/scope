@@ -93,19 +93,14 @@ func ExampleFirstSuccess() {
 	if err != nil || !report.Valid() || report.Winner == nil {
 		panic("competition produced no successful candidate")
 	}
-	// Winner indexes the request, and Starts answers it in the same order.
+	// Winner indexes the request, and Candidates answers it in the same order.
 	fmt.Println("winner:", requests[*report.Winner].Key)
-	winner, _ := report.Starts[*report.Winner].ProcessID()
-	for _, outcome := range report.Outcomes {
-		if outcome.Result().ProcessID() == winner {
-			value, _ := outcome.Result().Output()
-			answer, decodeErr := value.Decode[string]()
-			if decodeErr != nil {
-				panic(decodeErr)
-			}
-			fmt.Println(answer)
-		}
+	value, _ := report.Candidates[*report.Winner].Outcome.Result().Output()
+	answer, decodeErr := value.Decode[string]()
+	if decodeErr != nil {
+		panic(decodeErr)
 	}
+	fmt.Println(answer)
 	// Output:
 	// winner: worker
 	// worker: inspect deployment
