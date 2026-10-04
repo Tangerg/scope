@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -62,6 +61,10 @@ func (r ReasoningDetailsConfig) Validate() error {
 // fields in ReasoningState. Detail identities keep separate blocks from merging
 // during accumulation. Replay uses the current text and preserves native fields;
 // callers remain responsible for preserving content covered by provider signatures.
+// Explicit empty detail arrays remain in ReasoningState and are replayed as [];
+// missing or null detail fields do not create replay state. Each frame contains
+// an array with zero or one native detail without Core-owned text; other shapes
+// are rejected.
 func ReasoningDetailsDialect(config ReasoningDetailsConfig) (Dialect, error) {
 	if err := config.Validate(); err != nil {
 		return Dialect{}, err
@@ -104,7 +107,7 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 		return fmt.Errorf("messages[%d]: %w", messageIndex, err)
 	}
 	extraFields := make(map[string]any)
-	if len(details) > 0 {
+	if details != nil {
 		extraFields[r.config.DetailsField] = details
 	}
 	if plainReasoning != "" && r.config.ReplayPlainText {
@@ -127,10 +130,8 @@ func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field
 		if err != nil {
 			return err
 		}
-		if len(parts) > 0 {
-			target.Parts = append(parts, target.Parts...)
-			return nil
-		}
+		target.Parts = append(parts, target.Parts...)
+		return nil
 	}
 	return prependTextReasoning(fields, r.config.Provider, r.config.TextField, target)
 }
@@ -139,6 +140,13 @@ func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]cor
 	var details []json.RawMessage
 	if err := jsonv2.Unmarshal(raw, &details); err != nil {
 		return nil, fmt.Errorf("%s: decode %s: %w", r.config.Provider, r.config.DetailsField, err)
+	}
+	if len(details) == 0 {
+		state, err := r.encodeFrame(json.RawMessage("[]"))
+		if err != nil {
+			return nil, err
+		}
+		return []corechat.Part{corechat.NewReasoningPart("", state)}, nil
 	}
 	parts := make([]corechat.Part, 0, len(details))
 	for index := range details {
@@ -168,7 +176,7 @@ func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequ
 		}
 		delete(fields, field)
 	}
-	state, err := jsonv2.Marshal(fields, jsonv2.Deterministic(true))
+	state, err := jsonv2.Marshal([]map[string]json.RawMessage{fields}, jsonv2.Deterministic(true))
 	if err != nil {
 		return corechat.Part{}, err
 	}
@@ -233,6 +241,15 @@ func (r reasoningDetailsCodec) mapHistory(parts []corechat.Part) ([]json.RawMess
 			plain.WriteString(part.Text)
 			continue
 		}
+		if frames == nil {
+			frames = make([]json.RawMessage, 0)
+		}
+		if len(decoded) == 0 {
+			if part.Text != "" {
+				return nil, "", fmt.Errorf("parts[%d].reasoning text has no native field", partIndex)
+			}
+			continue
+		}
 		decoded, err = coalesceReasoningDetailFrames(decoded)
 		if err != nil {
 			return nil, "", fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
@@ -294,24 +311,30 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 			return nil, true, false, fmt.Errorf("frame length %d exceeds remaining %d bytes", payloadLength, len(signature)-offset)
 		}
 		raw := json.RawMessage(bytes.Clone(signature[offset : offset+payloadLength]))
-		if !jsontext.Value(raw).IsValid() {
-			return nil, true, false, errors.New("frame contains invalid JSON")
+		var details []json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &details); err != nil {
+			return nil, true, false, fmt.Errorf("frame must contain a native detail array: %w", err)
 		}
-		var fields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
-			return nil, true, false, err
+		if details == nil || len(details) > 1 {
+			return nil, true, false, errors.New("frame must contain an array with zero or one native detail")
 		}
-		field, err := reasoningDetailTextField(fields)
-		if err != nil {
-			return nil, true, false, err
-		}
-		if _, exists := fields[field]; field != "" && exists {
-			return nil, true, false, errors.New("reasoning state must not contain Core-owned text")
+		for _, detail := range details {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(detail, &fields); err != nil {
+				return nil, true, false, err
+			}
+			field, err := reasoningDetailTextField(fields)
+			if err != nil {
+				return nil, true, false, err
+			}
+			if _, exists := fields[field]; field != "" && exists {
+				return nil, true, false, errors.New("reasoning state must not contain Core-owned text")
+			}
 		}
 		if provider != r.config.Provider {
 			ownProvider = false
 		} else {
-			frames = append(frames, raw)
+			frames = append(frames, details...)
 		}
 		offset += payloadLength
 	}

@@ -98,7 +98,7 @@ func TestReasoningDetailsReplayUsesCoreText(t *testing.T) {
 	}
 }
 
-func TestReasoningDetailsRejectStoredTextCopies(t *testing.T) {
+func TestReasoningDetailsRejectInvalidNativeState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("invalid reasoning state reached the provider")
 	}))
@@ -115,16 +115,26 @@ func TestReasoningDetailsRejectStoredTextCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := base64.StdEncoding.DecodeString("TFlSRAAIAAAARXByb3ZpZGVyeyJ0eXBlIjoicmVhc29uaW5nLnRleHQiLCJ0ZXh0Ijoib3JpZ2luYWwgcmVhc29uaW5nIiwiaWQiOiJkZXRhaWwtMSJ9")
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := &chat.Request{Messages: []chat.Message{
-		chat.NewUserMessage(chat.NewTextPart("question")),
-		chat.NewAssistantMessage(chat.NewReasoningPart("edited reasoning", state)),
-	}}
-	if _, err := model.Call(t.Context(), request); err == nil {
-		t.Fatal("replayed state carrying a second text owner")
+	for _, test := range []struct{ name, state string }{
+		{"Core text copy", "TFlSRAAIAAAAR3Byb3ZpZGVyW3sidHlwZSI6InJlYXNvbmluZy50ZXh0IiwidGV4dCI6Im9yaWdpbmFsIHJlYXNvbmluZyIsImlkIjoiZGV0YWlsLTEifV0="},
+		{"old object", "TFlSRAAIAAAAKXByb3ZpZGVyeyJ0eXBlIjoicmVhc29uaW5nLnRleHQiLCJpZCI6ImRldGFpbC0xIn0="},
+		{"null array", "TFlSRAAIAAAABHByb3ZpZGVybnVsbA=="},
+		{"multiple identities", "TFlSRAAIAAAAUHByb3ZpZGVyW3sidHlwZSI6InJlYXNvbmluZy50ZXh0IiwiaWQiOiJmaXJzdCJ9LHsidHlwZSI6InJlYXNvbmluZy50ZXh0IiwiaWQiOiJzZWNvbmQifV0="},
+		{"empty with text", "TFlSRAAIAAAAAnByb3ZpZGVyW10="},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, err := base64.StdEncoding.DecodeString(test.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &chat.Request{Messages: []chat.Message{
+				chat.NewUserMessage(chat.NewTextPart("question")),
+				chat.NewAssistantMessage(chat.NewReasoningPart("edited reasoning", state)),
+			}}
+			if _, err := model.Call(t.Context(), request); err == nil {
+				t.Fatal("replayed invalid native state")
+			}
+		})
 	}
 }
 
