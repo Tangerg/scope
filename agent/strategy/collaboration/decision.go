@@ -42,12 +42,25 @@ type TaskRequest struct {
 	Input  agent.Payload  `json:"input"`
 }
 
-// Task retains one request and its canonical kernel lifecycle facts. A missing
-// Start is pending admission; a successful Start without Outcome is outstanding.
+// Task retains one request and its canonical kernel lifecycle facts. A task
+// with neither Start nor Outcome is pending admission; Start alone is a failed
+// admission or an outstanding child; Outcome replaces Start once the child
+// drains, and its Result names the child.
 type Task struct {
 	Request TaskRequest             `json:"request"`
 	Start   *agent.ChildStartResult `json:"start,omitzero"`
 	Outcome *agent.ChildOutcome     `json:"outcome,omitzero"`
+}
+
+// processID names the task's child while it runs or after it finished.
+func (t Task) processID() (agent.ProcessID, bool) {
+	if t.Outcome != nil {
+		return t.Outcome.Result().ProcessID(), true
+	}
+	if t.Start != nil {
+		return t.Start.ProcessID()
+	}
+	return agent.ProcessID{}, false
 }
 
 // Control targets an already admitted task. Exactly one of Signal and
@@ -106,10 +119,10 @@ func (d Decision) validateShape() error {
 }
 
 func (c Control) effect(task *Task) (agent.Effect, error) {
-	if task == nil || task.Request.Key != c.Task || task.Start == nil || (c.Signal == nil) == (c.CancelReason == nil) {
+	if task == nil || task.Request.Key != c.Task || (c.Signal == nil) == (c.CancelReason == nil) {
 		return agent.Effect{}, ErrInvalidDecision
 	}
-	id, started := task.Start.ProcessID()
+	id, started := task.processID()
 	if !started {
 		return agent.Effect{}, ErrInvalidDecision
 	}

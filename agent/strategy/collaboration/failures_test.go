@@ -17,7 +17,7 @@ func TestWorkerFailuresRemainCoordinatorFacts(t *testing.T) {
 				if turn.Number == 1 {
 					return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("work", "test.failing", "x")}}, nil
 				}
-				if turn.Number != 2 || len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil {
+				if turn.Number != 2 || len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil && turn.Tasks[0].Outcome == nil {
 					return Decision{}, errors.New("missing task fact")
 				}
 				if unavailable {

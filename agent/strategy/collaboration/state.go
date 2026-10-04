@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
-	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -39,6 +39,17 @@ type turnExecution struct {
 	UnseenOutcomes []uint32                `json:"unseen_outcomes,omitempty"`
 	Start          *agent.ChildStartResult `json:"start,omitzero"`
 	Outcome        *agent.ChildOutcome     `json:"outcome,omitzero"`
+}
+
+// processID names the coordinator child while it runs or after it finished.
+func (t turnExecution) processID() (agent.ProcessID, bool) {
+	if t.Outcome != nil {
+		return t.Outcome.Result().ProcessID(), true
+	}
+	if t.Start != nil {
+		return t.Start.ProcessID()
+	}
+	return agent.ProcessID{}, false
 }
 
 func (t turnExecution) unresolved() bool {
@@ -108,7 +119,7 @@ func (e executionState) phase(mode Mode) phase {
 		return phaseReady
 	case mode == ModeComplete:
 		return phaseCompleted
-	case e.Turn.Start == nil:
+	case e.Turn.Start == nil && e.Turn.Outcome == nil:
 		return phaseStartingTurn
 	case mode == ModeUndecided && e.Turn.ended():
 		return phaseFailed
@@ -149,7 +160,7 @@ func (e executionState) workingState(decision Decision) agent.Payload {
 func (e executionState) unapplied() int {
 	count := 0
 	for _, task := range e.Tasks {
-		if task.Start == nil {
+		if task.Start == nil && task.Outcome == nil {
 			count++
 		}
 	}
@@ -172,14 +183,14 @@ func (e executionState) taskIndex() map[agent.ChildKey]*Task {
 func (e executionState) remaining() []agent.ProcessID {
 	var ids []agent.ProcessID
 	for _, task := range e.Tasks {
-		if task.Start == nil || task.Outcome != nil {
+		if task.Start == nil {
 			continue
 		}
 		if id, present := task.Start.ProcessID(); present {
 			ids = append(ids, id)
 		}
 	}
-	if e.Turn != nil && e.Turn.Start != nil && e.Turn.Outcome == nil {
+	if e.Turn != nil && e.Turn.Start != nil {
 		if id, present := e.Turn.Start.ProcessID(); present {
 			ids = append(ids, id)
 		}
@@ -195,9 +206,9 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 	for index, task := range e.Tasks {
 		child := &batch.Children[index]
 		child.Key = task.Request.Key
-		if task.Start != nil {
-			id, started := task.Start.ProcessID()
-			child.ProcessID, child.Done = id, !started || task.Outcome != nil
+		if task.Start != nil || task.Outcome != nil {
+			child.ProcessID, _ = task.processID()
+			child.Done = task.Start == nil || !child.ProcessID.Valid()
 		}
 	}
 	if e.Turn != nil {
@@ -206,9 +217,9 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 			return childcall.Batch{}, err
 		}
 		child := childcall.Child{Key: key}
-		if e.Turn.Start != nil {
-			id, started := e.Turn.Start.ProcessID()
-			child.ProcessID, child.Done = id, !started || e.Turn.Outcome != nil
+		if e.Turn.Start != nil || e.Turn.Outcome != nil {
+			child.ProcessID, _ = e.Turn.processID()
+			child.Done = e.Turn.Start == nil || !child.ProcessID.Valid()
 		}
 		batch.Children = append(batch.Children, child)
 	}
@@ -238,54 +249,47 @@ func (e *executionState) recordStart(index int, start agent.ChildStartResult) {
 	e.Tasks[index].Start = &start
 }
 
+// recordOutcome replaces the child's start receipt, whose ProcessID the
+// outcome's Result already names.
 func (e *executionState) recordOutcome(index int, outcome agent.ChildOutcome) {
 	if index == len(e.Tasks) {
-		e.Turn.Outcome = &outcome
+		e.Turn.Start, e.Turn.Outcome = nil, &outcome
 		return
 	}
-	e.Tasks[index].Outcome = &outcome
+	e.Tasks[index].Start, e.Tasks[index].Outcome = nil, &outcome
 	e.Turn.UnseenOutcomes = append(e.Turn.UnseenOutcomes, uint32(index))
 }
 
-func (e executionState) validateOutcomes(ctx context.Context, d *Definition) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	batch, err := e.batch(d)
-	if err != nil {
-		return err
-	}
-	batch.WaitID = agent.WaitID{}
-	var outcomes []agent.ChildOutcome
-	var expected []int
+// validateOutcomes requires each drained child to keep only its outcome,
+// which names the child and the subtree facts its drained wait established.
+func (e executionState) validateOutcomes(ctx context.Context) error {
 	for index, task := range e.Tasks {
-		if cancelErr := ctx.Err(); cancelErr != nil {
-			return cancelErr
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if task.Outcome != nil {
-			batch.Children[index].Done = false
-			outcomes = append(outcomes, *task.Outcome)
-			expected = append(expected, index)
+		if err := validateDrainedOutcome(task.Start, task.Outcome); err != nil {
+			return fmt.Errorf("%w: task %d: %w", ErrInvalidExecutionState, index, err)
 		}
 	}
-	if e.Turn != nil && e.Turn.Outcome != nil {
-		batch.Children[len(e.Tasks)].Done = false
-		outcomes = append(outcomes, *e.Turn.Outcome)
-		expected = append(expected, len(e.Tasks))
-	}
-	for _, outcome := range outcomes {
-		if _, drained := outcome.SubtreeUnresolvedEffects(); !drained {
-			return fmt.Errorf("%w: child outcome lacks its drained subtree", ErrInvalidExecutionState)
+	if e.Turn != nil {
+		if err := validateDrainedOutcome(e.Turn.Start, e.Turn.Outcome); err != nil {
+			return fmt.Errorf("%w: turn: %w", ErrInvalidExecutionState, err)
 		}
-	}
-	indices, err := batch.MatchOutcomes(outcomes)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-	}
-	if !slices.Equal(indices, expected) {
-		return fmt.Errorf("%w: outcome belongs to another child", ErrInvalidExecutionState)
 	}
 	return ctx.Err()
+}
+
+func validateDrainedOutcome(start *agent.ChildStartResult, outcome *agent.ChildOutcome) error {
+	if outcome == nil {
+		return nil
+	}
+	if start != nil {
+		return errors.New("finished child retains its start receipt")
+	}
+	if _, drained := outcome.SubtreeUnresolvedEffects(); !drained {
+		return errors.New("child outcome lacks its drained subtree")
+	}
+	return nil
 }
 
 func (e executionState) validate(ctx context.Context, d *Definition) error {
@@ -310,7 +314,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := e.validateBounds(d); err != nil {
 		return err
 	}
-	if err := e.validateOutcomes(ctx, d); err != nil {
+	if err := e.validateOutcomes(ctx); err != nil {
 		return err
 	}
 	pending, ids, err := e.validateTasks(ctx, d)
@@ -425,13 +429,13 @@ func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, 
 		}
 		keys[task.Request.Key] = struct{}{}
 		worker, _ := d.worker(task.Request.Worker)
-		if task.Start == nil {
+		if task.Start == nil && task.Outcome == nil {
 			pending++
 		} else {
 			if pending > 0 {
 				return 0, nil, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidExecutionState, index)
 			}
-			if id, present := task.Start.ProcessID(); present {
+			if id, present := task.processID(); present {
 				if _, duplicate := ids[id]; duplicate {
 					return 0, nil, fmt.Errorf("%w: task %d reuses process %q", ErrInvalidExecutionState, index, id)
 				}
@@ -508,10 +512,10 @@ func (e executionState) validateTurnInput(d *Definition) error {
 }
 
 func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
-	if e.Turn.Start == nil {
+	if e.Turn.Start == nil && e.Turn.Outcome == nil {
 		return nil
 	}
-	id, present := e.Turn.Start.ProcessID()
+	id, present := e.Turn.processID()
 	_, reused := ids[id]
 	if !present && current != phaseFailed || reused {
 		return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidExecutionState)

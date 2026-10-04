@@ -81,8 +81,10 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 				"invalid turn state":     func(state *executionState) { state.Turn.State = require(agent.EncodePayload(42)) },
 			}
 			if mode != "start" {
-				// Without its outcome, a turn that never started is a valid fresh turn.
-				mutations["missing start"] = func(state *executionState) { state.Turn.Start = nil }
+				// A finished turn keeps only its outcome, which names its child.
+				mutations["retained start"] = func(state *executionState) {
+					state.Turn.Start = new(require(agent.ParseChildStartResult(require(agent.NewSignal(require(agent.ParseSignalID("signal:engine:start")), agent.WaitID{}, []byte(`{"operation":"start_child","process_id":"process:coordinator"}`))))))
+				}
 			}
 			for name, mutate := range mutations {
 				t.Run(name, func(t *testing.T) {

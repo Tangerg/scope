@@ -265,12 +265,8 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 		},
 		func(wire map[string]any) {
 			task := wire["tasks"].([]any)[0].(map[string]any)
-			delete(task, "start")
-		},
-		func(wire map[string]any) {
-			task := wire["tasks"].([]any)[0].(map[string]any)
 			outcome := task["outcome"].(map[string]any)
-			outcome["result"].(map[string]any)["process_id"] = "foreign"
+			task["start"] = map[string]any{"operation": "start_child", "process_id": outcome["result"].(map[string]any)["process_id"]}
 		},
 	} {
 		var wire map[string]any
