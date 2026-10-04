@@ -42,7 +42,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	childID := effectID.childProcessID()
 	waitID := effectID.waitID()
 	start := ChildStartResult{processID: childID}
-	control := ChildControlResult{operation: frameworkOperationCancelChild}
+	var control ChildControlResult
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}

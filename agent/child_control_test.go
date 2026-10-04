@@ -15,6 +15,30 @@ func controlValue[T any](value T, err error) T {
 	return value
 }
 
+func TestChildControlSettlementsKeepOnlyAdmissionFacts(t *testing.T) {
+	child := newProcessID()
+	signal := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:receipt")), WaitID{}, []byte(`"inspect"`)))
+	failure := controlValue(NewFailure(FailureKindContract, "test.rejected", "not admitted"))
+	for _, effect := range []Effect{
+		controlValue(NewChildSignalEffect(child, signal)),
+		controlValue(NewChildCancelEffect(child, "stop work")),
+	} {
+		operation := controlValue(decodeFrameworkOperation(effect.Payload()))
+		for _, test := range []struct {
+			failure Failure
+			payload string
+		}{
+			{payload: `{"operation":"child_control_settled"}`},
+			{failure: failure, payload: `{"failure":{"code":"test.rejected","kind":"contract","message":"not admitted"},"operation":"child_control_settled"}`},
+		} {
+			settlement := controlValue(operation.settlement(child.effectID(1, 0), test.failure))
+			if got := string(settlement.Payload()); got != test.payload {
+				t.Errorf("control receipt = %s, want %s", got, test.payload)
+			}
+		}
+	}
+}
+
 func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	child := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:control")), WaitID{}, []byte(`{"direction":"inspect"}`)))
@@ -30,7 +54,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			t.Fatalf("effect codec: %v", err)
 		}
 		for _, failed := range []bool{false, true} {
-			result := ChildControlResult{operation: operation}
+			var result ChildControlResult
 			if failed {
 				result.failure = controlValue(NewFailure(FailureKindContract, "test.rejected", "not admitted"))
 			}
@@ -89,8 +113,8 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	if _, err := ParseChildControlResult(Signal{}); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatal(err)
 	}
-	if _, err := jsonv2.Marshal(ChildControlResult{}); err == nil {
-		t.Fatal("encoded invalid result")
+	if result := (ChildControlResult{}); !result.Valid() || string(controlValue(jsonv2.Marshal(result))) != `{"operation":"child_control_settled"}` {
+		t.Fatal("zero result did not confirm successful control admission")
 	}
 	var nilResult *ChildControlResult
 	if err := nilResult.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, ErrInvalidChildControl) {
@@ -103,6 +127,12 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 		var result ChildControlResult
 		if err := jsonv2.Unmarshal([]byte(payload), &result); err == nil {
 			t.Fatal("accepted malformed result", payload)
+		}
+	}
+	for _, payload := range []string{`{"operation":"signal_child"}`, `{"operation":"cancel_child"}`, `{"operation":"child_control_settled","failure":{}}`, `{"operation":"child_control_settled","extra":true}`} {
+		var result ChildControlResult
+		if err := jsonv2.Unmarshal([]byte(payload), &result); !errors.Is(err, ErrInvalidChildControl) {
+			t.Fatalf("invalid receipt %s: %v", payload, err)
 		}
 	}
 }
@@ -227,7 +257,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	childID := newProcessID()
 	request := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:cut")), WaitID{}, []byte(`"instruction"`)))
 	effect := controlValue(NewChildSignalEffect(childID, request))
-	result := ChildControlResult{operation: frameworkOperationSignalChild}
+	var result ChildControlResult
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
@@ -267,7 +297,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal("consumed receipt lost proof", err)
 	}
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
-	canceled := ChildControlResult{operation: frameworkOperationCancelChild}
+	var canceled ChildControlResult
 	record.Effect = cancel
 	record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {

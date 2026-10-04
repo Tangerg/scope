@@ -561,7 +561,7 @@ func (t *treeRuntime) controlChild(
 	request childControlEffectWire,
 	observation effectAttempt,
 ) {
-	result := request.result()
+	var result ChildControlResult
 	child := t.members.get(request.ChildID)
 	if child == nil || child.handle.relation.parentID != parent.handle.processID {
 		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildControlNotOwned,
@@ -579,7 +579,7 @@ func (t *treeRuntime) controlChild(
 }
 
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
-	result := request.result()
+	var result ChildControlResult
 	if request.Operation == frameworkOperationCancelChild {
 		if !child.status().Terminal() {
 			// The request decoder has already validated this exact reason.

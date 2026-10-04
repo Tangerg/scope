@@ -41,10 +41,10 @@ func NewChildCancelEffect(childID ProcessID, reason string) (Effect, error) {
 // ChildControlResult is a definite tree-local admission result. Failure
 // preserves rejected authority, wait, or resource admission without failing
 // the sending Strategy implicitly. The declaring Effect owns the recipient and
-// any delivered SignalID; the result carries only whether admission failed.
+// any delivered SignalID and the control operation; the result carries only
+// whether admission failed. The zero value confirms successful admission.
 type ChildControlResult struct {
-	failure   Failure
-	operation frameworkOperationKind
+	failure Failure
 }
 
 func (c ChildControlResult) Failure() (Failure, bool) { return c.failure, c.failure.Valid() }
@@ -58,14 +58,14 @@ func (c ChildControlResult) settlementStatus() SettlementStatus {
 }
 
 func (c ChildControlResult) Valid() bool {
-	return c.operation == frameworkOperationSignalChild || c.operation == frameworkOperationCancelChild
+	return c.failure == (Failure{}) || c.failure.Valid()
 }
 
 func (c ChildControlResult) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidChildControl
 	}
-	wire := childControlResultWire{Operation: c.operation}
+	wire := childControlResultWire{Operation: childControlSettledOperation}
 	if c.failure.Valid() {
 		wire.Failure = &c.failure
 	}
@@ -137,9 +137,11 @@ func decodeChildControlEffect(payload json.RawMessage) (childControlEffectWire, 
 	return wire, nil
 }
 
+const childControlSettledOperation = "child_control_settled"
+
 type childControlResultWire struct {
-	Operation frameworkOperationKind `json:"operation"`
-	Failure   *Failure               `json:"failure,omitzero"`
+	Operation string   `json:"operation"`
+	Failure   *Failure `json:"failure,omitzero"`
 }
 
 func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, error) {
@@ -147,7 +149,10 @@ func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, erro
 	if err != nil {
 		return ChildControlResult{}, fmt.Errorf("%w: result: %w", ErrInvalidChildControl, err)
 	}
-	result := ChildControlResult{operation: wire.Operation}
+	if wire.Operation != childControlSettledOperation {
+		return ChildControlResult{}, ErrInvalidChildControl
+	}
+	var result ChildControlResult
 	if wire.Failure != nil {
 		result.failure = *wire.Failure
 	}
@@ -155,8 +160,4 @@ func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, erro
 		return ChildControlResult{}, ErrInvalidChildControl
 	}
 	return result, nil
-}
-
-func (c childControlEffectWire) result() ChildControlResult {
-	return ChildControlResult{operation: c.Operation}
 }

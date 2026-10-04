@@ -187,9 +187,8 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 type childControlOperation struct{ request childControlEffectWire }
 
 // The request fixes the recipient, operation, and delivered SignalID.
-func (c childControlOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
-	result := c.request.result()
-	result.failure = failure
+func (childControlOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+	result := ChildControlResult{failure: failure}
 	payload, err := result.MarshalJSON()
 	if err != nil {
 		return Settlement{}, err

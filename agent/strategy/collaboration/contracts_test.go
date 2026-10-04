@@ -161,6 +161,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	trace.mu.Unlock()
 	phases := make(map[phase]bool)
 	var declared []agent.ExecutionState
+	var controlled []agent.ExecutionState
 	for index := range cases {
 		var state executionState
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
@@ -169,6 +170,9 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		current := state.phase(require(state.decision()).Mode)
 		cases[index].Name = fmt.Sprintf("phase%d-%c", current, 'a'+index)
 		phases[current] = true
+		if len(state.Controls) != 0 && state.Controls[0].Result != nil {
+			controlled = append(controlled, cases[index].State)
+		}
 		if current != phaseReady {
 			restored := require(definition.Restore(t.Context(), cases[index].State))
 			if _, err := restored.Step(t.Context(), nil); !errors.Is(err, ErrInvalidProtocol) {
@@ -239,6 +243,22 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		altered := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(wire))))
 		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatalf("decision-declared task repeated its request: %v", err)
+		}
+	}
+	if len(controlled) == 0 {
+		t.Fatal("no captured state holds a settled control")
+	}
+	for _, state := range controlled {
+		for _, operation := range []string{"signal_child", "cancel_child"} {
+			var wire map[string]any
+			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
+				t.Fatal(err)
+			}
+			wire["controls"].([]any)[0].(map[string]any)["result"].(map[string]any)["operation"] = operation
+			altered := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(wire))))
+			if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidExecutionState) {
+				t.Fatalf("control receipt restored a request operation %s: %v", operation, err)
+			}
 		}
 	}
 	for _, phase := range []phase{phaseReady, phaseStartingTurn, phaseApplying, phaseOpening, phaseWaiting} {
