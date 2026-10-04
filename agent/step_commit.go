@@ -66,7 +66,7 @@ func (p *preparedStepFinalization) applySettlement(record preparedEffect) error 
 		}
 		return operation.apply(p, record)
 	}
-	signal, err := record.settlementSignal(WaitID{})
+	signal, err := record.settlementSignal()
 	if err != nil {
 		return err
 	}

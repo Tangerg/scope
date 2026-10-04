@@ -26,7 +26,9 @@ func TestDrainedTreeSnapshotRendersAnswersFromTheirChildren(t *testing.T) {
 		{"stored identity", func(records []signalRecordDocument) {
 			records[last].ID = new(records[last].WaitID.childWaitSignalID())
 		}},
-		{"unnamed opening", func(records []signalRecordDocument) { records[0].ID = nil }},
+		{"stored opening identity", func(records []signalRecordDocument) {
+			records[0].ID = new(records[0].WaitID.openingSignalID())
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			encoded := treeJSONWithDocument(t, snapshot, root.ProcessID(), func(document *processSnapshotDocument) {

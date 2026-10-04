@@ -69,7 +69,7 @@ func (w waitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, error
 }
 
 func (w waitOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
-	signal, err := record.settlementSignal(record.ID.waitID())
+	signal, err := record.openingSignal()
 	if err != nil {
 		return err
 	}
@@ -97,15 +97,14 @@ func (c childWaitOperation) reserve(effect *preparedEffect, _ Failure) (uint64, 
 }
 
 func (c childWaitOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
-	waitID := record.ID.waitID()
-	signal, err := record.settlementSignal(waitID)
+	signal, err := record.openingSignal()
 	if err != nil {
 		return err
 	}
 	if err := finalization.mailbox.openChildWait(c.spec, signal); err != nil {
 		return err
 	}
-	finalization.openedChildWaits = append(finalization.openedChildWaits, openedChildWait{waitID: waitID, spec: c.spec})
+	finalization.openedChildWaits = append(finalization.openedChildWaits, openedChildWait{waitID: signal.waitID, spec: c.spec})
 	return nil
 }
 
@@ -144,7 +143,7 @@ func (c childStartOperation) reserve(effect *preparedEffect, failure Failure) (u
 }
 
 func (c childStartOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
-	signal, err := record.settlementSignal(WaitID{})
+	signal, err := record.settlementSignal()
 	if err != nil {
 		return err
 	}
@@ -211,7 +210,7 @@ func (c childControlOperation) reserve(effect *preparedEffect, failure Failure) 
 }
 
 func (c childControlOperation) apply(finalization *preparedStepFinalization, record preparedEffect) error {
-	signal, err := record.settlementSignal(WaitID{})
+	signal, err := record.settlementSignal()
 	if err != nil {
 		return err
 	}

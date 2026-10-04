@@ -169,6 +169,11 @@ func (w *WaitID) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// openingSignalID identifies the Signal that acknowledges the wait it opened.
+func (w WaitID) openingSignalID() SignalID {
+	return SignalID{deriveIdentity(engineSignalIDPrefix, "wait-opened", w.String())}
+}
+
 func (w WaitID) childWaitSignalID() SignalID {
 	return SignalID{deriveIdentity(engineSignalIDPrefix, "child-wait-satisfied", w.String())}
 }

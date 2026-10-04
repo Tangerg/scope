@@ -47,8 +47,9 @@ func (s Signal) ID() SignalID { return s.id }
 func (s Signal) EngineOwned() bool { return s.Valid() && s.id.engineOwned() }
 
 // Settles reports whether the Engine minted this delivery for effectID's
-// settlement, without exposing the private delivery identity. As with
-// EngineOwned, decoded Signals must come from trusted storage.
+// settlement, without exposing the private delivery identity. A wait opening
+// is identified by the WaitID it addresses instead. As with EngineOwned,
+// decoded Signals must come from trusted storage.
 func (s Signal) Settles(effectID EffectID) bool {
 	return s.EngineOwned() && effectID.Valid() && s.id == effectID.settlementSignalID()
 }

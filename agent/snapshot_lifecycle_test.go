@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -167,20 +168,25 @@ func TestImmediateChildWaitCapacityRejectionIsAtomic(t *testing.T) {
 	}
 }
 
-// immediateChildWaitScenario prepares a root Step that waits for a child the
-// tree already finished, so finalization admits the answer immediately.
+// immediateChildWaitScenario prepares a root Step that waits for children the
+// tree already finished, so finalization admits the answer immediately. The
+// answer names each child, so several children make it outgrow the Step it
+// replaces.
 func immediateChildWaitScenario(t *testing.T, limit func(*TreeLimits)) (*treeRuntime, *processState) {
 	t.Helper()
-	runtime := newWaitingSnapshotTree(t, 2)
+	runtime := newWaitingSnapshotTree(t, 4)
 	limit(&runtime.treeLimits)
 	parent := runtime.members.get(runtime.rootID)
-	child := runtime.members.get(runtime.members.childrenOf(runtime.rootID)[0])
-	child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-		controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})), child.handle.startedAt)
-	child.mailbox.closeAllWaits()
+	children := runtime.members.childrenOf(runtime.rootID)
+	for _, id := range children {
+		child := runtime.members.get(id)
+		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
+			controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})), child.handle.startedAt)
+		child.mailbox.closeAllWaits()
+	}
 	effect := controlValue(NewChildWaitEffect(ChildWaitSpec{
 		Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
-		Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
+		Children: slices.Clone(children), Condition: AllChildren(),
 	}))
 	if failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
 		transition: controlValue(Continue(0, effect)), candidate: parent.execution, candidateState: parent.committedExecutionState,

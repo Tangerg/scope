@@ -429,8 +429,9 @@ type mailboxWire struct {
 	SignalCursor uint64             `json:"signal_cursor"`
 }
 
-// mailboxDocument is the persisted mailbox. A child-wait answer omits the
-// SignalID its wait derives, and while pending keeps only the children it
+// mailboxDocument is the persisted mailbox. A wait opening and a child-wait
+// answer omit the SignalID their wait derives; a pending answer keeps only
+// the children it
 // answered with, in request order: their retained records determine its
 // outcomes, so only the enclosing tree can decode it.
 type mailboxDocument struct {
@@ -444,21 +445,26 @@ type signalRecordDocument struct {
 	Answered []ProcessID `json:"answered,omitempty"`
 }
 
-// record restores the record's identity: a child-wait answer is the record
-// addressed to a wait it did not open without naming its own SignalID.
+// record restores the record's identity: a wait opening and a child-wait
+// answer are the records addressed to a wait without naming their own
+// SignalID, which that wait derives.
 func (s signalRecordDocument) record() (signalRecordWire, error) {
 	record := s.signalRecordWire
 	if s.ID != nil {
 		record.ID = *s.ID
-		if record.answersChildWait() {
-			return signalRecordWire{}, fmt.Errorf("%w: child-wait answer stores the SignalID its wait derives", errMailboxCursor)
+		if record.Opens != nil || record.answersChildWait() {
+			return signalRecordWire{}, fmt.Errorf("%w: record stores the SignalID its wait derives", errMailboxCursor)
 		}
 		return record, nil
 	}
-	if record.WaitID == nil || record.Opens != nil {
-		return signalRecordWire{}, fmt.Errorf("%w: only a child-wait answer omits its SignalID", errMailboxCursor)
+	switch {
+	case record.WaitID == nil:
+		return signalRecordWire{}, fmt.Errorf("%w: only a wait's own records omit their SignalID", errMailboxCursor)
+	case record.Opens != nil:
+		record.ID = record.WaitID.openingSignalID()
+	default:
+		record.ID = record.WaitID.childWaitSignalID()
 	}
-	record.ID = record.WaitID.childWaitSignalID()
 	return record, nil
 }
 
@@ -469,6 +475,9 @@ func (m mailboxWire) document() (mailboxDocument, error) {
 	document := mailboxDocument{SignalCursor: m.SignalCursor, Signals: make([]signalRecordDocument, len(m.Signals))}
 	for index, record := range m.Signals {
 		document.Signals[index].signalRecordWire = record
+		if record.Opens != nil {
+			continue
+		}
 		if !record.answersChildWait() {
 			document.Signals[index].ID = new(record.ID)
 			continue

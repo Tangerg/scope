@@ -348,8 +348,14 @@ func (p *preparedEffect) settleLocally(operation frameworkOperation) error {
 	return p.settleOperation(operation, Failure{})
 }
 
-// settlementSignal delivers the settled outcome to the Execution. Only a wait
-// opening addresses the wait its Effect identity derives.
-func (p *preparedEffect) settlementSignal(waitID WaitID) (Signal, error) {
-	return NewSignal(p.ID.settlementSignalID(), waitID, p.settlement().Payload())
+// settlementSignal delivers the settled outcome to the Execution.
+func (p *preparedEffect) settlementSignal() (Signal, error) {
+	return NewSignal(p.ID.settlementSignalID(), WaitID{}, p.settlement().Payload())
+}
+
+// openingSignal acknowledges the wait the Effect's identity derives; the
+// WaitID it addresses also names the acknowledgement.
+func (p *preparedEffect) openingSignal() (Signal, error) {
+	waitID := p.ID.waitID()
+	return NewSignal(waitID.openingSignalID(), waitID, p.settlement().Payload())
 }
