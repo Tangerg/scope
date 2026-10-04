@@ -11,8 +11,9 @@
 // Thought signatures retain their original Part positions across streaming,
 // history serialization, and replay. Signature-only Parts carry opaque Core
 // reasoning state without visible reasoning text.
-// Native part_state metadata requires the original thought flag; histories
-// written without that field must be regenerated before replay.
+// Core Part.Kind owns the thought classification of visible text. Native
+// part_state retains the independent flag on signature-only, tool, and media
+// Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Native embedding extensions also use SDK camelCase fields and reject
 // outputDimensionality; embedding.Options.Dimensions owns that value.
 //

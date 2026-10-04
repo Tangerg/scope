@@ -211,12 +211,6 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		}
 		mapped = corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: id, Name: part.FunctionCall.Name, Arguments: arguments})
 		kind = corechat.PartToolCall
-	case part.Thought:
-		mapped = corechat.NewReasoningDelta(part.Text, part.ThoughtSignature)
-		kind = corechat.PartReasoning
-	case part.Text != "":
-		mapped = corechat.NewTextDelta(part.Text)
-		kind = corechat.PartText
 	case part.InlineData != nil:
 		value, err := media.NewBytes(part.InlineData.MIMEType, part.InlineData.Data)
 		if err != nil {
@@ -233,14 +227,23 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		value.Name = part.FileData.DisplayName
 		mapped = corechat.NewMediaDelta(value)
 		kind = corechat.PartMedia
+	case part.Thought:
+		mapped = corechat.NewReasoningDelta(part.Text, part.ThoughtSignature)
+		kind = corechat.PartReasoning
+	case part.Text != "":
+		mapped = corechat.NewTextDelta(part.Text)
+		kind = corechat.PartText
 	case len(part.ThoughtSignature) != 0:
 		mapped = corechat.NewReasoningDelta("", part.ThoughtSignature)
 		kind = corechat.PartReasoning
 	default:
 		return corechat.PartDelta{}, "", false, nil
 	}
-	if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), newPartReplayState(part, kind, partIndex)); err != nil {
-		return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)
+	state := newPartReplayState(part, kind, partIndex)
+	if state.hasFields() {
+		if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), state); err != nil {
+			return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)
+		}
 	}
 	return mapped, kind, true, nil
 }

@@ -14,8 +14,9 @@
 // safety, grounding, modalities, and thinking-budget fields remain available.
 // Thought signatures, including empty-text Parts, survive Core history
 // serialization and replay in their original Part positions.
-// Native part_state metadata requires the original thought flag; histories
-// written without that field must be regenerated before replay.
+// Core Part.Kind owns the thought classification of visible text. Native
+// part_state retains the independent flag on signature-only, tool, and media
+// Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Embedding extensions use SDK camelCase fields and reject native
 // outputDimensionality; Core embedding.Options.Dimensions owns that value.
 //

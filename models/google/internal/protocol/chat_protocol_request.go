@@ -314,7 +314,9 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 			return nil, fmt.Errorf("parts[%d]: unsupported assistant part %q", i, part.Kind)
 		}
 		if found {
-			state.apply(mapped[len(mapped)-1], part.Kind)
+			if err := state.apply(mapped[len(mapped)-1], part.Kind); err != nil {
+				return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, stateKey, err)
+			}
 		}
 	}
 	return mapped, nil

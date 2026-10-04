@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -13,7 +14,8 @@ import (
 )
 
 func TestProtocolRejectsInvalidReplayState(t *testing.T) {
-	for _, state := range []string{`{}`, `{"thought":null}`, `{"thought":true,"partIndex":-1}`, `{"thought":true,"unknown":1}`} {
+	for _, state := range []string{`{}`, `{"thought":null}`, `{"thought":true,"partIndex":-1}`, `{"thought":true,"unknown":1}`,
+		`{"thought":true}`, `{"thought":false}`, `{"thoughtSignature":"c2lnbmF0dXJl"}`, `{"thought":null,"partIndex":1}`} {
 		t.Run(state, func(t *testing.T) {
 			part := corechat.NewReasoningPart("reason", []byte("signature"))
 			if err := part.Metadata.Set("google/part_state", json.RawMessage(state)); err != nil {
@@ -26,12 +28,69 @@ func TestProtocolRejectsInvalidReplayState(t *testing.T) {
 	}
 }
 
+func TestProtocolReplayUsesCurrentCoreTextKind(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		for _, thought := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/thought=%t", provider, thought), func(t *testing.T) {
+				response, err := aggregateProtocolResponse(t, provider, &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+					Content:      &genai.Content{Parts: []*genai.Part{{Text: "text", Thought: thought, PartMetadata: map[string]any{"native": 7}}}},
+					FinishReason: genai.FinishReasonStop,
+				}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				message := response.Output.Message.Clone()
+				message.Parts[0].Kind = corechat.PartReasoning
+				if thought {
+					message.Parts[0].Kind = corechat.PartText
+				}
+				if err = message.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				encoded, err := jsonv2.Marshal(message)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = jsonv2.Unmarshal(encoded, &message); err != nil {
+					t.Fatal(err)
+				}
+				wire, err := mapProtocolAssistantParts(provider, message.Parts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(wire) != 1 || wire[0].Thought == thought || wire[0].Text != "text" || !reflect.DeepEqual(wire[0].PartMetadata, map[string]any{"native": float64(7)}) {
+					t.Fatalf("native text classification ignored the current Core kind: %#v", wire)
+				}
+			})
+		}
+	}
+}
+
+func TestProtocolReplayKeepsSignedReasoningWhenTextIsCleared(t *testing.T) {
+	response, err := aggregateProtocolResponse(t, "google", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+		Content:      &genai.Content{Parts: []*genai.Part{{Text: "reason", Thought: true, ThoughtSignature: []byte("signature")}}},
+		FinishReason: genai.FinishReasonStop,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := response.Output.Message.Parts[0].Clone()
+	part.Text = ""
+	wire, err := mapProtocolAssistantParts("google", []corechat.Part{part})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wire) != 1 || wire[0].Text != "" || !wire[0].Thought || !bytes.Equal(wire[0].ThoughtSignature, []byte("signature")) {
+		t.Fatalf("cleared reasoning replay changed its native fields: %#v", wire)
+	}
+}
+
 func TestProtocolMetadataUsesEndpointNamespace(t *testing.T) {
 	mapped, err := aggregateProtocolResponse(t, "vertexai", &genai.GenerateContentResponse{
 		ResponseID: "response-1",
 		Candidates: []*genai.Candidate{{
 			Index:        0,
-			Content:      &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "done"}}},
+			Content:      &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{{Text: "done", PartMetadata: map[string]any{"native": true}}}},
 			FinishReason: genai.FinishReasonStop,
 		}},
 	})
@@ -85,6 +144,26 @@ func TestNativePartRoundTripPreservesThoughtSignaturePosition(t *testing.T) {
 			name: "media URI",
 			part: &genai.Part{FileData: &genai.FileData{MIMEType: "image/png", FileURI: "https://example.com/image.png"}, ThoughtSignature: []byte("signed-image")},
 			kind: corechat.PartMedia,
+		},
+		{
+			name: "thinking function call",
+			part: &genai.Part{FunctionCall: &genai.FunctionCall{Name: "lookup", Args: map[string]any{"id": float64(7)}}, Thought: true, ThoughtSignature: []byte("thinking-tool")},
+			kind: corechat.PartToolCall,
+		},
+		{
+			name: "thinking inline media",
+			part: &genai.Part{InlineData: &genai.Blob{MIMEType: "image/png", Data: []byte("image")}, Thought: true, ThoughtSignature: []byte("thinking-image")},
+			kind: corechat.PartMedia,
+		},
+		{
+			name: "thinking media URI",
+			part: &genai.Part{FileData: &genai.FileData{MIMEType: "image/png", FileURI: "https://example.com/image.png"}, Thought: true, ThoughtSignature: []byte("thinking-image")},
+			kind: corechat.PartMedia,
+		},
+		{
+			name: "empty thought signature",
+			part: &genai.Part{Thought: true, ThoughtSignature: []byte("thinking-empty")},
+			kind: corechat.PartReasoning,
 		},
 	}
 
