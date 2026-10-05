@@ -1,73 +1,56 @@
-// Package milvus exposes Milvus / Zilliz Cloud
-// through the Core vector-store capability interfaces. Documents are stored as rows in a Milvus
-// collection ({id, content, vector, metadata, metadata_filter});
-// retrieval runs Milvus's ANN search.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package milvus exposes the official Milvus / Zilliz Cloud gRPC client through
+// Core's Indexer, Searcher, FilterDeleter and IDDeleter capabilities. The host
+// owns the client, authentication, retries, transport and lifetime. Scope never
+// creates, loads, changes or closes native resources.
 //
-// Requirements: a reachable Milvus 2.x server (self-hosted, Docker,
-// or Zilliz Cloud managed service). The store uses the official
-// github.com/milvus-io/milvus/client/v2 gRPC client.
+// Native policy. Provision and load a concrete collection with exactly four
+// non-nullable fields: id VARCHAR as a caller-supplied primary key, content
+// VARCHAR, metadata VARCHAR, and vector FLOAT_VECTOR. Disable automatic IDs,
+// dynamic fields, default values, partition keys and embedding functions. The
+// vector field requires exactly one finished COSINE, IP or L2 index. Every
+// operation reads the collection's native capacities, dimension and index
+// metric; no Scope configuration overrides them. Construction also reads and
+// validates all current rows. It performs no embedding call.
 //
-// Vector similarity functions: cosine / L2 / IP. The chosen value
-// is bound to the collection's index at creation time; switching
-// requires rebuilding the index.
+// Current records. metadata contains one complete Core JSON value encoded as a
+// string, retaining nil separately from an empty object, exact numbers, nested
+// values and arbitrary metadata keys. Rows from the old JSON metadata and
+// metadata_filter schema are rejected. Existing deployments must recreate the
+// collection and reindex their original documents; there is no migration reader
+// or compatibility adapter. InitializeSchema, Dimensions and MetricType have
+// been removed from StoreConfig. Use the official SDK to provision resources.
 //
-// Schema. Construction always describes and checks the existing collection's
-// required field types, primary key, string capacities, vector dimension, and
-// vector index metric. Complete metadata occupies the non-nullable JSON field
-// named metadata. metadata_filter is a required non-nullable JSON projection
-// derived from that same metadata and written in the same Upsert. Construction
-// rejects collections missing either field; it never adds an old-schema reader
-// or rewrites existing data. Existing deployments must rebuild the collection
-// and reindex their original documents.
-// Dimensions may be zero when attaching to a collection; the actual dimension
-// is then retained for validating subsequent embeddings. Creating a collection
-// requires explicit dimensions and never calls the embedding model. With
-// InitializeSchema disabled, construction performs only read operations and
-// the caller is responsible for loading the collection before search.
+// Filtering. Core's predicate evaluator owns metadata selection. Strong native
+// source queries enumerate all current rows in primary-key order using typed
+// cursor parameters. Even short pages are followed until an empty page. Source
+// errors, repeated identities and malformed rows fail before selection can hide
+// them. This full scan requires work proportional to the collection size and is
+// not a transaction-wide snapshot under concurrent writes.
 //
-// Filter selectors address document metadata. Keys named id, content, vector,
-// metadata, or metadata_filter remain metadata keys; they never address physical
-// columns. Search and DeleteWhere share one compiler, while DeleteIDs addresses
-// the native id primary key. Selectors are encoded as JSON tuples, retaining the
-// distinction between array indices and object keys such as 0 and "0".
+// Search. Only semantic mode is supported. Core selects identities before
+// embedding; bounded groups are sent to native ANN searches with strong
+// consistency and the current native metric. Native raw scores determine global
+// TopK before conversion to Core's score scale. COSINE is similarity in [-1, 1],
+// IP is an unbounded inner product, and L2 is squared distance. Every hit is
+// validated before MinScore, including its complete metadata, identity, text
+// and float32 vector. A selected identity whose current metadata no longer
+// matches the predicate fails the search instead of returning a stale match.
+// Native topK is limited to 16,384; approximate indexes retain native recall.
 //
-// Filter ownership. Native JSON comparison can retain UNKNOWN for missing keys
-// and coerce numbers through double. metadata_filter instead carries non-null
-// paths, type paths, scalar values, and array members derived only from metadata.
-// Every atomic value condition requires its corresponding type path before
-// composition or negation. IS NULL negates non-null presence, including the
-// presence of empty arrays and objects. Search reads only the complete metadata
-// object, never reconstructing it from projections. Nil indexed metadata writes
-// an empty object; null or malformed stored metadata is refused on read.
+// Indexing. Media is unsupported. The complete request, metadata capacities,
+// batches and all embeddings are prepared before the first upsert. Vectors
+// must fit the native width, remain finite in float32 and be nonzero for COSINE.
+// A native upsert must acknowledge the exact count and identities sent. A later
+// native failure can leave an earlier batch stored; no rollback or retry hides
+// this outcome.
 //
-// Numeric scalar encodings retain exact decimal value and ordering using native
-// string comparison. Integer and fractional IN members and HAS members reuse
-// the same scalar encoding, without native numeric coercion. Numeric metadata
-// must be representable by math/big.Rat, the decoder used by Core; unsupported
-// values are refused before I/O.
-// Numeric ordering requires numeric metadata and LIKE requires strings. Their
-// compiled failure condition retains Core's left-to-right logical short circuit.
-// Search and DeleteWhere query at most one failing row before embedding or
-// deletion, then evaluate its complete metadata through Core to return the error.
-// Final selection also excludes failing rows. HAS on a non-array returns false.
-// ID literals are escaped before reaching the native deletion expression;
-// quotes, backslashes, and query-looking text remain part of the ID.
-// String projections encode each Unicode character as a fixed-width ASCII
-// token. LIKE uses the same encoding for its literal parts: % spans tokens and
-// _ spans one token, preserving characters, newlines, and literal backslashes
-// without relying on native byte matching. Literal patterns use equality.
+// Deletion. DeleteWhere selects through Core and submits native conditions on
+// both ID and the complete observed metadata string. The native strong delete
+// owns the condition and mutation; changed metadata retains the document. This
+// does not promise a cross-request snapshot or compare text/vector revisions.
+// DeleteIDs expresses literal ID intent, validates the whole input, deduplicates
+// it and ignores unknown identities. No deletion falls back to unguarded IDs.
 //
-// Upsert acknowledgment. Milvus answers an upsert with the number of rows it
-// accepted; Index requires that count to match what it sent rather than
-// treating a short write as a complete one.
-//
-// Scoring. The three metrics report three different quantities, so each has its
-// own mapping. COSINE is a similarity in [-1, 1]. L2 is the squared distance —
-// Milvus stops before the square root — which still ranks correctly. IP is the
-// raw inner product with no normalization, so it is unbounded unless the caller
-// supplies unit vectors and cannot share the cosine mapping.
-//
-// See https://milvus.io/docs for the full API surface.
+// See https://milvus.io/docs/v2.6.x/get-and-scalar-query.md and
+// https://milvus.io/docs/v2.6.x/delete-entities.md for native operation contracts.
 package milvus

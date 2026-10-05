@@ -15,15 +15,15 @@ import (
 func TestInnerProductScoresStayDistinctBeyondTheCosineRange(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{metricType: entity.IP}
+	policy := nativePolicy{metric: entity.IP}
 	products := []float64{-8, -2, -1, 0, 1, 2, 8}
 
-	previous := store.normalizeScore(products[0])
+	previous := mustScore(t, policy, products[0])
 	if err := previous.Validate(); err != nil {
 		t.Fatalf("score for product %v: %v", products[0], err)
 	}
 	for _, product := range products[1:] {
-		score := store.normalizeScore(product)
+		score := mustScore(t, policy, product)
 		if err := score.Validate(); err != nil {
 			t.Fatalf("score for product %v: %v", product, err)
 		}
@@ -38,7 +38,7 @@ func TestInnerProductScoresStayDistinctBeyondTheCosineRange(t *testing.T) {
 func TestCosineScoresSpanTheWholeRange(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{metricType: entity.COSINE}
+	policy := nativePolicy{metric: entity.COSINE}
 	for _, sample := range []struct {
 		similarity float64
 		want       vectorstore.Score
@@ -47,8 +47,8 @@ func TestCosineScoresSpanTheWholeRange(t *testing.T) {
 		{similarity: 0, want: 0.5},
 		{similarity: 1, want: 1},
 	} {
-		if got := store.normalizeScore(sample.similarity); got != sample.want {
-			t.Fatalf("normalizeScore(%v) = %v, want %v", sample.similarity, got, sample.want)
+		if got := mustScore(t, policy, sample.similarity); got != sample.want {
+			t.Fatalf("native score(%v) = %v, want %v", sample.similarity, got, sample.want)
 		}
 	}
 }
@@ -57,16 +57,25 @@ func TestCosineScoresSpanTheWholeRange(t *testing.T) {
 func TestL2ScoresDecreaseWithDistance(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{metricType: entity.L2}
-	previous := store.normalizeScore(0)
+	policy := nativePolicy{metric: entity.L2}
+	previous := mustScore(t, policy, 0)
 	if previous != 1 {
-		t.Fatalf("normalizeScore(0) = %v, want 1 for an exact match", previous)
+		t.Fatalf("native score(0) = %v, want 1 for an exact match", previous)
 	}
 	for _, distance := range []float64{0.5, 1, 4, 100} {
-		score := store.normalizeScore(distance)
+		score := mustScore(t, policy, distance)
 		if score >= previous {
 			t.Fatalf("score for distance %v = %v, not below %v", distance, score, previous)
 		}
 		previous = score
 	}
+}
+
+func mustScore(t *testing.T, policy nativePolicy, raw float64) vectorstore.Score {
+	t.Helper()
+	score, err := policy.score(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return score
 }

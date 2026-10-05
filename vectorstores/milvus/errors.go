@@ -13,9 +13,9 @@ var (
 
 	// ErrSchemaMismatch means the existing collection cannot preserve this
 	// store's document, vector, or score contract.
-	ErrSchemaMismatch = errors.New("milvus: collection schema or vector index does not match")
+	ErrSchemaMismatch = errors.New("milvus: collection schema or vector index does not have the current policy")
 
-	ErrDocumentIDTooLong = errors.New("milvus: document ID exceeds the 36-byte limit")
+	ErrDocumentIDTooLong = errors.New("milvus: document ID exceeds the native VARCHAR capacity")
 
-	ErrDocumentContentTooLong = errors.New("milvus: document text exceeds the 65535-byte limit")
+	ErrDocumentContentTooLong = errors.New("milvus: document text exceeds the native VARCHAR capacity")
 )
