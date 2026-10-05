@@ -1,79 +1,62 @@
 package typesense
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
-	"github.com/typesense/typesense-go/v3/typesense"
+	nativesense "github.com/typesense/typesense-go/v3/typesense"
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Provider is the stable backend name for host-side attribution.
-const Provider = "Typesense"
-
-var collectionNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// Exported defaults keep constructor behavior visible and overridable.
 const (
-	DefaultCollectionName = "scope_vector_store"
-	idField               = "id"
-	contentField          = "content"
-	metadataField         = "metadata"
-	embeddingField        = "embedding"
-	// MaxResultsPerPage is Typesense's documented search pagination limit.
-	MaxResultsPerPage = 250
+	Provider                = "Typesense"
+	DefaultCollectionName   = "scope_vector_store"
+	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
+	MaxResultsPerPage       = 250
+	maxKeysPerDelete        = 100
 )
 
-// StoreConfig contains configuration options for the Typesense vector
-// store.
+var collectionNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var ErrIncompatibleCollection = errors.New("typesense: collection is incompatible")
+
+type APIClient interface {
+	GetCollection(context.Context, string, ...api.RequestEditorFn) (*http.Response, error)
+	ExportDocuments(context.Context, string, *api.ExportDocumentsParams, ...api.RequestEditorFn) (*http.Response, error)
+	ImportDocumentsWithBody(context.Context, string, *api.ImportDocumentsParams, string, io.Reader, ...api.RequestEditorFn) (*http.Response, error)
+	MultiSearchWithBody(context.Context, *api.MultiSearchParams, string, io.Reader, ...api.RequestEditorFn) (*http.Response, error)
+	DeleteDocuments(context.Context, string, *api.DeleteDocumentsParams, ...api.RequestEditorFn) (*http.Response, error)
+}
+
 type StoreConfig struct {
-	// Client is the typesense-go client. Required.
-	Client *typesense.Client
-
-	// CollectionName names the Typesense collection. Optional:
-	// defaults to [DefaultCollectionName].
-	CollectionName string
-
-	// EmbeddingModel produces vectors for the documents. Required.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher batches documents before upsert. Required.
-	DocumentBatcher vectorstore.Batcher
-
-	// Dimensions sets the vector width for a new collection, and is required
-	// when InitializeSchema is true: the width is part of the field definition,
-	// and nothing here can read it off a collection that does not exist yet.
-	Dimensions int
-
-	// InitializeSchema, when true, creates the collection with the
-	// right schema if it doesn't already exist.
-	InitializeSchema bool
-
-	// HybridAlpha controls the vector weight in Typesense's native hybrid
-	// fusion. Nil preserves the provider default; valid values are [0, 1].
-	HybridAlpha *float32
+	Client           APIClient
+	CollectionName   string
+	EmbeddingModel   embedding.Model
+	DocumentBatcher  vectorstore.Batcher
+	HybridAlpha      *float32
+	MaxResponseBytes int64
 }
 
 func (s StoreConfig) Validate() error {
-	s.applyDefaults()
-	if s.Client == nil {
+	if lo.IsNil(s.Client) {
 		return errors.New("typesense: Client is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
@@ -82,528 +65,437 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("typesense: DocumentBatcher is required")
 	}
-	if s.Dimensions < 0 {
-		return errors.New("typesense: Dimensions must be >= 0")
+	if !collectionNamePattern.MatchString(cmp.Or(s.CollectionName, DefaultCollectionName)) {
+		return errors.New("typesense: CollectionName must be a safe identifier")
 	}
-	if !collectionNamePattern.MatchString(s.CollectionName) {
-		return fmt.Errorf("typesense: CollectionName=%q must be a safe identifier", s.CollectionName)
+	if s.HybridAlpha != nil && (math.IsNaN(float64(*s.HybridAlpha)) || math.IsInf(float64(*s.HybridAlpha), 0) || *s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
+		return errors.New("typesense: HybridAlpha must be finite and in [0,1]")
 	}
-	if s.HybridAlpha != nil && (*s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
-		return fmt.Errorf("typesense: HybridAlpha must be between 0 and 1, got %v", *s.HybridAlpha)
+	if s.MaxResponseBytes < 0 || s.MaxResponseBytes == math.MaxInt64 {
+		return errors.New("typesense: MaxResponseBytes must allow a positive bounded read")
 	}
 	return nil
 }
 
-// applyDefaults fills zero fields with documented defaults.
-func (s *StoreConfig) applyDefaults() {
-	s.CollectionName = cmp.Or(s.CollectionName, DefaultCollectionName)
-}
-
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
+	_ vectorstore.Indexer   = (*Store)(nil)
+	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with Typesense.
 type Store struct {
-	client          *typesense.Client
-	collectionName  string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	dimensions      int
-	hybridAlpha     *float32
+	client           APIClient
+	collectionName   string
+	embeddingClient  embeddingclient.Client
+	documentBatcher  vectorstore.Batcher
+	schema           collectionSchema
+	hybridAlpha      *float32
+	maxResponseBytes int64
 }
 
-// storedDocument retains metadata numbers from raw provider JSON. Decoding
-// through the SDK's map[string]any projection would first round them to float64.
-type storedDocument struct {
-	ID       string       `json:"id"`
-	Content  string       `json:"content"`
-	Metadata metadata.Map `json:"metadata"`
-}
-
-type searchHit struct {
-	Document       *storedDocument `json:"document"`
-	VectorDistance *float32        `json:"vector_distance"`
-}
-
-// NewStore performs schema setup during construction, which is why it takes a
-// context: a store returned before its collection exists would fail on the
-// first index rather than at wiring, where the misconfiguration actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
-	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	client, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("typesense: create embedding client: %w", err)
+		return nil, err
 	}
-
-	var hybridAlpha *float32
+	store := &Store{client: config.Client, collectionName: cmp.Or(config.CollectionName, DefaultCollectionName), embeddingClient: client, documentBatcher: config.DocumentBatcher, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
 	if config.HybridAlpha != nil {
-		hybridAlpha = new(float32)
-		*hybridAlpha = *config.HybridAlpha
+		store.hybridAlpha = new(*config.HybridAlpha)
 	}
-	store := &Store{
-		client:          config.Client,
-		collectionName:  config.CollectionName,
-		embeddingClient: embeddingClient,
-		documentBatcher: config.DocumentBatcher,
-		dimensions:      config.Dimensions,
-		hybridAlpha:     hybridAlpha,
+	native, callErr := store.client.GetCollection(ctx, store.collectionName)
+	raw, err := store.readResponse(native, callErr)
+	if err != nil {
+		return nil, err
 	}
-
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("typesense: initialize store: %w", err)
+	var schema api.CollectionResponse
+	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
+		return nil, err
+	}
+	store.schema, err = newCollectionSchema(&schema, store.collectionName)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = store.matchingKeys(ctx, nil); err != nil {
+		return nil, err
 	}
 	return store, nil
 }
 
-// initialize creates the collection when
-// requested.
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	existing, err := s.client.Collection(s.collectionName).Retrieve(ctx)
-	if err == nil {
-		return s.checkVectorDistance(existing)
-	}
-	var httpErr *typesense.HTTPError
-	if !initSchema || !errors.As(err, &httpErr) || httpErr.Status != http.StatusNotFound {
-		return fmt.Errorf("typesense: retrieve collection %s: %w", s.collectionName, err)
-	}
-	if s.dimensions <= 0 {
-		return errors.New("typesense: Dimensions must be > 0")
-	}
-
-	schema := &api.CollectionSchema{
-		Name: s.collectionName,
-		Fields: []api.Field{
-			{Name: idField, Type: "string", Optional: new(false)},
-			{Name: contentField, Type: "string", Optional: new(false)},
-			{Name: metadataField, Type: "object", Optional: new(true)},
-			{
-				Name:     embeddingField,
-				Type:     "float[]",
-				NumDim:   new(s.dimensions),
-				Optional: new(false),
-				// Cosine is Typesense's default, but the score conversion
-				// depends on it, so it is stated rather than inherited.
-				VecDist: new(vectorDistanceCosine),
-			},
-		},
-		EnableNestedFields: new(true),
-	}
-	if _, err := s.client.Collections().Create(ctx, schema); err != nil {
-		return fmt.Errorf("typesense: create collection %s: %w", s.collectionName, err)
-	}
-	return nil
-}
-
-// vectorDistanceCosine is the only vec_dist this store can score. Typesense
-// also offers "ip", whose vector_distance is not a cosine distance at all.
-const vectorDistanceCosine = "cosine"
-
-// checkVectorDistance refuses a collection whose vector field is scored on a
-// metric this store cannot read.
-//
-// vector_distance carries no units: what it means is fixed by the field's
-// vec_dist, which defaults to cosine but may be "ip". Reading an inner-product
-// distance through the cosine mapping produces plausible scores in the right
-// range that rank results wrongly, and no later call can detect it — so a
-// host-provisioned collection is rejected at wiring instead.
-func (s *Store) checkVectorDistance(schema *api.CollectionResponse) error {
-	if schema == nil {
-		return fmt.Errorf("typesense: collection %s returned no schema", s.collectionName)
-	}
-	for _, field := range schema.Fields {
-		if field.Name != embeddingField {
-			continue
+func (s *Store) readResponse(response *http.Response, callErr error) (raw []byte, err error) {
+	if response == nil {
+		if callErr != nil {
+			return nil, callErr
 		}
-		if distance := lo.FromPtrOr(field.VecDist, vectorDistanceCosine); distance != vectorDistanceCosine {
-			return fmt.Errorf(
-				"typesense: collection %s field %s uses vec_dist %q; this store scores %q only",
-				s.collectionName, embeddingField, distance, vectorDistanceCosine,
-			)
+		return nil, errors.New("typesense: native operation returned no response")
+	}
+	if lo.IsNil(response.Body) {
+		return nil, errors.Join(callErr, errors.New("typesense: native response has no body"))
+	}
+	defer func() {
+		err = errors.Join(err, response.Body.Close())
+		if err != nil {
+			raw = nil
 		}
-		return nil
+	}()
+	if callErr != nil {
+		return nil, callErr
 	}
-	return fmt.Errorf("typesense: collection %s has no %s field", s.collectionName, embeddingField)
-}
-
-// Index embeds documents and imports them via the upsert action.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("typesense.Store.Index: %w", validateErr)
-	}
-	for index, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("typesense.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
-		}
-	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
+	raw, err = io.ReadAll(io.LimitReader(response.Body, s.maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("typesense: batch documents: %w", err)
+		return nil, err
 	}
+	if int64(len(raw)) > s.maxResponseBytes {
+		return nil, errors.New("typesense: native response exceeds MaxResponseBytes")
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, &nativesense.HTTPError{Status: response.StatusCode, Body: raw}
+	}
+	return raw, nil
+}
 
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	records := make(map[string]storedRecord, len(request.Documents))
+	for _, doc := range request.Documents {
+		record, err := encodeDocument(doc)
+		if err != nil {
+			return err
+		}
+		records[doc.ID] = record
+	}
+	batches, err := request.Batch(ctx, s.documentBatcher)
+	if err != nil {
+		return err
+	}
+	var payloads [][]byte
 	for _, batch := range batches {
-		docs := batch.Documents
-		texts, err := batch.Texts()
-		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+		texts, textErr := batch.Texts()
+		if textErr != nil {
+			return textErr
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("typesense: embed documents: %w", err)
+		vectors, embedErr := s.embeddingClient.EmbedTexts(ctx, texts)
+		if embedErr != nil {
+			return embedErr
 		}
-
-		payload := make([]any, 0, len(docs))
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, err := doc.Metadata.Values()
-			if err != nil {
-				return fmt.Errorf("typesense: decode metadata for %s: %w", id, err)
+		var payload bytes.Buffer
+		for i, doc := range batch.Documents {
+			vector, vectorErr := s.schema.narrow(vectors[i])
+			if vectorErr != nil {
+				return vectorErr
 			}
-			payload = append(payload, map[string]any{
-				idField:        id,
-				contentField:   doc.Text,
-				metadataField:  lo.CoalesceMapOrEmpty(metadataValues),
-				embeddingField: embedding.Float32Vector(vectors[i]),
-			})
+			record := records[doc.ID]
+			record.Embedding = &vector
+			body, encodeErr := jsonv2.Marshal(record)
+			if encodeErr != nil {
+				return encodeErr
+			}
+			payload.Write(body)
+			payload.WriteByte('\n')
 		}
-
-		params := &api.ImportDocumentsParams{
-			Action: new(api.Upsert),
+		payloads = append(payloads, payload.Bytes())
+	}
+	for i, payload := range payloads {
+		native, callErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert)}, "application/octet-stream", bytes.NewReader(payload))
+		raw, readErr := s.readResponse(native, callErr)
+		if readErr != nil {
+			return readErr
 		}
-		results, importErr := s.client.Collection(s.collectionName).Documents().Import(ctx, payload, params)
-		if importErr != nil {
-			return fmt.Errorf("typesense: import documents: %w", importErr)
-		}
-		if err := checkImportResults(results, docs); err != nil {
-			return fmt.Errorf("typesense: import documents: %w", err)
+		if ackErr := validateImport(raw, len(batches[i].Documents)); ackErr != nil {
+			return ackErr
 		}
 	}
 	return nil
 }
 
-// checkImportResults reads the per-document outcomes because Typesense answers
-// an import with HTTP 200 even when individual documents were rejected. The
-// service emits one result per input document in request order, so a missing,
-// extra, or unsuccessful entry means the batch was not fully applied.
-func checkImportResults(results []*api.ImportDocumentResponse, documents []*document.Document) error {
-	if len(results) != len(documents) {
-		return fmt.Errorf("import returned %d results for %d documents", len(results), len(documents))
+func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([]string, error) {
+	native, callErr := s.client.ExportDocuments(ctx, s.collectionName, nil)
+	raw, err := s.readResponse(native, callErr)
+	if err != nil {
+		return nil, err
 	}
-	for index, doc := range documents {
-		result := results[index]
-		if result == nil {
-			return fmt.Errorf("documents[%d] %q has no import result", index, doc.ID)
+	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
+	var keys []string
+	seen := make(map[string]struct{})
+	for {
+		value, readErr := decoder.ReadValue()
+		if errors.Is(readErr, io.EOF) {
+			return keys, nil
 		}
-		if !result.Success {
-			return fmt.Errorf("documents[%d] %q: %s", index, doc.ID, result.Error)
+		if readErr != nil {
+			return nil, readErr
 		}
+		record, doc, decodeErr := s.schema.decodeDocument(value)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if _, duplicate := seen[*record.ID]; duplicate {
+			return nil, errors.New("typesense: export repeated a native key")
+		}
+		seen[*record.ID] = struct{}{}
+		if predicate != nil {
+			values, valueErr := doc.Metadata.Values()
+			if valueErr != nil {
+				return nil, valueErr
+			}
+			matched, matchErr := filter.Match(predicate, values)
+			if matchErr != nil {
+				return nil, matchErr
+			}
+			if !matched {
+				continue
+			}
+		}
+		keys = append(keys, *record.ID)
 	}
-	return nil
 }
 
-// Search runs semantic vector search or native hybrid search. A filter first
-// exports all document metadata and evaluates membership with [filter.Match],
-// then restricts native ranking to the resulting IDs. This requires permission
-// to export documents and reads the full collection. Search pages contain at
-// most [MaxResultsPerPage] hits. Concurrent writes are not isolated by the
-// export and subsequent search.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("typesense.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
-		return nil, fmt.Errorf("typesense.Store.Search: %w", err)
+		return nil, err
 	}
-
+	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid && request.Options.ResultLimit() > MaxResultsPerPage {
+		return nil, fmt.Errorf("%w: typesense hybrid TopK must not exceed %d because fusion changes between pages", vectorstore.ErrInvalidOptions, MaxResultsPerPage)
+	}
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
-	}()
-
-	var filterBy string
-	var selectedIDs map[string]struct{}
-	if request.Options.Filter != nil {
-		ids, matchErr := s.matchingIDs(ctx, request.Options.Filter)
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		if len(ids) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-		filterBy, err = idFilter(ids)
 		if err != nil {
-			return nil, err
+			response = nil
 		}
-		selectedIDs = make(map[string]struct{}, len(ids))
-		for _, id := range ids {
-			selectedIDs[id] = struct{}{}
-		}
+	}()
+	keys, err := s.matchingKeys(ctx, request.Options.Filter)
+	if err != nil {
+		return nil, err
 	}
-
+	if len(keys) == 0 {
+		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
-		return nil, fmt.Errorf("typesense: embed query: %w", err)
+		return nil, err
 	}
-	queryVec := embedding.Float32Vector(vector)
-	params := s.searchParameters(request, queryVec)
-	if filterBy != "" {
-		params.FilterBy = new(filterBy)
+	query, err := s.schema.narrow(vector)
+	if err != nil {
+		return nil, err
 	}
-	limit := request.Options.ResultLimit()
-	var docs []*vectorstore.SearchResult
-	var ranked int
+	params := s.searchParameters(request, query)
+	allowed := make(map[string]struct{}, len(keys))
+	if request.Options.Filter != nil {
+		params.FilterBy = new(keyFilter(keys))
+		for _, key := range keys {
+			allowed[key] = struct{}{}
+		}
+	}
+	var results []*vectorstore.SearchResult
+	seen := make(map[string]struct{})
+	ranked := 0
+	total := -1
 	for page := 1; ; page++ {
 		params.Page = new(page)
-		// Carry the complete ID set and vector in a POST body, avoiding URL
-		// length limits when a filter matches a large collection.
-		wire, err := s.client.MultiSearch.PerformWithContentType(ctx, nil, api.MultiSearchSearchesParameter{
-			Searches: []api.MultiSearchCollectionParameters{*params},
-		}, "application/json")
-		if err != nil {
-			return nil, fmt.Errorf("typesense: search %s: %w", s.collectionName, err)
+		body, encodeErr := jsonv2.Marshal(struct {
+			Searches []searchQuery `json:"searches"`
+		}{Searches: []searchQuery{*params}})
+		if encodeErr != nil {
+			return nil, encodeErr
 		}
-		if wire == nil {
-			return nil, errors.New("typesense: multi-search returned no response")
+		native, callErr := s.client.MultiSearchWithBody(ctx, nil, "application/json", bytes.NewReader(body))
+		raw, readErr := s.readResponse(native, callErr)
+		if readErr != nil {
+			return nil, readErr
 		}
-		if wire.StatusCode() != http.StatusOK {
-			return nil, fmt.Errorf("typesense: search %s: %w", s.collectionName, &typesense.HTTPError{Status: wire.StatusCode(), Body: wire.Body})
-		}
-		var batch struct {
+		var wire struct {
 			Results []struct {
-				Code         *int         `json:"code"`
-				Error        *string      `json:"error"`
-				Found        *int         `json:"found"`
-				Hits         *[]searchHit `json:"hits"`
-				SearchCutoff *bool        `json:"search_cutoff"`
+				Code   *int         `json:"code"`
+				Error  *string      `json:"error"`
+				Found  *int         `json:"found"`
+				Hits   *[]searchHit `json:"hits"`
+				Cutoff *bool        `json:"search_cutoff"`
 			} `json:"results"`
 		}
-		if err := jsonv2.Unmarshal(wire.Body, &batch); err != nil {
-			return nil, fmt.Errorf("typesense: decode search response: %w", err)
+		if decodeErr := jsonv2.Unmarshal(raw, &wire); decodeErr != nil {
+			return nil, decodeErr
 		}
-		if len(batch.Results) != 1 {
-			return nil, errors.New("typesense: multi-search did not return exactly one result")
+		if len(wire.Results) != 1 {
+			return nil, errors.New("typesense: multi-search must return exactly one result")
 		}
-		result := &batch.Results[0]
-		if result.Error != nil || (result.Code != nil && *result.Code >= 400) {
-			return nil, fmt.Errorf("typesense: search %s returned code %d: %s", s.collectionName, lo.FromPtr(result.Code), lo.FromPtr(result.Error))
+		output := wire.Results[0]
+		if output.Error != nil || (output.Code != nil && *output.Code >= 400) {
+			return nil, fmt.Errorf("typesense: native search failed: code %d: %s", lo.FromPtr(output.Code), lo.FromPtr(output.Error))
 		}
-		if result.Hits == nil {
-			return nil, errors.New("typesense: search response is missing hits")
+		if output.Found == nil || *output.Found < 0 || output.Hits == nil || output.Cutoff == nil || *output.Cutoff {
+			return nil, errors.New("typesense: native search omitted a complete result count, hit array or cutoff acknowledgment")
 		}
-		if result.SearchCutoff != nil && *result.SearchCutoff {
-			return nil, errors.New("typesense: search was cut off before completion")
+		if total == -1 {
+			total = *output.Found
+		} else if total != *output.Found {
+			return nil, errors.New("typesense: native result count changed during pagination")
 		}
-		for _, hit := range *result.Hits {
-			if ranked == limit {
-				break
+		for _, hit := range *output.Hits {
+			record, doc, decodeErr := s.schema.decodeDocument(hit.Document)
+			if decodeErr != nil {
+				return nil, decodeErr
 			}
-			match, err := toMatch(hit, request.Options.EffectiveMode(), ranked)
-			if err != nil {
-				return nil, err
+			if _, duplicate := seen[*record.ID]; duplicate {
+				return nil, errors.New("typesense: search repeated a native key")
 			}
+			seen[*record.ID] = struct{}{}
 			if request.Options.Filter != nil {
-				if _, exists := selectedIDs[match.Document.ID]; !exists {
-					return nil, fmt.Errorf("typesense: search returned unselected ID %q", match.Document.ID)
+				if _, member := allowed[*record.ID]; !member {
+					return nil, errors.New("typesense: native hit is outside Core membership")
 				}
-				values, err := match.Document.Metadata.Values()
-				if err != nil {
-					return nil, fmt.Errorf("typesense: decode returned metadata: %w", err)
+				values, valueErr := doc.Metadata.Values()
+				if valueErr != nil {
+					return nil, valueErr
 				}
-				matches, err := filter.Match(request.Options.Filter, values)
-				if err != nil {
-					return nil, fmt.Errorf("typesense: evaluate returned metadata for %s: %w", match.Document.ID, err)
+				matched, matchErr := filter.Match(request.Options.Filter, values)
+				if matchErr != nil {
+					return nil, matchErr
 				}
-				if !matches {
-					return nil, fmt.Errorf("typesense: returned metadata for %s no longer matches the filter", match.Document.ID)
+				if !matched {
+					return nil, errors.New("typesense: native hit changed Core membership during search")
 				}
+			}
+			score := vectorstore.Score(1 / float64(ranked+1))
+			if hit.VectorDistance != nil {
+				value := *hit.VectorDistance
+				if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 {
+					return nil, errors.New("typesense: native cosine distance is outside [0,2]")
+				}
+				if request.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
+					score = vectorstore.ScoreFromCosineDistance(value)
+				}
+			} else if request.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
+				return nil, errors.New("typesense: semantic hit has no vector distance")
+			}
+			match, resultErr := vectorstore.NewSearchResult(doc, score)
+			if resultErr != nil {
+				return nil, resultErr
 			}
 			ranked++
-			if match.Score >= request.Options.MinScore {
-				docs = append(docs, match)
+			if score >= request.Options.MinScore && ranked <= request.Options.ResultLimit() {
+				results = append(results, match)
 			}
 		}
-		if ranked == limit || (result.Found != nil && ranked >= *result.Found) {
-			return &vectorstore.SearchResponse{Results: docs}, nil
+		expected := min(total, request.Options.ResultLimit())
+		if ranked > expected {
+			return nil, errors.New("typesense: native search returned more hits than its result budget")
 		}
-		if len(*result.Hits) < *params.PerPage {
-			if result.Found != nil && ranked < *result.Found {
-				return nil, errors.New("typesense: search page ended before the reported result count")
-			}
-			return &vectorstore.SearchResponse{Results: docs}, nil
+		if ranked == expected {
+			return &vectorstore.SearchResponse{Results: results}, nil
+		}
+		if len(*output.Hits) < *params.PerPage {
+			return nil, errors.New("typesense: native search ended before its reported result count")
 		}
 	}
 }
 
-func (s *Store) searchParameters(req *vectorstore.SearchRequest, queryVector []float32) *api.MultiSearchCollectionParameters {
+func (s *Store) searchParameters(request *vectorstore.SearchRequest, vector []float32) *searchQuery {
 	var alpha *float32
-	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		alpha = s.hybridAlpha
 	}
-	vectorQuery := formatVectorQuery(queryVector, req.Options.ResultLimit(), alpha)
-	params := &api.MultiSearchCollectionParameters{
-		Collection:  new(s.collectionName),
-		Q:           new("*"),
-		VectorQuery: new(vectorQuery),
-		PerPage:     new(min(req.Options.ResultLimit(), MaxResultsPerPage)),
-		// Curated hits must obey the same filter as ordinary ranked hits.
-		FilterCuratedHits: new(true),
-	}
-	if req.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
-		params.Q = new(req.Query)
-		params.QueryBy = new(contentField)
+	params := &searchQuery{MultiSearchCollectionParameters: api.MultiSearchCollectionParameters{Collection: new(s.collectionName), Q: new("*"), VectorQuery: new(formatVectorQuery(vector, request.Options.ResultLimit(), alpha)), PerPage: new(min(request.Options.ResultLimit(), MaxResultsPerPage))}}
+	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+		params.Q = new(request.Query)
+		params.QueryBy = new("content")
 	}
 	return params
 }
 
-// DeleteWhere exports and evaluates the entire collection before deleting the
-// matching IDs. Export, decoding, predicate and ID representation errors abort
-// before any deletion. It requires document export permission in addition to
-// delete permission and does not isolate concurrent writes.
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	var keys []string
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		key, err := encodeKey(id)
+		if err != nil {
+			return err
+		}
+		if _, duplicate := seen[key]; !duplicate {
+			keys = append(keys, key)
+			seen[key] = struct{}{}
+		}
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("typesense.Store.DeleteWhere: %w", err)
-	}
-
-	ids, err := s.matchingIDs(ctx, predicate)
-	if err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	filterBy, err := idFilter(ids)
-	if err != nil {
-		return err
-	}
-
-	params := &api.DeleteDocumentsParams{FilterBy: new(filterBy)}
-	if _, err := s.client.Collection(s.collectionName).Documents().Delete(ctx, params); err != nil {
-		return fmt.Errorf("typesense: delete: %w", err)
+	for group := range slices.Chunk(keys, maxKeysPerDelete) {
+		native, callErr := s.client.DeleteDocuments(ctx, s.collectionName, &api.DeleteDocumentsParams{FilterBy: new(keyFilter(group))})
+		raw, readErr := s.readResponse(native, callErr)
+		if readErr != nil {
+			return readErr
+		}
+		var ack struct {
+			Count *int `json:"num_deleted"`
+		}
+		if err := jsonv2.Unmarshal(raw, &ack); err != nil {
+			return err
+		}
+		if ack.Count == nil || *ack.Count < 0 || *ack.Count > len(group) {
+			return errors.New("typesense: deletion returned an invalid acknowledgment count")
+		}
 	}
 	return nil
 }
 
-func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) (ids []string, err error) {
-	body, err := s.client.Collection(s.collectionName).Documents().Export(ctx, &api.ExportDocumentsParams{
-		IncludeFields: new(idField + "," + metadataField),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("typesense: export metadata: %w", err)
-	}
-	defer func() {
-		if closeErr := body.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("typesense: close metadata export: %w", closeErr))
-		}
-	}()
-	decoder := jsontext.NewDecoder(body)
+func keyFilter(keys []string) string { return "id:=[" + strings.Join(keys, ",") + "]" }
+
+func validateImport(raw []byte, want int) error {
+	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
+	count := 0
 	for {
-		var doc storedDocument
-		if err := jsonv2.UnmarshalDecode(decoder, &doc); err != nil {
-			if errors.Is(err, io.EOF) {
-				return ids, nil
-			}
-			return nil, fmt.Errorf("typesense: decode metadata export: %w", err)
+		var ack struct {
+			Success *bool   `json:"success"`
+			Error   *string `json:"error"`
 		}
-		if doc.ID == "" {
-			return nil, errors.New("typesense: exported document is missing its ID")
+		err := jsonv2.UnmarshalDecode(decoder, &ack)
+		if errors.Is(err, io.EOF) {
+			break
 		}
-		values, err := doc.Metadata.Values()
 		if err != nil {
-			return nil, fmt.Errorf("typesense: decode metadata for %s: %w", doc.ID, err)
+			return err
 		}
-		matched, err := filter.Match(expr, values)
-		if err != nil {
-			return nil, fmt.Errorf("typesense: evaluate filter for %s: %w", doc.ID, err)
+		if ack.Success == nil || !*ack.Success {
+			return fmt.Errorf("typesense: import record %d failed: %s", count, lo.FromPtr(ack.Error))
 		}
-		if matched {
-			ids = append(ids, doc.ID)
-		}
+		count++
 	}
+	if count != want {
+		return fmt.Errorf("typesense: import acknowledged %d of %d records", count, want)
+	}
+	return nil
 }
 
-// idFilter addresses Typesense's special ID field, which looks up exact keys.
-// Its parser trims ASCII edge spaces, treats a sole * as a wildcard even in
-// quotes, and cannot reliably preserve embedded backticks or trailing
-// backslashes in quoted values. Refuse those IDs
-// only when they match a filtered operation, before any search or deletion.
-func idFilter(ids []string) (string, error) {
-	var result strings.Builder
-	result.WriteString(idField + ":=[")
-	for index, id := range ids {
-		if id == "" || id == "*" || strings.Trim(id, " ") != id || strings.ContainsRune(id, '`') || strings.HasSuffix(id, `\`) {
-			return "", fmt.Errorf("typesense: matched ID %q cannot be represented exactly in an ID filter", id)
-		}
-		if index != 0 {
-			result.WriteByte(',')
-		}
-		result.WriteByte('`')
-		result.WriteString(id)
-		result.WriteByte('`')
-	}
-	result.WriteByte(']')
-	return result.String(), nil
+type searchHit struct {
+	Document       json.RawMessage `json:"document"`
+	VectorDistance *float64        `json:"vector_distance"`
 }
 
-func toMatch(hit searchHit, mode vectorstore.SearchMode, rank int) (*vectorstore.SearchResult, error) {
-	if hit.Document == nil {
-		return nil, errors.New("typesense: search hit is missing document")
-	}
-	if mode == vectorstore.SearchModeSemantic && hit.VectorDistance == nil {
-		return nil, errors.New("typesense: search hit is missing vector distance")
-	}
-	raw := *hit.Document
-	id := raw.ID
-	if id == "" {
-		return nil, fmt.Errorf("typesense: search hit is missing string field %q", idField)
-	}
-	content := raw.Content
-	if content == "" {
-		return nil, fmt.Errorf("typesense: search hit is missing string field %q", contentField)
-	}
-	doc := &document.Document{ID: id, Text: content, Metadata: raw.Metadata}
-	matchScore := scoreFromRank(rank)
-	if mode == vectorstore.SearchModeSemantic {
-		// Typesense returns distance in the cosine [0, 2] range; map
-		// onto a "higher = more similar" score in [0, 1].
-		matchScore = vectorstore.ScoreFromCosineDistance(float64(*hit.VectorDistance))
-	}
-	return &vectorstore.SearchResult{Document: doc, Score: matchScore}, nil
+type searchQuery struct {
+	api.MultiSearchCollectionParameters `json:",inline"`
+	EnableCurations                     bool `json:"enable_curations"`
 }
 
-func scoreFromRank(rank int) vectorstore.Score {
-	return vectorstore.Score(1 / float64(rank+1))
-}
-
-// formatVectorQuery builds the Typesense `vector_query` string —
-// "embedding:([f1,f2,...], k: N)".
-func formatVectorQuery(vec []float32, topK int, alpha *float32) string {
-	var b strings.Builder
-	b.WriteString(embeddingField)
-	b.WriteString(":([")
-	for i, f := range vec {
+func formatVectorQuery(vector []float32, topK int, alpha *float32) string {
+	var query strings.Builder
+	query.WriteString("embedding:([")
+	for i, value := range vector {
 		if i > 0 {
-			b.WriteByte(',')
+			query.WriteByte(',')
 		}
-		b.WriteString(strconv.FormatFloat(float64(f), 'f', -1, 32))
+		query.WriteString(strconv.FormatFloat(float64(value), 'g', -1, 32))
 	}
-	b.WriteString("], k: ")
-	b.WriteString(strconv.Itoa(topK))
+	query.WriteString("], k: ")
+	query.WriteString(strconv.Itoa(topK))
 	if alpha != nil {
-		b.WriteString(", alpha: ")
-		b.WriteString(strconv.FormatFloat(float64(*alpha), 'f', -1, 32))
+		query.WriteString(", alpha: ")
+		query.WriteString(strconv.FormatFloat(float64(*alpha), 'g', -1, 32))
 	}
-	b.WriteByte(')')
-	return b.String()
+	query.WriteByte(')')
+	return query.String()
 }
