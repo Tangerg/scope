@@ -10,7 +10,7 @@ const (
 )
 
 type indexAlgorithmParameters struct {
-	Metric SimilarityMetric `json:"metric"`
+	Metric nativeMetric `json:"metric"`
 }
 
 type indexAlgorithm struct {
@@ -20,7 +20,7 @@ type indexAlgorithm struct {
 	ExhaustiveKNNParameters *indexAlgorithmParameters `json:"exhaustiveKnnParameters"`
 }
 
-func (i indexAlgorithm) metric() (SimilarityMetric, error) {
+func (i indexAlgorithm) metric() (nativeMetric, error) {
 	if i.HNSWParameters != nil && i.ExhaustiveKNNParameters != nil {
 		return "", fmt.Errorf("%w: algorithm %q declares multiple parameter blocks", ErrIncompatibleIndex, i.Name)
 	}
@@ -36,7 +36,7 @@ func (i indexAlgorithm) metric() (SimilarityMetric, error) {
 	if parameters == nil {
 		return "", fmt.Errorf("%w: algorithm %q declares no parameters for kind %q", ErrIncompatibleIndex, i.Name, i.Kind)
 	}
-	if !parameters.Metric.Valid() {
+	if !parameters.Metric.valid() {
 		return "", fmt.Errorf("%w: algorithm %q declares unsupported metric %q", ErrIncompatibleIndex, i.Name, parameters.Metric)
 	}
 	return parameters.Metric, nil

@@ -1,106 +1,65 @@
-// Package azureaisearch exposes Azure AI Search's vector capabilities
-// through the Core vector-store capability interfaces over the REST API (Azure doesn't ship a
-// typed Go SDK for the Search service yet).
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package azureaisearch implements Core indexing, semantic and hybrid search,
+// and explicit ID deletion over the Azure AI Search REST API.
 //
-// Requirements: an Azure AI Search service (Basic tier or higher),
-// with an index pre-provisioned through ARM / Terraform / Portal /
-// REST. The store does NOT create indexes — Azure AI Search index
-// schemas are typed and declared at creation; scope assumes the
-// configured ID / content / vector / metadata fields exist.
+// The host provisions one dedicated index and injects an authenticated HTTP
+// client. Authentication, token refresh, transport timeouts, retries and client
+// lifecycle belong to the host. Construction reads the actual index schema and
+// validates existing records without calling the embedding model. The bound
+// schema must remain unchanged for the lifetime of a Store.
 //
-// Authentication: API key via the `api-key` header. For Managed
-// Identity / OAuth, inject a bearer token through a custom
-// [http.Client].
+// The current schema has exactly four retrievable fields, named by StoreConfig:
 //
-// Semantic search supplies one vector query. Hybrid search supplies the same
-// vector together with `search` and restricts lexical evidence to the
-// configured content field, leaving fusion to Azure AI Search.
-// Search consumes server-provided continuation parameters before treating a
-// query as complete. Returned metadata retains its JSON representation,
-// including integers outside the exact float64 range.
+//   - ID: Edm.String, the sole key, filterable and sortable, without a normalizer.
+//   - Content: searchable Edm.String for native lexical evidence.
+//   - Vector: searchable, stored Collection(Edm.Single), with positive dimensions
+//     and an explicit native vector profile, algorithm kind and metric.
+//   - Metadata: unindexed Edm.String containing the complete Core metadata JSON.
 //
-// Vector request shape:
+// Core owns JSON values and predicate semantics, including precise numbers,
+// nested keys, array indexing, Unicode LIKE, and null versus empty metadata.
+// Index uploads complete records rather than merging individual metadata fields.
+// Media is refused. IDs retain their original spelling; unsupported native key
+// characters, leading underscores and keys over 1024 bytes are rejected without
+// encoding aliases. All batches are embedded, narrowed to native float32,
+// validated against the actual vector width and encoded within the 16 MiB
+// request limit before the first write. Native writes use at most 1000 actions
+// and require every per-document acknowledgment. Azure does not provide a
+// transaction across actions: a later transport or document failure can leave
+// earlier successful writes applied. Index visibility remains asynchronous.
 //
-//	POST /indexes/<index>/docs/search?api-version=2024-07-01
-//	{
-//	  "top": K,
-//	  "vectorQueries": [{"kind": "vector", "vector": [...],
-//	                     "k": K, "fields": "contentVector"}],
-//	  "filter": "<odata>"
-//	}
+// Search scans full stored records with ordered ID ranges until an empty page.
+// Every record is decoded and checked by Core before embedding, ANN, TopK or
+// threshold selection. Only Core-selected IDs enter the native search.in filter,
+// with vectorFilterMode=preFilter. Semantic search supplies a vector; hybrid
+// search adds lexical evidence from the content field and retains Azure's native
+// fusion. ANN recall remains native and TopK cannot exceed 1000. Current returned
+// records are validated and checked by Core again. Native continuation parameters
+// advance paging while the configured endpoint retains credential authority.
+// Repeated continuation requests, duplicate or unexpected IDs, invalid records
+// and invalid native scores fail with no response.
 //
-// Filter visitor produces OData `$filter` syntax — metadata fields
-// must exist as TOP-LEVEL index fields (Azure AI Search doesn't
-// support nested-property paths in $filter). IN maps to
-// `search.in(field, 'v1,v2,...', ',')`.
+// Native score order is retained before threshold selection, including when Core
+// scores clamp to the same value. Cosine scores use Azure's documented transform
+// to recover cosine similarity. Azure publishes no invertible transform for the
+// other metrics or hybrid RRF, so those native scores clamp to Core's [0,1] range
+// without an invented conversion. Equal native scores use bytewise ID order among
+// the candidates returned by Azure.
 //
-// LIKE is refused. Azure's $filter offers no string function to build a
-// pattern match on — its only Boolean functions are geo.intersects, search.in,
-// search.ismatch, and search.ismatchscoring — and the last two run an analyzed
-// full-text query rather than matching a whole value. search.ismatch('Alice')
-// matches an author of "Alice Smith" or "alice", and Azure's own example notes
-// that searching "waterfront" also matches "water" and "front". Refusing keeps
-// one filter from meaning tokenized, case-insensitive, substring matching here
-// and whole-value, case-sensitive matching on every other store.
+// Reads do not form a collection snapshot. Concurrent writes can alter or remove
+// candidates between scanning and querying. DeleteIDs expresses explicit key
+// intent, ignores unknown keys and deduplicates repeated keys. DeleteWhere is not
+// exposed: Azure's delete action ignores every supplied field except the key and
+// offers no metadata CAS to protect a replacement after a predicate read.
 //
-// Index and DeleteWhere share the document action endpoint and its
-// 1000-action request limit. Each document's response must acknowledge its
-// action; HTTP success alone does not establish that every action succeeded.
-// Partial failures return an error while successful actions remain applied.
-// Metadata cannot use the configured ID, content, or embedding fields, or
-// protocol annotation names beginning with @. The entire Index request is
-// checked for these conflicts before embedding or sending any batch.
+// Breaking migration: rebuild a dedicated four-field index from original data;
+// flat metadata indexes and merge-based records are not read or upgraded. Remove
+// SimilarityMetric and APIKey configuration, inject authenticated HTTPClient,
+// and use explicit ID deletion. There are no legacy schema branches or adapters.
 //
-// Filtered deletion. Azure identifies a document to delete by its key and
-// offers no delete-by-filter, so DeleteWhere collects keys first. It cannot
-// collect them with skip: Azure's own continuation is the request back with a
-// skip added, a filter-only query scores every match 1.00 in what Azure calls
-// "an arbitrary order", and paged results over a changing index are documented
-// as unstable, with the example returning one document twice — the same event
-// as another being returned never. A key never enumerated is a document never
-// deleted under a call that reported success. The walk instead follows Azure's
-// documented "sort order and range filter as a workaround for skip", ordering
-// by the key and carrying `<key> gt <last>` into each following page, and ends
-// only on an empty page because a short page is not evidence of the last one.
-// That is why [NewStore] also requires the configured ID field to be the
-// index's key with `filterable` and `sortable` set: the walk cannot run
-// without them, and Azure states they "can only be enabled when a field is
-// first added to an index".
+// Native integration tests require SCOPE_AZURE_SEARCH_ENDPOINT and
+// SCOPE_AZURE_SEARCH_API_KEY. They create and remove uniquely named indexes;
+// missing environment fails instead of skipping. Default tests are offline.
 //
-// Vector profiles belong to the pre-provisioned index's vector field. Queries
-// select that field and use its profile without a second store-level setting.
-// Because the transformation below is metric-specific, [NewStore] reads the
-// index definition and follows the vector field to its profile, the profile to
-// its algorithm, and the algorithm to its metric. A configured value that
-// disagrees returns [ErrIncompatibleIndex]. The algorithm's kind selects its
-// sole parameter block; missing or unsupported kinds, mismatched blocks, and
-// declarations with multiple parameter blocks are refused during construction.
-// Azure treats an index definition as an object rather than content, so that
-// read needs the admin key
-// [StoreConfig.APIKey] already documents — a query key is scoped to
-// /indexes/{name}/docs and answers 403 here, as does an Entra role without
-// Microsoft.Search/searchServices/indexes/read. The same read catches a vector
-// field that is absent or names no profile, which would answer every query
-// with nothing.
-//
-// Scoring. @search.score is never the raw metric value; Azure transforms it so
-// it falls monotonically as the match worsens. The cosine transformation and
-// its 0.333 to 1.00 range are documented, so the store inverts them to recover
-// the cosine. Azure publishes neither for dotProduct or euclidean, so those
-// scores pass through clamped rather than through a formula the store guessed.
-//
-// Null tests emit `<field> eq null`, which OData documents as matching a field
-// that "will be null if it was never set, or if it was explicitly set to null"
-// — the same two states the filter AST reads as nil.
-//
-// Filterable keys. A metadata key is written into the query language as
-// text, and that language cannot quote a field name, so a filter can only
-// name a key that is a plain identifier. An indexed key is a string literal
-// in the filter DSL, so without that limit a caller's key was read as
-// syntax. A document whose metadata key is anything at all still stores and
-// reads back fine; this is only about which keys a filter can name.
-//
-// See https://learn.microsoft.com/azure/search/vector-search-overview.
+// Native contracts: https://learn.microsoft.com/en-us/rest/api/searchservice/documents/
+// and https://learn.microsoft.com/en-us/azure/search/vector-search-ranking.
 package azureaisearch

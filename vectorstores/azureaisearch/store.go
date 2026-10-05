@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,145 +25,55 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// SimilarityMetric records the metric configured on the existing Azure AI
-// Search vector field.
-type SimilarityMetric string
-
-// ErrIncompatibleIndex reports an index that cannot serve this store: the
-// configured vector field is missing or unsearchable, the algorithm behind it
-// was configured with a different similarity metric, or the configured ID
-// field is not a key this store can enumerate and delete by.
-var ErrIncompatibleIndex = errors.New("azureaisearch: index is incompatible")
-
-// The metric is a closed vocabulary because score direction and threshold
-// semantics depend on it: the same raw number means "near" under one metric and
-// "far" under another, so an unrecognized value must be rejected rather than
-// guessed.
 const (
-	SimilarityCosine    SimilarityMetric = "cosine"
-	SimilarityDot       SimilarityMetric = "dotProduct"
-	SimilarityEuclidean SimilarityMetric = "euclidean"
-)
-
-func (s SimilarityMetric) Valid() bool {
-	switch s {
-	case SimilarityCosine, SimilarityDot, SimilarityEuclidean:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s SimilarityMetric) String() string { return string(s) }
-
-// score maps @search.score, which is never the raw metric value: Azure applies
-// a transformation so the score falls monotonically as the match worsens.
-func (s SimilarityMetric) score(raw float64) vectorstore.Score {
-	switch s {
-	case SimilarityCosine:
-		// Documented exactly: "@search.score is defined as
-		// 1 / (1 + cosine_distance)", giving 0.333 to 1.00. Invert it to
-		// recover the cosine, then apply the [-1, 1] to [0, 1] mapping.
-		cosineDistance := 1/raw - 1
-		return vectorstore.ScoreFromCosineSimilarity(1 - cosineDistance)
-	default:
-		// Azure states the transformation and the range for cosine only, so
-		// there is no published formula to invert for dotProduct or euclidean.
-		// Clamping keeps the ranking Azure already applied and refuses to
-		// invent a conversion; a value outside [0, 1] would flatten onto the
-		// bound rather than be silently rescaled by a guess.
-		return vectorstore.ScoreFromValue(raw)
-	}
-}
-
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
-const (
-	Provider = "AzureAISearch"
-
-	// Azure AI Search rejects document batches above this service limit:
-	// "Supported maximum 1,000 documents per batch of index uploads, merges,
-	// or deletes."
+	Provider                 = "AzureAISearch"
+	DefaultAPIVersion        = "2024-07-01"
+	DefaultIDField           = "id"
+	DefaultContentField      = "content"
+	DefaultEmbeddingField    = "contentVector"
+	DefaultMetadataField     = "scope_metadata"
+	DefaultMaxResponseBytes  = int64(16 * 1024 * 1024)
 	maximumDocumentsPerBatch = 1000
-
-	// maximumResultsPerPage is the read-side ceiling, which Azure states
-	// separately from the write-side one: "The default page size is 50, while
-	// the maximum page size is 1,000."
-	maximumResultsPerPage = 1000
-
-	// DefaultAPIVersion targets the GA "2024-07-01" REST surface, the
-	// first stable release that exposes the typed vector-query
-	// payload used by the Scope store.
-	DefaultAPIVersion = "2024-07-01"
-
-	// DefaultContentField / DefaultEmbeddingField / DefaultIDField
-	// name the well-known fields written to and read from each
-	// document. They must exist on the underlying index schema.
-	DefaultContentField     = "content"
-	DefaultEmbeddingField   = "contentVector"
-	DefaultIDField          = "id"
-	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
+	maximumResultsPerPage    = 1000
+	maximumRequestBytes      = 16 * 1024 * 1024
 )
 
-// StoreConfig contains configuration options for the Azure AI Search
-// vector store. The store talks to the REST surface directly — Azure
-// doesn't ship a typed Go SDK for the Search service.
+// StoreConfig binds an existing index. The host owns schema creation,
+// authentication, transport timeouts, retries and the HTTP client's lifecycle.
 type StoreConfig struct {
-	// Endpoint is the search service URL, e.g.
-	// "https://my-search.search.windows.net". Required.
-	Endpoint string
-
-	// APIKey is the admin API key. Required for both read and write.
-	// Use Managed Identity / OAuth via [HTTPClient] for finer
-	// authorization control.
-	APIKey string
-
-	// IndexName is the index to operate on. Required. The schema
-	// must already contain the configured ID, content, vector, and
-	// metadata fields — Azure AI Search index schemas are typed and
-	// cannot be created lazily.
-	IndexName string
-
-	// APIVersion overrides the REST API version. Optional: defaults
-	// to [DefaultAPIVersion].
-	APIVersion string
-
-	// IDField / ContentField / EmbeddingField name the well-known
-	// fields on each document. Optional defaults apply. These fields must
-	// differ and cannot use protocol annotation names beginning with @.
-	IDField        string
-	ContentField   string
-	EmbeddingField string
-
-	// EmbeddingModel produces vectors for the documents. Required.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher batches documents before upsert. Required.
-	DocumentBatcher vectorstore.Batcher
-
-	// SimilarityMetric must match the metric in the index's vector-search
-	// algorithm configuration. Required because @search.score is metric-specific.
-	SimilarityMetric SimilarityMetric
-
-	// HTTPClient lets callers override transport (timeouts,
-	// proxies, MSAL bearer-token injection). Optional: defaults to
-	// http.DefaultClient.
-	HTTPClient *http.Client
-
-	// MaxResponseBytes bounds every buffered HTTP response. Zero selects
-	// [DefaultMaxResponseBytes].
+	Endpoint         string
+	IndexName        string
+	APIVersion       string
+	IDField          string
+	ContentField     string
+	EmbeddingField   string
+	MetadataField    string
+	EmbeddingModel   embedding.Model
+	DocumentBatcher  vectorstore.Batcher
+	HTTPClient       *http.Client
 	MaxResponseBytes int64
+}
+
+func (s *StoreConfig) applyDefaults() {
+	s.APIVersion = cmp.Or(s.APIVersion, DefaultAPIVersion)
+	s.IDField = cmp.Or(s.IDField, DefaultIDField)
+	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
+	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
+	s.MetadataField = cmp.Or(s.MetadataField, DefaultMetadataField)
+	s.MaxResponseBytes = cmp.Or(s.MaxResponseBytes, DefaultMaxResponseBytes)
 }
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Endpoint == "" {
-		return errors.New("azureaisearch: Endpoint is required")
-	}
-	if s.APIKey == "" {
-		return errors.New("azureaisearch: APIKey is required")
+	endpoint, err := url.Parse(s.Endpoint)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.Trim(endpoint.Path, "/") != "" {
+		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
 	}
 	if s.IndexName == "" {
 		return errors.New("azureaisearch: IndexName is required")
+	}
+	if s.HTTPClient == nil {
+		return errors.New("azureaisearch: HTTPClient is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("azureaisearch: EmbeddingModel is required")
@@ -171,444 +81,350 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("azureaisearch: DocumentBatcher is required")
 	}
-	if s.SimilarityMetric == "" {
-		return errors.New("azureaisearch: SimilarityMetric is required")
+	if s.MaxResponseBytes < 0 || s.MaxResponseBytes == math.MaxInt64 {
+		return errors.New("azureaisearch: MaxResponseBytes must be nonnegative and below MaxInt64")
 	}
-	if !s.SimilarityMetric.Valid() {
-		return fmt.Errorf("azureaisearch: unsupported SimilarityMetric %q", s.SimilarityMetric)
-	}
-	if s.MaxResponseBytes < 0 {
-		return errors.New("azureaisearch: MaxResponseBytes must not be negative")
-	}
-	fields := []string{s.IDField, s.ContentField, s.EmbeddingField}
-	seen := make(map[string]struct{}, len(fields))
-	for _, field := range fields {
-		if strings.HasPrefix(field, "@") {
-			return fmt.Errorf("azureaisearch: storage field %q is reserved for protocol annotations", field)
+	seen := make(map[string]struct{}, 4)
+	for _, field := range []string{s.IDField, s.ContentField, s.EmbeddingField, s.MetadataField} {
+		if !validFieldName(field) {
+			return fmt.Errorf("azureaisearch: invalid native field name %q", field)
 		}
 		if _, duplicate := seen[field]; duplicate {
-			return errors.New("azureaisearch: IDField, ContentField, and EmbeddingField must be distinct")
+			return errors.New("azureaisearch: storage fields must be distinct")
 		}
 		seen[field] = struct{}{}
 	}
 	return nil
 }
 
-// applyDefaults fills zero fields with documented defaults.
-func (s *StoreConfig) applyDefaults() {
-	s.APIVersion = cmp.Or(s.APIVersion, DefaultAPIVersion)
-	s.IDField = cmp.Or(s.IDField, DefaultIDField)
-	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
-	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
-	if s.HTTPClient == nil {
-		s.HTTPClient = http.DefaultClient
-	}
-}
-
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
+	_ vectorstore.Indexer   = (*Store)(nil)
+	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities through the Azure AI Search REST
-// API.
+// Store projects native schema facts and uses Core's metadata codec and
+// predicate evaluator. It never owns a second metadata filter language.
 type Store struct {
 	endpoint         string
-	apiKey           string
 	indexName        string
 	apiVersion       string
 	idField          string
 	contentField     string
 	embeddingField   string
+	metadataField    string
 	embeddingClient  embeddingclient.Client
 	documentBatcher  vectorstore.Batcher
-	similarityMetric SimilarityMetric
 	httpClient       *http.Client
 	maxResponseBytes int64
+	metric           nativeMetric
+	dimensions       int
 }
 
-// NewStore reads the existing index during construction, which is why it takes
-// a context. Both facts it checks there fail quietly at run time: a store built
-// on the wrong metric goes on returning scores that are wrong rather than
-// absent, and an ID field that is not a filterable, sortable key makes
-// DeleteWhere leave documents behind while reporting success. Both are
-// misconfigurations at wiring, and the ID field's attributes cannot be changed
-// once the index exists.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	client, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("azureaisearch: create embedding client: %w", err)
-	}
-
-	store := &Store{
-		endpoint:         strings.TrimRight(config.Endpoint, "/"),
-		apiKey:           config.APIKey,
-		indexName:        config.IndexName,
-		apiVersion:       config.APIVersion,
-		idField:          config.IDField,
-		contentField:     config.ContentField,
-		embeddingField:   config.EmbeddingField,
-		embeddingClient:  embeddingClient,
-		documentBatcher:  config.DocumentBatcher,
-		similarityMetric: config.SimilarityMetric,
-		httpClient:       config.HTTPClient,
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	}
-	if err = store.verifyIndex(ctx); err != nil {
 		return nil, err
+	}
+	store := &Store{
+		endpoint: strings.TrimRight(config.Endpoint, "/"), indexName: config.IndexName, apiVersion: config.APIVersion,
+		idField: config.IDField, contentField: config.ContentField, embeddingField: config.EmbeddingField, metadataField: config.MetadataField,
+		embeddingClient: client, documentBatcher: config.DocumentBatcher, httpClient: config.HTTPClient, maxResponseBytes: config.MaxResponseBytes,
+	}
+	raw, err := store.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(store.indexName), nil)
+	if err != nil {
+		return nil, fmt.Errorf("azureaisearch: read native index: %w", err)
+	}
+	var schema indexSchema
+	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
+		return nil, fmt.Errorf("azureaisearch: decode native index: %w", err)
+	}
+	store.metric, store.dimensions, err = schema.bind(store.idField, store.contentField, store.embeddingField, store.metadataField)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = store.selectIDs(ctx, nil); err != nil {
+		return nil, fmt.Errorf("azureaisearch: verify stored records: %w", err)
 	}
 	return store, nil
 }
 
-// indexSchema is the part of an index definition this store has to agree with.
-// A vector field names a profile, the profile names an algorithm, and only the
-// algorithm carries the metric, so the metric is three hops from the field.
-type indexSchema struct {
-	Fields []struct {
-		Name                string `json:"name"`
-		VectorSearchProfile string `json:"vectorSearchProfile"`
-		Key                 bool   `json:"key"`
-		Filterable          bool   `json:"filterable"`
-		Sortable            bool   `json:"sortable"`
-	} `json:"fields"`
-	VectorSearch struct {
-		Profiles []struct {
-			Name      string `json:"name"`
-			Algorithm string `json:"algorithm"`
-		} `json:"profiles"`
-		Algorithms []indexAlgorithm `json:"algorithms"`
-	} `json:"vectorSearch"`
+func (s *Store) validateVector(vector []float32) error {
+	if len(vector) != s.dimensions {
+		return fmt.Errorf("azureaisearch: native vector width is %d, got %d", s.dimensions, len(vector))
+	}
+	projected := make([]float64, len(vector))
+	for i, value := range vector {
+		projected[i] = float64(value)
+	}
+	_, err := embedding.NewOutput(projected, nil)
+	return err
 }
 
-// validateIDField refuses an index whose ID field cannot carry the two
-// jobs this store gives it: naming a document in a delete action, and walking
-// a filter's full match set.
-//
-// Azure identifies a document to delete by its key, so an ID field that is not
-// the key names nothing. Enumerating the keys to delete is the harder half.
-// Azure's only paging primitive is skip -- "@search.nextPageParameters" is the
-// same request with a skip added -- and for a filter-only query every match
-// scores 1.0, which Azure calls "an arbitrary order". On top of that, "the
-// results of paginated queries aren't guaranteed to be stable if the underlying
-// index is changing"; the worked example returns one document twice, which is
-// the same event as another document being returned never. A key never
-// enumerated is a document never deleted, and DeleteWhere would still report
-// success. Azure's documented remedy is "a sort order and range filter as a
-// workaround for skip", for which "the unique field must have filterable and
-// sortable attribution in the search index".
-//
-// Construction is the only useful moment to say so, because those attributes
-// "can only be enabled when a field is first added to an index".
-func (i *indexSchema) validateIDField(idField string) error {
-	for _, field := range i.Fields {
-		if field.Name != idField {
-			continue
+func (s *Store) decodeDocument(row metadata.Map) (*document.Document, error) {
+	for field := range row {
+		if field != s.idField && field != s.contentField && field != s.embeddingField && field != s.metadataField && !strings.HasPrefix(field, "@") {
+			return nil, fmt.Errorf("azureaisearch: unexpected stored field %q", field)
 		}
-		if !field.Key {
-			return fmt.Errorf("%w: field %q is not the index key, so it cannot name a document to delete",
-				ErrIncompatibleIndex, idField)
-		}
-		if !field.Filterable || !field.Sortable {
-			return fmt.Errorf("%w: key field %q is filterable=%t sortable=%t, and both are required to page through a filter's matches by key",
-				ErrIncompatibleIndex, idField, field.Filterable, field.Sortable)
-		}
-		return nil
 	}
-	return fmt.Errorf("%w: the index declares no field named %q", ErrIncompatibleIndex, idField)
+	id, present, err := row.Decode[*string](s.idField)
+	if err != nil || !present || id == nil {
+		return nil, fmt.Errorf("azureaisearch: missing or invalid document key: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	if err = validateID(*id); err != nil {
+		return nil, err
+	}
+	text, present, err := row.Decode[*string](s.contentField)
+	if err != nil || !present || text == nil {
+		return nil, fmt.Errorf("azureaisearch: missing or invalid content: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	encoded, present, err := row.Decode[*string](s.metadataField)
+	if err != nil || !present || encoded == nil {
+		return nil, fmt.Errorf("azureaisearch: missing or invalid Core metadata JSON: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	var facts metadata.Map
+	if err = facts.UnmarshalJSON([]byte(*encoded)); err != nil {
+		return nil, fmt.Errorf("azureaisearch: decode Core metadata: %w", err)
+	}
+	vector, present, err := row.Decode[[]float32](s.embeddingField)
+	if err != nil || !present {
+		return nil, fmt.Errorf("azureaisearch: missing or invalid vector: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	if err = s.validateVector(vector); err != nil {
+		return nil, err
+	}
+	doc := &document.Document{ID: *id, Text: *text, Metadata: facts}
+	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
 
-// validateMetric refuses a store whose configured metric is not the one
-// the vector field's algorithm was configured with.
-//
-// @search.score is metric-specific, so a wrong value does not fail: the store
-// applies the wrong transformation and returns plausible scores that are wrong,
-// with MinScore filtering by a threshold in the wrong scale. Nothing
-// downstream can notice.
-//
-// Dimensions are deliberately not compared. This store declares none, and
-// Azure rejects a vector of the wrong width on upload.
-func (i *indexSchema) validateMetric(embeddingField string, want SimilarityMetric) error {
-	profileName := ""
-	found := false
-	for _, field := range i.Fields {
-		if field.Name == embeddingField {
-			profileName = field.VectorSearchProfile
-			found = true
-			break
-		}
+func matches(doc *document.Document, predicate filter.Predicate) (bool, error) {
+	if predicate == nil {
+		return true, nil
 	}
-	if !found {
-		return fmt.Errorf("%w: the index declares no field named %q", ErrIncompatibleIndex, embeddingField)
-	}
-	if profileName == "" {
-		return fmt.Errorf("%w: field %q names no vectorSearchProfile, so it is not searchable as a vector",
-			ErrIncompatibleIndex, embeddingField)
-	}
-
-	algorithmName := ""
-	for _, profile := range i.VectorSearch.Profiles {
-		if profile.Name == profileName {
-			algorithmName = profile.Algorithm
-			break
-		}
-	}
-	if algorithmName == "" {
-		return fmt.Errorf("%w: vectorSearchProfile %q on field %q resolves to no algorithm",
-			ErrIncompatibleIndex, profileName, embeddingField)
-	}
-
-	for _, algorithm := range i.VectorSearch.Algorithms {
-		if algorithm.Name != algorithmName {
-			continue
-		}
-		metric, err := algorithm.metric()
-		if err != nil {
-			return err
-		}
-		if metric != want {
-			return fmt.Errorf("%w: field %q searches through algorithm %q with metric %q, but the store is configured for %q",
-				ErrIncompatibleIndex, embeddingField, algorithmName, metric, want)
-		}
-		return nil
-	}
-	return fmt.Errorf("%w: the index declares no algorithm named %q", ErrIncompatibleIndex, algorithmName)
-}
-
-func (s *Store) verifyIndex(ctx context.Context) error {
-	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
+	values, err := doc.Metadata.Values()
 	if err != nil {
-		return fmt.Errorf("azureaisearch: read index %s: %w", s.indexName, err)
+		return false, err
 	}
-	var schema indexSchema
-	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
-		return fmt.Errorf("azureaisearch: decode index %s: %w", s.indexName, err)
+	return filter.Match(predicate, values)
+}
+
+func (s *Store) selectIDs(ctx context.Context, predicate filter.Predicate) ([]string, error) {
+	var ids []string
+	seen := make(map[string]struct{})
+	pageFilter := ""
+	for {
+		body := map[string]any{"select": s.selectedFields(), "top": maximumResultsPerPage, "orderby": s.idField + " asc"}
+		if pageFilter != "" {
+			body["filter"] = pageFilter
+		}
+		rows, _, err := s.searchPage(ctx, body)
+		if err != nil {
+			return nil, fmt.Errorf("azureaisearch: scan stored records: %w", err)
+		}
+		if len(rows) > maximumResultsPerPage {
+			return nil, errors.New("azureaisearch: scan returned excess records")
+		}
+		if len(rows) == 0 {
+			return ids, nil
+		}
+		last := ""
+		for _, row := range rows {
+			doc, decodeErr := s.decodeDocument(row)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			if _, duplicate := seen[doc.ID]; duplicate {
+				return nil, fmt.Errorf("azureaisearch: keyset scan repeated document %q", doc.ID)
+			}
+			seen[doc.ID] = struct{}{}
+			match, matchErr := matches(doc, predicate)
+			if matchErr != nil {
+				return nil, fmt.Errorf("azureaisearch: filter stored document %q: %w", doc.ID, matchErr)
+			}
+			if match {
+				ids = append(ids, doc.ID)
+			}
+			last = doc.ID
+		}
+		// Key ranges, unlike skip offsets, do not depend on previous page positions.
+		// Only an empty response establishes that the current walk has ended.
+		pageFilter = s.idField + " gt '" + last + "'"
 	}
-	if err = (&schema).validateIDField(s.idField); err != nil {
+}
+
+func (s *Store) selectedFields() string {
+	return strings.Join([]string{s.idField, s.contentField, s.embeddingField, s.metadataField}, ",")
+}
+
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
 		return err
 	}
-	return (&schema).validateMetric(s.embeddingField, s.similarityMetric)
-}
-
-// Index validates metadata ownership across the full request, embeds documents,
-// and uploads them through acknowledged batches of at most 1000 actions.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("azureaisearch.Store.Index: %w", validateErr)
-	}
-	for index, doc := range request.Documents {
+	for i, doc := range request.Documents {
 		if doc.Media != nil {
-			return fmt.Errorf("azureaisearch.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+			return fmt.Errorf("azureaisearch: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
+		}
+		if err := validateID(doc.ID); err != nil {
+			return err
 		}
 	}
-	for index, item := range request.Documents {
-		for field := range item.Metadata {
-			if s.reservedField(field) {
-				return fmt.Errorf("%w: azureaisearch: documents[%d] metadata field %q is reserved", vectorstore.ErrInvalidDocument, index, field)
-			}
-		}
-	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
+	batches, err := request.Batch(ctx, s.documentBatcher)
 	if err != nil {
-		return fmt.Errorf("azureaisearch: batch documents: %w", err)
+		return err
 	}
-
+	var actions []map[string]any
 	for _, batch := range batches {
-		docs := batch.Documents
-		texts, err := batch.Texts()
-		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+		texts, textErr := batch.Texts()
+		if textErr != nil {
+			return textErr
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("azureaisearch: embed documents: %w", err)
+		vectors, vectorErr := s.embeddingClient.EmbedTexts(ctx, texts)
+		if vectorErr != nil {
+			return vectorErr
 		}
-
-		actions := make([]map[string]any, 0, len(docs))
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, err := doc.Metadata.Values()
-			if err != nil {
-				return fmt.Errorf("azureaisearch: decode metadata for %s: %w", id, err)
+		for i, doc := range batch.Documents {
+			encoded, encodeErr := doc.Metadata.MarshalJSON()
+			if encodeErr != nil {
+				return encodeErr
 			}
-			payload := map[string]any{
-				"@search.action": "mergeOrUpload",
-				s.idField:        id,
-				s.contentField:   doc.Text,
-				s.embeddingField: embedding.Float32Vector(vectors[i]),
+			vector := embedding.Float32Vector(vectors[i])
+			if err = s.validateVector(vector); err != nil {
+				return err
 			}
-			// Top-level metadata fields — caller is responsible for
-			// having declared them in the index schema.
-			maps.Copy(payload, metadataValues)
-			actions = append(actions, payload)
-		}
-
-		if err := s.writeActions(ctx, actions); err != nil {
-			return fmt.Errorf("azureaisearch: index documents: %w", err)
+			actions = append(actions, map[string]any{"@search.action": "upload", s.idField: doc.ID, s.contentField: doc.Text, s.embeddingField: vector, s.metadataField: string(encoded)})
 		}
 	}
-	return nil
+	return s.writeActions(ctx, actions)
 }
 
-// Search runs a semantic vector query or a native hybrid query that combines
-// the same vector with lexical evidence from the configured content field.
+type rankedResult struct {
+	result   *vectorstore.SearchResult
+	rawScore float64
+}
+
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("azureaisearch.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
-		return nil, fmt.Errorf("azureaisearch.Store.Search: %w", err)
+		return nil, err
 	}
-
+	if request.Options.ResultLimit() > maximumResultsPerPage {
+		return nil, fmt.Errorf("azureaisearch: %w: native top K cannot exceed %d", vectorstore.ErrInvalidOptions, maximumResultsPerPage)
+	}
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, fmt.Errorf("azureaisearch: embed query: %w", err)
-	}
-	queryVec := embedding.Float32Vector(vector)
-
-	filterStr, err := s.buildFilter(request.Options.Filter)
+	ids, err := s.selectIDs(ctx, request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
-
-	vectorQuery := map[string]any{
-		"kind":   "vector",
-		"vector": queryVec,
-		"k":      request.Options.ResultLimit(),
-		"fields": s.embeddingField,
+	if len(ids) == 0 {
+		return &vectorstore.SearchResponse{}, nil
+	}
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	if err != nil {
+		return nil, err
+	}
+	queryVector := embedding.Float32Vector(vector)
+	if err = s.validateVector(queryVector); err != nil {
+		return nil, err
 	}
 	body := map[string]any{
-		"count":         false,
-		"top":           request.Options.ResultLimit(),
-		"vectorQueries": []any{vectorQuery},
+		"count": false, "top": request.Options.ResultLimit(), "select": s.selectedFields(), "vectorFilterMode": "preFilter",
+		"vectorQueries": []any{map[string]any{"kind": "vector", "vector": queryVector, "k": request.Options.ResultLimit(), "fields": s.embeddingField}},
+		"filter":        "search.in(" + s.idField + ", '" + strings.Join(ids, ",") + "', ',')",
 	}
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		body["search"] = request.Query
 		body["searchFields"] = s.contentField
 	}
-	if filterStr != "" {
-		body["filter"] = filterStr
-	}
-
 	rows, err := s.searchDocuments(ctx, body)
 	if err != nil {
-		return nil, fmt.Errorf("azureaisearch: search: %w", err)
+		return nil, err
 	}
-
-	docs = make([]*vectorstore.SearchResult, 0, len(rows))
+	if len(rows) > min(len(ids), request.Options.ResultLimit()) {
+		return nil, errors.New("azureaisearch: query returned excess records")
+	}
+	expected := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		expected[id] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(rows))
+	ranked := make([]rankedResult, 0, len(rows))
 	for _, row := range rows {
-		match, err := s.toMatch(row, request.Options.EffectiveMode())
-		if err != nil {
-			return nil, err
+		doc, decodeErr := s.decodeDocument(row)
+		if decodeErr != nil {
+			return nil, decodeErr
 		}
-		if match.Score < request.Options.MinScore {
+		if _, exists := expected[doc.ID]; !exists {
+			return nil, fmt.Errorf("azureaisearch: query returned unexpected document %q", doc.ID)
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return nil, fmt.Errorf("azureaisearch: query repeated document %q", doc.ID)
+		}
+		seen[doc.ID] = struct{}{}
+		match, matchErr := matches(doc, request.Options.Filter)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		rawScore, present, scoreErr := row.Decode[*float64]("@search.score")
+		if scoreErr != nil || !present || rawScore == nil {
+			return nil, fmt.Errorf("azureaisearch: missing or invalid native score: %w", errors.Join(scoreErr, vectorstore.ErrInvalidResponse))
+		}
+		score, scoreErr := s.metric.score(*rawScore, request.Options.EffectiveMode())
+		if scoreErr != nil {
+			return nil, scoreErr
+		}
+		if match {
+			ranked = append(ranked, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, rawScore: *rawScore})
+		}
+	}
+	slices.SortFunc(ranked, func(left, right rankedResult) int {
+		if order := cmp.Compare(right.rawScore, left.rawScore); order != 0 {
+			return order
+		}
+		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+	})
+	results := make([]*vectorstore.SearchResult, 0, len(ranked))
+	for _, row := range ranked {
+		if row.result.Score >= request.Options.MinScore {
+			results = append(results, row.result)
+		}
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	seen := make(map[string]struct{}, len(ids))
+	var actions []map[string]any
+	for _, id := range ids {
+		if err := validateID(id); err != nil {
+			return err
+		}
+		if _, duplicate := seen[id]; duplicate {
 			continue
 		}
-		docs = append(docs, match)
+		seen[id] = struct{}{}
+		actions = append(actions, map[string]any{"@search.action": "delete", s.idField: id})
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return s.writeActions(ctx, actions)
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("azureaisearch.Store.DeleteWhere: %w", err)
-	}
-
-	filterStr, err := s.buildFilter(predicate)
-	if err != nil {
-		return err
-	}
-	if filterStr == "" {
-		return errors.New("azureaisearch: refusing to delete on empty filter")
-	}
-
-	ids, err := s.enumerateKeys(ctx, filterStr)
-	if err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-
-	actions := make([]map[string]any, len(ids))
-	for index, id := range ids {
-		actions[index] = map[string]any{"@search.action": "delete", s.idField: id}
-	}
-	if err := s.writeActions(ctx, actions); err != nil {
-		return fmt.Errorf("azureaisearch: delete documents: %w", err)
-	}
-	return nil
-}
-
-// enumerateKeys collects every key matching filterStr, following Azure's
-// documented workaround for skip: each page carries its own range filter on
-// the key, so no page's contents depend on where the previous one stopped.
-// [indexSchema.validateIDField] records why skip cannot be used here.
-func (s *Store) enumerateKeys(ctx context.Context, filterStr string) ([]string, error) {
-	var ids []string
-	seen := make(map[string]struct{})
-	pageFilter := filterStr
-	for {
-		// Azure's own skip continuation is deliberately left unread: the range
-		// filter below supersedes it, and following it would reintroduce the
-		// paging this walk exists to avoid.
-		rows, _, err := s.searchPage(ctx, map[string]any{
-			"select":  s.idField,
-			"filter":  pageFilter,
-			"top":     maximumResultsPerPage,
-			"orderby": s.idField + " asc",
-		})
-		if err != nil {
-			return nil, fmt.Errorf("azureaisearch: enumerate keys: %w", err)
-		}
-		// "Pagination ends when the query returns zero results", so a short
-		// page still earns one confirming request: short is not the same as
-		// last when the page size is a ceiling rather than a promise.
-		if len(rows) == 0 {
-			return ids, nil
-		}
-		for _, row := range rows {
-			id, err := s.documentID(row)
-			if err != nil {
-				return nil, err
-			}
-			// A repeat means the range filter did not advance past what
-			// orderby already returned, which would loop forever. Azure
-			// documents ASCII or Unicode string order "depending on the
-			// language", so report the disagreement instead of spinning on it.
-			if _, repeated := seen[id]; repeated {
-				return nil, fmt.Errorf("azureaisearch: key %q was enumerated twice, so ordering by %s does not agree with comparing it",
-					id, s.idField)
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-		pageFilter = fmt.Sprintf("(%s) and %s gt %s", filterStr, s.idField, quoteODataString(ids[len(ids)-1]))
-	}
-}
-
-// searchPage sends one search request and returns its rows alongside the
-// parameters Azure offers for the next page, empty when there is none.
 func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[string]json.RawMessage, error) {
-	path := fmt.Sprintf("/indexes/%s/docs/search", url.PathEscape(s.indexName))
-	raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
+	raw, err := s.sendJSON(ctx, http.MethodPost, "/indexes/"+url.PathEscape(s.indexName)+"/docs/search", body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -617,21 +433,30 @@ func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[s
 		NextParameters map[string]json.RawMessage `json:"@search.nextPageParameters"`
 		NextLink       string                     `json:"@odata.nextLink"`
 	}
-	if err := jsonv2.Unmarshal(raw, &page); err != nil {
-		return nil, nil, fmt.Errorf("decode search response: %w", err)
+	if err = jsonv2.Unmarshal(raw, &page); err != nil {
+		return nil, nil, err
 	}
 	if page.Value == nil {
-		return nil, nil, errors.New("search response is missing its result array")
+		return nil, nil, errors.New("azureaisearch: search response is missing its result array")
 	}
 	if len(page.NextParameters) == 0 && page.NextLink != "" {
-		return nil, nil, errors.New("search continuation is missing POST parameters")
+		return nil, nil, errors.New("azureaisearch: search continuation is missing POST parameters")
 	}
 	return page.Value, page.NextParameters, nil
 }
 
 func (s *Store) searchDocuments(ctx context.Context, body any) ([]metadata.Map, error) {
 	var rows []metadata.Map
+	seen := make(map[string]struct{})
 	for {
+		encoded, err := jsonv2.Marshal(body, jsonv2.Deterministic(true))
+		if err != nil {
+			return nil, err
+		}
+		if _, repeated := seen[string(encoded)]; repeated {
+			return nil, errors.New("azureaisearch: search continuation repeated its parameters")
+		}
+		seen[string(encoded)] = struct{}{}
 		page, next, err := s.searchPage(ctx, body)
 		if err != nil {
 			return nil, err
@@ -640,16 +465,29 @@ func (s *Store) searchDocuments(ctx context.Context, body any) ([]metadata.Map, 
 		if len(next) == 0 {
 			return rows, nil
 		}
-		// POST continuations carry the complete next request. The configured
-		// index endpoint retains authority over where credentials are sent.
+		// Server-provided POST parameters may advance paging, never the endpoint
+		// to which the host's credentials are sent.
 		body = next
 	}
 }
 
 func (s *Store) writeActions(ctx context.Context, actions []map[string]any) error {
-	path := fmt.Sprintf("/indexes/%s/docs/index", url.PathEscape(s.indexName))
+	prepared := make([]json.RawMessage, 0)
 	for batch := range slices.Chunk(actions, maximumDocumentsPerBatch) {
-		raw, err := s.sendJSON(ctx, http.MethodPost, path, map[string]any{"value": batch})
+		raw, err := jsonv2.Marshal(map[string]any{"value": batch})
+		if err != nil {
+			return err
+		}
+		if len(raw) > maximumRequestBytes {
+			return errors.New("azureaisearch: write request exceeds the native 16 MiB limit")
+		}
+		prepared = append(prepared, raw)
+	}
+	path := "/indexes/" + url.PathEscape(s.indexName) + "/docs/index"
+	offset := 0
+	for _, body := range prepared {
+		batch := actions[offset:min(offset+maximumDocumentsPerBatch, len(actions))]
+		raw, err := s.sendJSON(ctx, http.MethodPost, path, body)
 		if err != nil {
 			return err
 		}
@@ -661,127 +499,65 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 				ErrorMessage string `json:"errorMessage"`
 			} `json:"value"`
 		}
-		if err := jsonv2.Unmarshal(raw, &response); err != nil {
-			return fmt.Errorf("decode write response: %w", err)
+		if err = jsonv2.Unmarshal(raw, &response); err != nil {
+			return err
 		}
 		if len(response.Value) != len(batch) {
-			return fmt.Errorf("write response contains %d results for %d actions", len(response.Value), len(batch))
+			return fmt.Errorf("azureaisearch: write response contains %d results for %d actions", len(response.Value), len(batch))
 		}
-		pending := make(map[string]struct{}, len(batch))
+		pending := make(map[string]string, len(batch))
 		for _, action := range batch {
-			pending[action[s.idField].(string)] = struct{}{}
+			pending[action[s.idField].(string)] = action["@search.action"].(string)
 		}
 		for _, result := range response.Value {
-			if _, expected := pending[result.Key]; !expected {
-				return fmt.Errorf("write response contains unknown or repeated key %q", result.Key)
+			operation, expected := pending[result.Key]
+			if !expected {
+				return fmt.Errorf("azureaisearch: write response contains unknown or repeated key %q", result.Key)
 			}
 			delete(pending, result.Key)
-			if !result.Status {
-				return fmt.Errorf("document %q: status=%d: %s", result.Key, result.StatusCode, result.ErrorMessage)
+			if !result.Status || (result.StatusCode != http.StatusOK && (operation != "upload" || result.StatusCode != http.StatusCreated)) {
+				return fmt.Errorf("azureaisearch: document %q: status=%d: %s", result.Key, result.StatusCode, result.ErrorMessage)
 			}
 		}
+		offset += len(batch)
 	}
 	return nil
 }
 
-func (s *Store) reservedField(field string) bool {
-	return field == s.idField || field == s.contentField || field == s.embeddingField || strings.HasPrefix(field, "@")
-}
-
-func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "", nil
+func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var reqBody io.Reader
+	if body != nil {
+		encoded, err := jsonv2.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		if len(encoded) > maximumRequestBytes {
+			return nil, errors.New("azureaisearch: request exceeds the native 16 MiB limit")
+		}
+		reqBody = bytes.NewReader(encoded)
 	}
-	v := newVisitor()
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("azureaisearch: convert filter: %w", err)
-	}
-	return v.snapshot(), nil
-}
-
-func (s *Store) documentID(row metadata.Map) (string, error) {
-	id, present, err := row.Decode[string](s.idField)
-	if err != nil {
-		return "", fmt.Errorf("azureaisearch: decode document ID: %w", err)
-	}
-	if !present || id == "" {
-		return "", fmt.Errorf("azureaisearch: result is missing string field %q", s.idField)
-	}
-	return id, nil
-}
-
-func (s *Store) toMatch(row metadata.Map, mode vectorstore.SearchMode) (*vectorstore.SearchResult, error) {
-	id, err := s.documentID(row)
+	address := s.endpoint + path + "?api-version=" + url.QueryEscape(s.apiVersion)
+	request, err := http.NewRequestWithContext(ctx, method, address, reqBody)
 	if err != nil {
 		return nil, err
 	}
-	text, present, err := row.Decode[string](s.contentField)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := s.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("azureaisearch: decode content: %w", err)
+		return nil, err
 	}
-	if !present || text == "" {
-		return nil, fmt.Errorf("azureaisearch: result is missing string field %q", s.contentField)
-	}
-	rawScore, present, err := row.Decode[*float64]("@search.score")
+	defer response.Body.Close()
+	limit := s.maxResponseBytes
+	raw, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("azureaisearch: decode score: %w", err)
+		return nil, err
 	}
-	if !present || rawScore == nil {
-		return nil, errors.New("azureaisearch: result is missing numeric @search.score")
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("azureaisearch: response exceeds %d-byte limit", limit)
 	}
-	score := vectorstore.ScoreFromValue(*rawScore)
-	if mode == vectorstore.SearchModeSemantic {
-		score = s.similarityMetric.score(*rawScore)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("azureaisearch: status=%d body=%s", response.StatusCode, raw)
 	}
-
-	// Rows are freshly decoded; transfer their raw metadata without passing
-	// integer values through a lossy floating-point representation.
-	for field := range row {
-		if s.reservedField(field) {
-			delete(row, field)
-		}
-	}
-	return &vectorstore.SearchResult{
-		Document: &document.Document{ID: id, Text: text, Metadata: row}, Score: score,
-	}, nil
-}
-
-func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, error) {
-	u := fmt.Sprintf("%s%s?api-version=%s", s.endpoint, path, url.QueryEscape(s.apiVersion))
-
-	var reqBody io.Reader
-	if body != nil {
-		buf, err := jsonv2.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("encode request: %w", err)
-		}
-		reqBody = bytes.NewReader(buf)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("api-key", s.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	maxResponseBytes := cmp.Or(s.maxResponseBytes, DefaultMaxResponseBytes)
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if int64(len(respBody)) > maxResponseBytes {
-		return nil, fmt.Errorf("response exceeds %d-byte limit", maxResponseBytes)
-	}
-	if resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("status=%d body=%s", resp.StatusCode, string(respBody))
-	}
-	return respBody, nil
+	return raw, nil
 }
