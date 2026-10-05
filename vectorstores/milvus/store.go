@@ -129,7 +129,7 @@ type collectionClient interface {
 	Delete(context.Context, milvusclient.DeleteOption, ...grpc.CallOption) (milvusclient.DeleteResult, error)
 }
 
-// Store implements [vectorstore.Store] against a Milvus collection whose fields,
+// Store implements Core vector-store capabilities against a Milvus collection whose fields,
 // vector dimension, and index metric have been verified at construction.
 type Store struct {
 	client           collectionClient

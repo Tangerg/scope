@@ -126,19 +126,19 @@ type StoreConfig struct {
 	// metric is used to create it.
 	DistanceMetric DistanceMetric
 
-	// Dimensions stays explicit because schema verification must not trigger a
-	// hidden, billable embedding request.
+	// Dimensions is the expected vector width. Zero accepts the width of an
+	// existing collection; creating a collection requires a positive value.
+	// Construction never invokes the embedding model.
 	Dimensions int
 
 	// InitializeSchema indicates whether to automatically create the collection
 	// if it does not exist. When set to true, the collection will be created
-	// with vector configuration based on EmbeddingModel dimensions.
+	// with the configured Dimensions and DistanceMetric.
 	// Optional: defaults to false.
 	InitializeSchema bool
 
 	// EmbeddingModel is the model used to generate vector embeddings from text.
-	// It is also used to determine the vector dimension when creating collections.
-	// Required: must be provided for both embedding generation and schema initialization.
+	// Required: must be provided for indexing and search.
 	EmbeddingModel embedding.Model
 
 	// DocumentBatcher is responsible for batching documents before insertion.

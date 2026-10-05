@@ -159,7 +159,7 @@ type indexConnection interface {
 	Close() error
 }
 
-// Store implements [vectorstore.Store] against a Pinecone index. Pinecone owns
+// Store implements Core vector-store capabilities against a Pinecone index. Pinecone owns
 // index creation and dimensionality, so this type validates against the index
 // it is pointed at rather than provisioning one.
 type Store struct {
