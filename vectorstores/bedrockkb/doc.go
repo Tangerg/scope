@@ -1,60 +1,57 @@
-// Package bedrockkb wraps AWS Bedrock Knowledge Bases as a semantic and hybrid searcher.
-// Bedrock Knowledge Base is a managed RAG
-// service — embedding, chunking, and persistence are all handled
-// behind the API; scope only consumes the runtime Retrieve surface.
+// Package bedrockkb consumes Amazon Bedrock Knowledge Bases' native Retrieve
+// REST API as a semantic and hybrid vectorstore.Searcher. Bedrock owns ingestion,
+// chunking, embeddings and persistence; this adapter exposes no mutation APIs.
 //
-// Requirements: an AWS account with Bedrock Knowledge Bases enabled,
-// a provisioned knowledge base wired to a data source (S3, Confluence,
-// SharePoint, Salesforce, etc.), and an aws-sdk-go-v2
-// bedrockagentruntime client.
+// The host provisions the knowledge base and supplies its runtime service origin
+// and an authenticated HTTP client through StoreConfig. AWS SigV4 signing,
+// credential refresh, retries, timeouts and transport lifecycle stay with that
+// client. NewStore validates configuration without network I/O; an unknown
+// knowledge base or unsupported native search policy fails on Search. The
+// constructor keeps the family's context-first signature.
 //
-// Construction performs no I/O, unlike its siblings in this family. The only
-// Bedrock surface this store depends on is Retrieve, which cannot describe a
-// knowledge base without running a paid query, and confirming one exists would
-// mean taking a second control-plane client the store has no other use for. A
-// wrong [StoreConfig.KnowledgeBaseID] therefore surfaces as Bedrock's own
-// error on the first search. [NewStore] still takes a context, because every
-// vector store here is constructed the same way.
+// Metadata is decoded directly from native JSON into Core metadata.Map. It never
+// passes through the SDK's generic document decoder, which converts JSON numbers
+// to float64 and can lose integer and decimal precision. Missing or null metadata
+// stays nil; an explicit empty object stays non-nil. Scope cannot recover facts
+// that the data source or Bedrock has already rounded before emitting JSON.
 //
-// Document lifecycle. Bedrock ingests via the configured data source
-// + StartIngestionJob — there's no runtime upsert / delete. The store exposes
-// no fake mutation methods. Manage documents via the data source instead
-// (StartIngestionJob through the bedrockagent control plane).
+// Core predicates are unsupported and fail with errors.ErrUnsupported before any
+// HTTP request. Retrieve cannot enumerate the complete knowledge base for Core's
+// predicate validation, and native stringContains and negated comparisons do not
+// have Core's type and missing-value semantics. The adapter has no private filter
+// compiler or post-TopK filtering path. Optional native implicit filtering remains
+// an explicit host policy in StoreConfig, with Bedrock owning its interpretation.
+// Construction snapshots native settings; later changes to the supplied SDK
+// values cannot advance the Store's retrieval policy.
 //
-// Retrieve uses Bedrock's runtime Retrieve API with the configured
-// [types.KnowledgeBaseVectorSearchConfiguration] — NumberOfResults
-// is populated from [vectorstore.SearchOptions.TopK], and
-// [vectorstore.SearchOptions.Mode] maps directly to Bedrock's semantic or
-// hybrid search type. Provider-specific reranking and implicit filtering stay
-// in [StoreConfig].
+// SearchOptions.TopK owns both numberOfResults and numberOfRerankedResults. The
+// native limit is 100 total requested chunks, not a page size; larger limits fail
+// with vectorstore.ErrInvalidOptions before I/O. Search follows native nextToken
+// values to completion, including short or empty advancing pages, and validates
+// every returned chunk before applying MinScore and TopK. A repeated token or an
+// invalid later chunk returns an error and no partial response.
 //
-// Result completeness. NumberOfResults caps at 100 and Bedrock answers with a
-// continuation token whenever more results exist than fit in one response, so a
-// single call is not the whole answer even when it asks for fewer than the cap.
-// Search follows the token until TopK results are collected or the knowledge
-// base is exhausted; TopK above 100 is served by paging rather than rejected.
+// Only native TEXT chunks with finite scores and stable source identity fit this
+// contract. Document IDs come from documentId when present, otherwise from the
+// canonical active source location; an SQL query alone is not an identity. Several
+// chunks can share a source document ID and are retained as distinct matches.
+// Native raw scores determine rank before clamping onto Core's [0,1] relevance
+// scale. Bedrock does not document a scale conversion, so clamping cannot make
+// these scores comparable across knowledge bases or ranking policies.
 //
-// Filter visitor produces [types.RetrievalFilter] — Bedrock's typed
-// filter shape (Equals / NotEquals / GreaterThan / LessThan /
-// GreaterThanOrEquals / LessThanOrEquals / StringContains / In /
-// NotIn / AndAll / OrAll / etc.).
+// Migration is a replacement of the API: remove Client/RetrieveClient and provide
+// the host's signed HTTPClient and Endpoint. Replace RerankingConfiguration with
+// RerankingModelConfiguration and optional RerankingMetadataConfiguration; remove
+// its independent result count. Remove Core filters or select a store that can
+// honor them. Request at most 100 results. No SDK response path, filter adapter,
+// legacy constructor or dual decoding path remains. No persisted Scope schema is
+// involved, so existing knowledge-base data need not be rewritten by Scope.
 //
-// Identifiers. Bedrock retrieval results don't expose stable per-row
-// ids; the store uses `DocumentId` or the result's `Location` (e.g. the S3 URI
-// of the source object). A result without either stable identity is rejected.
+// Native integration requires AWS_REGION, SCOPE_BEDROCK_KB_ENDPOINT,
+// SCOPE_BEDROCK_KB_ID, and credentials available to the AWS SDK's default chain.
+// The knowledge base must already contain ingested text documents. The test only
+// retrieves data and creates no cloud resources; missing configuration fails.
 //
-// Null tests are refused. Bedrock's RetrievalFilter offers equals, notEquals,
-// the four ordering members, in, notIn, startsWith, listContains and
-// stringContains, none of which asks whether a key is present, so an IS NULL
-// filter fails rather than being approximated.
-//
-// Scores. The Retrieve API documents the result score only as "the level of
-// relevance of the result to the query" with type Double, and gives no
-// range, so the store takes the value as a relevance score already on
-// Core's scale and clamps it. That is an assumption about an undocumented
-// property rather than a mapping: the knowledge base owns the vector store,
-// the embedding model and the search type, and none of them is visible here
-// to derive a scale from.
-//
-// See https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html.
+// See https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent-runtime_Retrieve.html
+// and https://docs.aws.amazon.com/bedrock/latest/userguide/kb-test-retrieve.html.
 package bedrockkb
