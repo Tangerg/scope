@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -21,6 +22,8 @@ import (
 
 // Provider is the stable backend name for host-side attribution.
 const Provider = "TiDB"
+
+const documentIDBytes = 3072
 
 // Exported defaults keep constructor behavior visible and overridable.
 const (
@@ -83,8 +86,7 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// StoreConfig contains configuration options for the TiDB Vector
-// store (TiDB 7.4+ with vector support enabled).
+// StoreConfig configures a TiDB v8.4+ vector store.
 type StoreConfig struct {
 	// DB is the database handle. Required. Use a *sql.DB built from
 	// github.com/go-sql-driver/mysql pointed at a TiDB cluster.
@@ -100,8 +102,10 @@ type StoreConfig struct {
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
 
-	Dimensions       int
-	DistanceMetric   DistanceMetric
+	Dimensions     int
+	DistanceMetric DistanceMetric
+	// InitializeSchema creates the current table when absent. NewStore always
+	// verifies document identity and lossless metadata storage.
 	InitializeSchema bool
 }
 
@@ -180,10 +184,8 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its table and vector index exist would
-// fail on the first index rather than at wiring, where the misconfiguration
-// actually is.
+// NewStore creates the schema when requested and verifies the current storage
+// contract. The caller owns the database handle.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -219,42 +221,117 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
-		return nil
+		return s.validateSchema(ctx)
 	}
 	if s.dimensions <= 0 {
 		return errors.New("tidb: Dimensions must be > 0")
 	}
-	stmt := fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (
-			%s VARCHAR(64) NOT NULL PRIMARY KEY,
-			%s TEXT,
-			%s JSON,
-			%s VECTOR(%d) NOT NULL
-		)`,
-		s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn,
-		s.embeddingColumn, s.dimensions,
-	)
-	if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("create table %s: %w", s.fullTable, err)
+
+	if s.schemaName != "" {
+		if _, err := s.db.ExecContext(ctx,
+			fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.schemaName)); err != nil {
+			return fmt.Errorf("create schema %s: %w", s.schemaName, err)
+		}
 	}
 
-	// TiDB's vector ANN index requires the function expression form.
-	idxStmt := fmt.Sprintf(
-		`CREATE VECTOR INDEX IF NOT EXISTS %s_idx ON %s ((%s(%s))) USING HNSW`,
-		s.tableName, s.fullTable, s.distanceMetric.function(), s.embeddingColumn,
-	)
-	if _, err := s.db.ExecContext(ctx, idxStmt); err != nil {
-		return fmt.Errorf("create vector index on %s: %w", s.fullTable, err)
+	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
+		return fmt.Errorf("create table %s: %w", s.fullTable, err)
+	}
+	return s.validateSchema(ctx)
+}
+
+func (s *Store) validateSchema(ctx context.Context) (err error) {
+	const database = "COALESCE(NULLIF(?, ''), DATABASE())"
+	var dataType, nullable string
+	var length sql.NullInt64
+	err = s.db.QueryRowContext(ctx,
+		"SELECT c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.IS_NULLABLE FROM information_schema.COLUMNS AS c WHERE c.TABLE_SCHEMA = "+database+" AND c.TABLE_NAME = ? AND c.COLUMN_NAME = ?",
+		s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable)
+	if err != nil {
+		return fmt.Errorf("read document ID schema: %w", err)
+	}
+	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != "NO" {
+		return fmt.Errorf("document ID column must be VARBINARY(%d) NOT NULL; rebuild the table", documentIDBytes)
+	}
+	err = s.db.QueryRowContext(ctx,
+		"SELECT DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = "+database+" AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+		s.schemaName, s.tableName, s.metadataColumn).Scan(&dataType, &nullable)
+	if err != nil {
+		return fmt.Errorf("read metadata schema: %w", err)
+	}
+	if dataType != "longblob" || nullable != "NO" {
+		return errors.New("metadata column must be LONGBLOB NOT NULL to retain encoded JSON; rebuild the table")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = "+database+" AND TABLE_NAME = ? AND NON_UNIQUE = 0",
+		s.schemaName, s.tableName)
+	if err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	primary := false
+	for rows.Next() {
+		var name, column string
+		var ordinal int
+		var prefix sql.NullInt64
+		if err := rows.Scan(&name, &column, &ordinal, &prefix); err != nil {
+			return fmt.Errorf("read document identity constraint: %w", err)
+		}
+		if !strings.EqualFold(column, s.idColumn) || ordinal != 1 || prefix.Valid {
+			return errors.New("unique constraints must use the entire document ID as their sole key; rebuild the table")
+		}
+		primary = primary || name == "PRIMARY"
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	if !primary {
+		return errors.New("document ID must be the sole primary key; rebuild the table")
 	}
 	return nil
 }
 
-// Index embeds documents and upserts them.
+// TiFlash ANN ranking is approximate. The TiKV primary table and exact ID
+// ordering keep a search projection from changing document visibility.
+func (s *Store) searchStatement(wherePart string) string {
+	return fmt.Sprintf(
+		`SELECT /*+ READ_FROM_STORAGE(TIKV[source]) */ %s, %s, %s, %s(%s, VEC_FROM_TEXT(?)) AS distance `+
+			`FROM %s AS source FORCE INDEX(PRIMARY) WHERE 1=1%s ORDER BY distance ASC, %s ASC LIMIT ?`,
+		s.idColumn, s.contentColumn, s.metadataColumn,
+		s.distanceMetric.function(), s.embeddingColumn,
+		s.fullTable, wherePart, s.idColumn,
+	)
+}
+
+func (s *Store) createTableStatement() string {
+	return fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (
+			%s VARBINARY(%d) NOT NULL PRIMARY KEY,
+			%s TEXT,
+			%s LONGBLOB NOT NULL,
+			%s VECTOR(%d) NOT NULL
+		) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4`,
+		s.fullTable,
+		s.idColumn, documentIDBytes,
+		s.contentColumn,
+		s.metadataColumn,
+		s.embeddingColumn, s.dimensions,
+	)
+}
+
+// Index embeds documents and upserts them into the vector table.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("tidb.Store.Index: %w", validateErr)
 	}
 	for index, doc := range request.Documents {
+		if len(doc.ID) > documentIDBytes {
+			return fmt.Errorf("tidb.Store.Index: %w: documents[%d] ID exceeds %d bytes", vectorstore.ErrInvalidDocument, index, documentIDBytes)
+		}
 		if doc.Media != nil {
 			return fmt.Errorf("tidb.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
@@ -290,11 +367,16 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		if err != nil {
 			return fmt.Errorf("tidb: prepare upsert: %w", err)
 		}
-		execErr := func() error {
-			defer stmt.Close()
+
+		execErr := func() (err error) {
+			defer func() {
+				if closeErr := stmt.Close(); closeErr != nil {
+					err = errors.Join(err, closeErr)
+				}
+			}()
 			for i, doc := range docs {
 				id := doc.ID
-				metaJSON, err := marshalMetadata(doc.Metadata)
+				metaJSON, err := jsonv2.Marshal(doc.Metadata)
 				if err != nil {
 					return fmt.Errorf("marshal metadata for %s: %w", id, err)
 				}
@@ -302,7 +384,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				if err != nil {
 					return fmt.Errorf("tidb: marshal vector for %s: %w", id, err)
 				}
-				if _, err := stmt.ExecContext(ctx, id, doc.Text, metaJSON, string(vectorJSON)); err != nil {
+				if _, err := stmt.ExecContext(ctx, []byte(id), doc.Text, metaJSON, string(vectorJSON)); err != nil {
 					return fmt.Errorf("upsert %s: %w", id, err)
 				}
 			}
@@ -315,71 +397,119 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// Search runs an ANN search ordered by the configured distance
-// function.
+// Search ranks canonical rows using the native distance function. Core alone
+// evaluates filters; matching IDs are bounded projections of the same snapshot.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("tidb.Store.Search: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("tidb.Store.Search: %w", err)
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
+	transaction, err := s.prepareFilter(ctx, request.Options.Filter)
+	defer finishTransaction(transaction, &err)
+	if err != nil {
+		return nil, err
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("tidb: embed query: %w", err)
 	}
-	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vector))
+	encoded, err := jsonv2.Marshal(embedding.Float32Vector(vector))
 	if err != nil {
 		return nil, fmt.Errorf("tidb: marshal query vector: %w", err)
 	}
-	vecText := string(vectorJSON)
-
-	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
-	if err != nil {
-		return nil, err
+	var ranked []rankedResult
+	if request.Options.Filter == nil {
+		ranked, err = s.searchRows(ctx, nil, request, string(encoded), nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var lastID []byte
+		for {
+			page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+			if len(page.matches) > 0 {
+				ids := make([]any, len(page.matches))
+				for index, match := range page.matches {
+					ids[index] = match.id
+				}
+				candidates, queryErr := s.searchRows(ctx, transaction, request, string(encoded), ids)
+				if queryErr != nil {
+					return nil, queryErr
+				}
+				ranked = append(ranked, candidates...)
+				slices.SortFunc(ranked, func(left, right rankedResult) int {
+					if order := cmp.Compare(left.distance, right.distance); order != 0 {
+						return order
+					}
+					return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+				})
+				ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+			}
+			if page.count < filterPageSize {
+				break
+			}
+			lastID = page.lastID
+		}
 	}
-	wherePart := ""
-	if wherePredicate != "" {
-		wherePart = " AND " + wherePredicate
+	results := make([]*vectorstore.SearchResult, len(ranked))
+	for index, candidate := range ranked {
+		results[index] = candidate.result
 	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
 
-	distExpr := fmt.Sprintf("%s(%s, ?)", s.distanceMetric.function(), s.embeddingColumn)
-	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, %s AS distance FROM %s WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
-		s.idColumn, s.contentColumn, s.metadataColumn, distExpr,
-		s.fullTable, wherePart,
-	)
+type rankedResult struct {
+	result   *vectorstore.SearchResult
+	distance float64
+}
 
-	args := []any{vecText}
-	args = append(args, whereArgs...)
+func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *vectorstore.SearchRequest, vector string, ids []any) (results []rankedResult, err error) {
+	where := ""
+	if len(ids) > 0 {
+		where = " AND " + s.idColumn + " IN (" + strings.Repeat("?, ", len(ids)-1) + "?)"
+	}
+	args := []any{vector}
+	args = append(args, ids...)
 	args = append(args, request.Options.ResultLimit())
-
-	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	var rows *sql.Rows
+	if transaction == nil {
+		rows, err = s.db.QueryContext(ctx, s.searchStatement(where), args...)
+	} else {
+		rows, err = transaction.QueryContext(ctx, s.searchStatement(where), args...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("tidb: query %s: %w", s.fullTable, err)
 	}
-	defer rows.Close()
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	for rows.Next() {
-		var (
-			id       string
-			content  sql.NullString
-			metaRaw  sql.NullString
-			distance float64
-		)
-		if err = rows.Scan(&id, &content, &metaRaw, &distance); err != nil {
+		var id string
+		var content sql.NullString
+		var raw []byte
+		var distance float64
+		if err := rows.Scan(&id, &content, &raw, &distance); err != nil {
 			return nil, fmt.Errorf("tidb: scan row: %w", err)
 		}
 		score := s.distanceMetric.score(distance)
+		if err := score.Validate(); err != nil {
+			return nil, fmt.Errorf("tidb: distance for %q: %w", id, err)
+		}
 		if score < request.Options.MinScore {
 			continue
 		}
@@ -390,93 +520,181 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			return nil, fmt.Errorf("tidb: document %q is missing text", id)
 		}
 		doc := &document.Document{ID: id, Text: content.String}
-		if metaRaw.Valid {
-			if doc.Metadata, err = unmarshalMetadata([]byte(metaRaw.String)); err != nil {
-				return nil, fmt.Errorf("tidb: unmarshal metadata for %s: %w", id, err)
-			}
+		if err := jsonv2.Unmarshal(raw, &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("tidb: unmarshal metadata for %s: %w", id, err)
 		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("tidb: read rows: %w", err)
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return results, nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("tidb.Store.DeleteWhere: %w", err)
+	if validateErr := predicate.Validate(); validateErr != nil {
+		return fmt.Errorf("tidb.Store.DeleteWhere: %w", validateErr)
 	}
-
-	var (
-		clause string
-		args   []any
-	)
-	clause, args, err = s.buildFilter(predicate)
+	transaction, err := s.prepareFilter(ctx, predicate)
+	defer finishTransaction(transaction, &err)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("tidb: refusing to delete on empty filter")
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return pageErr
+		}
+		if err := s.deleteMatches(ctx, transaction, page.matches); err != nil {
+			return err
+		}
+		if page.count < filterPageSize {
+			return nil
+		}
+		lastID = page.lastID
 	}
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, clause)
-	if _, err := s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("tidb: delete from %s: %w", s.fullTable, err)
-	}
-	return nil
 }
 
-// DeleteIDs removes rows by primary key —
-// `DELETE ... WHERE <idCol> IN (?, ...)` with one placeholder per id.
-// An empty slice is a no-op; unknown ids are silently ignored
-// (idempotent). Implements [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
+// DeleteIDs removes exactly the caller's IDs. Unknown IDs are ignored.
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	args := make([]any, len(ids))
+	for index, id := range ids {
+		args[index] = []byte(id)
+	}
+	if len(args) == 0 {
 		return nil
 	}
-
-	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s IN (%s)", s.fullTable, s.idColumn, placeholders)
-
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
-	}
-	if _, err = s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("tidb: delete by ids from %s: %w", s.fullTable, err)
+	statement := "DELETE FROM " + s.fullTable + " WHERE " + s.idColumn + " IN (" + strings.Repeat("?, ", len(args)-1) + "?)"
+	if _, err := s.db.ExecContext(ctx, statement, args...); err != nil {
+		return fmt.Errorf("tidb: delete by IDs from %s: %w", s.fullTable, err)
 	}
 	return nil
 }
 
-func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
-	}
-	v := newVisitor(s.metadataColumn)
-	if err := expr.Accept(v); err != nil {
-		return "", nil, fmt.Errorf("tidb: convert filter: %w", err)
-	}
-	predicate, args := v.snapshot()
-	return predicate, args, nil
+const filterPageSize = 512
+
+type filterMatch struct {
+	id       []byte
+	metadata []byte
 }
 
-func marshalMetadata(m metadata.Map) ([]byte, error) {
-	if m == nil {
-		return []byte("{}"), nil
-	}
-	return jsonv2.Marshal(m)
+type filterPage struct {
+	lastID  []byte
+	matches []filterMatch
+	count   int
 }
 
-func unmarshalMetadata(b []byte) (metadata.Map, error) {
-	if len(b) == 0 {
+func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
+	statement := "SELECT " + s.idColumn + ", " + s.metadataColumn + " FROM " + s.fullTable + " FORCE INDEX(PRIMARY)"
+	var args []any
+	if lastID != nil {
+		statement += " WHERE " + s.idColumn + " > ?"
+		args = append(args, lastID)
+	}
+	statement += " ORDER BY " + s.idColumn + " ASC LIMIT ?"
+	args = append(args, filterPageSize)
+	rows, err := transaction.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return page, fmt.Errorf("tidb: read filter metadata: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	for rows.Next() {
+		var id []byte
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return page, fmt.Errorf("tidb: scan filter metadata: %w", err)
+		}
+		var facts metadata.Map
+		if err := jsonv2.Unmarshal(raw, &facts); err != nil {
+			return page, fmt.Errorf("tidb: decode filter metadata: %w", err)
+		}
+		values, err := facts.Values()
+		if err != nil {
+			return page, fmt.Errorf("tidb: decode filter values: %w", err)
+		}
+		match, err := filter.Match(predicate, values)
+		if err != nil {
+			return page, fmt.Errorf("tidb: evaluate filter: %w", err)
+		}
+		page.lastID = id
+		page.count++
+		if match {
+			page.matches = append(page.matches, filterMatch{id: id, metadata: raw})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return page, fmt.Errorf("tidb: read filter metadata: %w", err)
+	}
+	return page, nil
+}
+
+// Validate before embedding or deletion. Both passes read one snapshot, and
+// deletion compares its original bytes against TiDB's current-read DML values.
+// TiDB rejects the read-only modifier; Search executes only reads in this tx.
+func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate) (*sql.Tx, error) {
+	if predicate == nil {
 		return nil, nil
 	}
-	var out metadata.Map
-	if err := jsonv2.Unmarshal(b, &out); err != nil {
-		return nil, err
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, fmt.Errorf("tidb: begin filter transaction: %w", err)
 	}
-	return out, nil
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return transaction, pageErr
+		}
+		if page.count < filterPageSize {
+			return transaction, nil
+		}
+		lastID = page.lastID
+	}
+}
+
+func (s *Store) deleteMatches(ctx context.Context, transaction *sql.Tx, matches []filterMatch) error {
+	if len(matches) == 0 {
+		return nil
+	}
+	conditions := make([]string, len(matches))
+	args := make([]any, 0, 2*len(matches))
+	for index, match := range matches {
+		conditions[index] = "(" + s.idColumn + " = ? AND " + s.metadataColumn + " = ?)"
+		args = append(args, match.id, match.metadata)
+	}
+	result, err := transaction.ExecContext(ctx, "DELETE FROM "+s.fullTable+" WHERE "+strings.Join(conditions, " OR "), args...)
+	if err != nil {
+		return fmt.Errorf("tidb: delete matching documents: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("tidb: read matching deletion count: %w", err)
+	}
+	if count != int64(len(matches)) {
+		return fmt.Errorf("tidb: metadata changed during filtered deletion: deleted %d of %d snapshot documents", count, len(matches))
+	}
+	return nil
+}
+
+func finishTransaction(transaction *sql.Tx, err *error) {
+	if transaction == nil {
+		return
+	}
+	if *err == nil {
+		if commitErr := transaction.Commit(); commitErr != nil {
+			*err = fmt.Errorf("tidb: commit filter transaction: %w", commitErr)
+		}
+		return
+	}
+	if rollbackErr := transaction.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		*err = errors.Join(*err, fmt.Errorf("tidb: rollback filter transaction: %w", rollbackErr))
+	}
 }

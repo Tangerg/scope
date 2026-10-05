@@ -1,47 +1,35 @@
-// Package tidb exposes TiDB's native VECTOR column type
-// through the Core vector-store capability interfaces. Documents live in a regular TiDB table
-// (id / content / metadata JSON / embedding VECTOR) reached over
-// the MySQL wire protocol via `database/sql` +
-// go-sql-driver/mysql.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package tidb implements Core vector-store capabilities using TiDB v8.4+
+// native VECTOR columns and database/sql over the MySQL protocol. The host
+// supplies the database handle and owns its lifecycle.
 //
-// Requirements: TiDB v8.4.0+, which is where PingCAP sets the floor for
-// self-managed and Dedicated clusters while recommending v8.5.0 or later. The
-// vector data type still carries a beta notice, so it "might be changed without
-// prior notice". The HNSW vector index needs
-// the function-expression form
-// `((VEC_<metric>_DISTANCE(embedding))) USING HNSW` and is only
-// available on TiKV-backed columnar storage in some deployments;
-// the store creates it under [StoreConfig.InitializeSchema] = true
-// and propagates any backend error so callers can react.
+// Construction verifies the current storage schema even when InitializeSchema
+// is false. IDs use VARBINARY(3072) NOT NULL as their sole full primary key;
+// every uniqueness constraint must identify a document solely by that ID.
+// Case, accents, trailing spaces, and embedded NUL bytes remain distinct. IDs
+// over 3072 bytes and documents containing media are rejected before indexing
+// I/O. Existing VARCHAR-ID or native-JSON-metadata tables must be rebuilt;
+// the adapter neither migrates nor reads an obsolete schema.
 //
-// Distance metrics — they map to TiDB's built-in functions:
+// Metadata uses a single LONGBLOB NOT NULL column containing Core's JSON bytes.
+// TiDB's binary JSON normalizes decimals through floating point and rejects
+// valid JSON numbers outside that range. Core's codec retains encoded numbers,
+// escaped strings, and the distinction between nil and empty metadata; Core
+// filter.Match is the sole evaluator of selectors, operators, and failures.
 //
-//   - [DistanceCosine]     → `VEC_COSINE_DISTANCE`
-//   - [DistanceL2]         → `VEC_L2_DISTANCE`
-//   - [DistanceNegativeIP] → `VEC_NEGATIVE_INNER_PRODUCT`
+// Filters scan metadata in bounded primary-key pages before embedding or
+// deletion. A second pass projects matching IDs from the same repeatable-read
+// transaction into native ranking or deletion. Deletes compare the original
+// metadata bytes against current rows and commit all pages together. A
+// concurrent metadata change or native write conflict fails the operation and
+// rolls it back. The adapter returns native write conflicts without retrying.
 //
-// Vector binding. TiDB accepts `'[v1,v2,...]'` text literals
-// directly — the store renders them and binds as a regular `?`
-// parameter, so no special vector codec is needed.
+// Searches use native cosine, L2, or negative-inner-product distance over the
+// TiKV primary table, with exact ID ordering for distance ties, then apply
+// MinScore. Schema initialization creates no ANN index and requires no TiFlash
+// infrastructure. This chooses exact visible rows over approximate acceleration;
+// filtering requires a metadata scan with bounded retained rows and wire IDs.
 //
-// Filter visitor reaches into the JSON metadata column with
-// `JSON_VALUE(metadata, '$.k')`, wrapping numeric / ordering
-// comparisons in `CAST(... AS DECIMAL(65,30))`.
-//
-// Partial writes. Index prepares one upsert and runs it per document without
-// wrapping the batch in a transaction, so a failure leaves the rows already
-// written in place. The returned error names the id that failed, and repeating
-// the call is safe because the statement is idempotent per row.
-//
-// Numeric comparisons cast to DECIMAL, not DOUBLE. DOUBLE is an approximate
-// type whose 53-bit mantissa cannot hold every int64, so an id or timestamp
-// past 2^53 would compare equal to its neighbor and match the wrong row.
-// DECIMAL stores exact values up to the documented 65 digits, which covers
-// every integer the filter AST can carry — and the AST compares as a rational
-// precisely so an integer is never rounded to a float's precision.
-//
-// See https://docs.pingcap.com/tidb/stable/vector-search-overview/
-// for the official reference.
+// Index embeds batches and upserts documents using JSON text for vector binding.
+// Writes are not atomic across documents: a failure may leave earlier rows
+// stored. Invalid stored metadata and backend errors remain explicit.
 package tidb
