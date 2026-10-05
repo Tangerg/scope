@@ -169,39 +169,34 @@ func (v *visitor) compileLike(expression *filter.BinaryExpr) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("milvus: extract field key from 'LIKE' at %s: %w", expression.Start(), err)
 	}
-	literal, err := expression.Literal()
+	pattern, err := expression.Pattern()
 	if err != nil {
 		return "", err
 	}
-	if !literal.IsString() {
-		return "", fmt.Errorf("milvus: 'LIKE' operator requires a string pattern at %s, got %s", expression.Start(), literal.Kind())
+	if !strings.ContainsAny(pattern, "%_") {
+		return fmt.Sprintf("%s == %s", fieldKey, strconv.Quote(pattern)), nil
 	}
-	pattern, err := literalString(literal)
-	if err != nil {
-		return "", err
+	if strings.ContainsAny(pattern, "_\\") {
+		return "", fmt.Errorf("milvus: LIKE pattern %q cannot preserve Core semantics", pattern)
 	}
-	return fmt.Sprintf("%s like %s", fieldKey, pattern), nil
+	return fmt.Sprintf("%s like %s", fieldKey, strconv.Quote(pattern)), nil
 }
 
-// selectorString renders the base identifier as the field name, a key as a
-// quoted JSON subscript, and an index as a bare array subscript, which Milvus
-// reads as an object member and an array element respectively.
+// Core selectors address document metadata, including keys named after
+// physical collection fields. Only DeleteIDs addresses the primary key.
 func selectorString(expression *filter.BinaryExpr) (string, error) {
 	path, err := expression.Path()
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	for position, segment := range path {
+	b.WriteString(fieldMeta)
+	for _, segment := range path {
 		if index, ok := segment.Index(); ok {
 			b.WriteString("[" + strconv.FormatUint(index, 10) + "]")
 			continue
 		}
 		key, _ := segment.Key()
-		if position == 0 {
-			b.WriteString(key)
-			continue
-		}
 		b.WriteString("[" + strconv.Quote(key) + "]")
 	}
 	return b.String(), nil

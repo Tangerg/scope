@@ -22,9 +22,18 @@
 // InitializeSchema disabled, construction performs only read operations and
 // the caller is responsible for loading the collection before search.
 //
-// Filter visitor produces Milvus's expression language —
-// `author == "Alice" and (year > 2020 or tag in ["a","b"])`. The
-// result feeds the `expr` parameter of the search call.
+// Filter selectors address keys inside the metadata JSON field:
+// `author == 'Alice'` becomes `metadata["author"] == "Alice"`. Keys named id,
+// content, vector, or metadata remain metadata keys; they never address the
+// collection's physical columns. Search and DeleteWhere share this translation,
+// while DeleteIDs addresses the native id primary key.
+// ID literals are escaped before reaching the native deletion expression;
+// quotes, backslashes, and query-looking text remain part of the ID.
+// Literal LIKE patterns use equality; patterns with % use native LIKE.
+// Patterns containing _ or a backslash together with a wildcard are refused:
+// Milvus 2.x matches _ by byte and gives backslashes escape semantics, while
+// Core matches characters and treats backslashes literally. Unsupported filters
+// fail before query embedding or native search/deletion I/O.
 //
 // Upsert acknowledgment. Milvus answers an upsert with the number of rows it
 // accepted; Index requires that count to match what it sent rather than
@@ -36,10 +45,9 @@
 // raw inner product with no normalization, so it is unbounded unless the caller
 // supplies unit vectors and cannot share the cosine mapping.
 //
-// Null tests are refused. Milvus' expression syntax documents no IS NULL and
-// no way to test whether a JSON key is present — its JSON operators are
-// JSON_CONTAINS and its variants — so an IS NULL filter fails rather than
-// being approximated by a value comparison that would answer differently.
+// Null tests are refused. Milvus JSON-key null and existence tests can treat
+// empty JSON arrays and objects as absent; Core keeps those as present values.
+// The adapter does not approximate that distinction.
 //
 // See https://milvus.io/docs for the full API surface.
 package milvus

@@ -19,9 +19,8 @@ func TestVisitor_Conformance(t *testing.T) {
 		return expr.Accept(v)
 	},
 		storetest.Options{
-			// Milvus' expression syntax documents no IS NULL and no way to
-			// test whether a JSON key is present, so a null test is refused
-			// rather than approximated.
+			// Native JSON-key null tests can classify empty containers as
+			// absent, which changes Core's metadata semantics.
 			Unsupported: []string{"null_test", "not_null_test"},
 			CompileText: compileFilterText,
 		},
@@ -34,7 +33,7 @@ func TestVisitor_PreservesLargeIntegerText(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := visitor.snapshot()
-	if actual != "id == 18446744073709551615" {
+	if actual != `metadata["id"] == 18446744073709551615` {
 		t.Fatalf("filter = %q", actual)
 	}
 }
@@ -48,7 +47,7 @@ func TestVisitor_HasUsesArrayContains(t *testing.T) {
 	if err := expr.Accept(v); err != nil {
 		t.Fatal(err)
 	}
-	if got := v.snapshot(); got != `ARRAY_CONTAINS(tags, "rag")` {
+	if got := v.snapshot(); got != `ARRAY_CONTAINS(metadata["tags"], "rag")` {
 		t.Fatalf("Result() = %q", got)
 	}
 }
@@ -59,16 +58,16 @@ func TestVisitor_QuotesCompleteStringLiteral(t *testing.T) {
 	if err := filter.EQ("value", value).Accept(visitor); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := visitor.snapshot(), "value == "+strconv.Quote(value); got != want {
+	if got, want := visitor.snapshot(), `metadata["value"] == `+strconv.Quote(value); got != want {
 		t.Fatalf("Result() = %q, want %q", got, want)
 	}
 }
 
 func TestVisitor_SelectorKeepsSegmentKinds(t *testing.T) {
 	for source, want := range map[string]string{
-		`meta[0] == 'a'`:           `meta[0] == "a"`,
-		`meta['0'] == 'a'`:         `meta["0"] == "a"`,
-		`meta['a'][1]['b'] == 'x'`: `meta["a"][1]["b"] == "x"`,
+		`meta[0] == 'a'`:           `metadata["meta"][0] == "a"`,
+		`meta['0'] == 'a'`:         `metadata["meta"]["0"] == "a"`,
+		`meta['a'][1]['b'] == 'x'`: `metadata["meta"]["a"][1]["b"] == "x"`,
 	} {
 		got, err := compileFilterText(source)
 		if err != nil {
@@ -76,6 +75,18 @@ func TestVisitor_SelectorKeepsSegmentKinds(t *testing.T) {
 		}
 		if got != want {
 			t.Fatalf("compile %q = %q, want %q", source, got, want)
+		}
+	}
+}
+
+func TestLiteralLikePreservesBackslashesAndUnicode(t *testing.T) {
+	for _, pattern := range []string{`plain\path`, "世界", "", "a[b]"} {
+		compiler := newVisitor()
+		if err := filter.Like("author", pattern).Accept(compiler); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := compiler.snapshot(), `metadata["author"] == `+strconv.Quote(pattern); got != want {
+			t.Fatalf("LIKE %q = %q, want %q", pattern, got, want)
 		}
 	}
 }

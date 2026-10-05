@@ -136,19 +136,23 @@ func (s *schemaService) Search(context.Context, *milvuspb.SearchRequest) (*milvu
 	}}, nil
 }
 
-func (s *schemaService) client(t *testing.T) *milvusclient.Client {
+func newCollectionClient(t *testing.T, service milvuspb.MilvusServiceServer) *milvusclient.Client {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	milvuspb.RegisterMilvusServiceServer(server, s)
+	milvuspb.RegisterMilvusServiceServer(server, service)
+	served := make(chan error, 1)
 	go func() {
-		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			t.Errorf("serve local Milvus protocol: %v", err)
-		}
+		served <- server.Serve(listener)
 	}()
 	t.Cleanup(func() {
 		server.Stop()
-		_ = listener.Close()
+		if err := listener.Close(); err != nil {
+			t.Errorf("close local Milvus listener: %v", err)
+		}
+		if err := <-served; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			t.Errorf("serve local Milvus protocol: %v", err)
+		}
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -161,7 +165,11 @@ func (s *schemaService) client(t *testing.T) *milvusclient.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := client.Close(context.Background()); err != nil {
+			t.Errorf("close local Milvus client: %v", err)
+		}
+	})
 	return client
 }
 
@@ -187,7 +195,7 @@ func TestNewStoreVerifiesExistingIndexMetricInBothModes(t *testing.T) {
 				t.Run(fmt.Sprintf("initialize_%t/%s/want_%s", initialize, actual, configured), func(t *testing.T) {
 					service := newSchemaService(actual)
 					var embeddings atomic.Int64
-					store, err := NewStore(t.Context(), schemaConfig(service.client(t), configured, initialize, &embeddings))
+					store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), configured, initialize, &embeddings))
 					if actual != configured {
 						if !errors.Is(err, ErrSchemaMismatch) || store != nil {
 							t.Fatalf("NewStore = %v, %v; want metric mismatch", store, err)
@@ -245,7 +253,7 @@ func TestNewStoreRejectsIncompatibleExistingSchema(t *testing.T) {
 				service := newSchemaService(entity.COSINE)
 				sample.mutate(service)
 				var embeddings atomic.Int64
-				store, err := NewStore(t.Context(), schemaConfig(service.client(t), entity.COSINE, initialize, &embeddings))
+				store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), entity.COSINE, initialize, &embeddings))
 				if !errors.Is(err, ErrSchemaMismatch) || store != nil {
 					t.Fatalf("NewStore = %v, %v; want schema mismatch", store, err)
 				}
@@ -265,7 +273,7 @@ func TestNewStoreDiscoversOrVerifiesDimensions(t *testing.T) {
 			t.Run(fmt.Sprintf("initialize_%t/dimensions_%d", initialize, dimensions), func(t *testing.T) {
 				service := newSchemaService(entity.COSINE)
 				var embeddings atomic.Int64
-				config := schemaConfig(service.client(t), entity.COSINE, initialize, &embeddings)
+				config := schemaConfig(newCollectionClient(t, service), entity.COSINE, initialize, &embeddings)
 				config.Dimensions = dimensions
 				store, err := NewStore(t.Context(), config)
 				if dimensions == 3 {
@@ -302,7 +310,7 @@ func TestNewStoreCreatesOnlyMissingResources(t *testing.T) {
 			service := newSchemaService(entity.COSINE)
 			service.missing, service.indexes = sample.missing, nil
 			var embeddings atomic.Int64
-			config := schemaConfig(service.client(t), entity.COSINE, sample.initialize, &embeddings)
+			config := schemaConfig(newCollectionClient(t, service), entity.COSINE, sample.initialize, &embeddings)
 			config.Dimensions = sample.dimensions
 			store, err := NewStore(t.Context(), config)
 			if (err != nil) != sample.wantError {
@@ -334,7 +342,7 @@ func TestVerifiedMetricControlsSearchScoresAndMinimum(t *testing.T) {
 			service := newSchemaService(sample.metric)
 			service.searchScore = sample.raw
 			var embeddings atomic.Int64
-			store, err := NewStore(t.Context(), schemaConfig(service.client(t), sample.metric, false, &embeddings))
+			store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), sample.metric, false, &embeddings))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -353,7 +361,7 @@ func TestDiscoveredDimensionRejectsIncompatibleEmbeddingsBeforeMilvusIO(t *testi
 	service := newSchemaService(entity.COSINE)
 	service.schema.Fields[1].TypeParams[0].Value = "3"
 	var embeddings atomic.Int64
-	store, err := NewStore(t.Context(), schemaConfig(service.client(t), entity.COSINE, false, &embeddings))
+	store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), entity.COSINE, false, &embeddings))
 	if err != nil {
 		t.Fatal(err)
 	}

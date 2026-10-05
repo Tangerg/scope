@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/milvus-io/milvus/client/v2/column"
 	"github.com/milvus-io/milvus/client/v2/entity"
@@ -516,6 +517,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		}
 	}()
 
+	var nativeFilter string
+	if request.Options.Filter != nil {
+		visitor := newVisitor()
+		if acceptErr := request.Options.Filter.Accept(visitor); acceptErr != nil {
+			return nil, fmt.Errorf("milvus: convert filter: %w", acceptErr)
+		}
+		nativeFilter = visitor.snapshot()
+	}
+
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("milvus: embed query: %w", err)
@@ -528,15 +538,8 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 
 	searchOpt := milvusclient.NewSearchOption(s.collectionName, request.Options.ResultLimit(), []entity.Vector{queryVec}).
 		WithANNSField(fieldVector).
-		WithOutputFields(fieldID, fieldContent, fieldMeta)
-
-	if request.Options.Filter != nil {
-		visitor := newVisitor()
-		if acceptErr := request.Options.Filter.Accept(visitor); acceptErr != nil {
-			return nil, fmt.Errorf("milvus: convert filter: %w", acceptErr)
-		}
-		searchOpt = searchOpt.WithFilter(visitor.snapshot())
-	}
+		WithOutputFields(fieldID, fieldContent, fieldMeta).
+		WithFilter(nativeFilter)
 
 	results, err := s.client.Search(ctx, searchOpt)
 	if err != nil {
@@ -576,15 +579,19 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	return nil
 }
 
-// DeleteIDs removes rows by primary key. WithStringIDs compiles to the
-// expr `id in ["a","b"]`, so unknown ids are silently ignored (idempotent).
-// An empty slice is a no-op. Implements [vectorstore.IDDeleter].
+// DeleteIDs removes rows by literal primary key. Unknown IDs are ignored,
+// and an empty slice is a no-op. Implements [vectorstore.IDDeleter].
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
 		return nil
 	}
 
-	_, err = s.client.Delete(ctx, milvusclient.NewDeleteOption(s.collectionName).WithStringIDs(fieldID, ids))
+	literals := make([]string, len(ids))
+	for index, id := range ids {
+		literals[index] = strconv.Quote(id)
+	}
+	expression := fmt.Sprintf("%s in [%s]", fieldID, strings.Join(literals, ","))
+	_, err = s.client.Delete(ctx, milvusclient.NewDeleteOption(s.collectionName).WithExpr(expression))
 	if err != nil {
 		return fmt.Errorf("milvus: delete by ids from collection %s: %w", s.collectionName, err)
 	}
