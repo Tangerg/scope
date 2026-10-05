@@ -1,68 +1,41 @@
-// Package cassandra exposes Apache Cassandra 5.0+ vector support
-// through the Core vector-store capability interfaces. Documents live in a regular CQL table with
-// a `vector<float, N>` column; filterable metadata keys must be declared as
-// typed columns (Cassandra has no JSON-path operator), each indexed
-// via a Storage Attached Index (SAI).
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package cassandra implements Core vector-store capabilities with Apache
+// Cassandra 5.0+ and the official Apache GoCQL v2 driver. The host owns the
+// session and its consistency, authentication and native retry policies.
 //
-// Metadata model. A document's metadata of record is the JSON in
-// [StoreConfig.MetadataColumn], which carries no SAI index. The declared typed
-// columns are the filterable projection of that record. CQL reaches a metadata
-// key only as a declared column, so writing only those columns dropped every
-// other key with no error and no way to get it back, and reading them back
-// returned a document without those keys. Reading the record instead makes the
-// round trip exact and keeps undeclared keys; declaring a column is what makes
-// a key filterable, not what makes it stored.
+// A Store owns an exclusive table with exactly four columns: document ID as
+// the sole text primary key, text content, the complete metadata.Map as JSON
+// text, and a vector<float,N>. Construction checks actual native column types
+// and primary-key shape. CreateDimensions seeds schema creation; operations
+// obtain their width from native protocol metadata. No SAI index is required.
 //
-// Requirements: Apache Cassandra 5.0+ or compatible (DataStax Astra
-// DB / DataStax Enterprise). Vector + SAI both arrived together in
-// 5.0. The store uses gocql v1.x.
+// Core's codec preserves nil versus {}, explicit null, nested JSON and exact
+// numeric values. Core filter.Match alone decides membership and type errors.
+// Search and DeleteWhere validate the entire observed table before query
+// embedding, relevance thresholds, result caps or deletion. Native vector
+// codecs bind values rather than injecting vector literals into CQL. Native
+// similarity functions own vector validity and relevance ordering.
 //
-// Similarity functions — recorded in the SAI index definition at
-// creation time:
+// Search scores captured vectors with similarity_cosine, similarity_euclidean
+// or similarity_dot_product, applies MinScore, then TopK. Cosine and Euclidean
+// native scores use their validated [0,1] range. Native dot scores equal
+// (1+inner_product)/2; Core's inner-product conversion projects that value into
+// [0,1]. Raw native similarity retains ordering when the projected score
+// saturates. Equal native similarities use document ID byte order. Reassess
+// existing dot-product MinScore values after upgrading.
 //
-//   - [SimilarityCosine]      — cosine similarity (default)
-//   - [SimilarityDotProduct]  — inner product
-//   - [SimilarityEuclidean]   — Euclidean distance
+// These exact operations scan the full table and retain matching records in
+// memory. Ranking uses captured content, metadata and vectors consistently;
+// Cassandra does not provide a collection snapshot. DeleteWhere compares all
+// captured non-key columns in a native conditional DELETE and reports a
+// concurrent replacement instead of deleting it. Predicate or scan failure
+// causes zero deletions. Individual successful writes and deletions can precede
+// a later transport failure, cancellation or CAS conflict; neither operation
+// provides a transaction across partitions. Media is rejected before I/O.
 //
-// Scores. Apache Cassandra documents the similarity_cosine,
-// similarity_dot_product and similarity_euclidean signatures but not the
-// range of what they return, so the store takes the value as a relevance
-// score already on Core's scale and clamps it. That is an assumption about
-// an undocumented property rather than a mapping: if a server reports a
-// value outside the range, the clamp keeps Cassandra's ordering only below
-// the bound. similarity_dot_product also assumes L2-normalized vectors —
-// Cassandra does not normalize for it — so a non-normalized embedding makes
-// the value meaningless before it ever reaches a score.
-//
-// Vector binding caveat. gocql v1.x has no first-class
-// `vector<float, N>` codec, so the store inlines vectors as CQL
-// literals (`[v1, v2, ...]`) into the SQL. Cassandra accepts that
-// form for both INSERT and ORDER BY ANN OF. The other parameters
-// flow through normal `?` placeholders.
-//
-// Filter constraints. CQL on regular columns doesn't support `OR`
-// or standalone `NOT`; the visitor rejects them with a clear error.
-// `IN` is fine and binds as a typed slice. Every filterable
-// metadata key must exist as a typed column on the table, declared
-// via [StoreConfig.MetadataColumns] entries with their CQL type (text / int /
-// boolean / double / …).
-//
-// Filter-based DELETE. Cassandra forbids deleting by a non-PK
-// predicate. The store works around it by SELECT-ing matching ids
-// first then issuing per-row DELETEs.
-//
-// Partial writes. Neither Index nor DeleteWhere is atomic: both walk their rows
-// one statement at a time, so a failure leaves the statements already executed
-// applied. The returned error names the id that failed, and the operation is
-// safe to repeat because both statements are idempotent per row.
-//
-// Filter limits come from CQL, not from this store: a WHERE clause supports
-// neither OR nor a standalone NOT, has no IS NULL and no LIKE on a metadata
-// column, and reaches a metadata key only as a declared column — so an indexed
-// or nested key cannot be filtered either.
-//
-// See https://cassandra.apache.org/doc/latest/cassandra/vector-search/
-// for the official reference.
+// Breaking replacement: Session now accepts Apache GoCQL v2 queries, Dimensions
+// becomes CreateDimensions, and MetadataColumn declarations/MetadataColumns
+// and their SAI compiler are removed. Old tables with typed metadata columns
+// fail the current schema contract; rebuild a four-column table from source
+// documents and remove obsolete indexes under the host's migration policy.
+// There is no legacy schema reader, column arbitration or compatibility shim.
 package cassandra

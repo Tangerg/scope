@@ -3,27 +3,24 @@ package cassandra
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
-	"github.com/gocql/gocql"
-
+	gocql "github.com/apache/cassandra-gocql-driver/v2"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Provider is the stable backend name for host-side attribution.
 const Provider = "Cassandra"
-
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultKeyspaceName    = "scope"
 	DefaultTableName       = "vector_store"
@@ -34,112 +31,66 @@ const (
 	DefaultSimilarity      = SimilarityCosine
 )
 
-// SimilarityFunction picks the function name used by the
-// similarity_<func> built-in. The chosen value is recorded in the
-// SAI index definition at creation time.
+// Session supplies native queries. The host owns the Apache driver's session.
+type Session interface {
+	Query(string, ...any) *gocql.Query
+}
+
+// SimilarityFunction selects a native Cassandra scalar function. No vector
+// index participates in selecting or ranking Core matches.
 type SimilarityFunction string
 
 const (
-	// SimilarityCosine — cosine similarity. Default.
-	SimilarityCosine SimilarityFunction = "cosine"
-
-	// SimilarityDotProduct — dot product.
+	SimilarityCosine     SimilarityFunction = "cosine"
 	SimilarityDotProduct SimilarityFunction = "dot_product"
-
-	// SimilarityEuclidean — Euclidean (L2) distance, mapped to a
-	// similarity score by Cassandra itself.
-	SimilarityEuclidean SimilarityFunction = "euclidean"
+	SimilarityEuclidean  SimilarityFunction = "euclidean"
 )
 
 func (s SimilarityFunction) Valid() bool {
-	switch s {
-	case SimilarityCosine, SimilarityDotProduct, SimilarityEuclidean:
-		return true
-	default:
-		return false
-	}
+	return s == SimilarityCosine || s == SimilarityDotProduct || s == SimilarityEuclidean
 }
-
 func (s SimilarityFunction) String() string { return string(s) }
-
-// MetadataColumn declares a custom metadata column that the store
-// indexes for filtering. Cassandra has no JSON-path operator, so each
-// filterable metadata key must be a typed column on the table.
-type MetadataColumn struct {
-	// Name is the column identifier on the underlying table.
-	Name string
-
-	// CQLType is the column data type as written in CREATE TABLE
-	// (e.g. "text", "int", "boolean", "double").
-	CQLType string
+func (s SimilarityFunction) score(raw float64) (vectorstore.Score, error) {
+	if math.IsNaN(raw) || math.IsInf(raw, 0) {
+		return 0, fmt.Errorf("cassandra: %w: non-finite native similarity", vectorstore.ErrInvalidScore)
+	}
+	score := vectorstore.Score(raw)
+	if s == SimilarityDotProduct {
+		score = vectorstore.ScoreFromInnerProduct(2*raw - 1)
+	}
+	if err := score.Validate(); err != nil {
+		return 0, err
+	}
+	return score, nil
 }
 
-// StoreConfig contains configuration options for the Cassandra vector
-// store.
+// StoreConfig selects an exclusively owned table. Empty names use exported
+// defaults. Session, EmbeddingModel and DocumentBatcher are required.
 type StoreConfig struct {
-	// Session is the gocql session. Required.
-	Session *gocql.Session
-
-	// KeyspaceName is the keyspace that holds the vector table.
-	// Optional: defaults to [DefaultKeyspaceName].
-	KeyspaceName string
-
-	// TableName is the table that stores documents and their
-	// embeddings. Optional: defaults to [DefaultTableName].
-	TableName string
-
-	// IDColumn / ContentColumn / EmbeddingColumn / MetadataColumn —
-	// override the column names of the generated schema. Each
-	// defaults to its respective Default* constant when empty.
+	Session         Session
+	KeyspaceName    string
+	TableName       string
 	IDColumn        string
 	ContentColumn   string
 	EmbeddingColumn string
-
-	// MetadataColumn is the text column that holds a document's metadata as
-	// JSON. It carries no SAI index because it is the record rather than a
-	// filterable projection of it.
-	//
-	// CQL reaches a metadata key only as a declared column, so writing only
-	// the columns in MetadataColumns dropped every other key with no error and
-	// no way to get it back. This column keeps the document whole; the typed
-	// columns below stay the filterable projection of it.
-	MetadataColumn string
-
-	// MetadataColumns enumerates the filterable metadata keys. Each
-	// becomes a typed column on the table and (under
-	// InitializeSchema) an SAI index. The optional [DocumentMetadata]
-	// helpers may populate these from the Document.Metadata map.
-	MetadataColumns []MetadataColumn
-
-	// EmbeddingModel produces vectors for the documents. Required.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher batches documents before insertion. Required.
+	MetadataColumn  string
+	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
-
-	// Dimensions sets the VECTOR column width, and is required when
-	// InitializeSchema is true: the width is part of the column type, and
-	// nothing here can read it off a table that does not exist yet.
-	Dimensions int
-
-	// Similarity selects the vector similarity function. Optional:
-	// defaults to [SimilarityCosine].
-	Similarity SimilarityFunction
-
-	// InitializeSchema, when true, creates the keyspace, table, and
-	// SAI vector index if they don't already exist.
+	Similarity      SimilarityFunction
+	// CreateDimensions seeds a new vector column when InitializeSchema is true.
+	// Existing native schema always owns the width used by operations.
+	CreateDimensions int
+	// InitializeSchema creates only the keyspace and four-column table. Every
+	// constructor verifies the actual native column types and primary key.
 	InitializeSchema bool
-
-	// KeyspaceReplication is the replication clause used when
-	// InitializeSchema creates the keyspace — e.g.
-	// "{'class': 'SimpleStrategy', 'replication_factor': 1}".
-	// Optional: defaults to a single-replica SimpleStrategy.
+	// KeyspaceReplication is the trusted CQL replication clause for creation.
+	// Empty creates a single-replica SimpleStrategy keyspace.
 	KeyspaceReplication string
 }
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if s.Session == nil {
+	if lo.IsNil(s.Session) {
 		return errors.New("cassandra: Session is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
@@ -148,16 +99,17 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("cassandra: DocumentBatcher is required")
 	}
-	if s.Dimensions < 0 {
-		return errors.New("cassandra: Dimensions must be >= 0")
-	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("cassandra: unsupported Similarity %q", s.Similarity)
 	}
-
+	if s.InitializeSchema && s.CreateDimensions <= 0 {
+		return errors.New("cassandra: CreateDimensions must be positive when InitializeSchema is enabled")
+	}
+	if !s.InitializeSchema && s.CreateDimensions != 0 {
+		return errors.New("cassandra: CreateDimensions requires InitializeSchema")
+	}
 	return s.validateIdentifiers()
 }
-
 func (s StoreConfig) validateIdentifiers() error {
 	if err := identifier(s.KeyspaceName).validate("KeyspaceName"); err != nil {
 		return err
@@ -165,51 +117,28 @@ func (s StoreConfig) validateIdentifiers() error {
 	if err := identifier(s.TableName).validate("TableName"); err != nil {
 		return err
 	}
-	if err := identifier(s.IDColumn).validate("IDColumn"); err != nil {
-		return err
-	}
-	if err := identifier(s.ContentColumn).validate("ContentColumn"); err != nil {
-		return err
-	}
-	if err := identifier(s.EmbeddingColumn).validate("EmbeddingColumn"); err != nil {
-		return err
-	}
-	if err := identifier(s.MetadataColumn).validate("MetadataColumn"); err != nil {
-		return err
-	}
-	// Every one of these is a column on the same table, so a reused name would
-	// have two writers and the CREATE TABLE would not even be valid CQL.
-	reserved := map[string]string{
-		s.IDColumn:        "IDColumn",
-		s.ContentColumn:   "ContentColumn",
-		s.EmbeddingColumn: "EmbeddingColumn",
-		s.MetadataColumn:  "MetadataColumn",
-	}
-	if len(reserved) != 4 {
-		return fmt.Errorf(
-			"cassandra: IDColumn %q, ContentColumn %q, EmbeddingColumn %q and MetadataColumn %q must name four distinct columns",
-			s.IDColumn, s.ContentColumn, s.EmbeddingColumn, s.MetadataColumn)
-	}
-	declared := make(map[string]struct{}, len(s.MetadataColumns))
-	for _, m := range s.MetadataColumns {
-		if m.Name == "" {
-			return errors.New("cassandra: MetadataColumn.Name must not be empty")
-		}
-		if err := identifier(m.Name).validate("MetadataColumn.Name"); err != nil {
+	fields := []struct{ name, value string }{{"IDColumn", s.IDColumn}, {"ContentColumn", s.ContentColumn}, {"EmbeddingColumn", s.EmbeddingColumn}, {"MetadataColumn", s.MetadataColumn}}
+	seen := make(map[string]string, len(fields))
+	for _, field := range fields {
+		if err := identifier(field.value).validate(field.name); err != nil {
 			return err
 		}
-		if m.CQLType == "" {
-			return fmt.Errorf("cassandra: MetadataColumn %q must have a CQLType", m.Name)
+		if owner, exists := seen[field.value]; exists {
+			return fmt.Errorf("cassandra: %s and %s both use column %q", owner, field.name, field.value)
 		}
-		if owner, taken := reserved[m.Name]; taken {
-			return fmt.Errorf("cassandra: MetadataColumns entry %q collides with %s", m.Name, owner)
-		}
-		if _, duplicate := declared[m.Name]; duplicate {
-			return fmt.Errorf("cassandra: MetadataColumns contains duplicate column %q", m.Name)
-		}
-		declared[m.Name] = struct{}{}
+		seen[field.value] = field.name
 	}
 	return nil
+}
+func (s *StoreConfig) applyDefaults() {
+	s.KeyspaceName = cmp.Or(s.KeyspaceName, DefaultKeyspaceName)
+	s.TableName = cmp.Or(s.TableName, DefaultTableName)
+	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
+	s.ContentColumn = cmp.Or(s.ContentColumn, DefaultContentColumn)
+	s.EmbeddingColumn = cmp.Or(s.EmbeddingColumn, DefaultEmbeddingColumn)
+	s.MetadataColumn = cmp.Or(s.MetadataColumn, DefaultMetadataColumn)
+	s.Similarity = cmp.Or(s.Similarity, DefaultSimilarity)
+	s.KeyspaceReplication = cmp.Or(s.KeyspaceReplication, "{'class': 'SimpleStrategy', 'replication_factor': 1}")
 }
 
 var (
@@ -219,439 +148,350 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// applyDefaults fills zero fields with documented defaults.
-func (s *StoreConfig) applyDefaults() {
-	s.KeyspaceName = cmp.Or(s.KeyspaceName, DefaultKeyspaceName)
-	s.MetadataColumn = cmp.Or(s.MetadataColumn, DefaultMetadataColumn)
-	s.TableName = cmp.Or(s.TableName, DefaultTableName)
-	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
-	s.ContentColumn = cmp.Or(s.ContentColumn, DefaultContentColumn)
-	s.EmbeddingColumn = cmp.Or(s.EmbeddingColumn, DefaultEmbeddingColumn)
-	s.Similarity = cmp.Or(s.Similarity, DefaultSimilarity)
-	if s.KeyspaceReplication == "" {
-		s.KeyspaceReplication = "{'class': 'SimpleStrategy', 'replication_factor': 1}"
-	}
-}
-
-// Store implements vector-store capabilities with Cassandra 5.0+ VECTOR
-// columns and SAI indexes.
+// Store uses Core JSON and filter semantics, native vector codecs and scalar
+// similarities, and Cassandra's conditional deletion to protect observed rows.
 type Store struct {
-	session         *gocql.Session
-	keyspaceName    string
-	tableName       string
+	session         Session
 	fullTable       string
 	idColumn        string
 	contentColumn   string
 	embeddingColumn string
 	metadataColumn  string
-	metadataColumns []MetadataColumn
 	embeddingClient embeddingclient.Client
 	documentBatcher vectorstore.Batcher
 	dimensions      int
 	similarity      SimilarityFunction
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its keyspace table exists would fail on
-// the first index rather than at wiring, where the misconfiguration actually
-// is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	client, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("cassandra: create embedding client: %w", err)
+		return nil, err
 	}
-
-	store := &Store{
-		session:         config.Session,
-		keyspaceName:    config.KeyspaceName,
-		tableName:       config.TableName,
-		fullTable:       config.KeyspaceName + "." + config.TableName,
-		idColumn:        config.IDColumn,
-		contentColumn:   config.ContentColumn,
-		embeddingColumn: config.EmbeddingColumn,
-		metadataColumn:  config.MetadataColumn,
-		metadataColumns: slices.Clone(config.MetadataColumns),
-		embeddingClient: embeddingClient,
-		documentBatcher: config.DocumentBatcher,
-		dimensions:      config.Dimensions,
-		similarity:      config.Similarity,
+	store := &Store{session: config.Session, fullTable: quoteIdentifier(config.KeyspaceName) + "." + quoteIdentifier(config.TableName), idColumn: config.IDColumn, contentColumn: config.ContentColumn, embeddingColumn: config.EmbeddingColumn, metadataColumn: config.MetadataColumn, embeddingClient: client, documentBatcher: config.DocumentBatcher, similarity: config.Similarity}
+	if config.InitializeSchema {
+		statements := []string{
+			fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s", quoteIdentifier(config.KeyspaceName), config.KeyspaceReplication),
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>)", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions),
+		}
+		for _, statement := range statements {
+			if err := store.session.Query(statement).ExecContext(ctx); err != nil {
+				return nil, fmt.Errorf("cassandra: create schema: %w", err)
+			}
+		}
 	}
-
-	if err = store.initialize(ctx, config.InitializeSchema, config.KeyspaceReplication); err != nil {
-		return nil, fmt.Errorf("cassandra: initialize store: %w", err)
+	if err := store.loadSchema(ctx, config.KeyspaceName, config.TableName); err != nil {
+		return nil, fmt.Errorf("cassandra: verify schema: %w", err)
 	}
 	return store, nil
 }
-
-// initialize provisions the schema when
-// requested.
-func (s *Store) initialize(ctx context.Context, initSchema bool, replication string) error {
-	if !initSchema {
-		return nil
+func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
+	iter := s.session.Query("SELECT * FROM " + s.fullTable + " LIMIT 1").IterContext(ctx)
+	columns := iter.Columns()
+	closeErr := iter.Close()
+	if closeErr != nil {
+		return closeErr
 	}
-	if s.dimensions <= 0 {
-		return errors.New("cassandra: Dimensions must be > 0")
+	if len(columns) != 4 {
+		return errors.New("cassandra: table must contain exactly four current document columns")
 	}
-
-	for _, stmt := range s.schemaStatements(replication) {
-		if err := s.session.Query(stmt).WithContext(ctx).Exec(); err != nil {
-			return fmt.Errorf("execute %q: %w", firstLine(stmt), err)
+	for _, column := range columns {
+		switch column.Name {
+		case s.idColumn, s.contentColumn, s.metadataColumn:
+			if column.TypeInfo.Type() != gocql.TypeVarchar && column.TypeInfo.Type() != gocql.TypeText {
+				return fmt.Errorf("cassandra: column %q must be text", column.Name)
+			}
+		case s.embeddingColumn:
+			nativeType, ok := column.TypeInfo.(gocql.VectorType)
+			if !ok || nativeType.SubType.Type() != gocql.TypeFloat || nativeType.Dimensions <= 0 {
+				return errors.New("cassandra: embedding must be vector<float,N>")
+			}
+			s.dimensions = nativeType.Dimensions
+		default:
+			return fmt.Errorf("cassandra: unexpected column %q", column.Name)
 		}
+	}
+	if s.dimensions == 0 {
+		return errors.New("cassandra: missing embedding column")
+	}
+	if err := s.verifyPrimaryKey(ctx, keyspace, table); err != nil {
+		return err
+	}
+	probe := make([]float32, s.dimensions)
+	probe[0] = 1
+	_, err := s.nativeSimilarity(ctx, probe, probe)
+	return err
+}
+func (s *Store) verifyPrimaryKey(ctx context.Context, keyspace, table string) (err error) {
+	iter := s.session.Query("SELECT column_name,kind FROM system_schema.columns WHERE keyspace_name=? AND table_name=?", keyspace, table).IterContext(ctx)
+	defer func() { err = errors.Join(err, iter.Close()) }()
+	var name, kind string
+	primaryKeys := 0
+	for iter.Scan(&name, &kind) {
+		if kind == "partition_key" || kind == "clustering" {
+			if name != s.idColumn || kind != "partition_key" {
+				return errors.New("cassandra: document ID must be the sole primary key")
+			}
+			primaryKeys++
+		}
+	}
+	if primaryKeys != 1 {
+		return errors.New("cassandra: document ID must be the sole primary key")
 	}
 	return nil
 }
 
-// schemaStatements is the schema this store generates, named so the shape it
-// promises can be asserted without a session.
-func (s *Store) schemaStatements(replication string) []string {
-	stmts := []string{
-		fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s",
-			s.keyspaceName, replication),
-	}
-
-	var cols strings.Builder
-	cols.WriteString(s.idColumn)
-	cols.WriteString(" text PRIMARY KEY, ")
-	cols.WriteString(s.contentColumn)
-	cols.WriteString(" text, ")
-	cols.WriteString(s.embeddingColumn)
-	fmt.Fprintf(&cols, " vector<float, %d>", s.dimensions)
-	cols.WriteString(", ")
-	cols.WriteString(s.metadataColumn)
-	cols.WriteString(" text")
-	for _, m := range s.metadataColumns {
-		cols.WriteString(", ")
-		cols.WriteString(m.Name)
-		cols.WriteString(" ")
-		cols.WriteString(m.CQLType)
-	}
-	stmts = append(stmts, fmt.Sprintf(
-		"CREATE TABLE IF NOT EXISTS %s (%s)",
-		s.fullTable, cols.String(),
-	))
-
-	// Vector SAI index for ANN search.
-	stmts = append(stmts, fmt.Sprintf(
-		"CREATE CUSTOM INDEX IF NOT EXISTS %s_vec_idx ON %s (%s) USING 'StorageAttachedIndex' "+
-			"WITH OPTIONS = {'similarity_function': '%s'}",
-		s.tableName, s.fullTable, s.embeddingColumn, s.similarity,
-	))
-
-	// SAI index per metadata column so the visitor's WHERE
-	// predicates can run without ALLOW FILTERING.
-	for _, m := range s.metadataColumns {
-		stmts = append(stmts, fmt.Sprintf(
-			"CREATE CUSTOM INDEX IF NOT EXISTS %s_%s_idx ON %s (%s) USING 'StorageAttachedIndex'",
-			s.tableName, m.Name, s.fullTable, m.Name,
-		))
-	}
-
-	return stmts
+// storedRecord is the captured native row, including the exact metadata string
+// used by CAS. Re-encoding that string would change the conditional write token.
+type storedRecord struct {
+	id       string
+	content  string
+	metadata string
+	vector   []float32
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i > 0 {
-		return s[:i]
+func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord, error) {
+	encoded, err := doc.Metadata.MarshalJSON()
+	if err != nil {
+		return storedRecord{}, err
 	}
-	return s
+	narrowed := embedding.Float32Vector(vector)
+	if err := validateStoredVector(narrowed); err != nil {
+		return storedRecord{}, err
+	}
+	return storedRecord{id: doc.ID, content: doc.Text, metadata: string(encoded), vector: narrowed}, nil
+}
+func decodeStoredRecord(record storedRecord) (*document.Document, error) {
+	var facts metadata.Map
+	if err := facts.UnmarshalJSON([]byte(record.metadata)); err != nil {
+		return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", record.id, err)
+	}
+	doc := &document.Document{ID: record.id, Text: record.content, Metadata: facts}
+	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+		return nil, err
+	}
+	if err := validateStoredVector(record.vector); err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+func validateStoredVector(vector []float32) error {
+	projected := make([]float64, len(vector))
+	for i, value := range vector {
+		projected[i] = float64(value)
+	}
+	return (&embedding.Output{Embedding: projected}).Validate()
 }
 
-// Index embeds documents and inserts them.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("cassandra.Store.Index: %w", validateErr)
+type storedCandidate struct {
+	record   storedRecord
+	document *document.Document
+}
+type rankedResult struct {
+	result           *vectorstore.SearchResult
+	nativeSimilarity float64
+}
+
+func (s *Store) nativeSimilarity(ctx context.Context, left, right []float32) (float64, error) {
+	query := fmt.Sprintf("SELECT similarity_%s((vector<float,%d>)?, (vector<float,%d>)?) FROM system.local WHERE key='local'", s.similarity, s.dimensions, s.dimensions)
+	var value float32
+	if err := s.session.Query(query, left, right).ScanContext(ctx, &value); err != nil {
+		return 0, fmt.Errorf("cassandra: native similarity: %w", err)
 	}
-	for index, doc := range request.Documents {
+	raw := float64(value)
+	if _, err := s.similarity.score(raw); err != nil {
+		return 0, err
+	}
+	return raw, nil
+}
+func (s *Store) validateNativeVector(ctx context.Context, vector []float32) error {
+	// Cosine rejects zero vectors. For dot product, self-similarity can overflow
+	// despite finite components, so a zero operand validates the vector instead.
+	right := make([]float32, s.dimensions)
+	if s.similarity == SimilarityCosine {
+		right = vector
+	}
+	_, err := s.nativeSimilarity(ctx, vector, right)
+	return err
+}
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return fmt.Errorf("cassandra: index: %w", err)
+	}
+	for i, doc := range request.Documents {
 		if doc.Media != nil {
-			return fmt.Errorf("cassandra.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+			return fmt.Errorf("cassandra: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
 		}
 	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return fmt.Errorf("cassandra: batch documents: %w", err)
+	batches, batchErr := request.Batch(ctx, s.documentBatcher)
+	if batchErr != nil {
+		return batchErr
 	}
-
+	records := make([]storedRecord, 0, len(request.Documents))
 	for _, batch := range batches {
-		docs := batch.Documents
 		texts, err := batch.Texts()
 		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+			return err
 		}
 		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
 		if err != nil {
 			return fmt.Errorf("cassandra: embed documents: %w", err)
 		}
-
-		for i, doc := range docs {
-			if err := s.insertOne(ctx, doc.ID, doc, vectors[i]); err != nil {
+		for i, doc := range batch.Documents {
+			record, err := encodeStoredRecord(doc, vectors[i])
+			if err != nil {
 				return err
 			}
+			records = append(records, record)
+		}
+	}
+	for _, record := range records {
+		if err := s.validateNativeVector(ctx, record.vector); err != nil {
+			return err
+		}
+	}
+	query := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?)", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
+	for _, record := range records {
+		if err := s.session.Query(query, record.id, record.content, record.metadata, record.vector).ExecContext(ctx); err != nil {
+			return fmt.Errorf("cassandra: index %q: %w", record.id, err)
 		}
 	}
 	return nil
 }
-
-// insertOne issues an UPSERT (INSERT in Cassandra always upserts on
-// primary key). The vector is inlined as a CQL literal because the
-// gocql v1.x driver doesn't support typed vector binding.
-func (s *Store) insertOne(ctx context.Context, id string, doc *document.Document, vec []float64) error {
-	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vec))
-	if err != nil {
-		return fmt.Errorf("cassandra: marshal vector for %s: %w", id, err)
-	}
-	metadataJSON, err := jsonv2.Marshal(doc.Metadata)
-	if err != nil {
-		return fmt.Errorf("cassandra: marshal metadata for %s: %w", id, err)
-	}
-	columns := []string{s.idColumn, s.contentColumn, s.embeddingColumn, s.metadataColumn}
-	placeholders := []string{"?", "?", string(vectorJSON), "?"}
-	args := []any{id, doc.Text, string(metadataJSON)}
-
-	// The typed columns are the filterable projection. The record above is what
-	// a search reads back, so a key without a declared column is no longer lost.
-	for _, m := range s.metadataColumns {
-		val, _, err := doc.Metadata.Decode[any](m.Name)
+func (s *Store) selectCandidates(ctx context.Context, predicate filter.Predicate) (selected []storedCandidate, err error) {
+	query := fmt.Sprintf("SELECT %s,%s,%s,%s FROM %s", quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), s.fullTable)
+	iter := s.session.Query(query).IterContext(ctx)
+	defer func() {
+		err = errors.Join(err, iter.Close())
 		if err != nil {
-			return fmt.Errorf("cassandra: decode metadata %s: %w", m.Name, err)
+			selected = nil
 		}
-		columns = append(columns, m.Name)
-		placeholders = append(placeholders, "?")
-		args = append(args, val)
+	}()
+	for {
+		var record storedRecord
+		if !iter.Scan(&record.id, &record.content, &record.metadata, &record.vector) {
+			break
+		}
+		doc, decodeErr := decodeStoredRecord(record)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if vectorErr := s.validateNativeVector(ctx, record.vector); vectorErr != nil {
+			return nil, vectorErr
+		}
+		if predicate != nil {
+			values, valueErr := doc.Metadata.Values()
+			if valueErr != nil {
+				return nil, valueErr
+			}
+			match, matchErr := filter.Match(predicate, values)
+			if matchErr != nil {
+				return nil, fmt.Errorf("cassandra: filter document %q: %w", doc.ID, matchErr)
+			}
+			if !match {
+				continue
+			}
+		}
+		selected = append(selected, storedCandidate{record: record, document: doc})
 	}
-
-	stmt := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
-		s.fullTable, strings.Join(columns, ", "), strings.Join(placeholders, ", "),
-	)
-	if err := s.session.Query(stmt, args...).WithContext(ctx).Exec(); err != nil {
-		return fmt.Errorf("cassandra: insert %s: %w", id, err)
-	}
-	return nil
+	return selected, nil
 }
-
-// Search runs an ANN query using the configured similarity function.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("cassandra.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("cassandra.Store.Search: %w", err)
+		return nil, err
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
-	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
+	candidates, err := s.selectCandidates(ctx, request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
-
+	if len(candidates) == 0 {
+		return &vectorstore.SearchResponse{}, nil
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
-		return nil, fmt.Errorf("cassandra: embed query: %w", err)
+		return nil, err
 	}
-	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vector))
-	if err != nil {
-		return nil, fmt.Errorf("cassandra: marshal query vector: %w", err)
+	queryVector := embedding.Float32Vector(vector)
+	if err = validateStoredVector(queryVector); err != nil {
+		return nil, err
 	}
-	vecLiteral := string(vectorJSON)
-
-	wherePart := ""
-	if wherePredicate != "" {
-		wherePart = " WHERE " + wherePredicate
-	}
-
-	stmt := fmt.Sprintf(
-		"SELECT %s FROM %s%s ORDER BY %s ANN OF %s LIMIT %d",
-		strings.Join(s.selectColumns(vecLiteral), ", "), s.fullTable, wherePart,
-		s.embeddingColumn, vecLiteral, request.Options.ResultLimit(),
-	)
-
-	iterator := queryIterator{value: s.session.Query(stmt, whereArgs...).WithContext(ctx).Iter()}
-	defer func() {
-		if closeErr := iterator.close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("cassandra: close query iterator for %s: %w", s.fullTable, closeErr))
+	ranked := make([]rankedResult, 0, len(candidates))
+	for _, candidate := range candidates {
+		raw, scoreErr := s.nativeSimilarity(ctx, candidate.record.vector, queryVector)
+		if scoreErr != nil {
+			return nil, scoreErr
 		}
-	}()
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
-	scanDestinations := s.scanDestinations()
-	for iterator.scan(scanDestinations...) {
-		match, err := s.searchResultFromScan(scanDestinations, request.Options.MinScore)
-		if err != nil {
-			return nil, err
+		score, scoreErr := s.similarity.score(raw)
+		if scoreErr != nil {
+			return nil, scoreErr
 		}
-		if match == nil {
-			continue
+		result, resultErr := vectorstore.NewSearchResult(candidate.document, score)
+		if resultErr != nil {
+			return nil, resultErr
 		}
-		docs = append(docs, match)
-	}
-	if closeErr := iterator.close(); closeErr != nil {
-		return nil, fmt.Errorf("cassandra: close query iterator for %s: %w", s.fullTable, closeErr)
-	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
-}
-
-type queryIterator struct {
-	value  *gocql.Iter
-	closed bool
-}
-
-const (
-	scanDocumentIDIndex = iota
-	scanContentIndex
-	scanScoreIndex
-	scanMetadataIndex
-)
-
-func (q *queryIterator) scan(destinations ...any) bool {
-	return !q.closed && q.value.Scan(destinations...)
-}
-
-func (q *queryIterator) close() error {
-	if q.closed {
-		return nil
-	}
-	q.closed = true
-	return q.value.Close()
-}
-
-// selectColumns is everything a search result is read from, in the order
-// scanDestinations expects. The typed metadata columns are absent on purpose:
-// they exist so a filter can select on them, and the record column is what a
-// result reads its metadata back from.
-func (s *Store) selectColumns(vecLiteral string) []string {
-	return []string{
-		s.idColumn,
-		s.contentColumn,
-		fmt.Sprintf("similarity_%s(%s, %s) AS score", s.similarity, s.embeddingColumn, vecLiteral),
-		s.metadataColumn,
-	}
-}
-
-// gocql.Scan needs one pointer for every selected column.
-func (s *Store) scanDestinations() []any {
-	return []any{new(string), new(string), new(float32), new(string)}
-}
-
-func (s *Store) searchResultFromScan(destinations []any, minScore vectorstore.Score) (*vectorstore.SearchResult, error) {
-	id := *destinations[scanDocumentIDIndex].(*string)
-	text := *destinations[scanContentIndex].(*string)
-	score := vectorstore.ScoreFromValue(float64(*destinations[scanScoreIndex].(*float32)))
-	if score < minScore {
-		return nil, nil
-	}
-	if id == "" {
-		return nil, errors.New("cassandra: search result is missing document ID")
-	}
-	if text == "" {
-		return nil, errors.New("cassandra: search result is missing document text")
-	}
-
-	doc := &document.Document{ID: id, Text: text}
-	// Metadata comes from the record rather than from the typed columns. CQL
-	// reaches a key only as a declared column, so reading the projection back
-	// returned a document without every key that had no column — including the
-	// keys this store had itself refused to write.
-	if raw := *destinations[scanMetadataIndex].(*string); raw != "" {
-		if err := jsonv2.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
-			return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", id, err)
+		if score >= request.Options.MinScore {
+			ranked = append(ranked, rankedResult{result: result, nativeSimilarity: raw})
 		}
 	}
-	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
+	slices.SortFunc(ranked, func(left, right rankedResult) int {
+		if order := cmp.Compare(right.nativeSimilarity, left.nativeSimilarity); order != 0 {
+			return order
+		}
+		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+	})
+	limit := min(len(ranked), request.Options.ResultLimit())
+	results := make([]*vectorstore.SearchResult, limit)
+	for i := range results {
+		results[i] = ranked[i].result
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
 }
-
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("cassandra.Store.DeleteWhere: %w", err)
+	if err := predicate.Validate(); err != nil {
+		return err
 	}
-
-	clause, args, err := s.buildFilter(predicate)
+	candidates, err := s.selectCandidates(ctx, predicate)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("cassandra: refusing to delete on empty filter")
-	}
-
-	selectStmt := fmt.Sprintf("SELECT %s FROM %s WHERE %s", s.idColumn, s.fullTable, clause)
-	iterator := queryIterator{value: s.session.Query(selectStmt, args...).WithContext(ctx).Iter()}
-	defer func() {
-		if closeErr := iterator.close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("cassandra: close ID iterator: %w", closeErr))
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s=? IF %s=? AND %s=? AND %s=?", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
+	for _, candidate := range candidates {
+		record := candidate.record
+		applied, casErr := s.session.Query(query, record.id, record.content, record.metadata, record.vector).MapScanCASContext(ctx, map[string]any{})
+		if casErr != nil {
+			return fmt.Errorf("cassandra: delete %q: %w", record.id, casErr)
 		}
-	}()
-
-	var ids []string
-	var id string
-	for iterator.scan(&id) {
-		ids = append(ids, id)
-	}
-	if closeErr := iterator.close(); closeErr != nil {
-		return fmt.Errorf("cassandra: close ID iterator: %w", closeErr)
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-
-	deleteStmt := fmt.Sprintf("DELETE FROM %s WHERE %s = ?", s.fullTable, s.idColumn)
-	for _, id := range ids {
-		if err := s.session.Query(deleteStmt, id).WithContext(ctx).Exec(); err != nil {
-			return fmt.Errorf("cassandra: delete %s: %w", id, err)
+		if !applied {
+			return fmt.Errorf("cassandra: document %q changed during filter deletion", record.id)
 		}
 	}
 	return nil
 }
-
-// DeleteIDs removes rows by primary key. Because the id column is the
-// partition key, CQL allows a single DELETE with an IN list over it:
-// `DELETE FROM <table> WHERE <idCol> IN (?, ?, ...)`. An empty slice is a
-// no-op; unknown ids are silently ignored (idempotent). Implements
-// [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-
-	stmt := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s IN (%s)",
-		s.fullTable, s.idColumn, strings.Join(placeholders, ", "),
-	)
-	if err = s.session.Query(stmt, args...).WithContext(ctx).Exec(); err != nil {
-		return fmt.Errorf("cassandra: delete by ids from %s: %w", s.fullTable, err)
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s IN ?", s.fullTable, quoteIdentifier(s.idColumn))
+	if err := s.session.Query(query, ids).ExecContext(ctx); err != nil {
+		return fmt.Errorf("cassandra: delete IDs: %w", err)
 	}
 	return nil
-}
-
-func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
-	}
-	v := newVisitor(s.metadataColumns)
-	if err := expr.Accept(v); err != nil {
-		return "", nil, fmt.Errorf("cassandra: convert filter: %w", err)
-	}
-	predicate, args := v.snapshot()
-	return predicate, args, nil
 }
