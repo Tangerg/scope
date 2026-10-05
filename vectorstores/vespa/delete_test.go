@@ -34,10 +34,13 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 			if _, exists := body["offset"]; exists {
 				t.Error("search request must restart from the first hit after deleting documents")
 			}
+			if body["yql"] != `select documentid, scope_metadata from document where ((scope_metadata_paths contains "[\"tenant\"]" and tenant contains "scope")) and scope_namespace contains "scope"` || body["presentation.summary"] != "default" {
+				t.Errorf("identity projection = %v", body)
+			}
 
 			children := make([]map[string]any, 0, len(remaining))
 			for _, id := range remaining {
-				children = append(children, map[string]any{"id": "id:scope:document::" + id, "fields": map[string]any{"doc_id": id}})
+				children = append(children, map[string]any{"id": "id:scope:document::" + id, "fields": map[string]any{"documentid": "id:scope:document::" + id, "scope_metadata": `{"tenant":"scope"}`}})
 			}
 			_ = jsonv2.MarshalWrite(writer, map[string]any{
 				"root": map[string]any{
@@ -70,7 +73,6 @@ func TestDeleteWhereRestartsSearchAfterMutation(t *testing.T) {
 		endpoint:   server.URL,
 		schemaName: "document",
 		namespace:  "scope",
-		idField:    "doc_id",
 		httpClient: server.Client(),
 	}
 	if err := store.DeleteWhere(t.Context(), predicate); err != nil {
@@ -111,10 +113,10 @@ func TestDeleteWhereRejectsForeignAndRepeatedHits(t *testing.T) {
 				if foreign {
 					namespace = "other"
 				}
-				fmt.Fprintf(writer, `{"root":{"coverage":{"coverage":100,"full":true},"children":[{"id":"id:%s:document::same","fields":{"doc_id":"same"}}]}}`, namespace)
+				fmt.Fprintf(writer, `{"root":{"coverage":{"coverage":100,"full":true},"children":[{"id":"id:%s:document::same","fields":{"documentid":"id:%s:document::same","scope_metadata":"{\"tenant\":\"scope\"}"}}]}}`, namespace, namespace)
 			}))
 			defer server.Close()
-			store := &Store{endpoint: server.URL, schemaName: "document", namespace: "scope", idField: "doc_id", httpClient: server.Client()}
+			store := &Store{endpoint: server.URL, schemaName: "document", namespace: "scope", httpClient: server.Client()}
 			err := store.DeleteWhere(t.Context(), filter.EQ("tenant", "scope"))
 			if err == nil {
 				t.Fatal("unsafe/repeated hit accepted")

@@ -29,7 +29,6 @@ func newQueryTestStore(t *testing.T, body string) *Store {
 		endpoint:   server.URL,
 		schemaName: "document",
 		namespace:  "scope",
-		idField:    "doc_id",
 		httpClient: server.Client(),
 	}
 }
@@ -115,10 +114,10 @@ func TestDeleteWhereRejectsDegradedEnumeration(t *testing.T) {
 func TestToDocumentPreservesLargeIntegerMetadata(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{namespace: "scope", schemaName: "document", contentField: "content", embeddingField: "embedding", idField: "doc_id"}
+	store := &Store{namespace: "scope", schemaName: "document", fields: schemaFields{content: "content", embedding: "embedding"}}
 	var fields metadata.Map
 	if err := jsonv2.Unmarshal(
-		[]byte(`{"doc_id":"one","content":"hello","embedding":[0.1],"ordinal":9007199254740993}`),
+		[]byte(`{"documentid":"id:scope:document::one","content":"hello","embedding":[0.1],"scope_metadata":"{\"ordinal\":9007199254740993}","ordinal":9007199254740993}`),
 		&fields,
 	); err != nil {
 		t.Fatal(err)

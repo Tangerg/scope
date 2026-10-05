@@ -1,8 +1,9 @@
 package vespa
 
 import (
-	"errors"
+	jsonv2 "encoding/json/v2"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -11,24 +12,14 @@ import (
 
 var _ filter.Visitor = (*visitor)(nil)
 
-// visitor transforms AST filter expressions into a Vespa YQL `where`
-// clause. The metadata fields must be declared in the Vespa schema
-// (sd file) — Vespa addresses them as flat top-level attributes.
-//
-// Output shape (when `metadataPrefix` is empty):
-//
-//	author == "Alice"        →  author contains "Alice"
-//	year >= 2020             →  year >= 2020
-//	tag IN ("a", "b")        →  tag in ("a", "b")
-//	NOT (year >= 2020)       →  !(year >= 2020)
 type visitor struct {
-	err            error
-	sql            strings.Builder
-	metadataPrefix string
+	err    error
+	sql    strings.Builder
+	fields schemaFields
 }
 
-func newVisitor(metadataPrefix string) *visitor {
-	return &visitor{metadataPrefix: metadataPrefix}
+func newVisitor(fields schemaFields) *visitor {
+	return &visitor{fields: fields}
 }
 
 func (v *visitor) snapshot() string {
@@ -47,18 +38,67 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 func (v *visitor) visit(expr filter.Expr) error {
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return node.Dispatch(filter.BinaryHandlers{
+		if node.Operator() == filter.OpNotEqual {
+			equality, err := node.Inverse()
+			if err != nil {
+				return err
+			}
+			return v.visit(filter.Not(equality))
+		}
+		atomic := !node.Operator().IsLogicalOperator() && !node.Operator().IsNullOperator()
+		if atomic {
+			presence, err := v.presence(node)
+			if err != nil {
+				return err
+			}
+			// Unset native fields have defaults such as false or an empty string.
+			// Presence is projected from Core metadata before any native coercion.
+			v.sql.WriteString("(" + presence + " and ")
+		}
+		if err := node.Dispatch(filter.BinaryHandlers{
 			Logical:    v.visitLogicalExpr,
 			Comparison: v.visitComparisonExpr,
 			In:         v.visitInExpr,
 			Has:        v.visitHasExpr,
 			Like:       v.visitLikeExpr,
-		})
+			NullTest:   v.visitNullTestExpr,
+		}); err != nil {
+			return err
+		}
+		if atomic {
+			v.sql.WriteByte(')')
+		}
+		return nil
 	case *filter.UnaryExpr:
 		return v.visitUnaryExpr(node)
 	default:
 		return fmt.Errorf("vespa: unsupported root expression %T", node)
 	}
+}
+
+func (v *visitor) presence(expr *filter.BinaryExpr) (string, error) {
+	keys, err := v.selectorKeys(expr)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := encodeMetadataPath(keys)
+	if err != nil {
+		return "", err
+	}
+	term, err := quoteYQLString(encoded)
+	if err != nil {
+		return "", err
+	}
+	return metadataPathsField + " contains " + term, nil
+}
+
+func (v *visitor) visitNullTestExpr(expr *filter.BinaryExpr) error {
+	presence, err := v.presence(expr)
+	if err != nil {
+		return err
+	}
+	v.sql.WriteString("!(" + presence + ")")
+	return nil
 }
 
 func (v *visitor) visitHasExpr(expr *filter.BinaryExpr) error {
@@ -118,29 +158,22 @@ func (v *visitor) visitComparisonExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
+	return v.writeComparison(field, expr.Operator(), lit)
+}
+
+func (v *visitor) writeComparison(field string, operator filter.Operator, lit *filter.Literal) error {
 	term, err := yqlLiteral(lit)
 	if err != nil {
 		return err
 	}
 
-	// String equality maps onto YQL `contains`; ordering / non-eq
-	// numeric ops use the standard relational operators.
-	if lit.IsString() && expr.Operator() == filter.OpEqual {
+	if lit.IsString() && operator == filter.OpEqual {
 		v.sql.WriteString(field)
 		v.sql.WriteString(" contains ")
 		v.sql.WriteString(term)
 		return nil
 	}
-	if lit.IsString() && expr.Operator() == filter.OpNotEqual {
-		v.sql.WriteString("!(")
-		v.sql.WriteString(field)
-		v.sql.WriteString(" contains ")
-		v.sql.WriteString(term)
-		v.sql.WriteString(")")
-		return nil
-	}
-
-	op, err := yqlOpFor(expr.Operator())
+	op, err := yqlOpFor(operator)
 	if err != nil {
 		return err
 	}
@@ -157,84 +190,71 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 	if err != nil {
 		return err
 	}
-	listLit, ok := expr.Right().(*filter.ListLiteral)
-	if !ok {
-		return errors.New("vespa: 'IN' requires a list on the right")
+	literals, err := expr.List()
+	if err != nil {
+		return err
 	}
-	if listLit.Len() == 0 {
-		return errors.New("vespa: 'IN' requires a non-empty list")
-	}
-	parts := make([]string, 0, listLit.Len())
-	for _, lit := range listLit.Literals() {
-		term, err := yqlLiteral(lit)
-		if err != nil {
+	// Native IN coerces numeric members to integers and excludes bool fields.
+	// Core membership is a disjunction of the same scalar equality it owns.
+	v.sql.WriteByte('(')
+	for index, literal := range literals.Literals() {
+		if index != 0 {
+			v.sql.WriteString(" or ")
+		}
+		if err := v.writeComparison(field, filter.OpEqual, literal); err != nil {
 			return err
 		}
-		parts = append(parts, term)
 	}
-	v.sql.WriteString(field)
-	v.sql.WriteString(" in (")
-	v.sql.WriteString(strings.Join(parts, ", "))
 	v.sql.WriteByte(')')
 	return nil
 }
 
-// visitLikeExpr maps SQL LIKE onto YQL `matches` (regex). `%` and
-// `_` translate to `.*` / `.` respectively.
 func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	field, err := v.fieldPath(expr)
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	pattern, err := expr.Pattern()
 	if err != nil {
 		return err
 	}
-	pattern, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("vespa: LIKE requires a string pattern, got %T", value)
-	}
-	var b strings.Builder
-	for _, r := range pattern {
-		switch r {
-		case '%':
-			b.WriteString(".*")
-		case '_':
-			b.WriteByte('.')
-		case '.', '+', '*', '?', '(', ')', '[', ']', '{', '}', '|', '^', '$', '\\':
-			b.WriteByte('\\')
-			b.WriteRune(r)
-		default:
-			b.WriteRune(r)
-		}
+	// Native regex matching searches substrings. Core matches the whole value,
+	// and its wildcards include newlines and count Unicode characters.
+	escaped := regexp.QuoteMeta(pattern)
+	wildcards := strings.NewReplacer("%", ".*", "_", ".").Replace(escaped)
+	term, err := quoteYQLString("(?s)^" + wildcards + "$")
+	if err != nil {
+		return err
 	}
 	v.sql.WriteString(field)
 	v.sql.WriteString(" matches ")
-	v.sql.WriteString(quoteYQLString(b.String()))
+	v.sql.WriteString(term)
 	return nil
 }
 
 func (v *visitor) fieldPath(expr *filter.BinaryExpr) (string, error) {
-	keys, err := expr.IdentifierPath()
+	keys, err := v.selectorKeys(expr)
 	if err != nil {
 		return "", err
 	}
-	if len(keys) == 0 {
-		return "", errors.New("vespa: empty key path")
+	return strings.Join(keys, "."), nil
+}
+
+func (v *visitor) selectorKeys(expr *filter.BinaryExpr) ([]string, error) {
+	keys, err := expr.IdentifierPath()
+	if err != nil {
+		return nil, err
 	}
-	joined := strings.Join(keys, ".")
-	if v.metadataPrefix == "" {
-		return joined, nil
+	if v.fields.reserved(keys[0]) {
+		return nil, fmt.Errorf("vespa: metadata key %q is reserved", keys[0])
 	}
-	return v.metadataPrefix + "." + joined, nil
+	return keys, nil
 }
 
 func yqlOpFor(kind filter.Operator) (string, error) {
 	switch kind {
 	case filter.OpEqual:
 		return "=", nil
-	case filter.OpNotEqual:
-		return "!=", nil
 	case filter.OpLess:
 		return "<", nil
 	case filter.OpLessEqual:
@@ -248,16 +268,8 @@ func yqlOpFor(kind filter.Operator) (string, error) {
 	}
 }
 
-// yqlLiteral renders a filter literal as a YQL term.
-//
-// It reads the literal rather than a scalar decoded out of it because the
-// literal owns the exact numeral and a scalar cannot carry it back. Deciding
-// integer-ness with float64(int64(value)) == value asked Go for an
-// out-of-range float-to-int conversion, which the spec leaves
-// implementation-defined: at 2^63 arm64 saturates to MaxInt64, whose float64
-// compares equal, so the term became 9223372036854775807 while amd64 emitted
-// the right digits. An integer past int64 had no branch at all and fell
-// through to a %v rendering nobody owned.
+// Native YQL parses integer tokens as signed 64-bit values. Core's literal owns
+// the exact numeral, so overflow is refused before I/O rather than rounded.
 func yqlLiteral(lit *filter.Literal) (string, error) {
 	switch {
 	case lit.IsString():
@@ -265,11 +277,16 @@ func yqlLiteral(lit *filter.Literal) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("vespa: %w (at %s)", err, lit.Start().String())
 		}
-		return quoteYQLString(text), nil
+		return quoteYQLString(text)
 	case lit.IsNumber():
 		text, err := lit.NumberText()
 		if err != nil {
 			return "", fmt.Errorf("vespa: %w (at %s)", err, lit.Start().String())
+		}
+		if !strings.ContainsRune(text, '.') {
+			if _, err := lit.AsInt64(); err != nil {
+				return "", fmt.Errorf("vespa: native integer literal %s: %w", text, err)
+			}
 		}
 		return text, nil
 	case lit.IsBool():
@@ -284,6 +301,10 @@ func yqlLiteral(lit *filter.Literal) (string, error) {
 	}
 }
 
-func quoteYQLString(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+func quoteYQLString(value string) (string, error) {
+	encoded, err := jsonv2.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("vespa: encode string literal: %w", err)
+	}
+	return string(encoded), nil
 }

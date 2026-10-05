@@ -10,13 +10,13 @@ import (
 )
 
 func TestIndexRejectsReservedMetadataBeforeBatching(t *testing.T) {
-	for _, field := range []string{"content", "embedding", "doc_id", "scope_namespace"} {
+	for _, field := range []string{"content", "embedding", "scope_namespace", "scope_metadata", "scope_metadata_paths", "documentid", "sddocname", "summaryfeatures", "matchfeatures"} {
 		t.Run(field, func(t *testing.T) {
 			attributes, err := metadata.FromValues(map[string]any{field: "overwrite"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			store := &Store{contentField: "content", embeddingField: "embedding", idField: "doc_id"}
+			store := &Store{fields: schemaFields{content: "content", embedding: "embedding"}}
 			err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "first", Text: "safe"}, {ID: "second", Text: "safe", Metadata: attributes}}})
 			if err == nil || !strings.Contains(err.Error(), "reserved") {
 				t.Fatalf("reserved metadata error = %v", err)

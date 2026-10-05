@@ -36,9 +36,6 @@ const (
 	// vector tensor.
 	DefaultEmbeddingField = "embedding"
 
-	// DefaultIDField names the field used for the Scope document id.
-	DefaultIDField = "doc_id"
-
 	// DefaultQueryTensorName names the rank-profile query tensor.
 	DefaultQueryTensorName = "q"
 
@@ -70,11 +67,11 @@ type StoreConfig struct {
 	// schema name.
 	Namespace string
 
-	// EmbeddingField / ContentField / IDField name the well-known
-	// schema fields the store writes to. Optional defaults apply.
+	// EmbeddingField and ContentField name distinct schema fields that the
+	// store writes to. Neither may name a native summary field or scope_namespace.
+	// Optional defaults apply.
 	EmbeddingField string
 	ContentField   string
-	IDField        string
 
 	// QueryTensorName is the query tensor declared by RankingProfile. Optional:
 	// defaults to [DefaultQueryTensorName].
@@ -136,24 +133,13 @@ func (s StoreConfig) Validate() error {
 }
 
 func (s StoreConfig) validateIdentifiers() error {
-	for _, field := range []string{s.IDField, s.ContentField, s.EmbeddingField} {
-		if field == namespaceField {
-			return fmt.Errorf("vespa: field %q is reserved for namespace", field)
-		}
+	if err := (schemaFields{content: s.ContentField, embedding: s.EmbeddingField}).validate(); err != nil {
+		return err
 	}
 	if err := identifier(s.SchemaName).validate("SchemaName"); err != nil {
 		return err
 	}
 	if err := identifier(s.Namespace).validate("Namespace"); err != nil {
-		return err
-	}
-	if err := identifier(s.EmbeddingField).validate("EmbeddingField"); err != nil {
-		return err
-	}
-	if err := identifier(s.ContentField).validate("ContentField"); err != nil {
-		return err
-	}
-	if err := identifier(s.IDField).validate("IDField"); err != nil {
 		return err
 	}
 	if err := identifier(s.QueryTensorName).validate("QueryTensorName"); err != nil {
@@ -172,14 +158,13 @@ func (s *StoreConfig) applyDefaults() {
 	}
 	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
 	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
-	s.IDField = cmp.Or(s.IDField, DefaultIDField)
 	s.QueryTensorName = cmp.Or(s.QueryTensorName, DefaultQueryTensorName)
 	if s.HTTPClient == nil {
 		s.HTTPClient = http.DefaultClient
 	}
 }
 
-const namespaceField = "scope_namespace"
+const defaultSummary = "default"
 
 var (
 	_ vectorstore.Indexer       = (*Store)(nil)
@@ -192,9 +177,7 @@ type Store struct {
 	endpoint         string
 	schemaName       string
 	namespace        string
-	embeddingField   string
-	contentField     string
-	idField          string
+	fields           schemaFields
 	queryTensorName  string
 	rankingProfile   string
 	embeddingClient  embeddingclient.Client
@@ -226,9 +209,7 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 		endpoint:         strings.TrimRight(config.Endpoint, "/"),
 		schemaName:       config.SchemaName,
 		namespace:        config.Namespace,
-		embeddingField:   config.EmbeddingField,
-		contentField:     config.ContentField,
-		idField:          config.IDField,
+		fields:           schemaFields{content: config.ContentField, embedding: config.EmbeddingField},
 		queryTensorName:  config.QueryTensorName,
 		rankingProfile:   config.RankingProfile,
 		embeddingClient:  embeddingClient,
@@ -250,8 +231,8 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		}
 	}
 	for index, doc := range request.Documents {
-		for _, field := range []string{s.contentField, s.embeddingField, s.idField, namespaceField} {
-			if _, exists := doc.Metadata[field]; exists {
+		for field := range doc.Metadata {
+			if s.fields.reserved(field) {
 				return fmt.Errorf("vespa: documents[%d] metadata key %q is reserved", index, field)
 			}
 		}
@@ -275,11 +256,18 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		}
 		for i, doc := range docs {
 			id := doc.ID
+			storedMetadata, paths, err := projectMetadata(doc.Metadata)
+			if err != nil {
+				return err
+			}
+			// Filter attributes and presence paths are projections of the same
+			// metadata, published atomically with its authoritative JSON value.
 			fields := map[string]any{
-				s.idField:        id,
-				namespaceField:   s.namespace,
-				s.contentField:   doc.Text,
-				s.embeddingField: map[string]any{"values": embedding.Float32Vector(vectors[i])},
+				namespaceField:     s.namespace,
+				metadataField:      storedMetadata,
+				metadataPathsField: paths,
+				s.fields.content:   doc.Text,
+				s.fields.embedding: map[string]any{"values": embedding.Float32Vector(vectors[i])},
 			}
 			for k, v := range doc.Metadata {
 				fields[k] = v
@@ -311,31 +299,31 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		}
 	}()
 
+	filterFragment, err := s.buildFilter(request.Options.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if limit := request.Options.ResultLimit(); limit > s.maxHits {
+		return nil, fmt.Errorf("vespa: TopK %d exceeds this application's maxHits of %d, which Vespa applies by trimming the result rather than reporting it",
+			limit, s.maxHits)
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("vespa: embed query: %w", err)
 	}
 	queryVec := embedding.Float32Vector(vector)
 
-	filterFragment, err := s.buildFilter(request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-
 	nn := fmt.Sprintf("{targetHits:%d}nearestNeighbor(%s, %s)",
-		request.Options.ResultLimit(), s.embeddingField, s.queryTensorName)
+		request.Options.ResultLimit(), s.fields.embedding, s.queryTensorName)
 	yql := fmt.Sprintf("select * from %s where %s and %s contains %s", s.schemaName, nn, namespaceField, strconv.Quote(s.namespace))
 	if filterFragment != "" {
 		yql = yql + " and " + filterFragment
 	}
 
-	if limit := request.Options.ResultLimit(); limit > s.maxHits {
-		return nil, fmt.Errorf("vespa: TopK %d exceeds this application's maxHits of %d, which Vespa applies by trimming the result rather than reporting it",
-			limit, s.maxHits)
-	}
 	body := map[string]any{
-		"yql":  yql,
-		"hits": request.Options.ResultLimit(),
+		"yql":                  yql,
+		"hits":                 request.Options.ResultLimit(),
+		"presentation.summary": defaultSummary,
 		fmt.Sprintf("input.query(%s)", s.queryTensorName): map[string]any{"values": queryVec},
 		"ranking": s.rankingProfile,
 	}
@@ -383,11 +371,12 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 
 	deleted := make(map[string]struct{})
 	for {
-		yql := fmt.Sprintf("select %s from %s where (%s) and %s contains %s",
-			s.idField, s.schemaName, filterFragment, namespaceField, strconv.Quote(s.namespace))
+		yql := fmt.Sprintf("select %s, %s from %s where (%s) and %s contains %s",
+			nativeIDField, metadataField, s.schemaName, filterFragment, namespaceField, strconv.Quote(s.namespace))
 		body := map[string]any{
-			"yql":  yql,
-			"hits": s.maxHits,
+			"yql":                  yql,
+			"hits":                 s.maxHits,
+			"presentation.summary": defaultSummary,
 		}
 		hits, err := s.query(ctx, body)
 		if err != nil {
@@ -400,6 +389,9 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 		for index, hit := range hits {
 			id, err := s.documentID(hit.ID)
 			if err != nil {
+				return err
+			}
+			if _, err := s.readMetadata(id, hit.Fields); err != nil {
 				return err
 			}
 			if _, repeated := deleted[id]; repeated {
@@ -496,7 +488,7 @@ func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
 	if expr == nil {
 		return "", nil
 	}
-	v := newVisitor("")
+	v := newVisitor(s.fields)
 	if err := expr.Accept(v); err != nil {
 		return "", fmt.Errorf("vespa: convert filter: %w", err)
 	}
@@ -509,29 +501,45 @@ func (s *Store) toDocument(rawID string, fields metadata.Map) (*document.Documen
 		return nil, err
 	}
 	doc := &document.Document{ID: id}
-	text, present, err := fields.Decode[string](s.contentField)
+	text, present, err := fields.Decode[string](s.fields.content)
 	if err != nil {
-		return nil, fmt.Errorf("vespa: decode field %q: %w", s.contentField, err)
+		return nil, fmt.Errorf("vespa: decode field %q: %w", s.fields.content, err)
 	}
 	if !present || text == "" {
-		return nil, fmt.Errorf("vespa: document %q is missing string field %q", doc.ID, s.contentField)
+		return nil, fmt.Errorf("vespa: document %q is missing string field %q", doc.ID, s.fields.content)
 	}
 	doc.Text = text
-
-	// Carry the remaining fields as raw JSON so a stored integer beyond the
-	// exact float64 range reaches the caller unchanged.
-	meta := make(metadata.Map, len(fields))
-	for key, value := range fields {
-		switch key {
-		case s.idField, s.contentField, s.embeddingField, namespaceField:
-			continue
-		}
-		meta[key] = value
+	meta, err := s.readMetadata(id, fields)
+	if err != nil {
+		return nil, err
 	}
 	if len(meta) > 0 {
 		doc.Metadata = meta
 	}
 	return doc, nil
+}
+
+func (s *Store) readMetadata(id string, fields metadata.Map) (metadata.Map, error) {
+	storedMetadata, present, err := fields.Decode[string](metadataField)
+	if err != nil {
+		return nil, fmt.Errorf("vespa: decode field %q: %w", metadataField, err)
+	}
+	if !present {
+		return nil, fmt.Errorf("vespa: document %q is missing field %q", id, metadataField)
+	}
+	var meta metadata.Map
+	if err := jsonv2.Unmarshal([]byte(storedMetadata), &meta); err != nil {
+		return nil, fmt.Errorf("vespa: decode stored metadata: %w", err)
+	}
+	if meta == nil {
+		return nil, fmt.Errorf("vespa: document %q metadata must be an object", id)
+	}
+	for key := range meta {
+		if s.fields.reserved(key) {
+			return nil, fmt.Errorf("vespa: stored metadata key %q is reserved", key)
+		}
+	}
+	return meta, nil
 }
 
 func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, error) {
