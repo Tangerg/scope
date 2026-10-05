@@ -8,9 +8,6 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type visibilityBatcher struct{}
@@ -37,31 +34,7 @@ func TestWriteRequestsWaitForApplication(t *testing.T) {
 		request := store.buildDeletePoints(qdrant.NewPointsSelector(qdrant.NewIDNum(1)))
 		assertWaits(t, request.Wait)
 	})
-	t.Run("upsert", func(t *testing.T) {
-		client, err := embeddingclient.New(embedding.ModelFunc(
-			func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				outputs := make([]*embedding.Output, len(request.Texts))
-				for index := range outputs {
-					outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-				}
-				return embedding.NewResponse(outputs, nil)
-			}))
-		if err != nil {
-			t.Fatal(err)
-		}
-		upserting := &Store{
-			collectionName:  "documents",
-			embeddingClient: client,
-			documentBatcher: visibilityBatcher{},
-		}
-		request, err := upserting.buildUpsertPoints(t.Context(), &vectorstore.IndexRequest{
-			Documents: []*document.Document{{ID: "1", Text: "first"}},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertWaits(t, request.Wait)
-	})
+
 }
 
 // Asking to wait is only half of it: the answer used to be discarded, so a

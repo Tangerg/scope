@@ -3,171 +3,18 @@ package qdrant
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	stdmath "math"
+	"maps"
 	"slices"
-	"strconv"
+	"strings"
 
-	"github.com/google/uuid"
-	"github.com/qdrant/go-client/qdrant"
+	qdrantclient "github.com/qdrant/go-client/qdrant"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
-
-// Provider is the stable backend name for host-side attribution.
-const (
-	Provider = "Qdrant"
-)
-
-// DistanceMetric identifies the metric configured on the Qdrant collection.
-// It is required because Qdrant score direction and threshold semantics depend
-// on the collection metric.
-type DistanceMetric string
-
-// The metric is a closed vocabulary because score direction and threshold
-// semantics depend on it: the same raw number means "near" under one metric and
-// "far" under another, so an unrecognized value must be rejected rather than
-// guessed.
-const (
-	DistanceCosine    DistanceMetric = "cosine"
-	DistanceDot       DistanceMetric = "dot"
-	DistanceEuclid    DistanceMetric = "euclid"
-	DistanceManhattan DistanceMetric = "manhattan"
-)
-
-func (d DistanceMetric) Valid() bool {
-	switch d {
-	case DistanceCosine, DistanceDot, DistanceEuclid, DistanceManhattan:
-		return true
-	default:
-		return false
-	}
-}
-
-func (d DistanceMetric) String() string { return string(d) }
-
-func (d DistanceMetric) qdrant() (qdrant.Distance, error) {
-	switch d {
-	case DistanceCosine:
-		return qdrant.Distance_Cosine, nil
-	case DistanceDot:
-		return qdrant.Distance_Dot, nil
-	case DistanceEuclid:
-		return qdrant.Distance_Euclid, nil
-	case DistanceManhattan:
-		return qdrant.Distance_Manhattan, nil
-	default:
-		return qdrant.Distance_UnknownDistance, fmt.Errorf("%w, got %q", ErrInvalidDistanceMetric, d)
-	}
-}
-
-func (d DistanceMetric) score(raw float64) vectorstore.Score {
-	switch d {
-	case DistanceDot:
-		return vectorstore.ScoreFromInnerProduct(raw)
-	case DistanceEuclid, DistanceManhattan:
-		return vectorstore.ScoreFromDistance(raw)
-	case DistanceCosine:
-		fallthrough
-	default:
-		return vectorstore.ScoreFromCosineSimilarity(raw)
-	}
-}
-
-// rawScoreThreshold converts Scope's normalized minimum score back into the
-// collection metric. Qdrant interprets thresholds according to metric
-// direction, so Euclidean and Manhattan correctly use a maximum distance.
-func (d DistanceMetric) rawScoreThreshold(minScore vectorstore.Score) (float64, bool) {
-	value := minScore.Float64()
-	if value <= vectorstore.MinRelevanceScore {
-		return 0, false
-	}
-
-	switch d {
-	case DistanceDot:
-		if value >= vectorstore.MaxRelevanceScore {
-			return stdmath.MaxFloat32, true
-		}
-		return stdmath.Log(value / (1 - value)), true
-	case DistanceEuclid, DistanceManhattan:
-		return 1/value - 1, true
-	case DistanceCosine:
-		fallthrough
-	default:
-		return 2*value - 1, true
-	}
-}
-
-const (
-	// payloadDocumentContentKey is the payload key for saving document content
-	payloadDocumentContentKey = "scope:ai:vectorstore:qdrant:payload_document_content"
-	filterPageSize            = 256
-)
-
-// StoreConfig contains configuration options for Qdrant vector store.
-type StoreConfig struct {
-	// Client is the Qdrant client instance for communicating with Qdrant server.
-	// Required: must be provided, otherwise initialization will fail.
-	Client *qdrant.Client
-
-	// CollectionName is the name of the collection to use for storing vectors.
-	// Required: must be a non-empty string.
-	CollectionName string
-
-	// DistanceMetric must match the collection's unnamed dense-vector metric.
-	// When InitializeSchema is true and the collection does not exist, this
-	// metric is used to create it.
-	DistanceMetric DistanceMetric
-
-	// Dimensions is the expected vector width. Zero accepts the width of an
-	// existing collection; creating a collection requires a positive value.
-	// Construction never invokes the embedding model.
-	Dimensions int
-
-	// InitializeSchema indicates whether to automatically create the collection
-	// if it does not exist. When set to true, the collection will be created
-	// with the configured Dimensions and DistanceMetric.
-	// Optional: defaults to false.
-	InitializeSchema bool
-
-	// EmbeddingModel is the model used to generate vector embeddings from text.
-	// Required: must be provided for indexing and search.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher is responsible for batching documents before insertion.
-	// This helps optimize bulk operations and embedding generation.
-	// Required: must be provided to handle document batching logic.
-	DocumentBatcher vectorstore.Batcher
-}
-
-func (s StoreConfig) Validate() error {
-	if s.Client == nil {
-		return ErrMissingClient
-	}
-	if s.CollectionName == "" {
-		return ErrMissingCollectionName
-	}
-	if _, err := s.DistanceMetric.qdrant(); err != nil {
-		return err
-	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return ErrMissingEmbeddingModel
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return ErrMissingDocumentBatcher
-	}
-	if s.InitializeSchema && s.Dimensions <= 0 {
-		return fmt.Errorf("qdrant: Dimensions must be > 0 when InitializeSchema is enabled")
-	}
-	return nil
-}
 
 var (
 	_ vectorstore.Indexer       = (*Store)(nil)
@@ -176,593 +23,308 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements the Core vector-store capabilities against a Qdrant collection. The
-// distance metric is held here because Qdrant's score direction and threshold
-// semantics depend on the metric the collection was created with.
 type Store struct {
-	client           *qdrant.Client
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
-	collectionName   string
-	distanceMetric   DistanceMetric
-	dimensions       int
-	initializeSchema bool
+	client          APIClient
+	embeddingClient embeddingclient.Client
+	documentBatcher vectorstore.Batcher
+	collectionName  string
+	schema          nativeSchema
 }
 
-// NewStore performs schema setup during construction, which is why it takes a
-// context: a store returned before its collection exists would fail on the
-// first index rather than at wiring, where the misconfiguration actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: create embedding client: %w", err)
-	}
-
-	store := &Store{
-		client:           config.Client,
-		embeddingClient:  embeddingClient,
-		documentBatcher:  config.DocumentBatcher,
-		collectionName:   config.CollectionName,
-		distanceMetric:   config.DistanceMetric,
-		dimensions:       config.Dimensions,
-		initializeSchema: config.InitializeSchema,
-	}
-
-	if err = store.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("qdrant: initialize vector store: %w", err)
-	}
-
-	return store, nil
-}
-
-// initialize confirms the collection agrees with this store's configuration,
-// and creates it when [StoreConfig.InitializeSchema] permits.
-//
-// The check is not conditional on that flag. InitializeSchema answers "may I
-// create a missing collection", which is a different question from "is the
-// collection I found the one I was configured for" — and the second question
-// matters most for a collection provisioned out of band, which is exactly the
-// case the flag turns off. Skipping it there left the configured metric
-// unverified, and a wrong metric returns scores that are wrong rather than
-// absent.
-func (s *Store) initialize(ctx context.Context) error {
-	exists, err := s.client.CollectionExists(ctx, s.collectionName)
-	if err != nil {
-		return fmt.Errorf("qdrant: check collection existence: %w", err)
-	}
-
-	distance, err := s.distanceMetric.qdrant()
-	if err != nil {
-		return err
-	}
-	if exists {
-		info, getCollectionInfoErr := s.client.GetCollectionInfo(ctx, s.collectionName)
-		if getCollectionInfoErr != nil {
-			return fmt.Errorf("qdrant: inspect existing collection %s: %w", s.collectionName, getCollectionInfoErr)
-		}
-		if getCollectionInfoErr = validateCollectionSchema(info, s.dimensions, distance); getCollectionInfoErr != nil {
-			return fmt.Errorf("qdrant: collection %s: %w", s.collectionName, getCollectionInfoErr)
-		}
-		return nil
-	}
-	if !s.initializeSchema {
-		return fmt.Errorf("%w: collection %s does not exist and InitializeSchema is disabled",
-			ErrIncompatibleCollection, s.collectionName)
-	}
-
-	err = s.client.CreateCollection(ctx, &qdrant.CreateCollection{
-		CollectionName: s.collectionName,
-		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-			Size:     uint64(s.dimensions),
-			Distance: distance,
-		}),
-	})
-	if err != nil {
-		return fmt.Errorf("qdrant: create collection %s: %w", s.collectionName, err)
-	}
-
-	return nil
-}
-
-// validateCollectionSchema compares a live collection against this store's
-// configuration. dimensions of zero means the caller declared none, which is
-// allowed when the collection is provisioned out of band; the metric is
-// checked either way, because it is the half that fails silently.
-func validateCollectionSchema(info *qdrant.CollectionInfo, dimensions int, distance qdrant.Distance) error {
-	if dimensions < 0 {
-		return fmt.Errorf("%w: embedding dimensions must not be negative, got %d", ErrIncompatibleCollection, dimensions)
-	}
-
-	vectors := info.GetConfig().GetParams().GetVectorsConfig()
-	params := vectors.GetParams()
-	if params == nil {
-		if vectors.GetParamsMap() != nil {
-			return fmt.Errorf("%w: named vectors are not supported", ErrIncompatibleCollection)
-		}
-		return fmt.Errorf("%w: unnamed dense-vector configuration is missing", ErrIncompatibleCollection)
-	}
-	if dimensions > 0 && params.GetSize() != uint64(dimensions) {
-		return fmt.Errorf("%w: vector dimensions are %d, embedding model produces %d",
-			ErrIncompatibleCollection, params.GetSize(), dimensions)
-	}
-	if params.GetDistance() != distance {
-		return fmt.Errorf("%w: distance metric is %s, configured metric requires %s",
-			ErrIncompatibleCollection, params.GetDistance(), distance)
-	}
-	return nil
-}
-
-// buildDeletePoints waits for the deletion to be applied. Qdrant otherwise
-// acknowledges an update once it reaches the write-ahead log, which would let a
-// Search issued after a successful delete still return the removed points.
-func (s *Store) buildDeletePoints(selector *qdrant.PointsSelector) *qdrant.DeletePoints {
-	return &qdrant.DeletePoints{
-		CollectionName: s.collectionName,
-		Wait:           new(true),
-		Points:         selector,
-	}
-}
-
-func (s *Store) buildUpsertPoints(ctx context.Context, request *vectorstore.IndexRequest) (*qdrant.UpsertPoints, error) {
-	upsertPoints := &qdrant.UpsertPoints{
-		CollectionName: s.collectionName,
-		Wait:           new(true),
-	}
-
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: batch documents: %w", err)
-	}
-
-	for _, batch := range batches {
-		docs := batch.Documents
-		texts, err := batch.Texts()
-		if err != nil {
-			return nil, fmt.Errorf("qdrant: project document text: %w", err)
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return nil, fmt.Errorf("qdrant: embed documents: %w", err)
-		}
-
-		for i, doc := range docs {
-			point, err := s.buildPointStruct(doc, vectors[i])
-			if err != nil {
-				return nil, fmt.Errorf("qdrant: build point for document %s: %w", doc.ID, err)
-			}
-
-			upsertPoints.Points = append(upsertPoints.Points, point)
-		}
-	}
-
-	return upsertPoints, nil
-}
-
-func (s *Store) buildPointStruct(doc *document.Document, vector []float64) (*qdrant.PointStruct, error) {
-	id, err := parsePointID(doc.ID)
+	model, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
 		return nil, err
 	}
-
-	point := &qdrant.PointStruct{
-		Id:      id,
-		Vectors: qdrant.NewVectors(embedding.Float32Vector(vector)...),
-	}
-
-	metadataValues, err := doc.Metadata.Values()
+	collections, err := config.Client.ListCollections(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("qdrant: decode metadata: %w", err)
+		return nil, err
 	}
-	payload, err := payloadValues(metadataValues)
+	if !slices.Contains(collections, config.CollectionName) {
+		return nil, fmt.Errorf("%w: concrete collection is missing; aliases are not accepted", ErrIncompatibleCollection)
+	}
+	info, err := config.Client.GetCollectionInfo(ctx, config.CollectionName)
 	if err != nil {
-		return nil, fmt.Errorf("qdrant: convert metadata to payload: %w", err)
+		return nil, err
 	}
-	point.Payload = payload
-
-	contentValue, err := qdrant.NewValue(doc.Text)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: create content value: %w", err)
+	var schema nativeSchema
+	if err = schema.read(info); err != nil {
+		return nil, err
 	}
-	point.Payload[payloadDocumentContentKey] = contentValue
-
-	return point, nil
+	store := &Store{client: config.Client, embeddingClient: model, documentBatcher: config.DocumentBatcher, collectionName: config.CollectionName, schema: schema}
+	if _, err = store.selectMetadata(ctx, nil); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("qdrant.Store.Index: %w", validateErr)
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return err
 	}
-	for index, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("qdrant.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+	records := make(map[string]*qdrantclient.PointStruct, len(request.Documents))
+	for _, doc := range request.Documents {
+		point, err := encodeRecord(doc)
+		if err != nil {
+			return err
+		}
+		records[doc.ID] = point
+	}
+	batches, batchErr := request.Batch(ctx, s.documentBatcher)
+	if batchErr != nil {
+		return batchErr
+	}
+	prepared := &qdrantclient.UpsertPoints{CollectionName: s.collectionName, Wait: new(true)}
+	for _, batch := range batches {
+		texts, textErr := batch.Texts()
+		if textErr != nil {
+			return textErr
+		}
+		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
+		if err != nil {
+			return err
+		}
+		for i, doc := range batch.Documents {
+			vector, err := s.schema.vector(vectors[i])
+			if err != nil {
+				return err
+			}
+			point := records[doc.ID]
+			point.Vectors = qdrantclient.NewVectorsDense(vector)
+			prepared.Points = append(prepared.Points, point)
 		}
 	}
-	docs := request.Documents
-	for _, doc := range docs {
-		if _, parsePointIDErr := parsePointID(doc.ID); parsePointIDErr != nil {
-			return fmt.Errorf("qdrant.Store.Index: %w", parsePointIDErr)
-		}
-	}
-
-	var upsertPoints *qdrant.UpsertPoints
-	upsertPoints, err = s.buildUpsertPoints(ctx, request)
+	result, err := s.client.Upsert(ctx, prepared)
 	if err != nil {
 		return err
 	}
-
-	result, err := s.client.Upsert(ctx, upsertPoints)
-	if err != nil {
-		return fmt.Errorf("qdrant: upsert %d points to collection %s: %w",
-			len(upsertPoints.Points), s.collectionName, err)
-	}
-	if err = requireAppliedUpdate(result, "upsert"); err != nil {
-		return fmt.Errorf("qdrant: upsert %d points to collection %s: %w",
-			len(upsertPoints.Points), s.collectionName, err)
-	}
-
-	return nil
-}
-
-// requireAppliedUpdate reads the status of an update that asked to be awaited.
-//
-// Every write here sets Wait, so the only status that means the change is in
-// effect is Completed -- "update is applied and ready for search". The others
-// each describe a write that is not: Acknowledged is "received, but not
-// processed yet", WaitTimeout is a "timeout of awaited operations", and
-// ClockRejected means the update was "rejected due to an outdated clock". The
-// gRPC call succeeds in all four cases, so reading the call rather than the
-// status would report a change Qdrant has not made.
-func requireAppliedUpdate(result *qdrant.UpdateResult, operation string) error {
-	if result == nil {
-		return fmt.Errorf("%s returned no update result", operation)
-	}
-	if status := result.GetStatus(); status != qdrant.UpdateStatus_Completed {
-		return fmt.Errorf("%s reported status %s rather than %s, so the change is not in effect",
-			operation, status, qdrant.UpdateStatus_Completed)
-	}
-	return nil
-}
-
-func (s *Store) buildQueryPoints(ctx context.Context, req *vectorstore.SearchRequest) (*qdrant.QueryPoints, error) {
-	queryPoints := &qdrant.QueryPoints{
-		CollectionName: s.collectionName,
-		Limit:          new(uint64(req.Options.ResultLimit())),
-		WithPayload:    qdrant.NewWithPayload(true),
-	}
-	if threshold, ok := s.distanceMetric.rawScoreThreshold(req.Options.MinScore); ok {
-		threshold32 := float32(max(-stdmath.MaxFloat32, min(stdmath.MaxFloat32, threshold)))
-		queryPoints.ScoreThreshold = &threshold32
-	}
-
-	vector, err := s.embeddingClient.EmbedText(ctx, req.Query)
-	if err != nil {
-		return nil, fmt.Errorf("qdrant: embed query: %w", err)
-	}
-
-	queryPoints.Query = qdrant.NewQuery(embedding.Float32Vector(vector)...)
-
-	return queryPoints, nil
-}
-
-func (s *Store) convertQdrantValue(value *qdrant.Value) any {
-	if value == nil {
-		return nil
-	}
-
-	switch kind := value.Kind.(type) {
-	case *qdrant.Value_DoubleValue:
-		return kind.DoubleValue
-	case *qdrant.Value_IntegerValue:
-		return kind.IntegerValue
-	case *qdrant.Value_StringValue:
-		return kind.StringValue
-	case *qdrant.Value_BoolValue:
-		return kind.BoolValue
-	case *qdrant.Value_NullValue:
-		return nil
-	case *qdrant.Value_StructValue:
-		return s.convertQdrantStruct(kind.StructValue)
-	case *qdrant.Value_ListValue:
-		return s.convertQdrantList(kind.ListValue)
-	default:
-		return nil
-	}
-}
-
-func (s *Store) convertQdrantStruct(qs *qdrant.Struct) map[string]any {
-	if qs == nil || qs.Fields == nil {
-		return nil
-	}
-
-	result := make(map[string]any, len(qs.Fields))
-	for key, val := range qs.Fields {
-		result[key] = s.convertQdrantValue(val)
-	}
-
-	return result
-}
-
-func (s *Store) convertQdrantList(l *qdrant.ListValue) []any {
-	if l == nil {
-		return []any{}
-	}
-
-	result := make([]any, len(l.Values))
-	for i, val := range l.Values {
-		result[i] = s.convertQdrantValue(val)
-	}
-
-	return result
-}
-
-func (s *Store) convertPayloadToMetadata(payload map[string]*qdrant.Value) map[string]any {
-	if payload == nil {
-		return nil
-	}
-
-	metadata := make(map[string]any, len(payload))
-	for key, value := range payload {
-		if key == payloadDocumentContentKey || value == nil {
-			continue
-		}
-		metadata[key] = s.convertQdrantValue(value)
-	}
-
-	return metadata
-}
-
-func (s *Store) buildDocumentsFromPoints(scoredPoints []*qdrant.ScoredPoint) ([]*vectorstore.SearchResult, error) {
-	docs := make([]*vectorstore.SearchResult, 0, len(scoredPoints))
-
-	for i, point := range scoredPoints {
-		if point == nil {
-			return nil, fmt.Errorf("qdrant: query result %d is nil", i)
-		}
-		id, err := formatPointID(point.GetId())
-		if err != nil {
-			return nil, fmt.Errorf("qdrant: query result %d: %w", i, err)
-		}
-		payload := point.GetPayload()
-		contentValue, ok := payload[payloadDocumentContentKey]
-		if !ok || contentValue == nil || contentValue.GetStringValue() == "" {
-			return nil, fmt.Errorf("qdrant: query result %d is missing document text", i)
-		}
-
-		doc := &document.Document{ID: id, Text: contentValue.GetStringValue()}
-		doc.Metadata, err = metadata.FromValues(s.convertPayloadToMetadata(payload))
-		if err != nil {
-			return nil, fmt.Errorf("qdrant: decode metadata for query result %d: %w", i, err)
-		}
-
-		docs = append(docs, &vectorstore.SearchResult{
-			Document: doc,
-			Score:    s.distanceMetric.score(float64(point.GetScore())),
-		})
-	}
-
-	return docs, nil
+	return requireAppliedUpdate(result, "upsert")
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("qdrant.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("qdrant.Store.Search: %w", err)
+		return nil, err
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
-	}()
-
-	var selected []string
-	if request.Options.Filter != nil {
-		selected, err = s.matchingIDs(ctx, request.Options.Filter)
 		if err != nil {
-			return nil, err
+			response = nil
 		}
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-	}
-
-	var queryPoints *qdrant.QueryPoints
-	queryPoints, err = s.buildQueryPoints(ctx, request)
+	}()
+	selected, err := s.selectMetadata(ctx, request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
-
+	if len(selected) == 0 {
+		return &vectorstore.SearchResponse{}, nil
+	}
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	if err != nil {
+		return nil, err
+	}
+	query, err := s.schema.vector(vector)
+	if err != nil {
+		return nil, err
+	}
 	groups := [][]string{nil}
 	if request.Options.Filter != nil {
 		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
-	for _, group := range groups {
-		if group != nil {
-			ids := make([]*qdrant.PointId, len(group))
-			for index, id := range group {
-				ids[index], err = parsePointID(id)
-				if err != nil {
-					return nil, err
-				}
-			}
-			queryPoints.Filter = &qdrant.Filter{Must: []*qdrant.Condition{qdrant.NewHasID(ids...)}}
-		}
-		scoredPoints, queryErr := s.client.Query(ctx, queryPoints)
-		if queryErr != nil {
-			return nil, fmt.Errorf("qdrant: query collection %s: %w", s.collectionName, queryErr)
-		}
-		matches, convertErr := s.buildDocumentsFromPoints(scoredPoints)
-		if convertErr != nil {
-			return nil, fmt.Errorf("qdrant: build documents from query results: %w", convertErr)
-		}
-		if request.Options.Filter != nil {
-			for _, match := range matches {
-				if !slices.Contains(group, match.Document.ID) {
-					return nil, fmt.Errorf("qdrant: search returned unselected ID %q", match.Document.ID)
-				}
-				values, err := match.Document.Metadata.Values()
-				if err != nil {
-					return nil, err
-				}
-				matched, err := filter.Match(request.Options.Filter, values)
-				if err != nil {
-					return nil, fmt.Errorf("qdrant: validate returned metadata for %s: %w", match.Document.ID, err)
-				}
-				if !matched {
-					return nil, fmt.Errorf("qdrant: metadata for %s changed after filter selection", match.Document.ID)
-				}
-			}
-		}
-		docs = append(docs, matches...)
-	}
-	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
-	if len(docs) > request.Options.ResultLimit() {
-		docs = docs[:request.Options.ResultLimit()]
-	}
-
-	return &vectorstore.SearchResponse{Results: docs}, nil
-}
-
-// DeleteWhere removes every point matching expr. The request waits for the
-// deletion to be applied, because Qdrant otherwise answers as soon as the
-// operation reaches the write-ahead log and a following Search would still
-// return the removed points. Implements [vectorstore.FilterDeleter].
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("qdrant.Store.DeleteWhere: %w", err)
-	}
-
-	ids, err := s.matchingIDs(ctx, predicate)
-	if err != nil {
-		return err
-	}
-	for group := range slices.Chunk(ids, filterPageSize) {
-		if err := s.DeleteIDs(ctx, group); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// matchingIDs enumerates the complete collection before applying mutations or
-// a vector limit. Native payload equality and is_empty have broader array
-// semantics than Core scalar equality and null checks.
-func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) ([]string, error) {
-	request := &qdrant.ScrollPoints{CollectionName: s.collectionName, Limit: new(uint32(filterPageSize)), WithPayload: qdrant.NewWithPayload(true)}
-	var selected []string
+	var ranked []scoredDocument
 	seen := make(map[string]struct{})
-	offsets := make(map[string]struct{})
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	for _, group := range groups {
+		native := &qdrantclient.QueryPoints{CollectionName: s.collectionName, Limit: new(uint64(request.Options.ResultLimit())), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true), Query: qdrantclient.NewQueryDense(query)}
+		if group != nil {
+			native.Filter = metadataSelection(group)
 		}
-		points, next, scrollErr := s.client.ScrollAndOffset(ctx, request)
-		if scrollErr != nil {
-			return nil, fmt.Errorf("qdrant: scroll collection %s: %w", s.collectionName, scrollErr)
-		}
-		for _, point := range points {
-			if point == nil {
-				return nil, fmt.Errorf("qdrant: scroll returned a nil point")
-			}
-			id, err := formatPointID(point.GetId())
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := seen[id]; exists {
-				continue
-			}
-			seen[id] = struct{}{}
-			matched, err := filter.Match(expr, s.convertPayloadToMetadata(point.GetPayload()))
-			if err != nil {
-				return nil, fmt.Errorf("qdrant: evaluate filter for %s: %w", id, err)
-			}
-			if matched {
-				selected = append(selected, id)
-			}
-		}
-		if next == nil {
-			return selected, nil
-		}
-		key, err := formatPointID(next)
+		hits, err := s.client.Query(ctx, native)
 		if err != nil {
 			return nil, err
 		}
-		if _, repeated := offsets[key]; repeated {
-			return nil, fmt.Errorf("qdrant: scroll repeated offset %s", key)
+		if len(hits) > request.Options.ResultLimit() {
+			return nil, errors.New("qdrant: native query exceeded its result limit")
 		}
-		offsets[key] = struct{}{}
+		for _, hit := range hits {
+			if hit == nil || hit.ShardKey != nil {
+				return nil, errors.New("qdrant: native query returned a missing or shard-keyed hit")
+			}
+			doc, payload, err := s.schema.decode(hit.Id, hit.Payload, hit.Vectors)
+			if err != nil {
+				return nil, err
+			}
+			if _, duplicate := seen[doc.ID]; duplicate {
+				return nil, errors.New("qdrant: native query repeated an identity")
+			}
+			seen[doc.ID] = struct{}{}
+			if group != nil {
+				if !slices.Contains(group, payload) {
+					return nil, errors.New("qdrant: hit is outside selected metadata values")
+				}
+				values, decodeErr := doc.Metadata.Values()
+				if decodeErr != nil {
+					return nil, decodeErr
+				}
+				matched, matchErr := filter.Match(request.Options.Filter, values)
+				if matchErr != nil {
+					return nil, matchErr
+				}
+				if !matched {
+					return nil, errors.New("qdrant: native hit changed Core membership")
+				}
+			}
+			raw := float64(hit.Score)
+			score, err := s.schema.score(raw)
+			if err != nil {
+				return nil, err
+			}
+			result, err := vectorstore.NewSearchResult(doc, score)
+			if err != nil {
+				return nil, err
+			}
+			rank := raw
+			if s.schema.metric == qdrantclient.Distance_Euclid || s.schema.metric == qdrantclient.Distance_Manhattan {
+				rank = -raw
+			}
+			ranked = append(ranked, scoredDocument{result: result, rank: rank})
+		}
+	}
+	slices.SortFunc(ranked, func(left, right scoredDocument) int {
+		if order := cmp.Compare(right.rank, left.rank); order != 0 {
+			return order
+		}
+		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+	})
+	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+	response = &vectorstore.SearchResponse{}
+	for _, hit := range ranked {
+		if hit.result.Score >= request.Options.MinScore {
+			response.Results = append(response.Results, hit.result)
+		}
+	}
+	return response, nil
+}
+
+func (s *Store) selectMetadata(ctx context.Context, predicate filter.Predicate) ([]string, error) {
+	request := &qdrantclient.ScrollPoints{CollectionName: s.collectionName, Limit: new(uint32(filterPageSize)), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true)}
+	seen, offsets := make(map[string]struct{}), make(map[string]struct{})
+	selected := make(map[string]struct{})
+	for {
+		if err := context.Cause(ctx); err != nil {
+			return nil, err
+		}
+		points, next, err := s.client.ScrollAndOffset(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		if len(points) > filterPageSize {
+			return nil, errors.New("qdrant: native scroll exceeded its page limit")
+		}
+		for _, point := range points {
+			if point == nil {
+				return nil, errors.New("qdrant: native scroll returned a nil point")
+			}
+			doc, payload, sourceErr := s.schema.decode(point.Id, point.Payload, point.Vectors)
+			if sourceErr != nil {
+				return nil, sourceErr
+			}
+			if point.ShardKey != nil {
+				return nil, errors.New("qdrant: native record uses unsupported custom sharding")
+			}
+			if _, duplicate := seen[doc.ID]; duplicate {
+				return nil, errors.New("qdrant: native scroll repeated an identity")
+			}
+			seen[doc.ID] = struct{}{}
+			matched := true
+			if predicate != nil {
+				values, decodeErr := doc.Metadata.Values()
+				if decodeErr != nil {
+					return nil, decodeErr
+				}
+				matched, sourceErr = filter.Match(predicate, values)
+				if sourceErr != nil {
+					return nil, sourceErr
+				}
+			}
+			if matched {
+				selected[payload] = struct{}{}
+			}
+		}
+		if next == nil {
+			return slices.Sorted(maps.Keys(selected)), nil
+		}
+		offset, err := formatPointID(next)
+		if err != nil {
+			return nil, err
+		}
+		if _, repeated := offsets[offset]; repeated {
+			return nil, errors.New("qdrant: native scroll repeated an offset")
+		}
+		offsets[offset] = struct{}{}
 		request.Offset = next
 	}
 }
 
-// DeleteIDs removes points by their canonical uint64 or UUID identifiers. An
-// empty slice is a no-op; unknown ids are ignored (idempotent). Like
-// DeleteWhere, the request waits for the deletion to be applied.
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
-		return nil
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+	if predicate == nil {
+		return vectorstore.ErrMissingFilter
 	}
-
-	pointIDs := make([]*qdrant.PointId, len(ids))
-	for i, id := range ids {
-		pointIDs[i], err = parsePointID(id)
+	if err := predicate.Validate(); err != nil {
+		return err
+	}
+	values, err := s.selectMetadata(ctx, predicate)
+	if err != nil {
+		return err
+	}
+	for group := range slices.Chunk(values, filterPageSize) {
+		result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelectorFilter(metadataSelection(group))))
 		if err != nil {
-			return fmt.Errorf("qdrant.Store.DeleteIDs: ids[%d]: %w", i, err)
+			return err
+		}
+		if err = requireAppliedUpdate(result, "conditional delete"); err != nil {
+			return err
 		}
 	}
-
-	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrant.NewPointsSelector(pointIDs...)))
-	if err != nil {
-		return fmt.Errorf("qdrant: delete points by ids from collection %s: %w", s.collectionName, err)
-	}
-	if err = requireAppliedUpdate(result, "delete by ids"); err != nil {
-		return fmt.Errorf("qdrant: delete points by ids from collection %s: %w", s.collectionName, err)
-	}
-
 	return nil
 }
 
-func parsePointID(id string) (*qdrant.PointId, error) {
-	if number, err := strconv.ParseUint(id, 10, 64); err == nil && strconv.FormatUint(number, 10) == id {
-		return qdrant.NewIDNum(number), nil
-	}
-	if !isCanonicalUUID(id) {
-		return nil, fmt.Errorf("%w %q: must be a canonical uint64 or lowercase hyphenated UUID", ErrInvalidPointID, id)
-	}
-	return qdrant.NewIDUUID(id), nil
-}
-
-// UUID aliases address one native point, so accepting them would merge distinct
-// caller-assigned IDs and change the ID returned by a subsequent search.
-func isCanonicalUUID(id string) bool {
-	parsed, err := uuid.Parse(id)
-	return err == nil && parsed.String() == id
-}
-
-func formatPointID(id *qdrant.PointId) (string, error) {
-	if id == nil {
-		return "", fmt.Errorf("%w: query result has no point ID", ErrInvalidPointID)
-	}
-	switch value := id.GetPointIdOptions().(type) {
-	case *qdrant.PointId_Num:
-		return strconv.FormatUint(value.Num, 10), nil
-	case *qdrant.PointId_Uuid:
-		if !isCanonicalUUID(value.Uuid) {
-			return "", fmt.Errorf("%w %q: query result UUID must be lowercase and hyphenated", ErrInvalidPointID, value.Uuid)
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	seen := make(map[string]struct{})
+	var points []*qdrantclient.PointId
+	for _, id := range ids {
+		point, err := parsePointID(id)
+		if err != nil {
+			return err
 		}
-		return value.Uuid, nil
-	default:
-		return "", fmt.Errorf("%w: query result uses an unsupported point ID", ErrInvalidPointID)
+		if _, duplicate := seen[id]; !duplicate {
+			seen[id] = struct{}{}
+			points = append(points, point)
+		}
 	}
+	if len(points) == 0 {
+		return nil
+	}
+	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelector(points...)))
+	if err != nil {
+		return err
+	}
+	return requireAppliedUpdate(result, "delete by ID")
+}
+
+func (s *Store) buildDeletePoints(selector *qdrantclient.PointsSelector) *qdrantclient.DeletePoints {
+	return &qdrantclient.DeletePoints{CollectionName: s.collectionName, Wait: new(true), Points: selector}
+}
+
+func requireAppliedUpdate(result *qdrantclient.UpdateResult, operation string) error {
+	if result == nil || result.Status != qdrantclient.UpdateStatus_Completed {
+		return fmt.Errorf("qdrant: %s did not complete: %s", operation, result.GetStatus())
+	}
+	return nil
 }

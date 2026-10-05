@@ -26,12 +26,12 @@ type identityCollections struct {
 	qdrantclient.UnimplementedCollectionsServer
 }
 
-func (i *identityCollections) CollectionExists(context.Context, *qdrantclient.CollectionExistsRequest) (*qdrantclient.CollectionExistsResponse, error) {
-	return &qdrantclient.CollectionExistsResponse{Result: &qdrantclient.CollectionExists{Exists: true}}, nil
-}
-
 func (i *identityCollections) Get(context.Context, *qdrantclient.GetCollectionInfoRequest) (*qdrantclient.GetCollectionInfoResponse, error) {
 	return &qdrantclient.GetCollectionInfoResponse{Result: collectionInfo(qdrantclient.Distance_Cosine, 2)}, nil
+}
+
+func (i *identityCollections) List(context.Context, *qdrantclient.ListCollectionsRequest) (*qdrantclient.ListCollectionsResponse, error) {
+	return &qdrantclient.ListCollectionsResponse{Collections: []*qdrantclient.CollectionDescription{{Name: "documents"}}}, nil
 }
 
 type identityPoints struct {
@@ -44,6 +44,9 @@ type identityPoints struct {
 
 func (i *identityPoints) Upsert(_ context.Context, request *qdrantclient.UpsertPoints) (*qdrantclient.PointsOperationResponse, error) {
 	i.upserts.Add(1)
+	if request.Wait == nil || !*request.Wait {
+		return nil, errors.New("native write did not wait for application")
+	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	for _, point := range request.Points {
@@ -65,10 +68,21 @@ func (i *identityPoints) Query(_ context.Context, request *qdrantclient.QueryPoi
 	response := &qdrantclient.QueryResponse{}
 	for _, id := range slices.Sorted(maps.Keys(i.points)) {
 		point := i.points[id]
-		response.Result = append(response.Result, &qdrantclient.ScoredPoint{Id: point.Id, Payload: point.Payload, Score: 1})
+		response.Result = append(response.Result, &qdrantclient.ScoredPoint{Id: point.Id, Payload: point.Payload, Vectors: nativeOutput(point.Vectors), Score: 1})
 		if len(response.Result) >= int(request.GetLimit()) {
 			break
 		}
+	}
+	return response, nil
+}
+
+func (i *identityPoints) Scroll(_ context.Context, request *qdrantclient.ScrollPoints) (*qdrantclient.ScrollResponse, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	response := &qdrantclient.ScrollResponse{}
+	for _, id := range slices.Sorted(maps.Keys(i.points)) {
+		point := i.points[id]
+		response.Result = append(response.Result, &qdrantclient.RetrievedPoint{Id: point.Id, Payload: point.Payload, Vectors: nativeOutput(point.Vectors)})
 	}
 	return response, nil
 }
@@ -135,7 +149,7 @@ func qdrantIdentityStore(t *testing.T) (*Store, *identityPoints, *atomic.Int64) 
 	})
 	var embeddings atomic.Int64
 	store, err := NewStore(t.Context(), StoreConfig{
-		Client: client, CollectionName: "documents", DistanceMetric: DistanceCosine, Dimensions: 2,
+		Client: client, CollectionName: "documents",
 		DocumentBatcher: visibilityBatcher{},
 		EmbeddingModel: embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
 			embeddings.Add(1)

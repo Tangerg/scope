@@ -1,68 +1,61 @@
-// Package qdrant exposes Qdrant through the Core vector-store capability interfaces. Documents
-// are stored as points in a Qdrant collection (`{id, vector,
-// payload}`); retrieval runs the collection's vector search.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package qdrant adapts existing Qdrant collections to Core Indexer, Searcher,
+// IDDeleter and FilterDeleter capabilities. The host provisions the collection
+// and owns the native SDK client, credentials, transport and client lifetime.
+// Store owns no resource and does not implement Closer.
 //
-// Document IDs must be canonical decimal uint64 values or lowercase hyphenated
-// UUIDs. Qdrant maps UUID aliases to one native point and renders a canonical
-// UUID on read, so accepting aliases would overwrite distinct caller IDs and
-// change their returned values. [Store.Index] and [Store.DeleteIDs] reject other
-// spellings before embedding or mutation I/O; query results and scroll cursors
-// follow the same ID rule. The native point ID is the sole stored identity.
+// NewStore binds a concrete collection name from native ListCollections, then
+// reads its policy through GetCollectionInfo. Aliases, named or sparse vectors,
+// multivectors, custom sharding and storage other than native FLOAT32 are not
+// supported. The unnamed dense vector's native dimension and distance own policy;
+// native default datatype means FLOAT32. Cosine, dot, Euclid and Manhattan are
+// normalized solely through Core score functions. Keep the bound collection's
+// lifecycle stable while Store is in use; replacing it requires a new Store.
 //
-// Requirements: a reachable Qdrant server (self-hosted or Qdrant
-// Cloud). The store uses the official qdrant-client-go gRPC client.
+// The current point payload has exactly two string fields: content and
+// metadata_json. Core metadata.Map encodes and decodes the complete JSON value,
+// including exact numbers, nested values, arbitrary keys and nil versus empty
+// metadata. No business metadata is expanded into native payload fields. The
+// native point ID alone owns document identity. IDs must be canonical decimal
+// uint64 values or lowercase hyphenated UUIDs; other spellings are rejected
+// before model or mutation I/O. Native dense vector output uses the current
+// protobuf dense representation without a legacy vector-data fallback.
+// Documents containing media are rejected before indexing I/O.
 //
-// Vector similarity functions: cosine / dot / euclid / manhattan.
-// The chosen value is bound to the collection at creation time.
+// Construction and every Search scroll the complete collection with payload and
+// vectors, requiring every record to satisfy the current schema even outside a
+// predicate or score threshold. Core filter.Match alone decides membership.
+// Filtered queries constrain native metadata_json string membership in bounded
+// groups. Both search paths use native ranking, merge raw native scores before
+// TopK, and then apply Core normalization and MinScore. There is no inverse score
+// formula or native relevance threshold hiding malformed results. The adapter
+// supports semantic search only. Full scans require O(N) reads and identity and
+// metadata tracking; query merging holds up to O(groups * TopK) hits.
 //
-// Existing collection. The collection is verified whenever it is found,
-// whatever [StoreConfig.InitializeSchema] says, because that flag answers
-// whether a missing collection may be created and not whether the one found is
-// the right one — and the second question matters most for a collection
-// provisioned out of band. A configured metric that disagrees with the
-// collection's returns scores that are wrong rather than absent, so it fails
-// construction with [ErrIncompatibleCollection], as does a collection that is
-// neither found nor creatable. [StoreConfig.Dimensions] is compared only when
-// declared, since it is required to create a collection and optional to attach
-// to one.
+// DeleteWhere completes Core selection, then deletes through native payload
+// conditions on the selected metadata_json values. A point with a different
+// current native payload value is excluded. These operations provide no shared
+// read snapshot, revision CAS or per-record deletion counts: concurrent records
+// with the same selected metadata may be deleted, and newly matching values
+// outside selection may remain. Hosts needing a snapshot must coordinate writers.
+// DeleteIDs validates all IDs and deduplicates before explicit identity deletion;
+// empty input and unknown identities are idempotent.
 //
-// Metadata filtering scrolls the complete collection's payloads and applies
-// filter.Match before any vector limit. Qdrant's native conditions merge scalar
-// equality with array membership, and is_empty also includes empty arrays.
-// Local evaluation preserves these distinctions and whole-string LIKE without
-// changing the payload schema. The selected IDs constrain bounded vector
-// queries, whose ranked results are merged. Filtered queries cost O(N) payload
-// reads and O(N) ID bookkeeping. Returned IDs and payloads are revalidated;
-// a hit outside the selected IDs or no longer satisfying the predicate fails
-// the entire search rather than reducing the requested result set.
+// Index validates and encodes every record and completes every model batch and
+// FLOAT32 validation before publishing one native upsert. Every mutation sets
+// Wait and requires UpdateStatus_Completed. Acknowledged, WaitTimeout,
+// ClockRejected and missing results remain explicit failures. Native request,
+// transport and strict-mode limits remain provider errors; Store does not retry
+// or claim transactional publication or a cross-request snapshot.
 //
-// Filtered deletion enumerates before deleting bounded ID batches. Qdrant does
-// not provide a payload revision condition for this path: concurrent metadata
-// changes between enumeration and deletion may be removed according to the
-// value observed during enumeration. Applications requiring a snapshot or
-// conditional deletion must coordinate writers. Search likewise observes
-// enumeration and vector retrieval at separate times.
+// Breaking replacement: remove DistanceMetric and its enum, Dimensions and
+// InitializeSchema. Provision through the native host API, then supply Client,
+// CollectionName, EmbeddingModel and DocumentBatcher. Rebuild expanded legacy
+// payloads into the two current strings; there are no old-format reads, numeric
+// adapters, schema creation, configuration arbitration or migration branches.
+// Native payload indexes and operational policy remain host-owned.
 //
-// Payload. Qdrant's `payload` is arbitrary JSON; the store maps the
-// document's text + metadata into the payload verbatim. Indexed
-// payload fields (for filter performance) live on the collection
-// schema and are configured out of band — the store does not create
-// or modify them.
-//
-// Write visibility. Qdrant acknowledges an update as soon as it reaches the
-// write-ahead log unless the request asks to wait. Every store write — index
-// and both delete paths — waits for the change to be applied, so a Search
-// issued after a write observes it, and then reads the status of that wait.
-// Only Completed means "update is applied and ready for search"; Acknowledged
-// is "received, but not processed yet", WaitTimeout is a "timeout of awaited
-// operations", and ClockRejected means the update was "rejected due to an
-// outdated clock". The gRPC call succeeds under all four, so the status rather
-// than the call is what establishes that the write happened.
-//
-// See https://qdrant.tech/documentation/ for the full API surface.
-// Metadata numbers use signed 64-bit integers where exact, otherwise doubles
-// whose decimal JSON value round-trips without loss. Unrepresentable numbers
-// are rejected at the payload boundary.
+// Default tests are offline. Integration tests require SCOPE_QDRANT_ADDR in
+// host:port form, with optional SCOPE_QDRANT_API_KEY and SCOPE_QDRANT_TLS=true.
+// They create isolated native collections, exercise all four distance metrics
+// and the Core filter corpus, then delete those collections and close clients.
 package qdrant
