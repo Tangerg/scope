@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/models/moonshot
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.42.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.42.0
-	github.com/Tangerg/scope/models/protocol/openai v0.42.0
+	github.com/Tangerg/scope/core v0.43.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.43.0
+	github.com/Tangerg/scope/models/protocol/openai v0.43.0
 )
 
 require (
