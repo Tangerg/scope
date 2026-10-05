@@ -60,7 +60,7 @@ func TestConfigRejectsNumCandidatesAboveCeiling(t *testing.T) {
 		NumCandidates:   MaxNumCandidates + 1,
 	}
 	err := config.Validate()
-	if err == nil || !strings.Contains(err.Error(), "NumCandidates must be <= 10000") {
+	if err == nil || !strings.Contains(err.Error(), "NumCandidates must be in [0, 10000]") {
 		t.Fatalf("Validate() = %v, want a NumCandidates ceiling error", err)
 	}
 }

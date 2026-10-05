@@ -6,224 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
-
-// Provider is the stable backend name for host-side attribution.
-const Provider = "MongoDB"
-
-// Exported defaults keep constructor behavior visible and overridable.
-const (
-	DefaultVectorIndexName = "vector_index"
-	DefaultEmbeddingPath   = "embedding"
-	DefaultContentField    = "content"
-	DefaultMetadataField   = "metadata"
-	DefaultNumCandidates   = 200
-	defaultIDField         = "_id"
-	scoreField             = "score"
-	filterPageSize         = 128
-)
-
-// MaxNumCandidates is Atlas's ceiling for the $vectorSearch numCandidates
-// field, and so the largest TopK the store can serve.
-const MaxNumCandidates = 10000
-
-// Similarity selects the vector similarity function written into the
-// Atlas Vector Search index definition.
-type Similarity string
-
-const (
-	// SimilarityCosine — cosine similarity. Default.
-	SimilarityCosine Similarity = "cosine"
-
-	// SimilarityEuclidean — Euclidean (L2) distance.
-	SimilarityEuclidean Similarity = "euclidean"
-
-	// SimilarityDotProduct — dot product (best for normalized
-	// embeddings).
-	SimilarityDotProduct Similarity = "dotProduct"
-)
-
-func (s Similarity) Valid() bool {
-	switch s {
-	case SimilarityCosine, SimilarityEuclidean, SimilarityDotProduct:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s Similarity) String() string { return string(s) }
-
-// DocumentCollection is the MongoDB surface the store uses: the batched
-// upsert, the aggregation that runs $vectorSearch, the deletion both delete
-// paths share, and the search-index view schema initialization needs. A
-// [mongo.Collection] satisfies it. Naming only these four keeps the store's own
-// write accounting checkable without an Atlas cluster.
-type DocumentCollection interface {
-	BulkWrite(
-		ctx context.Context,
-		models []mongo.WriteModel,
-		opts ...options.Lister[options.BulkWriteOptions],
-	) (*mongo.BulkWriteResult, error)
-	Aggregate(
-		ctx context.Context,
-		pipeline any,
-		opts ...options.Lister[options.AggregateOptions],
-	) (*mongo.Cursor, error)
-	DeleteMany(
-		ctx context.Context,
-		filter any,
-		opts ...options.Lister[options.DeleteManyOptions],
-	) (*mongo.DeleteResult, error)
-	SearchIndexes() mongo.SearchIndexView
-}
-
-// StoreConfig contains configuration options for the MongoDB Atlas
-// Vector Search store.
-type StoreConfig struct {
-	// Collection is the MongoDB collection that holds the documents.
-	// Required.
-	Collection DocumentCollection
-
-	// VectorIndexName is the Atlas Vector Search index name. It must
-	// match an existing index (or one created by InitializeSchema).
-	// Optional: defaults to [DefaultVectorIndexName].
-	VectorIndexName string
-
-	// EmbeddingPath is the field that holds the document embedding.
-	// Optional: defaults to [DefaultEmbeddingPath] ("embedding").
-	EmbeddingPath string
-
-	// ContentField is the field that stores the original text.
-	// Optional: defaults to [DefaultContentField].
-	ContentField string
-
-	// MetadataField is the sub-document field that holds metadata.
-	// Optional: defaults to [DefaultMetadataField]. Metadata is always isolated
-	// in this sub-document so user keys cannot collide with storage fields.
-	MetadataField string
-
-	// MetadataFieldsToFilter pre-declares the metadata keys that
-	// should be indexed as filter fields in the Atlas search index.
-	// Core metadata filtering evaluates the stored record independently of
-	// these optional projections. The _id filter path is always provisioned.
-	MetadataFieldsToFilter []string
-
-	// EmbeddingModel produces vectors for the documents. Required.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher batches documents before upsert. Required.
-	DocumentBatcher vectorstore.Batcher
-
-	// Dimensions is the embedding width written into a new search-index
-	// definition. When zero and InitializeSchema is true, the store probes
-	// EmbeddingModel.
-	Dimensions int
-
-	// Similarity selects the vector similarity function. Optional:
-	// defaults to [SimilarityCosine].
-	Similarity Similarity
-
-	// NumCandidates controls the recall/perf tradeoff of the Atlas
-	// $vectorSearch stage. It is a floor: a search never considers fewer
-	// candidates than the results it must return. Optional: defaults to
-	// [DefaultNumCandidates] (200), and must not exceed [MaxNumCandidates].
-	NumCandidates int
-
-	// InitializeSchema, when true, creates the Atlas vector-search
-	// index if it doesn't already exist. Requires a connected Atlas
-	// cluster.
-	InitializeSchema bool
-}
-
-func (s StoreConfig) Validate() error {
-	s.applyDefaults()
-	if lo.IsNil(s.Collection) {
-		return errors.New("mongodb: Collection is required")
-	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("mongodb: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("mongodb: DocumentBatcher is required")
-	}
-	if s.Dimensions < 0 {
-		return errors.New("mongodb: Dimensions must be >= 0")
-	}
-	if s.NumCandidates > MaxNumCandidates {
-		return fmt.Errorf("mongodb: NumCandidates must be <= %d", MaxNumCandidates)
-	}
-	if !s.Similarity.Valid() {
-		return fmt.Errorf("mongodb: unsupported Similarity %q", s.Similarity)
-	}
-	if err := s.validateFieldLayout(); err != nil {
-		return err
-	}
-	if err := s.validateMetadataFields(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s StoreConfig) validateFieldLayout() error {
-	fields := []struct {
-		name  string
-		value string
-	}{
-		{name: "reserved _id", value: defaultIDField},
-		{name: "reserved query score", value: scoreField},
-		{name: "ContentField", value: s.ContentField},
-		{name: "EmbeddingPath", value: s.EmbeddingPath},
-		{name: "MetadataField", value: s.MetadataField},
-	}
-	seen := make(map[string]string, len(fields))
-	for _, field := range fields {
-		if owner, duplicate := seen[field.value]; duplicate {
-			return fmt.Errorf("mongodb: %s and %s both use field %q", owner, field.name, field.value)
-		}
-		seen[field.value] = field.name
-	}
-	return nil
-}
-
-func (s StoreConfig) validateMetadataFields() error {
-	seen := make(map[string]struct{}, len(s.MetadataFieldsToFilter))
-	for index, field := range s.MetadataFieldsToFilter {
-		if field == "" {
-			return fmt.Errorf("mongodb: MetadataFieldsToFilter[%d] must not be empty", index)
-		}
-		if _, duplicate := seen[field]; duplicate {
-			return fmt.Errorf("mongodb: MetadataFieldsToFilter[%d] duplicates %q", index, field)
-		}
-		seen[field] = struct{}{}
-	}
-	return nil
-}
-
-// applyDefaults fills zero fields with documented defaults.
-func (s *StoreConfig) applyDefaults() {
-	s.VectorIndexName = cmp.Or(s.VectorIndexName, DefaultVectorIndexName)
-	s.EmbeddingPath = cmp.Or(s.EmbeddingPath, DefaultEmbeddingPath)
-	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
-	s.MetadataField = cmp.Or(s.MetadataField, DefaultMetadataField)
-	if s.NumCandidates <= 0 {
-		s.NumCandidates = DefaultNumCandidates
-	}
-	s.Similarity = cmp.Or(s.Similarity, SimilarityCosine)
-}
 
 var (
 	_ vectorstore.Indexer       = (*Store)(nil)
@@ -232,475 +25,346 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with MongoDB Atlas Vector Search.
 type Store struct {
-	collection             DocumentCollection
-	vectorIndexName        string
-	embeddingPath          string
-	contentField           string
-	metadataField          string
-	metadataFieldsToFilter []string
-	embeddingClient        embeddingclient.Client
-	documentBatcher        vectorstore.Batcher
-	dimensions             int
-	similarity             Similarity
-	numCandidates          int
+	collection      DocumentCollection
+	vectorIndexName string
+	embeddingClient embeddingclient.Client
+	documentBatcher vectorstore.Batcher
+	schema          nativeSchema
+	numCandidates   int
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its collection and search index exist
-// would fail on the first index rather than at wiring, where the
-// misconfiguration actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
-	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	config.applyDefaults()
+	model, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("mongodb: create embedding client: %w", err)
+		return nil, err
 	}
-
-	store := &Store{
-		collection:             config.Collection,
-		vectorIndexName:        config.VectorIndexName,
-		embeddingPath:          config.EmbeddingPath,
-		contentField:           config.ContentField,
-		metadataField:          config.MetadataField,
-		metadataFieldsToFilter: slices.Clone(config.MetadataFieldsToFilter),
-		embeddingClient:        embeddingClient,
-		documentBatcher:        config.DocumentBatcher,
-		dimensions:             config.Dimensions,
-		similarity:             config.Similarity,
-		numCandidates:          config.NumCandidates,
+	store := &Store{collection: config.Collection, vectorIndexName: config.VectorIndexName, embeddingClient: model, documentBatcher: config.DocumentBatcher, numCandidates: config.NumCandidates}
+	if err = store.bind(ctx); err != nil {
+		return nil, err
 	}
-
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("mongodb: initialize store: %w", err)
+	if _, err = store.selectDocuments(ctx, nil); err != nil {
+		return nil, err
 	}
 	return store, nil
 }
 
-// initialize creates the Atlas vector
-// index when requested.
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return nil
-	}
-	if s.dimensions <= 0 {
-		return errors.New("mongodb: Dimensions must be > 0")
-	}
-
-	return s.createSearchIndex(ctx)
-}
-
-func (s *Store) createSearchIndex(ctx context.Context) error {
-	cursor, err := s.collection.SearchIndexes().List(ctx, options.SearchIndexes().SetName(s.vectorIndexName))
+func (s *Store) bind(ctx context.Context) (err error) {
+	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{{{Key: "$listSearchIndexes", Value: bson.M{"name": s.vectorIndexName}}}})
 	if err != nil {
-		return fmt.Errorf("mongodb: list search index %q: %w", s.vectorIndexName, err)
+		return err
 	}
-	defer cursor.Close(ctx)
-	if cursor.Next(ctx) {
-		return nil // already exists
+	if cursor == nil {
+		return errors.New("mongodb: native index listing returned no cursor")
 	}
-	if err := cursor.Err(); err != nil {
-		return fmt.Errorf("mongodb: read search indexes: %w", err)
-	}
-
-	fields := []bson.M{
-		{"type": "filter", "path": defaultIDField},
-		{
-			"type":          "vector",
-			"path":          s.embeddingPath,
-			"numDimensions": s.dimensions,
-			"similarity":    string(s.similarity),
-		},
-	}
-	for _, name := range s.metadataFieldsToFilter {
-		fields = append(fields, bson.M{
-			"type": "filter",
-			"path": s.metadataField + "." + name,
-		})
-	}
-
-	definition := bson.M{"fields": fields}
-	model := mongo.SearchIndexModel{
-		Definition: definition,
-		Options:    options.SearchIndexes().SetName(s.vectorIndexName).SetType("vectorSearch"),
-	}
-	if _, err := s.collection.SearchIndexes().CreateOne(ctx, model); err != nil {
-		return fmt.Errorf("createSearchIndexes: %w", err)
-	}
-	return nil
-}
-
-// Index embeds documents and bulk-upserts them by _id.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("mongodb.Store.Index: %w", validateErr)
-	}
-	for index, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("mongodb.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
+	found := false
+	for cursor.Next(ctx) {
+		if found {
+			return errors.New("mongodb: native index listing repeated the named index")
 		}
-	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return fmt.Errorf("mongodb: batch documents: %w", err)
-	}
-
-	for _, batch := range batches {
-		docs := batch.Documents
-		texts, err := batch.Texts()
-		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("mongodb: embed documents: %w", err)
-		}
-
-		writes := make([]mongo.WriteModel, 0, len(docs))
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, err := doc.Metadata.Values()
-			if err != nil {
-				return fmt.Errorf("mongodb: decode metadata for %s: %w", id, err)
-			}
-
-			payload := bson.M{
-				defaultIDField:  id,
-				s.contentField:  doc.Text,
-				s.embeddingPath: embedding.Float32Vector(vectors[i]),
-			}
-			payload[s.metadataField], err = metadataDocument(metadataValues)
-			if err != nil {
-				return fmt.Errorf("mongodb: convert metadata for %s: %w", id, err)
-			}
-
-			writes = append(writes, mongo.NewReplaceOneModel().
-				SetFilter(bson.M{defaultIDField: id}).
-				SetReplacement(payload).
-				SetUpsert(true),
-			)
-		}
-
-		result, writeErr := s.collection.BulkWrite(ctx, writes)
-		if writeErr != nil {
-			return fmt.Errorf("mongodb: BulkWrite: %w", writeErr)
-		}
-		if err := checkBulkAcknowledgment(result, len(writes)); err != nil {
+		if err = s.schema.read(cursor.Current, s.vectorIndexName); err != nil {
 			return err
 		}
+		found = true
+	}
+	if err = cursor.Err(); err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("mongodb: native vector index is missing")
 	}
 	return nil
 }
 
-// checkBulkAcknowledgment accounts for every replacement in one batch.
-//
-// The driver reports a replacement that found an existing document under
-// MatchedCount and one that inserted a new document under UpsertedCount, so
-// their sum is the server's count of applied writes and must cover the batch. A
-// nil error alone does not: under an unacknowledged write concern MongoDB
-// answers without a reply at all, and the driver then returns a zero-valued
-// result whose other fields, in its own words, "may not be deterministic".
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	records := make(map[string]bson.M, len(request.Documents))
+	for _, doc := range request.Documents {
+		record, err := encodeRecord(doc)
+		if err != nil {
+			return err
+		}
+		records[doc.ID] = record
+	}
+	batches, err := request.Batch(ctx, s.documentBatcher)
+	if err != nil {
+		return err
+	}
+	var writes []mongo.WriteModel
+	for _, batch := range batches {
+		texts, textErr := batch.Texts()
+		if textErr != nil {
+			return textErr
+		}
+		vectors, modelErr := s.embeddingClient.EmbedTexts(ctx, texts)
+		if modelErr != nil {
+			return modelErr
+		}
+		for i, doc := range batch.Documents {
+			vector, vectorErr := s.schema.vector(vectors[i])
+			if vectorErr != nil {
+				return vectorErr
+			}
+			record := records[doc.ID]
+			record[embeddingField] = vector
+			raw, encodingErr := bson.Marshal(record)
+			if encodingErr != nil {
+				return encodingErr
+			}
+			writes = append(writes, mongo.NewReplaceOneModel().SetFilter(bson.M{idField: doc.ID}).SetReplacement(bson.Raw(raw)).SetUpsert(true).SetCollation(&options.Collation{Locale: "simple"}))
+		}
+	}
+	result, err := s.collection.BulkWrite(ctx, writes)
+	if err != nil {
+		return err
+	}
+	return checkBulkAcknowledgment(result, len(writes))
+}
+
 func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 	if result == nil {
 		return errors.New("mongodb: bulk write returned no result")
 	}
 	if !result.Acknowledged {
-		return errors.New(
-			"mongodb: collection writes are unacknowledged (w: 0), so an upsert cannot be confirmed",
-		)
+		return errors.New("mongodb: collection writes are unacknowledged (w: 0), so an upsert cannot be confirmed")
 	}
-	if applied := result.MatchedCount + result.UpsertedCount; applied != int64(sent) {
-		return fmt.Errorf("mongodb: bulk write applied %d of %d documents", applied, sent)
+	if result.MatchedCount < 0 || result.UpsertedCount < 0 || result.MatchedCount+result.UpsertedCount != int64(sent) {
+		return fmt.Errorf("mongodb: bulk write applied %d of %d documents", result.MatchedCount+result.UpsertedCount, sent)
 	}
 	return nil
 }
 
-// Search runs the $vectorSearch aggregation and returns the matching
-// documents above the configured MinScore threshold.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("mongodb.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("mongodb.Store.Search: %w", err)
+		return nil, err
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
-	var selected []string
-	if request.Options.Filter != nil {
-		records, matchErr := s.matchingDocuments(ctx, request.Options.Filter)
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		for _, record := range records {
-			selected = append(selected, record.id)
-		}
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-	}
-
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: embed query: %w", err)
-	}
-	queryVec := embedding.Float32Vector(vector)
-
 	candidates, err := s.searchCandidates(request.Options.ResultLimit())
 	if err != nil {
 		return nil, err
 	}
-	vectorSearch := bson.M{
-		"index":         s.vectorIndexName,
-		"path":          s.embeddingPath,
-		"queryVector":   queryVec,
-		"numCandidates": candidates,
-		"limit":         request.Options.ResultLimit(),
+	selected, err := s.selectDocuments(ctx, request.Options.Filter)
+	if err != nil {
+		return nil, err
 	}
-
-	pipeline := mongo.Pipeline{
-		{{Key: "$vectorSearch", Value: vectorSearch}},
-		{{Key: "$addFields", Value: bson.M{
-			scoreField: bson.M{"$meta": "vectorSearchScore"},
-		}}},
+	if len(selected) == 0 {
+		return &vectorstore.SearchResponse{}, nil
 	}
-	if request.Options.MinScore > 0 {
-		pipeline = append(pipeline, bson.D{
-			{Key: "$match", Value: bson.M{scoreField: bson.M{"$gte": request.Options.MinScore}}},
-		})
+	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	if err != nil {
+		return nil, err
 	}
-
+	query, err := s.schema.vector(vector)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, record := range selected {
+		ids = append(ids, record.id)
+	}
 	groups := [][]string{nil}
 	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
+		groups = slices.Collect(slices.Chunk(ids, filterPageSize))
 	}
+	var matches []*vectorstore.SearchResult
+	seen := make(map[string]struct{})
 	for _, group := range groups {
+		native := bson.M{"index": s.vectorIndexName, "path": embeddingField, "queryVector": query, "numCandidates": candidates, "limit": request.Options.ResultLimit()}
 		if group != nil {
-			vectorSearch["filter"] = bson.M{defaultIDField: bson.M{"$in": group}}
+			native["filter"] = bson.M{idField: bson.M{"$in": group}}
 		}
-		matches, queryErr := s.queryMatches(ctx, pipeline)
+		pipeline := mongo.Pipeline{{{Key: "$vectorSearch", Value: native}}, {{Key: "$addFields", Value: bson.M{scoreField: bson.M{"$meta": "vectorSearchScore"}}}}}
+		hits, queryErr := s.queryMatches(ctx, pipeline)
 		if queryErr != nil {
 			return nil, queryErr
 		}
-		if request.Options.Filter != nil {
-			for _, match := range matches {
-				if !slices.Contains(group, match.Document.ID) {
-					return nil, fmt.Errorf("mongodb: search returned unselected ID %q", match.Document.ID)
+		if len(hits) > request.Options.ResultLimit() {
+			return nil, errors.New("mongodb: native query exceeded its result limit")
+		}
+		for _, hit := range hits {
+			id := hit.Document.ID
+			if _, duplicate := seen[id]; duplicate {
+				return nil, errors.New("mongodb: native query repeated an identity")
+			}
+			seen[id] = struct{}{}
+			if group != nil {
+				if !slices.Contains(group, id) {
+					return nil, errors.New("mongodb: hit is outside selected identities")
 				}
-				values, err := match.Document.Metadata.Values()
-				if err != nil {
-					return nil, err
+				values, decodeErr := hit.Document.Metadata.Values()
+				if decodeErr != nil {
+					return nil, decodeErr
 				}
-				matched, err := filter.Match(request.Options.Filter, values)
-				if err != nil {
-					return nil, fmt.Errorf("mongodb: validate returned metadata for %s: %w", match.Document.ID, err)
+				matched, matchErr := filter.Match(request.Options.Filter, values)
+				if matchErr != nil {
+					return nil, matchErr
 				}
 				if !matched {
-					return nil, fmt.Errorf("mongodb: metadata for %s changed after filter selection", match.Document.ID)
+					return nil, errors.New("mongodb: native hit changed Core membership")
 				}
 			}
+			matches = append(matches, hit)
 		}
-		docs = append(docs, matches...)
 	}
-	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
-	if len(docs) > request.Options.ResultLimit() {
-		docs = docs[:request.Options.ResultLimit()]
+	slices.SortFunc(matches, func(left, right *vectorstore.SearchResult) int {
+		if order := cmp.Compare(right.Score, left.Score); order != 0 {
+			return order
+		}
+		return strings.Compare(left.Document.ID, right.Document.ID)
+	})
+	matches = matches[:min(len(matches), request.Options.ResultLimit())]
+	response = &vectorstore.SearchResponse{}
+	for _, hit := range matches {
+		if hit.Score >= request.Options.MinScore {
+			response.Results = append(response.Results, hit)
+		}
 	}
-
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return response, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matches []*vectorstore.SearchResult, err error) {
+	cursor, err := s.collection.Aggregate(ctx, pipeline, options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
+	if err != nil {
+		return nil, err
+	}
+	if cursor == nil {
+		return nil, errors.New("mongodb: native query returned no cursor")
+	}
+	defer func() {
+		err = errors.Join(err, cursor.Close(ctx))
+		if err != nil {
+			matches = nil
+		}
+	}()
+	for cursor.Next(ctx) {
+		doc, _, decodeErr := s.schema.decode(cursor.Current, true)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		raw, ok := cursor.Current.Lookup(scoreField).DoubleOK()
+		if !ok {
+			return nil, errors.New("mongodb: native score must be a double")
+		}
+		result, resultErr := vectorstore.NewSearchResult(doc, vectorstore.Score(raw))
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		matches = append(matches, result)
+	}
+	return matches, cursor.Err()
+}
+
+func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) (selected []selectedDocument, err error) {
+	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{}, options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
+	if err != nil {
+		return nil, err
+	}
+	if cursor == nil {
+		return nil, errors.New("mongodb: native enumeration returned no cursor")
+	}
+	defer func() {
+		err = errors.Join(err, cursor.Close(ctx))
+		if err != nil {
+			selected = nil
+		}
+	}()
+	seen := make(map[string]struct{})
+	for cursor.Next(ctx) {
+		doc, facts, decodeErr := s.schema.decode(cursor.Current, false)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return nil, errors.New("mongodb: native enumeration repeated an identity")
+		}
+		seen[doc.ID] = struct{}{}
+		matched := true
+		if predicate != nil {
+			values, valuesErr := doc.Metadata.Values()
+			if valuesErr != nil {
+				return nil, valuesErr
+			}
+			matched, err = filter.Match(predicate, values)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if matched {
+			selected = append(selected, selectedDocument{id: doc.ID, metadataJSON: facts})
+		}
+	}
+	return selected, cursor.Err()
+}
+
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("mongodb.Store.DeleteWhere: %w", err)
+	if err := predicate.Validate(); err != nil {
+		return err
 	}
-
-	records, err := s.matchingDocuments(ctx, predicate)
+	records, err := s.selectDocuments(ctx, predicate)
 	if err != nil {
 		return err
 	}
 	for _, record := range records {
-		constraint := bson.M{defaultIDField: record.id}
-		if record.metadata.Type == 0 {
-			constraint[s.metadataField] = bson.M{"$exists": false}
-		} else {
-			// Expression equality compares the complete value, including its
-			// container type. $literal keeps metadata keys out of query syntax.
-			constraint["$expr"] = bson.M{"$eq": bson.A{"$" + s.metadataField, bson.M{"$literal": record.metadata}}}
+		constraint := bson.M{idField: record.id, "$expr": bson.M{"$eq": bson.A{"$" + metadataField, bson.M{"$literal": record.metadataJSON}}}}
+		result, deleteErr := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
+		if deleteErr != nil {
+			return deleteErr
 		}
-		result, err := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
-		if err != nil {
-			return fmt.Errorf("mongodb: delete observed document %s: %w", record.id, err)
-		}
-		if result == nil || !result.Acknowledged {
-			return errors.New("mongodb: deletion was not acknowledged")
+		if result == nil || !result.Acknowledged || result.DeletedCount < 0 || result.DeletedCount > 1 {
+			return errors.New("mongodb: conditional deletion was not acknowledged with a valid count")
 		}
 	}
 	return nil
 }
 
-func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matches []*vectorstore.SearchResult, err error) {
-	cursor, err := s.collection.Aggregate(ctx, pipeline)
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: aggregate: %w", err)
-	}
-	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
-	for cursor.Next(ctx) {
-		var raw bson.M
-		if err := cursor.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("mongodb: decode hit: %w", err)
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	var selected []string
+	seen := make(map[string]struct{})
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
+			return vectorstore.ErrMissingDocumentID
 		}
-		match, err := s.toMatch(raw)
-		if err != nil {
-			return nil, err
-		}
-		matches = append(matches, match)
-	}
-	if err := cursor.Err(); err != nil {
-		return nil, fmt.Errorf("mongodb: cursor: %w", err)
-	}
-	return matches, nil
-}
-
-type selectedDocument struct {
-	id       string
-	metadata bson.RawValue
-}
-
-// matchingDocuments consumes every metadata record before applying a vector limit
-// or a deletion. Metadata membership uses the Core evaluator; the final vector
-// query only filters by IDs and does not translate metadata predicates.
-func (s *Store) matchingDocuments(ctx context.Context, expr filter.Predicate) (records []selectedDocument, err error) {
-	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{{{Key: "$project", Value: bson.M{defaultIDField: 1, s.metadataField: 1}}}})
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: enumerate metadata: %w", err)
-	}
-	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
-	for cursor.Next(ctx) {
-		var raw bson.M
-		if err := cursor.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("mongodb: decode metadata row: %w", err)
-		}
-		id, ok := raw[defaultIDField].(string)
-		if !ok || id == "" {
-			return nil, errors.New("mongodb: metadata row is missing string _id")
-		}
-		values, err := s.metadataValues(raw)
-		if err != nil {
-			return nil, err
-		}
-		matched, err := filter.Match(expr, values)
-		if err != nil {
-			return nil, fmt.Errorf("mongodb: evaluate filter for %s: %w", id, err)
-		}
-		if matched {
-			observed := cursor.Current.Lookup(s.metadataField)
-			observed.Value = slices.Clone(observed.Value)
-			records = append(records, selectedDocument{id: id, metadata: observed})
+		if _, duplicate := seen[id]; !duplicate {
+			seen[id] = struct{}{}
+			selected = append(selected, id)
 		}
 	}
-	if err := cursor.Err(); err != nil {
-		return nil, fmt.Errorf("mongodb: metadata cursor: %w", err)
-	}
-	return records, nil
-}
-
-// DeleteIDs removes documents by their _id — `DeleteMany({_id: {$in: ids}})`.
-// An empty slice is a no-op; unknown ids are silently ignored (idempotent).
-// Implements [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
+	if len(selected) == 0 {
 		return nil
 	}
-
-	result, err := s.collection.DeleteMany(ctx, bson.M{defaultIDField: bson.M{"$in": ids}})
+	result, err := s.collection.DeleteMany(ctx, bson.M{idField: bson.M{"$in": selected}}, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
 	if err != nil {
-		return fmt.Errorf("mongodb: DeleteMany by ids: %w", err)
+		return err
 	}
-	if result == nil || !result.Acknowledged {
-		return errors.New("mongodb: deletion was not acknowledged")
+	if result == nil || !result.Acknowledged || result.DeletedCount < 0 || result.DeletedCount > int64(len(selected)) {
+		return errors.New("mongodb: deletion was not acknowledged with a valid count")
 	}
 	return nil
 }
 
-// searchCandidates resolves how much of the vector index one query explores.
-//
-// numCandidates is not independent of the requested result count: it sizes the
-// priority queue the search fills, so Atlas rejects a value below limit — a
-// queue cannot yield more results than it holds — and caps it at
-// MaxNumCandidates. StoreConfig.NumCandidates therefore sets a recall floor
-// rather than the value sent, and a TopK past the ceiling is refused here
-// instead of becoming a provider validation error.
 func (s *Store) searchCandidates(limit int) (int, error) {
 	if limit > MaxNumCandidates {
-		return 0, fmt.Errorf(
-			"mongodb.Store.Search: TopK %d exceeds the %d candidates $vectorSearch can consider",
-			limit, MaxNumCandidates,
-		)
+		return 0, fmt.Errorf("mongodb.Store.Search: TopK %d exceeds the %d candidates $vectorSearch can consider", limit, MaxNumCandidates)
 	}
-	return min(max(s.numCandidates, limit), MaxNumCandidates), nil
-}
-
-func (s *Store) toMatch(raw bson.M) (*vectorstore.SearchResult, error) {
-	id, ok := raw[defaultIDField].(string)
-	if !ok || id == "" {
-		return nil, fmt.Errorf("mongodb: result is missing string field %q", defaultIDField)
-	}
-	content, ok := raw[s.contentField].(string)
-	if !ok || content == "" {
-		return nil, fmt.Errorf("mongodb: result is missing string field %q", s.contentField)
-	}
-	doc := &document.Document{ID: id, Text: content}
-	var rawScore float64
-	switch value := raw[scoreField].(type) {
-	case float64:
-		rawScore = value
-	case float32:
-		rawScore = float64(value)
-	default:
-		return nil, fmt.Errorf("mongodb: result score has type %T, want number", raw[scoreField])
-	}
-	score := vectorstore.ScoreFromValue(rawScore)
-
-	metadataValues, err := s.metadataValues(raw)
-	if err != nil {
-		return nil, err
-	}
-	doc.Metadata, err = metadata.FromValues(metadataValues)
-	if err != nil {
-		return nil, fmt.Errorf("mongodb: convert metadata: %w", err)
-	}
-	return &vectorstore.SearchResult{Document: doc, Score: score}, nil
-}
-
-func (s *Store) metadataValues(raw bson.M) (map[string]any, error) {
-	value, present := raw[s.metadataField]
-	if !present {
-		return nil, nil
-	}
-	decoded, err := decodedMetadataValue(value)
-	if err != nil {
-		return nil, err
-	}
-	values, ok := decoded.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("mongodb: result field %q must be a document, got %T", s.metadataField, value)
-	}
-	return values, nil
+	return max(s.numCandidates, limit), nil
 }

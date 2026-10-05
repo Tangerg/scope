@@ -1,62 +1,63 @@
-// Package mongodb exposes MongoDB Atlas Vector Search
-// through the Core vector-store capability interfaces. Documents are stored as ordinary BSON
-// documents (`{_id, content, metadata, embedding}`); retrieval runs
-// the `$vectorSearch` aggregation stage.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package mongodb adapts an existing MongoDB Vector Search collection to Core
+// Indexer, Searcher, IDDeleter and FilterDeleter. The host owns the official v2
+// driver client, authentication, transport, write concern, collection and index
+// provisioning, and lifetime. Store owns no resource and does not implement Closer.
 //
-// Metadata numbers use BSON integers when integral and representable as int64,
-// otherwise doubles only when their decimal value survives JSON round-tripping.
-// Unrepresentable values are rejected before writing rather than rounded.
+// Construction reads the named native index through $listSearchIndexes. It must
+// be a READY, queryable vectorSearch index with one embedding vector, a positive
+// native dimension, a supported native cosine, euclidean or dotProduct policy,
+// and an _id filter path. BUILDING remains invalid even if an older definition
+// is queryable. Store projects only the native dimension; similarity and score
+// normalization remain entirely native. Keep the bound collection and index
+// policy stable during Store's lifetime; reconstruct Store after replacement.
+// A deployment without Vector Search or index-list read privileges fails at
+// construction. Store does not create indexes, probe models or arbitrate policy.
 //
-// Requirements: a MongoDB deployment that provides $vectorSearch and the
-// Search Indexes API. The store uses the official v2 Go driver.
+// The current BSON document has exactly _id, content, metadata_json and
+// embedding. Identity is the native string _id alone. Content and metadata_json
+// are strings; embedding is an array of finite FLOAT32 values encoded as BSON
+// doubles. Core metadata.Map owns the complete JSON encoding, preserving nil,
+// empty objects, exact numbers, nested values and arbitrary user keys. Business
+// metadata never becomes BSON fields or an independent numeric representation.
+// Media documents are rejected before model or mutation IO.
 //
-// Vector similarity functions: [SimilarityCosine] /
-// [SimilarityEuclidean] / [SimilarityDotProduct]. The chosen value
-// is recorded in the Atlas Vector Search index definition.
+// Construction and every Search enumerate the complete collection, validating
+// all current records even outside a predicate or MinScore. Core filter.Match
+// alone owns membership. Filtered $vectorSearch queries use bounded selected
+// identity groups and verify each returned identity and current metadata. Both
+// paths use native ranking and native [0,1] scores, merge before TopK, and apply
+// MinScore after strict hit validation. Scores are never clamped or recomputed.
+// Search supports semantic mode only. Enumeration costs O(N) source reads and
+// identity tracking; query merging holds up to O(groups * TopK) hits.
 //
-// Indexes. Atlas Vector Search indexes are NOT regular MongoDB
-// indexes; they're managed via the Search Indexes API and live on
-// dedicated Atlas search nodes. The store creates one automatically
-// under [StoreConfig.InitializeSchema] = true, including any
-// metadata fields enumerated in
-// [StoreConfig.MetadataFieldsToFilter] as typed `filter` paths.
+// NumCandidates is an ANN recall floor bounded by the native 10000 ceiling and
+// raised to cover TopK. TopK beyond that ceiling fails before native or model IO.
+// Vector Search index visibility remains asynchronous. An acknowledged write
+// does not imply immediate query visibility; Store adds no retry or polling.
 //
-// Metadata filtering reads the complete collection's metadata with an
-// aggregation cursor and applies filter.Match before any vector limit. Native
-// equality and IN can match array elements, while Atlas's vector prefilter
-// supports a smaller operator set than ordinary MongoDB queries. The store
-// therefore passes bounded lists of selected IDs to $vectorSearch and merges
-// their ranked results. Filtered queries cost O(N) metadata reads and memory
-// for matches. The vector index must include _id as a filter path; new indexes
-// include it, and existing indexes must be updated before filtered searches.
-// MetadataFieldsToFilter still controls additional native filter index paths.
+// Index encodes every document and completes every model batch and vector check
+// before one BulkWrite. The native driver owns request batching and limits.
+// MatchedCount plus UpsertedCount must cover every replacement, and w:0 is an
+// explicit failure. This is not transactional publication: native IO can apply
+// a prefix before failing. Native _id selectors use binary collation for writes
+// and deletions rather than inheriting a case-insensitive collection collation.
 //
-// Enumeration completes before filtered deletion. Each deletion is conditional
-// on the observed BSON metadata value (or its absence), using expression
-// equality and binary collation so an array or case variant cannot match the
-// observed document. A changed metadata value is retained. Enumeration and the later
-// vector query are separate observations, not a transactional snapshot.
-// Returned IDs and metadata are revalidated; a hit outside the selected IDs or
-// no longer satisfying the predicate fails the entire search.
+// DeleteWhere finishes Core enumeration before any deletion. Each native delete
+// constrains both _id and the complete observed metadata_json string with
+// expression equality and binary collation. Changed metadata is retained. It
+// provides no shared read snapshot or revision CAS; concurrent updates that
+// preserve the same metadata value may still be deleted, and newly matching
+// records may remain. Hosts requiring a snapshot must coordinate writers.
+// DeleteIDs validates and deduplicates the whole input before explicit identity
+// deletion. Native mutation failures and invalid acknowledgments stay errors.
 //
-// Search pipeline:
+// Breaking replacement removes Dimensions, Similarity and its enum,
+// InitializeSchema, configurable storage fields and MetadataFieldsToFilter.
+// Rebuild old BSON metadata documents into the current metadata_json string and
+// provision the native vector index through the host SDK. There are no numeric
+// adapters, old-format reads, migrations or schema-creation branches.
 //
-//	{$vectorSearch: {...}}, {$addFields: {score: {$meta: "vectorSearchScore"}}},
-//	{$match: {score: {$gte: minScore}}}
-//
-// Candidate pool. numCandidates sizes the priority queue the search fills, so
-// Atlas requires it to be at least the requested result count and at most
-// [MaxNumCandidates]. [StoreConfig.NumCandidates] is a recall floor the store
-// raises to cover TopK; a TopK above the ceiling is refused rather than sent.
-//
-// Upsert acknowledgment. One bulk write reports MatchedCount for the
-// replacements that found an existing document and UpsertedCount for those that
-// inserted one; Index requires their sum to cover the batch. An unacknowledged
-// write concern (w: 0) is rejected rather than reported as success, because
-// MongoDB then answers with no reply at all and the driver's counts carry no
-// information.
-//
-// See https://www.mongodb.com/docs/atlas/atlas-vector-search/.
+// Default tests are offline. Integration tests require SCOPE_MONGODB_URI for a
+// deployment with Vector Search and create isolated databases and search indexes,
+// poll only fixture readiness and visibility, then drop databases and disconnect.
 package mongodb

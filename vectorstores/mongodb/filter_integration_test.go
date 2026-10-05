@@ -20,8 +20,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-// Explicitly running this test creates and removes an isolated database.
-func TestLiveFilterConformance(t *testing.T) {
+func liveMongoStore(t *testing.T, metric string) (*Store, *mongo.Collection) {
+	t.Helper()
 	uri := os.Getenv("SCOPE_MONGODB_URI")
 	if uri == "" {
 		t.Fatal("SCOPE_MONGODB_URI is required with -tags=integration")
@@ -30,21 +30,27 @@ func TestLiveFilterConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := client.Database("scope_filter_" + rand.Text())
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
-		if err := db.Drop(ctx); err != nil {
-			t.Errorf("cleanup database: %v", err)
+		if closeErr := client.Disconnect(ctx); closeErr != nil {
+			t.Error(closeErr)
 		}
-		_ = client.Disconnect(ctx)
 	})
-	if err := db.CreateCollection(t.Context(), "documents"); err != nil {
+	db := client.Database("scope_native_" + rand.Text())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+		defer cancel()
+		if dropErr := db.Drop(ctx); dropErr != nil {
+			t.Error(dropErr)
+		}
+	})
+	if err = db.CreateCollection(t.Context(), "documents", options.CreateCollection().SetCollation(&options.Collation{Locale: "en", Strength: 2})); err != nil {
 		t.Fatal(err)
 	}
 	collection := db.Collection("documents")
-	store, err := NewStore(t.Context(), StoreConfig{Collection: collection, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}, Dimensions: 2, InitializeSchema: true})
-	if err != nil {
+	index := mongo.SearchIndexModel{Definition: bson.M{"fields": bson.A{bson.M{"type": "vector", "path": embeddingField, "numDimensions": 2, "similarity": metric}, bson.M{"type": "filter", "path": idField}}}, Options: options.SearchIndexes().SetName(DefaultVectorIndexName).SetType("vectorSearch")}
+	if _, err = collection.SearchIndexes().CreateOne(t.Context(), index); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
@@ -52,29 +58,15 @@ func TestLiveFilterConformance(t *testing.T) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		cursor, err := collection.SearchIndexes().List(ctx, options.SearchIndexes().SetName(DefaultVectorIndexName))
-		if err != nil {
-			t.Fatal(err)
+		cursor, listErr := collection.SearchIndexes().List(ctx, options.SearchIndexes().SetName(DefaultVectorIndexName))
+		if listErr != nil {
+			t.Fatal(listErr)
 		}
-		ready := false
-		for cursor.Next(ctx) {
-			var info struct {
-				Queryable bool `bson:"queryable"`
-			}
-			if err := cursor.Decode(&info); err != nil {
-				_ = cursor.Close(ctx)
-				t.Fatal(err)
-			}
-			ready = info.Queryable
+		var policies []bson.M
+		if readErr := cursor.All(ctx, &policies); readErr != nil {
+			t.Fatal(readErr)
 		}
-		if err := cursor.Err(); err != nil {
-			_ = cursor.Close(ctx)
-			t.Fatal(err)
-		}
-		if err := cursor.Close(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if ready {
+		if len(policies) == 1 && policies[0]["status"] == "READY" && policies[0]["queryable"] == true {
 			break
 		}
 		select {
@@ -83,26 +75,39 @@ func TestLiveFilterConformance(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
-	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-		if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
-			return nil, err
-		}
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
-			return nil, err
-		}
-		if err := awaitVisibleDocuments(ctx, store, docs); err != nil {
-			return nil, err
-		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
-		if err != nil {
-			return nil, err
-		}
-		var ids []string
-		for _, hit := range response.Results {
-			ids = append(ids, hit.Document.ID)
-		}
-		return ids, nil
-	}})
+	store, err := NewStore(t.Context(), StoreConfig{Collection: collection, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, collection
+}
+
+func TestLiveFilterConformance(t *testing.T) {
+	for _, metric := range []string{"cosine", "euclidean", "dotProduct"} {
+		t.Run(metric, func(t *testing.T) {
+			store, collection := liveMongoStore(t, metric)
+			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
+				if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
+					return nil, err
+				}
+				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+					return nil, err
+				}
+				if err := awaitVisibleDocuments(ctx, store, docs); err != nil {
+					return nil, err
+				}
+				response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+				if err != nil {
+					return nil, err
+				}
+				var ids []string
+				for _, hit := range response.Results {
+					ids = append(ids, hit.Document.ID)
+				}
+				return ids, nil
+			}})
+		})
+	}
 }
 
 func awaitVisibleDocuments(ctx context.Context, store *Store, docs []*document.Document) error {

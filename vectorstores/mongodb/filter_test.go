@@ -1,7 +1,7 @@
 package mongodb
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,67 +20,94 @@ import (
 )
 
 type filterCollection struct {
-	DocumentCollection
 	records        []bson.Raw
+	scores         map[string]float64
 	deleted        []string
 	enumerationErr error
+	queryErr       error
 	beforeDelete   func()
 	beforeQuery    func()
 	ignoreSelected bool
 	queryBatches   []int
+	writes         int
+	policy         []any
 }
 
 func (f *filterCollection) Aggregate(_ context.Context, value any, _ ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
 	pipeline := value.(mongo.Pipeline)
-	var ids []string
-	var limit int
-	if pipeline[0][0].Key == "$vectorSearch" {
-		if f.beforeQuery != nil {
-			f.beforeQuery()
-			f.beforeQuery = nil
-		}
-		query := pipeline[0][0].Value.(bson.M)
-		limit = query["limit"].(int)
-		if scope, ok := query["filter"].(bson.M); ok {
-			idFilter, ok := scope[defaultIDField].(bson.M)
-			if !ok {
-				return nil, errors.New("vector filter must use selected IDs")
-			}
-			ids = idFilter["$in"].([]string)
-			f.queryBatches = append(f.queryBatches, len(ids))
-		}
-	} else if f.enumerationErr != nil {
-		return nil, f.enumerationErr
+	if len(pipeline) != 0 && pipeline[0][0].Key == "$listSearchIndexes" {
+		return mongo.NewCursorFromDocuments(f.policy, nil, nil)
 	}
-	var rows []any
+	if len(pipeline) == 0 {
+		var rows []any
+		for _, record := range f.records {
+			rows = append(rows, record)
+		}
+		return mongo.NewCursorFromDocuments(rows, f.enumerationErr, nil)
+	}
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+	if len(pipeline) != 2 || pipeline[0][0].Key != "$vectorSearch" || pipeline[1][0].Key != "$addFields" {
+		return nil, errors.New("query must preserve all returned hits before Core MinScore")
+	}
+	if f.beforeQuery != nil {
+		f.beforeQuery()
+		f.beforeQuery = nil
+	}
+	query := pipeline[0][0].Value.(bson.M)
+	var ids []string
+	if selected, ok := query["filter"].(bson.M); ok {
+		ids = selected[idField].(bson.M)["$in"].([]string)
+		f.queryBatches = append(f.queryBatches, len(ids))
+	}
+	var hits []bson.M
 	for _, record := range f.records {
-		if !f.ignoreSelected && ids != nil && !slices.Contains(ids, record.Lookup(defaultIDField).StringValue()) {
+		id := record.Lookup(idField).StringValue()
+		if ids != nil && !f.ignoreSelected && !slices.Contains(ids, id) {
 			continue
 		}
-		rows = append(rows, record)
+		var row bson.M
+		if err := bson.Unmarshal(record, &row); err != nil {
+			return nil, err
+		}
+		score := 1.0
+		if value, exists := f.scores[id]; exists {
+			score = value
+		}
+		row[scoreField] = score
+		hits = append(hits, row)
 	}
-	if limit > 0 {
-		slices.SortFunc(rows, func(left, right any) int {
-			leftScore := left.(bson.Raw).Lookup(scoreField).Double()
-			rightScore := right.(bson.Raw).Lookup(scoreField).Double()
-			if leftScore > rightScore {
-				return -1
-			}
-			if leftScore < rightScore {
-				return 1
-			}
-			return 0
-		})
-	}
-	if limit > 0 && len(rows) > limit {
-		rows = rows[:limit]
+	slices.SortFunc(hits, func(left, right bson.M) int {
+		return cmp.Compare(right[scoreField].(float64), left[scoreField].(float64))
+	})
+	hits = hits[:min(len(hits), query["limit"].(int))]
+	var rows []any
+	for _, hit := range hits {
+		rows = append(rows, hit)
 	}
 	return mongo.NewCursorFromDocuments(rows, nil, nil)
 }
 
+func (f *filterCollection) BulkWrite(_ context.Context, writes []mongo.WriteModel, _ ...options.Lister[options.BulkWriteOptions]) (*mongo.BulkWriteResult, error) {
+	f.writes++
+	for _, write := range writes {
+		replacement := write.(*mongo.ReplaceOneModel)
+		if replacement.Collation == nil || replacement.Collation.Locale != "simple" {
+			return nil, errors.New("native identity replacement needs binary collation")
+		}
+		raw, err := bson.Marshal(replacement.Replacement)
+		if err != nil {
+			return nil, err
+		}
+		id := bson.Raw(raw).Lookup(idField).StringValue()
+		kept := slices.DeleteFunc(f.records, func(record bson.Raw) bool { return record.Lookup(idField).StringValue() == id })
+		f.records = append(kept, raw)
+	}
+	return &mongo.BulkWriteResult{Acknowledged: true, UpsertedCount: int64(len(writes))}, nil
+}
+
 func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {
-	constraint := value.(bson.M)
-	id := constraint[defaultIDField].(string)
 	var settings options.DeleteManyOptions
 	for _, builder := range builders {
 		for _, apply := range builder.List() {
@@ -90,17 +117,20 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 		}
 	}
 	if settings.Collation == nil || settings.Collation.Locale != "simple" {
-		return nil, errors.New("conditional deletion requires binary collation")
+		return nil, errors.New("native identity deletion needs binary collation")
 	}
-	var observed bson.RawValue
-	if expression, exists := constraint["$expr"]; exists {
-		equality := expression.(bson.M)["$eq"].(bson.A)
-		if equality[0] != "$"+DefaultMetadataField {
-			return nil, errors.New("conditional deletion compared the wrong field")
+	constraint := value.(bson.M)
+	var ids []string
+	var observed *string
+	if id, ok := constraint[idField].(string); ok {
+		ids = []string{id}
+		equality := constraint["$expr"].(bson.M)["$eq"].(bson.A)
+		if equality[0] != "$"+metadataField {
+			return nil, errors.New("conditional delete used wrong metadata field")
 		}
-		observed = equality[1].(bson.M)["$literal"].(bson.RawValue)
-	} else if constraint[DefaultMetadataField].(bson.M)["$exists"] != false {
-		return nil, errors.New("conditional deletion omitted metadata observation")
+		observed = new(equality[1].(bson.M)["$literal"].(string))
+	} else {
+		ids = constraint[idField].(bson.M)["$in"].([]string)
 	}
 	if f.beforeDelete != nil {
 		f.beforeDelete()
@@ -109,8 +139,9 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 	var kept []bson.Raw
 	var count int64
 	for _, record := range f.records {
-		current := record.Lookup(DefaultMetadataField)
-		if record.Lookup(defaultIDField).StringValue() == id && current.Type == observed.Type && bytes.Equal(current.Value, observed.Value) {
+		id := record.Lookup(idField).StringValue()
+		current, currentOK := record.Lookup(metadataField).StringValueOK()
+		if slices.Contains(ids, id) && (observed == nil || currentOK && current == *observed) {
 			f.deleted = append(f.deleted, id)
 			count++
 			continue
@@ -123,23 +154,25 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 
 func mongoFilterStore(t *testing.T, docs []*document.Document) (*Store, *filterCollection) {
 	t.Helper()
-	collection := &filterCollection{}
-	for _, doc := range docs {
-		values, err := doc.Metadata.Values()
-		if err != nil {
-			t.Fatal(err)
-		}
-		converted, err := metadataDocument(values)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, err := bson.Marshal(bson.M{defaultIDField: doc.ID, DefaultContentField: doc.Text, DefaultMetadataField: converted, scoreField: 1.0})
-		if err != nil {
-			t.Fatal(err)
-		}
-		collection.records = append(collection.records, raw)
+	collection := &filterCollection{scores: make(map[string]float64)}
+	store := upsertStore(t, collection)
+	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		t.Fatal(err)
 	}
-	return upsertStore(t, collection), collection
+	return store, collection
+}
+
+func nativeIndexPolicy(name, metric string, dimension int) bson.M {
+	return bson.M{"name": name, "type": "vectorSearch", "status": "READY", "queryable": true, "latestDefinition": bson.M{"fields": bson.A{bson.M{"type": "vector", "path": embeddingField, "numDimensions": dimension, "similarity": metric}, bson.M{"type": "filter", "path": idField}}}}
+}
+
+func nativeRecord(t *testing.T, id, facts string) bson.Raw {
+	t.Helper()
+	raw, err := bson.Marshal(bson.M{idField: id, contentField: "text", embeddingField: []float32{1, 0}, metadataField: facts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func TestFilterConformance(t *testing.T) {
@@ -158,118 +191,71 @@ func TestFilterConformance(t *testing.T) {
 }
 
 func TestDeleteWhereDoesNotSelectArrayForScalarEquality(t *testing.T) {
-	collection := &filterCollection{}
-	for _, record := range []bson.M{{"_id": "scalar", "metadata": bson.M{"value": "x"}}, {"_id": "array", "metadata": bson.M{"value": bson.A{"x"}}}} {
-		raw, err := bson.Marshal(record)
-		if err != nil {
-			t.Fatal(err)
-		}
-		collection.records = append(collection.records, raw)
-	}
-	store := upsertStore(t, collection)
+	store, collection := mongoFilterStore(t, []*document.Document{{ID: "scalar", Text: "text", Metadata: metadata.Map{"value": []byte(`"x"`)}}, {ID: "array", Text: "text", Metadata: metadata.Map{"value": []byte(`["x"]`)}}})
 	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "x")); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(collection.deleted, []string{"scalar"}) {
-		t.Fatalf("deleted %v", collection.deleted)
-	}
-	if len(collection.records) != 1 || collection.records[0].Lookup("_id").StringValue() != "array" {
-		t.Fatalf("survivors %v", collection.records)
+	if !slices.Equal(collection.deleted, []string{"scalar"}) || len(collection.records) != 1 {
+		t.Fatalf("deleted=%v remaining=%v", collection.deleted, collection.records)
 	}
 }
 
 func TestDeleteWhereDoesNotMutateAfterEnumerationFailure(t *testing.T) {
+	store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}})
 	want := errors.New("cursor unavailable")
-	collection := &filterCollection{enumerationErr: want}
-	store := upsertStore(t, collection)
+	collection.enumerationErr = want
 	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "x")); !errors.Is(err, want) {
-		t.Fatalf("error %v", err)
+		t.Fatal(err)
 	}
 	if len(collection.deleted) != 0 {
-		t.Fatalf("deleted %v", collection.deleted)
+		t.Fatalf("deleted=%v", collection.deleted)
 	}
 }
 
 func TestDeleteWhereRetainsChangedMetadata(t *testing.T) {
-	for name, replacement := range map[string]any{
-		"case":  bson.M{"value": "x"},
-		"array": bson.A{bson.M{"value": "X"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			values, err := metadata.FromValues(map[string]any{"value": "X"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text", Metadata: values}})
-			collection.beforeDelete = func() {
-				raw, err := bson.Marshal(bson.M{defaultIDField: "one", DefaultMetadataField: replacement})
-				if err != nil {
-					t.Fatal(err)
-				}
-				collection.records[0] = raw
-			}
-			if err := store.DeleteWhere(t.Context(), filter.EQ("value", "X")); err != nil {
-				t.Fatal(err)
-			}
-			if len(collection.deleted) != 0 || len(collection.records) != 1 {
-				t.Fatalf("deleted %v; survivors %d", collection.deleted, len(collection.records))
-			}
-		})
+	store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text", Metadata: metadata.Map{"value": []byte(`"X"`)}}})
+	collection.beforeDelete = func() { collection.records[0] = nativeRecord(t, "one", `{"value":"x"}`) }
+	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "X")); err != nil {
+		t.Fatal(err)
+	}
+	if len(collection.deleted) != 0 || len(collection.records) != 1 {
+		t.Fatal("delete discarded a changed metadata value")
 	}
 }
 
 func TestFilteredSearchMergesBoundedIDBatches(t *testing.T) {
-	values, err := metadata.FromValues(map[string]any{"value": "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var docs []*document.Document
 	for index := range filterPageSize + 1 {
-		docs = append(docs, &document.Document{ID: fmt.Sprintf("%04d", index), Text: "text", Metadata: values})
+		docs = append(docs, &document.Document{ID: fmt.Sprintf("%04d", index), Text: "text", Metadata: metadata.Map{"value": []byte(`"x"`)}})
 	}
 	store, collection := mongoFilterStore(t, docs)
 	for index, doc := range docs {
-		raw, marshalErr := bson.Marshal(bson.M{defaultIDField: doc.ID, DefaultContentField: doc.Text, DefaultMetadataField: bson.M{"value": "x"}, scoreField: float64(index+1) / float64(len(docs))})
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		collection.records[index] = raw
+		collection.scores[doc.ID] = float64(index+1) / float64(len(docs))
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(collection.queryBatches, []int{filterPageSize, 1}) {
-		t.Fatalf("query batches %v", collection.queryBatches)
-	}
-	if len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID {
-		t.Fatalf("results %+v", response.Results)
+	if !slices.Equal(collection.queryBatches, []int{filterPageSize, 1}) || len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID {
+		t.Fatalf("groups=%v response=%v", collection.queryBatches, response)
 	}
 }
 
 func TestFilteredSearchRejectsChangedSelection(t *testing.T) {
 	for _, changeID := range []bool{false, true} {
-		t.Run(fmt.Sprint("change_id_", changeID), func(t *testing.T) {
-			values, err := metadata.FromValues(map[string]any{"value": "x"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text", Metadata: values}})
+		t.Run(fmt.Sprint(changeID), func(t *testing.T) {
+			store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text", Metadata: metadata.Map{"value": []byte(`"x"`)}}})
 			collection.beforeQuery = func() {
-				id, value := "one", "y"
+				id, facts := "one", `{"value":"y"}`
 				if changeID {
-					id, value = "other", "x"
+					id, facts = "other", `{"value":"x"}`
 					collection.ignoreSelected = true
 				}
-				raw, marshalErr := bson.Marshal(bson.M{defaultIDField: id, DefaultContentField: "text", DefaultMetadataField: bson.M{"value": value}, scoreField: 1.0})
-				if marshalErr != nil {
-					t.Fatal(marshalErr)
-				}
-				collection.records[0] = raw
+				collection.records[0] = nativeRecord(t, id, facts)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
 			if err == nil || response != nil {
-				t.Fatalf("response %+v, error %v", response, err)
+				t.Fatalf("response=%v error=%v", response, err)
 			}
 		})
 	}

@@ -69,9 +69,8 @@ func upsertStore(t *testing.T, collection DocumentCollection) *Store {
 	}
 	return &Store{
 		collection:      collection,
-		embeddingPath:   DefaultEmbeddingPath,
-		contentField:    DefaultContentField,
-		metadataField:   DefaultMetadataField,
+		schema:          nativeSchema{dimensions: 2},
+		numCandidates:   DefaultNumCandidates,
 		embeddingClient: client,
 		documentBatcher: upsertBatcher{},
 	}
@@ -148,7 +147,7 @@ type deletionCollection struct {
 }
 
 func (d *deletionCollection) Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
-	return mongo.NewCursorFromDocuments([]any{bson.M{"_id": "one", "metadata": bson.M{"tag": "one"}}}, nil, nil)
+	return mongo.NewCursorFromDocuments([]any{bson.M{idField: "one", contentField: "text", embeddingField: []float32{1, 0}, metadataField: `{"tag":"one"}`}}, nil, nil)
 }
 
 func (d *deletionCollection) DeleteMany(context.Context, any, ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {
