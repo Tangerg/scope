@@ -1,76 +1,72 @@
-// Package pinecone exposes Pinecone through the Core vector-store capability interfaces.
-// Documents are stored as vectors in a Pinecone index
-// (`{id, values, metadata}`); retrieval runs the index's similarity
-// query.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package pinecone adapts ready dense serverless Pinecone vector indexes to the
+// Core Indexer, Searcher, IDDeleter, FilterDeleter and Closer capabilities.
 //
-// Metadata numbers use Pinecone's double representation only when their
-// decimal value survives JSON round-tripping. Unrepresentable values are
-// rejected before upsert rather than rounded or converted to strings.
+// NewStore requires an existing index named by StoreConfig.IndexName and reads
+// its host, dimensionality and metric through the native SDK DescribeIndex.
+// Missing policy, unsupported schemas and control-plane authorization failures
+// are errors. The host provisions the index and owns API credentials, native
+// transport configuration and SDK client lifetime. Store opens one native index
+// connection and Close releases that connection. Native Namespace() owns the
+// effective namespace, including the SDK's default namespace normalization.
 //
-// Requirements: a Pinecone account and an existing index (created
-// via the Pinecone console or control-plane API — Pinecone does not
-// allow lazy index creation from the data plane). The store uses
-// the official pinecone-io/go-pinecone v4 client.
+// The current native record has exactly two metadata string fields: content
+// carries document text and metadata_json carries metadata.Map.MarshalJSON's
+// complete value. The native vector ID alone owns document identity. No metadata
+// keys are expanded into native fields. Core numbers, nested values, arrays,
+// arbitrary keys, null and nil versus empty metadata survive without a second
+// codec. Documents containing media are rejected before embedding or upsert.
+// Native record IDs and namespaces must be ASCII without NUL, at most 512
+// characters; IDs must be nonempty. Identity is preserved without escaping.
 //
-// Vector similarity. Pinecone configures cosine / dotproduct / euclidean at
-// index-creation time; the store reads but does not override. Because the
-// metric decides what a raw score means, [NewStore] reads the index's own
-// metric from the control plane and refuses a configured value that disagrees
-// with [ErrIncompatibleIndex] — a mismatch would otherwise return scores that
-// are wrong rather than absent, with MinScore filtering by the wrong
-// direction.
+// Construction and every search read the complete namespace through native list
+// and fetch. Every source record must satisfy the current schema, including
+// records outside a predicate or relevance threshold. Core filter.Match alone
+// decides predicate membership. Filtered searches query native metadata_json
+// string membership in bounded groups; both filtered and unfiltered searches use
+// native ranking. Groups merge by raw native scores before TopK and Core score
+// normalization. Cosine uses Core cosine normalization, dotproduct uses Core
+// inner-product normalization, and Euclidean uses Core distance normalization.
+// Scores, dimensions and complete native records are validated before returning
+// any results. The adapter supports semantic search only.
 //
-// A key with custom permissions may be denied the control plane, which Pinecone
-// documents as the reason a caller "must target your index by host when
-// performing data operations" — the shape [StoreConfig.IndexHost] already has.
-// Construction does not demand that permission: an authorization denial leaves
-// the configured metric unverified, while any other failure is reported.
-// Dimensionality is never compared: this store declares none, and Pinecone
-// rejects a wrong-width vector on the first request.
+// DeleteWhere first completes Core selection, then issues native conditional
+// deletions by the selected complete metadata_json strings. The native deletion
+// excludes indexed metadata values outside that selection. These
+// operations have no cross-request snapshot or revision compare-and-swap: newly
+// matching values not selected by the scan may remain, and records with the same
+// selected metadata value may be deleted regardless of text or vector changes.
+// Native delete acknowledgments contain no per-record counts. Hosts needing
+// stronger snapshot guarantees must coordinate writers. DeleteIDs is the
+// explicit idempotent identity deletion capability; it validates all IDs and
+// deduplicates them before publishing batches of at most 1,000 IDs.
 //
-// Filtered operations list the complete namespace and fetch original metadata
-// before applying Core filter.Match. This preserves scalar versus collection
-// membership, exact string matching, and missing-field semantics. The List
-// endpoint is available only for serverless vector indexes; failures remain
-// explicit. Filtered Search computes exact scores from all matching float32
-// vectors, using the index metric (euclidean means squared L2), then selects
-// TopK. Unfiltered Search uses native approximate retrieval.
+// Index validates and encodes all records, completes every model batch and
+// validates every dense FLOAT32 vector before its first upsert. Native upserts
+// contain at most MaxVectorsPerUpsert records and must acknowledge every vector.
+// Native I/O failures may leave earlier batches published; the adapter does not
+// retry, roll back, or claim transactional indexing. Pinecone's metadata size,
+// request size and query result size limits remain native errors. Full namespace
+// scans require list/fetch permissions, O(N) record reads and O(N) identity and
+// metadata tracking. Filtered query merging stores up to O(groups * TopK) hits.
+// List, fetch and query are eventually consistent and provide no shared snapshot.
 //
-// Filtering therefore costs O(N) record reads, with O(N) identity tracking
-// plus O(TopK) search results. It requires list/fetch permissions. These APIs
-// are eventually consistent and do not promise a multi-request snapshot.
+// Breaking replacement: remove IndexHost, DistanceMetric and its public metric
+// enum. Supply Client and IndexName, and provision native policy through the host.
+// Legacy expanded metadata records are rejected; rebuild the namespace with the
+// two current string fields. There are no old-format reads, authorization
+// fallbacks, metadata migrations or local vector-distance algorithms.
 //
-// Document text. Pinecone itself stores only id + vector + flat
-// metadata — there is no first-class text body. The store always stashes
-// the original document text under a reserved metadata key; retrieval
-// reverses the mapping back into [document.Document.Text].
-//
-// Upsert acknowledgment. Pinecone answers an upsert with the number of vectors
-// it accepted; Index requires that count to match what it sent rather than
-// treating a short write as a complete one.
-//
-// DeleteWhere finishes selection before sending ID deletions in batches of
-// 1,000. Pinecone has no conditional revision delete; hosts must coordinate
-// concurrent writers when selection must stay true until deletion. A failed
-// operation reports an error and earlier completed batches remain deleted.
-//
-// Metadata must follow Pinecone's flat format: strings, exactly representable
-// numbers, booleans, and string lists. Nulls, nested objects, non-string lists,
-// keys beginning with $, and the reserved document-content key are rejected
-// before embedding or upsert. Remove an absent metadata key instead of null.
-//
-// Operation limits. Search applies the adapter's [MaxTopK] result limit to
-// both native and locally ranked queries. One upsert carries at most
-// [MaxVectorsPerUpsert] records; Index splits larger batches. Pinecone caps an
-// upsert request at 2 MB, which a record count cannot predict, so that limit
-// surfaces as a provider error.
-//
-// Lifecycle. The store implements [vectorstore.Closer] because it creates a
-// resource of its own: construction opens an index connection through
-// Client.Index, and Close releases that connection rather than the caller's
-// client. The client stays the caller's to close.
-//
-// See https://docs.pinecone.io/ for the full API surface.
+// Default tests are offline. Integration tests require Pinecone Local plus
+// SCOPE_PINECONE_LOCAL_ENDPOINT and SCOPE_PINECONE_LOCAL_INDEX_COSINE,
+// SCOPE_PINECONE_LOCAL_INDEX_DOTPRODUCT and SCOPE_PINECONE_LOCAL_INDEX_EUCLIDEAN,
+// naming independently provisioned ready 2-dimensional indexes. They use isolated
+// namespaces and clean them up. Pinecone Local's API 2025-01 control response
+// omits vector_type, so these tests exercise native data-plane behavior directly;
+// current API 2025-04 SDK construction is verified by offline HTTP/gRPC fixtures.
+// Local also rejects serverless metadata-filter deletion; its test verifies
+// explicit failure and retained records, without an ID-deletion fallback. The
+// separate cloud deletion test requires SCOPE_PINECONE_API_KEY and
+// SCOPE_PINECONE_INDEX_NAME for a ready 2-dimensional serverless index and uses
+// an isolated namespace. Offline tests verify the conditional SDK wire request
+// and selection/update ordering; Local does not establish cloud deletion parity.
 package pinecone
