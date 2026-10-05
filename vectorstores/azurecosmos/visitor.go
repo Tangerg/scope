@@ -6,35 +6,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var _ filter.Visitor = (*visitor)(nil)
 
-// visitor transforms AST filter expressions into a Cosmos DB SQL
-// predicate fragment. Metadata keys live under c.metadata.* by default
-// (the document alias used in Search / DeleteWhere is `c`).
-//
-// Output shape:
-//
-//	author == "Alice"        →  c.metadata.author = @p1
-//	year >= 2020             →  c.metadata.year >= @p1
-//	category IN ("a", "b")   →  c.metadata.category IN (@p1, @p2)
-//	NOT (a == "x")           →  NOT (c.metadata.a = @p1)
-//	a == "x" AND b == "y"    →  (c.metadata.a = @p1 AND c.metadata.b = @p2)
 type visitor struct {
 	err            error
 	sql            strings.Builder
-	params         []NamedParam
+	params         []azcosmos.QueryParameter
 	alias          string
 	metadataPrefix string
-}
-
-// NamedParam pairs a `@N`-style placeholder with its value. Cosmos
-// SDK uses named parameters via QueryParameters.
-type NamedParam struct {
-	Name  string
-	Value any
 }
 
 func newVisitor(alias, metadataPrefix string) *visitor {
@@ -44,7 +28,7 @@ func newVisitor(alias, metadataPrefix string) *visitor {
 	return &visitor{alias: alias, metadataPrefix: metadataPrefix}
 }
 
-func (v *visitor) snapshot() (string, []NamedParam) {
+func (v *visitor) snapshot() (string, []azcosmos.QueryParameter) {
 	if v.err != nil {
 		return "", nil
 	}
@@ -61,14 +45,33 @@ func (v *visitor) Visit(expr filter.Predicate) error {
 func (v *visitor) visit(expr filter.Expr) error {
 	switch node := expr.(type) {
 	case *filter.BinaryExpr:
-		return node.Dispatch(filter.BinaryHandlers{
+		if node.Operator() == filter.OpNotEqual {
+			equality, err := node.Inverse()
+			if err != nil {
+				return err
+			}
+			return v.visit(filter.Not(equality))
+		}
+		// Core predicates are two-valued. Resolve native undefined before NOT
+		// or a compound predicate can turn an absent field into a lost match.
+		atomic := !node.Operator().IsLogicalOperator() && !node.Operator().IsNullOperator()
+		if atomic {
+			v.sql.WriteString("((")
+		}
+		if err := node.Dispatch(filter.BinaryHandlers{
 			Logical:    v.visitLogicalExpr,
 			Comparison: v.visitComparisonExpr,
 			In:         v.visitInExpr,
 			Has:        v.visitHasExpr,
 			Like:       v.visitLikeExpr,
 			NullTest:   v.visitNullTestExpr,
-		})
+		}); err != nil {
+			return err
+		}
+		if atomic {
+			v.sql.WriteString(") ?? false)")
+		}
+		return nil
 	case *filter.UnaryExpr:
 		return v.visitUnaryExpr(node)
 	default:
@@ -194,56 +197,21 @@ func (v *visitor) visitInExpr(expr *filter.BinaryExpr) error {
 	return nil
 }
 
-// visitLikeExpr maps exactly representable SQL LIKE shapes onto Cosmos string
-// functions. Patterns with internal or single-character wildcards are rejected
-// instead of being approximated.
 func (v *visitor) visitLikeExpr(expr *filter.BinaryExpr) error {
 	field, err := v.fieldPath(expr)
 	if err != nil {
 		return err
 	}
-	value, err := expr.Value()
+	pattern, err := expr.Pattern()
 	if err != nil {
 		return err
 	}
-	pattern, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("azurecosmos: LIKE requires a string pattern, got %T", value)
-	}
-	if strings.ContainsRune(pattern, '_') {
-		return errors.New("azurecosmos: LIKE '_' wildcard is not supported by Cosmos string functions")
-	}
-	leadingWildcard := strings.HasPrefix(pattern, "%")
-	trailingWildcard := strings.HasSuffix(pattern, "%")
-	text := strings.TrimSuffix(strings.TrimPrefix(pattern, "%"), "%")
-	if text == "" || strings.ContainsRune(text, '%') {
-		return fmt.Errorf("azurecosmos: LIKE pattern %q cannot be represented exactly", pattern)
-	}
-	param := v.bindParam(text)
-	switch {
-	case leadingWildcard && trailingWildcard:
-		v.sql.WriteString("CONTAINS(")
-		v.sql.WriteString(field)
-		v.sql.WriteString(", ")
-		v.sql.WriteString(param)
-		v.sql.WriteByte(')')
-	case leadingWildcard:
-		v.sql.WriteString("ENDSWITH(")
-		v.sql.WriteString(field)
-		v.sql.WriteString(", ")
-		v.sql.WriteString(param)
-		v.sql.WriteByte(')')
-	case trailingWildcard:
-		v.sql.WriteString("STARTSWITH(")
-		v.sql.WriteString(field)
-		v.sql.WriteString(", ")
-		v.sql.WriteString(param)
-		v.sql.WriteByte(')')
-	default:
-		v.sql.WriteString(field)
-		v.sql.WriteString(" = ")
-		v.sql.WriteString(param)
-	}
+	// Core treats brackets and the native escape character as literals.
+	pattern = strings.ReplaceAll(strings.ReplaceAll(pattern, "!", "!!"), "[", "![")
+	v.sql.WriteString(field)
+	v.sql.WriteString(" LIKE ")
+	v.sql.WriteString(v.bindParam(pattern))
+	v.sql.WriteString(" ESCAPE '!'")
 	return nil
 }
 
@@ -297,8 +265,6 @@ func sqlOpFor(kind filter.Operator) (string, error) {
 	switch kind {
 	case filter.OpEqual:
 		return "=", nil
-	case filter.OpNotEqual:
-		return "<>", nil
 	case filter.OpLess:
 		return "<", nil
 	case filter.OpLessEqual:
@@ -314,6 +280,6 @@ func sqlOpFor(kind filter.Operator) (string, error) {
 
 func (v *visitor) bindParam(value any) string {
 	name := fmt.Sprintf("@p%d", len(v.params)+1)
-	v.params = append(v.params, NamedParam{Name: name, Value: value})
+	v.params = append(v.params, azcosmos.QueryParameter{Name: name, Value: value})
 	return name
 }

@@ -17,11 +17,15 @@
 // [DistanceEuclidean]. The value passed at query time MUST match
 // what the container's vector policy declares.
 //
-// Filter visitor produces Cosmos SQL — `c.metadata.key = @p1`,
-// `c.metadata.year >= @p1`, `c.metadata.tag IN (@p1, @p2)`. Named
-// parameters (`@pN`) are used to match Cosmos SDK's QueryParameter
-// shape. LIKE maps to `CONTAINS(c.metadata.key, @p)` — the leading
-// / trailing `%` markers are stripped.
+// Filter visitor produces Cosmos SQL predicates with bound
+// [azcosmos.QueryParameter] values (`@pN`). LIKE uses the native SQL operator
+// with Core's whole-string, case-sensitive % and _ wildcards. Brackets and the escape character remain
+// literal; pattern values never become query syntax.
+//
+// Core owns filter truth values. Atomic conditions resolve Cosmos undefined to
+// false before composition, and inequality negates the resolved equality.
+// Missing and null fields therefore remain distinguishable from a matching
+// value under NOT, including in searches and filtered deletion.
 //
 // Container agreement. [NewStore] reads the container and refuses one it
 // cannot serve with [ErrIncompatibleContainer]: the partition-key path has to

@@ -369,9 +369,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		{Name: "@queryVec", Value: queryVec},
 		{Name: "@topK", Value: request.Options.ResultLimit()},
 	}
-	for _, p := range params {
-		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})
-	}
+	queryParams = append(queryParams, params...)
 
 	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKeyString(s.partitionKey), &azcosmos.QueryOptions{
 		QueryParameters: queryParams,
@@ -415,13 +413,8 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	}
 
 	query := fmt.Sprintf("SELECT c.id AS _id FROM c WHERE %s", clause)
-	queryParams := make([]azcosmos.QueryParameter, 0, len(params))
-	for _, p := range params {
-		queryParams = append(queryParams, azcosmos.QueryParameter{Name: p.Name, Value: p.Value})
-	}
-
 	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKeyString(s.partitionKey), &azcosmos.QueryOptions{
-		QueryParameters: queryParams,
+		QueryParameters: params,
 	})
 
 	// Complete enumeration before deleting so writes cannot invalidate the
@@ -450,7 +443,7 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	return nil
 }
 
-func (s *Store) buildFilter(expr filter.Predicate) (string, []NamedParam, error) {
+func (s *Store) buildFilter(expr filter.Predicate) (string, []azcosmos.QueryParameter, error) {
 	if expr == nil {
 		return "", nil, nil
 	}
