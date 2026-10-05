@@ -11,12 +11,6 @@ func TestVisitorLifecycle(t *testing.T) {
 	t.Parallel()
 	storetest.VisitorLifecycle(t, func() storetest.Compiler {
 		compiler := pgfilter.NewCompiler("metadata")
-		return storetest.Compiler{Visit: compiler.Visit, Snapshot: func() any {
-			query, args := compiler.Result()
-			return struct {
-				query string
-				args  any
-			}{query: query, args: args}
-		}}
+		return storetest.Compiler{Visit: compiler.Visit, Snapshot: func() any { return compiler.Result() }}
 	})
 }

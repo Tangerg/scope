@@ -9,7 +9,7 @@
 //   - cockroachdb: CockroachDB over the same wire.
 //
 // Both implement the capabilities they genuinely have from core/vectorstore and
-// compile the shared filter Predicate into their own SQL dialect. Their query
+// compile the shared filter Predicate through one JSONB SQL compiler. Their query
 // engine is shared privately through internal/pgstore, so neither backend
 // exposes the other's types.
 //
@@ -19,4 +19,18 @@
 // index, metadata column — passes SQL identifier validation at construction,
 // because those names reach the query text directly and that is the injection
 // trust boundary.
+//
+// Filters preserve Core's scalar types, exact JSON numeric comparisons, missing
+// and null truth, typed path segments, and case-sensitive LIKE semantics with
+// literal backslashes. Ordering and LIKE type errors are checked before query
+// embedding or deletion. Their validation and execution use one serializable
+// transaction snapshot; transaction conflicts return errors without retries.
+// No additional stored metadata representation participates in filtering.
+// PostgreSQL text/JSONB cannot represent NUL, so NUL-bearing filter keys and
+// literals are rejected. Array indices beyond PostgreSQL's int4 operand range
+// are also rejected before effects.
+//
+// Native filter conformance creates and removes isolated schemas. Run explicitly
+// with -tags=integration and SCOPE_PGVECTOR_DSN or SCOPE_COCKROACHDB_DSN, selecting
+// TestLiveMetadataFilters/pgvector or TestLiveMetadataFilters/cockroachdb.
 package postgres

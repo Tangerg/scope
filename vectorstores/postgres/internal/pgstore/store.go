@@ -6,6 +6,7 @@ package pgstore
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -218,7 +219,18 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
+
+	compiled, transaction, err := s.prepareFilter(ctx, request.Options.Filter, pgx.ReadOnly)
+	if err != nil {
+		return nil, err
+	}
+	if transaction != nil {
+		defer s.finishTransaction(ctx, transaction, &err)
+	}
 
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -226,10 +238,11 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	queryVec := pgvec.NewVector(embedding.Float32Vector(vector))
 
-	whereSQL, args, err := s.buildWhereClause(request.Options.Filter)
-	if err != nil {
-		return nil, err
+	whereSQL := ""
+	if compiled.Predicate != "" {
+		whereSQL = " WHERE " + compiled.Predicate
 	}
+	args := compiled.Args
 
 	args = append(args, queryVec)
 	distancePlaceholder := fmt.Sprintf("$%d", len(args))
@@ -242,7 +255,11 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		s.fullTable, whereSQL, limitPlaceholder,
 	)
 
-	rows, err := s.pool.Query(ctx, sql, args...)
+	query := s.pool.Query
+	if transaction != nil {
+		query = transaction.Query
+	}
+	rows, err := query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s.Store.Search: query %s: %w", s.provider, s.fullTable, err)
 	}
@@ -286,7 +303,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 }
 
 // DeleteWhere removes every row whose metadata matches the predicate.
-
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
@@ -295,20 +311,23 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 		return fmt.Errorf("%s.Store.DeleteWhere: %w", s.provider, err)
 	}
 
-	var (
-		fragment string
-		args     []any
-	)
-	fragment, args, err = s.buildWhereClause(predicate)
+	compiled, transaction, err := s.prepareFilter(ctx, predicate, pgx.ReadWrite)
 	if err != nil {
 		return err
 	}
-	if fragment == "" {
+	if transaction != nil {
+		defer s.finishTransaction(ctx, transaction, &err)
+	}
+	if compiled.Predicate == "" {
 		return fmt.Errorf("%s.Store.DeleteWhere: filter produced no SQL predicate", s.provider)
 	}
 
-	sql := fmt.Sprintf(`DELETE FROM %s%s`, s.fullTable, fragment)
-	if _, err = s.pool.Exec(ctx, sql, args...); err != nil {
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s`, s.fullTable, compiled.Predicate)
+	exec := s.pool.Exec
+	if transaction != nil {
+		exec = transaction.Exec
+	}
+	if _, err = exec(ctx, sql, compiled.Args...); err != nil {
 		return fmt.Errorf("%s.Store.DeleteWhere: delete from %s: %w", s.provider, s.fullTable, err)
 	}
 	return nil
@@ -330,22 +349,70 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-// buildWhereClause converts the optional filter expression into a SQL
-// fragment (prefixed with " WHERE ") and the matching argument slice.
-// Returns ("", nil, nil) when filter is nil.
-func (s *Store) buildWhereClause(expr filter.Predicate) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
+// Error validation and the filtered operation share a snapshot. Otherwise an
+// intervening write could turn a valid predicate into a silently omitted error.
+// A successful return transfers transaction finalization to the operation.
+func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate, accessMode pgx.TxAccessMode) (compiled pgfilter.Query, transaction pgx.Tx, err error) {
+	if predicate == nil {
+		return pgfilter.Query{}, nil, nil
 	}
 	compiler := pgfilter.NewCompiler(s.metadataColumn)
-	if err := expr.Accept(compiler); err != nil {
-		return "", nil, fmt.Errorf("%s: compile metadata filter: %w", s.provider, err)
+	if err = predicate.Accept(compiler); err != nil {
+		return pgfilter.Query{}, nil, fmt.Errorf("%s: compile metadata filter: %w", s.provider, err)
 	}
-	fragment, args := compiler.Result()
-	if fragment == "" {
-		return "", nil, nil
+	compiled = compiler.Result()
+	if compiled.Invalid == "" {
+		return compiled, nil, nil
 	}
-	return " WHERE " + fragment, args, nil
+	transaction, err = s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: accessMode})
+	if err != nil {
+		return pgfilter.Query{}, nil, fmt.Errorf("%s: begin metadata filter transaction: %w", s.provider, err)
+	}
+	defer func() {
+		if err != nil {
+			s.finishTransaction(ctx, transaction, &err)
+		}
+	}()
+	// Selecting the compiled predicate gives every bound parameter its SQL type,
+	// including literals not needed to identify the invalid row.
+	sql := fmt.Sprintf("SELECT id, %s, (%s) FROM %s WHERE %s LIMIT 1", s.metadataColumn, compiled.Predicate, s.fullTable, compiled.Invalid)
+	var id string
+	var raw []byte
+	var selected bool
+	err = transaction.QueryRow(ctx, sql, compiled.Args...).Scan(&id, &raw, &selected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+		return compiled, transaction, nil
+	}
+	if err != nil {
+		return compiled, transaction, fmt.Errorf("%s: validate metadata filter: %w", s.provider, err)
+	}
+	if selected {
+		return compiled, transaction, fmt.Errorf("%s: metadata filter selected invalid document %q", s.provider, id)
+	}
+	facts, err := unmarshalMetadata(raw)
+	if err != nil {
+		return compiled, transaction, fmt.Errorf("%s: decode metadata for filter validation on document %q: %w", s.provider, id, err)
+	}
+	values, err := facts.Values()
+	if err != nil {
+		return compiled, transaction, fmt.Errorf("%s: decode filter values on document %q: %w", s.provider, id, err)
+	}
+	if _, err = filter.Match(predicate, values); err != nil {
+		return compiled, transaction, fmt.Errorf("%s: evaluate metadata filter on document %q: %w", s.provider, id, err)
+	}
+	return compiled, transaction, fmt.Errorf("%s: metadata filter error condition disagrees with Core on document %q", s.provider, id)
+}
+
+func (s *Store) finishTransaction(ctx context.Context, transaction pgx.Tx, operationErr *error) {
+	if *operationErr == nil {
+		if err := transaction.Commit(ctx); err != nil {
+			*operationErr = fmt.Errorf("%s: commit metadata filter transaction: %w", s.provider, err)
+		}
+	}
+	if err := transaction.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		*operationErr = errors.Join(*operationErr, fmt.Errorf("%s: roll back metadata filter transaction: %w", s.provider, err))
+	}
 }
 
 // marshalMetadata serializes the document metadata into the JSON bytes

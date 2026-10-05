@@ -8,4 +8,10 @@
 // Requirements: CockroachDB v25.4 or later is recommended for generally
 // available vector indexing. Schema initialization is explicit through
 // StoreConfig.InitializeSchema.
+//
+// Metadata filters use the shared PostgreSQL-family JSONB compiler and execution
+// boundary. Scalar types and exact JSON numbers stay distinct; missing and null
+// values follow Core's boolean truth, including negation. Ordering and LIKE
+// type errors are checked before query embedding or deletion, in the same
+// serializable snapshot as execution. Database conflicts return errors.
 package cockroachdb

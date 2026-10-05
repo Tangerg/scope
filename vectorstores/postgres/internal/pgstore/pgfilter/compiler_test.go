@@ -10,296 +10,146 @@ import (
 	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore/pgfilter"
 )
 
-// TestCompiler_Conformance exercises every AST shape the filter DSL
-// supports against the PostgreSQL compiler via the shared
-// [storetest.VisitorConformance] suite. Output equivalence stays in
-// the per-test functions below; this is "no shape crashes" coverage.
-func TestCompiler_Conformance(t *testing.T) {
-	storetest.VisitorConformance(t, func(src string) error {
-		expr, err := filter.Parse(src)
+func TestCompilerConformance(t *testing.T) {
+	storetest.VisitorConformance(t, func(source string) error {
+		predicate, err := filter.Parse(source)
 		if err != nil {
 			return err
 		}
-		compiler := pgfilter.NewCompiler("metadata")
-		return expr.Accept(compiler)
+		return predicate.Accept(pgfilter.NewCompiler("metadata"))
 	}, storetest.Options{})
 }
 
-// build is the test driver — parse src, visit, return (sql, args, err).
-func build(t *testing.T, src string) (string, []any, error) {
+func build(t *testing.T, source string) pgfilter.Query {
 	t.Helper()
-	expr, err := filter.Parse(src)
+	predicate, err := filter.Parse(source)
 	if err != nil {
-		return "", nil, err
+		t.Fatal(err)
 	}
 	compiler := pgfilter.NewCompiler("metadata")
-	if err := expr.Accept(compiler); err != nil {
-		return "", nil, err
+	if err := predicate.Accept(compiler); err != nil {
+		t.Fatal(err)
 	}
-	sql, args := compiler.Result()
-	return sql, args, nil
+	return compiler.Result()
 }
 
-func TestCompiler_EqualityString(t *testing.T) {
-	sql, args, err := build(t, `author == 'Alice'`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "metadata->>'author'") {
-		t.Fatalf("sql=%q must address metadata->>'author'", sql)
-	}
-	if !strings.Contains(sql, "= $1") {
-		t.Fatalf("sql=%q must contain '= $1'", sql)
-	}
-	if !reflect.DeepEqual(args, []any{"Alice"}) {
-		t.Fatalf("args=%v, want [Alice]", args)
-	}
-}
-
-func TestCompiler_EqualityNumberCastsNumeric(t *testing.T) {
-	sql, args, err := build(t, `year == 2020`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "::numeric") {
-		t.Fatalf("sql=%q must contain ::numeric cast for number compare", sql)
-	}
-	// Whole numbers come back as int64 from the literal converter.
-	if !reflect.DeepEqual(args, []any{int64(2020)}) {
-		t.Fatalf("args=%v, want [int64(2020)]", args)
-	}
-}
-
-func TestCompiler_EqualityBoolCastsBoolean(t *testing.T) {
-	sql, args, err := build(t, `published == true`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "::boolean") {
-		t.Fatalf("sql=%q must contain ::boolean cast for bool compare", sql)
-	}
-	if !reflect.DeepEqual(args, []any{true}) {
-		t.Fatalf("args=%v, want [true]", args)
-	}
-}
-
-func TestCompiler_Ordering(t *testing.T) {
-	sql, args, err := build(t, `year >= 2020`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, ">= $1") {
-		t.Fatalf("sql=%q must contain '>= $1'", sql)
-	}
-	if !reflect.DeepEqual(args, []any{int64(2020)}) {
-		t.Fatalf("args=%v, want [int64(2020)]", args)
-	}
-}
-
-func TestCompiler_LogicalAnd(t *testing.T) {
-	sql, args, err := build(t, `author == 'Alice' and year >= 2020`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, " AND ") {
-		t.Fatalf("sql=%q must contain ' AND '", sql)
-	}
-	if len(args) != 2 {
-		t.Fatalf("args=%v, want 2 placeholders", args)
-	}
-	// Placeholders must be numbered sequentially.
-	if !strings.Contains(sql, "$1") || !strings.Contains(sql, "$2") {
-		t.Fatalf("sql=%q must contain $1 and $2", sql)
-	}
-}
-
-func TestCompiler_LogicalOr(t *testing.T) {
-	sql, _, err := build(t, `a == 1 or b == 2`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, " OR ") {
-		t.Fatalf("sql=%q must contain ' OR '", sql)
-	}
-}
-
-func TestCompiler_Not(t *testing.T) {
-	sql, _, err := build(t, `not (a == 1)`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "(NOT ") {
-		t.Fatalf("sql=%q must contain '(NOT '", sql)
-	}
-}
-
-func TestCompiler_InStrings(t *testing.T) {
-	sql, args, err := build(t, `tag in ('rag', 'llm')`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "= ANY($1)") {
-		t.Fatalf("sql=%q must contain '= ANY($1)'", sql)
-	}
-	if !reflect.DeepEqual(args, []any{[]string{"rag", "llm"}}) {
-		t.Fatalf("args=%v, want [[rag llm]]", args)
-	}
-}
-
-func TestCompiler_InNumbers(t *testing.T) {
-	sql, args, err := build(t, `year in (2020, 2021, 2022)`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "::numeric") {
-		t.Fatalf("sql=%q must cast left side to ::numeric for numeric IN", sql)
-	}
-	want := []any{[]int64{2020, 2021, 2022}}
-	if !reflect.DeepEqual(args, want) {
-		t.Fatalf("args=%v, want %v", args, want)
-	}
-}
-
-func TestCompiler_HasUsesJSONBCollectionContainment(t *testing.T) {
-	sql, args, err := build(t, `profile['tags'] has 'rag'`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	wantSQL := `(metadata->'profile'->'tags' @> jsonb_build_array($1))`
-	if sql != wantSQL {
-		t.Fatalf("sql = %q, want %q", sql, wantSQL)
-	}
-	if !reflect.DeepEqual(args, []any{"rag"}) {
-		t.Fatalf("args = %v, want [rag]", args)
-	}
-}
-
-// LIKE is case-sensitive, which is why Postgres ships ILIKE separately.
-// Emitting ILIKE would answer a wider question than the filter asked.
-func TestCompiler_Like(t *testing.T) {
-	sql, args, err := build(t, `author like '%Alice%'`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, " LIKE $1") {
-		t.Fatalf("sql=%q must contain ' LIKE $1'", sql)
-	}
-	if strings.Contains(sql, "ILIKE") {
-		t.Fatalf("sql=%q widens the match to case-insensitive", sql)
-	}
-	if !reflect.DeepEqual(args, []any{"%Alice%"}) {
-		t.Fatalf("args=%v, want [%%Alice%%]", args)
-	}
-}
-
-func TestCompiler_NestedIndex(t *testing.T) {
-	sql, _, err := build(t, `profile['a']['b'] == 'x'`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	// Nested: intermediate hops use ->, final step uses ->>.
-	if !strings.Contains(sql, "metadata->'profile'->'a'->>'b'") {
-		t.Fatalf("sql=%q must contain metadata->'profile'->'a'->>'b'", sql)
-	}
-}
-
-func TestCompiler_IndexedKeyRetainsBase(t *testing.T) {
-	sql, _, err := build(t, `profile['author'] == 'Alice'`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "metadata->'profile'->>'author'") {
-		t.Fatalf("sql=%q must contain metadata->'profile'->>'author'", sql)
-	}
-}
-
-// jsonb reads an integer operand as an array position and a text operand as
-// an object member, so rendering an index as a quoted key would read a
-// different value than filter.Match.
-func TestCompiler_ArrayIndexUsesIntegerOperand(t *testing.T) {
-	tests := []struct {
+func TestCompilerParameterizedJSONB(t *testing.T) {
+	for _, test := range []struct {
 		source string
 		want   string
+		args   []any
 	}{
-		{source: `tags[0] == 'a'`, want: `(metadata->'tags'->>0 IS NOT NULL AND metadata->'tags'->>0 = $1)`},
-		{source: `tags['0'] == 'a'`, want: `(metadata->'tags'->>'0' IS NOT NULL AND metadata->'tags'->>'0' = $1)`},
-		{source: `items[2]['name'] == 'a'`, want: `(metadata->'items'->2->>'name' IS NOT NULL AND metadata->'items'->2->>'name' = $1)`},
-		{source: `items[1] has 'a'`, want: `(metadata->'items'->1 @> jsonb_build_array($1))`},
-		{source: `items[2147483647] == 'a'`, want: `(metadata->'items'->>2147483647 IS NOT NULL AND metadata->'items'->>2147483647 = $1)`},
-	}
-	for _, test := range tests {
+		{`author == 'Alice'`, `COALESCE((metadata -> $1::text) = $2::jsonb, FALSE)`, []any{"author", `"Alice"`}},
+		{`year == 2020`, `COALESCE((metadata -> $1::text) = $2::jsonb, FALSE)`, []any{"year", "2020"}},
+		{`published == true`, `COALESCE((metadata -> $1::text) = $2::jsonb, FALSE)`, []any{"published", "true"}},
+		{`author != 'Alice'`, `(NOT COALESCE((metadata -> $1::text) = $2::jsonb, FALSE))`, []any{"author", `"Alice"`}},
+		{`not (author == 'Alice')`, `(NOT COALESCE((metadata -> $1::text) = $2::jsonb, FALSE))`, []any{"author", `"Alice"`}},
+		{`author is null`, `COALESCE((metadata -> $1::text) = 'null'::jsonb, TRUE)`, []any{"author"}},
+		{`author is not null`, `(NOT COALESCE((metadata -> $1::text) = 'null'::jsonb, TRUE))`, []any{"author"}},
+		{`year in (2020, 2021)`, `COALESCE((metadata -> $1::text) IN ($2::jsonb, $3::jsonb), FALSE)`, []any{"year", "2020", "2021"}},
+		{`tag not in ('rag', 'llm')`, `(NOT COALESCE((metadata -> $1::text) IN ($2::jsonb, $3::jsonb), FALSE))`, []any{"tag", `"rag"`, `"llm"`}},
+		{`profile['tags'] has 'rag'`, `COALESCE(((metadata -> $1::text) -> $2::text) @> jsonb_build_array($3::jsonb), FALSE)`, []any{"profile", "tags", `"rag"`}},
+		{`value == 18446744073709551615`, `COALESCE((metadata -> $1::text) = $2::jsonb, FALSE)`, []any{"value", "18446744073709551615"}},
+		{`value in (-9223372036854775808, 18446744073709551615, 0.1)`, `COALESCE((metadata -> $1::text) IN ($2::jsonb, $3::jsonb, $4::jsonb), FALSE)`, []any{"value", "-9223372036854775808", "18446744073709551615", "0.1"}},
+		{`profile['a']['b'] == 'x'`, `COALESCE((((metadata -> $1::text) -> $2::text) -> $3::text) = $4::jsonb, FALSE)`, []any{"profile", "a", "b", `"x"`}},
+		{`value['a\\b']['quote\'key'] == 'x'`, `COALESCE((((metadata -> $1::text) -> $2::text) -> $3::text) = $4::jsonb, FALSE)`, []any{"value", `a\b`, "quote'key", `"x"`}},
+	} {
 		t.Run(test.source, func(t *testing.T) {
-			sql, _, err := build(t, test.source)
-			if err != nil {
-				t.Fatalf("build: %v", err)
-			}
-			if sql != test.want {
-				t.Fatalf("sql = %q, want %q", sql, test.want)
+			got := build(t, test.source)
+			want := pgfilter.Query{Predicate: test.want, Args: test.args}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("query = %#v, want %#v", got, want)
 			}
 		})
 	}
+}
 
-	if _, _, err := build(t, `items[2147483648] == 'a'`); err == nil || !strings.Contains(err.Error(), "exceeds the jsonb integer operand range") {
-		t.Fatalf("build accepted an index beyond int4, err = %v", err)
+func TestCompilerTypeErrorsHaveSeparateNativeSelection(t *testing.T) {
+	for _, test := range []struct {
+		source    string
+		condition string
+		invalid   string
+		args      []any
+	}{
+		{`year >= 2020`, `COALESCE((jsonb_typeof((metadata -> $1::text)) = 'number' AND (metadata -> $1::text) >= $2::jsonb), FALSE)`, `COALESCE(jsonb_typeof((metadata -> $1::text)) NOT IN ('number', 'null'), FALSE)`, []any{"year", "2020"}},
+		{`author like 'a\\%b'`, `COALESCE((jsonb_typeof((metadata -> $1::text)) = 'string' AND ((metadata -> $1::text) #>> '{}') LIKE $2::text ESCAPE ''), FALSE)`, `COALESCE(jsonb_typeof((metadata -> $1::text)) NOT IN ('string', 'null'), FALSE)`, []any{"author", `a\%b`}},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			got := build(t, test.source)
+			want := pgfilter.Query{Predicate: "(" + test.condition + " AND NOT " + test.invalid + ")", Invalid: test.invalid, Args: test.args}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("query = %#v, want %#v", got, want)
+			}
+		})
 	}
 }
 
-func TestCompiler_EmptyMetadataColDefaults(t *testing.T) {
-	expr, err := filter.Parse(`a == 1`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	compiler := pgfilter.NewCompiler("") // empty → defaults to "metadata"
-	if err := expr.Accept(compiler); err != nil {
-		t.Fatalf("visit: %v", err)
-	}
-	sql, _ := compiler.Result()
-	if !strings.Contains(sql, "metadata->>'a'") {
-		t.Fatalf("sql=%q must default to metadata col", sql)
+func TestCompilerArrayIndicesRequireArrays(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+		args   []any
+	}{
+		{`tags[0] == 'a'`, `COALESCE((CASE WHEN jsonb_typeof((metadata -> $1::text)) = 'array' THEN ((metadata -> $1::text) -> 0) END) = $2::jsonb, FALSE)`, []any{"tags", `"a"`}},
+		{`tags['0'] == 'a'`, `COALESCE(((metadata -> $1::text) -> $2::text) = $3::jsonb, FALSE)`, []any{"tags", "0", `"a"`}},
+		{`items[2]['name'] == 'a'`, `COALESCE((CASE WHEN jsonb_typeof((metadata -> $1::text)) = 'array' THEN (((metadata -> $1::text) -> 2) -> $2::text) END) = $3::jsonb, FALSE)`, []any{"items", "name", `"a"`}},
+		{`items[0][0] == 'a'`, `COALESCE((CASE WHEN jsonb_typeof((metadata -> $1::text)) = 'array' AND jsonb_typeof(((metadata -> $1::text) -> 0)) = 'array' THEN (((metadata -> $1::text) -> 0) -> 0) END) = $2::jsonb, FALSE)`, []any{"items", `"a"`}},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			got := build(t, test.source)
+			want := pgfilter.Query{Predicate: test.want, Args: test.args}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("query = %#v, want %#v", got, want)
+			}
+		})
 	}
 }
 
-func TestCompiler_NilExpression(t *testing.T) {
+func TestCompilerDeepArrayPathHasBoundedSQL(t *testing.T) {
+	query := build(t, "items"+strings.Repeat("[0]", 16)+" == 1")
+	if len(query.Predicate) > 64*1024 {
+		t.Fatalf("a 16-index path expanded into %d SQL bytes", len(query.Predicate))
+	}
+}
+
+func TestCompilerFailedVisitClearsAllOutput(t *testing.T) {
 	compiler := pgfilter.NewCompiler("metadata")
-	if compiler.Visit(nil) == nil {
-		t.Fatal("nil expression must produce an error")
+	for _, source := range []string{`value > 1`, `value[2147483648] == 1`} {
+		predicate, err := filter.Parse(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = predicate.Accept(compiler)
+		if source == `value > 1` {
+			if err != nil || compiler.Result().Invalid == "" {
+				t.Fatalf("initial compilation = %#v, %v", compiler.Result(), err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "exceeds the jsonb integer operand range") {
+			t.Fatalf("out-of-range array index = %v", err)
+		}
+	}
+	if got := compiler.Result(); !reflect.DeepEqual(got, pgfilter.Query{}) {
+		t.Fatalf("failed visit retained output: %#v", got)
+	}
+	if err := compiler.Visit(nil); err == nil {
+		t.Fatal("nil predicate must fail")
 	}
 }
 
-func TestCompiler_IsNull(t *testing.T) {
-	sql, args, err := build(t, `author is null`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if !strings.Contains(sql, "metadata->>'author'") || !strings.Contains(sql, "IS NULL") {
-		t.Fatalf("sql=%q must contain metadata->>'author' IS NULL", sql)
-	}
-	if len(args) != 0 {
-		t.Fatalf("IS NULL takes no bound args, got %v", args)
-	}
-}
-
-func TestCompiler_IsNotNull(t *testing.T) {
-	sql, _, err := build(t, `author is not null`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	// NOT(field IS NULL) — semantically IS NOT NULL.
-	if !strings.Contains(sql, "NOT") || !strings.Contains(sql, "IS NULL") {
-		t.Fatalf("sql=%q must wrap IS NULL in NOT", sql)
-	}
-}
-
-func TestCompiler_NotIn(t *testing.T) {
-	sql, args, err := build(t, `tags not in ('a', 'b')`)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	// NOT(tags IN (...)) — the existing NOT wrapper around = ANY.
-	if !strings.Contains(sql, "NOT") || !strings.Contains(sql, "ANY") {
-		t.Fatalf("sql=%q must wrap an = ANY(...) in NOT", sql)
-	}
-	if len(args) != 1 {
-		t.Fatalf("expected one array arg, got %v", args)
+func TestCompilerRejectsNULBeforePublishingSQL(t *testing.T) {
+	for _, predicate := range []filter.Predicate{
+		filter.EQ("value", "\x00"),
+		filter.Has("value", "\x00"),
+		filter.In("value", []string{"safe", "\x00"}),
+		filter.Like("value", "\x00%"),
+		filter.IsNull(filter.Index("value", "\x00")),
+	} {
+		compiler := pgfilter.NewCompiler("facts")
+		if err := predicate.Accept(compiler); err == nil {
+			t.Fatalf("NUL-bearing predicate %s compiled", predicate)
+		}
+		if got := compiler.Result(); !reflect.DeepEqual(got, pgfilter.Query{}) {
+			t.Fatalf("failed compilation published %#v", got)
+		}
 	}
 }

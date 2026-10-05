@@ -20,8 +20,11 @@
 // pgvector-go's typed [pgvec.Vector]; the connection is a standard
 // pgx pool.
 //
-// Metadata filters compile to parameterized SQL; values flow through `$N`
-// placeholders, while JSON numbers and booleans use explicit PostgreSQL casts.
+// Metadata filters compare JSONB values without scalar coercion. Path keys and
+// literals use typed `$N` parameters, so JSON strings, numbers, and booleans stay
+// distinct. Ordering and LIKE type errors preserve Core's short circuit and are
+// returned before query embedding or deletion. Validation and execution share a
+// serializable snapshot; database conflicts remain explicit errors.
 //
 // See https://github.com/pgvector/pgvector for the extension docs.
 package pgvector

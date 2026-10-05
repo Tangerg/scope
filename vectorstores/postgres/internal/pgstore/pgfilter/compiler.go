@@ -1,420 +1,237 @@
 package pgfilter
 
 import (
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Compiler transforms AST filter expressions into a parameterized
-// PostgreSQL WHERE-clause fragment plus the matching argument list.
-//
-// Output shape (using the default metadata column "metadata"):
-//
-//	author == "Alice"        →  (metadata->>'author' = $1)
-//	year >= 2020             →  ((metadata->>'year')::numeric >= $1)
-//	published == true        →  ((metadata->>'published')::boolean = $1)
-//	tag IN ("rag","llm")     →  (metadata->>'tag' = ANY($1))
-//	NOT (a == 1)             →  (NOT (metadata->>'a')::numeric = $1)
-//
-// Identifier paths:
-//   - simple identifier — used as the top-level metadata key:
-//     author → metadata->>'author'
-//   - indexed expression keeps the base identifier as the first path segment:
-//     profile["author"] → metadata->'profile'->>'author'
-//   - nested index — joined with -> for intermediate hops,
-//     ->> only on the final step (since ->> casts to text):
-//     profile["a"]["b"] → metadata->'profile'->'a'->>'b'
-//   - numeric index — an integer operand, which jsonb reads as an array
-//     position and which yields NULL on an object, as filter.Match reads
-//     absent:
-//     tags[0] → metadata->'tags'->>0
-//
-// Numeric / boolean values force a type cast on the JSON extraction so
-// the comparison happens in the proper type, not lexicographic on text.
 var _ filter.Visitor = (*Compiler)(nil)
 
-// Compiler translates a portable filter AST into a parameterized SQL predicate.
-// It emits placeholders rather than literals so a filter value carried from a
-// model or a request cannot alter the statement it is filtering.
-type Compiler struct {
-	err         error
-	sql         strings.Builder
-	args        []any
-	metadataCol string // SQL identifier — already validated by the caller
+// Query projects Core filter truth into native JSONB predicates. Invalid selects
+// metadata whose evaluation must fail; Predicate excludes those rows even under
+// NOT. Both expressions use Args, including its explicit parameter types.
+type Query struct {
+	Predicate string
+	Invalid   string
+	Args      []any
 }
 
-// NewCompiler binds the metadata column once, because every path expression in
-// a filter is rooted at that column and repeating it per call would let two
-// statements disagree about where metadata lives.
+type compiledPredicate struct {
+	condition string
+	invalid   string
+}
+
+// Compiler preserves JSON types and binds both path keys and literal values.
+// The metadata column is an SQL identifier validated by the store constructor.
+type Compiler struct {
+	metadataCol string
+	result      compiledPredicate
+	args        []any
+}
+
 func NewCompiler(metadataCol string) *Compiler {
-	if metadataCol == "" {
-		metadataCol = "metadata"
-	}
 	return &Compiler{metadataCol: metadataCol}
 }
 
-func (c *Compiler) Result() (string, []any) {
-	if c.err != nil {
-		return "", nil
+func (c *Compiler) Result() Query {
+	condition := c.result.condition
+	if c.result.invalid != "" {
+		condition = "(" + condition + " AND NOT " + c.result.invalid + ")"
 	}
-	return c.sql.String(), c.args
+	return Query{Predicate: condition, Invalid: c.result.invalid, Args: slices.Clone(c.args)}
 }
 
-func (c *Compiler) Visit(expr filter.Predicate) error {
-	c.sql.Reset()
+func (c *Compiler) Visit(predicate filter.Predicate) error {
+	c.result = compiledPredicate{}
 	c.args = nil
-	c.err = c.visit(expr)
-	return c.err
+	result, err := c.compile(predicate)
+	if err != nil {
+		c.args = nil
+		return err
+	}
+	c.result = result
+	return nil
 }
 
-func (c *Compiler) visit(expr filter.Expr) error {
-	switch node := expr.(type) {
-	case *filter.BinaryExpr:
-		return node.Dispatch(filter.BinaryHandlers{
-			Logical:    c.visitLogicalExpr,
-			Comparison: c.visitComparisonExpr,
-			In:         c.visitInExpr,
-			Has:        c.visitHasExpr,
-			Like:       c.visitLikeExpr,
-			NullTest:   c.visitNullTestExpr,
-		})
+func (c *Compiler) compile(expression filter.Expr) (compiledPredicate, error) {
+	switch node := expression.(type) {
 	case *filter.UnaryExpr:
-		return node.Dispatch(c.visitNotExpr)
-	default:
-		return fmt.Errorf("pgvector: unsupported root expression type %T", node)
-	}
-}
-
-// visitHasExpr uses JSONB containment against the collection at the selected
-// metadata path. jsonb_build_array preserves the scalar parameter's JSON type.
-func (c *Compiler) visitHasExpr(expr *filter.BinaryExpr) error {
-	value, err := expr.Value()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	jsonPath, err := c.buildRawJSONPath(expr)
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	c.args = append(c.args, value)
-	c.sql.WriteString("(")
-	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" @> jsonb_build_array($")
-	c.sql.WriteString(strconv.Itoa(len(c.args)))
-	c.sql.WriteString("))")
-	return nil
-}
-
-func (c *Compiler) visitNotExpr(expr *filter.UnaryExpr) error {
-	c.sql.WriteString("(NOT ")
-	if err := c.visit(expr.Right()); err != nil {
-		return err
-	}
-	c.sql.WriteString(")")
-	return nil
-}
-
-func (c *Compiler) visitLogicalExpr(expr *filter.BinaryExpr) error {
-	op, err := expr.Operator().LogicalString()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w", err)
-	}
-
-	c.sql.WriteString("(")
-	if err := c.visit(expr.Left()); err != nil {
-		return err
-	}
-	c.sql.WriteString(" ")
-	c.sql.WriteString(op)
-	c.sql.WriteString(" ")
-	if err := c.visit(expr.Right()); err != nil {
-		return err
-	}
-	c.sql.WriteString(")")
-	return nil
-}
-
-// writeAbsentGuard prefixes a leaf predicate with the truth value the filter
-// AST assigns an absent metadata key, so the leaf is never UNKNOWN.
-//
-// The AST is two-valued: an absent key evaluates as nil and filter.Match
-// decides every comparison against it — false for ==, <, LIKE and IN, true for
-// !=. SQL is three-valued, so a bare comparison on a missing key is UNKNOWN,
-// which drops the row for any operator and, worse, stays UNKNOWN under NOT,
-// dropping the rows a negated filter is supposed to keep. Anchoring each leaf
-// restores two-valued behavior for the whole expression, negation included.
-//
-// The guard reads the uncast extraction on purpose: a cast is applied to
-// compare, and testing the raw text for NULL keeps the guard independent of
-// whether that cast succeeds.
-func (c *Compiler) writeAbsentGuard(expr *filter.BinaryExpr, absentMatches bool) error {
-	rawPath, err := c.buildJSONPath(expr, castNone)
-	if err != nil {
-		return err
-	}
-	c.sql.WriteString(rawPath)
-	if absentMatches {
-		c.sql.WriteString(" IS NULL OR ")
-	} else {
-		c.sql.WriteString(" IS NOT NULL AND ")
-	}
-	return nil
-}
-
-// visitComparisonExpr handles ==, !=, <, <=, >, >=. The JSON extraction
-// expression on the left side is type-cast based on the value type:
-// numbers → ::numeric, bools → ::boolean, strings → no cast.
-func (c *Compiler) visitComparisonExpr(expr *filter.BinaryExpr) error {
-	value, err := expr.Value()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	jsonPath, err := c.buildJSONPath(expr, comparisonCastFor(value, expr.Operator()))
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	op, err := sqlOpFor(expr.Operator())
-	if err != nil {
-		return err
-	}
-
-	c.args = append(c.args, value)
-	c.sql.WriteString("(")
-	if err := c.writeAbsentGuard(expr, expr.Operator() == filter.OpNotEqual); err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" ")
-	c.sql.WriteString(op)
-	c.sql.WriteString(" $")
-	c.sql.WriteString(strconv.Itoa(len(c.args)))
-	c.sql.WriteString(")")
-	return nil
-}
-
-// visitInExpr emits `key = ANY($N)` with a slice argument. Element type
-// follows the literal type — pgx maps Go slices to a Postgres array of
-// the matching type.
-func (c *Compiler) visitInExpr(expr *filter.BinaryExpr) error {
-	listLit, err := expr.List()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w", err)
-	}
-
-	values, err := listLit.Values()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	first, err := listLit.First()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	sample, err := first.Value()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	jsonPath, err := c.buildJSONPath(expr, comparisonCastFor(sample, filter.OpEqual))
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	c.args = append(c.args, values)
-	c.sql.WriteString("(")
-	if err := c.writeAbsentGuard(expr, false); err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" = ANY($")
-	c.sql.WriteString(strconv.Itoa(len(c.args)))
-	c.sql.WriteString("))")
-	return nil
-}
-
-// visitLikeExpr emits a SQL LIKE. ILIKE would be a wider match than the
-// operator asks for: LIKE is case-sensitive, which is exactly why Postgres
-// ships ILIKE as a separate keyword, and filter.Match compares case-sensitively
-// too. The right side must be a string literal.
-func (c *Compiler) visitLikeExpr(expr *filter.BinaryExpr) error {
-	pattern, err := expr.Pattern()
-	if err != nil {
-		return fmt.Errorf("pgvector: %w", err)
-	}
-
-	jsonPath, err := c.buildJSONPath(expr, castNone)
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-
-	c.args = append(c.args, pattern)
-	c.sql.WriteString("(")
-	if err := c.writeAbsentGuard(expr, false); err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" LIKE $")
-	c.sql.WriteString(strconv.Itoa(len(c.args)))
-	c.sql.WriteString(")")
-	return nil
-}
-
-// visitNullTestExpr emits `(metadata->>'key' IS NULL)`. Postgres `->>`
-// yields SQL NULL both when the key is absent and when the stored value
-// is JSON null, matching the inmemory reference semantics. The negated
-// `IS NOT NULL` arrives as NOT(… IS NULL) and is rendered by
-// visitNotExpr, so no separate handling is needed here.
-func (c *Compiler) visitNullTestExpr(expr *filter.BinaryExpr) error {
-	jsonPath, err := c.buildJSONPath(expr, castNone)
-	if err != nil {
-		return fmt.Errorf("pgvector: %w (at %s)", err, expr.Start().String())
-	}
-	c.sql.WriteString("(")
-	c.sql.WriteString(jsonPath)
-	c.sql.WriteString(" IS NULL)")
-	return nil
-}
-
-// jsonCast names the Postgres type cast applied to the JSON
-// extraction. castNone returns the raw text from ->>.
-type jsonCast int
-
-const (
-	castNone jsonCast = iota
-	castNumeric
-	castBoolean
-)
-
-func comparisonCastFor(value any, op filter.Operator) jsonCast {
-	switch value.(type) {
-	case bool:
-		return castBoolean
-	case float64, int, int64, uint64:
-		return castNumeric
-	default:
-		// Ordering on non-numeric values still falls back to a
-		// numeric cast — the user asked for an ordering comparison,
-		// so coerce.
-		if op.IsOrderingOperator() {
-			return castNumeric
+		operand, err := c.compile(node.Right())
+		if err != nil {
+			return compiledPredicate{}, err
 		}
-		return castNone
-	}
-}
-
-func sqlOpFor(kind filter.Operator) (string, error) {
-	switch kind {
-	case filter.OpEqual:
-		return "=", nil
-	case filter.OpNotEqual:
-		return "<>", nil
-	case filter.OpLess:
-		return "<", nil
-	case filter.OpLessEqual:
-		return "<=", nil
-	case filter.OpGreater:
-		return ">", nil
-	case filter.OpGreaterEqual:
-		return ">=", nil
+		return compiledPredicate{condition: "(NOT " + operand.condition + ")", invalid: operand.invalid}, nil
+	case *filter.BinaryExpr:
+		if node.Operator().IsLogicalOperator() {
+			return c.compileLogical(node)
+		}
+		return c.compileAtom(node)
 	default:
-		return "", fmt.Errorf("pgvector: unexpected comparison operator '%s'", kind.Name())
+		return compiledPredicate{}, fmt.Errorf("postgres: unsupported predicate %T", expression)
 	}
 }
 
-// buildJSONPath turns the left-side expression of a comparison into
-// the metadata accessor.
-//
-//	author           → metadata->>'author'
-//	profile['a']     → metadata->'profile'->>'a'
-//	tags[0]          → metadata->'tags'->>0
-//
-// For numeric / boolean comparisons the trailing ->> is wrapped in a
-// type cast.
-func (c *Compiler) buildJSONPath(expr *filter.BinaryExpr, cast jsonCast) (string, error) {
-	operands, err := jsonPathOperands(expr)
+func (c *Compiler) compileLogical(expression *filter.BinaryExpr) (compiledPredicate, error) {
+	left, err := c.compile(expression.Left())
 	if err != nil {
-		return "", err
+		return compiledPredicate{}, err
 	}
-
-	var b strings.Builder
-	if cast != castNone {
-		b.WriteString("(")
+	right, err := c.compile(expression.Right())
+	if err != nil {
+		return compiledPredicate{}, err
 	}
-	b.WriteString(c.metadataCol)
-
-	for i, operand := range operands {
-		if i == len(operands)-1 {
-			b.WriteString("->>")
+	op, err := expression.Operator().LogicalString()
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	result := compiledPredicate{condition: "(" + left.condition + " " + op + " " + right.condition + ")", invalid: left.invalid}
+	// SQL may reorder boolean evaluation. Error selection must still follow
+	// Core's left-to-right short circuit, rather than every reachable atom.
+	if right.invalid != "" {
+		gate := left.condition
+		if expression.Operator() == filter.OpOr {
+			gate = "(NOT " + gate + ")"
+		}
+		rightInvalid := "(" + gate + " AND " + right.invalid + ")"
+		if result.invalid == "" {
+			result.invalid = rightInvalid
 		} else {
-			b.WriteString("->")
-		}
-		b.WriteString(operand)
-	}
-
-	if cast != castNone {
-		b.WriteString(")")
-		switch cast {
-		case castNumeric:
-			b.WriteString("::numeric")
-		case castBoolean:
-			b.WriteString("::boolean")
+			result.invalid = "(" + result.invalid + " OR " + rightInvalid + ")"
 		}
 	}
-	return b.String(), nil
+	return result, nil
 }
 
-// buildRawJSONPath keeps the selected value as JSONB. Collection operators
-// must not use ->>, which would erase the array shape by converting it to text.
-func (c *Compiler) buildRawJSONPath(expr *filter.BinaryExpr) (string, error) {
-	operands, err := jsonPathOperands(expr)
+func (c *Compiler) compileAtom(expression *filter.BinaryExpr) (compiledPredicate, error) {
+	path, err := c.buildJSONPath(expression)
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	op := expression.Operator()
+	if op.IsNullOperator() {
+		return compiledPredicate{condition: "COALESCE(" + path + " = 'null'::jsonb, TRUE)"}, nil
+	}
+	if op == filter.OpIn {
+		return c.compileIn(expression, path)
+	}
+	if op == filter.OpLike {
+		pattern, patternErr := expression.Pattern()
+		if patternErr != nil {
+			return compiledPredicate{}, patternErr
+		}
+		if strings.ContainsRune(pattern, 0) {
+			return compiledPredicate{}, errors.New("postgres: LIKE pattern contains a NUL unsupported by PostgreSQL text")
+		}
+		bound := c.bind(pattern, "text")
+		return compiledPredicate{
+			condition: "COALESCE((jsonb_typeof(" + path + ") = 'string' AND (" + path + " #>> '{}') LIKE " + bound + " ESCAPE ''), FALSE)",
+			invalid:   c.mismatchedType(path, "string"),
+		}, nil
+	}
+	value, err := expression.Value()
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	bound, err := c.bindLiteral(value)
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	if op == filter.OpHas {
+		return compiledPredicate{condition: "COALESCE(" + path + " @> jsonb_build_array(" + bound + "), FALSE)"}, nil
+	}
+	if op == filter.OpEqual || op == filter.OpNotEqual {
+		condition := "COALESCE(" + path + " = " + bound + ", FALSE)"
+		if op == filter.OpNotEqual {
+			condition = "(NOT " + condition + ")"
+		}
+		return compiledPredicate{condition: condition}, nil
+	}
+	operators := map[filter.Operator]string{
+		filter.OpLess: "<", filter.OpLessEqual: "<=", filter.OpGreater: ">", filter.OpGreaterEqual: ">=",
+	}
+	operator, ok := operators[op]
+	if !ok {
+		return compiledPredicate{}, fmt.Errorf("postgres: unsupported comparison %s", op)
+	}
+	return compiledPredicate{
+		condition: "COALESCE((jsonb_typeof(" + path + ") = 'number' AND " + path + " " + operator + " " + bound + "), FALSE)",
+		invalid:   c.mismatchedType(path, "number"),
+	}, nil
+}
+
+func (c *Compiler) compileIn(expression *filter.BinaryExpr, path string) (compiledPredicate, error) {
+	list, err := expression.List()
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	values := make([]string, 0, list.Len())
+	for _, literal := range list.Literals() {
+		value, err := literal.Value()
+		if err != nil {
+			return compiledPredicate{}, err
+		}
+		bound, err := c.bindLiteral(value)
+		if err != nil {
+			return compiledPredicate{}, err
+		}
+		values = append(values, bound)
+	}
+	return compiledPredicate{condition: "COALESCE(" + path + " IN (" + strings.Join(values, ", ") + "), FALSE)"}, nil
+}
+
+func (c *Compiler) mismatchedType(path, kind string) string {
+	return "COALESCE(jsonb_typeof(" + path + ") NOT IN ('" + kind + "', 'null'), FALSE)"
+}
+
+func (c *Compiler) bind(value any, sqlType string) string {
+	c.args = append(c.args, value)
+	return "$" + strconv.Itoa(len(c.args)) + "::" + sqlType
+}
+
+func (c *Compiler) bindLiteral(value any) (string, error) {
+	if text, ok := value.(string); ok && strings.ContainsRune(text, 0) {
+		return "", errors.New("postgres: literal contains a NUL unsupported by JSONB")
+	}
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		return "", err
 	}
-
-	var b strings.Builder
-	b.WriteString(c.metadataCol)
-	for _, operand := range operands {
-		b.WriteString("->")
-		b.WriteString(operand)
-	}
-	return b.String(), nil
+	return c.bind(string(encoded), "jsonb"), nil
 }
 
-// jsonPathOperands renders each path segment as the right operand of -> or
-// ->>. A text operand reads an object member and an integer operand an array
-// element; jsonb yields NULL when the operand kind does not fit the value.
-// The integer operator takes int4, so a larger index is refused here rather
-// than failing to resolve when the statement runs.
-func jsonPathOperands(expr *filter.BinaryExpr) ([]string, error) {
-	path, err := expr.Path()
+func (c *Compiler) buildJSONPath(expression *filter.BinaryExpr) (string, error) {
+	path, err := expression.Path()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if len(path) == 0 {
-		return nil, errors.New("empty key path on left operand")
-	}
-	operands := make([]string, 0, len(path))
+	selected := c.metadataCol
+	var guards []string
 	for _, segment := range path {
 		if index, ok := segment.Index(); ok {
 			if index > math.MaxInt32 {
-				return nil, fmt.Errorf("array index %d exceeds the jsonb integer operand range", index)
+				return "", fmt.Errorf("postgres: array index %d exceeds the jsonb integer operand range", index)
 			}
-			operands = append(operands, strconv.FormatUint(index, 10))
+			guards = append(guards, "jsonb_typeof("+selected+") = 'array'")
+			selected = "(" + selected + " -> " + strconv.FormatUint(index, 10) + ")"
 			continue
 		}
 		key, _ := segment.Key()
-		operands = append(operands, quoteSQLLiteral(key))
+		if strings.ContainsRune(key, 0) {
+			return "", errors.New("postgres: path key contains a NUL unsupported by PostgreSQL text")
+		}
+		selected = "(" + selected + " -> " + c.bind(key, "text") + ")"
 	}
-	return operands, nil
-}
-
-func quoteSQLLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	// JSONB treats a scalar as element zero. Guard raw prefixes together so
+	// nested indices neither read scalars nor duplicate guarded subtrees.
+	if len(guards) > 0 {
+		selected = "(CASE WHEN " + strings.Join(guards, " AND ") + " THEN " + selected + " END)"
+	}
+	return selected, nil
 }
