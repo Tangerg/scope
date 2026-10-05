@@ -45,9 +45,14 @@ func TestCurrentRecordSchemaIsRequired(t *testing.T) {
 	}{
 		{"ReplacingMergeTree ORDER BY id SETTINGS index_granularity = 8192", "id", "", true},
 		{"ReplacingMergeTree() ORDER BY id", "id", "", true},
+		{"ReplacingMergeTree ORDER BY (id)", "(id)", "", true},
+		{"ReplacingMergeTree ORDER BY ((id))", "((id))", "", true},
 		{"MergeTree ORDER BY id", "id", "", false},
 		{"ReplacingMergeTree(version) ORDER BY id", "id", "", false},
 		{"ReplacingMergeTree ORDER BY (id, tenant)", "id, tenant", "", false},
+		{"ReplacingMergeTree ORDER BY (id, tenant)", "(id, tenant)", "", false},
+		{"ReplacingMergeTree ORDER BY lower(id)", "lower(id)", "", false},
+		{"ReplacingMergeTree ORDER BY (lower(id))", "(lower(id))", "", false},
 		{"ReplacingMergeTree PARTITION BY tenant ORDER BY id", "id", "tenant", false},
 	} {
 		t.Run(sample.engine, func(t *testing.T) {

@@ -346,8 +346,10 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		wherePart = " AND " + wherePredicate
 	}
 
+	// The driver requires an exact scan type; native distance functions can
+	// return Float32 even though Core's scores use float64.
 	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, %s(%s, ?) AS distance FROM %s FINAL WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
+		`SELECT %s, %s, %s, toFloat64(%s(%s, ?)) AS distance FROM %s FINAL WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
 		s.idColumn, s.contentColumn, s.metadataColumn,
 		s.distanceMetric.function(), s.embeddingColumn,
 		s.fullTable, wherePart,
@@ -538,6 +540,11 @@ func (s *Store) validateTable(ctx context.Context) error {
 		return err
 	}
 	engineName, _, _ := strings.Cut(engine, " ORDER BY ")
+	// Parentheses group the same sorting expression; they do not introduce
+	// another key. ClickHouse retains them in system.tables.sorting_key.
+	for strings.HasPrefix(sortingKey, "(") && strings.HasSuffix(sortingKey, ")") {
+		sortingKey = sortingKey[1 : len(sortingKey)-1]
+	}
 	if (engineName != "ReplacingMergeTree" && engineName != "ReplacingMergeTree()") || sortingKey != s.idColumn || partitionKey != "" {
 		return fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
 	}
