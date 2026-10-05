@@ -7,136 +7,69 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
+	"slices"
+	"unicode/utf8"
 
 	"github.com/couchbase/gocb/v2"
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// These values define the persisted Search index topology. Keeping them stable
-// avoids silently replacing index internals during client upgrades.
-const (
-	searchIndexSegmentVersion    = 16
-	searchIndexMaximumPartitions = 1024
-	searchIndexPartitionCount    = 1
-)
-
-// Provider is the stable backend name for host-side attribution.
 const Provider = "Couchbase"
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
-	DefaultScopeName      = "_default"
-	DefaultCollectionName = "_default"
-	DefaultIndexName      = "scope-vector-index"
-	DefaultSimilarity     = SimilarityDotProduct
-	DefaultIndexOptimize  = OptimizeRecall
-	contentField          = "content"
-	embeddingField        = "embedding"
-	metadataField         = "metadata"
-	idField               = "id"
-	resultScoreField      = "_scope_score"
+	DefaultScopeName          = "_default"
+	DefaultCollectionName     = "_default"
+	DefaultSimilarity         = SimilarityDotProduct
+	rankingBatchSize          = 512
+	maximumCollectionKeyBytes = 246
+	maximumDefaultKeyBytes    = 250
 )
 
-// Similarity selects the vector similarity function written into the
-// Couchbase search-index definition.
+// Similarity selects the native VECTOR_DISTANCE metric.
 type Similarity string
 
 const (
-	// SimilarityCosine — cosine similarity.
-	SimilarityCosine Similarity = "cosine"
-
-	// SimilarityL2Norm — L2 (Euclidean) norm.
-	SimilarityL2Norm Similarity = "l2_norm"
-
-	// SimilarityDotProduct — dot product. Default; works
-	// best with already-normalized embeddings (e.g. OpenAI).
-	SimilarityDotProduct Similarity = "dot_product"
+	SimilarityCosine     Similarity = "COSINE"
+	SimilarityL2Norm     Similarity = "L2"
+	SimilarityDotProduct Similarity = "DOT"
 )
 
 func (s Similarity) Valid() bool {
-	switch s {
-	case SimilarityCosine, SimilarityL2Norm, SimilarityDotProduct:
-		return true
-	default:
-		return false
-	}
+	return s == SimilarityCosine || s == SimilarityL2Norm || s == SimilarityDotProduct
 }
 
 func (s Similarity) String() string { return string(s) }
 
-// IndexOptimization picks the tradeoff for Couchbase's vector index:
-// recall (default), latency, or memory.
-type IndexOptimization string
-
-// These are the provider values this adapter recognizes.
-const (
-	OptimizeRecall  IndexOptimization = "recall"
-	OptimizeLatency IndexOptimization = "latency"
-	OptimizeMemory  IndexOptimization = "memory"
-)
-
-func (i IndexOptimization) Valid() bool {
-	switch i {
-	case OptimizeRecall, OptimizeLatency, OptimizeMemory:
-		return true
+func (s Similarity) score(distance float64) vectorstore.Score {
+	switch s {
+	case SimilarityCosine:
+		return vectorstore.ScoreFromCosineDistance(distance)
+	case SimilarityL2Norm:
+		return vectorstore.ScoreFromDistance(distance)
 	default:
-		return false
+		return vectorstore.ScoreFromNegativeInnerProductDistance(distance)
 	}
 }
 
-func (i IndexOptimization) String() string { return string(i) }
-
-// StoreConfig contains configuration options for the Couchbase Search
-// vector store.
+// StoreConfig wires a host-owned SDK cluster and an exclusively managed document
+// collection. The host owns connecting and closing the cluster.
 type StoreConfig struct {
-	// Cluster is the connected gocb cluster. Required.
-	Cluster *gocb.Cluster
-
-	// BucketName is the Couchbase bucket. Required.
+	Cluster    *gocb.Cluster
 	BucketName string
-
-	// ScopeName is the scope within the bucket. Optional: defaults
-	// to [DefaultScopeName] ("_default").
-	ScopeName string
-
-	// CollectionName is the collection within the scope. Optional:
-	// defaults to [DefaultCollectionName] ("_default").
-	CollectionName string
-
-	// VectorIndexName is the search-index name. Optional: defaults
-	// to [DefaultIndexName].
-	VectorIndexName string
-
-	// EmbeddingModel produces vectors for the documents. Required.
-	EmbeddingModel embedding.Model
-
-	// DocumentBatcher batches documents before upsert. Required.
+	// ScopeName and CollectionName default to the native default namespace.
+	ScopeName       string
+	CollectionName  string
+	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
-
-	// Dimensions sets the vector width registered with the search index, and is
-	// required when InitializeSchema is true: the width is part of the index
-	// definition, and nothing here can read it off an index that does not exist
-	// yet.
-	Dimensions int
-
-	// Similarity selects the vector similarity function. Optional:
-	// defaults to [SimilarityDotProduct].
+	// Similarity defaults to DefaultSimilarity.
 	Similarity Similarity
-
-	// IndexOptimization selects recall / latency / memory tradeoff.
-	// Optional: defaults to [OptimizeRecall].
-	IndexOptimization IndexOptimization
-
-	// InitializeSchema, when true, creates the search index if it
-	// doesn't already exist.
+	// InitializeSchema creates the collection's default primary query index.
+	// The bucket, scope and collection must already exist.
 	InitializeSchema bool
 }
 
@@ -145,47 +78,27 @@ func (s StoreConfig) Validate() error {
 	if s.Cluster == nil {
 		return errors.New("couchbase: Cluster is required")
 	}
-	if s.BucketName == "" {
-		return errors.New("couchbase: BucketName is required")
-	}
 	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("couchbase: EmbeddingModel is required")
 	}
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("couchbase: DocumentBatcher is required")
 	}
-	if s.Dimensions < 0 {
-		return errors.New("couchbase: Dimensions must be >= 0")
-	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("couchbase: unsupported Similarity %q", s.Similarity)
 	}
-	if !s.IndexOptimization.Valid() {
-		return fmt.Errorf("couchbase: unsupported IndexOptimization %q", s.IndexOptimization)
+	for _, field := range []struct{ name, value string }{{"BucketName", s.BucketName}, {"ScopeName", s.ScopeName}, {"CollectionName", s.CollectionName}} {
+		if err := identifier(field.value).validate(field.name); err != nil {
+			return err
+		}
 	}
-	return s.validateIdentifiers()
+	return nil
 }
 
-func (s StoreConfig) validateIdentifiers() error {
-	if err := identifier(s.BucketName).validate("BucketName"); err != nil {
-		return err
-	}
-	if err := identifier(s.ScopeName).validate("ScopeName"); err != nil {
-		return err
-	}
-	if err := identifier(s.CollectionName).validate("CollectionName"); err != nil {
-		return err
-	}
-	return identifier(s.VectorIndexName).validate("VectorIndexName")
-}
-
-// applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.ScopeName = cmp.Or(s.ScopeName, DefaultScopeName)
 	s.CollectionName = cmp.Or(s.CollectionName, DefaultCollectionName)
-	s.VectorIndexName = cmp.Or(s.VectorIndexName, DefaultIndexName)
 	s.Similarity = cmp.Or(s.Similarity, DefaultSimilarity)
-	s.IndexOptimization = cmp.Or(s.IndexOptimization, DefaultIndexOptimize)
 }
 
 var (
@@ -195,428 +108,284 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with Couchbase Search Service.
+// Store performs exact semantic search over Core-selected documents.
 type Store struct {
-	cluster           *gocb.Cluster
-	bucket            *gocb.Bucket
-	scope             *gocb.Scope
-	collection        *gocb.Collection
-	bucketName        string
-	scopeName         string
-	collectionName    string
-	vectorIndexName   string
-	embeddingClient   embeddingclient.Client
-	documentBatcher   vectorstore.Batcher
-	dimensions        int
-	similarity        Similarity
-	indexOptimization IndexOptimization
+	scope           *gocb.Scope
+	collection      *gocb.Collection
+	keyspace        string
+	embeddingClient embeddingclient.Client
+	documentBatcher vectorstore.Batcher
+	similarity      Similarity
+	maximumKeyBytes int
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its scope, collection, and search index
-// exist would fail on the first index rather than at wiring, where the
-// misconfiguration actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	client, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
 		return nil, fmt.Errorf("couchbase: create embedding client: %w", err)
 	}
-
-	bucket := config.Cluster.Bucket(config.BucketName)
-	scope := bucket.Scope(config.ScopeName)
-	collection := scope.Collection(config.CollectionName)
-
+	scope := config.Cluster.Bucket(config.BucketName).Scope(config.ScopeName)
 	store := &Store{
-		cluster:           config.Cluster,
-		bucket:            bucket,
-		scope:             scope,
-		collection:        collection,
-		bucketName:        config.BucketName,
-		scopeName:         config.ScopeName,
-		collectionName:    config.CollectionName,
-		vectorIndexName:   config.VectorIndexName,
-		embeddingClient:   embeddingClient,
-		documentBatcher:   config.DocumentBatcher,
-		dimensions:        config.Dimensions,
-		similarity:        config.Similarity,
-		indexOptimization: config.IndexOptimization,
+		scope: scope, collection: scope.Collection(config.CollectionName),
+		keyspace:        fmt.Sprintf("`%s`.`%s`.`%s`", config.BucketName, config.ScopeName, config.CollectionName),
+		embeddingClient: client, documentBatcher: config.DocumentBatcher, similarity: config.Similarity,
+		maximumKeyBytes: maximumCollectionKeyBytes,
 	}
-
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("couchbase: initialize store: %w", err)
+	if config.ScopeName == DefaultScopeName && config.CollectionName == DefaultCollectionName {
+		store.maximumKeyBytes = maximumDefaultKeyBytes
+	}
+	if config.InitializeSchema {
+		if err := store.collection.QueryIndexes().CreatePrimaryIndex(&gocb.CreatePrimaryQueryIndexOptions{Context: ctx, IgnoreIfExists: true}); err != nil {
+			return nil, fmt.Errorf("couchbase: create primary index: %w", errors.Join(err, ctx.Err()))
+		}
+	}
+	// Probe the actual query capability without model I/O.
+	probeRows := 0
+	if err := store.runStatement(ctx, fmt.Sprintf(`SELECT VECTOR_DISTANCE(c.embedding, [1,0], %q) AS distance FROM [{"embedding":[1,0]}] AS c`, config.Similarity), nil, func(raw json.RawMessage) error {
+		probeRows++
+		var row distanceRow
+		if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return err
+		}
+		if row.Distance == nil {
+			return errors.New("couchbase: native vector distance is missing")
+		}
+		return config.Similarity.score(*row.Distance).Validate()
+	}); err != nil {
+		return nil, fmt.Errorf("couchbase: require native vector distance: %w", err)
+	}
+	if probeRows != 1 {
+		return nil, errors.New("couchbase: native vector distance probe is incomplete")
+	}
+	if err := store.runStatement(ctx, "SELECT RAW META(c).id FROM "+store.keyspace+" AS c LIMIT 1", nil, nil); err != nil {
+		return nil, fmt.Errorf("couchbase: require queryable collection: %w", err)
 	}
 	return store, nil
 }
 
-// initialize creates the search index when
-// requested.
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return nil
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return fmt.Errorf("couchbase.Store.Index: %w", err)
 	}
-	if s.dimensions <= 0 {
-		return errors.New("couchbase: Dimensions must be > 0")
-	}
-
-	return s.upsertSearchIndex()
-}
-
-// upsertSearchIndex creates (or refreshes) the FTS index used for
-// vector + content search. The index definition mirrors the one
-// the framework generates.
-func (s *Store) upsertSearchIndex() error {
-	mgr := s.scope.SearchIndexes()
-	if existing, err := mgr.GetIndex(s.vectorIndexName, nil); err == nil && existing != nil {
-		return nil
-	}
-
-	typeKey := s.scopeName + "." + s.collectionName
-	params := map[string]any{
-		"doc_config": map[string]any{
-			"docid_prefix_delim": "",
-			"docid_regexp":       "",
-			"mode":               "scope.collection.type_field",
-			"type_field":         "type",
-		},
-		"mapping": map[string]any{
-			"default_analyzer":        "standard",
-			"default_datetime_parser": "dateTimeOptional",
-			"default_field":           "_all",
-			"default_mapping": map[string]any{
-				"dynamic": false,
-				"enabled": false,
-			},
-			"default_type":      typeKey,
-			"docvalues_dynamic": false,
-			"index_dynamic":     false,
-			"store_dynamic":     false,
-			"type_field":        "_type",
-			"types": map[string]any{
-				typeKey: map[string]any{
-					"dynamic": false,
-					"enabled": true,
-					"properties": map[string]any{
-						embeddingField: map[string]any{
-							"dynamic": false,
-							"enabled": true,
-							"fields": []any{
-								map[string]any{
-									"dims":                       s.dimensions,
-									"index":                      true,
-									"name":                       embeddingField,
-									"similarity":                 string(s.similarity),
-									"type":                       "vector",
-									"vector_index_optimized_for": string(s.indexOptimization),
-								},
-							},
-						},
-						contentField: map[string]any{
-							"dynamic": false,
-							"enabled": true,
-							"fields": []any{
-								map[string]any{
-									"analyzer":             "keyword",
-									"docvalues":            true,
-									"include_in_all":       true,
-									"include_term_vectors": true,
-									"index":                true,
-									"name":                 contentField,
-									"store":                true,
-									"type":                 "text",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		"store": map[string]any{
-			"indexType":      "scorch",
-			"segmentVersion": searchIndexSegmentVersion,
-		},
-	}
-
-	idx := gocb.SearchIndex{
-		Name:       s.vectorIndexName,
-		SourceName: s.bucketName,
-		Type:       "fulltext-index",
-		SourceType: "gocbcore",
-		Params:     params,
-		PlanParams: map[string]any{
-			"maxPartitionsPerPIndex": searchIndexMaximumPartitions,
-			"indexPartitions":        searchIndexPartitionCount,
-		},
-		SourceParams: map[string]any{},
-	}
-	return mgr.UpsertIndex(idx, nil)
-}
-
-// Index embeds documents and upserts them by id.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("couchbase.Store.Index: %w", validateErr)
-	}
-	for index, doc := range request.Documents {
+	for i, doc := range request.Documents {
 		if doc.Media != nil {
-			return fmt.Errorf("couchbase.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+			return fmt.Errorf("couchbase.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
+		}
+		if err := s.validateKey(doc.ID); err != nil {
+			return err
 		}
 	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
+	batches, err := request.Batch(ctx, s.documentBatcher)
 	if err != nil {
 		return fmt.Errorf("couchbase: batch documents: %w", err)
 	}
-
 	for _, batch := range batches {
-		docs := batch.Documents
 		texts, err := batch.Texts()
 		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+			return err
 		}
 		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
 		if err != nil {
 			return fmt.Errorf("couchbase: embed documents: %w", err)
 		}
-
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, err := doc.Metadata.Values()
+		payloads := make([][]byte, len(batch.Documents))
+		for i, doc := range batch.Documents {
+			payloads[i], err = encodeStoredDocument(texts[i], doc.Metadata, vectors[i])
 			if err != nil {
-				return fmt.Errorf("couchbase: decode metadata for %s: %w", id, err)
+				return fmt.Errorf("couchbase: encode %s: %w", doc.ID, err)
 			}
-			payload := map[string]any{
-				idField:        id,
-				contentField:   doc.Text,
-				metadataField:  lo.CoalesceMapOrEmpty(metadataValues),
-				embeddingField: embedding.Float32Vector(vectors[i]),
-			}
-			if _, err := s.collection.Upsert(id, payload, &gocb.UpsertOptions{Context: ctx}); err != nil {
-				return fmt.Errorf("couchbase: upsert %s: %w", id, err)
+		}
+		for i, doc := range batch.Documents {
+			if _, err := s.collection.Upsert(doc.ID, payloads[i], &gocb.UpsertOptions{Context: ctx, Transcoder: gocb.NewRawJSONTranscoder()}); err != nil {
+				return fmt.Errorf("couchbase: upsert %s: %w", doc.ID, errors.Join(err, ctx.Err()))
 			}
 		}
 	}
 	return nil
 }
 
-// Search runs a SQL++ query that embeds the KNN search clause.
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
-	if err = request.Validate(); err != nil {
+func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
+	if err := request.Validate(); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
 	}
-
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(request)
-		}
-	}()
-
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	candidates, err := s.selectDocuments(ctx, request.Options.Filter)
 	if err != nil {
-		return nil, fmt.Errorf("couchbase: embed query: %w", err)
-	}
-	queryVec := embedding.Float32Vector(vector)
-	vectorJSON, err := jsonv2.Marshal(queryVec)
-	if err != nil {
-		return nil, fmt.Errorf("couchbase: encode query vector: %w", err)
-	}
-
-	whereExtra := ""
-	if request.Options.Filter != nil {
-		predicate, filterErr := s.buildFilter(request.Options.Filter)
-		if filterErr != nil {
-			return nil, filterErr
-		}
-		if predicate != "" {
-			whereExtra = " AND " + predicate
-		}
-	}
-
-	knnFragment := fmt.Sprintf(
-		`{"query":{"match_none":{}},"knn":[{"field":"%s","k":%d,"vector":%s}]}`,
-		embeddingField, request.Options.ResultLimit(), string(vectorJSON),
-	)
-	indexFullName := fmt.Sprintf("%s.%s.%s", s.bucketName, s.scopeName, s.vectorIndexName)
-	stmt := fmt.Sprintf(
-		`SELECT c.*, SEARCH_SCORE() AS %s FROM `+"`%s`"+`.`+"`%s`"+`.`+"`%s`"+` AS c `+
-			`WHERE SEARCH(c, %s, {"index": "%s"})%s ORDER BY SEARCH_SCORE() DESC LIMIT %d`,
-		resultScoreField,
-		s.bucketName, s.scopeName, s.collectionName,
-		knnFragment, indexFullName, whereExtra, request.Options.ResultLimit(),
-	)
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
-	if err = s.runStatement(ctx, stmt, func(result *gocb.QueryResult) error {
-		hit, decodeErr := decodeSearchRow(result)
-		if decodeErr != nil {
-			return decodeErr
-		}
-		if hit.Score < request.Options.MinScore {
-			return nil
-		}
-		docs = append(docs, hit)
-		return nil
-	}); err != nil {
 		return nil, err
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
-}
-
-// runStatement executes one N1QL statement and accounts for its complete
-// result. gocb surfaces failures raised while the result streams through Err
-// and Close rather than from Query itself, so a statement whose first response
-// succeeded can still have failed; an unclosed result also leaks its stream.
-// Routing both reads and mutations through one owner keeps that accounting from
-// being implemented on only some of the paths. A nil row function consumes a
-// statement that returns no rows.
-func (s *Store) runStatement(
-	ctx context.Context,
-	stmt string,
-	row func(*gocb.QueryResult) error,
-) (err error) {
-	result, queryErr := s.scope.Query(stmt, &gocb.QueryOptions{Context: ctx})
-	if queryErr != nil {
-		return fmt.Errorf("couchbase: query: %w", queryErr)
-	}
-	defer func() {
-		if closeErr := result.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("couchbase: close result: %w", closeErr))
+	var ranked []rankedResult
+	if len(candidates) != 0 {
+		vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+		if err != nil {
+			return nil, fmt.Errorf("couchbase: embed query: %w", err)
 		}
-	}()
-	if row != nil {
-		for result.Next() {
-			if rowErr := row(result); rowErr != nil {
-				return rowErr
+		for batch := range slices.Chunk(candidates, rankingBatchSize) {
+			projections := make([]vectorProjection, len(batch))
+			for i, candidate := range batch {
+				projections[i] = vectorProjection{Position: i, Embedding: candidate.embedding}
+			}
+			seen := make([]bool, len(batch))
+			err := s.runStatement(ctx, fmt.Sprintf("SELECT c.position, VECTOR_DISTANCE(c.embedding, $vector, %q) AS distance FROM $candidates AS c", s.similarity), map[string]any{"candidates": projections, "vector": vector}, func(raw json.RawMessage) error {
+				var row distanceRow
+				if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
+					return fmt.Errorf("couchbase: decode distance: %w", err)
+				}
+				if row.Position == nil || *row.Position < 0 || *row.Position >= len(batch) || seen[*row.Position] || row.Distance == nil {
+					return errors.New("couchbase: invalid native distance result")
+				}
+				seen[*row.Position] = true
+				hit, err := vectorstore.NewSearchResult(batch[*row.Position].document, s.similarity.score(*row.Distance))
+				if err != nil {
+					return err
+				}
+				if hit.Score >= request.Options.MinScore {
+					ranked = append(ranked, rankedResult{result: hit, distance: *row.Distance})
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			if slices.Contains(seen, false) {
+				return nil, errors.New("couchbase: native distance result is incomplete")
+			}
+			slices.SortFunc(ranked, compareResults)
+			if len(ranked) > request.Options.ResultLimit() {
+				ranked = ranked[:request.Options.ResultLimit()]
 			}
 		}
 	}
-	if streamErr := result.Err(); streamErr != nil {
-		return fmt.Errorf("couchbase: read rows: %w", streamErr)
+	results := make([]*vectorstore.SearchResult, len(ranked))
+	for i, hit := range ranked {
+		results[i] = hit.result
 	}
-	return nil
+	response := &vectorstore.SearchResponse{Results: results}
+	if err := response.ValidateFor(request); err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
+// selectDocuments captures each complete KV record once. Filtering, ranking and
+// returned content use that same projection even if embedding causes a write.
+func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) ([]storedCandidate, error) {
+	var candidates []storedCandidate
+	err := s.runStatement(ctx, "SELECT META(c).id AS id, META(c).cas AS cas, c AS record FROM "+s.keyspace+" AS c", nil, func(raw json.RawMessage) error {
+		candidate, err := decodeStoredRow(raw)
+		if err != nil {
+			return err
+		}
+		if predicate != nil {
+			values, err := candidate.document.Metadata.Values()
+			if err != nil {
+				return err
+			}
+			match, err := filter.Match(predicate, values)
+			if err != nil {
+				return fmt.Errorf("couchbase: evaluate filter for %s: %w", candidate.document.ID, err)
+			}
+			if !match {
+				return nil
+			}
+		}
+		candidates = append(candidates, candidate)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return candidates, nil
+}
+
+func (s *Store) runStatement(ctx context.Context, stmt string, params map[string]any, row func(json.RawMessage) error) (err error) {
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	result, err := s.scope.Query(stmt, &gocb.QueryOptions{Context: ctx, NamedParameters: params, ScanConsistency: gocb.QueryScanConsistencyRequestPlus, UseReplica: gocb.QueryUseReplicaLevelOff, Readonly: true})
+	if err != nil {
+		return fmt.Errorf("couchbase: query: %w", errors.Join(err, ctx.Err()))
+	}
+	defer func() { err = errors.Join(err, result.Close()) }()
+	for result.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if row != nil {
+			var raw json.RawMessage
+			if err := result.Row(&raw); err != nil {
+				return fmt.Errorf("couchbase: read row: %w", err)
+			}
+			if err := row(raw); err != nil {
+				return err
+			}
+		}
+	}
+	if err := result.Err(); err != nil {
+		return fmt.Errorf("couchbase: read result: %w", errors.Join(err, ctx.Err()))
+	}
+	return ctx.Err()
+}
+
+// DeleteWhere preflights the entire collection before the first mutation. CAS
+// prevents deletion of a replacement that was never evaluated by Core.
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
+	if err := predicate.Validate(); err != nil {
 		return fmt.Errorf("couchbase.Store.DeleteWhere: %w", err)
 	}
-
-	clause, err := s.buildFilter(predicate)
+	candidates, err := s.selectDocuments(ctx, predicate)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("couchbase: refusing to delete on empty filter")
-	}
-
-	stmt := fmt.Sprintf(
-		`DELETE FROM `+"`%s`"+`.`+"`%s`"+`.`+"`%s`"+` WHERE %s`,
-		s.bucketName, s.scopeName, s.collectionName, clause,
-	)
-	if err := s.runStatement(ctx, stmt, nil); err != nil {
-		return fmt.Errorf("couchbase: delete: %w", err)
-	}
-	return nil
-}
-
-// DeleteIDs removes documents by their KV key. Index upserts each
-// document under its id as the document key (see [Store.Index]), so the
-// id is the KV key here too. An empty slice is a no-op; a per-key
-// "document not found" error is treated as success so repeated deletes
-// stay idempotent. Implements [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	for _, id := range ids {
-		if _, removeErr := s.collection.Remove(id, &gocb.RemoveOptions{Context: ctx}); removeErr != nil {
-			if errors.Is(removeErr, gocb.ErrDocumentNotFound) {
+	for _, candidate := range candidates {
+		if _, err := s.collection.Remove(candidate.document.ID, &gocb.RemoveOptions{Context: ctx, Cas: candidate.cas}); err != nil {
+			if errors.Is(err, gocb.ErrDocumentNotFound) {
 				continue
 			}
-			return fmt.Errorf("couchbase: remove %s: %w", id, removeErr)
+			return fmt.Errorf("couchbase: remove evaluated version of %s: %w", candidate.document.ID, errors.Join(err, ctx.Err()))
 		}
 	}
 	return nil
 }
 
-// buildFilter wraps the visitor.
-func (s *Store) buildFilter(expr filter.Predicate) (string, error) {
-	if expr == nil {
-		return "", nil
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	for _, id := range ids {
+		if err := s.validateKey(id); err != nil {
+			return err
+		}
 	}
-	v := newVisitor(metadataField)
-	if err := expr.Accept(v); err != nil {
-		return "", fmt.Errorf("couchbase: convert filter: %w", err)
+	for _, id := range ids {
+		if _, err := s.collection.Remove(id, &gocb.RemoveOptions{Context: ctx}); err != nil {
+			if errors.Is(err, gocb.ErrDocumentNotFound) {
+				continue
+			}
+			return fmt.Errorf("couchbase: remove %s: %w", id, errors.Join(err, ctx.Err()))
+		}
 	}
-	return v.snapshot(), nil
+	return nil
 }
 
-// scoreFromRelevance maps a Search Service relevance score into Core's range
-// while preserving the order Couchbase ranked by.
-//
-// Couchbase does not publish how the score is computed for any of its
-// similarity metrics, and the score is not confined to Core's range: the
-// documented example response for a vector query returns 3.4028234663852886e+38
-// — float32's maximum — alongside 0.42046520427629075 and
-// 0.0004977600796416127. Handing those to ScoreFromValue clamped every score
-// above 1 to exactly 1, so an exact match and a mediocre one became the same
-// number, the ranking above 1 disappeared, and MinScore stopped discriminating
-// there.
-//
-// This maps the score instead. Only the ordering is claimed, which is all the
-// documentation supports: raw/(1+raw) is strictly increasing over the
-// non-negative scores Search reports, sends 0 to 0 and the float32 ceiling to
-// 1, and reads a negative score — possible on a dot_product field with vectors
-// that are not unit length — as no similarity at all. It deliberately does not
-// use a Core constructor: those name a documented provider semantic, and there
-// is no published formula here to name.
-func scoreFromRelevance(raw float64) vectorstore.Score {
-	if raw <= 0 || math.IsNaN(raw) {
-		return vectorstore.ScoreFromValue(0)
+func compareResults(left, right rankedResult) int {
+	if order := cmp.Compare(left.distance, right.distance); order != 0 {
+		return order
 	}
-	if math.IsInf(raw, 1) {
-		return vectorstore.ScoreFromValue(1)
-	}
-	return vectorstore.ScoreFromValue(raw / (1 + raw))
+	return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
 }
 
-func decodeSearchRow(result interface{ Row(any) error }) (*vectorstore.SearchResult, error) {
-	// gocb's RawMessage path preserves the source bytes; decoding a generic
-	// map first would irreversibly round metadata numbers through float64.
-	var raw json.RawMessage
-	if err := result.Row(&raw); err != nil {
-		return nil, fmt.Errorf("couchbase: read row: %w", err)
+func (s *Store) validateKey(id string) error {
+	if id == "" || len(id) > s.maximumKeyBytes || !utf8.ValidString(id) {
+		return fmt.Errorf("couchbase: %w: KV key must contain 1..%d bytes", vectorstore.ErrInvalidDocument, s.maximumKeyBytes)
 	}
-	var row struct {
-		ID       string       `json:"id"`
-		Content  string       `json:"content"`
-		Metadata metadata.Map `json:"metadata"`
-		Score    *float64     `json:"_scope_score"`
-	}
-	if err := jsonv2.Unmarshal(raw, &row); err != nil {
-		return nil, fmt.Errorf("couchbase: decode row: %w", err)
-	}
-	if row.ID == "" {
-		return nil, fmt.Errorf("couchbase: result is missing string field %q", idField)
-	}
-	if row.Content == "" {
-		return nil, fmt.Errorf("couchbase: result is missing string field %q", contentField)
-	}
-	if row.Score == nil {
-		return nil, fmt.Errorf("couchbase: result is missing numeric %s", resultScoreField)
-	}
-	return &vectorstore.SearchResult{Document: &document.Document{ID: row.ID, Text: row.Content, Metadata: row.Metadata}, Score: scoreFromRelevance(*row.Score)}, nil
+	return nil
 }
