@@ -7,10 +7,12 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
+	go_ora "github.com/sijms/go-ora/v2"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -20,7 +22,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const firstMetadataFilterBindIndex = 2
+const documentIDBytes = 2000
 
 // Provider is the stable backend name for host-side attribution.
 const Provider = "Oracle"
@@ -47,9 +49,7 @@ const (
 	// DistanceEuclidean — Euclidean (L2) distance.
 	DistanceEuclidean DistanceMetric = "EUCLIDEAN"
 
-	// DistanceDot — dot product. Oracle returns the raw inner
-	// product; the store wraps it as `(1 + dot) / 2` so scores stay
-	// in [0, 1] for unit-norm vectors.
+	// DistanceDot selects Oracle's negative inner-product distance.
 	DistanceDot DistanceMetric = "DOT"
 )
 
@@ -88,7 +88,7 @@ type StoreConfig struct {
 	DB *sql.DB
 
 	// SchemaName is the optional schema prefix (Oracle username).
-	// When empty the connection user's default schema is used.
+	// When empty the connection's current schema is resolved at construction.
 	SchemaName string
 
 	// TableName is the table that stores documents and their
@@ -109,18 +109,17 @@ type StoreConfig struct {
 	// DocumentBatcher batches documents before insertion. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the VECTOR column width, and is required when
-	// InitializeSchema is true: the width is part of the column type, and
-	// nothing here can read it off a table that does not exist yet. It is also
-	// what TO_VECTOR is told at query time.
+	// Dimensions sets the VECTOR column width when InitializeSchema is true.
+	// Runtime vector construction derives its width from the input; the native
+	// column owns the stored dimension constraint.
 	Dimensions int
 
 	// DistanceMetric selects the distance function. Optional:
 	// defaults to [DistanceCosine].
 	DistanceMetric DistanceMetric
 
-	// InitializeSchema, when true, creates the table if it doesn't
-	// already exist.
+	// InitializeSchema creates the current table when absent. Construction
+	// always verifies exact document identity and lossless metadata storage.
 	InitializeSchema bool
 }
 
@@ -137,6 +136,9 @@ func (s StoreConfig) Validate() error {
 	}
 	if s.Dimensions < 0 {
 		return errors.New("oracle: Dimensions must be >= 0")
+	}
+	if s.InitializeSchema && s.Dimensions == 0 {
+		return errors.New("oracle: Dimensions must be > 0 when InitializeSchema is true")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("oracle: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -198,10 +200,9 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its table and vector index exist would
-// fail on the first index rather than at wiring, where the misconfiguration
-// actually is.
+// NewStore creates the table when requested and verifies the current storage
+// contract. The host owns the database handle. An omitted schema is bound to
+// the connection's current schema at construction.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -213,10 +214,15 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("oracle: create embedding client: %w", err)
 	}
 
-	fullTable := config.TableName
-	if config.SchemaName != "" {
-		fullTable = config.SchemaName + "." + config.TableName
+	if config.SchemaName == "" {
+		if err = config.DB.QueryRowContext(ctx, "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL").Scan(&config.SchemaName); err != nil {
+			return nil, fmt.Errorf("oracle: read current schema: %w", err)
+		}
+		if err = identifier(config.SchemaName).validate("current schema"); err != nil {
+			return nil, err
+		}
 	}
+	fullTable := config.SchemaName + "." + config.TableName
 
 	store := &Store{
 		db:              config.DB,
@@ -239,41 +245,94 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-// initialize provisions the table.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
-		return nil
+		return s.validateSchema(ctx)
 	}
-	if s.dimensions <= 0 {
-		return errors.New("oracle: Dimensions must be > 0")
+	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
+		return fmt.Errorf("create table %s: %w", s.fullTable, err)
 	}
+	return s.validateSchema(ctx)
+}
 
-	createSQL := fmt.Sprintf(
-		`CREATE TABLE %s (
-			%s VARCHAR2(64) PRIMARY KEY,
-			%s CLOB,
-			%s JSON,
-			%s VECTOR(%d, FLOAT32)
-		)`,
-		s.fullTable,
-		s.idColumn,
-		s.contentColumn,
-		s.metadataColumn,
-		s.embeddingColumn, s.dimensions,
-	)
-	if _, err := s.db.ExecContext(ctx, createSQL); err != nil {
-		// Oracle returns ORA-00955 when the table already exists, and has no
-		// CREATE TABLE IF NOT EXISTS to ask for that outcome directly.
-		//
-		// The code is matched as text rather than through a typed driver error
-		// because this store takes a *sql.DB and holds no Oracle driver, so
-		// the caller chooses one and its error types are not visible here. The
-		// ORA-NNNNN prefix survives an NLS_LANGUAGE that translates the
-		// message after it, which is why the code and not the wording is what
-		// this looks for.
-		if !strings.Contains(err.Error(), "ORA-00955") {
-			return fmt.Errorf("create table %s: %w", s.fullTable, err)
+func (s *Store) createTableStatement() string {
+	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		%s RAW(%d) NOT NULL PRIMARY KEY,
+		%s CLOB NOT NULL,
+		%s BLOB NOT NULL,
+		%s VECTOR(%d, FLOAT32) NOT NULL
+	)`, s.fullTable, s.idColumn, documentIDBytes, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.dimensions)
+}
+
+func (s *Store) validateSchema(ctx context.Context) (err error) {
+	var dataType, nullable string
+	var length int
+	const columns = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = UPPER(:1) AND TABLE_NAME = UPPER(:2) AND COLUMN_NAME = UPPER(:3)"
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable); err != nil {
+		return fmt.Errorf("read document ID schema: %w", err)
+	}
+	if dataType != "RAW" || length != documentIDBytes || nullable != "N" {
+		return fmt.Errorf("document ID column must be RAW(%d) NOT NULL; rebuild the table", documentIDBytes)
+	}
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.metadataColumn).Scan(&dataType, &length, &nullable); err != nil {
+		return fmt.Errorf("read metadata schema: %w", err)
+	}
+	if dataType != "BLOB" || nullable != "N" {
+		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT c.CONSTRAINT_TYPE, c.STATUS, c.VALIDATED, cc.COLUMN_NAME, cc.POSITION FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS cc ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.OWNER = UPPER(:1) AND c.TABLE_NAME = UPPER(:2) AND c.CONSTRAINT_TYPE IN ('P', 'U')", s.schemaName, s.tableName)
+	if err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	defer func(constraints *sql.Rows) {
+		if closeErr := constraints.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
 		}
+	}(rows)
+	primary := false
+	for rows.Next() {
+		var kind, status, validated, column string
+		var position int
+		if err = rows.Scan(&kind, &status, &validated, &column, &position); err != nil {
+			return fmt.Errorf("read document identity constraint: %w", err)
+		}
+		if !strings.EqualFold(column, s.idColumn) || position != 1 || status != "ENABLED" || validated != "VALIDATED" {
+			return errors.New("uniqueness constraints must identify a document solely by its full ID; rebuild the table")
+		}
+		primary = primary || kind == "P"
+	}
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return fmt.Errorf("close document identity constraints: %w", err)
+	}
+	if !primary {
+		return errors.New("document ID must be the sole primary key; rebuild the table")
+	}
+	rows, err = s.db.QueryContext(ctx,
+		"SELECT cc.COLUMN_NAME, cc.COLUMN_POSITION FROM ALL_INDEXES i JOIN ALL_IND_COLUMNS cc ON cc.INDEX_OWNER = i.OWNER AND cc.INDEX_NAME = i.INDEX_NAME WHERE i.TABLE_OWNER = UPPER(:1) AND i.TABLE_NAME = UPPER(:2) AND i.UNIQUENESS = 'UNIQUE'", s.schemaName, s.tableName)
+	if err != nil {
+		return fmt.Errorf("read document identity indexes: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	for rows.Next() {
+		var column string
+		var position int
+		if err = rows.Scan(&column, &position); err != nil {
+			return fmt.Errorf("read document identity index: %w", err)
+		}
+		if !strings.EqualFold(column, s.idColumn) || position != 1 {
+			return errors.New("unique indexes must identify a document solely by its full ID; rebuild the table")
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("read document identity indexes: %w", err)
 	}
 	return nil
 }
@@ -284,6 +343,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		return fmt.Errorf("oracle.Store.Index: %w", validateErr)
 	}
 	for index, doc := range request.Documents {
+		if len(doc.ID) > documentIDBytes {
+			return fmt.Errorf("oracle.Store.Index: %w: documents[%d] ID exceeds %d bytes", vectorstore.ErrInvalidDocument, index, documentIDBytes)
+		}
 		if doc.Media != nil {
 			return fmt.Errorf("oracle.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
@@ -296,11 +358,11 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	}
 
 	mergeSQL := fmt.Sprintf(
-		`MERGE INTO %s tgt USING (SELECT :1 AS id, :2 AS content, :3 AS metadata, TO_VECTOR(:4, %d, FLOAT32) AS embedding FROM dual) src `+
+		`MERGE INTO %s tgt USING (SELECT :1 AS id, :2 AS content, :3 AS metadata, TO_VECTOR(:4, *, FLOAT32) AS embedding FROM dual) src `+
 			`ON (tgt.%s = src.id) `+
 			`WHEN MATCHED THEN UPDATE SET tgt.%s = src.content, tgt.%s = src.metadata, tgt.%s = src.embedding `+
 			`WHEN NOT MATCHED THEN INSERT (tgt.%s, tgt.%s, tgt.%s, tgt.%s) VALUES (src.id, src.content, src.metadata, src.embedding)`,
-		s.fullTable, s.dimensions,
+		s.fullTable,
 		s.idColumn,
 		s.contentColumn, s.metadataColumn, s.embeddingColumn,
 		s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn,
@@ -322,11 +384,15 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return fmt.Errorf("oracle: prepare merge: %w", err)
 		}
 
-		execErr := func() error {
-			defer stmt.Close()
+		execErr := func() (err error) {
+			defer func() {
+				if closeErr := stmt.Close(); closeErr != nil {
+					err = errors.Join(err, closeErr)
+				}
+			}()
 			for i, doc := range docs {
 				id := doc.ID
-				metaJSON, err := marshalMetadata(doc.Metadata)
+				metaJSON, err := jsonv2.Marshal(doc.Metadata)
 				if err != nil {
 					return fmt.Errorf("marshal metadata for %s: %w", id, err)
 				}
@@ -334,7 +400,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				if err != nil {
 					return fmt.Errorf("oracle: marshal vector for %s: %w", id, err)
 				}
-				if _, err := stmt.ExecContext(ctx, id, doc.Text, string(metaJSON), string(vectorJSON)); err != nil {
+				if _, err := stmt.ExecContext(ctx, []byte(id), go_ora.Clob{String: doc.Text, Valid: true}, go_ora.Blob{Data: metaJSON}, string(vectorJSON)); err != nil {
 					return fmt.Errorf("merge %s: %w", id, err)
 				}
 			}
@@ -347,9 +413,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// Search runs VECTOR_DISTANCE against the embedding column.
+// Search evaluates filters through Core and ranks the same snapshot with
+// native exact distance and ID ordering.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("oracle.Store.Search: %w", err)
 	}
@@ -361,8 +427,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
+	transaction, err := s.prepareFilter(ctx, request.Options.Filter, false)
+	defer finishTransaction(transaction, &err)
+	if err != nil {
+		return nil, err
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("oracle: embed query: %w", err)
@@ -371,101 +444,158 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("oracle: marshal query vector: %w", err)
 	}
-	vecText := string(vectorJSON)
-
-	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter, firstMetadataFilterBindIndex)
-	if err != nil {
-		return nil, err
+	var ranked []rankedResult
+	if request.Options.Filter == nil {
+		ranked, err = s.searchRows(ctx, nil, request, string(vectorJSON), nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var lastID []byte
+		for {
+			page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+			if len(page.ids) > 0 {
+				candidates, queryErr := s.searchRows(ctx, transaction, request, string(vectorJSON), page.ids)
+				if queryErr != nil {
+					return nil, queryErr
+				}
+				ranked = append(ranked, candidates...)
+				slices.SortFunc(ranked, func(left, right rankedResult) int {
+					if order := cmp.Compare(left.distance, right.distance); order != 0 {
+						return order
+					}
+					return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+				})
+				ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+			}
+			if page.count < filterPageSize {
+				break
+			}
+			lastID = page.lastID
+		}
 	}
-	wherePart := ""
-	if wherePredicate != "" {
-		wherePart = " WHERE " + wherePredicate
+	results := make([]*vectorstore.SearchResult, len(ranked))
+	for index, candidate := range ranked {
+		results[index] = candidate.result
 	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
 
-	// Oracle DOT distance returns the inner product directly; wrap so
-	// the LIMIT/ORDER still picks "closest first".
-	distanceExpr := fmt.Sprintf("VECTOR_DISTANCE(%s, TO_VECTOR(:1, %d, FLOAT32), %s)",
-		s.embeddingColumn, s.dimensions, s.distanceMetric)
+type rankedResult struct {
+	result   *vectorstore.SearchResult
+	distance float64
+}
 
-	limitArgIdx := firstMetadataFilterBindIndex + len(whereArgs)
-	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, %s AS distance FROM %s%s ORDER BY distance FETCH FIRST :%d ROWS ONLY`,
-		s.idColumn, s.contentColumn, s.metadataColumn,
-		distanceExpr, s.fullTable, wherePart, limitArgIdx,
-	)
-
-	args := []any{vecText}
-	args = append(args, whereArgs...)
+func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *vectorstore.SearchRequest, vector string, ids [][]byte) (results []rankedResult, err error) {
+	args := []any{vector}
+	where := ""
+	if len(ids) > 0 {
+		placeholders := make([]string, len(ids))
+		for index, id := range ids {
+			args = append(args, id)
+			placeholders[index] = ":" + strconv.Itoa(len(args))
+		}
+		where = " WHERE " + s.idColumn + " IN (" + strings.Join(placeholders, ", ") + ")"
+	}
 	args = append(args, request.Options.ResultLimit())
-
-	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	statement := fmt.Sprintf(
+		`SELECT %s, %s, %s, VECTOR_DISTANCE(%s, TO_VECTOR(:1, *, FLOAT32), %s) AS distance FROM %s%s ORDER BY distance ASC, %s ASC FETCH FIRST :%d ROWS ONLY`,
+		s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.distanceMetric, s.fullTable, where, s.idColumn, len(args))
+	var rows *sql.Rows
+	if transaction == nil {
+		rows, err = s.db.QueryContext(ctx, statement, args...)
+	} else {
+		rows, err = transaction.QueryContext(ctx, statement, args...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("oracle: query %s: %w", s.fullTable, err)
 	}
-	defer rows.Close()
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	for rows.Next() {
-		var (
-			id       string
-			content  sql.NullString
-			metaRaw  sql.NullString
-			distance float64
-		)
-		if err = rows.Scan(&id, &content, &metaRaw, &distance); err != nil {
+		var id []byte
+		var content sql.NullString
+		var raw []byte
+		var distance float64
+		if err := rows.Scan(&id, &content, &raw, &distance); err != nil {
 			return nil, fmt.Errorf("oracle: scan row: %w", err)
 		}
 
 		score := s.distanceMetric.score(distance)
+		if err := score.Validate(); err != nil {
+			return nil, fmt.Errorf("oracle: distance for %q: %w", id, err)
+		}
 		if score < request.Options.MinScore {
 			continue
 		}
-		if id == "" {
+		if len(id) == 0 {
 			return nil, errors.New("oracle: search result is missing document ID")
 		}
 		if !content.Valid || content.String == "" {
 			return nil, fmt.Errorf("oracle: document %q is missing text", id)
 		}
 
-		doc := &document.Document{ID: id, Text: content.String}
-		if metaRaw.Valid {
-			if doc.Metadata, err = unmarshalMetadata([]byte(metaRaw.String)); err != nil {
-				return nil, fmt.Errorf("oracle: unmarshal metadata for %s: %w", id, err)
-			}
+		doc := &document.Document{ID: string(id), Text: content.String}
+		if err := jsonv2.Unmarshal(raw, &doc.Metadata); err != nil {
+			return nil, fmt.Errorf("oracle: unmarshal metadata for %s: %w", id, err)
 		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("oracle: read rows: %w", err)
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return results, nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("oracle.Store.DeleteWhere: %w", err)
+	if validateErr := predicate.Validate(); validateErr != nil {
+		return fmt.Errorf("oracle.Store.DeleteWhere: %w", validateErr)
 	}
 
-	var (
-		clause string
-		args   []any
-	)
-	clause, args, err = s.buildFilter(predicate, 1)
+	transaction, err := s.prepareFilter(ctx, predicate, true)
+	defer finishTransaction(transaction, &err)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("oracle: refusing to delete on empty filter")
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return pageErr
+		}
+		if len(page.ids) > 0 {
+			placeholders := make([]string, len(page.ids))
+			args := make([]any, len(page.ids))
+			for index, id := range page.ids {
+				placeholders[index] = ":" + strconv.Itoa(index+1)
+				args[index] = id
+			}
+			result, execErr := transaction.ExecContext(ctx, "DELETE FROM "+s.fullTable+" WHERE "+s.idColumn+" IN ("+strings.Join(placeholders, ", ")+")", args...)
+			if execErr != nil {
+				return fmt.Errorf("oracle: delete matching documents: %w", execErr)
+			}
+			count, countErr := result.RowsAffected()
+			if countErr != nil {
+				return fmt.Errorf("oracle: read matching deletion count: %w", countErr)
+			}
+			if count != int64(len(page.ids)) {
+				return fmt.Errorf("oracle: matching documents changed during deletion: deleted %d of %d snapshot documents", count, len(page.ids))
+			}
+		}
+		if page.count < filterPageSize {
+			return nil
+		}
+		lastID = page.lastID
 	}
-
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, clause)
-	if _, err := s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("oracle: delete from %s: %w", s.fullTable, err)
-	}
-	return nil
 }
 
 // DeleteIDs removes rows by primary key — `DELETE ... WHERE <id> IN
@@ -481,7 +611,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		placeholders[i] = ":" + strconv.Itoa(i+1)
-		args[i] = id
+		args[i] = []byte(id)
 	}
 
 	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s IN (%s)",
@@ -492,33 +622,110 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return nil
 }
 
-func (s *Store) buildFilter(expr filter.Predicate, startIdx int) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
-	}
-	v := newVisitor(s.metadataColumn)
-	v.parameterOffset = startIdx - 1
-	if err := expr.Accept(v); err != nil {
-		return "", nil, fmt.Errorf("oracle: convert filter: %w", err)
-	}
-	predicate, args := v.snapshot()
-	return predicate, args, nil
+const filterPageSize = 512
+
+type filterPage struct {
+	lastID []byte
+	ids    [][]byte
+	count  int
 }
 
-func marshalMetadata(m metadata.Map) ([]byte, error) {
-	if m == nil {
-		return []byte("{}"), nil
+func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
+	statement := "SELECT " + s.idColumn + ", " + s.metadataColumn + " FROM " + s.fullTable
+	var args []any
+	if lastID != nil {
+		statement += " WHERE " + s.idColumn + " > :1"
+		args = append(args, lastID)
 	}
-	return jsonv2.Marshal(m)
+	args = append(args, filterPageSize)
+	statement += " ORDER BY " + s.idColumn + " ASC FETCH FIRST :" + strconv.Itoa(len(args)) + " ROWS ONLY"
+	rows, err := transaction.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return page, fmt.Errorf("oracle: read filter metadata: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	for rows.Next() {
+		var id, raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return page, fmt.Errorf("oracle: scan filter metadata: %w", err)
+		}
+		var facts metadata.Map
+		if err := jsonv2.Unmarshal(raw, &facts); err != nil {
+			return page, fmt.Errorf("oracle: decode filter metadata: %w", err)
+		}
+		values, err := facts.Values()
+		if err != nil {
+			return page, fmt.Errorf("oracle: decode filter values: %w", err)
+		}
+		match, err := filter.Match(predicate, values)
+		if err != nil {
+			return page, fmt.Errorf("oracle: evaluate filter: %w", err)
+		}
+		page.lastID = id
+		page.count++
+		if match {
+			page.ids = append(page.ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return page, fmt.Errorf("oracle: read filter metadata: %w", err)
+	}
+	return page, nil
 }
 
-func unmarshalMetadata(b []byte) (metadata.Map, error) {
-	if len(b) == 0 {
+// go-ora v2 cannot set isolation through TxOptions. Search needs a native
+// snapshot. Deletion locks the table before evaluation because SERIALIZABLE
+// can reject unchanged rows through Oracle's block-level conflict detection.
+// NOWAIT leaves lock contention explicit without queuing a native operation
+// that the driver's in-band cancellation may fail to interrupt.
+func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate, forDeletion bool) (*sql.Tx, error) {
+	if predicate == nil {
 		return nil, nil
 	}
-	var out metadata.Map
-	if err := jsonv2.Unmarshal(b, &out); err != nil {
-		return nil, err
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("oracle: begin filter transaction: %w", err)
 	}
-	return out, nil
+	isolation := "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+	if forDeletion {
+		isolation = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
+	}
+	if _, err := transaction.ExecContext(ctx, isolation); err != nil {
+		return transaction, fmt.Errorf("oracle: set filter transaction isolation: %w", err)
+	}
+	if forDeletion {
+		if _, err := transaction.ExecContext(ctx, "LOCK TABLE "+s.fullTable+" IN EXCLUSIVE MODE NOWAIT"); err != nil {
+			return transaction, fmt.Errorf("oracle: lock documents for filtered deletion: %w", err)
+		}
+	}
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return transaction, pageErr
+		}
+		if page.count < filterPageSize {
+			return transaction, nil
+		}
+		lastID = page.lastID
+	}
+}
+
+func finishTransaction(transaction *sql.Tx, err *error) {
+	if transaction == nil {
+		return
+	}
+	if *err == nil {
+		if commitErr := transaction.Commit(); commitErr != nil {
+			*err = fmt.Errorf("oracle: commit filter transaction: %w", commitErr)
+		}
+		return
+	}
+	if rollbackErr := transaction.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		*err = errors.Join(*err, fmt.Errorf("oracle: rollback filter transaction: %w", rollbackErr))
+	}
 }
