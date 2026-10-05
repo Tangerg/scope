@@ -1,72 +1,74 @@
-// Package vectara exposes Vectara's managed RAG service
-// through the Core vector-store capability interfaces. Vectara handles embedding, chunking, and
-// retrieval internally — the store sends raw text to the v2 API and
-// does NOT need an [embedding.Model]. This is unlike every other
-// scope vector store.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package vectara implements Core indexing, semantic search, and ID deletion
+// through Vectara's current v2 HTTP API. The host owns corpus provisioning,
+// credentials, transport, and HTTP client lifetime. Vectara owns embedding and
+// native ranking; no Scope model, distance setting, OAuth refresh, or retry layer
+// competes with that policy.
+// The native corpus must be enabled, store documents, and have no custom score
+// dimensions. This policy is reread before every complete source operation.
 //
-// Requirements: a Vectara account, an API key with corpus-level
-// write + query scope, and a corpus provisioned via the Vectara
-// console or control-plane API. The embedder, retrieval model, and
-// chunking strategy are configured on the corpus itself.
+// The current source has one native document ID, one core document part containing
+// the complete text, and exactly one document metadata field, metadata_json. Its
+// value is the complete Core JSON string. Numbers, arbitrary keys, nested values,
+// null metadata, and empty objects survive without conversion to native scalar
+// filter types. Media, multiple parts, separate context, tables, and images are
+// unsupported and rejected. Native IDs remain the sole stored identity.
 //
-// Authentication. API key via the `x-api-key` header.
+// NewStore, Index, and Search enumerate the complete native corpus, using opaque
+// page keys until no key remains, and retrieve every full document by ID. Repeated
+// cursors or IDs and malformed records fail, including documents that a predicate
+// or MinScore would exclude. Construction requires document read permissions and
+// reports an inaccessible or invalid corpus immediately. The full scan costs
+// one policy request, one listing request per page, and one retrieval request per
+// document; retained data is proportional to the selected source documents.
 //
-// Construction confirms nothing, unlike its siblings. There is no metric to
-// agree on — Vectara owns embedding and scoring — and the one remaining fact,
-// whether the corpus exists and is enabled, lives behind corpus management,
-// which Vectara scopes to a Personal API key. Indexing and querying are what a
-// serving or serving_and_indexing key is for, so reading the corpus at wiring
-// would make this store demand a more privileged key than its own work needs.
-// A wrong [StoreConfig.CorpusKey] therefore surfaces on the first request.
+// # Search
 //
-// Search shape. The store hits Vectara's v2 query endpoint —
-// `POST /v2/corpora/<corpus_key>/query` — with the user's raw query
-// and a `metadata_filter` string derived from the filter visitor.
-// Scores come from Vectara on the scale it documents for this query: -1 to 1,
-// where 1 is a perfect match and -1 has nothing to do with the query. The
-// store maps that onto Core's range, so a Vectara 0.5 reports as 0.75 rather
-// than 0.5 and the negative half keeps its order instead of flattening onto
-// zero. A score outside the scale is reported: Vectara documents a reranked
-// score as unbounded, a reranker is corpus configuration this store does not
-// set, and squeezing such a score onto the bound would hide that behind a
-// plausible number.
+// Core filter.Match is the sole metadata predicate evaluator. Filtered searches
+// restrict native ranking to selected doc.id values in bounded expressions using
+// Vectara's built-in ID filter, requiring no custom filter attributes. All identity
+// expressions are prepared before querying and must fit the native 8,000-character
+// limit. Native raw relevance determines global TopK before MinScore; every hit
+// must have a current text result shape, unique identity, complete metadata, and
+// unchanged Core membership. Any error returns no partial response.
 //
-// Filter visitor produces Vectara's metadata-filter SQL-like syntax
-// — `doc.author = 'Alice'`, `doc.year >= 2020`, `doc.tag IN ('a',
-// 'b')`, `NOT (...)`, ` AND ` / ` OR `. Metadata keys are addressed
-// under the `doc.` prefix by default; pass [StoreConfig.MetadataPrefix]
-// = `"part"` to filter part-level metadata instead.
+// Requests disable lexical interpolation, reranking, query rewriting, generation,
+// streaming, and saved history. Vectara's bounded semantic relevance [-1,1] maps
+// linearly to Core [0,1]; non-finite or out-of-range values are errors. Native text
+// parts are explicitly supplied by Index, each mapping directly to a search result;
+// the adapter does not rely on server-side chunking or return snippets as documents.
 //
-// Documents are uploaded as `type: "core"` with a single
-// `document_parts` entry holding the raw text — Vectara does its own
-// chunking on the server side.
+// # Writes and deletion
 //
-// Delete. Vectara has no bulk filter-delete; the store enumerates
-// matching ids via the list endpoint (paged via `page_key`) and
-// issues per-id DELETEs against `/v2/corpora/<corpus_key>/documents/
-// <doc_id>`.
+// Index validates and prepares the complete request and batcher output before
+// mutation. Vectara's document creation endpoint rejects existing IDs, so each
+// replacement uses native ID deletion followed by creation with wait_for=searchable.
+// This is not atomic: readers can observe the gap, and a failed creation can leave
+// the previous document deleted. A confirmed creation must return HTTP 201 and the
+// requested native ID. Failed native operations are returned without retries.
+// DeleteIDs validates all IDs first, deduplicates them, and ignores only native
+// not-found; every other status remains a failure. Earlier IDs can be removed if
+// a later deletion fails. The native service owns its document-change conflicts.
 //
-// A missing `page_key` is the only evidence the listing is complete, so a page
-// holding fewer documents than the requested limit — or none at all — does not
-// end the walk. The full id set is collected before the first DELETE, because a
-// page key belongs to the listing that produced it and deleting mid-walk would
-// resume through a corpus that has already changed. Deletion itself is not
-// atomic: a failure leaves the earlier documents deleted and names the id that
-// failed, and repeating the call finishes the rest.
+// # Breaking contract
 //
-// Null tests emit `IS NULL`, which Vectara documents as checking "whether or
-// not a value is NULL (empty or missing)" — the same pair of states the filter
-// AST reads as nil. HAS is refused because filterable metadata fields are
-// scalar.
+// DeleteWhere and the FilterDeleter capability, MetadataPrefix, DefaultAPIVersion,
+// and the metadata DSL compiler have been removed. Native filter deletion is best
+// effort and can miss matching documents through indexing lag; selecting IDs and
+// deleting them unconditionally also loses the original metadata condition. These
+// paths cannot implement Core's complete predicate deletion contract. Explicit
+// ID deletion is a separate caller intent, not a predicate deletion substitute.
 //
-// Filterable keys. A metadata key is written into the query language as
-// text, and that language cannot quote a field name, so a filter can only
-// name a key that is a plain identifier. An indexed key is a string literal
-// in the filter DSL, so without that limit a caller's key was read as
-// syntax. A document whose metadata key is anything at all still stores and
-// reads back fine; this is only about which keys a filter can name.
+// Rebuild or reindex the corpus through the host before construction when its
+// records do not have the current complete JSON and single-part shape. No legacy
+// reads, metadata projections, default-prefix aliases, or schema migrations remain.
 //
-// See https://docs.vectara.com/docs/rest-api/.
+// Default tests exercise the current HTTP protocol offline. Integration tests
+// require SCOPE_VECTARA_URL and SCOPE_VECTARA_API_KEY with corpus creation/deletion
+// permissions and create disposable corpora. Managed-service checks require those
+// credentials; offline protocol tests do not demonstrate native cloud execution.
+// Current protocol references:
+// https://docs.vectara.com/docs/rest-api/list-corpus-documents
+// https://docs.vectara.com/docs/rest-api/get-corpus-document
+// https://docs.vectara.com/docs/rest-api/bulk-delete-corpus-documents
+// https://docs.vectara.com/docs/learn/metadata-search-filtering/ootb-metadata-filters
 package vectara

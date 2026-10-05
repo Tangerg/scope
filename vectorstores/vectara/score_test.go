@@ -40,10 +40,8 @@ func TestRelevanceScoreMapsTheDocumentedScale(t *testing.T) {
 	}
 }
 
-// A reranker is corpus configuration this store does not set, and Vectara
-// documents reranked scores as unbounded. An out-of-scale score therefore means
-// the scale this store maps no longer applies, and squeezing it onto the bound
-// would hide that behind a plausible number.
+// Semantic requests explicitly disable reranking. An unbounded native score
+// violates that contract and must not be clamped into apparent success.
 func TestRelevanceScoreRefusesAnUnboundedScore(t *testing.T) {
 	t.Parallel()
 

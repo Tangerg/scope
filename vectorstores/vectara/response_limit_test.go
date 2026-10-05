@@ -14,7 +14,7 @@ func TestSendJSONRejectsOversizedResponse(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	store := &Store{endpoint: server.URL, httpClient: server.Client(), maxResponseBytes: 4}
-	_, err := store.sendJSON(t.Context(), http.MethodGet, "/", nil)
+	_, err := store.sendJSON(t.Context(), http.MethodGet, "/", nil, http.StatusOK)
 	if err == nil || !strings.Contains(err.Error(), "4-byte limit") {
 		t.Fatalf("sendJSON error = %v", err)
 	}
