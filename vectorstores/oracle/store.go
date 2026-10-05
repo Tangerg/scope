@@ -531,19 +531,16 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		if err := score.Validate(); err != nil {
 			return nil, fmt.Errorf("oracle: distance for %q: %w", id, err)
 		}
-		if score < request.Options.MinScore {
-			continue
-		}
-		if len(id) == 0 {
-			return nil, errors.New("oracle: search result is missing document ID")
-		}
-		if !content.Valid || content.String == "" {
-			return nil, fmt.Errorf("oracle: document %q is missing text", id)
-		}
 
 		doc := &document.Document{ID: string(id), Text: content.String}
 		if err := jsonv2.Unmarshal(raw, &doc.Metadata); err != nil {
 			return nil, fmt.Errorf("oracle: unmarshal metadata for %s: %w", id, err)
+		}
+		if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+			return nil, fmt.Errorf("oracle: invalid native document %q: %w", id, err)
+		}
+		if score < request.Options.MinScore {
+			continue
 		}
 		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}

@@ -27,6 +27,9 @@
 // initialization creates a VECTOR column without an ANN index; this trades
 // approximate-search acceleration for consistent visibility and filter truth.
 //
+// Every returned row is decoded and validated by Core before MinScore; a low
+// score never hides an invalid native document or malformed metadata.
+//
 // Index validates the whole request, embeds batches, and upserts each document.
 // Writes are not atomic across documents: a failure may leave earlier rows
 // stored. Vector values are bound as JSON text through VEC_FromText. Nil and

@@ -510,18 +510,15 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		if err := score.Validate(); err != nil {
 			return nil, fmt.Errorf("tidb: distance for %q: %w", id, err)
 		}
-		if score < request.Options.MinScore {
-			continue
-		}
-		if id == "" {
-			return nil, errors.New("tidb: search result is missing document ID")
-		}
-		if !content.Valid || content.String == "" {
-			return nil, fmt.Errorf("tidb: document %q is missing text", id)
-		}
 		doc := &document.Document{ID: id, Text: content.String}
 		if err := jsonv2.Unmarshal(raw, &doc.Metadata); err != nil {
 			return nil, fmt.Errorf("tidb: unmarshal metadata for %s: %w", id, err)
+		}
+		if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+			return nil, fmt.Errorf("tidb: invalid native document %q: %w", id, err)
+		}
+		if score < request.Options.MinScore {
+			continue
 		}
 		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}

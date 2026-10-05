@@ -34,6 +34,9 @@
 // its input; the native column owns the stored dimension constraint. Dimensions
 // configures only schema creation.
 //
+// Every returned row is decoded and validated by Core before MinScore; a low
+// score never hides an invalid native document or malformed metadata.
+//
 // Index embeds batches and upserts through MERGE. Writes are not atomic across
 // documents: a failure may leave earlier rows stored. Invalid stored metadata
 // and backend errors remain explicit.

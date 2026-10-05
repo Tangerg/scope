@@ -503,20 +503,17 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		if err := score.Validate(); err != nil {
 			return nil, fmt.Errorf("mariadb: distance for %q: %w", id, err)
 		}
-		if score < request.Options.MinScore {
-			continue
-		}
-		if id == "" {
-			return nil, errors.New("mariadb: search result is missing document ID")
-		}
-		if !content.Valid || content.String == "" {
-			return nil, fmt.Errorf("mariadb: document %q is missing text", id)
-		}
 		doc := &document.Document{ID: id, Text: content.String}
 		if raw.Valid {
 			if err := jsonv2.Unmarshal([]byte(raw.String), &doc.Metadata); err != nil {
 				return nil, fmt.Errorf("mariadb: unmarshal metadata for %s: %w", id, err)
 			}
+		}
+		if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+			return nil, fmt.Errorf("mariadb: invalid native document %q: %w", id, err)
+		}
+		if score < request.Options.MinScore {
+			continue
 		}
 		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}

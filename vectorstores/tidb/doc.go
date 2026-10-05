@@ -29,6 +29,9 @@
 // infrastructure. This chooses exact visible rows over approximate acceleration;
 // filtering requires a metadata scan with bounded retained rows and wire IDs.
 //
+// Every returned row is decoded and validated by Core before MinScore; a low
+// score never hides an invalid native document or malformed metadata.
+//
 // Index embeds batches and upserts documents using JSON text for vector binding.
 // Writes are not atomic across documents: a failure may leave earlier rows
 // stored. Invalid stored metadata and backend errors remain explicit.
