@@ -18,12 +18,9 @@ func TestVisitor_Conformance(t *testing.T) {
 		v := newVisitor()
 		return expr.Accept(v)
 	},
-		storetest.Options{
-			// Native JSON-key null tests can classify empty containers as
-			// absent, which changes Core's metadata semantics.
-			Unsupported: []string{"null_test", "not_null_test"},
-			CompileText: compileFilterText,
-		},
+		// Native operands are encoded strings, not numerals. Differential
+		// projection tests verify their exact values and order instead.
+		storetest.Options{},
 	)
 }
 
@@ -33,7 +30,7 @@ func TestVisitor_PreservesLargeIntegerText(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := visitor.snapshot()
-	if actual != `metadata["id"] == 18446744073709551615` {
+	if actual != `(ARRAY_CONTAINS(metadata_filter["kinds"]["number"], "[\"id\"]") and metadata_filter["scalars"]["[\"id\"]"] == "number:20922337203685477582718446744073709551615/")` {
 		t.Fatalf("filter = %q", actual)
 	}
 }
@@ -47,7 +44,7 @@ func TestVisitor_HasUsesArrayContains(t *testing.T) {
 	if err := expr.Accept(v); err != nil {
 		t.Fatal(err)
 	}
-	if got := v.snapshot(); got != `ARRAY_CONTAINS(metadata["tags"], "rag")` {
+	if got := v.snapshot(); got != `(ARRAY_CONTAINS(metadata_filter["kinds"]["array"], "[\"tags\"]") and ARRAY_CONTAINS(metadata_filter["members"]["[\"tags\"]"], "string:[000072][000061][000067]"))` {
 		t.Fatalf("Result() = %q", got)
 	}
 }
@@ -58,16 +55,16 @@ func TestVisitor_QuotesCompleteStringLiteral(t *testing.T) {
 	if err := filter.EQ("value", value).Accept(visitor); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := visitor.snapshot(), `metadata["value"] == `+strconv.Quote(value); got != want {
+	if got, want := visitor.snapshot(), `(ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"value\"]") and metadata_filter["scalars"]["[\"value\"]"] == `+strconv.Quote("string:"+encodeMetadataString(value, false))+`)`; got != want {
 		t.Fatalf("Result() = %q, want %q", got, want)
 	}
 }
 
 func TestVisitor_SelectorKeepsSegmentKinds(t *testing.T) {
 	for source, want := range map[string]string{
-		`meta[0] == 'a'`:           `metadata["meta"][0] == "a"`,
-		`meta['0'] == 'a'`:         `metadata["meta"]["0"] == "a"`,
-		`meta['a'][1]['b'] == 'x'`: `metadata["meta"]["a"][1]["b"] == "x"`,
+		`meta[0] == 'a'`:           `(ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"meta\",0]") and metadata_filter["scalars"]["[\"meta\",0]"] == "string:[000061]")`,
+		`meta['0'] == 'a'`:         `(ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"meta\",\"0\"]") and metadata_filter["scalars"]["[\"meta\",\"0\"]"] == "string:[000061]")`,
+		`meta['a'][1]['b'] == 'x'`: `(ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"meta\",\"a\",1,\"b\"]") and metadata_filter["scalars"]["[\"meta\",\"a\",1,\"b\"]"] == "string:[000078]")`,
 	} {
 		got, err := compileFilterText(source)
 		if err != nil {
@@ -85,16 +82,14 @@ func TestLiteralLikePreservesBackslashesAndUnicode(t *testing.T) {
 		if err := filter.Like("author", pattern).Accept(compiler); err != nil {
 			t.Fatal(err)
 		}
-		if got, want := compiler.snapshot(), `metadata["author"] == `+strconv.Quote(pattern); got != want {
+		condition := `(ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"author\"]") and metadata_filter["scalars"]["[\"author\"]"] == ` + strconv.Quote("string:"+encodeMetadataString(pattern, false)) + `)`
+		invalid := `(ARRAY_CONTAINS(metadata_filter["present"], "[\"author\"]") and not (ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"author\"]")))`
+		if got, want := compiler.snapshot(), "("+condition+") and not ("+invalid+")"; got != want {
 			t.Fatalf("LIKE %q = %q, want %q", pattern, got, want)
 		}
 	}
 }
 
-// compileFilterText drives the compiler and returns the query text it produced,
-// so the shared suite can require the exact digits of a numeric literal. This
-// compiler's whole output is text, which is what makes those digits the only
-// thing between a caller's filter and a different one.
 func compileFilterText(source string) (string, error) {
 	expr, err := filter.Parse(source)
 	if err != nil {

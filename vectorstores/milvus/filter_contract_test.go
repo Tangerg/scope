@@ -4,7 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"slices"
-	"strings"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -64,7 +64,7 @@ func (f *filterService) Upsert(ctx context.Context, request *milvuspb.UpsertRequ
 func (f *filterService) Search(ctx context.Context, request *milvuspb.SearchRequest) (*milvuspb.SearchResults, error) {
 	if request.Dsl != f.expected {
 		return &milvuspb.SearchResults{Status: merr.Status(merr.WrapErrParameterInvalidMsg(
-			"filter must address the metadata JSON column: %s", request.Dsl))}, nil
+			"filter must address the metadata projection: %s", request.Dsl))}, nil
 	}
 	response, err := f.schemaService.Search(ctx, request)
 	if err != nil {
@@ -102,20 +102,20 @@ func TestFiltersSelectIndexedMetadataThroughNativeSDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sample := range []struct{ source, native string }{
-		{`author == 'Alice'`, `metadata["author"] == "Alice"`},
-		{`id == 'meta-id'`, `metadata["id"] == "meta-id"`},
-		{`content == 'meta-content'`, `metadata["content"] == "meta-content"`},
-		{`vector == 7`, `metadata["vector"] == 7`},
-		{`metadata['version'] == 2`, `metadata["metadata"]["version"] == 2`},
-		{`profile['a.b'] == 'literal'`, `metadata["profile"]["a.b"] == "literal"`},
-		{`profile['items'][0]['name'] == 'Alice'`, `metadata["profile"]["items"][0]["name"] == "Alice"`},
-		{`tags has 'rag'`, `ARRAY_CONTAINS(metadata["tags"], "rag")`},
-		{`author like 'A%'`, `metadata["author"] like "A%"`},
-		{`author like 'Alice'`, `metadata["author"] == "Alice"`},
+	for _, sample := range []struct{ source, kind, path, condition string }{
+		{`author == 'Alice'`, "string", `["author"]`, `metadata_filter["scalars"]["[\"author\"]"] == "string:[000041][00006c][000069][000063][000065]"`},
+		{`id == 'meta-id'`, "string", `["id"]`, `metadata_filter["scalars"]["[\"id\"]"] == "string:[00006d][000065][000074][000061][00002d][000069][000064]"`},
+		{`content == 'meta-content'`, "string", `["content"]`, `metadata_filter["scalars"]["[\"content\"]"] == "string:[00006d][000065][000074][000061][00002d][000063][00006f][00006e][000074][000065][00006e][000074]"`},
+		{`vector == 7`, "number", `["vector"]`, `metadata_filter["scalars"]["[\"vector\"]"] == "number:2092233720368547758087/"`},
+		{`metadata['version'] == 2`, "number", `["metadata","version"]`, `metadata_filter["scalars"]["[\"metadata\",\"version\"]"] == "number:2092233720368547758082/"`},
+		{`profile['a.b'] == 'literal'`, "string", `["profile","a.b"]`, `metadata_filter["scalars"]["[\"profile\",\"a.b\"]"] == "string:[00006c][000069][000074][000065][000072][000061][00006c]"`},
+		{`profile['items'][0]['name'] == 'Alice'`, "string", `["profile","items",0,"name"]`, `metadata_filter["scalars"]["[\"profile\",\"items\",0,\"name\"]"] == "string:[000041][00006c][000069][000063][000065]"`},
+		{`tags has 'rag'`, "array", `["tags"]`, `ARRAY_CONTAINS(metadata_filter["members"]["[\"tags\"]"], "string:[000072][000061][000067]")`},
+		{`author like 'A%'`, "string", `["author"]`, `metadata_filter["scalars"]["[\"author\"]"] like "string:[000041]%"`},
+		{`author like 'Alice'`, "string", `["author"]`, `metadata_filter["scalars"]["[\"author\"]"] == "string:[000041][00006c][000069][000063][000065]"`},
 	} {
 		t.Run(sample.source, func(t *testing.T) {
-			service := &filterService{schemaService: newSchemaService(entity.COSINE), expected: sample.native, test: t}
+			service := &filterService{schemaService: newSchemaService(entity.COSINE), expected: expectedMetadataCondition(sample.kind, sample.path, sample.condition), test: t}
 			service.searchScore = []float32{1, 1}
 			var embeddings atomic.Int64
 			store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), entity.COSINE, false, &embeddings))
@@ -135,6 +135,10 @@ func TestFiltersSelectIndexedMetadataThroughNativeSDK(t *testing.T) {
 			predicate, err := filter.Parse(sample.source)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if sample.source == `author like 'A%'` || sample.source == `author like 'Alice'` {
+				invalid := `(ARRAY_CONTAINS(metadata_filter["present"], "[\"author\"]") and not (ARRAY_CONTAINS(metadata_filter["kinds"]["string"], "[\"author\"]")))`
+				service.expected = "(" + service.expected + ") and not (" + invalid + ")"
 			}
 			search, err := vectorstore.NewSearchRequest("text")
 			if err != nil {
@@ -195,36 +199,8 @@ func TestDeleteIDsPreservesLiteralPrimaryKeysThroughNativeSDK(t *testing.T) {
 	}
 }
 
-func TestUnrepresentableLikePatternsFailBeforeExternalIO(t *testing.T) {
-	for _, pattern := range []string{"_", "世界_", `a\%b`, `plain\path%`} {
-		t.Run(pattern, func(t *testing.T) {
-			predicate := filter.Like("author", pattern)
-			if err := predicate.Accept(newVisitor()); err == nil {
-				t.Error("compiler accepted a pattern that changes Core semantics")
-			}
-			service := &filterService{schemaService: newSchemaService(entity.COSINE), test: t}
-			var embeddings atomic.Int64
-			store, err := NewStore(t.Context(), schemaConfig(newCollectionClient(t, service), entity.COSINE, false, &embeddings))
-			if err != nil {
-				t.Fatal(err)
-			}
-			search, err := vectorstore.NewSearchRequest("text")
-			if err != nil {
-				t.Fatal(err)
-			}
-			search.Options.Filter = predicate
-			response, err := store.Search(t.Context(), search)
-			if err == nil || response != nil || !strings.Contains(err.Error(), "Core semantics") {
-				t.Fatalf("Search = %#v, %v; want unsupported pattern", response, err)
-			}
-			if err := store.DeleteWhere(t.Context(), predicate); err == nil || !strings.Contains(err.Error(), "Core semantics") {
-				t.Fatalf("DeleteWhere = %v; want unsupported pattern", err)
-			}
-			if service.deletes.Load() != 0 || embeddings.Load() != 0 {
-				t.Fatalf("unsupported filter caused %d deletions and %d embeddings", service.deletes.Load(), embeddings.Load())
-			}
-		})
-	}
+func expectedMetadataCondition(kind, path, condition string) string {
+	return "(ARRAY_CONTAINS(metadata_filter[\"kinds\"][" + strconv.Quote(kind) + "], " + strconv.Quote(path) + ") and " + condition + ")"
 }
 
 var _ milvuspb.MilvusServiceServer = (*filterService)(nil)

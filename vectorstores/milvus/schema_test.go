@@ -50,7 +50,8 @@ func newSchemaService(metric entity.MetricType) *schemaService {
 			WithField(entity.NewField().WithName("id").WithDataType(entity.FieldTypeVarChar).WithMaxLength(36).WithIsPrimaryKey(true)).
 			WithField(entity.NewField().WithName("vector").WithDataType(entity.FieldTypeFloatVector).WithDim(2)).
 			WithField(entity.NewField().WithName("content").WithDataType(entity.FieldTypeVarChar).WithMaxLength(65535)).
-			WithField(entity.NewField().WithName("metadata").WithDataType(entity.FieldTypeJSON)).ProtoMessage(),
+			WithField(entity.NewField().WithName("metadata").WithDataType(entity.FieldTypeJSON)).
+			WithField(entity.NewField().WithName("metadata_filter").WithDataType(entity.FieldTypeJSON)).ProtoMessage(),
 		indexes: []*milvuspb.IndexDescription{{
 			FieldName: "vector", IndexName: "vectors", State: commonpb.IndexState_Finished,
 			Params: []*commonpb.KeyValuePair{{Key: "metric_type", Value: string(metric)}},
@@ -133,6 +134,13 @@ func (s *schemaService) Search(context.Context, *milvuspb.SearchRequest) (*milvu
 			column.NewColumnVarChar("content", []string{"first result", "second result"}).FieldData(),
 			column.NewColumnJSONBytes("metadata", [][]byte{[]byte(`{}`), []byte(`{}`)}).FieldData(),
 		},
+	}}, nil
+}
+
+func (s *schemaService) Query(context.Context, *milvuspb.QueryRequest) (*milvuspb.QueryResults, error) {
+	return &milvuspb.QueryResults{Status: &commonpb.Status{}, OutputFields: []string{"id", "metadata"}, FieldsData: []*schemapb.FieldData{
+		column.NewColumnVarChar("id", nil).FieldData(),
+		column.NewColumnJSONBytes("metadata", nil).FieldData(),
 	}}, nil
 }
 
@@ -239,6 +247,9 @@ func TestNewStoreRejectsIncompatibleExistingSchema(t *testing.T) {
 		{"short content", func(s *schemaService) { s.schema.Fields[2].TypeParams[0].Value = "8" }},
 		{"nullable content", func(s *schemaService) { s.schema.Fields[2].Nullable = true }},
 		{"metadata is text", func(s *schemaService) { s.schema.Fields[3].DataType = schemapb.DataType_VarChar }},
+		{"missing metadata projection", func(s *schemaService) { s.schema.Fields = s.schema.Fields[:4] }},
+		{"nullable metadata projection", func(s *schemaService) { s.schema.Fields[4].Nullable = true }},
+		{"metadata projection is text", func(s *schemaService) { s.schema.Fields[4].DataType = schemapb.DataType_VarChar }},
 		{"required extra field", func(s *schemaService) {
 			s.schema.Fields = append(s.schema.Fields, &schemapb.FieldSchema{Name: "tenant", DataType: schemapb.DataType_Int64})
 		}},

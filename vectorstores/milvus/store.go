@@ -31,10 +31,11 @@ const (
 )
 
 const (
-	fieldID      = "id"
-	fieldVector  = "vector"
-	fieldContent = "content"
-	fieldMeta    = "metadata"
+	fieldID             = "id"
+	fieldVector         = "vector"
+	fieldContent        = "content"
+	fieldMeta           = "metadata"
+	fieldMetadataFilter = "metadata_filter"
 
 	maxIDLength      = 36
 	maxContentLength = 65535
@@ -127,6 +128,7 @@ type collectionClient interface {
 	LoadCollection(context.Context, milvusclient.LoadCollectionOption, ...grpc.CallOption) (milvusclient.LoadTask, error)
 	Upsert(context.Context, milvusclient.UpsertOption, ...grpc.CallOption) (milvusclient.UpsertResult, error)
 	Search(context.Context, milvusclient.SearchOption, ...grpc.CallOption) ([]milvusclient.ResultSet, error)
+	Query(context.Context, milvusclient.QueryOption, ...grpc.CallOption) (milvusclient.ResultSet, error)
 	Delete(context.Context, milvusclient.DeleteOption, ...grpc.CallOption) (milvusclient.DeleteResult, error)
 }
 
@@ -191,6 +193,9 @@ func (s *Store) createSchema(dim int64) *entity.Schema {
 			WithMaxLength(maxContentLength)).
 		WithField(entity.NewField().
 			WithName(fieldMeta).
+			WithDataType(entity.FieldTypeJSON)).
+		WithField(entity.NewField().
+			WithName(fieldMetadataFilter).
 			WithDataType(entity.FieldTypeJSON))
 }
 
@@ -288,7 +293,7 @@ func (s *Store) validateCollection(collection *entity.Collection) error {
 			return fmt.Errorf("%w: field %q cannot own the document ID", ErrSchemaMismatch, field.Name)
 		}
 		switch field.Name {
-		case fieldID, fieldVector, fieldContent, fieldMeta:
+		case fieldID, fieldVector, fieldContent, fieldMeta, fieldMetadataFilter:
 		default:
 			if !field.IsDynamic && !field.Nullable && field.DefaultValue == nil {
 				return fmt.Errorf("%w: extra field %q requires an unsupported input", ErrSchemaMismatch, field.Name)
@@ -298,6 +303,7 @@ func (s *Store) validateCollection(collection *entity.Collection) error {
 	for name, kind := range map[string]entity.FieldType{
 		fieldID: entity.FieldTypeVarChar, fieldVector: entity.FieldTypeFloatVector,
 		fieldContent: entity.FieldTypeVarChar, fieldMeta: entity.FieldTypeJSON,
+		fieldMetadataFilter: entity.FieldTypeJSON,
 	} {
 		field := fields[name]
 		if field == nil || field.DataType != kind || field.Nullable {
@@ -330,6 +336,7 @@ func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float6
 	vecs := make([][]float32, n)
 	contents := make([]string, n)
 	metaBytes := make([][]byte, n)
+	filterBytes := make([][]byte, n)
 
 	for i, doc := range docs {
 		if len(vectors[i]) != s.dimensions {
@@ -340,11 +347,12 @@ func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float6
 
 		contents[i] = doc.Text
 
-		meta, err := jsonv2.Marshal(doc.Metadata)
+		meta, projection, err := projectMetadata(doc.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("milvus: marshal metadata for document %s: %w", doc.ID, err)
 		}
 		metaBytes[i] = meta
+		filterBytes[i] = projection
 	}
 
 	dim := len(vecs[0])
@@ -354,6 +362,7 @@ func (s *Store) buildInsertColumns(docs []*document.Document, vectors [][]float6
 		column.NewColumnFloatVector(fieldVector, dim, vecs),
 		column.NewColumnVarChar(fieldContent, contents),
 		column.NewColumnJSONBytes(fieldMeta, metaBytes),
+		column.NewColumnJSONBytes(fieldMetadataFilter, filterBytes),
 	}, nil
 }
 
@@ -416,11 +425,17 @@ func validateProviderDocuments(docs []*document.Document) error {
 		if len(doc.Text) > maxContentLength {
 			return fmt.Errorf("%w: documents[%d] has %d bytes", ErrDocumentContentTooLong, i, len(doc.Text))
 		}
+		if _, _, err := projectMetadata(doc.Metadata); err != nil {
+			return fmt.Errorf("milvus: documents[%d] metadata: %w", i, err)
+		}
 	}
 	return nil
 }
 
 func (s *Store) buildDocumentsFromResults(rs milvusclient.ResultSet, minScore vectorstore.Score) ([]*vectorstore.SearchResult, error) {
+	if rs.Err != nil {
+		return nil, fmt.Errorf("milvus: decode search result: %w", rs.Err)
+	}
 	if len(rs.Scores) != rs.Len() {
 		return nil, fmt.Errorf("milvus: search returned %d scores for %d rows", len(rs.Scores), rs.Len())
 	}
@@ -462,12 +477,8 @@ func (s *Store) buildDocumentsFromResults(rs milvusclient.ResultSet, minScore ve
 		if err != nil {
 			return nil, fmt.Errorf("milvus: read metadata for result %d: %w", i, err)
 		}
-		metaBytes, ok := raw.([]byte)
-		if !ok {
-			return nil, fmt.Errorf("milvus: metadata for result %d has type %T, want []byte", i, raw)
-		}
-		var decodedMetadata metadata.Map
-		if err = jsonv2.Unmarshal(metaBytes, &decodedMetadata); err != nil {
+		decodedMetadata, err := decodeMetadata(raw)
+		if err != nil {
 			return nil, fmt.Errorf("milvus: decode metadata for result %d: %w", i, err)
 		}
 
@@ -517,13 +528,9 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		}
 	}()
 
-	var nativeFilter string
-	if request.Options.Filter != nil {
-		visitor := newVisitor()
-		if acceptErr := request.Options.Filter.Accept(visitor); acceptErr != nil {
-			return nil, fmt.Errorf("milvus: convert filter: %w", acceptErr)
-		}
-		nativeFilter = visitor.snapshot()
+	nativeFilter, err := s.prepareFilter(ctx, request.Options.Filter)
+	if err != nil {
+		return nil, err
 	}
 
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
@@ -566,17 +573,83 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 		return fmt.Errorf("milvus.Store.DeleteWhere: %w", err)
 	}
 
-	visitor := newVisitor()
-	if err = predicate.Accept(visitor); err != nil {
-		return fmt.Errorf("milvus: convert filter: %w", err)
+	nativeFilter, err := s.prepareFilter(ctx, predicate)
+	if err != nil {
+		return err
 	}
 
-	_, err = s.client.Delete(ctx, milvusclient.NewDeleteOption(s.collectionName).WithExpr(visitor.snapshot()))
+	_, err = s.client.Delete(ctx, milvusclient.NewDeleteOption(s.collectionName).WithExpr(nativeFilter))
 	if err != nil {
 		return fmt.Errorf("milvus: delete from collection %s: %w", s.collectionName, err)
 	}
 
 	return nil
+}
+
+func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate) (string, error) {
+	if predicate == nil {
+		return "", nil
+	}
+	compiler := newVisitor()
+	if err := predicate.Accept(compiler); err != nil {
+		return "", fmt.Errorf("milvus: convert filter: %w", err)
+	}
+	if compiler.invalid() == "" {
+		return compiler.snapshot(), nil
+	}
+	result, err := s.client.Query(ctx, milvusclient.NewQueryOption(s.collectionName).
+		WithFilter(compiler.invalid()).WithOutputFields(fieldID, fieldMeta).WithLimit(1))
+	if err != nil {
+		return "", fmt.Errorf("milvus: validate filter types: %w", err)
+	}
+	if result.Err != nil {
+		return "", fmt.Errorf("milvus: validate filter result: %w", result.Err)
+	}
+	if result.Len() == 0 {
+		return compiler.snapshot(), nil
+	}
+	idColumn, metaColumn := result.GetColumn(fieldID), result.GetColumn(fieldMeta)
+	if result.Len() != 1 || idColumn == nil || metaColumn == nil || idColumn.Len() != 1 || metaColumn.Len() != 1 {
+		return "", errors.New("milvus: filter validation must return one complete document")
+	}
+	id, err := idColumn.GetAsString(0)
+	if err != nil {
+		return "", fmt.Errorf("milvus: read filter validation document ID: %w", err)
+	}
+	if id == "" {
+		return "", errors.New("milvus: filter validation returned an empty document ID")
+	}
+	raw, err := metaColumn.Get(0)
+	if err != nil {
+		return "", fmt.Errorf("milvus: read filter validation metadata: %w", err)
+	}
+	attributes, err := decodeMetadata(raw)
+	if err != nil {
+		return "", fmt.Errorf("milvus: decode filter validation metadata: %w", err)
+	}
+	values, err := attributes.Values()
+	if err != nil {
+		return "", fmt.Errorf("milvus: filter validation metadata: %w", err)
+	}
+	if _, err = filter.Match(predicate, values); err != nil {
+		return "", fmt.Errorf("milvus: filter on document %q: %w", id, err)
+	}
+	return "", fmt.Errorf("milvus: metadata filter projection is inconsistent for document %q", id)
+}
+
+func decodeMetadata(raw any) (metadata.Map, error) {
+	encoded, ok := raw.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("milvus: metadata has type %T, want []byte", raw)
+	}
+	var attributes metadata.Map
+	if err := jsonv2.Unmarshal(encoded, &attributes); err != nil {
+		return nil, err
+	}
+	if attributes == nil {
+		return nil, errors.New("milvus: metadata must be an object")
+	}
+	return attributes, nil
 }
 
 // DeleteIDs removes rows by literal primary key. Unknown IDs are ignored,

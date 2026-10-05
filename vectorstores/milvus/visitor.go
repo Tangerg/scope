@@ -10,27 +10,26 @@ import (
 
 var _ filter.Visitor = (*visitor)(nil)
 
-// visitor compiles Scope filter expressions into Milvus's string expression
-// language. A value is reusable: Visit resets the previous result before
-// compiling the complete immutable tree. Numeric literals retain their
-// canonical text instead of passing through float64.
-type visitor struct {
-	result string
+type compiledPredicate struct {
+	condition string
+	invalid   string
 }
 
-func newVisitor() *visitor {
-	return &visitor{}
-}
+type visitor struct{ result compiledPredicate }
 
-// Failed compilation clears the prior value so a reused compiler cannot leak a stale filter.
+func newVisitor() *visitor { return &visitor{} }
+
 func (v *visitor) snapshot() string {
-	return v.result
+	if v.result.invalid == "" {
+		return v.result.condition
+	}
+	return "(" + v.result.condition + ") and not (" + v.result.invalid + ")"
 }
 
-// Visit replaces prior state and accepts only trees Milvus can represent
-// without changing their meaning.
+func (v *visitor) invalid() string { return v.result.invalid }
+
 func (v *visitor) Visit(predicate filter.Predicate) error {
-	v.result = ""
+	v.result = compiledPredicate{}
 	result, err := v.compilePredicate(predicate)
 	if err != nil {
 		return err
@@ -39,205 +38,193 @@ func (v *visitor) Visit(predicate filter.Predicate) error {
 	return nil
 }
 
-func (v *visitor) compilePredicate(predicate filter.Predicate) (string, error) {
+func (v *visitor) compilePredicate(predicate filter.Predicate) (compiledPredicate, error) {
 	switch expression := predicate.(type) {
 	case *filter.BinaryExpr:
 		return v.compileBinary(expression)
 	case *filter.UnaryExpr:
-		return v.compileNot(expression)
+		operand, err := v.compilePredicate(expression.Right())
+		if err != nil {
+			return compiledPredicate{}, err
+		}
+		return compiledPredicate{condition: "not (" + operand.condition + ")", invalid: operand.invalid}, nil
 	default:
-		return "", fmt.Errorf("milvus: unsupported predicate type %T", expression)
+		return compiledPredicate{}, fmt.Errorf("milvus: unsupported predicate %T", predicate)
 	}
 }
 
-func (v *visitor) compileBinary(expression *filter.BinaryExpr) (string, error) {
-	switch operator := expression.Operator(); {
-	case operator.IsLogicalOperator():
+func (v *visitor) compileBinary(expression *filter.BinaryExpr) (compiledPredicate, error) {
+	operator := expression.Operator()
+	if operator.IsLogicalOperator() {
 		return v.compileLogical(expression)
-	case operator.IsComparisonOperator():
-		return v.compileComparison(expression)
-	case operator == filter.OpIn:
-		return v.compileIn(expression)
-	case operator == filter.OpHas:
-		return v.compileHas(expression)
-	case operator == filter.OpLike:
-		return v.compileLike(expression)
-	default:
-		return "", fmt.Errorf("milvus: unsupported binary operator '%s' at %s", operator, expression.Start())
 	}
+	if operator == filter.OpNotEqual {
+		equality, err := expression.Inverse()
+		if err != nil {
+			return compiledPredicate{}, err
+		}
+		return v.compilePredicate(filter.Not(equality))
+	}
+	path, err := projectedPath(expression)
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	if operator.IsNullOperator() {
+		return compiledPredicate{condition: "not (" + projectionPresence(fieldMetadataFilter+`["present"]`, path) + ")"}, nil
+	}
+	var condition string
+	var kind metadataKind
+	switch {
+	case operator.IsComparisonOperator():
+		condition, kind, err = v.compileComparison(expression, path)
+	case operator == filter.OpIn:
+		condition, kind, err = v.compileIn(expression, path)
+	case operator == filter.OpHas:
+		condition, kind, err = v.compileHas(expression, path)
+	case operator == filter.OpLike:
+		condition, kind, err = v.compileLike(expression, path)
+	default:
+		return compiledPredicate{}, fmt.Errorf("milvus: unsupported operator %s", operator)
+	}
+	if err != nil {
+		return compiledPredicate{}, err
+	}
+	// Every atom becomes a definite bool before composition. The guard comes
+	// from metadata, not native JSON's UNKNOWN or coerced path interpretation.
+	guard := projectionPresence(projectionValue("kinds", string(kind)), path)
+	result := compiledPredicate{condition: "(" + guard + " and " + condition + ")"}
+	if operator == filter.OpLike || operator.IsComparisonOperator() && operator != filter.OpEqual {
+		result.invalid = "(" + projectionPresence(fieldMetadataFilter+`["present"]`, path) + " and not (" + guard + "))"
+	}
+	return result, nil
 }
 
-func (v *visitor) compileLogical(expression *filter.BinaryExpr) (string, error) {
+func (v *visitor) compileLogical(expression *filter.BinaryExpr) (compiledPredicate, error) {
 	left, err := v.compileOperand(expression.Left())
 	if err != nil {
-		return "", fmt.Errorf("milvus: process left operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
+		return compiledPredicate{}, err
 	}
 	right, err := v.compileOperand(expression.Right())
 	if err != nil {
-		return "", fmt.Errorf("milvus: process right operand of '%s' at %s: %w", expression.Operator(), expression.Start(), err)
+		return compiledPredicate{}, err
 	}
-	operator, ok := map[filter.Operator]string{
-		filter.OpAnd: "and",
-		filter.OpOr:  "or",
-	}[expression.Operator()]
-	if !ok {
-		return "", fmt.Errorf("milvus: unexpected logical operator '%s' at %s", expression.Operator(), expression.Start())
+	operator := "and"
+	if expression.Operator() == filter.OpOr {
+		operator = "or"
 	}
-	return fmt.Sprintf("(%s) %s (%s)", left, operator, right), nil
+	result := compiledPredicate{condition: fmt.Sprintf("(%s) %s (%s)", left.condition, operator, right.condition), invalid: left.invalid}
+	// Core evaluates left first and may never evaluate right. Error selection
+	// must preserve that ordering even when native boolean evaluation does not.
+	if right.invalid != "" {
+		gate := left.condition
+		if expression.Operator() == filter.OpOr {
+			gate = "not (" + gate + ")"
+		}
+		rightInvalid := "(" + gate + ") and (" + right.invalid + ")"
+		if result.invalid == "" {
+			result.invalid = rightInvalid
+		} else {
+			result.invalid = "(" + result.invalid + ") or (" + rightInvalid + ")"
+		}
+	}
+	return result, nil
 }
 
-func (v *visitor) compileOperand(expression filter.Expr) (string, error) {
+func (v *visitor) compileOperand(expression filter.Expr) (compiledPredicate, error) {
 	predicate, ok := expression.(filter.Predicate)
 	if !ok {
-		return "", fmt.Errorf("milvus: expected predicate operand, got %T", expression)
+		return compiledPredicate{}, fmt.Errorf("milvus: expected predicate, got %T", expression)
 	}
 	return v.compilePredicate(predicate)
 }
 
-func (v *visitor) compileNot(expression *filter.UnaryExpr) (string, error) {
-	if expression.Operator() != filter.OpNot {
-		return "", fmt.Errorf("milvus: unexpected unary operator '%s' at %s", expression.Operator(), expression.Start())
-	}
-	operand, err := v.compilePredicate(expression.Right())
-	if err != nil {
-		return "", fmt.Errorf("milvus: process NOT operand at %s: %w", expression.Start(), err)
-	}
-	return fmt.Sprintf("not (%s)", operand), nil
-}
-
-func (v *visitor) compileComparison(expression *filter.BinaryExpr) (string, error) {
-	fieldKey, err := selectorString(expression)
-	if err != nil {
-		return "", fmt.Errorf("milvus: extract field key from '%s' at %s: %w", expression.Operator(), expression.Start(), err)
-	}
+func (v *visitor) compileComparison(expression *filter.BinaryExpr, path string) (string, metadataKind, error) {
 	literal, err := expression.Literal()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	fieldValue, err := literalString(literal)
+	value, kind, err := projectedLiteral(literal)
 	if err != nil {
-		return "", fmt.Errorf("milvus: extract value from '%s' at %s: %w", expression.Operator(), expression.Start(), err)
+		return "", "", err
 	}
-	operator, ok := map[filter.Operator]string{
-		filter.OpEqual:        "==",
-		filter.OpNotEqual:     "!=",
-		filter.OpLess:         "<",
-		filter.OpLessEqual:    "<=",
-		filter.OpGreater:      ">",
-		filter.OpGreaterEqual: ">=",
-	}[expression.Operator()]
+	operators := map[filter.Operator]string{
+		filter.OpEqual: "==", filter.OpLess: "<", filter.OpLessEqual: "<=",
+		filter.OpGreater: ">", filter.OpGreaterEqual: ">=",
+	}
+	operator, ok := operators[expression.Operator()]
 	if !ok {
-		return "", fmt.Errorf("milvus: unexpected comparison operator '%s' at %s", expression.Operator(), expression.Start())
+		return "", "", fmt.Errorf("milvus: unsupported comparison %s", expression.Operator())
 	}
-	return fmt.Sprintf("%s %s %s", fieldKey, operator, fieldValue), nil
+	return projectionValue("scalars", path) + " " + operator + " " + value, kind, nil
 }
 
-func (v *visitor) compileIn(expression *filter.BinaryExpr) (string, error) {
-	fieldKey, err := selectorString(expression)
-	if err != nil {
-		return "", fmt.Errorf("milvus: extract field key from 'IN' at %s: %w", expression.Start(), err)
-	}
+func (v *visitor) compileIn(expression *filter.BinaryExpr, path string) (string, metadataKind, error) {
 	list, err := expression.List()
 	if err != nil {
-		return "", fmt.Errorf("milvus: %w", err)
+		return "", "", err
 	}
-	value, err := listString(list)
-	if err != nil {
-		return "", err
+	values := make([]string, 0, list.Len())
+	var kind metadataKind
+	for _, literal := range list.Literals() {
+		value, valueKind, valueErr := projectedLiteral(literal)
+		if valueErr != nil {
+			return "", "", valueErr
+		}
+		values = append(values, value)
+		kind = valueKind
 	}
-	return fmt.Sprintf("%s in %s", fieldKey, value), nil
+	return projectionValue("scalars", path) + " in [" + strings.Join(values, ", ") + "]", kind, nil
 }
 
-func (v *visitor) compileHas(expression *filter.BinaryExpr) (string, error) {
-	fieldKey, err := selectorString(expression)
-	if err != nil {
-		return "", fmt.Errorf("milvus: extract collection field at %s: %w", expression.Start(), err)
-	}
+func (v *visitor) compileHas(expression *filter.BinaryExpr, path string) (string, metadataKind, error) {
 	literal, err := expression.Literal()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	fieldValue, err := literalString(literal)
+	value, _, err := projectedLiteral(literal)
 	if err != nil {
-		return "", fmt.Errorf("milvus: extract collection member at %s: %w", expression.Start(), err)
+		return "", "", err
 	}
-	return fmt.Sprintf("ARRAY_CONTAINS(%s, %s)", fieldKey, fieldValue), nil
+	return "ARRAY_CONTAINS(" + projectionValue("members", path) + ", " + value + ")", metadataArray, nil
 }
 
-func (v *visitor) compileLike(expression *filter.BinaryExpr) (string, error) {
-	fieldKey, err := selectorString(expression)
-	if err != nil {
-		return "", fmt.Errorf("milvus: extract field key from 'LIKE' at %s: %w", expression.Start(), err)
-	}
+func (v *visitor) compileLike(expression *filter.BinaryExpr, path string) (string, metadataKind, error) {
 	pattern, err := expression.Pattern()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	operator := "like"
 	if !strings.ContainsAny(pattern, "%_") {
-		return fmt.Sprintf("%s == %s", fieldKey, strconv.Quote(pattern)), nil
+		operator = "=="
 	}
-	if strings.ContainsAny(pattern, "_\\") {
-		return "", fmt.Errorf("milvus: LIKE pattern %q cannot preserve Core semantics", pattern)
-	}
-	return fmt.Sprintf("%s like %s", fieldKey, strconv.Quote(pattern)), nil
+	encoded := string(metadataString) + ":" + encodeMetadataString(pattern, true)
+	return projectionValue("scalars", path) + " " + operator + " " + strconv.Quote(encoded), metadataString, nil
 }
 
-// Core selectors address document metadata, including keys named after
-// physical collection fields. Only DeleteIDs addresses the primary key.
-func selectorString(expression *filter.BinaryExpr) (string, error) {
-	path, err := expression.Path()
+func projectionPresence(array, path string) string {
+	return "ARRAY_CONTAINS(" + array + ", " + strconv.Quote(path) + ")"
+}
+
+func projectionValue(field, key string) string {
+	return fieldMetadataFilter + `["` + field + `"][` + strconv.Quote(key) + "]"
+}
+
+func projectedLiteral(literal *filter.Literal) (string, metadataKind, error) {
+	var value any
+	var err error
+	switch {
+	case literal.IsString():
+		value, err = literal.AsString()
+	case literal.IsNumber():
+		value, err = literal.AsNumber()
+	case literal.IsBool():
+		value, err = literal.AsBool()
+	default:
+		return "", "", fmt.Errorf("milvus: unsupported literal %s", literal.Kind())
+	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	var b strings.Builder
-	b.WriteString(fieldMeta)
-	for _, segment := range path {
-		if index, ok := segment.Index(); ok {
-			b.WriteString("[" + strconv.FormatUint(index, 10) + "]")
-			continue
-		}
-		key, _ := segment.Key()
-		b.WriteString("[" + strconv.Quote(key) + "]")
-	}
-	return b.String(), nil
-}
-
-func listString(list *filter.ListLiteral) (string, error) {
-	parts := make([]string, 0, list.Len())
-	for index, literal := range list.Literals() {
-		value, err := literalString(literal)
-		if err != nil {
-			return "", fmt.Errorf("milvus: convert list element at index %d: %w", index, err)
-		}
-		parts = append(parts, value)
-	}
-	return "[" + strings.Join(parts, ", ") + "]", nil
-}
-
-func literalString(literal *filter.Literal) (string, error) {
-	if literal.IsString() {
-		value, err := literal.AsString()
-		if err != nil {
-			return "", fmt.Errorf("milvus: convert string literal at %s: %w", literal.Start(), err)
-		}
-		return strconv.Quote(value), nil
-	}
-	if literal.IsNumber() {
-		value, err := literal.NumberText()
-		if err != nil {
-			return "", fmt.Errorf("milvus: convert number literal at %s: %w", literal.Start(), err)
-		}
-		return value, nil
-	}
-	if literal.IsBool() {
-		value, err := literal.AsBool()
-		if err != nil {
-			return "", fmt.Errorf("milvus: convert bool literal at %s: %w", literal.Start(), err)
-		}
-		if value {
-			return "True", nil
-		}
-		return "False", nil
-	}
-	return "", fmt.Errorf("milvus: unsupported literal type '%s' at %s", literal.Kind(), literal.Start())
+	encoded, kind, _, err := encodeMetadataScalar(value)
+	return strconv.Quote(encoded), kind, err
 }
