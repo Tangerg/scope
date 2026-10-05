@@ -1,121 +1,67 @@
 package clickhouse
 
 import (
-	"context"
-	"strings"
+	"errors"
 	"testing"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// recordingConnection captures the statements a delete issues. The embedded
-// interface stays nil so reaching any other operation fails the test.
-type recordingConnection struct {
-	Connection
-	statements []string
-	args       [][]any
-}
-
-func (r *recordingConnection) Exec(_ context.Context, query string, args ...any) error {
-	r.statements = append(r.statements, query)
-	r.args = append(r.args, args)
-	return nil
-}
-
-func deleteStore(connection Connection) *Store {
-	return &Store{
-		conn:           connection,
-		fullTable:      "scope.vector_store",
-		idColumn:       "id",
-		metadataColumn: "metadata",
+func TestDeleteWhereUsesOnlyCoreMembership(t *testing.T) {
+	store, mock := mockStore(t)
+	mock.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
+	for pass := 0; pass < 2; pass++ {
+		mock.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"}).AddRow("nested", "text", `{"profile":{"items":[7]}}`).AddRow("literal", "text", `{"profile.items.0":7}`)).RowsWillBeClosed()
+		if pass == 1 {
+			mock.ExpectExec("DELETE FROM").WithArgs([]string{"nested"}).WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		mock.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"})).RowsWillBeClosed()
 	}
-}
-
-// `ALTER TABLE ... DELETE` records a mutation and returns while it still runs,
-// so neither delete path may issue one: a queued mutation cannot carry the
-// contract that the rows are gone.
-func TestDeletesIssueLightweightStatements(t *testing.T) {
-	t.Parallel()
-
-	expression, err := filter.Parse(`tenant == 'acme'`)
+	mock.ExpectExec("COMMIT").WillReturnResult(sqlmock.NewResult(0, 0))
+	predicate, err := filter.Parse(`profile['items'][0] == 7`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sample := range []struct {
-		name string
-		call func(*Store) error
-		want string
-	}{
-		{
-			name: "by filter",
-			call: func(store *Store) error { return store.DeleteWhere(t.Context(), expression) },
-			want: `DELETE FROM scope.vector_store WHERE id IN (SELECT id FROM scope.vector_store FINAL WHERE (mapContains(metadata, 'tenant') AND metadata['tenant'] != 'null' AND metadata['tenant'] = ?))`,
-		},
-		{
-			name: "by ids",
-			call: func(store *Store) error { return store.DeleteIDs(t.Context(), []string{"one", "two"}) },
-			want: `DELETE FROM scope.vector_store WHERE id IN (?, ?)`,
-		},
-	} {
-		t.Run(sample.name, func(t *testing.T) {
-			connection := &recordingConnection{}
-			if err := sample.call(deleteStore(connection)); err != nil {
-				t.Fatalf("delete = %v, want nil", err)
-			}
-			if len(connection.statements) != 1 {
-				t.Fatalf("statements = %v, want exactly one", connection.statements)
-			}
-			statement := connection.statements[0]
-			if statement != sample.want {
-				t.Fatalf("statement = %q, want %q", statement, sample.want)
-			}
-			if strings.Contains(statement, "ALTER TABLE") {
-				t.Fatalf("statement %q deletes through an asynchronous mutation", statement)
-			}
-		})
-	}
-}
-
-// A ClickHouse identifier can only reach the statement through configuration,
-// so the values a filter selects on stay bound rather than interpolated.
-func TestDeleteWhereBindsFilterValues(t *testing.T) {
-	t.Parallel()
-
-	expression, err := filter.Parse(`tenant == 'acme' and year > 2020`)
-	if err != nil {
+	if err := store.DeleteWhere(t.Context(), predicate); err != nil {
 		t.Fatal(err)
 	}
-	connection := &recordingConnection{}
-	if err := deleteStore(connection).DeleteWhere(t.Context(), expression); err != nil {
-		t.Fatalf("DeleteWhere() = %v, want nil", err)
-	}
-	if got := connection.args[0]; len(got) != 2 {
-		t.Fatalf("bound arguments = %v, want two", got)
-	}
-	// Metadata is stored as JSON text, so a string value carries its quotes.
-	// Binding the bare text would compare `acme` against the stored `"acme"`
-	// and select nothing.
-	if got := connection.args[0][0]; got != `"acme"` {
-		t.Fatalf("bound arguments[0] = %v, want %q", got, `"acme"`)
+}
+
+func TestFilterErrorRejectsDeletionBeforeAnyEffect(t *testing.T) {
+	store, mock := mockStore(t)
+	mock.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"}).AddRow("first", "text", `{"n":7}`).AddRow("last", "text", `{"n":"wrong"}`)).RowsWillBeClosed()
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.DeleteWhere(t.Context(), filter.GT("n", 1)); err == nil {
+		t.Fatal("type mismatch silently became non-membership")
 	}
 }
 
-// An empty filter must not become an unfiltered delete.
-func TestDeleteRefusesToTouchEveryRow(t *testing.T) {
-	t.Parallel()
-
-	connection := &recordingConnection{}
-	if err := deleteStore(connection).DeleteWhere(t.Context(), nil); err == nil {
-		t.Fatal("DeleteWhere(nil) = nil, want an error")
+func TestDeleteRejectsMissingFilterAndEmptyIDsWithoutIO(t *testing.T) {
+	store, _ := mockStore(t)
+	if err := store.DeleteWhere(t.Context(), nil); !errors.Is(err, vectorstore.ErrMissingFilter) {
+		t.Fatal(err)
 	}
-	if err := deleteStore(connection).DeleteIDs(t.Context(), nil); err != nil {
-		t.Fatalf("DeleteIDs(nil) = %v, want nil", err)
-	}
-	if len(connection.statements) != 0 {
-		t.Fatalf("statements = %v, want none", connection.statements)
+	if err := store.DeleteIDs(t.Context(), nil); err != nil {
+		t.Fatal(err)
 	}
 }
 
-var _ Connection = (driver.Conn)(nil)
+func TestLaterDeleteFailureRollsBackAllPages(t *testing.T) {
+	store, mock := mockStore(t)
+	failure := errors.New("later native delete failed")
+	mock.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM").WillReturnError(failure)
+	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
+	ids := make([]string, metadataPageSize+1)
+	for i := range ids {
+		ids[i] = "id"
+	}
+	if err := store.DeleteIDs(t.Context(), ids); !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+}

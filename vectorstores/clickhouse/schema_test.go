@@ -1,42 +1,10 @@
 package clickhouse
 
 import (
-	"context"
 	"testing"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/DATA-DOG/go-sqlmock"
 )
-
-type tableSchemaConnection struct {
-	Connection
-	row *tableSchemaRow
-}
-
-func (t *tableSchemaConnection) Query(context.Context, string, ...any) (driver.Rows, error) {
-	return t.row, nil
-}
-
-type tableSchemaRow struct {
-	driver.Rows
-	engine, sorting, partition string
-	read, closed               bool
-}
-
-func (t *tableSchemaRow) Next() bool {
-	if t.read {
-		return false
-	}
-	t.read = true
-	return true
-}
-func (t *tableSchemaRow) Scan(values ...any) error {
-	*values[0].(*string) = t.engine
-	*values[1].(*string) = t.sorting
-	*values[2].(*string) = t.partition
-	return nil
-}
-func (*tableSchemaRow) Err() error     { return nil }
-func (t *tableSchemaRow) Close() error { t.closed = true; return nil }
 
 func TestCurrentRecordSchemaIsRequired(t *testing.T) {
 	for _, sample := range []struct {
@@ -56,15 +24,44 @@ func TestCurrentRecordSchemaIsRequired(t *testing.T) {
 		{"ReplacingMergeTree PARTITION BY tenant ORDER BY id", "id", "tenant", false},
 	} {
 		t.Run(sample.engine, func(t *testing.T) {
-			row := &tableSchemaRow{engine: sample.engine, sorting: sample.sorting, partition: sample.partition}
-			store := &Store{conn: &tableSchemaConnection{row: row}, idColumn: "id", tableName: "documents", fullTable: "documents"}
+			store, mock := mockStore(t)
+			mock.ExpectQuery("SELECT engine_full").WithArgs("scope", "documents").WillReturnRows(sqlmock.NewRows([]string{"engine", "sorting", "partition", "ddl"}).AddRow(sample.engine, sample.sorting, sample.partition, currentDDL))
+			if sample.valid {
+				expectColumns(mock, "String", "")
+			}
 			err := store.validateTable(t.Context())
 			if (err == nil) != sample.valid {
 				t.Fatalf("schema validation = %v; valid=%t", err, sample.valid)
 			}
-			if !row.closed {
-				t.Fatal("schema rows were not closed")
+		})
+	}
+}
+
+func TestStrictMetadataColumnAndProducerConstraints(t *testing.T) {
+	for _, sample := range []struct{ name, metadataType, defaultKind, ddl string }{
+		{"map metadata", "Map(String, String)", "", currentDDL},
+		{"native JSON metadata", "JSON", "", currentDDL},
+		{"nullable metadata", "Nullable(String)", "", currentDDL},
+		{"generated metadata", "String", "MATERIALIZED", currentDDL},
+		{"missing width constraint", "String", "", "CONSTRAINT vec_finite CHECK arrayAll(x -> isFinite(x), embedding)"},
+		{"missing finite constraint", "String", "", "CONSTRAINT vec_len CHECK length(embedding) = 2,"},
+		{"constraints inside a comment", "String", "", "    `metadata` String COMMENT 'CONSTRAINT vec_len CHECK length(embedding) = 2,\\nCONSTRAINT vec_finite CHECK arrayAll(x -> isFinite(x), embedding)\\n'\n"},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			store, mock := mockStore(t)
+			mock.ExpectQuery("SELECT engine_full").WillReturnRows(sqlmock.NewRows([]string{"engine", "sorting", "partition", "ddl"}).AddRow("ReplacingMergeTree ORDER BY id", "id", "", sample.ddl))
+			if sample.ddl == currentDDL {
+				expectColumns(mock, sample.metadataType, sample.defaultKind)
+			}
+			if err := store.validateTable(t.Context()); err == nil {
+				t.Fatal("accepted a competing or incomplete storage representation")
 			}
 		})
 	}
+}
+
+const currentDDL = "CONSTRAINT vec_len CHECK length(embedding) = 2,\nCONSTRAINT vec_finite CHECK arrayAll(x -> isFinite(x), embedding)\n"
+
+func expectColumns(mock sqlmock.Sqlmock, metadataType, defaultKind string) {
+	mock.ExpectQuery("SELECT name, type, default_kind").WillReturnRows(sqlmock.NewRows([]string{"name", "type", "default_kind"}).AddRow("id", "String", "").AddRow("content", "String", "").AddRow("metadata", metadataType, defaultKind).AddRow("embedding", "Array(Float32)", "")).RowsWillBeClosed()
 }

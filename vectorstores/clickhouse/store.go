@@ -3,20 +3,17 @@ package clickhouse
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -76,24 +73,12 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// Connection is the ClickHouse surface the store uses: a statement executor, a
-// row reader, and the typed batch insert. A clickhouse-go v2 [driver.Conn]
-// satisfies it. Naming only the three operations keeps every statement the
-// store issues observable without a live server.
-type Connection interface {
-	Exec(ctx context.Context, query string, args ...any) error
-	Query(ctx context.Context, query string, args ...any) (driver.Rows, error)
-	PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (driver.Batch, error)
-}
-
-// StoreConfig contains configuration options for the ClickHouse
-// vector store. The default schema uses `Map(String, String)` for
-// metadata to keep the visitor's column-subscript syntax simple;
-// callers needing typed metadata columns should manage the schema
-// themselves and set InitializeSchema=false.
+// StoreConfig binds the host-owned native ClickHouse database/sql handle.
+// The server must support native transactions; all concurrent writers must
+// use transactions to participate in its snapshots.
 type StoreConfig struct {
-	// Conn is the clickhouse-go v2 driver connection. Required.
-	Conn Connection
+	// DB uses clickhouse-go v2 with the native TCP protocol. The host owns it.
+	DB *sql.DB
 
 	// DatabaseName is the optional database prefix; empty uses the
 	// connection's current database.
@@ -115,8 +100,8 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if lo.IsNil(s.Conn) {
-		return errors.New("clickhouse: Conn is required")
+	if lo.IsNil(s.DB) {
+		return errors.New("clickhouse: DB is required")
 	}
 	if lo.IsNil(s.EmbeddingModel) {
 		return errors.New("clickhouse: EmbeddingModel is required")
@@ -124,11 +109,20 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.DocumentBatcher) {
 		return errors.New("clickhouse: DocumentBatcher is required")
 	}
-	if s.Dimensions < 0 {
-		return errors.New("clickhouse: Dimensions must be >= 0")
+	if s.Dimensions < 0 || (s.InitializeSchema && s.Dimensions == 0) {
+		return errors.New("clickhouse: Dimensions must be non-negative and positive for schema creation")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("clickhouse: unsupported DistanceMetric %q", s.DistanceMetric)
+	}
+
+	names := []string{s.IDColumn, s.ContentColumn, s.MetadataColumn, s.EmbeddingColumn}
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("clickhouse: columns must have distinct names: %q", name)
+		}
+		seen[name] = struct{}{}
 	}
 	return s.validateIdentifiers()
 }
@@ -171,9 +165,9 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with ClickHouse.
+// Store implements vector-store capabilities with native transaction snapshots.
 type Store struct {
-	conn            Connection
+	db              *sql.DB
 	databaseName    string
 	tableName       string
 	fullTable       string
@@ -183,14 +177,11 @@ type Store struct {
 	embeddingColumn string
 	embeddingClient embeddingclient.Client
 	documentBatcher vectorstore.Batcher
-	dimensions      int
 	distanceMetric  DistanceMetric
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its table and index exist would fail
-// on the first index rather than at wiring, where the misconfiguration
-// actually is.
+// NewStore verifies native transaction support and the strict current schema.
+// An omitted database is resolved once; every operation uses its qualified table.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -200,207 +191,227 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: create embedding client: %w", err)
 	}
-	fullTable := config.TableName
-	if config.DatabaseName != "" {
-		fullTable = config.DatabaseName + "." + config.TableName
+	transaction, err := newNativeTransaction(ctx, config.DB)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: native transactions are required: %w", err)
+	}
+	if err := transaction.Close(); err != nil {
+		return nil, err
+	}
+	if config.DatabaseName == "" {
+		if err := config.DB.QueryRowContext(nativeStatementContext(ctx, false), "SELECT currentDatabase()").Scan(&config.DatabaseName); err != nil {
+			return nil, fmt.Errorf("clickhouse: resolve database: %w", err)
+		}
+		if err := identifier(config.DatabaseName).validate("DatabaseName"); err != nil {
+			return nil, err
+		}
 	}
 	store := &Store{
-		conn:            config.Conn,
-		databaseName:    config.DatabaseName,
-		tableName:       config.TableName,
-		fullTable:       fullTable,
-		idColumn:        config.IDColumn,
-		contentColumn:   config.ContentColumn,
-		metadataColumn:  config.MetadataColumn,
-		embeddingColumn: config.EmbeddingColumn,
-		embeddingClient: embeddingClient,
-		documentBatcher: config.DocumentBatcher,
-		dimensions:      config.Dimensions,
-		distanceMetric:  config.DistanceMetric,
+		db: config.DB, databaseName: config.DatabaseName, tableName: config.TableName, fullTable: config.DatabaseName + "." + config.TableName,
+		idColumn: config.IDColumn, contentColumn: config.ContentColumn, metadataColumn: config.MetadataColumn, embeddingColumn: config.EmbeddingColumn,
+		embeddingClient: embeddingClient, documentBatcher: config.DocumentBatcher, distanceMetric: config.DistanceMetric,
 	}
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("clickhouse: initialize store: %w", err)
+	if config.InitializeSchema {
+		if err := store.initialize(ctx, config.Dimensions); err != nil {
+			return nil, err
+		}
+	}
+	if err := store.validateTable(ctx); err != nil {
+		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return s.validateTable(ctx)
+func (s *Store) initialize(ctx context.Context, dimensions int) error {
+	statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+  %s String, %s String, %s String, %s Array(Float32),
+  CONSTRAINT vec_len CHECK length(%s) = %d,
+  CONSTRAINT vec_finite CHECK arrayAll(x -> isFinite(x), %s)
+ ) ENGINE = ReplacingMergeTree() ORDER BY (%s)`, s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.embeddingColumn, dimensions, s.embeddingColumn, s.idColumn)
+	if _, err := s.db.ExecContext(nativeStatementContext(ctx, false), statement); err != nil {
+		return fmt.Errorf("clickhouse: create table %s: %w", s.fullTable, err)
 	}
-	if s.dimensions <= 0 {
-		return errors.New("clickhouse: Dimensions must be > 0")
-	}
-
-	stmt := fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (
-			%s String,
-			%s String,
-			%s Map(String, String),
-			%s Array(Float32),
-			CONSTRAINT vec_len CHECK length(%s) = %d,
-			INDEX vec_idx %s TYPE vector_similarity('hnsw', '%s', %d) GRANULARITY 1
-		) ENGINE = ReplacingMergeTree() ORDER BY (%s)`,
-		s.fullTable,
-		s.idColumn,
-		s.contentColumn,
-		s.metadataColumn,
-		s.embeddingColumn,
-		s.embeddingColumn, s.dimensions,
-		s.embeddingColumn, s.distanceMetric.function(), s.dimensions,
-		s.idColumn,
-	)
-	if err := s.conn.Exec(ctx, stmt); err != nil {
-		return fmt.Errorf("create table %s: %w", s.fullTable, err)
-	}
-	return s.validateTable(ctx)
+	return nil
 }
 
-// Index embeds documents and inserts them as a single batch.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("clickhouse.Store.Index: %w", validateErr)
+// Index embeds and sends each batch through the driver's typed insertion API.
+// implicit_transaction gives its native INSERT one publication owner; the
+// database/sql transaction only flushes the driver's buffered batch.
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return fmt.Errorf("clickhouse.Store.Index: %w", err)
 	}
 	for index, doc := range request.Documents {
 		if doc.Media != nil {
 			return fmt.Errorf("clickhouse.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
 	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
+	batches, err := request.Batch(ctx, s.documentBatcher)
 	if err != nil {
 		return fmt.Errorf("clickhouse: batch documents: %w", err)
 	}
-
-	insertSQL := fmt.Sprintf(
-		"INSERT INTO %s (%s, %s, %s, %s)",
-		s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn,
-	)
-
 	for _, batch := range batches {
-		docs := batch.Documents
 		texts, err := batch.Texts()
 		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+			return err
 		}
 		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
 		if err != nil {
 			return fmt.Errorf("clickhouse: embed documents: %w", err)
 		}
-
-		batch, err := s.conn.PrepareBatch(ctx, insertSQL)
-		if err != nil {
-			return fmt.Errorf("clickhouse: prepare batch: %w", err)
-		}
-
-		appendErr := func() error {
-			for i, doc := range docs {
-				id := doc.ID
-				meta, err := metadataAsStringMap(doc.Metadata)
-				if err != nil {
-					return fmt.Errorf("metadata for %s: %w", id, err)
-				}
-				vec32 := embedding.Float32Vector(vectors[i])
-				if err := batch.Append(id, doc.Text, meta, vec32); err != nil {
-					return fmt.Errorf("append %s: %w", id, err)
-				}
-			}
-			return batch.Send()
-		}()
-		if appendErr != nil {
-			return appendErr
+		if err := s.insertBatch(ctx, batch.Documents, texts, vectors); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// Search runs an ANN search using the configured distance function.
+func (s *Store) insertBatch(ctx context.Context, docs []*document.Document, texts []string, vectors [][]float64) (err error) {
+	ctx = nativeStatementContext(ctx, true)
+	batch, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("clickhouse: open insert batch: %w", err)
+	}
+	defer func() {
+		if rollbackErr := batch.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			err = errors.Join(err, fmt.Errorf("clickhouse: discard insert batch: %w", rollbackErr))
+		}
+	}()
+	statement, err := batch.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s)", s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn))
+	if err != nil {
+		return fmt.Errorf("clickhouse: prepare insert batch: %w", err)
+	}
+	defer func() {
+		if closeErr := statement.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("clickhouse: close insert batch: %w", closeErr))
+		}
+	}()
+	for index, doc := range docs {
+		encoded, err := doc.Metadata.MarshalJSON()
+		if err != nil {
+			return fmt.Errorf("clickhouse: encode metadata for %q: %w", doc.ID, err)
+		}
+		if _, err := statement.ExecContext(ctx, doc.ID, texts[index], string(encoded), embedding.Float32Vector(vectors[index])); err != nil {
+			return fmt.Errorf("clickhouse: append %q: %w", doc.ID, err)
+		}
+	}
+	if err := batch.Commit(); err != nil {
+		return fmt.Errorf("clickhouse: send insert batch: %w", err)
+	}
+	return nil
+}
+
+// Search uses native distances and exact ID ordering. Core evaluates all filters.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("clickhouse.Store.Search: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("clickhouse.Store.Search: %w", err)
+		return nil, err
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
+	if request.Options.Filter == nil {
+		return s.search(ctx, request, nil)
+	}
+	transaction, err := newNativeTransaction(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, transaction.Close()) }()
+	matches, err := s.preflightFilter(transaction, request.Options.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if !matches {
+		response = &vectorstore.SearchResponse{}
+	}
+	if matches {
+		response, err = s.search(ctx, request, transaction)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
 
+func (s *Store) search(ctx context.Context, request *vectorstore.SearchRequest, transaction *nativeTransaction) (response *vectorstore.SearchResponse, err error) {
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: embed query: %w", err)
 	}
-	queryVec := embedding.Float32Vector(vector)
-
-	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
-	if err != nil {
-		return nil, err
+	statement := fmt.Sprintf("SELECT %s, %s, %s, toFloat64(%s(%s, {scope_vector:Array(Float32)})) AS distance FROM %s FINAL ORDER BY distance, %s", s.idColumn, s.contentColumn, s.metadataColumn, s.distanceMetric.function(), s.embeddingColumn, s.fullTable, s.idColumn)
+	args := []any{sql.Named("scope_vector", embedding.Float32Vector(vector))}
+	if request.Options.Filter == nil {
+		statement += " LIMIT {scope_limit:UInt64}"
+		args = append(args, sql.Named("scope_limit", request.Options.ResultLimit()))
 	}
-	wherePart := ""
-	if wherePredicate != "" {
-		wherePart = " AND " + wherePredicate
+	var rows *sql.Rows
+	if transaction == nil {
+		rows, err = s.db.QueryContext(nativeStatementContext(ctx, true), statement, args...)
+	} else {
+		rows, err = transaction.Query(statement, args...)
 	}
-
-	// The driver requires an exact scan type; native distance functions can
-	// return Float32 even though Core's scores use float64.
-	stmt := fmt.Sprintf(
-		`SELECT %s, %s, %s, toFloat64(%s(%s, ?)) AS distance FROM %s FINAL WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
-		s.idColumn, s.contentColumn, s.metadataColumn,
-		s.distanceMetric.function(), s.embeddingColumn,
-		s.fullTable, wherePart,
-	)
-
-	args := []any{queryVec}
-	args = append(args, whereArgs...)
-	args = append(args, request.Options.ResultLimit())
-
-	rows, err := s.conn.Query(ctx, stmt, args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: query %s: %w", s.fullTable, err)
 	}
-	defer rows.Close()
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
-	for rows.Next() {
-		var (
-			id       string
-			content  string
-			metaRaw  map[string]string
-			distance float64
-		)
-		if err := rows.Scan(&id, &content, &metaRaw, &distance); err != nil {
-			return nil, fmt.Errorf("clickhouse: scan row: %w", err)
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("clickhouse: close search rows: %w", closeErr))
 		}
-		score := s.distanceMetric.score(distance)
-		if score < request.Options.MinScore {
-			continue
-		}
-		if id == "" {
-			return nil, errors.New("clickhouse: search result is missing document ID")
-		}
-		if content == "" {
-			return nil, errors.New("clickhouse: search result is missing document text")
-		}
-		metadata, err := stringMapToMetadata(metaRaw)
 		if err != nil {
-			return nil, fmt.Errorf("clickhouse: convert metadata: %w", err)
+			response = nil
 		}
-		docs = append(docs, &vectorstore.SearchResult{
-			Document: &document.Document{ID: id, Text: content, Metadata: metadata},
-			Score:    score,
-		})
+	}()
+	results := make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	for rows.Next() {
+		doc := &document.Document{}
+		var encoded string
+		var distance float64
+		if err := rows.Scan(&doc.ID, &doc.Text, &encoded, &distance); err != nil {
+			return nil, fmt.Errorf("clickhouse: scan search row: %w", err)
+		}
+		if err := doc.Metadata.UnmarshalJSON([]byte(encoded)); err != nil {
+			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
+		}
+		if request.Options.Filter != nil {
+			values, err := doc.Metadata.Values()
+			if err != nil {
+				return nil, err
+			}
+			matches, err := filter.Match(request.Options.Filter, values)
+			if err != nil {
+				return nil, fmt.Errorf("clickhouse: evaluate metadata for %q: %w", doc.ID, err)
+			}
+			if !matches {
+				continue
+			}
+		}
+		result, err := vectorstore.NewSearchResult(doc, s.distanceMetric.score(distance))
+		if err != nil {
+			return nil, err
+		}
+		if result.Score >= request.Options.MinScore && len(results) < request.Options.ResultLimit() {
+			results = append(results, result)
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("clickhouse: read rows: %w", err)
+		return nil, fmt.Errorf("clickhouse: read search rows: %w", err)
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
+// DeleteWhere validates the complete current-record snapshot before any delete.
+// Every page is applied and published by the same native transaction.
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
@@ -408,145 +419,202 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	if err = predicate.Validate(); err != nil {
 		return fmt.Errorf("clickhouse.Store.DeleteWhere: %w", err)
 	}
-
-	var (
-		clause string
-		args   []any
-	)
-	clause, args, err = s.buildFilter(predicate)
+	transaction, err := newNativeTransaction(ctx, s.db)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("clickhouse: refusing to delete on empty filter")
+	defer func() { err = errors.Join(err, transaction.Close()) }()
+	matches, err := s.preflightFilter(transaction, predicate)
+	if err != nil {
+		return err
 	}
-	return s.deleteMatching(ctx, fmt.Sprintf("%s IN (SELECT %s FROM %s FINAL WHERE %s)", s.idColumn, s.idColumn, s.fullTable, clause), args...)
+	if matches {
+		var after *string
+		for {
+			docs, err := s.metadataPage(transaction, after)
+			if err != nil {
+				return err
+			}
+			if len(docs) == 0 {
+				break
+			}
+			lastID := docs[len(docs)-1].ID
+			after = &lastID
+			ids, err := s.matchingIDs(docs, predicate)
+			if err != nil {
+				return err
+			}
+			if err := s.deleteIDs(transaction, ids); err != nil {
+				return err
+			}
+		}
+	}
+	return transaction.Commit()
 }
 
-// DeleteIDs removes rows by primary key, matching the form DeleteWhere uses. An
-// empty slice is a no-op; unknown ids are silently ignored. Implements
-// [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+// DeleteIDs removes the IDs visible in one native snapshot. Empty input is a no-op.
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
 		return nil
 	}
-
-	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	transaction, err := newNativeTransaction(ctx, s.db)
+	if err != nil {
+		return err
 	}
-	return s.deleteMatching(ctx, fmt.Sprintf("%s IN (%s)", s.idColumn, placeholders), args...)
+	defer func() { err = errors.Join(err, transaction.Close()) }()
+	for start := 0; start < len(ids); start += metadataPageSize {
+		if err := s.deleteIDs(transaction, ids[start:min(start+metadataPageSize, len(ids))]); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
-// lightweightDeletesWaitForReplicas makes DELETE FROM wait for every replica to
-// mark the rows deleted. It restates ClickHouse's own default for
-// lightweight_deletes_sync so a connection cannot lower it under the store.
-const lightweightDeletesWaitForReplicas = 2
-
-// deleteMatching removes every row predicate selects and does not return until
-// those rows have stopped being retrievable.
-//
-// ClickHouse offers two deletions and only one of them can carry the
-// [vectorstore.FilterDeleter] and [vectorstore.IDDeleter] contracts. `ALTER
-// TABLE ... DELETE` is a mutation, and a mutation query returns as soon as its
-// entry is recorded while the work runs asynchronously in the background — a
-// successful call proves the delete was queued, not that it happened. A
-// lightweight `DELETE FROM` instead waits until marking the rows as deleted is
-// complete, so it is the statement both delete paths issue, through one owner
-// that pins the wait rather than inheriting it from the caller's connection.
-func (s *Store) deleteMatching(ctx context.Context, predicate string, args ...any) error {
-	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
-		"lightweight_deletes_sync": lightweightDeletesWaitForReplicas,
-	}))
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, predicate)
-	if err := s.conn.Exec(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("clickhouse: delete from %s: %w", s.fullTable, err)
+func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	statement := fmt.Sprintf("DELETE FROM %s WHERE %s IN {scope_ids:Array(String)}", s.fullTable, s.idColumn)
+	if _, err := transaction.Exec(statement, sql.Named("scope_ids", ids)); err != nil {
+		return fmt.Errorf("clickhouse: delete IDs from %s: %w", s.fullTable, err)
 	}
 	return nil
 }
 
-func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
-	}
-	v := newVisitor(s.metadataColumn)
-	if err := expr.Accept(v); err != nil {
-		return "", nil, fmt.Errorf("clickhouse: convert filter: %w", err)
-	}
-	predicate, args := v.snapshot()
-	return predicate, args, nil
-}
+const metadataPageSize = 512
 
-// metadataAsStringMap carries each metadata value into the
-// `Map(String, String)` column as its JSON text.
-//
-// [metadata.Map] is a map of JSON values, so the JSON text is the exact value
-// and a Map(String, String) holds it verbatim. Going through Values() and
-// stringifying the decoded scalars instead cost the type: a document indexed
-// with year 2020 came back with the string "2020", so Decode[int] failed on a
-// document this store had accepted, and a nil value became "" — the same text
-// as an empty string, which the filter AST reads as a different value. This
-// pair is a bijection, so a document reads back as it was written.
-//
-// A string value therefore arrives quoted, which is why the filter visitor
-// compares against the JSON encoding of a literal rather than its bare text.
-func metadataAsStringMap(m metadata.Map) (map[string]string, error) {
-	if err := m.Validate(); err != nil {
-		return nil, fmt.Errorf("clickhouse: encode metadata: %w", err)
+func (s *Store) metadataPage(transaction *nativeTransaction, after *string) (docs []*document.Document, err error) {
+	statement := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
+	var args []any
+	if after != nil {
+		statement += fmt.Sprintf(" WHERE %s > {scope_cursor:String}", s.idColumn)
+		args = append(args, sql.Named("scope_cursor", *after))
 	}
-	out := make(map[string]string, len(m))
-	for key, raw := range m {
-		out[key] = string(raw)
-	}
-	return out, nil
-}
-
-func stringMapToMetadata(m map[string]string) (metadata.Map, error) {
-	if len(m) == 0 {
-		return nil, nil
-	}
-	out := make(metadata.Map, len(m))
-	for key, text := range m {
-		out[key] = json.RawMessage(text)
-	}
-	if err := out.Validate(); err != nil {
-		return nil, fmt.Errorf("clickhouse: decode metadata: %w", err)
-	}
-	return out, nil
-}
-
-func (s *Store) validateTable(ctx context.Context) error {
-	database := "currentDatabase()"
-	args := []any{}
-	if s.databaseName != "" {
-		database = "?"
-		args = append(args, s.databaseName)
-	}
-	args = append(args, s.tableName)
-	rows, err := s.conn.Query(ctx, "SELECT engine_full, sorting_key, partition_key FROM system.tables WHERE database = "+database+" AND name = ?", args...)
+	statement += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
+	rows, err := transaction.Query(statement, args...)
 	if err != nil {
-		return fmt.Errorf("clickhouse: inspect table: %w", err)
+		return nil, fmt.Errorf("clickhouse: read metadata: %w", err)
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return err
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("clickhouse: close metadata rows: %w", closeErr))
 		}
-		return fmt.Errorf("clickhouse: table %s does not exist", s.fullTable)
+		if err != nil {
+			docs = nil
+		}
+	}()
+	for rows.Next() {
+		doc := &document.Document{}
+		var encoded string
+		if err := rows.Scan(&doc.ID, &doc.Text, &encoded); err != nil {
+			return nil, err
+		}
+		if err := doc.Metadata.UnmarshalJSON([]byte(encoded)); err != nil {
+			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
+		}
+		docs = append(docs, doc)
 	}
-	var engine, sortingKey, partitionKey string
-	if err := rows.Scan(&engine, &sortingKey, &partitionKey); err != nil {
-		return err
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(docs) > 0 {
+		if err := (&vectorstore.IndexRequest{Documents: docs}).Validate(); err != nil {
+			return nil, fmt.Errorf("clickhouse: invalid stored documents: %w", err)
+		}
+	}
+	return docs, nil
+}
+
+func (s *Store) matchingIDs(docs []*document.Document, predicate filter.Predicate) ([]string, error) {
+	var ids []string
+	for _, doc := range docs {
+		values, err := doc.Metadata.Values()
+		if err != nil {
+			return nil, err
+		}
+		matches, err := filter.Match(predicate, values)
+		if err != nil {
+			return nil, fmt.Errorf("clickhouse: evaluate metadata for %q: %w", doc.ID, err)
+		}
+		if matches {
+			ids = append(ids, doc.ID)
+		}
+	}
+	return ids, nil
+}
+
+func (s *Store) preflightFilter(transaction *nativeTransaction, predicate filter.Predicate) (bool, error) {
+	var after *string
+	matches := false
+	for {
+		docs, err := s.metadataPage(transaction, after)
+		if err != nil {
+			return false, err
+		}
+		if len(docs) == 0 {
+			return matches, nil
+		}
+		ids, err := s.matchingIDs(docs, predicate)
+		if err != nil {
+			return false, err
+		}
+		matches = matches || len(ids) > 0
+		lastID := docs[len(docs)-1].ID
+		after = &lastID
+	}
+}
+
+func (s *Store) validateTable(ctx context.Context) (err error) {
+	ctx = nativeStatementContext(ctx, false)
+	var engine, sortingKey, partitionKey, createStatement string
+	if err = s.db.QueryRowContext(ctx, "SELECT engine_full, sorting_key, partition_key, formatQuery(create_table_query) FROM system.tables WHERE database = ? AND name = ?", s.databaseName, s.tableName).Scan(&engine, &sortingKey, &partitionKey, &createStatement); err != nil {
+		return fmt.Errorf("clickhouse: inspect table %s: %w", s.fullTable, err)
 	}
 	engineName, _, _ := strings.Cut(engine, " ORDER BY ")
-	// Parentheses group the same sorting expression; they do not introduce
-	// another key. ClickHouse retains them in system.tables.sorting_key.
 	for strings.HasPrefix(sortingKey, "(") && strings.HasSuffix(sortingKey, ")") {
 		sortingKey = sortingKey[1 : len(sortingKey)-1]
 	}
 	if (engineName != "ReplacingMergeTree" && engineName != "ReplacingMergeTree()") || sortingKey != s.idColumn || partitionKey != "" {
 		return fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
 	}
-	return rows.Err()
+	widthPattern := `(?m)^[\t ]*CONSTRAINT vec_len CHECK length\(` + regexp.QuoteMeta(s.embeddingColumn) + `\) = [1-9][0-9]*[,\n]`
+	validWidth, err := regexp.MatchString(widthPattern, createStatement)
+	if err != nil {
+		return err
+	}
+	finitePattern := `(?m)^[\t ]*CONSTRAINT vec_finite CHECK arrayAll\(x -> isFinite\(x\), ` + regexp.QuoteMeta(s.embeddingColumn) + `\)[,\n]`
+	validFinite, err := regexp.MatchString(finitePattern, createStatement)
+	if err != nil {
+		return err
+	}
+	if !validWidth || !validFinite {
+		return fmt.Errorf("clickhouse: table %s must have current vec_len and vec_finite constraints", s.fullTable)
+	}
+	expected := map[string]string{s.idColumn: "String", s.contentColumn: "String", s.metadataColumn: "String", s.embeddingColumn: "Array(Float32)"}
+	rows, err := s.db.QueryContext(ctx, "SELECT name, type, default_kind FROM system.columns WHERE database = ? AND table = ? AND name IN (?, ?, ?, ?)", s.databaseName, s.tableName, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn)
+	if err != nil {
+		return fmt.Errorf("clickhouse: inspect columns: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("clickhouse: close schema rows: %w", closeErr))
+		}
+	}()
+	for rows.Next() {
+		var name, dataType, defaultKind string
+		if err := rows.Scan(&name, &dataType, &defaultKind); err != nil {
+			return err
+		}
+		if expected[name] != dataType || defaultKind != "" {
+			return fmt.Errorf("clickhouse: column %q must use %s without generated values, got %s %s", name, expected[name], dataType, defaultKind)
+		}
+		delete(expected, name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("clickhouse: table %s is missing required columns", s.fullTable)
+	}
+	return nil
 }

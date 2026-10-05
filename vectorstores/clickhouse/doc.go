@@ -1,62 +1,49 @@
-// Package clickhouse exposes ClickHouse vector similarity search
-// through the Core vector-store capability interfaces. Documents live in an unpartitioned ReplacingMergeTree table
-// (id / content / metadata Map(String,String) / embedding
-// Array(Float32)) reached through the official clickhouse-go v2
-// driver.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package clickhouse implements Core vector-store capabilities with native
+// ClickHouse distances and transaction snapshots through clickhouse-go v2.
+// The host supplies a database/sql handle using the native TCP protocol and
+// owns its lifecycle. An omitted database is resolved once at construction.
 //
-// Automatic schema initialization requires the vector_similarity index type
-// (HNSW-backed). Index creation errors fail construction. Hosts that provision
-// the table themselves can set InitializeSchema to false.
+// The server must enable native experimental transactions and configure Keeper.
+// Construction probes BEGIN/ROLLBACK and rejects unsupported servers. Every
+// adapter INSERT and unfiltered read uses implicit_transaction; insertion is
+// synchronous. Filtered reads and both deletions lease a TCP session for explicit
+// native transactions.
+// database/sql BeginTx alone only controls the driver's buffered insert batch.
+// Concurrent external readers and writers must also use native transactions:
+// nontransactional writes bypass snapshots and nontransactional reads can see
+// uncommitted mutations. Existing external producers and readers must be updated.
+// Native transaction setup is documented in the upstream integration fixture:
+// https://github.com/ClickHouse/ClickHouse/blob/v26.8.17.4-lts/tests/config/config.d/transactions.xml
 //
-// Distance metrics: [DistanceCosine] (uses `cosineDistance`) /
-// [DistanceL2] (uses `L2Distance`). The store also wires the
-// matching index distance parameter into the `vector_similarity`
-// index definition.
+// Documents use an unpartitioned ReplacingMergeTree without version arguments,
+// ordered only by their String ID. FINAL supplies its current-record view;
+// native insertion order is the sole replacement authority. Content and metadata
+// use String, embeddings use Array(Float32). vec_len fixes the dimension and
+// vec_finite rejects non-finite stored values. Columns cannot generate values.
+// Dimensions only configures schema creation. Construction validates the current
+// schema even when InitializeSchema is false. Tables using Map metadata or older
+// constraints must be rebuilt and reindexed; there is no alternate read format.
+// Documents containing media are rejected before indexing I/O.
 //
-// Metadata model. Metadata is a `Map(String, String)` accessed via subscript
-// (`metadata['key']`), and each value is stored as its JSON text.
-// [metadata.Map] is a map of JSON values, so the JSON text is the exact value
-// and this column holds it verbatim: a document reads back with the types it
-// was written with, and a nil value stays distinguishable from an empty
-// string. A string value therefore carries its quotes, which is why a filter
-// binds the JSON encoding of a literal rather than its bare text, and why LIKE
-// matches the pattern against the quoted form — [filter.OpLike] matches the
-// whole value rather than a substring of it, so quoting the pattern keeps the
-// match anchored where the operator says it is.
+// Metadata contains Core's complete encoded JSON, preserving null versus an
+// empty object, encoded numbers, escaped strings, and nested arrays and objects.
+// Core filter.Match is the sole owner of selector, operator, and failure semantics.
+// Filters validate every current document in bounded ID pages before embedding
+// or deleting. Both passes use the same native snapshot. No SQL filter compiler
+// or native numeric conversion can decide metadata membership.
 //
-// Insert path. Uses the typed batch API (`Conn.PrepareBatch` +
-// `Batch.Append` + `Batch.Send`) — efficient for the bulk-insert
-// shape ClickHouse expects. Repeated IDs replace the visible record in insertion
-// order; reads use FINAL before filtering, and filtered deletion selects IDs
-// from that same current-record view before deleting all their versions.
-// Construction requires this unpartitioned engine without version arguments,
-// ordered only by the document ID.
+// Search orders exact native cosineDistance or L2Distance by distance and exact
+// ID bytes. Filtered search scans that ordered snapshot without an early LIMIT,
+// retains only TopK matches, and applies Core's relevance conversion and threshold.
+// Initialization creates no approximate index.
 //
-// Delete uses a lightweight `DELETE FROM`, which waits until the rows are
-// marked deleted before returning, so both delete paths keep the contract they
-// advertise. `ALTER TABLE ... DELETE` cannot: it records a mutation and returns
-// while the work still runs in the background. The lightweight statement needs
-// a *MergeTree engine and the ALTER DELETE privilege, and it removes rows from
-// query results without physically deleting them until a later merge.
-//
-// Keys the AST reads as nil. The filter AST reads both a key that is absent
-// and a key whose value is null as nil, so a total leaf answers for both. A
-// Map(String, String) subscript answers an absent key with the empty string,
-// so a comparison could not tell "not there" from "empty", and the old numeric
-// conversion turned anything it could not parse into zero — which let a range
-// match a row that has no such key. Each comparison, IN and LIKE leaf now asks
-// mapContains and tests the stored null text, carrying the truth value the AST
-// assigns nil, so the leaf is total and negation composes. IS NULL asks the
-// same pair of questions.
-//
-// Numeric comparisons convert with toDecimal128OrNull rather than a float:
-// Float64's 53-bit mantissa cannot hold every int64, so an id past 2^53 would
-// compare equal to its neighbor. A present but non-numeric value becomes NULL
-// and drops the row; the AST reports that case as an error, so there is no
-// decided answer for the server to disagree with.
-//
-// See https://clickhouse.com/docs/en/engines/table-engines/
-// mergetree-family/annindexes for the official reference.
+// Deletion uses synchronous lightweight DELETE, removing all snapshot-visible
+// versions of selected IDs. All pages share one native commit or rollback; a
+// later failure cannot publish earlier pages. Concurrent transactional inserts
+// remain outside that snapshot. Rows become unqueryable on success and their
+// physical removal follows ClickHouse's later merges. Required transaction,
+// deletion, and overflow settings are pinned by the adapter. SDK query options
+// inherited from caller contexts are cleared; context cancellation and ordinary
+// values still propagate. Backend and cleanup failures remain explicit;
+// uncertain sessions are discarded without retrying.
 package clickhouse
