@@ -86,7 +86,7 @@ func decodeDocument(key string, raw s3vdoc.Interface) (*document.Document, error
 		return nil, err
 	}
 	doc := &document.Document{ID: key, Text: *wire.Content, Metadata: facts}
-	if err = doc.Validate(); err != nil {
+	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
 		return nil, err
 	}
 	return doc, nil
