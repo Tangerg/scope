@@ -1,42 +1,62 @@
-// Package s3vectors exposes AWS S3 Vectors through the Core vector-store
-// capability interfaces. Documents store text in the reserved scope_content
-// metadata key. Documents containing media are rejected before indexing I/O.
+// Package s3vectors implements Core indexing, semantic search and explicit ID
+// deletion with Amazon S3 Vectors. The host owns its AWS SDK client, credentials,
+// retries, transport lifecycle and the provisioned vector bucket and index.
 //
-// Provision the vector bucket and index out of band. NewStore reads GetIndex
-// and checks StoreConfig.DistanceMetric against the index configuration;
-// s3vectors:GetIndex permission is required. Index dimensions remain owned by
-// the service and are checked there when vectors are written.
+// NewStore reads GetIndex and binds the index's native name, bucket, float32 data
+// type, dimensions and distance metric. StoreConfig has no competing dimension
+// or metric setting. Native non-filterable metadata keys must be exactly
+// scope_content and scope_metadata. The derived scope_id field stays filterable.
+// Construction validates every existing record without invoking the embedding
+// model; it therefore requires GetIndex, ListVectors and GetVectors permissions.
 //
-// Search without a filter uses the native approximate QueryVectors operation.
-// Filtered search lists all metadata and vector data with ListVectors, evaluates
-// every predicate through Core filter.Match, and ranks every matching vector
-// before applying TopK. S3's native equality also matches array members, and
-// QueryVectors cannot restrict results by vector key, so a native metadata
-// filter cannot preserve Core's scalar, array, null, nested-path and LIKE
-// semantics. Filtered search therefore requires s3vectors:ListVectors and
-// s3vectors:GetVectors and reads the entire index on each call.
+// Every native record has exactly three metadata strings: scope_content carries
+// text, scope_metadata carries the complete Core JSON object or null, and scope_id
+// projects the canonical vector key for native ID selection. The ID projection
+// must match the key. Scope never interprets a user metadata field through native
+// scalar, array or missing-value rules. Nil and empty metadata, arbitrary JSON
+// numbers and nested objects survive the SDK boundary as encoded Core JSON.
+// User facts may contain scope_* keys inside their Core metadata object.
 //
-// Local ranking uses the index's cosine distance or Euclidean straight-line
-// distance. Raw distance owns ordering; normalized scores are projections.
-// Equal distances are ordered by document ID. Invalid vector dimensions or
-// non-finite vector data return errors. Scores use the same mappings as native
-// search, and MinScore is applied before the final TopK limit.
+// Index validates the whole request, including native key and metadata budgets,
+// before embedding. It embeds every batch and validates native dimensions,
+// finite float32 narrowing and nonzero cosine vectors before the first PutVectors
+// call. Writes replace complete records and split at both the 500-vector and
+// 20 MiB request limits. Native publication is not atomic across calls: a service
+// failure can leave earlier prepared chunks stored. Scope adds no retry loop.
 //
-// DeleteWhere uses the same complete metadata enumeration and Core membership
-// evaluation. Listing and predicate evaluation finish before DeleteVectors
-// starts. Listing, metadata or predicate errors are returned, without treating
-// a failed scan as an empty match set. Filtered deletion also needs ListVectors
-// and GetVectors permissions. Concurrent writes are not isolated by listing;
-// callers requiring a consistent snapshot must coordinate writes externally.
+// Search scans all native records and evaluates Core predicates through
+// filter.Match before invoking the model or selecting TopK. It retains only
+// matching keys, then queries native ANN using scope_id/$in groups. Unfiltered
+// search uses the same native ranking operation. No local distance computation,
+// provider predicate compiler or second ranking algorithm exists. Scope follows
+// every native query continuation, validates all hits before thresholding and
+// truncation, and sorts raw native distance with bytewise ID ties before score
+// projection. TopK is bounded by the native limit of 10,000.
 //
-// Search accepts at most MaxTopK results. Native query pages carry at most
-// MaxResultsPerQueryPage hits, and Search follows their continuation tokens.
-// Index and DeleteIDs split writes at MaxVectorsPerWrite. A short or empty
-// ListVectors page does not end enumeration when it has a continuation token.
+// Cosine distance projects with Core ScoreFromCosineDistance; Euclidean distance
+// projects with ScoreFromDistance. Native query metrics must match the bound
+// index. Non-finite or invalid distances, repeated keys or tokens, corrupt current
+// records and changed predicate membership return errors and no partial response.
+// Search requires ListVectors, GetVectors and QueryVectors permissions and reads
+// the full index. Native listing and ANN calls provide no common snapshot; callers
+// requiring a stable dataset must coordinate concurrent external writes.
 //
-// Metadata numbers retain their arbitrary-precision JSON representation across
-// Smithy encoding and Core evaluation. The service owns its storage limits.
+// DeleteIDs validates and deduplicates all requested keys before any deletion,
+// then uses native batches of at most 500. DeleteWhere is absent because native
+// DeleteVectors cannot condition a deletion on the metadata observed by a scan.
+// A read-then-delete approximation would delete a newly changed nonmatching row.
+//
+// Migration replaces the contract: remove DistanceMetric and its public enum,
+// remove DeleteWhere consumers, and provision an index with the exact metadata
+// configuration above. Native index dimensions, distance and non-filterable keys
+// are immutable. Rebuild records from authoritative source documents into the
+// current three-string representation; legacy records are rejected. No dual
+// reads, compatibility adapter, schema version or migration registry is retained.
+//
+// Native integration requires SCOPE_S3_VECTORS_BUCKET, AWS_REGION and credentials
+// from the AWS SDK default chain. It creates unique test indexes in that bucket,
+// deletes only those indexes, and leaves the bucket intact. Missing setup fails.
 //
 // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-indexes.html
-// and https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_ListVectors.html.
+// and https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html.
 package s3vectors
