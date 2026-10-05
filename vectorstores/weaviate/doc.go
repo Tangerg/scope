@@ -3,6 +3,13 @@
 // listing and the configured retrieval mode. Documents store their text, vector,
 // and complete metadata JSON. Media documents are rejected before indexing I/O.
 //
+// Document IDs must be lowercase hyphenated UUIDs. Native storage uses UUID
+// bytes and renders canonical strings on read, so accepting other spellings
+// would merge distinct caller IDs and change their returned values. Index and
+// DeleteIDs reject aliases before embedding or mutation I/O. Search results and
+// cursor enumeration enforce the same rule; the native object UUID is the sole
+// stored identity.
+//
 // Semantic retrieval uses nearVector. Hybrid retrieval combines the supplied
 // vector with lexical evidence from content using relative-score fusion;
 // [StoreConfig.HybridAlpha] controls vector weight. The configured distance
@@ -51,7 +58,9 @@
 //
 // Index requires one SUCCESS acknowledgment per submitted object, including
 // batches whose HTTP request succeeded. A partial batch failure returns an
-// error while accepted objects remain stored.
+// error while accepted objects remain stored. Response IDs must cover every
+// requested UUID exactly once; response order does not matter. Missing,
+// unrequested, or repeated IDs leave the write unconfirmed and return an error.
 //
 // Official protocol references:
 // https://docs.weaviate.io/weaviate/manage-objects/read-all-objects

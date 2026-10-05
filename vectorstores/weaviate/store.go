@@ -386,7 +386,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// checkBatchAcknowledgments requires one successful result per object sent.
+// checkBatchAcknowledgments requires one successful result per requested ID.
 // Weaviate answers a batch whose objects individually failed with a successful
 // HTTP call, so the per-object results are the only evidence the batch applied;
 // a missing or extra result leaves objects unaccounted for, and a FAILED status
@@ -395,6 +395,10 @@ func checkBatchAcknowledgments(objects []*models.Object, responses []models.Obje
 	if len(responses) != len(objects) {
 		return fmt.Errorf("weaviate: batch insert returned %d results for %d objects",
 			len(responses), len(objects))
+	}
+	remaining := make(map[strfmt.UUID]struct{}, len(objects))
+	for _, object := range objects {
+		remaining[object.ID] = struct{}{}
 	}
 	for index := range responses {
 		response := &responses[index]
@@ -410,6 +414,10 @@ func checkBatchAcknowledgments(objects []*models.Object, responses []models.Obje
 			return fmt.Errorf("weaviate: batch insert for object %s reported status %s",
 				response.ID, lo.FromPtrOr(result.Status, "none"))
 		}
+		if _, requested := remaining[response.ID]; !requested {
+			return fmt.Errorf("weaviate: batch insert acknowledged an unrequested or repeated object %q", response.ID)
+		}
+		delete(remaining, response.ID)
 	}
 	return nil
 }
@@ -566,8 +574,11 @@ func (s *Store) buildDocumentsFromResult(result *models.GraphQLResponse, options
 			return nil, errors.New("weaviate: result object is missing _additional")
 		}
 		id, ok := additional[additionalID].(string)
-		if !ok || id == "" {
-			return nil, errors.New("weaviate: result object is missing _additional.id")
+		if !ok {
+			return nil, fmt.Errorf("%w: result object is missing _additional.id", ErrInvalidObjectID)
+		}
+		if objectIDErr := validateObjectID(id); objectIDErr != nil {
+			return nil, fmt.Errorf("weaviate: result object: %w", objectIDErr)
 		}
 		doc.ID = id
 		if options.Filter != nil {
@@ -689,8 +700,11 @@ func (s *Store) matchingIDs(ctx context.Context, expr filter.Predicate) ([]strin
 				return nil, errors.New("weaviate: enumerated object is missing _additional")
 			}
 			id, ok := additional[additionalID].(string)
-			if !ok || validateObjectID(id) != nil {
-				return nil, errors.New("weaviate: enumerated object has no valid UUID")
+			if !ok {
+				return nil, fmt.Errorf("%w: enumerated object has no UUID", ErrInvalidObjectID)
+			}
+			if objectIDErr := validateObjectID(id); objectIDErr != nil {
+				return nil, fmt.Errorf("weaviate: enumerated object: %w", objectIDErr)
 			}
 			if id <= after {
 				return nil, fmt.Errorf("weaviate: cursor did not advance past %q", after)
@@ -727,7 +741,7 @@ func decodeStoredMetadata(value any) (metadata.Map, error) {
 	return result, nil
 }
 
-// DeleteIDs removes objects by their Weaviate UUIDs. An empty slice is a
+// DeleteIDs removes objects by their canonical Weaviate UUIDs. An empty slice is a
 // no-op; unknown ids are ignored (idempotent).
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
@@ -759,8 +773,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 }
 
 func validateObjectID(id string) error {
-	if err := uuid.Validate(id); err != nil {
-		return fmt.Errorf("%w %q: must be a UUID", ErrInvalidObjectID, id)
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.String() != id {
+		return fmt.Errorf("%w %q: must be a lowercase hyphenated UUID", ErrInvalidObjectID, id)
 	}
 	return nil
 }
