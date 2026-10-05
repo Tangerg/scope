@@ -31,6 +31,7 @@ type nativeStore interface {
 	vectorstore.Indexer
 	vectorstore.Searcher
 	vectorstore.FilterDeleter
+	vectorstore.IDDeleter
 }
 
 type nativeFixture struct {
@@ -39,9 +40,10 @@ type nativeFixture struct {
 	table           string
 	embeddingCalls  atomic.Int64
 	beforeEmbedding func(context.Context) error
+	vectorFor       func(string) []float64
 }
 
-func newNativeFixture(t *testing.T, backend string) *nativeFixture {
+func newNativeFixture(t *testing.T, backend string, metric string) *nativeFixture {
 	t.Helper()
 	variable := "SCOPE_" + strings.ToUpper(backend) + "_DSN"
 	dsn := os.Getenv(variable)
@@ -58,21 +60,25 @@ func newNativeFixture(t *testing.T, backend string) *nativeFixture {
 	model := embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
 		f.embeddingCalls.Add(1)
 		if f.beforeEmbedding != nil {
-			if err := f.beforeEmbedding(ctx); err != nil {
-				return nil, err
+			if embeddingErr := f.beforeEmbedding(ctx); embeddingErr != nil {
+				return nil, embeddingErr
 			}
 		}
 		outputs := make([]*embedding.Output, len(request.Texts))
-		for index := range outputs {
-			outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
+		for index, text := range request.Texts {
+			vector := []float64{1, 0}
+			if f.vectorFor != nil {
+				vector = f.vectorFor(text)
+			}
+			outputs[index] = &embedding.Output{Embedding: vector}
 		}
 		return embedding.NewResponse(outputs, nil)
 	})
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
-		if _, err := pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE"); err != nil {
-			t.Errorf("cleanup isolated schema: %v", err)
+		if _, cleanupErr := pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE"); cleanupErr != nil {
+			t.Errorf("cleanup isolated schema: %v", cleanupErr)
 		}
 	})
 	switch backend {
@@ -80,12 +86,12 @@ func newNativeFixture(t *testing.T, backend string) *nativeFixture {
 		f.store, err = pgvector.NewStore(t.Context(), pgvector.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
 			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2,
-			IndexType: pgvector.IndexNone, InitializeSchema: true,
+			IndexType: pgvector.IndexNone, InitializeSchema: true, DistanceMetric: pgvector.DistanceMetric(metric),
 		})
 	case "cockroachdb":
 		f.store, err = cockroachdb.NewStore(t.Context(), cockroachdb.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
-			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2, InitializeSchema: true,
+			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2, InitializeSchema: true, DistanceMetric: cockroachdb.DistanceMetric(metric),
 		})
 	default:
 		t.Fatalf("unknown test backend %q", backend)
@@ -125,11 +131,11 @@ func (n *nativeFixture) ids(ctx context.Context) ([]string, error) {
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
-		var id string
+		var id []byte
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		ids = append(ids, string(id))
 	}
 	return ids, rows.Err()
 }
@@ -161,7 +167,7 @@ func (n nativeBatcher) Batch(_ context.Context, documents []*document.Document) 
 func TestLiveMetadataFilters(t *testing.T) {
 	for _, backend := range []string{"pgvector", "cockroachdb"} {
 		t.Run(backend, func(t *testing.T) {
-			fixture := newNativeFixture(t, backend)
+			fixture := newNativeFixture(t, backend, "")
 			for _, operation := range []string{"search", "delete"} {
 				t.Run(operation, func(t *testing.T) {
 					storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
@@ -284,8 +290,8 @@ func nativeTypeErrors(t *testing.T, fixture *nativeFixture) {
 				}
 				match, expectedErr := filter.Match(predicate, values)
 				for _, operation := range []string{"search", "delete"} {
-					if err := fixture.install(t.Context(), docs); err != nil {
-						t.Fatal(err)
+					if installErr := fixture.install(t.Context(), docs); installErr != nil {
+						t.Fatal(installErr)
 					}
 					calls := fixture.embeddingCalls.Load()
 					var got []string
@@ -381,7 +387,7 @@ func nativeFilterSnapshot(t *testing.T, fixture *nativeFixture) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if _, err := fixture.pool.Exec(ctx, "UPDATE "+fixture.table+" SET facts = '{\"value\":\"7\"}'::jsonb WHERE id = $1", docs[0].ID); err != nil {
+	if _, err := fixture.pool.Exec(ctx, "UPDATE "+fixture.table+" SET facts = $1 WHERE id = $2", []byte(`{"value":"7"}`), []byte(docs[0].ID)); err != nil {
 		t.Fatal(err)
 	}
 	releaseGate()

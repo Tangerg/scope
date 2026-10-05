@@ -1,30 +1,26 @@
-// Package pgvector implements vector-store capabilities with the pgvector
-// PostgreSQL extension. Documents live in a regular PostgreSQL table with a
-// typed `vector(N)` column; metadata is stored in `jsonb`.
-// Documents containing media are rejected before embedding or writes; this
-// store persists text and metadata only. Index batches commit independently,
-// so an error can leave earlier batches stored.
+// Package pgvector implements Core vector-store capabilities with PostgreSQL's
+// pgvector extension. The host owns the pgx pool. InitializeSchema optionally
+// provisions the extension, schema, four current columns, and selected ANN index.
 //
-// Requirements: PostgreSQL 13+ with the `vector` extension installed
-// (the store runs `CREATE EXTENSION IF NOT EXISTS vector` under
-// [StoreConfig.InitializeSchema] = true).
+// Current columns are id BYTEA PRIMARY KEY, content TEXT NOT NULL, metadata
+// BYTEA NOT NULL (under MetadataColumn), and embedding VECTOR(N) NOT NULL. Native
+// schema inspection establishes width. Dimensions only seeds a new column.
+// Binary ID equality preserves Core identity; metadata stores complete Core JSON
+// bytes. Recreate former text-ID/JSONB tables and reindex authoritative documents.
+// No compatibility adapter or automatic schema change is provided.
 //
-// Distance metrics — three of pgvector's six operators are exposed:
+// DistanceCosine selects <=>, DistanceL2 selects <->, and DistanceIP selects <#>.
+// IndexHNSW and IndexIVFFlat create native indexes with the selected opclass;
+// IndexNone uses native exact scanning. DistanceMetric is a query choice. It does
+// not override native schema or index configuration.
 //
-//   - [DistanceCosine] (`<=>`) — cosine distance, `vector_cosine_ops`
-//   - [DistanceL2]     (`<->`) — Euclidean distance, `vector_l2_ops`
-//   - [DistanceIP]     (`<#>`) — negative inner product, `vector_ip_ops`
+// Core filter.Match selects metadata in a serializable source snapshot. Predicate
+// deletion holds native row locks through commit. Index prepares every vector and
+// commits the whole request atomically; conflicts and native failures are errors.
+// Search ranks selected binary IDs with native distance, validates rows before
+// MinScore, and rejects hybrid mode. Content cannot contain NUL; binary identity
+// and encoded metadata can. These full-source reads favor Core semantics over
+// SQL metadata indexes. See the parent postgres package for shared guarantees.
 //
-// Index types: HNSW (default, best query perf) / IVFFlat (faster
-// builds) / none (exact sequential-scan). Vector binding uses
-// pgvector-go's typed [pgvec.Vector]; the connection is a standard
-// pgx pool.
-//
-// Metadata filters compare JSONB values without scalar coercion. Path keys and
-// literals use typed `$N` parameters, so JSON strings, numbers, and booleans stay
-// distinct. Ordering and LIKE type errors preserve Core's short circuit and are
-// returned before query embedding or deletion. Validation and execution share a
-// serializable snapshot; database conflicts remain explicit errors.
-//
-// See https://github.com/pgvector/pgvector for the extension docs.
+// Native extension contracts: https://github.com/pgvector/pgvector.
 package pgvector

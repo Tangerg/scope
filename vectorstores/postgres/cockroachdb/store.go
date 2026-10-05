@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/samber/lo"
@@ -67,13 +68,14 @@ func (d DistanceMetric) indexOpClass() string {
 // client or connection, so a store cannot be built against a service the
 // caller did not choose.
 type StoreConfig struct {
-	Pool             *pgxpool.Pool
-	SchemaName       string
-	TableName        string
-	IndexName        string
-	MetadataColumn   string
-	EmbeddingModel   embedding.Model
-	DocumentBatcher  vectorstore.Batcher
+	Pool            *pgxpool.Pool
+	SchemaName      string
+	TableName       string
+	IndexName       string
+	MetadataColumn  string
+	EmbeddingModel  embedding.Model
+	DocumentBatcher vectorstore.Batcher
+	// Dimensions seeds only a newly created native column; existing native width is authoritative.
 	Dimensions       int
 	DistanceMetric   DistanceMetric
 	InitializeSchema bool
@@ -110,6 +112,10 @@ func (s StoreConfig) Validate() error {
 }
 
 func (s StoreConfig) validateIdentifiers() error {
+	switch s.MetadataColumn {
+	case "id", "content", "embedding":
+		return errors.New("cockroachdb: MetadataColumn conflicts with a document column")
+	}
 	if err := identifier(s.SchemaName).validate("SchemaName"); err != nil {
 		return err
 	}
@@ -148,7 +154,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("cockroachdb.NewStore: initialize schema: %w", err)
 	}
 
-	engine, err := pgstore.New(pgstore.Config{
+	engine, err := pgstore.New(ctx, pgstore.Config{
 		Provider:        "cockroachdb",
 		Pool:            config.Pool,
 		SchemaName:      config.SchemaName,
@@ -173,17 +179,17 @@ func initialize(ctx context.Context, config StoreConfig) error {
 		return errors.New("dimensions must be > 0")
 	}
 
-	if _, err := config.Pool.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", config.SchemaName)); err != nil {
+	if _, err := config.Pool.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pgx.Identifier{config.SchemaName}.Sanitize())); err != nil {
 		return fmt.Errorf("create schema %s: %w", config.SchemaName, err)
 	}
-	fullTable := config.SchemaName + "." + config.TableName
+	fullTable := pgx.Identifier{config.SchemaName, config.TableName}.Sanitize()
 	statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		id STRING PRIMARY KEY,
-		content STRING,
-		%s JSONB,
-		embedding VECTOR(%d),
+		id BYTES PRIMARY KEY,
+		content STRING NOT NULL,
+		%s BYTES NOT NULL,
+		embedding VECTOR(%d) NOT NULL,
 		VECTOR INDEX %s (embedding %s)
-	)`, fullTable, config.MetadataColumn, dimensions, config.IndexName, config.DistanceMetric.indexOpClass())
+	)`, fullTable, pgx.Identifier{config.MetadataColumn}.Sanitize(), dimensions, pgx.Identifier{config.IndexName}.Sanitize(), config.DistanceMetric.indexOpClass())
 	if _, err := config.Pool.Exec(ctx, statement); err != nil {
 		return fmt.Errorf("create table %s: %w", fullTable, err)
 	}
@@ -195,28 +201,13 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("cockroachdb.Store.Search: %w", err)
-	}
-	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("cockroachdb.Store.Search: %w", err)
-	}
 	return s.engine.Search(ctx, request)
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err := predicate.Validate(); err != nil {
-		return fmt.Errorf("cockroachdb.Store.DeleteWhere: %w", err)
-	}
 	return s.engine.DeleteWhere(ctx, predicate)
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
 	return s.engine.DeleteIDs(ctx, ids)
 }

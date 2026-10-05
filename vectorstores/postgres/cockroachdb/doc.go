@@ -1,17 +1,21 @@
-// Package cockroachdb provides a native CockroachDB vector-store adapter over
-// pgwire. It uses CockroachDB's built-in VECTOR type, pgvector-compatible
-// distance operators, and native VECTOR INDEX declaration.
-// Documents containing media are rejected before embedding or writes; this
-// store persists text and metadata only. Index batches commit independently,
-// so an error can leave earlier batches stored.
+// Package cockroachdb implements Core vector-store capabilities with CockroachDB
+// VECTOR and native VECTOR INDEX over a host-owned pgx pool. CockroachDB v25.4 or
+// newer is required. InitializeSchema optionally creates the current table.
 //
-// Requirements: CockroachDB v25.4 or later is recommended for generally
-// available vector indexing. Schema initialization is explicit through
-// StoreConfig.InitializeSchema.
+// Current columns are id BYTES PRIMARY KEY, content STRING NOT NULL, metadata
+// BYTES NOT NULL (under MetadataColumn), and embedding VECTOR(N) NOT NULL. Native
+// schema inspection owns width; Dimensions only seeds a new column. Binary ID
+// equality preserves Core identity, and metadata contains complete Core JSON
+// bytes. Recreate former string-ID/JSONB tables and reindex authoritative data;
+// no compatibility read or automatic alteration is provided.
 //
-// Metadata filters use the shared PostgreSQL-family JSONB compiler and execution
-// boundary. Scalar types and exact JSON numbers stay distinct; missing and null
-// values follow Core's boolean truth, including negation. Ordering and LIKE
-// type errors are checked before query embedding or deletion, in the same
-// serializable snapshot as execution. Database conflicts return errors.
+// DistanceMetric selects a native distance operator and newly created vector
+// index opclass. It does not override native width or an existing index. Core
+// filter.Match alone selects metadata in a serializable source snapshot. Native
+// row locks protect predicate deletion until commit; Index prepares all vectors
+// and commits its whole request atomically. Serialization and native errors remain
+// errors without Scope retries. Search validates native rows before MinScore and
+// rejects hybrid mode. Content cannot contain NUL; binary IDs and encoded metadata
+// can. These full-source reads favor Core semantics over SQL metadata indexes.
+// See the parent postgres package for the shared execution contract.
 package cockroachdb
