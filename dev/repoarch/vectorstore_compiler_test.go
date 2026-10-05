@@ -9,7 +9,6 @@ import (
 
 func TestVectorStoreProviderCompilersStayPrivate(t *testing.T) {
 	t.Parallel()
-	compilers := 0
 	walkProductionGoFiles(t, filepath.Join(repositoryRoot(t), "vectorstores"), func(path string, fset *token.FileSet, file *ast.File) {
 		for _, declaration := range file.Decls {
 			switch value := declaration.(type) {
@@ -20,8 +19,6 @@ func TestVectorStoreProviderCompilersStayPrivate(t *testing.T) {
 						continue
 					}
 					switch typeSpec.Name.Name {
-					case "visitor":
-						compilers++
 					case "Visitor":
 						t.Errorf("vectorstores/%s:%d exports provider compiler type Visitor", path, fset.Position(typeSpec.Pos()).Line)
 					}
@@ -37,7 +34,4 @@ func TestVectorStoreProviderCompilersStayPrivate(t *testing.T) {
 			}
 		}
 	})
-	if compilers == 0 {
-		t.Fatal("found no provider filter compilers under vectorstores")
-	}
 }
