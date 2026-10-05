@@ -3,9 +3,9 @@ package redis
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,293 +13,98 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
-)
-
-// RediSearch requires dialect 2 for the vector-query syntax used by Store.
 const (
 	redisSearchDialectVersion = 2
 	filterPageSize            = 256
 )
 
-// Store is a Redis-backed implementation of the vectorstore capability interfaces. It
-// stores documents as Redis HASHes and queries them through RediSearch
-// vector + metadata indexes.
+var ErrIncompatibleIndex = errors.New("redis: native index is incompatible")
+var (
+	_ vectorstore.Indexer       = (*Store)(nil)
+	_ vectorstore.Searcher      = (*Store)(nil)
+	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.FilterDeleter = (*Store)(nil)
+)
+
 type Store struct {
-	client            goredis.UniversalClient
-	indexName         string
-	keyPrefix         string
-	contentField      string
-	embeddingField    string
-	metadataJSONField string
-	metadataFields    []MetadataField
-	embeddingClient   embeddingclient.Client
-	documentBatcher   vectorstore.Batcher
-	dimensions        int
-	distanceMetric    DistanceMetric
-	indexAlgorithm    IndexAlgorithm
-	hnswM             int
-	hnswEFConstruct   int
-	hnswEFRuntime     int
+	client          RedisClient
+	indexName       string
+	schema          nativeSchema
+	embeddingClient embeddingclient.Client
+	documentBatcher vectorstore.Batcher
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its search index exists would fail on
-// the first index rather than at wiring, where the misconfiguration actually
-// is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
-	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-
 	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
-		return nil, fmt.Errorf("redis: create embedding client: %w", err)
+		return nil, err
 	}
-
-	metadataFields := slices.Clone(config.MetadataFields)
-
-	store := &Store{
-		client:            config.Client,
-		indexName:         config.IndexName,
-		keyPrefix:         config.KeyPrefix,
-		contentField:      config.ContentField,
-		embeddingField:    config.EmbeddingField,
-		metadataJSONField: config.MetadataJSONField,
-		metadataFields:    metadataFields,
-		embeddingClient:   embeddingClient,
-		documentBatcher:   config.DocumentBatcher,
-		dimensions:        config.Dimensions,
-		distanceMetric:    config.DistanceMetric,
-		indexAlgorithm:    config.IndexAlgorithm,
-		hnswM:             config.HNSWM,
-		hnswEFConstruct:   config.HNSWEFConstruct,
-		hnswEFRuntime:     config.HNSWEFRuntime,
+	store := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), embeddingClient: embeddingClient, documentBatcher: config.DocumentBatcher}
+	raw, err := store.client.Do(ctx, "FT.INFO", store.indexName).Result()
+	if err != nil {
+		return nil, err
 	}
-
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("redis: initialize store: %w", err)
+	info, err := parseIndexInfo(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
+	}
+	if info.name != store.indexName || info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
+		return nil, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
+	}
+	var vectorFound bool
+	for _, attribute := range info.attributes {
+		if attribute.Identifier != attribute.Attribute {
+			return nil, fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
+		}
+		if attribute.Attribute == contentField && attribute.Type == "TEXT" {
+			continue
+		}
+		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
+			return nil, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
+		}
+		switch attribute.DistanceMetric {
+		case "COSINE", "L2", "IP":
+		default:
+			return nil, fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
+		}
+		store.schema = nativeSchema{prefix: info.prefixes[0], dimensions: attribute.Dim, metric: attribute.DistanceMetric}
+		vectorFound = true
+	}
+	if !vectorFound {
+		return nil, fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
+	}
+	if _, err = store.matchingRecords(ctx, nil); err != nil {
+		return nil, err
 	}
 	return store, nil
 }
 
-// initialize confirms the index agrees with this store's configuration, and
-// creates it when initSchema permits.
-//
-// The check is not conditional on initSchema. That flag answers "may I create
-// a missing index", which is a different question from "is the index I found
-// the one I was configured for" — and the second question matters most for an
-// index provisioned out of band, which is exactly the case the flag turns off.
-// Skipping it there left the configured metric unverified, and a wrong metric
-// returns scores that are wrong rather than absent.
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	// FT._LIST returns existing index names.
-	existing, err := s.client.FT_List(ctx).Result()
-	if err != nil {
-		return fmt.Errorf("FT._LIST: %w", err)
-	}
-	if slices.Contains(existing, s.indexName) {
-		return s.checkExistingIndex(ctx)
-	}
-	if !initSchema {
-		return fmt.Errorf("%w: index %s does not exist and InitializeSchema is disabled",
-			ErrIncompatibleIndex, s.indexName)
-	}
-	if s.dimensions <= 0 {
-		return errors.New("redis: Dimensions must be > 0")
-	}
-
-	schema, err := s.buildSchema()
-	if err != nil {
-		return err
-	}
-	opts := &goredis.FTCreateOptions{
-		OnHash: true,
-		Prefix: []any{s.keyPrefix},
-	}
-	if _, err = s.client.FTCreate(ctx, s.indexName, opts, schema...).Result(); err != nil {
-		return fmt.Errorf("FT.CREATE %s: %w", s.indexName, err)
-	}
-	return nil
-}
-
-// ErrIncompatibleIndex reports an existing index whose vector field does not
-// match this store's namespace and vector representation.
-var ErrIncompatibleIndex = errors.New("redis: existing index is incompatible")
-
-// checkExistingIndex verifies that an index this store did not create agrees
-// with the configuration it scores against.
-//
-// Existence is not agreement. Search converts RediSearch's distance into a
-// Score using the metric from this store's own config, so an index built with
-// L2 while the config says COSINE returns scores that are wrong rather than
-// missing: nothing fails, the ranking is silently mis-scaled. Skipping creation
-// because the name was taken accepted exactly that.
-//
-// The dimension is compared only when the caller declared one. Dimensions are
-// required to create an index and optional to attach to one, so demanding a
-// value here would make an out-of-band index unusable without repeating a fact
-// the index already holds. A wrong width fails on the first write regardless.
-func (s *Store) checkExistingIndex(ctx context.Context) error {
-	raw, err := s.client.Do(ctx, "FT.INFO", s.indexName).Result()
-	if err != nil {
-		return fmt.Errorf("redis: FT.INFO %s: %w", s.indexName, err)
-	}
-	info, err := parseIndexInfo(raw)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
-	}
-	if info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] != s.keyPrefix || info.filtered {
-		return fmt.Errorf("%w: index %s must select exactly HASH keys with prefix %q and no FILTER", ErrIncompatibleIndex, s.indexName, s.keyPrefix)
-	}
-	for _, attribute := range info.attributes {
-		if attribute.Attribute != s.embeddingField || attribute.Identifier != s.embeddingField {
-			continue
-		}
-		if attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
-			return fmt.Errorf("%w: index %s must hold %s as a FLOAT32 vector", ErrIncompatibleIndex, s.indexName, s.embeddingField)
-		}
-		if !strings.EqualFold(attribute.DistanceMetric, string(s.distanceMetric)) {
-			return fmt.Errorf("%w: index %s ranks %s by %s, but this store scores by %s", ErrIncompatibleIndex, s.indexName, s.embeddingField, attribute.DistanceMetric, s.distanceMetric)
-		}
-		if s.dimensions > 0 && attribute.Dim != s.dimensions {
-			return fmt.Errorf("%w: index %s vector dimension is %d, want %d", ErrIncompatibleIndex, s.indexName, attribute.Dim, s.dimensions)
-		}
-		return nil
-	}
-	return fmt.Errorf("%w: index %s has no vector attribute %s", ErrIncompatibleIndex, s.indexName, s.embeddingField)
-}
-
-func (s *Store) buildSchema() ([]*goredis.FieldSchema, error) {
-	schema := []*goredis.FieldSchema{
-		{
-			FieldName: s.contentField,
-			FieldType: goredis.SearchFieldTypeText,
-			Weight:    1.0,
-		},
-		{
-			FieldName:  s.embeddingField,
-			FieldType:  goredis.SearchFieldTypeVector,
-			VectorArgs: s.vectorArgs(),
-		},
-	}
-
-	for _, f := range s.metadataFields {
-		fieldType, ok := f.Type.searchFieldType()
-		if !ok {
-			return nil, fmt.Errorf("redis: metadata field %q has unsupported Type %q", f.Name, f.Type)
-		}
-		fs := &goredis.FieldSchema{
-			FieldName: f.Name,
-			FieldType: fieldType,
-			Sortable:  f.Sortable,
-		}
-		schema = append(schema, fs)
-	}
-	return schema, nil
-}
-
-func (s *Store) vectorArgs() *goredis.FTVectorArgs {
-	args := &goredis.FTVectorArgs{}
-	switch s.indexAlgorithm {
-	case AlgorithmFlat:
-		args.FlatOptions = &goredis.FTFlatOptions{
-			Type:           "FLOAT32",
-			Dim:            s.dimensions,
-			DistanceMetric: string(s.distanceMetric),
-		}
-	case AlgorithmHNSW:
-		fallthrough
-	default:
-		args.HNSWOptions = &goredis.FTHNSWOptions{
-			Type:                   "FLOAT32",
-			Dim:                    s.dimensions,
-			DistanceMetric:         string(s.distanceMetric),
-			MaxEdgesPerNode:        s.hnswM,
-			MaxAllowedEdgesPerNode: s.hnswEFConstruct,
-			EFRunTime:              s.hnswEFRuntime,
-		}
-	}
-	return args
-}
-
-// DeleteWhere enumerates metadata, then deletes matching keys only while the
-// observed metadata remains unchanged.
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("redis.Store.DeleteWhere: %w", err)
-	}
-
-	records, err := s.matchingRecords(ctx, predicate)
-	if err != nil {
-		return err
-	}
-	for key, observed := range records {
-		if _, err := s.client.Eval(ctx, deleteObservedMetadata, []string{key}, s.metadataJSONField, observed).Result(); err != nil {
-			return fmt.Errorf("redis: delete %s: %w", key, err)
-		}
-	}
-	return nil
-}
-
-// DeleteIDs removes documents by id, resolving each to its HASH key
-// `<KeyPrefix><id>` and issuing a single DEL. An empty slice is a
-// no-op; unknown ids are silently ignored (idempotent). Implements
-// [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	keys := make([]string, len(ids))
-	for i, id := range ids {
-		keys[i] = s.keyPrefix + id
-	}
-	if _, err = s.client.Del(ctx, keys...).Result(); err != nil {
-		return fmt.Errorf("redis: DEL: %w", err)
-	}
-	return nil
-}
-
-const deleteObservedMetadata = `if redis.call("HGET", KEYS[1], ARGV[1]) == ARGV[2] then return redis.call("DEL", KEYS[1]) end return 0`
-
-// matchingRecords scans the complete key namespace before a vector limit or any
-// deletion. The JSON metadata record retains distinctions TAG and TEXT indexes
-// lose, including scalar/array types, case, delimiters and whole-string LIKE.
-func (s *Store) matchingRecords(ctx context.Context, expr filter.Predicate) (map[string]string, error) {
-	if _, ring := s.client.(*goredis.Ring); ring {
-		return nil, fmt.Errorf("redis: complete metadata enumeration for Ring clients: %w", errors.ErrUnsupported)
-	}
+func (s *Store) matchingRecords(ctx context.Context, predicate filter.Predicate) (map[string]string, error) {
 	selected := make(map[string]string)
-	var mu sync.Mutex
 	seen := make(map[string]struct{})
-	scan := func(ctx context.Context, client goredis.Cmdable) error {
+	var mu sync.Mutex
+	scan := func(ctx context.Context, client hashScanner) error {
 		var cursor uint64
-		pattern := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(s.keyPrefix) + "*"
+		pattern := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(s.schema.prefix) + "*"
 		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			keys, next, err := client.Scan(ctx, cursor, pattern, filterPageSize).Result()
 			if err != nil {
-				return fmt.Errorf("redis: scan document keys: %w", err)
+				return err
 			}
 			for _, key := range keys {
-				if !strings.HasPrefix(key, s.keyPrefix) || len(key) == len(s.keyPrefix) {
-					return fmt.Errorf("redis: returned key %q is outside document namespace %q", key, s.keyPrefix)
+				if !strings.HasPrefix(key, s.schema.prefix) || len(key) == len(s.schema.prefix) {
+					return errors.New("redis: SCAN returned a key outside the document namespace")
 				}
 				mu.Lock()
 				_, duplicate := seen[key]
@@ -308,37 +113,33 @@ func (s *Store) matchingRecords(ctx context.Context, expr filter.Predicate) (map
 				if duplicate {
 					continue
 				}
-				raw, err := client.HGet(ctx, key, s.metadataJSONField).Result()
-				if errors.Is(err, goredis.Nil) {
-					exists, existsErr := client.Exists(ctx, key).Result()
-					if existsErr != nil {
-						return fmt.Errorf("redis: check vanished document %s: %w", key, existsErr)
-					}
-					if exists == 0 {
-						continue
-					}
-					return fmt.Errorf("redis: document %s is missing metadata field %s", key, s.metadataJSONField)
-				}
-				if err != nil {
-					return fmt.Errorf("redis: read metadata for %s: %w", key, err)
-				}
-				var values metadata.Map
-				if decodeErr := jsonv2.Unmarshal([]byte(raw), &values); decodeErr != nil {
-					return fmt.Errorf("redis: decode metadata for %s: %w", key, decodeErr)
-				}
-				decoded, err := values.Values()
+				fields, err := client.HGetAll(ctx, key).Result()
 				if err != nil {
 					return err
 				}
-				matched, err := filter.Match(expr, decoded)
+				if len(fields) == 0 {
+					continue
+				}
+				doc, err := s.schema.decode(key, fields)
 				if err != nil {
-					return fmt.Errorf("redis: evaluate filter for %s: %w", key, err)
+					return err
 				}
-				if matched {
-					mu.Lock()
-					selected[key] = raw
-					mu.Unlock()
+				if predicate != nil {
+					values, err := doc.Metadata.Values()
+					if err != nil {
+						return err
+					}
+					matched, err := filter.Match(predicate, values)
+					if err != nil {
+						return err
+					}
+					if !matched {
+						continue
+					}
 				}
+				mu.Lock()
+				selected[key] = fields[metadataField]
+				mu.Unlock()
 			}
 			if next == 0 {
 				return nil
@@ -356,161 +157,149 @@ func (s *Store) matchingRecords(ctx context.Context, expr filter.Predicate) (map
 	return selected, nil
 }
 
-// Index embeds documents and writes them as Redis HASHes keyed by
-// `<KeyPrefix><id>`.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	if validateErr := request.Validate(); validateErr != nil {
-		return fmt.Errorf("redis.Store.Index: %w", validateErr)
+func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
+	if err := request.Validate(); err != nil {
+		return err
 	}
-	for index, doc := range request.Documents {
+	records := make(map[string]hashRecord, len(request.Documents))
+	for _, doc := range request.Documents {
 		if doc.Media != nil {
-			return fmt.Errorf("redis.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
+			return vectorstore.ErrInvalidDocument
 		}
-	}
-	for index, doc := range request.Documents {
-		for _, field := range []string{s.contentField, s.embeddingField, s.metadataJSONField} {
-			if _, exists := doc.Metadata[field]; exists {
-				return fmt.Errorf("redis: documents[%d] metadata key %q is reserved", index, field)
-			}
+		facts, err := doc.Metadata.MarshalJSON()
+		if err != nil {
+			return err
 		}
+		records[doc.ID] = hashRecord{key: s.schema.prefix + doc.ID, content: doc.Text, metadata: string(facts)}
 	}
-
-	var batches []*vectorstore.IndexRequest
-	batches, err = request.Batch(ctx, s.documentBatcher)
+	batches, err := request.Batch(ctx, s.documentBatcher)
 	if err != nil {
-		return fmt.Errorf("redis: batch documents: %w", err)
+		return err
 	}
-
+	var prepared [][]hashRecord
 	for _, batch := range batches {
-		docs := batch.Documents
 		texts, err := batch.Texts()
 		if err != nil {
-			return fmt.Errorf("vectorstore: project document text: %w", err)
+			return err
 		}
 		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
 		if err != nil {
-			return fmt.Errorf("redis: embed documents: %w", err)
+			return err
 		}
-
+		rows := make([]hashRecord, len(batch.Documents))
+		for i, doc := range batch.Documents {
+			vector, err := s.schema.vector(vectors[i])
+			if err != nil {
+				return err
+			}
+			rows[i] = records[doc.ID]
+			rows[i].vector = vector
+		}
+		prepared = append(prepared, rows)
+	}
+	for _, rows := range prepared {
 		pipe := s.client.Pipeline()
-		for i, doc := range docs {
-			id := doc.ID
-			metadataValues, valuesErr := doc.Metadata.Values()
-			if valuesErr != nil {
-				return fmt.Errorf("redis: decode metadata for %s: %w", id, valuesErr)
-			}
-			metadataJSON, marshalErr := jsonv2.Marshal(doc.Metadata)
-			if marshalErr != nil {
-				return fmt.Errorf("redis: encode metadata for %s: %w", id, marshalErr)
-			}
-			fields := map[string]any{
-				s.contentField:      doc.Text,
-				s.embeddingField:    float32sToBytes(embedding.Float32Vector(vectors[i])),
-				s.metadataJSONField: string(metadataJSON),
-			}
-			// The declared fields are the index projection: RediSearch indexes a
-			// HASH field's text as its declared type, so each one has to hold the
-			// value in the form the index expects. The JSON field above is the
-			// record a search reads back, which is why that projection no longer
-			// has to be reversible.
-			for k, v := range metadataValues {
-				field, formatErr := formatMetadataValue(v)
-				if formatErr != nil {
-					return fmt.Errorf("%w (document %s, key %s)", formatErr, id, k)
-				}
-				fields[k] = field
-			}
-			arguments := make([]any, 0, len(fields)*2)
-			for key, value := range fields {
-				arguments = append(arguments, key, value)
-			}
-			pipe.Eval(ctx, replaceDocumentHash, []string{s.keyPrefix + id}, arguments...)
+		for _, row := range rows {
+			pipe.Eval(ctx, replaceDocumentHash, []string{row.key}, contentField, row.content, embeddingField, row.vector, metadataField, row.metadata)
 		}
-
-		if _, err = pipe.Exec(ctx); err != nil {
-			return fmt.Errorf("redis: replace document hashes: %w", err)
+		commands, err := pipe.Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if len(commands) != len(rows) {
+			return errors.New("redis: HASH writes did not acknowledge every record")
+		}
+		for _, command := range commands {
+			ack, ok := command.(*goredis.Cmd)
+			if !ok {
+				return errors.New("redis: HASH replacement returned an invalid acknowledgment")
+			}
+			value, err := ack.Int64()
+			if err != nil {
+				return err
+			}
+			if value != 1 {
+				return errors.New("redis: HASH replacement was not acknowledged")
+			}
 		}
 	}
 	return nil
 }
 
-// Search embeds the query, runs a KNN search through RediSearch,
-// and returns the matching documents above MinScore.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("redis.Store.Search: %w", err)
+		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("redis.Store.Search: %w", err)
+		return nil, err
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
-	var selected []string
-	if request.Options.Filter != nil {
-		records, matchErr := s.matchingRecords(ctx, request.Options.Filter)
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		for key := range records {
-			selected = append(selected, key)
-		}
-		slices.Sort(selected)
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
+	records, err := s.matchingRecords(ctx, request.Options.Filter)
+	if err != nil {
+		return nil, err
 	}
-
+	if len(records) == 0 {
+		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
-		return nil, fmt.Errorf("redis: embed query: %w", err)
+		return nil, err
 	}
-	queryVec := float32sToBytes(embedding.Float32Vector(vector))
-
-	queryStr := fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", request.Options.ResultLimit(), s.embeddingField, vectorParamName, distanceFieldName)
-
-	opts := &goredis.FTSearchOptions{
-		Params: map[string]any{
-			vectorParamName: queryVec,
-		},
-		Return:         s.returnFields(),
-		LimitOffset:    0,
-		Limit:          request.Options.ResultLimit(),
-		DialectVersion: redisSearchDialectVersion,
-		SortBy: []goredis.FTSearchSortBy{
-			{FieldName: distanceFieldName, Asc: true},
-		},
+	query, err := s.schema.vector(vector)
+	if err != nil {
+		return nil, err
 	}
-
 	groups := [][]string{nil}
 	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
+		groups = slices.Collect(slices.Chunk(slices.Sorted(maps.Keys(records)), filterPageSize))
 	}
+	var ranked []rankedHit
+	seen := make(map[string]struct{})
 	for _, group := range groups {
-		opts.InKeys = make([]any, len(group))
-		for index, key := range group {
-			opts.InKeys[index] = key
+		args := []any{"FT.SEARCH", s.indexName, fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", request.Options.ResultLimit(), embeddingField, vectorParamName, distanceFieldName)}
+		if len(group) > 0 {
+			args = append(args, "INKEYS", len(group))
+			for _, key := range group {
+				args = append(args, key)
+			}
 		}
-		result, err := s.client.FTSearchWithArgs(ctx, s.indexName, queryStr, opts).Result()
+		args = append(args, "RETURN", 4, contentField, embeddingField, metadataField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, request.Options.ResultLimit(), "PARAMS", 2, vectorParamName, query, "DIALECT", redisSearchDialectVersion)
+		raw, err := s.client.Do(ctx, args...).Result()
 		if err != nil {
-			return nil, fmt.Errorf("redis: FT.SEARCH %s: %w", s.indexName, err)
-		}
-		if err := checkSearchCompleteness(s.indexName, result); err != nil {
 			return nil, err
 		}
+		result, err := parseSearchResult(raw)
+		if err != nil {
+			return nil, err
+		}
+		if len(result.Docs) != min(result.Total, request.Options.ResultLimit()) {
+			return nil, errors.New("redis: native result count does not acknowledge complete hits")
+		}
 		for _, hit := range result.Docs {
-			doc, err := s.toDocument(hit)
+			if _, duplicate := seen[hit.ID]; duplicate {
+				return nil, errors.New("redis: native search repeated a document key")
+			}
+			seen[hit.ID] = struct{}{}
+			fields := maps.Clone(hit.Fields)
+			raw, ok := fields[distanceFieldName]
+			if !ok {
+				return nil, errors.New("redis: native hit is missing its distance")
+			}
+			delete(fields, distanceFieldName)
+			doc, err := s.schema.decode(hit.ID, fields)
 			if err != nil {
 				return nil, err
 			}
 			if request.Options.Filter != nil {
 				if !slices.Contains(group, hit.ID) {
-					return nil, fmt.Errorf("redis: search returned unselected key %q", hit.ID)
+					return nil, errors.New("redis: native hit is outside Core membership")
 				}
 				values, decodeErr := doc.Metadata.Values()
 				if decodeErr != nil {
@@ -518,90 +307,113 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 				}
 				matched, matchErr := filter.Match(request.Options.Filter, values)
 				if matchErr != nil {
-					return nil, fmt.Errorf("redis: validate returned metadata for %s: %w", hit.ID, matchErr)
+					return nil, matchErr
 				}
 				if !matched {
-					return nil, fmt.Errorf("redis: metadata for %s changed after filter selection", hit.ID)
+					return nil, errors.New("redis: native hit changed Core membership")
 				}
 			}
-			score, err := s.scoreFromFields(hit.Fields)
+			distance, err := strconv.ParseFloat(raw, 64)
 			if err != nil {
 				return nil, err
 			}
-			if score < request.Options.MinScore {
-				continue
+			score, err := s.schema.score(distance)
+			if err != nil {
+				return nil, err
 			}
-			docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+			match, err := vectorstore.NewSearchResult(doc, score)
+			if err != nil {
+				return nil, err
+			}
+			ranked = append(ranked, rankedHit{result: match, distance: distance})
 		}
 	}
-	slices.SortFunc(docs, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
-	if len(docs) > request.Options.ResultLimit() {
-		docs = docs[:request.Options.ResultLimit()]
+	slices.SortFunc(ranked, func(left, right rankedHit) int {
+		if order := cmp.Compare(left.distance, right.distance); order != 0 {
+			return order
+		}
+		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+	})
+	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+	var results []*vectorstore.SearchResult
+	for _, hit := range ranked {
+		if hit.result.Score >= request.Options.MinScore {
+			results = append(results, hit.result)
+		}
 	}
-
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-// returnFields is everything a search result is read from. RETURN limits the
-// reply to the fields it lists, so a field missing here reads back as an absent
-// field rather than as an error — which is why the list is named and pinned
-// rather than assembled at the call site.
-//
-// The declared metadata fields are absent on purpose: they exist so RediSearch
-// can index and filter on them, and the metadata field is what a result reads
-// its metadata back from, so the projection never has to come over the wire.
-func (s *Store) returnFields() []goredis.FTSearchReturn {
-	return []goredis.FTSearchReturn{
-		{FieldName: s.contentField},
-		{FieldName: distanceFieldName},
-		{FieldName: s.metadataJSONField},
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	var keys []string
+	seen := make(map[string]struct{})
+	for _, id := range ids {
+		if id == "" {
+			return vectorstore.ErrMissingDocumentID
+		}
+		key := s.schema.prefix + id
+		if _, duplicate := seen[key]; !duplicate {
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
 	}
+	for group := range slices.Chunk(keys, filterPageSize) {
+		pipe := s.client.Pipeline()
+		for _, key := range group {
+			pipe.Del(ctx, key)
+		}
+		commands, err := pipe.Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if len(commands) != len(group) {
+			return errors.New("redis: explicit deletion omitted acknowledgments")
+		}
+		for _, command := range commands {
+			ack, ok := command.(*goredis.IntCmd)
+			if !ok || ack.Val() < 0 || ack.Val() > 1 {
+				return errors.New("redis: explicit deletion returned an invalid acknowledgment")
+			}
+			if err := ack.Err(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-func (s *Store) scoreFromFields(fields map[string]string) (vectorstore.Score, error) {
-	raw, ok := fields[distanceFieldName]
-	if !ok {
-		return 0, fmt.Errorf("redis: missing distance field %q in result", distanceFieldName)
+func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+	if predicate == nil {
+		return vectorstore.ErrMissingFilter
 	}
-	dist, err := strconv.ParseFloat(raw, 64)
+	if err := predicate.Validate(); err != nil {
+		return err
+	}
+	records, err := s.matchingRecords(ctx, predicate)
 	if err != nil {
-		return 0, fmt.Errorf("redis: parse distance %q: %w", raw, err)
+		return err
 	}
-	return s.distanceMetric.score(dist), nil
-}
-
-func (s *Store) toDocument(hit goredis.Document) (*document.Document, error) {
-	if !strings.HasPrefix(hit.ID, s.keyPrefix) {
-		return nil, fmt.Errorf("redis: returned key %q is outside document namespace %q", hit.ID, s.keyPrefix)
-	}
-	id := strings.TrimPrefix(hit.ID, s.keyPrefix)
-	if id == "" {
-		return nil, errors.New("redis: search result is missing document ID")
-	}
-	text := hit.Fields[s.contentField]
-	if text == "" {
-		return nil, fmt.Errorf("redis: document %q is missing field %q", id, s.contentField)
-	}
-	doc := &document.Document{
-		ID:   id,
-		Text: text,
-	}
-
-	// Metadata comes from the JSON field rather than from the declared index
-	// fields. A declared field holds the value in the form its RediSearch type
-	// expects, so reading it back turned a number into a float64 and everything
-	// else into a string, and an undeclared key had no field to read at all —
-	// a search returned a document that differed from the one that was written.
-	if raw, ok := hit.Fields[s.metadataJSONField]; ok && raw != "" {
-		if err := jsonv2.Unmarshal([]byte(raw), &doc.Metadata); err != nil {
-			return nil, fmt.Errorf("redis: decode metadata for %q: %w", id, err)
+	for _, key := range slices.Sorted(maps.Keys(records)) {
+		ack, err := s.client.Eval(ctx, deleteObservedMetadata, []string{key}, metadataField, records[key]).Int64()
+		if err != nil {
+			return err
+		}
+		if ack != 1 {
+			return errors.New("redis: observed metadata changed before conditional deletion")
 		}
 	}
-	return doc, nil
+	return nil
 }
 
-// The hash is one owned record. Install the complete new projection before
-// pruning old fields, so a malformed HSET cannot destroy the previous value.
+type rankedHit struct {
+	result   *vectorstore.SearchResult
+	distance float64
+}
+
+const deleteObservedMetadata = `if redis.call("HGET", KEYS[1], ARGV[1]) == ARGV[2] then return redis.call("DEL", KEYS[1]) end return 0`
+
+// HSET must succeed before obsolete fields are pruned, preserving the previous
+// record on a native wrong-type or allocation failure.
 const replaceDocumentHash = `
 local previous = redis.call('HKEYS', KEYS[1])
 redis.call('HSET', KEYS[1], unpack(ARGV))

@@ -1,53 +1,57 @@
-// Package redis exposes Redis Stack's RediSearch module
-// through the Core vector-store capability interfaces. Documents are stored as Redis HASHes keyed at
-// `<KeyPrefix><id>`; an FT.CREATE-defined index registers the
-// vector field plus any pre-declared metadata fields.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package redis implements the Core vector-store capabilities over native
+// Redis search and HASH records. The host provisions the index and owns its
+// native client, topology, credentials, retries, timeouts and lifetime.
+// [NewStore] never creates, alters or recreates an index. RESP3 is required:
+// RESP2 does not expose the warning channel needed to reject partial searches.
 //
-// Requirements: Redis Stack (or Redis OSS 8.0+ with the search
-// module) — RediSearch is mandatory. RedisJSON is NOT required;
-// the store deliberately uses HASH storage to keep the dependency
-// surface minimal.
+// The concrete index's FT.INFO definition owns its namespace, dimension,
+// algorithm and distance metric. It must select one nonempty HASH prefix,
+// without FILTER or aliases, and index embedding as FLOAT32 VECTOR with COSINE,
+// L2 or IP distance. An optional content TEXT field is allowed; additional
+// indexed fields are rejected with [ErrIncompatibleIndex]. Native index tuning
+// belongs to the host. [StoreConfig] carries no competing schema settings.
 //
-// Distance metrics: [DistanceCosine] / [DistanceL2] / [DistanceIP].
-// Vector index algorithm: [AlgorithmHNSW] (default) / [AlgorithmFlat].
+// Each document is exactly one HASH at the native prefix plus its Core ID.
+// It contains content, embedding (little-endian FLOAT32 bytes), and
+// metadata_json (the Core metadata JSON string). There is no duplicate ID or
+// expanded metadata representation. Metadata keys may have any Core-supported
+// name, including the HASH field names. Null and empty metadata remain distinct,
+// and JSON numbers retain their exact values. Media documents are rejected.
+// Construction and search reject invalid or extra fields, malformed metadata,
+// wrong vector dimensions, nonfinite FLOAT32 values and zero cosine vectors.
+// Existing deployments must provision this current native schema and reindex
+// their source documents; there is no legacy read path or schema conversion.
 //
-// Metadata. The JSON in [StoreConfig.MetadataJSONField] is the exact document
-// record. [StoreConfig.MetadataFields] configures optional native index fields;
-// Core predicates are evaluated against the JSON record with filter.Match.
-// Filtering scans every key in the configured namespace (every master on a
-// Redis Cluster), before issuing bounded INKEYS vector queries. This costs
-// O(N) metadata reads and key bookkeeping, plus the selected metadata bytes,
-// and preserves scalar versus
-// array membership, case, punctuation, whole-string LIKE and missing/null
-// versus empty collections. No fixed vector candidate limit is used to decide
-// metadata membership.
+// Index prepares the complete request, all model batches and all FLOAT32 vectors
+// before the first write. Each Lua write atomically replaces one whole HASH,
+// removing superseded fields. A native I/O failure may leave earlier records
+// published; the operation does not claim cross-record transactionality.
 //
-// Filtered deletion finishes enumeration before making changes, then compares
-// the observed metadata bytes and deletes each key atomically with Lua. A key
-// whose metadata changed after enumeration is retained. Enumeration and search
-// are not a database snapshot: concurrent changes can be observed at different
-// times, and index visibility remains subject to RediSearch's indexing state.
-// Returned IDs and metadata are revalidated; a hit outside the selected IDs or
-// no longer satisfying the predicate fails the entire search. Ring clients
-// return errors.ErrUnsupported for filtered search and deletion because the
-// SDK cannot enumerate every current shard, including unavailable shards.
+// Search scans the complete namespace before vector retrieval, validating every
+// current record. Core filter.Match alone decides metadata membership. Filtered
+// queries restrict native KNN retrieval with bounded INKEYS groups, then merge
+// their native distances before applying the Core TopK and score threshold.
+// No metadata keys or values enter native query syntax. Scanning costs O(N)
+// record reads and key bookkeeping. Native ClusterClient enumeration visits
+// every master; Ring is rejected because it cannot guarantee complete scanning.
+// Enumeration and indexing visibility do not provide a database snapshot.
 //
-// Vector retrieval uses FT.SEARCH with KNN, binary FLOAT32 vectors in PARAMS,
-// and a bounded INKEYS list when filtered. Search rejects reported timeout
-// warnings or unreadable hits rather than treating partial output as complete.
+// Search rejects native warnings, malformed envelopes, incomplete hit counts,
+// unreadable records, repeated keys and changed filtered membership. Invalid
+// distances fail instead of becoming apparently valid scores. Every error
+// returns no response, including an error after earlier hits were decoded.
 //
-// Existing indexes must select exactly HASH keys with [StoreConfig.KeyPrefix],
-// without another PREFIX or FILTER. FT.INFO also verifies the actual vector
-// field, FLOAT32 representation, metric and declared dimension. Incompatibility
-// returns [ErrIncompatibleIndex] at construction. Every returned key is checked
-// against the namespace before its ID is exposed.
+// DeleteIDs is idempotent and sends single-key DEL commands, including on a
+// cluster. DeleteWhere finishes complete enumeration before deleting, and
+// atomically compares each record's observed metadata bytes with Lua. A concurrent
+// metadata change retains that record and fails the operation; earlier deletions
+// may already have completed. The adapter never retries a stale comparison.
 //
-// Configured field identifiers must remain plain dotted identifiers for the
-// native schema and vector query. Metadata selectors themselves are evaluated
-// locally and can name undeclared keys without entering Redis query syntax.
+// Default tests are offline. Tests selected with -tags=integration require
+// SCOPE_REDIS_ADDR and optionally SCOPE_REDIS_USERNAME/SCOPE_REDIS_PASSWORD.
+// They create unique native indexes and remove those indexes and their records.
+// Use an isolated Redis instance with native search support.
 //
-// See https://redis.io/docs/latest/develop/interact/search-and-query/
-// for the RediSearch reference.
+// See https://redis.io/docs/latest/develop/ai/search-and-query/vectors/ and
+// https://redis.io/docs/latest/commands/ft.search/ for native contracts.
 package redis

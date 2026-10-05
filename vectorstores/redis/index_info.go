@@ -9,6 +9,7 @@ import (
 )
 
 type indexInfo struct {
+	name       string
 	keyType    string
 	prefixes   []string
 	filtered   bool
@@ -19,11 +20,12 @@ type indexInfo struct {
 // rather than accepting a partially decoded definition as namespace evidence.
 func parseIndexInfo(raw any) (indexInfo, error) {
 	var info indexInfo
-	fields, err := indexFields(raw)
+	fields, err := responseFields(raw)
 	if err != nil {
 		return info, err
 	}
-	definition, err := indexFields(fields["index_definition"])
+	info.name, _ = fields["index_name"].(string)
+	definition, err := responseFields(fields["index_definition"])
 	if err != nil {
 		return info, err
 	}
@@ -61,8 +63,7 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 		return info, fmt.Errorf("redis: FT.INFO attributes have type %T", fields["attributes"])
 	}
 	for _, rawAttribute := range attributes {
-		// Non-vector attributes may contain standalone flags such as SORTABLE.
-		attribute, err := indexFields(rawAttribute)
+		attribute, err := responseFields(rawAttribute)
 		if err != nil {
 			return info, err
 		}
@@ -70,6 +71,7 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 		identifier, _ := attribute["identifier"].(string)
 		kind, _ := attribute["type"].(string)
 		if kind != "VECTOR" {
+			info.attributes = append(info.attributes, goredis.FTAttribute{Identifier: identifier, Attribute: name, Type: kind})
 			continue
 		}
 		dataType, _ := attribute["data_type"].(string)
@@ -83,7 +85,7 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 	return info, nil
 }
 
-func indexFields(raw any) (map[string]any, error) {
+func responseFields(raw any) (map[string]any, error) {
 	fields := make(map[string]any)
 	switch raw := raw.(type) {
 	case map[string]any:
@@ -92,29 +94,12 @@ func indexFields(raw any) (map[string]any, error) {
 		for key, value := range raw {
 			name, ok := key.(string)
 			if !ok {
-				return nil, fmt.Errorf("redis: FT.INFO field name has type %T", key)
+				return nil, fmt.Errorf("redis: native response field name has type %T", key)
 			}
 			fields[name] = value
 		}
-	case []any:
-		for index := 0; index < len(raw); index++ {
-			name, ok := raw[index].(string)
-			if !ok {
-				return nil, fmt.Errorf("redis: FT.INFO field name has type %T", raw[index])
-			}
-			switch name {
-			case "SORTABLE", "UNF", "NOSTEM", "NOINDEX", "CASESENSITIVE", "WITHSUFFIXTRIE", "INDEXEMPTY", "INDEXMISSING":
-				fields[name] = true
-			default:
-				index++
-				if index >= len(raw) {
-					return nil, fmt.Errorf("redis: FT.INFO field %q has no value", name)
-				}
-				fields[name] = raw[index]
-			}
-		}
 	default:
-		return nil, fmt.Errorf("redis: FT.INFO fields have type %T", raw)
+		return nil, fmt.Errorf("redis: requires a RESP3 map, received %T", raw)
 	}
 	return fields, nil
 }
