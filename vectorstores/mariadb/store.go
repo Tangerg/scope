@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -22,6 +23,8 @@ import (
 // Provider is the stable backend name for host-side attribution.
 const Provider = "MariaDB"
 
+const documentIDBytes = 3072
+
 // Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTableName       = "vector_store"
@@ -32,9 +35,7 @@ const (
 	DefaultDistanceMetric  = DistanceCosine
 )
 
-// DistanceMetric selects the vec_distance_<metric> function used at
-// query time and the distance ordering MariaDB applies under the
-// vector index.
+// DistanceMetric selects the vec_distance_<metric> function used for ranking.
 type DistanceMetric string
 
 const (
@@ -101,8 +102,8 @@ type StoreConfig struct {
 	// defaults to [DistanceCosine].
 	DistanceMetric DistanceMetric
 
-	// InitializeSchema, when true, creates the table + vector index
-	// if they don't already exist.
+	// InitializeSchema creates the table when absent. NewStore
+	// always verifies the current identity schema; obsolete tables must be rebuilt.
 	InitializeSchema bool
 }
 
@@ -181,10 +182,8 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its table and vector index exist would
-// fail on the first index rather than at wiring, where the misconfiguration
-// actually is.
+// NewStore creates the schema when requested and verifies that the table's
+// constraints preserve exact document IDs. The caller owns the database handle.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
@@ -225,7 +224,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 // initialize provisions the table when requested.
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
-		return nil
+		return s.validateIdentitySchema(ctx)
 	}
 	if s.dimensions <= 0 {
 		return errors.New("mariadb: Dimensions must be > 0")
@@ -241,52 +240,84 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
 		return fmt.Errorf("create table %s: %w", s.fullTable, err)
 	}
+	return s.validateIdentitySchema(ctx)
+}
+
+func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
+	const database = "COALESCE(NULLIF(?, ''), DATABASE())"
+	var dataType, nullable, engine string
+	var length sql.NullInt64
+	err = s.db.QueryRowContext(ctx,
+		"SELECT c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.IS_NULLABLE, t.ENGINE FROM information_schema.COLUMNS AS c JOIN information_schema.TABLES AS t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME WHERE c.TABLE_SCHEMA = "+database+" AND c.TABLE_NAME = ? AND c.COLUMN_NAME = ?",
+		s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable, &engine)
+	if err != nil {
+		return fmt.Errorf("read document ID schema: %w", err)
+	}
+	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != "NO" {
+		return fmt.Errorf("document ID column must be VARBINARY(%d) NOT NULL; rebuild the table", documentIDBytes)
+	}
+	if engine != "InnoDB" {
+		return errors.New("filter transactions require an InnoDB table; rebuild the table")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = "+database+" AND TABLE_NAME = ? AND NON_UNIQUE = 0",
+		s.schemaName, s.tableName)
+	if err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	primary := false
+	for rows.Next() {
+		var name, column string
+		var ordinal int
+		var prefix sql.NullInt64
+		if err := rows.Scan(&name, &column, &ordinal, &prefix); err != nil {
+			return fmt.Errorf("read document identity constraint: %w", err)
+		}
+		if !strings.EqualFold(column, s.idColumn) || ordinal != 1 || prefix.Valid {
+			return errors.New("unique constraints must use the entire document ID as their sole key; rebuild the table")
+		}
+		primary = primary || name == "PRIMARY"
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read document identity constraints: %w", err)
+	}
+	if !primary {
+		return errors.New("document ID must be the sole primary key; rebuild the table")
+	}
 	return nil
 }
 
-// createTableStatement renders the DDL that backs this store's searches.
-//
-// DISTANCE is what binds the index to the search. MariaDB builds a vector index
-// for one distance function, defaults it to euclidean, and uses the index only
-// when the ORDER BY names that same function: "if the vector index was not
-// built for the cosine function, the index is not used and a full table scan is
-// performed instead". Omitting the option therefore built a euclidean index
-// under this store's default cosine metric, and every search silently degraded
-// to brute force while still returning the right rows. One value now drives
-// both the index and the query, so they cannot disagree.
-// searchStatement renders the nearest-neighbor query.
-//
-// MariaDB uses the vector index only for "ORDER BY ... the literal
-// VEC_DISTANCE_*(column, vector) call (or its alias) sorted ascending, together
-// with a LIMIT", so the distance stays a bare aliased call and the alias is
-// what ORDER BY names. MinScore is applied to the rows this returns rather than
-// folded into the SQL, because a threshold in the WHERE clause is a range
-// predicate the index cannot drive.
+// The native vector index can omit existing rows after replacement. Reading
+// the primary table keeps that projection out of document visibility, including
+// tables provisioned externally with a vector index.
 func (s *Store) searchStatement(wherePart string) string {
 	return fmt.Sprintf(
 		`SELECT %s, %s, %s, vec_distance_%s(%s, VEC_FromText(?)) AS distance `+
-			`FROM %s WHERE 1=1%s ORDER BY distance ASC LIMIT ?`,
+			`FROM %s FORCE INDEX(PRIMARY) WHERE 1=1%s ORDER BY distance ASC, %s ASC LIMIT ?`,
 		s.idColumn, s.contentColumn, s.metadataColumn,
 		s.distanceMetric, s.embeddingColumn,
-		s.fullTable, wherePart,
+		s.fullTable, wherePart, s.idColumn,
 	)
 }
 
 func (s *Store) createTableStatement() string {
 	return fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
-			%s VARCHAR(64) NOT NULL PRIMARY KEY,
+			%s VARBINARY(%d) NOT NULL PRIMARY KEY,
 			%s TEXT,
 			%s JSON,
-			%s VECTOR(%d) NOT NULL,
-			VECTOR INDEX %s_idx (%s) DISTANCE=%s
-		) ENGINE=InnoDB`,
+			%s VECTOR(%d) NOT NULL
+		) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4`,
 		s.fullTable,
-		s.idColumn,
+		s.idColumn, documentIDBytes,
 		s.contentColumn,
 		s.metadataColumn,
 		s.embeddingColumn, s.dimensions,
-		s.tableName, s.embeddingColumn, s.distanceMetric,
 	)
 }
 
@@ -296,6 +327,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 		return fmt.Errorf("mariadb.Store.Index: %w", validateErr)
 	}
 	for index, doc := range request.Documents {
+		if len(doc.ID) > documentIDBytes {
+			return fmt.Errorf("mariadb.Store.Index: %w: documents[%d] ID exceeds %d bytes", vectorstore.ErrInvalidDocument, index, documentIDBytes)
+		}
 		if doc.Media != nil {
 			return fmt.Errorf("mariadb.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
 		}
@@ -332,11 +366,15 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			return fmt.Errorf("mariadb: prepare upsert: %w", err)
 		}
 
-		execErr := func() error {
-			defer stmt.Close()
+		execErr := func() (err error) {
+			defer func() {
+				if closeErr := stmt.Close(); closeErr != nil {
+					err = errors.Join(err, closeErr)
+				}
+			}()
 			for i, doc := range docs {
 				id := doc.ID
-				metaJSON, err := marshalMetadata(doc.Metadata)
+				metaJSON, err := jsonv2.Marshal(doc.Metadata)
 				if err != nil {
 					return fmt.Errorf("marshal metadata for %s: %w", id, err)
 				}
@@ -344,7 +382,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				if err != nil {
 					return fmt.Errorf("mariadb: marshal vector for %s: %w", id, err)
 				}
-				if _, err := stmt.ExecContext(ctx, id, doc.Text, metaJSON, string(vectorJSON)); err != nil {
+				if _, err := stmt.ExecContext(ctx, []byte(id), doc.Text, metaJSON, string(vectorJSON)); err != nil {
 					return fmt.Errorf("upsert %s: %w", id, err)
 				}
 			}
@@ -357,68 +395,114 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return nil
 }
 
-// Search embeds the query, ranks rows by vec_distance, and returns
-// matching documents above MinScore.
+// Search ranks canonical rows using the native distance function. Core alone
+// evaluates filters; matching IDs are bounded projections of the same snapshot.
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	var docs []*vectorstore.SearchResult
 	if err = request.Validate(); err != nil {
 		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
 	}
-
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(request)
 		}
+		if err != nil {
+			response = nil
+		}
 	}()
-
+	transaction, err := s.prepareFilter(ctx, request.Options.Filter, true)
+	defer finishTransaction(transaction, &err)
+	if err != nil {
+		return nil, err
+	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
 		return nil, fmt.Errorf("mariadb: embed query: %w", err)
 	}
-	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(vector))
+	encoded, err := jsonv2.Marshal(embedding.Float32Vector(vector))
 	if err != nil {
 		return nil, fmt.Errorf("mariadb: marshal query vector: %w", err)
 	}
-	vecText := string(vectorJSON)
-
-	wherePredicate, whereArgs, err := s.buildFilter(request.Options.Filter)
-	if err != nil {
-		return nil, err
+	var ranked []rankedResult
+	if request.Options.Filter == nil {
+		ranked, err = s.searchRows(ctx, nil, request, string(encoded), nil)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var lastID []byte
+		for {
+			page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
+			if pageErr != nil {
+				return nil, pageErr
+			}
+			if len(page.ids) > 0 {
+				candidates, queryErr := s.searchRows(ctx, transaction, request, string(encoded), page.ids)
+				if queryErr != nil {
+					return nil, queryErr
+				}
+				ranked = append(ranked, candidates...)
+				slices.SortFunc(ranked, func(left, right rankedResult) int {
+					if order := cmp.Compare(left.distance, right.distance); order != 0 {
+						return order
+					}
+					return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+				})
+				ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+			}
+			if page.count < filterPageSize {
+				break
+			}
+			lastID = page.lastID
+		}
 	}
-
-	wherePart := ""
-	if wherePredicate != "" {
-		wherePart = " AND " + wherePredicate
+	results := make([]*vectorstore.SearchResult, len(ranked))
+	for index, candidate := range ranked {
+		results[index] = candidate.result
 	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
 
-	stmt := s.searchStatement(wherePart)
+type rankedResult struct {
+	result   *vectorstore.SearchResult
+	distance float64
+}
 
-	args := []any{vecText}
-	args = append(args, whereArgs...)
+func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *vectorstore.SearchRequest, vector string, ids []any) (results []rankedResult, err error) {
+	where := ""
+	if len(ids) > 0 {
+		where = " AND " + s.idColumn + " IN (" + strings.Repeat("?, ", len(ids)-1) + "?)"
+	}
+	args := []any{vector}
+	args = append(args, ids...)
 	args = append(args, request.Options.ResultLimit())
-
-	rows, err := s.db.QueryContext(ctx, stmt, args...)
+	var rows *sql.Rows
+	if transaction == nil {
+		rows, err = s.db.QueryContext(ctx, s.searchStatement(where), args...)
+	} else {
+		rows, err = transaction.QueryContext(ctx, s.searchStatement(where), args...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("mariadb: query %s: %w", s.fullTable, err)
 	}
-	defer rows.Close()
-
-	docs = make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	for rows.Next() {
-		var (
-			id       string
-			content  sql.NullString
-			metaRaw  sql.NullString
-			distance float64
-		)
-		if err = rows.Scan(&id, &content, &metaRaw, &distance); err != nil {
+		var id string
+		var content, raw sql.NullString
+		var distance float64
+		if err := rows.Scan(&id, &content, &raw, &distance); err != nil {
 			return nil, fmt.Errorf("mariadb: scan row: %w", err)
 		}
-
 		score := s.distanceMetric.score(distance)
+		if err := score.Validate(); err != nil {
+			return nil, fmt.Errorf("mariadb: distance for %q: %w", id, err)
+		}
 		if score < request.Options.MinScore {
 			continue
 		}
@@ -428,98 +512,171 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if !content.Valid || content.String == "" {
 			return nil, fmt.Errorf("mariadb: document %q is missing text", id)
 		}
-
 		doc := &document.Document{ID: id, Text: content.String}
-		if metaRaw.Valid {
-			if doc.Metadata, err = unmarshalMetadata([]byte(metaRaw.String)); err != nil {
+		if raw.Valid {
+			if err := jsonv2.Unmarshal([]byte(raw.String), &doc.Metadata); err != nil {
 				return nil, fmt.Errorf("mariadb: unmarshal metadata for %s: %w", id, err)
 			}
 		}
-		docs = append(docs, &vectorstore.SearchResult{Document: doc, Score: score})
+		results = append(results, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, distance: distance})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("mariadb: read rows: %w", err)
 	}
-	return &vectorstore.SearchResponse{Results: docs}, nil
+	return results, nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("mariadb.Store.DeleteWhere: %w", err)
+	if validateErr := predicate.Validate(); validateErr != nil {
+		return fmt.Errorf("mariadb.Store.DeleteWhere: %w", validateErr)
 	}
-
-	var (
-		clause string
-		args   []any
-	)
-	clause, args, err = s.buildFilter(predicate)
+	transaction, err := s.prepareFilter(ctx, predicate, false)
+	defer finishTransaction(transaction, &err)
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return errors.New("mariadb: refusing to delete on empty filter")
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return pageErr
+		}
+		if err := s.deleteIDs(ctx, transaction, page.ids); err != nil {
+			return err
+		}
+		if page.count < filterPageSize {
+			return nil
+		}
+		lastID = page.lastID
 	}
-
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s", s.fullTable, clause)
-	if _, err := s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("mariadb: delete from %s: %w", s.fullTable, err)
-	}
-	return nil
 }
 
-// DeleteIDs removes rows by primary key. MariaDB has no array type,
-// so it emits one `?` placeholder per id —
-// `DELETE FROM <table> WHERE <id> IN (?, ?, ...)` — binding the ids as
-// query args. An empty slice is a no-op; unknown ids are silently
-// ignored (idempotent). Implements [vectorstore.IDDeleter].
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
+// DeleteIDs removes exactly the caller's IDs. Unknown IDs are ignored.
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	args := make([]any, len(ids))
+	for index, id := range ids {
+		args[index] = []byte(id)
+	}
+	return s.deleteIDs(ctx, nil, args)
+}
+
+func (s *Store) deleteIDs(ctx context.Context, transaction *sql.Tx, ids []any) error {
 	if len(ids) == 0 {
 		return nil
 	}
-
-	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
+	statement := "DELETE FROM " + s.fullTable + " WHERE " + s.idColumn + " IN (" + strings.Repeat("?, ", len(ids)-1) + "?)"
+	var err error
+	if transaction == nil {
+		_, err = s.db.ExecContext(ctx, statement, ids...)
+	} else {
+		_, err = transaction.ExecContext(ctx, statement, ids...)
 	}
-
-	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s IN (%s)", s.fullTable, s.idColumn, placeholders)
-	if _, err = s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("mariadb: delete by ids from %s: %w", s.fullTable, err)
+	if err != nil {
+		return fmt.Errorf("mariadb: delete by IDs from %s: %w", s.fullTable, err)
 	}
 	return nil
 }
 
-// buildFilter wraps the visitor.
-func (s *Store) buildFilter(expr filter.Predicate) (string, []any, error) {
-	if expr == nil {
-		return "", nil, nil
-	}
-	v := newVisitor(s.metadataColumn)
-	if err := expr.Accept(v); err != nil {
-		return "", nil, fmt.Errorf("mariadb: convert filter: %w", err)
-	}
-	predicate, args := v.snapshot()
-	return predicate, args, nil
+const filterPageSize = 512
+
+type filterPage struct {
+	lastID []byte
+	ids    []any
+	count  int
 }
 
-func marshalMetadata(m metadata.Map) ([]byte, error) {
-	if m == nil {
-		return []byte("{}"), nil
+func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
+	statement := "SELECT " + s.idColumn + ", " + s.metadataColumn + " FROM " + s.fullTable + " FORCE INDEX(PRIMARY)"
+	var args []any
+	if lastID != nil {
+		statement += " WHERE " + s.idColumn + " > ?"
+		args = append(args, lastID)
 	}
-	return jsonv2.Marshal(m)
+	statement += " ORDER BY " + s.idColumn + " ASC LIMIT ?"
+	args = append(args, filterPageSize)
+	rows, err := transaction.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return page, fmt.Errorf("mariadb: read filter metadata: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	for rows.Next() {
+		var id []byte
+		var raw sql.NullString
+		if err := rows.Scan(&id, &raw); err != nil {
+			return page, fmt.Errorf("mariadb: scan filter metadata: %w", err)
+		}
+		var facts metadata.Map
+		if raw.Valid {
+			if err := jsonv2.Unmarshal([]byte(raw.String), &facts); err != nil {
+				return page, fmt.Errorf("mariadb: decode filter metadata: %w", err)
+			}
+		}
+		values, err := facts.Values()
+		if err != nil {
+			return page, fmt.Errorf("mariadb: decode filter values: %w", err)
+		}
+		match, err := filter.Match(predicate, values)
+		if err != nil {
+			return page, fmt.Errorf("mariadb: evaluate filter: %w", err)
+		}
+		page.lastID = id
+		page.count++
+		if match {
+			page.ids = append(page.ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return page, fmt.Errorf("mariadb: read filter metadata: %w", err)
+	}
+	return page, nil
 }
 
-func unmarshalMetadata(b []byte) (metadata.Map, error) {
-	if len(b) == 0 {
+// Validate every row before embedding or deletion. Paging bounds wire arguments
+// and retained IDs; a second pass projects matches from the same transaction.
+// Serializable reads prevent DELETE's current reads from racing that snapshot.
+func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate, readOnly bool) (*sql.Tx, error) {
+	if predicate == nil {
 		return nil, nil
 	}
-	var out metadata.Map
-	if err := jsonv2.Unmarshal(b, &out); err != nil {
-		return nil, err
+	isolation := sql.LevelSerializable
+	if readOnly {
+		isolation = sql.LevelRepeatableRead
 	}
-	return out, nil
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: isolation, ReadOnly: readOnly})
+	if err != nil {
+		return nil, fmt.Errorf("mariadb: begin filter transaction: %w", err)
+	}
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
+		if pageErr != nil {
+			return transaction, pageErr
+		}
+		if page.count < filterPageSize {
+			return transaction, nil
+		}
+		lastID = page.lastID
+	}
+}
+
+func finishTransaction(transaction *sql.Tx, err *error) {
+	if transaction == nil {
+		return
+	}
+	if *err == nil {
+		if commitErr := transaction.Commit(); commitErr != nil {
+			*err = fmt.Errorf("mariadb: commit filter transaction: %w", commitErr)
+		}
+		return
+	}
+	if rollbackErr := transaction.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+		*err = errors.Join(*err, fmt.Errorf("mariadb: rollback filter transaction: %w", rollbackErr))
+	}
 }

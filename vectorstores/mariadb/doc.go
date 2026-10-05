@@ -1,45 +1,34 @@
-// Package mariadb exposes MariaDB's native VECTOR column type
-// through the Core vector-store capability interfaces. Documents live in a regular MariaDB table
-// (id / content / metadata JSON / embedding VECTOR) reached through
-// `database/sql` + the go-sql-driver/mysql driver.
-// Documents containing media are rejected before indexing I/O because this
-// adapter persists document text and metadata only.
+// Package mariadb implements Core vector-store capabilities using MariaDB's
+// native VECTOR columns, JSON metadata, and database/sql. The host supplies a
+// database handle, typically using github.com/go-sql-driver/mysql, and owns its
+// lifecycle. Community Server 11.7+ or Enterprise Server 11.4.5-3+ is required.
 //
-// Requirements: MariaDB Community Server 11.7+, or Enterprise Server 11.4.5-3+
-// — "vectors are available from MariaDB Community Server 11.7 and from MariaDB
-// Enterprise Server 11.4.5-3". 11.7 is a rolling release; 11.8 is the first LTS
-// to include vectors. There is no 11.6 with vector support.
+// Construction verifies the current identity schema even when
+// StoreConfig.InitializeSchema is false. Documents use a VARBINARY(3072) NOT NULL
+// primary key so case, accents, trailing spaces, and embedded NUL bytes cannot
+// alias another ID. The table must use InnoDB, and every uniqueness constraint
+// must identify a document solely by that ID. Existing VARCHAR-ID tables must
+// be rebuilt; the adapter does not migrate or read an obsolete schema. IDs over
+// 3072 bytes and documents containing media are rejected before indexing I/O.
 //
-// Distance metrics: [DistanceCosine] (uses `vec_distance_cosine`) /
-// [DistanceEuclidean] (uses `vec_distance_euclidean`). A MariaDB vector index
-// is built for one distance function and serves only queries that name that
-// same function, so [StoreConfig.InitializeSchema] states the configured metric
-// as the index's DISTANCE option. A table provisioned elsewhere must declare
-// the matching DISTANCE, or searches fall back to a full table scan and still
-// return correct rows — a degradation nothing surfaces.
+// Metadata JSON is the sole stored filter representation. Core filter.Match
+// is the sole evaluator, including exact numbers, typed selectors, null/missing
+// truth, immediate array membership, LIKE, and error short circuits. A filter
+// scans metadata in bounded pages before embedding or deletion, then projects
+// matching IDs from that same transaction into native ranking or deletion.
+// Searches retain a repeatable-read snapshot; deletes use serializable reads
+// and commit all matching deletions together. This requires a metadata scan,
+// with bounded retained IDs rather than a table-sized client-side result set.
 //
-// Vector binding. MariaDB accepts vectors through the `VEC_FromText`
-// function — the store renders `[v1,v2,...]` as a literal and lets
-// MariaDB parse it. Typed binary binding isn't exposed by the Go
-// driver yet, but the textual form is fully supported.
+// DistanceMetric selects the native distance function. Searches rank primary
+// table rows directly, with exact ID ordering for distance ties, then apply
+// MinScore. The native ANN index can omit existing rows after replacement and
+// is excluded from queries even when a host provisioned one externally. Schema
+// initialization creates a VECTOR column without an ANN index; this trades
+// approximate-search acceleration for consistent visibility and filter truth.
 //
-// Filter visitor reaches into the JSON metadata column with
-// `JSON_VALUE(metadata, '$.k')`, wrapping numeric comparisons in
-// `CAST(... AS DECIMAL(65,30))` so range queries don't fall back to
-// lexicographic ordering.
-//
-// Partial writes. Index prepares one upsert and runs it per document without
-// wrapping the batch in a transaction, so a failure leaves the rows already
-// written in place. The returned error names the id that failed, and repeating
-// the call is safe because the statement is idempotent per row.
-//
-// Numeric comparisons cast to DECIMAL, not DOUBLE. DOUBLE is an approximate
-// type whose 53-bit mantissa cannot hold every int64, so an id or timestamp
-// past 2^53 would compare equal to its neighbor and match the wrong row.
-// DECIMAL stores exact values up to the documented 65 digits, which covers
-// every integer the filter AST can carry — and the AST compares as a rational
-// precisely so an integer is never rounded to a float's precision.
-//
-// See https://mariadb.com/kb/en/vector-overview/ for the official
-// reference.
+// Index validates the whole request, embeds batches, and upserts each document.
+// Writes are not atomic across documents: a failure may leave earlier rows
+// stored. Vector values are bound as JSON text through VEC_FromText. Nil and
+// empty metadata retain their distinct JSON encodings.
 package mariadb
