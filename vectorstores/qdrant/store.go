@@ -176,7 +176,7 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements [vectorstore.Store] against a Qdrant collection. The
+// Store implements the Core vector-store capabilities against a Qdrant collection. The
 // distance metric is held here because Qdrant's score direction and threshold
 // semantics depend on the metric the collection was created with.
 type Store struct {
@@ -737,10 +737,17 @@ func parsePointID(id string) (*qdrant.PointId, error) {
 	if number, err := strconv.ParseUint(id, 10, 64); err == nil && strconv.FormatUint(number, 10) == id {
 		return qdrant.NewIDNum(number), nil
 	}
-	if err := uuid.Validate(id); err != nil {
-		return nil, fmt.Errorf("%w %q: must be a canonical uint64 or UUID", ErrInvalidPointID, id)
+	if !isCanonicalUUID(id) {
+		return nil, fmt.Errorf("%w %q: must be a canonical uint64 or lowercase hyphenated UUID", ErrInvalidPointID, id)
 	}
-	return qdrant.NewID(id), nil
+	return qdrant.NewIDUUID(id), nil
+}
+
+// UUID aliases address one native point, so accepting them would merge distinct
+// caller-assigned IDs and change the ID returned by a subsequent search.
+func isCanonicalUUID(id string) bool {
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed.String() == id
 }
 
 func formatPointID(id *qdrant.PointId) (string, error) {
@@ -751,8 +758,8 @@ func formatPointID(id *qdrant.PointId) (string, error) {
 	case *qdrant.PointId_Num:
 		return strconv.FormatUint(value.Num, 10), nil
 	case *qdrant.PointId_Uuid:
-		if err := uuid.Validate(value.Uuid); err != nil {
-			return "", fmt.Errorf("%w %q: query result UUID is invalid", ErrInvalidPointID, value.Uuid)
+		if !isCanonicalUUID(value.Uuid) {
+			return "", fmt.Errorf("%w %q: query result UUID must be lowercase and hyphenated", ErrInvalidPointID, value.Uuid)
 		}
 		return value.Uuid, nil
 	default:

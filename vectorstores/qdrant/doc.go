@@ -4,6 +4,13 @@
 // Documents containing media are rejected before indexing I/O because this
 // adapter persists document text and metadata only.
 //
+// Document IDs must be canonical decimal uint64 values or lowercase hyphenated
+// UUIDs. Qdrant maps UUID aliases to one native point and renders a canonical
+// UUID on read, so accepting aliases would overwrite distinct caller IDs and
+// change their returned values. [Store.Index] and [Store.DeleteIDs] reject other
+// spellings before embedding or mutation I/O; query results and scroll cursors
+// follow the same ID rule. The native point ID is the sole stored identity.
+//
 // Requirements: a reachable Qdrant server (self-hosted or Qdrant
 // Cloud). The store uses the official qdrant-client-go gRPC client.
 //
