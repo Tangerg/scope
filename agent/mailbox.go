@@ -421,11 +421,11 @@ func (w waitOpeningWire) wait() (waitRecord, error) {
 	}
 }
 
+// kind is the kind of the wait this opening restores; validated captures
+// always restore one.
 func (w waitOpeningWire) kind() WaitKind {
-	if w.Spec != nil {
-		return WaitKindChildren
-	}
-	return WaitKindExternal
+	wait, _ := w.wait()
+	return wait.kind()
 }
 
 type mailboxWire struct {

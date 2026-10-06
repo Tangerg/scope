@@ -41,10 +41,10 @@ type DispatcherConfig struct {
 // immutable after construction and may serve Processes concurrently when the
 // supplied model capability supports concurrent use.
 type Dispatcher struct {
-	model               chat.Model
-	streamer            chat.Streamer
-	initialDefinitions  []chat.ToolDefinition
-	tools               toolManifest
+	model    chat.Model
+	streamer chat.Streamer
+	// definition owns the Tool manifest and Delegates the model may call.
+	definition          *Definition
 	observer            ModelObserver
 	observationFailures observationFailureCounters
 	contextReducer      ModelContextReducer
@@ -82,13 +82,9 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	limit := cmp.Or(config.MaxResponseBytes, agent.MaxPayloadBytes)
 	dispatcher := &Dispatcher{
 		model: config.Model, streamer: config.Streamer, observer: config.Observer,
-		contextReducer:     config.ModelContextReducer,
-		maxResponseBytes:   limit,
-		initialDefinitions: cloneDefinitions(definition.tools.initialDefinitions),
-		tools:              definition.tools,
-	}
-	for _, delegate := range definition.delegates {
-		dispatcher.initialDefinitions = append(dispatcher.initialDefinitions, delegate.definition.Clone())
+		contextReducer:   config.ModelContextReducer,
+		maxResponseBytes: limit,
+		definition:       definition,
 	}
 	return dispatcher, nil
 }
@@ -217,12 +213,16 @@ func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *ch
 }
 
 func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.ToolDefinition, error) {
-	if err := d.tools.validateAdvertisements(advertisedToolNames); err != nil {
+	tools := d.definition.tools
+	if err := tools.validateAdvertisements(advertisedToolNames); err != nil {
 		return nil, fmt.Errorf("interaction: advertised Tools: %w", err)
 	}
-	definitions := cloneDefinitions(d.initialDefinitions)
+	definitions := cloneDefinitions(tools.initialDefinitions)
+	for _, delegate := range d.definition.delegates {
+		definitions = append(definitions, delegate.definition.Clone())
+	}
 	for _, name := range advertisedToolNames {
-		definitions = append(definitions, d.tools.entries[name].contract.Definition())
+		definitions = append(definitions, tools.entries[name].contract.Definition())
 	}
 	return definitions, nil
 }

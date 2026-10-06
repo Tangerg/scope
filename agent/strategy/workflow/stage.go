@@ -127,9 +127,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q input: %w", id, err)
 		}
-		if validateInputErr := inputSchema.Validate(input.JSON()); validateInputErr != nil {
-			return nil, fmt.Errorf("transform %q input contract: %w", id, validateInputErr)
-		}
+		// The value's producer and Restore already hold it to this Stage's input.
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return nil, fmt.Errorf("transform %q decode input: %w", id, err)

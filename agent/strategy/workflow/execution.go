@@ -257,9 +257,6 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		}
 		return agent.Transition{}, err
 	}
-	if uint32(len(inputs)) != min(stage.fanout.windowSize, count-start) {
-		return agent.Transition{}, ErrInvalidExecutionState
-	}
 	if start == count {
 		value, err := stage.fanout.complete(ctx, e.state.CurrentValue, e.state.CompletedFanoutOutputs)
 		if err != nil {
@@ -298,19 +295,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 }
 
 func (e *execution) fanoutBatch() (childcall.Batch, error) {
-	batch := childcall.Batch{Children: make([]childcall.Child, len(e.state.ActiveFanoutWindow))}
-	if e.state.FanoutWaitID != nil {
-		batch.WaitID = *e.state.FanoutWaitID
-	}
-	for offset, progress := range e.state.ActiveFanoutWindow {
-		index := e.state.fanoutWindowStart() + uint32(offset)
-		key, err := e.fanoutChildKey(index)
-		if err != nil {
-			return childcall.Batch{}, err
-		}
-		batch.Children[offset] = progress.child(key)
-	}
-	return batch, nil
+	return e.state.fanoutBatch(e.stage())
 }
 
 func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition, error) {
@@ -422,11 +407,15 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 }
 
 func (e *execution) fanoutChildKey(index uint32) (agent.ChildKey, error) {
-	member, found := e.stage().fanout.source.member(index)
+	return fanoutChildKey(e.stage(), index)
+}
+
+func fanoutChildKey(stage Stage, index uint32) (agent.ChildKey, error) {
+	member, found := stage.fanout.source.member(index)
 	if !found {
 		return agent.ChildKey{}, ErrInvalidExecutionState
 	}
-	return workflowChildKey(string(e.stage().kind), e.stage().id, member.id)
+	return workflowChildKey(string(stage.kind), stage.id, member.id)
 }
 
 func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {
