@@ -201,9 +201,10 @@ func (u UnresolvedEffect) compare(other UnresolvedEffect) int {
 // wait that produced it owns the child's key and boundary.
 type ChildOutcome struct {
 	result Result
-	// subtreeUnresolvedEffects is present exactly at a drained boundary, where
-	// an empty list proves the subtree resolved.
-	subtreeUnresolvedEffects *[]UnresolvedEffect
+	// descendantUnresolvedEffects is present exactly at a drained boundary,
+	// where an empty list proves the descendants resolved. The child's own
+	// unresolved Effects belong to its Termination and are not repeated here.
+	descendantUnresolvedEffects *[]UnresolvedEffect
 }
 
 func (c ChildOutcome) Result() Result { return c.result }
@@ -212,47 +213,47 @@ func (c ChildOutcome) Result() Result { return c.result }
 // projection including this child and all descendants. The boolean is true only
 // for a drained subtree; false must not be interpreted as an empty subtree.
 func (c ChildOutcome) SubtreeUnresolvedEffects() ([]UnresolvedEffect, bool) {
-	if c.subtreeUnresolvedEffects == nil {
+	if c.descendantUnresolvedEffects == nil {
 		return nil, false
 	}
-	return slices.Clone(*c.subtreeUnresolvedEffects), true
+	effects := slices.Clone(*c.descendantUnresolvedEffects)
+	for _, effectID := range c.result.Termination().UnresolvedEffectIDs() {
+		effects = append(effects, UnresolvedEffect{ProcessID: c.result.ProcessID(), EffectID: effectID})
+	}
+	slices.SortFunc(effects, UnresolvedEffect.compare)
+	return effects, true
 }
 
 // SubtreeResolved reports whether this outcome proves that the child and all
 // of its descendants drained without retained Unknown settlements. A
 // terminal-result outcome proves nothing about the subtree and reports false.
 func (c ChildOutcome) SubtreeResolved() bool {
-	return c.subtreeUnresolvedEffects != nil && len(*c.subtreeUnresolvedEffects) == 0
+	return c.descendantUnresolvedEffects != nil && len(*c.descendantUnresolvedEffects) == 0 &&
+		len(c.result.Termination().UnresolvedEffectIDs()) == 0
 }
 
-func (c ChildOutcome) drained() bool { return c.subtreeUnresolvedEffects != nil }
+func (c ChildOutcome) drained() bool { return c.descendantUnresolvedEffects != nil }
 
 func (c ChildOutcome) Valid() bool {
 	if !c.result.Valid() {
 		return false
 	}
-	if c.subtreeUnresolvedEffects == nil {
+	if c.descendantUnresolvedEffects == nil {
 		return true
 	}
-	effects := *c.subtreeUnresolvedEffects
-	var own []EffectID
+	effects := *c.descendantUnresolvedEffects
 	for index, effect := range effects {
-		if !effect.Valid() || index > 0 && effects[index-1].compare(effect) >= 0 {
+		if !effect.Valid() || effect.ProcessID == c.result.ProcessID() || index > 0 && effects[index-1].compare(effect) >= 0 {
 			return false
 		}
-		if effect.ProcessID == c.result.ProcessID() {
-			own = append(own, effect.EffectID)
-		}
 	}
-	// Both sides are canonically ordered, so the child's own entries must equal
-	// the unresolved identities its Termination retains.
-	return slices.Equal(own, c.result.Termination().UnresolvedEffectIDs())
+	return true
 }
 
 func (c ChildOutcome) wire() childOutcomeWire {
 	wire := childOutcomeWire{Result: c.result.wire()}
-	if c.subtreeUnresolvedEffects != nil {
-		wire.SubtreeUnresolvedEffects = new(slices.Clone(*c.subtreeUnresolvedEffects))
+	if c.descendantUnresolvedEffects != nil {
+		wire.DescendantUnresolvedEffects = new(slices.Clone(*c.descendantUnresolvedEffects))
 	}
 	return wire
 }
@@ -396,11 +397,11 @@ type childWaitSatisfiedWire struct {
 	Outcomes  []childOutcomeWire  `json:"outcomes"`
 }
 
-// childOutcomeWire keeps an explicitly empty subtree list: its presence is
-// what distinguishes a resolved drained subtree from a terminal result.
+// childOutcomeWire keeps an explicitly empty descendant list: its presence is
+// what distinguishes a drained subtree from a terminal result.
 type childOutcomeWire struct {
-	Result                   resultWire          `json:"result"`
-	SubtreeUnresolvedEffects *[]UnresolvedEffect `json:"subtree_unresolved_effects,omitzero"`
+	Result                      resultWire          `json:"result"`
+	DescendantUnresolvedEffects *[]UnresolvedEffect `json:"descendant_unresolved_effects,omitzero"`
 }
 
 type resultWire struct {
@@ -456,8 +457,8 @@ func (c childOutcomeWire) value() (ChildOutcome, error) {
 		return ChildOutcome{}, err
 	}
 	outcome := ChildOutcome{result: result}
-	if c.SubtreeUnresolvedEffects != nil {
-		outcome.subtreeUnresolvedEffects = new(append([]UnresolvedEffect{}, *c.SubtreeUnresolvedEffects...))
+	if c.DescendantUnresolvedEffects != nil {
+		outcome.descendantUnresolvedEffects = new(append([]UnresolvedEffect{}, *c.DescendantUnresolvedEffects...))
 	}
 	if !outcome.Valid() {
 		return ChildOutcome{}, ErrInvalidChildWait

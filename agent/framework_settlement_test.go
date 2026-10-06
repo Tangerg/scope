@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,7 +48,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
-	completed := controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{})}}))
+	completed := controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	for _, test := range []struct {
 		name   string
 		signal Signal
@@ -205,7 +207,7 @@ func TestChildOutcomeDrainedSubtreeSurvivesEmptyRoundTrip(t *testing.T) {
 	for _, drained := range []bool{false, true} {
 		outcome := ChildOutcome{result: result}
 		if drained {
-			outcome.subtreeUnresolvedEffects = new([]UnresolvedEffect{})
+			outcome.descendantUnresolvedEffects = new([]UnresolvedEffect{})
 		}
 		data := controlValue(jsonv2.Marshal(outcome))
 		var restored ChildOutcome
@@ -221,13 +223,40 @@ func TestChildOutcomeDrainedSubtreeSurvivesEmptyRoundTrip(t *testing.T) {
 		}
 	}
 	descendant := controlValue(ParseProcessID("grandchild"))
-	outcome := ChildOutcome{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}})}
+	outcome := ChildOutcome{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}})}
 	if !outcome.Valid() || outcome.SubtreeResolved() {
 		t.Fatal("a drained subtree with retained Unknown settlements reported resolved")
 	}
-	outcome.subtreeUnresolvedEffects = new([]UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}})
+	outcome.descendantUnresolvedEffects = new([]UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}})
 	if outcome.Valid() {
-		t.Fatal("subtree evidence contradicted the child's own termination")
+		t.Fatal("descendant evidence repeated the child's own termination")
+	}
+}
+
+func TestChildOutcomeRendersOwnUnresolvedEffectsFromTermination(t *testing.T) {
+	id := controlValue(ParseProcessID("child"))
+	descendant := controlValue(ParseProcessID("grandchild"))
+	now := time.Unix(1, 0).UTC()
+	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "failed"))
+	outcome := ChildOutcome{
+		result: Result{
+			processID: id, startedAt: now, finishedAt: now,
+			termination: failure.termination().withUnresolvedEffectIDs([]EffectID{id.effectID(1, 0)}),
+		},
+		descendantUnresolvedEffects: new([]UnresolvedEffect{{ProcessID: descendant, EffectID: descendant.effectID(1, 0)}}),
+	}
+	data := controlValue(jsonv2.Marshal(outcome))
+	if strings.Count(string(data), id.effectID(1, 0).String()) != 1 {
+		t.Fatalf("own unresolved Effect is not stored exactly once: %s", data)
+	}
+	var restored ChildOutcome
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	want := []UnresolvedEffect{{ProcessID: id, EffectID: id.effectID(1, 0)}, {ProcessID: descendant, EffectID: descendant.effectID(1, 0)}}
+	slices.SortFunc(want, UnresolvedEffect.compare)
+	if got, drained := restored.SubtreeUnresolvedEffects(); !drained || !slices.Equal(got, want) || restored.SubtreeResolved() {
+		t.Fatalf("subtree projection = %v, drained=%t; want %v", got, drained, want)
 	}
 }
 
