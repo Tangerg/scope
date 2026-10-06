@@ -84,8 +84,9 @@ func (s signalRecord) wire() signalRecordWire {
 type waitRecord struct {
 	externalKey WaitKey
 	child       *ChildWaitSpec
-	answered    bool
-	closed      bool
+	// answer is the index of the record that answered the wait. The mailbox
+	// cursor owns consumption, so the wait closes when the cursor passes it.
+	answer *uint64
 }
 
 func newChildWaitRecord(spec ChildWaitSpec) waitRecord {
@@ -180,7 +181,7 @@ func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool
 		return true, nil
 	}
 	wait, exists := s.waits[record.waitID]
-	if !exists || !wait.answerableBy(record.source()) || wait.closed || wait.answered {
+	if !exists || !wait.answerableBy(record.source()) || wait.answer != nil {
 		return false, ErrSignalRejected
 	}
 	return true, nil
@@ -199,7 +200,7 @@ func (s *signalMailbox) validateDuplicate(existing, record signalRecord) error {
 func (s *signalMailbox) acceptRecord(record signalRecord) {
 	if record.waitID.Valid() {
 		wait := s.waits[record.waitID]
-		wait.answered = true
+		wait.answer = new(uint64(len(s.records)))
 		s.waits[record.waitID] = wait
 	}
 	s.appendRecord(record)
@@ -249,7 +250,7 @@ func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) err
 		return fmt.Errorf("%w: duplicate opening SignalID", errWaitState)
 	}
 	for _, wait := range s.waits {
-		if wait.key() == key && !wait.closed {
+		if wait.key() == key && !s.closed(wait) {
 			return fmt.Errorf("%w: wait key is already open", errWaitState)
 		}
 	}
@@ -266,7 +267,7 @@ func (s *signalMailbox) appendRecord(record signalRecord) {
 // awaited returns entered while this mailbox has not answered it: the wait a
 // Step entered keeps its Process Waiting only until its answer arrives.
 func (s *signalMailbox) awaited(entered WaitID) WaitID {
-	if !entered.Valid() || s.waits[entered].answered {
+	if !entered.Valid() || s.waits[entered].answer != nil {
 		return WaitID{}
 	}
 	return entered
@@ -276,20 +277,15 @@ func (s *signalMailbox) awaited(entered WaitID) WaitID {
 // Process runnable without another transition.
 func (s *signalMailbox) enterWait(id WaitID) error {
 	record, exists := s.waits[id]
-	if !exists || record.closed {
+	if !exists || s.closed(record) {
 		return errWaitState
 	}
 	return nil
 }
 
-func (s *signalMailbox) closeWait(id WaitID) error {
-	record, exists := s.waits[id]
-	if !exists || record.closed {
-		return errWaitState
-	}
-	record.closed = true
-	s.waits[id] = record
-	return nil
+// closed reports whether a Step consumed the wait's answer.
+func (s *signalMailbox) closed(wait waitRecord) bool {
+	return wait.answer != nil && *wait.answer < s.signalCursor
 }
 
 func (s *signalMailbox) pending() []Signal {
@@ -312,15 +308,9 @@ func (s *signalMailbox) commit(consumedSignals uint32) error {
 		return errMailboxCursor
 	}
 	for index := s.signalCursor; index < s.signalCursor+uint64(consumedSignals); index++ {
-		record := &s.records[index]
-		if waitID := record.waitID; waitID.Valid() && !record.opensWait {
-			if err := s.closeWait(waitID); err != nil {
-				return err
-			}
-		}
 		// Candidate adoption owns consumption; history only needs identity,
 		// content agreement, and wait facts after that boundary.
-		record.payload = nil
+		s.records[index].payload = nil
 	}
 	s.signalCursor += uint64(consumedSignals)
 	return nil
@@ -590,7 +580,7 @@ type openedChildWait struct {
 func (s *signalMailbox) openChildWaits() []openedChildWait {
 	var waits []openedChildWait
 	for id, wait := range s.waits {
-		if wait.child != nil && !wait.closed {
+		if wait.child != nil && !s.closed(wait) {
 			waits = append(waits, openedChildWait{waitID: id, spec: *wait.child})
 		}
 	}
@@ -605,7 +595,7 @@ func (s *signalMailbox) openChildWaits() []openedChildWait {
 func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBoundary) []openedChildWait {
 	var waits []openedChildWait
 	for _, opened := range s.openChildWaits() {
-		if !s.waits[opened.waitID].answered && opened.spec.Boundary == boundary &&
+		if s.waits[opened.waitID].answer == nil && opened.spec.Boundary == boundary &&
 			slices.Contains(opened.spec.Children, childID) {
 			waits = append(waits, opened)
 		}

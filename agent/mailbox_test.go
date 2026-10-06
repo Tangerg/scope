@@ -167,7 +167,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 		t.Fatalf("early answer enqueue = %t, %v", accepted, err)
 	}
 	err = mailbox.enterWait(waitID)
-	if answered := mailbox.waits[waitID].answered; err != nil || !answered {
+	if answered := mailbox.waits[waitID].answer != nil; err != nil || !answered {
 		t.Fatalf("enter answered wait: answered=%t, %v", answered, err)
 	}
 
@@ -176,7 +176,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	if _, err := mailbox.enqueue(StatusWaiting, second, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("second answer error = %v, want ErrSignalRejected", err)
 	}
-	if err := mailbox.closeWait(waitID); err != nil {
+	if err := mailbox.commit(uint32(mailbox.pendingCount())); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := mailbox.enqueue(StatusWaiting, second, signalSourceExternal); !errors.Is(err, ErrSignalRejected) {
@@ -256,8 +256,8 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	if err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	if err := mailbox.enterWait(waitID); err != nil || mailbox.waits[waitID].answered {
-		t.Fatalf("enter open wait: answered=%t, %v", mailbox.waits[waitID].answered, err)
+	if err := mailbox.enterWait(waitID); err != nil || mailbox.waits[waitID].answer != nil {
+		t.Fatalf("enter open wait: answered=%t, %v", mailbox.waits[waitID].answer != nil, err)
 	}
 }
 
@@ -371,8 +371,8 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)
-				if err := mailbox.enterWait(id); err != nil || mailbox.waits[id].answered {
-					t.Fatalf("unanswered wait answered=%t error=%v", mailbox.waits[id].answered, err)
+				if err := mailbox.enterWait(id); err != nil || mailbox.waits[id].answer != nil {
+					t.Fatalf("unanswered wait answered=%t error=%v", mailbox.waits[id].answer != nil, err)
 				}
 				answerID := "signal:answer-" + strconv.Itoa(index)
 				if kind == WaitKindChildren {
@@ -394,8 +394,8 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)
-				if err := mailbox.enterWait(id); err != nil || !mailbox.waits[id].answered {
-					t.Fatalf("early answer answered=%t error=%v", mailbox.waits[id].answered, err)
+				if err := mailbox.enterWait(id); err != nil || mailbox.waits[id].answer == nil {
+					t.Fatalf("early answer answered=%t error=%v", mailbox.waits[id].answer != nil, err)
 				}
 				if err := mailbox.commit(1); err != nil {
 					t.Fatal(err)
