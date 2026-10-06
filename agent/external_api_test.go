@@ -76,8 +76,8 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if decorator.attempts.Load() != 1 || decorator.ReplayPolicy(expectedEffect) != agent.ReplayPolicyNever {
-		t.Fatalf("attempts=%d replay policy=%s", decorator.attempts.Load(), decorator.ReplayPolicy(expectedEffect))
+	if decorator.attempts.Load() != 1 || decorator.Policy(expectedEffect).Replay != agent.ReplayPolicyNever {
+		t.Fatalf("attempts=%d replay policy=%s", decorator.attempts.Load(), decorator.Policy(expectedEffect).Replay)
 	}
 	if dispatcher.Remaining() != 0 || len(dispatcher.Requests()) != 1 {
 		t.Fatalf("remaining dispatches=%d requests=%d", dispatcher.Remaining(), len(dispatcher.Requests()))
@@ -98,7 +98,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 		decorator := &countingDispatcher{next: echoDispatcher{}}
 		var deltas []json.RawMessage
 		for range 2 {
-			if decorator.ReplayPolicy(request.Effect()) != agent.ReplayPolicySameIdentity {
+			if decorator.Policy(request.Effect()).Replay != agent.ReplayPolicySameIdentity {
 				t.Fatal("decoration changed replay policy")
 			}
 			settlement, err := decorator.Dispatch(t.Context(), request, func(payload json.RawMessage) {

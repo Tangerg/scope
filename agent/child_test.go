@@ -1133,7 +1133,9 @@ func (childTestDispatcher) Dispatch(context.Context, EffectRequest, DeltaEmitter
 	return Settlement{}, errors.New("child test has no dispatcher Effects")
 }
 
-func (childTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (childTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 type contextCheckingChildDispatcher struct {
 	key  any
@@ -1154,7 +1156,9 @@ func (c contextCheckingChildDispatcher) Dispatch(
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
-func (contextCheckingChildDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (contextCheckingChildDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 type blockingChildDispatcher struct {
 	started  chan string
@@ -1191,7 +1195,9 @@ func (b *blockingChildDispatcher) Dispatch(
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
-func (*blockingChildDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (*blockingChildDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func (b *blockingChildDispatcher) Release(name string) {
 	if release := b.releases[name]; release != nil {

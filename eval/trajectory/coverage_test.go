@@ -343,6 +343,6 @@ func (c *coverageReplayDispatcher) Dispatch(_ context.Context, request agent.Eff
 	return agent.NewSettlement(agent.SettlementStatusSucceeded, []byte(`{"value":"confirmed"}`))
 }
 
-func (*coverageReplayDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicySameIdentity
+func (*coverageReplayDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }

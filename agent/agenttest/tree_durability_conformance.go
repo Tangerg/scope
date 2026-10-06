@@ -643,8 +643,8 @@ func (c conformanceDispatcher) Dispatch(
 	return agent.NewSettlement(status, payload)
 }
 
-func (conformanceDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (conformanceDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 func newConformanceEngine(t *testing.T, committer agent.TreeCommitter) *agent.Engine {

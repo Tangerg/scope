@@ -698,8 +698,8 @@ func (testDispatcher) Dispatch(
 	return agent.NewSettlement(status, payload)
 }
 
-func (testDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicySameIdentity
+func (testDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 
 func testDeployment(t testing.TB) agent.Deployment {

@@ -158,7 +158,7 @@ func (c *cancellationRecoveryDispatcher) Dispatch(_ context.Context, request Eff
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
-func (c *cancellationRecoveryDispatcher) ReplayPolicy(Effect) ReplayPolicy {
+func (c *cancellationRecoveryDispatcher) Policy(Effect) EffectPolicy {
 	c.queries.Add(1)
-	return c.policy
+	return EffectPolicy{Replay: c.policy}
 }

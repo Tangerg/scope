@@ -162,8 +162,8 @@ type recordingTimer struct {
 	requests []agent.EffectID
 }
 
-func (r *recordingTimer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return (coordination.DeadlineDispatcher{}).ReplayPolicy(effect)
+func (r *recordingTimer) Policy(effect agent.Effect) agent.EffectPolicy {
+	return (coordination.DeadlineDispatcher{}).Policy(effect)
 }
 
 func (r *recordingTimer) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {

@@ -79,9 +79,8 @@ func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor)
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors
 // and valid ActionResult failures are definite failed settlements; an
-// ActionExecutor error leaves the Effect outcome unknown. Action Effects must
-// declare every capability required by the frozen binding before execution.
-// Local protocol or binding rejection returns a Failed host_error settlement;
+// ActionExecutor error leaves the Effect outcome unknown. The Engine enforces
+// the capabilities Policy declares for each Action before dispatch. Local protocol or binding rejection returns a Failed host_error settlement;
 // Execution consumes it as a contract failure without another external attempt.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
@@ -112,15 +111,20 @@ func (d *Dispatcher) Dispatch(
 	}
 }
 
-// ReplayPolicy permits same-identity replay only for side-effect-free
-// sensing. Action Effects may have irreversible external consequences and
-// always require explicit resolution after an unknown attempt.
-func (*Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+// Policy permits same-identity replay only for side-effect-free sensing.
+// Action Effects may have irreversible external consequences and always
+// require explicit resolution after an unknown attempt; each requires the
+// capabilities its frozen binding declares.
+func (d *Dispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
 	envelope, err := decodeEffect(effect.Payload())
 	if err == nil && envelope.operation() == operationSense {
-		return agent.ReplayPolicySameIdentity
+		return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 	}
-	return agent.ReplayPolicyNever
+	policy := agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+	if err == nil && d != nil {
+		policy.RequiredCapabilities = d.executors[envelope.Action.Name].required
+	}
+	return policy
 }
 
 func (d *Dispatcher) sense(
@@ -148,8 +152,7 @@ func (d *Dispatcher) execute(
 	call actionCall,
 ) (agent.Settlement, error) {
 	bound, found := d.executors[call.Name]
-	if !found || !bound.action.Applicable(call.WorldState) ||
-		!effectRequest.Effect().RequiredCapabilities().Allows(bound.required) {
+	if !found || !bound.action.Applicable(call.WorldState) {
 		return planningFailureSettlement(fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
 	}
 	request := ActionRequest{

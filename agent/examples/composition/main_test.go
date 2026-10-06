@@ -313,8 +313,8 @@ func (l *lostResponseDispatcher) Dispatch(ctx context.Context, request agent.Eff
 	}
 }
 
-func (*lostResponseDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (*lostResponseDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 func TestCompositionRestoresEverySignalBoundary(t *testing.T) {

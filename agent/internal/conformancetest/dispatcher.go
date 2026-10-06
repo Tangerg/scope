@@ -98,8 +98,8 @@ type rejectionDispatcher struct {
 	outcome chan dispatchOutcome
 }
 
-func (r *rejectionDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return r.next.ReplayPolicy(effect)
+func (r *rejectionDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
+	return r.next.Policy(effect)
 }
 func (r *rejectionDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	settlement, err := r.next.Dispatch(ctx, request, emit)

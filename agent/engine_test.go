@@ -96,7 +96,7 @@ func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
 		release()
 		mustCloseEngine(t, engine)
 	})
-	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	input, _ := EncodePayload(engineTestInput{Value: "running"})
 	process, err := engine.Start(t.Context(), deployment, input)
 	if err != nil {
@@ -133,7 +133,7 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 			t.Cleanup(func() { mustCloseEngine(t, engine) })
 			release := sync.OnceFunc(func() { close(definition.release) })
 			t.Cleanup(release)
-			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 			input, _ := EncodePayload(engineTestInput{Value: "original"})
 			process, err := engine.Start(t.Context(), deployment, input)
 			if err != nil {
@@ -446,12 +446,13 @@ func (e *engineTestExecution) Snapshot() (ExecutionState, error) {
 }
 
 type engineTestDispatcher struct {
-	policy  ReplayPolicy
-	calls   atomic.Int32
-	started chan struct{}
-	block   <-chan struct{}
-	check   func() error
-	deltas  int
+	policy   ReplayPolicy
+	required CapabilitySet
+	calls    atomic.Int32
+	started  chan struct{}
+	block    <-chan struct{}
+	check    func() error
+	deltas   int
 }
 
 func (e *engineTestDispatcher) Dispatch(
@@ -489,7 +490,9 @@ func (e *engineTestDispatcher) Dispatch(
 	return NewSettlement(SettlementStatusSucceeded, payload)
 }
 
-func (e *engineTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return e.policy }
+func (e *engineTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: e.policy, RequiredCapabilities: e.required}
+}
 
 type failingEngineTestDispatcher struct {
 	calls atomic.Int32
@@ -516,7 +519,9 @@ func (p *partialBatchDispatcher) Dispatch(
 	return NewSettlement(SettlementStatusSucceeded, payload)
 }
 
-func (*partialBatchDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (*partialBatchDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func (f *failingEngineTestDispatcher) Dispatch(
 	context.Context,
@@ -527,7 +532,9 @@ func (f *failingEngineTestDispatcher) Dispatch(
 	return Settlement{}, errors.New("external result is unknown")
 }
 
-func (*failingEngineTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (*failingEngineTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")

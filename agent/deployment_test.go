@@ -13,7 +13,9 @@ func (*deploymentTestDispatcher) Dispatch(_ context.Context, request EffectReque
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 }
 
-func (*deploymentTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicySameIdentity }
+func (*deploymentTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicySameIdentity}
+}
 
 func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 	definition := newTypedFixtureDefinition[wireFixture](t, "deployment.fixture")

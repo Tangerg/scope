@@ -200,8 +200,8 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 // This fixture authorizes replay only for its deterministic in-memory model.
 type replayableTestModelDispatcher struct{ *interaction.Dispatcher }
 
-func (replayableTestModelDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicySameIdentity
+func (replayableTestModelDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 
 func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T) {

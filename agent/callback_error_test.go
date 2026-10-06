@@ -41,7 +41,9 @@ func (r returningErrorCallbacks) Step(context.Context, []Signal) (Transition, er
 	return Transition{}, r.err
 }
 func (r returningErrorCallbacks) Snapshot() (ExecutionState, error) { return ExecutionState{}, r.err }
-func (r returningErrorCallbacks) ReplayPolicy(Effect) ReplayPolicy  { return ReplayPolicyNever }
+func (r returningErrorCallbacks) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 func (r returningErrorCallbacks) Dispatch(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 	return Settlement{}, r.err
 }

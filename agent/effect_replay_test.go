@@ -15,7 +15,7 @@ type replayTestDispatcher struct {
 	dispatch func(context.Context, EffectRequest) (Settlement, error)
 }
 
-func (r replayTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return r.policy }
+func (r replayTestDispatcher) Policy(Effect) EffectPolicy { return EffectPolicy{Replay: r.policy} }
 func (r replayTestDispatcher) Dispatch(ctx context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 	return r.dispatch(ctx, request)
 }
@@ -203,4 +203,41 @@ func TestReplayUnknownEffectRequiresSameIdentityPolicy(t *testing.T) {
 			t.Fatal(joinErr)
 		}
 	})
+}
+
+func TestReplayUnknownEffectRequiresDeclaredCapabilities(t *testing.T) {
+	required := controlValue(ParseCapability("resource.read"))
+	grant := controlValue(NewCapabilitySet(required))
+	dispatcher := &engineTestDispatcher{
+		policy: ReplayPolicySameIdentity, required: grant,
+		check: func() error { return errors.New("remote outcome lost") },
+	}
+	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), Capabilities: grant}))
+	defer mustCloseEngine(t, engine)
+	process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "uncertain"}))))
+	defer func() {
+		_ = process.Kill(context.WithoutCancel(t.Context()), "test complete")
+		_ = process.Join(context.WithoutCancel(t.Context()))
+	}()
+	effectID := waitForUnknownSettlement(t, process).UnknownEffectIDs()[0]
+	tree := controlValue(engine.InspectTree(t.Context(), process.ID()))
+	wire := controlValue(tree.Processes[0].Snapshot.wire())
+	wire.Capabilities = CapabilitySet{}
+	snapshot := controlValue(newTreeSnapshot(treeSnapshotWire{
+		TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
+		ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(wire))},
+	}))
+	restoredEngine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)}))
+	defer mustCloseEngine(t, restoredEngine)
+	restored := controlValue(restoredEngine.RestoreTree(t.Context(), deployment, snapshot))
+	defer func() {
+		_ = restored.Kill(context.WithoutCancel(t.Context()), "test complete")
+		_ = restored.Join(context.WithoutCancel(t.Context()))
+	}()
+	calls := dispatcher.calls.Load()
+	err := restored.ReplayUnknownEffect(t.Context(), effectID)
+	if !errors.Is(err, ErrEffectReplayForbidden) || !errors.Is(err, ErrInvalidCapability) || dispatcher.calls.Load() != calls {
+		t.Fatalf("replay without the declared capability = %v, dispatches %d -> %d", err, calls, dispatcher.calls.Load())
+	}
 }

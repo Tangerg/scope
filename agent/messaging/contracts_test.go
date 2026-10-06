@@ -46,15 +46,15 @@ func TestMessageValidatesFrozenProtocol(t *testing.T) {
 		if effectErr != nil {
 			t.Fatal(effectErr)
 		}
-		if policy := dispatcher.ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
+		if policy := dispatcher.Policy(effect).Replay; policy != agent.ReplayPolicyNever {
 			t.Fatalf("invalid effect replay=%s payload=%s", policy, payload)
 		}
 	}
-	if policy := dispatcher.ReplayPolicy(agent.Effect{}); policy != agent.ReplayPolicyNever {
+	if policy := dispatcher.Policy(agent.Effect{}).Replay; policy != agent.ReplayPolicyNever {
 		t.Fatalf("zero effect replay=%s", policy)
 	}
 	var absent *messaging.Dispatcher
-	if policy := absent.ReplayPolicy(agent.Effect{}); policy != agent.ReplayPolicyNever {
+	if policy := absent.Policy(agent.Effect{}).Replay; policy != agent.ReplayPolicyNever {
 		t.Fatalf("nil dispatcher replay=%s", policy)
 	}
 	if _, dispatchErr := absent.Dispatch(context.Background(), agent.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {

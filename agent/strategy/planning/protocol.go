@@ -96,7 +96,7 @@ func newActionEffect(input agent.Payload, binding ActionBinding, state WorldStat
 	if err != nil {
 		return agent.Effect{}, err
 	}
-	return agent.NewDispatcherEffect(payload, binding.required.Values()...)
+	return agent.NewDispatcherEffect(payload)
 }
 
 func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {

@@ -6,17 +6,17 @@ import (
 	"fmt"
 )
 
-var errInvalidReplayPolicy = errors.New("agent: invalid Dispatcher replay policy")
+var errInvalidEffectPolicy = errors.New("agent: invalid Dispatcher Effect policy")
 
-func dispatcherReplayPolicy(dispatcher Dispatcher, effect Effect) (ReplayPolicy, error) {
-	policy, err := invokeCallback("Dispatcher.ReplayPolicy", func() (ReplayPolicy, error) {
-		return dispatcher.ReplayPolicy(effect), nil
+func dispatcherEffectPolicy(dispatcher Dispatcher, effect Effect) (EffectPolicy, error) {
+	policy, err := invokeCallback("Dispatcher.Policy", func() (EffectPolicy, error) {
+		return dispatcher.Policy(effect), nil
 	})
 	if err != nil {
-		return ReplayPolicyInvalid, fmt.Errorf("%w: %w", errInvalidReplayPolicy, err)
+		return EffectPolicy{}, fmt.Errorf("%w: %w", errInvalidEffectPolicy, err)
 	}
 	if !policy.Valid() {
-		return ReplayPolicyInvalid, errInvalidReplayPolicy
+		return EffectPolicy{}, errInvalidEffectPolicy
 	}
 	return policy, nil
 }

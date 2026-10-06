@@ -89,7 +89,9 @@ type safetyTimer struct {
 	once    sync.Once
 }
 
-func (s *safetyTimer) ReplayPolicy(agent.Effect) agent.ReplayPolicy { return agent.ReplayPolicyNever }
+func (s *safetyTimer) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+}
 func (s *safetyTimer) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	key, _ := request.Relation().ChildKey()
 	if key.String() == "loser" {

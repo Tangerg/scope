@@ -167,13 +167,13 @@ func TestDispatcherReplaysOnlyObservationEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatcher := &Dispatcher{}
-	if got := dispatcher.ReplayPolicy(observation); got != agent.ReplayPolicySameIdentity {
+	if got := dispatcher.Policy(observation).Replay; got != agent.ReplayPolicySameIdentity {
 		t.Fatalf("observation replay policy = %s", got)
 	}
-	if got := dispatcher.ReplayPolicy(actionEffect); got != agent.ReplayPolicyNever {
+	if got := dispatcher.Policy(actionEffect).Replay; got != agent.ReplayPolicyNever {
 		t.Fatalf("Action replay policy = %s", got)
 	}
-	if got := dispatcher.ReplayPolicy(agent.Effect{}); got != agent.ReplayPolicyNever {
+	if got := dispatcher.Policy(agent.Effect{}).Replay; got != agent.ReplayPolicyNever {
 		t.Fatalf("invalid Effect replay policy = %s", got)
 	}
 }

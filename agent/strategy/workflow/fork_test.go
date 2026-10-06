@@ -399,6 +399,6 @@ func (m managedBranchDispatcher) Dispatch(
 	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
-func (managedBranchDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (managedBranchDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }

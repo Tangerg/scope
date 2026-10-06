@@ -120,9 +120,10 @@ type DeltaEmitter func(payload json.RawMessage)
 // goroutines.
 //
 // A transparent decorator preserves the context, request identity, emitter,
-// Settlement, and error of its wrapped Dispatcher. Forwarding a SameIdentity
-// ReplayPolicy is valid only when the added work is safe to repeat under the
-// original identity. Observation counters count dispatch attempts, including
+// Settlement, and error of its wrapped Dispatcher, and forwards its
+// EffectPolicy; it may add required capabilities for the work it adds.
+// Forwarding a SameIdentity ReplayPolicy is valid only when the added work is
+// safe to repeat under the original identity. Observation counters count dispatch attempts, including
 // replay, not distinct logical operations; the Definition example shows one.
 type Dispatcher interface {
 	// Dispatch performs one frozen Effect and returns the Settlement answering
@@ -134,10 +135,23 @@ type Dispatcher interface {
 	// Explicit replay errors keep the original cause; Await, durable state, and
 	// events retain only outcome classifications and bounded diagnostics.
 	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
-	// ReplayPolicy declares, without I/O or mutable side effects, whether this
-	// exact Effect can be repeated under its original EffectID when restoring
-	// a pending attempt or through Process.ReplayUnknownEffect. A settled Unknown
-	// requires an explicit host request; terminal intent forbids starting replay.
-	// The answer is deterministic for equivalent Effects.
-	ReplayPolicy(effect Effect) ReplayPolicy
+	// Policy declares, without I/O or mutable side effects, how the Engine
+	// treats this exact Effect. The answer is deterministic for equivalent
+	// Effects; the Engine asks again rather than retaining a copy.
+	Policy(effect Effect) EffectPolicy
 }
+
+// EffectPolicy is the Dispatcher's declaration about one Effect it executes.
+type EffectPolicy struct {
+	// Replay states whether the Effect can be repeated under its original
+	// EffectID when restoring a pending attempt or through
+	// Process.ReplayUnknownEffect. A settled Unknown requires an explicit host
+	// request; terminal intent forbids starting replay.
+	Replay ReplayPolicy
+	// RequiredCapabilities is the authority the Process must hold. Insufficient
+	// authority rejects the entire Step before dispatch, and restoration rejects
+	// a prepared Effect the restored Process could not have prepared.
+	RequiredCapabilities CapabilitySet
+}
+
+func (e EffectPolicy) Valid() bool { return e.Replay.Valid() && e.RequiredCapabilities.Valid() }

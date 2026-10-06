@@ -248,7 +248,7 @@ func TestTimerRejectsAnUnrelatedOperation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if policy := (coordination.DeadlineDispatcher{}).ReplayPolicy(effect); policy != agent.ReplayPolicyNever {
+		if policy := (coordination.DeadlineDispatcher{}).Policy(effect).Replay; policy != agent.ReplayPolicyNever {
 			t.Fatalf("unsupported operation received replay permission: %s", policy)
 		}
 	}
@@ -281,8 +281,8 @@ func mutatedState(t testing.TB, state agent.ExecutionState, field string, value 
 
 type interruptedTimer struct{}
 
-func (interruptedTimer) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return (coordination.DeadlineDispatcher{}).ReplayPolicy(effect)
+func (interruptedTimer) Policy(effect agent.Effect) agent.EffectPolicy {
+	return (coordination.DeadlineDispatcher{}).Policy(effect)
 }
 
 func (interruptedTimer) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {

@@ -14,7 +14,9 @@ type effectFailureTestDispatcher struct {
 	dispatch func(EffectRequest) (Settlement, error)
 }
 
-func (e effectFailureTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (e effectFailureTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func (e effectFailureTestDispatcher) Dispatch(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 	return e.dispatch(request)

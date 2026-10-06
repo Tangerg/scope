@@ -402,8 +402,8 @@ func (rejectingDispatcher) Dispatch(
 	return agent.Settlement{}, errors.New("test dispatcher received an unexpected effect")
 }
 
-func (rejectingDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (rejectingDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 type fixtureInteractionClient struct {

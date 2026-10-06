@@ -350,6 +350,19 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		if err := p.deployment().validateEffect(record.Effect); err != nil {
 			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
 		}
+		// Only a Process that can still dispatch asks its Dispatcher; a terminal
+		// or terminating Process retains its batch as evidence.
+		var effectPolicy EffectPolicy
+		if record.Effect.Target() == EffectTargetDispatcher && !p.status().Terminal() &&
+			!p.pendingControl.hasTerminalIntent() && record.phase() != effectPhaseSettled {
+			var err error
+			if effectPolicy, err = dispatcherEffectPolicy(p.deployment().dispatcher, record.Effect); err != nil {
+				return fmt.Errorf("%w: restore prepared Effect: %w", ErrInvalidSnapshot, err)
+			}
+			if !p.handle.capabilities.Allows(effectPolicy.RequiredCapabilities) {
+				return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
+			}
+		}
 		if record.phase() != effectPhasePending {
 			continue
 		}
@@ -363,11 +376,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 				continue
 			}
 		} else if !p.pendingControl.hasTerminalIntent() {
-			var err error
-			policy, err = dispatcherReplayPolicy(p.deployment().dispatcher, record.Effect)
-			if err != nil {
-				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
-			}
+			policy = effectPolicy.Replay
 		}
 		if p.restoredReplayPolicy.Valid() {
 			return fmt.Errorf("%w: multiple pending Effects", ErrInvalidSnapshot)
@@ -406,7 +415,14 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
 		}
-		if !p.handle.capabilities.Allows(effect.RequiredCapabilities()) {
+		if effect.Target() != EffectTargetDispatcher {
+			continue
+		}
+		policy, err := dispatcherEffectPolicy(p.deployment().dispatcher, effect)
+		if err != nil {
+			return nil, &stepFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
+		}
+		if !p.handle.capabilities.Allows(policy.RequiredCapabilities) {
 			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeEngineCapabilityDenied, cause: ErrInvalidCapability,
 			}

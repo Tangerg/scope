@@ -28,8 +28,8 @@ func (o *observedDispatcher) Dispatch(ctx context.Context, request agent.EffectR
 	return o.next.Dispatch(ctx, request, emit)
 }
 
-func (o *observedDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return o.next.ReplayPolicy(effect)
+func (o *observedDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
+	return o.next.Policy(effect)
 }
 
 var _ agent.Dispatcher = (*observedDispatcher)(nil)

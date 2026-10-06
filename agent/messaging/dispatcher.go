@@ -58,14 +58,14 @@ type Receipt struct {
 	SignalID agent.SignalID `json:"signal_id"`
 }
 
-func (d *Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+func (d *Dispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
 	if d == nil || lo.IsNil(d.port) {
-		return agent.ReplayPolicyNever
+		return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 	}
 	if _, err := decodeMessage(effect); err != nil {
-		return agent.ReplayPolicyNever
+		return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 	}
-	return agent.ReplayPolicySameIdentity
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 
 // Dispatch requires a non-nil context and panics if ctx is nil.

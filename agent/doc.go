@@ -67,6 +67,10 @@
 // Direct-child controls perform no external I/O: recipient changes and their
 // definite settlement share one atomic tree checkpoint.
 //
+// A Dispatcher's [EffectPolicy] owns each of its Effects' required
+// capabilities; the Engine enforces them when preparing a Step, restoring a
+// dispatchable Effect, and replaying an Unknown.
+//
 // An interrupted pending attempt may replay only when its [ReplayPolicy]
 // establishes the same logical operation under the original identity. A settled
 // Unknown requires explicit Host reconciliation or [Process.ReplayUnknownEffect].

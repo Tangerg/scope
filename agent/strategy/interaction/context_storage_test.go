@@ -132,8 +132,8 @@ type contextSettlementRecorder struct {
 	modelResults []json.RawMessage
 }
 
-func (c *contextSettlementRecorder) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return c.next.ReplayPolicy(effect)
+func (c *contextSettlementRecorder) Policy(effect agent.Effect) agent.EffectPolicy {
+	return c.next.Policy(effect)
 }
 
 func (c *contextSettlementRecorder) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {

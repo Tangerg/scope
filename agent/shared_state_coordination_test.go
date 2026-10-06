@@ -98,8 +98,8 @@ type revisionRecord struct {
 	settlement agent.Settlement
 }
 
-func (r *revisionStore) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicySameIdentity
+func (r *revisionStore) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
 	if err := ctx.Err(); err != nil {

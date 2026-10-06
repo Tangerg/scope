@@ -71,7 +71,7 @@ func TestOversizedStepRejectedBeforeDispatcherPermission(t *testing.T) {
 			}
 			engine := controlValue(NewEngine(config))
 			defer mustCloseEngine(t, engine)
-			dispatcher := &engineTestDispatcher{}
+			dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
 			definition := &capacityDefinition{engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"), effects: []Effect{effect, effect, effect}}
 			deployment := engineTestDeployment(t, definition, dispatcher)
 			process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "bounded"}))))
@@ -211,7 +211,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 5)
 	root := runtime.members.get(runtime.rootID)
 	definition := newEngineTestDefinition(t, "engine.effect", "effect")
-	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{})
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
 	state := controlValue(ParseExecutionState("engine.effect", controlValue(jsonv2.Marshal(engineTestState{Phase: "ready", Value: strings.Repeat("x", 44<<14)}))))
 	execution := controlValue(definition.Restore(t.Context(), state))
 	runtime.treeLimits = TreeLimits{

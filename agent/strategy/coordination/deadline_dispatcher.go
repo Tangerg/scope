@@ -53,11 +53,11 @@ func decodeTimerEffect(effect agent.Effect) (timerRequest, error) {
 	return request, nil
 }
 
-func (DeadlineDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+func (DeadlineDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
 	if _, err := decodeTimerEffect(effect); err != nil {
-		return agent.ReplayPolicyNever
+		return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 	}
-	return agent.ReplayPolicySameIdentity
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 
 // Dispatch requires a non-nil context and panics if ctx is nil.

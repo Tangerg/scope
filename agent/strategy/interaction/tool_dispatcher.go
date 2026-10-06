@@ -44,7 +44,9 @@ func newToolDispatcher(observer ToolObserver) *toolDispatcher {
 	}
 }
 
-func (*toolDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy { return agent.ReplayPolicyNever }
+func (*toolDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+}
 
 func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
 	ctx = agent.RequireContext(ctx)

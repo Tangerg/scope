@@ -137,8 +137,8 @@ func (echoDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest,
 	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
-func (echoDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicySameIdentity
+func (echoDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
 }
 
 // countingDispatcher counts attempts, including replay, rather than logical operations.
@@ -152,8 +152,8 @@ func (c *countingDispatcher) Dispatch(ctx context.Context, request agent.EffectR
 	return c.next.Dispatch(ctx, request, emit)
 }
 
-func (c *countingDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
-	return c.next.ReplayPolicy(effect)
+func (c *countingDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
+	return c.next.Policy(effect)
 }
 
 // An independently authored Definition binds through the same Deployment and

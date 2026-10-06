@@ -547,9 +547,6 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
 	for _, record := range p.Prepared.Effects {
-		if !p.Capabilities.Allows(record.Effect.RequiredCapabilities()) {
-			return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
-		}
 		if p.status().Terminal() && record.phase() == effectPhasePending {
 			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 		}

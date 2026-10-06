@@ -32,7 +32,9 @@ func (c concurrentDeltaDispatcher) Dispatch(_ context.Context, request EffectReq
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
 }
 
-func (c concurrentDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (c concurrentDeltaDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 	const count = 64
@@ -108,7 +110,9 @@ func (o optionalDeltaDispatcher) Dispatch(_ context.Context, request EffectReque
 	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
 }
 
-func (o optionalDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
+func (o optionalDeltaDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
 
 func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
 	for _, observed := range []bool{false, true} {
@@ -146,7 +150,9 @@ type replayDeltaDispatcher struct {
 	calls           int
 }
 
-func (r *replayDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicySameIdentity }
+func (r *replayDeltaDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicySameIdentity}
+}
 func (r *replayDeltaDispatcher) Dispatch(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
 	r.calls++
 	emit(json.RawMessage(`{"text":"first"}`))

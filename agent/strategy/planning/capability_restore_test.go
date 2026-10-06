@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -10,15 +11,14 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/planning"
 )
 
-func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
+func TestRestoredPlanningActionRequiresBindingCapabilities(t *testing.T) {
 	for _, omitRequired := range []bool{false, true} {
-		name := "required capability retained"
+		name := "capability retained"
 		if omitRequired {
-			name = "required capability omitted"
+			name = "capability dropped from the restored Process"
 		}
 		t.Run(name, func(t *testing.T) {
 			done := mustCondition(t, "world.done", planning.TruthTrue)
@@ -75,64 +75,44 @@ func TestRestoredPlanningEffectsCannotDropBindingCapabilities(t *testing.T) {
 			delete(record, "progress")
 			if omitRequired {
 				processWire["capabilities"] = []any{}
-				delete(record["effect"].(map[string]any), "required_capabilities")
 			}
 			snapshot, err := agent.ParseTreeSnapshot(mustJSON(t, wireValues))
 			if err != nil {
 				t.Fatal(err)
 			}
-			events := &agenttest.ObservationRecorder{}
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: &planningSnapshotCommitter{head: snapshot}, EventListeners: []agent.EventListener{events}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			process, err := engine.RestoreTree(t.Context(), deployment, snapshot)
+			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: &planningSnapshotCommitter{head: snapshot}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if killErr := process.Kill(ctx, "release capability test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
-					t.Error(killErr)
-				}
-				if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
-					t.Error(releaseErr)
-				}
 				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			if !omitRequired {
-				result, awaitErr := process.Await(ctx)
-				if awaitErr != nil {
-					t.Fatal(awaitErr)
+			process, err := engine.RestoreTree(t.Context(), deployment, snapshot)
+			if omitRequired {
+				if !errors.Is(err, agent.ErrInvalidSnapshot) || !errors.Is(err, agent.ErrInvalidCapability) {
+					t.Fatalf("restore without the binding capability = %v, want invalid capability snapshot", err)
 				}
-				if output := managedOutput(t, result); output.Outcome != planning.OutcomeAchieved {
-					t.Fatalf("granted Action outcome = %s", output.Outcome)
+				if world.truth("world.done") != planning.TruthUnknown {
+					t.Error("restored Action without its capability reached the Action executor")
 				}
 				return
 			}
-			settled, err := events.AwaitEvent(ctx, func(event agent.Event) bool {
-				sequence, present := event.StepSequence()
-				return event.Name() == agent.EventEffectFinished && present && sequence == interrupted.step
-			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			fact, present := settled.EffectFinished()
-			if !present || fact.SettlementStatus() != agent.SettlementStatusFailed {
-				t.Errorf("invalid Action settlement = %s, want failed", fact.SettlementStatus())
-			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
 			result, awaitErr := process.Await(ctx)
-			failure, failed := result.Termination().Failure()
-			if awaitErr != nil || result.Status() != agent.StatusFailed || !failed || failure.Code() != "planning.dispatch.rejected" || len(result.Termination().UnresolvedEffectIDs()) != 0 {
-				t.Fatalf("local rejection result = %+v, failure = %+v, error = %v", result, failure, awaitErr)
+			if awaitErr != nil {
+				t.Fatal(awaitErr)
 			}
-			if world.truth("world.done") != planning.TruthUnknown {
-				t.Error("restored Effect dropped its required capability and reached the Action executor")
+			if output := managedOutput(t, result); output.Outcome != planning.OutcomeAchieved {
+				t.Fatalf("granted Action outcome = %s", output.Outcome)
+			}
+			if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+				t.Error(releaseErr)
 			}
 		})
 	}
@@ -146,7 +126,11 @@ type planningActionBoundary struct {
 }
 
 func (p *planningActionBoundary) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if boundary.Kind() == agent.EffectBoundaryKindPending && len(boundary.Request().Effect().RequiredCapabilities().Values()) > 0 {
+	var envelope struct {
+		Action json.RawMessage `json:"action"`
+	}
+	if boundary.Kind() == agent.EffectBoundaryKindPending &&
+		jsonv2.Unmarshal(boundary.Request().Effect().Payload(), &envelope, jsonv2.RejectUnknownMembers(false)) == nil && envelope.Action != nil {
 		p.snapshot = boundary.TreeSnapshot()
 		p.step = boundary.Request().StepSequence()
 		return p.cause

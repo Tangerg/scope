@@ -593,8 +593,8 @@ func (pausingDelegateDispatcher) Dispatch(context.Context, agent.EffectRequest, 
 	return agent.Settlement{}, errors.New("pausing Delegate worker has no dispatcher Effects")
 }
 
-func (pausingDelegateDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (pausingDelegateDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 func awaitWaitingDelegateTree(

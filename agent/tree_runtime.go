@@ -1060,9 +1060,13 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, effectID Effect
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	policy, err := dispatcherReplayPolicy(process.deployment().dispatcher, record.Effect)
-	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy != ReplayPolicySameIdentity {
+	policy, err := dispatcherEffectPolicy(process.deployment().dispatcher, record.Effect)
+	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy.Replay != ReplayPolicySameIdentity {
 		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
+		return
+	}
+	if !process.handle.capabilities.Allows(policy.RequiredCapabilities) {
+		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, ErrInvalidCapability)})
 		return
 	}
 	// The committed Unknown already retains the exact uncertain operation.
@@ -1476,7 +1480,7 @@ func (t *treeRuntime) recoverPendingEffect(
 		t.commitSettledEffect(process, record.ID)
 	default:
 		t.failProcessContract(
-			process, failureCodeEngineEffectRecoveryInvalid, errInvalidReplayPolicy,
+			process, failureCodeEngineEffectRecoveryInvalid, errInvalidEffectPolicy,
 		)
 	}
 }

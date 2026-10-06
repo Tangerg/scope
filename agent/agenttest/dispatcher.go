@@ -175,11 +175,11 @@ func (f frozenCall) matches(effect agent.Effect) (bool, error) {
 	return bytes.Equal(f.expectedEffectJSON, actual), nil
 }
 
-func (s *ScriptedDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
+func (s *ScriptedDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
 	if s == nil || !effect.Valid() {
-		return agent.ReplayPolicyInvalid
+		return agent.EffectPolicy{Replay: agent.ReplayPolicyInvalid}
 	}
-	return s.replayPolicy
+	return agent.EffectPolicy{Replay: s.replayPolicy}
 }
 
 // Requests returns consumed Dispatch requests in actual call order, including

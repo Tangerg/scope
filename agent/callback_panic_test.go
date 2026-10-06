@@ -19,7 +19,7 @@ func (p panickingCallbacks) Restore(context.Context, ExecutionState) (Execution,
 func (p panickingCallbacks) Step(context.Context, []Signal) (Transition, error) { panic(p.cause) }
 func (p panickingCallbacks) Snapshot() (ExecutionState, error)                  { panic(p.cause) }
 func (p panickingCallbacks) Resolve(DeploymentRef) (Deployment, error)          { panic(p.cause) }
-func (p panickingCallbacks) ReplayPolicy(Effect) ReplayPolicy                   { panic(p.cause) }
+func (p panickingCallbacks) Policy(Effect) EffectPolicy                         { panic(p.cause) }
 func (p panickingCallbacks) Dispatch(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 	panic(p.cause)
 }
@@ -52,7 +52,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		{"Execution.Step", func() error { _, err := stepExecution(t.Context(), callbacks, nil); return err }},
 		{"Execution.Snapshot", func() error { _, err := captureExecution(callbacks); return err }},
 		{"DeploymentResolver.Resolve", func() error { _, err := resolveDeployment(callbacks, deployment.DeploymentRef()); return err }},
-		{"Dispatcher.ReplayPolicy", func() error { _, err := dispatcherReplayPolicy(callbacks, Effect{}); return err }},
+		{"Dispatcher.Policy", func() error { _, err := dispatcherEffectPolicy(callbacks, Effect{}); return err }},
 		{"Dispatcher.Dispatch", func() error { _, err := dispatchEffect(t.Context(), callbacks, EffectRequest{}, nil); return err }},
 		{"ProcessAdmitter.Admit", func() error { return requestProcessAdmission(t.Context(), callbacks, admission) }},
 		{"ProcessInitializationAcknowledger.Acknowledge", func() error {

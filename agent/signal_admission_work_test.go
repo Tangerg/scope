@@ -46,7 +46,7 @@ func admissionTestLimits() TreeLimits {
 func admissionTestProcess(t testing.TB, history int) *processState {
 	t.Helper()
 	budget := Budget{Signals: NewQuota(100000)}
-	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{})
+	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), &engineTestDispatcher{policy: ReplayPolicyNever})
 	input, err := EncodePayload(engineTestInput{Value: "admission"})
 	if err != nil {
 		t.Fatal(err)

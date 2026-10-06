@@ -26,8 +26,8 @@ func (fuzzDispatcher) Dispatch(context.Context, agent.EffectRequest, agent.Delta
 	return agent.Settlement{}, errors.New("fuzz deployment does not dispatch effects")
 }
 
-func (fuzzDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+func (fuzzDispatcher) Policy(agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 func FuzzExecutionStateRestore(f *testing.F) {

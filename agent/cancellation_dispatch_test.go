@@ -102,6 +102,9 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 						t.Errorf("settlement payload = %s", settled.settlement().Payload())
 					}
 					tree := interruptedTreeSnapshot(t, engine, process, config)
+					// Preparing the batch asked for each Effect's policy; restoring
+					// terminal evidence must not ask again.
+					preparedQueries := dispatcher.replayQueries.Load()
 					restoredEngine, err := NewEngine(config)
 					if err != nil {
 						t.Fatal(err)
@@ -122,8 +125,8 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 							t.Errorf("terminal evidence changed after restoration or adjudication: %s", current.JSON())
 						}
 					}
-					if got := dispatcher.replayQueries.Load(); got != 0 {
-						t.Errorf("terminal restoration queried replay policy %d times", got)
+					if got := dispatcher.replayQueries.Load() - preparedQueries; got != 0 {
+						t.Errorf("terminal restoration queried Effect policy %d times", got)
 					}
 					mustCloseEngine(t, restoredEngine)
 					mustCloseEngine(t, engine)
@@ -236,9 +239,9 @@ func (c *cancellationDispatcher) Dispatch(
 	return NewSettlement(c.status, json.RawMessage(`{"done":true}`))
 }
 
-func (c *cancellationDispatcher) ReplayPolicy(Effect) ReplayPolicy {
+func (c *cancellationDispatcher) Policy(Effect) EffectPolicy {
 	c.replayQueries.Add(1)
-	return ReplayPolicySameIdentity
+	return EffectPolicy{Replay: ReplayPolicySameIdentity}
 }
 
 func interruptedTreeSnapshot(t *testing.T, engine *Engine, process *Process, config EngineConfig) TreeSnapshot {

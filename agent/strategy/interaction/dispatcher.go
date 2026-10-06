@@ -119,9 +119,9 @@ func (d *Dispatcher) Dispatch(
 	}
 }
 
-// ReplayPolicy forbids model replay.
-func (*Dispatcher) ReplayPolicy(_ agent.Effect) agent.ReplayPolicy {
-	return agent.ReplayPolicyNever
+// Policy forbids model replay and requires no capabilities.
+func (*Dispatcher) Policy(_ agent.Effect) agent.EffectPolicy {
+	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
 }
 
 func (d *Dispatcher) dispatchModel(

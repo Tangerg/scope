@@ -85,44 +85,32 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 	}
 }
 
-func TestPreparedSnapshotEnforcesEffectCapabilities(t *testing.T) {
-	snapshot := preparedEngineTestSnapshot(t)
-	wire, err := snapshot.wire()
-	if err != nil {
-		t.Fatal(err)
-	}
-	required, err := ParseCapability("resource.read")
-	if err != nil {
-		t.Fatal(err)
-	}
-	effect, err := NewDispatcherEffect(wire.Prepared.Effects[0].Effect.Payload(), required)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire.Prepared.Effects[0].Effect = effect
-	wire.Prepared.Intent, err = Continue(0)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRestoreEnforcesDispatcherDeclaredCapabilities(t *testing.T) {
+	wire := controlValue(preparedEngineTestSnapshot(t).wire())
+	required := controlValue(ParseCapability("resource.read"))
+	wire.Prepared.Intent = controlValue(Continue(0))
 	for _, allowed := range []bool{false, true} {
 		if allowed {
-			wire.Capabilities, err = NewCapabilitySet(required)
-			if err != nil {
-				t.Fatal(err)
-			}
+			wire.Capabilities = controlValue(NewCapabilitySet(required))
 		}
-		encoded, encodeErr := jsonv2.Marshal(wire)
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-		_, parseErr := parseTestProcessSnapshot(encoded)
+		tree := controlValue(newTreeSnapshot(treeSnapshotWire{
+			TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
+			ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(wire))},
+		}))
+		dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, required: controlValue(NewCapabilitySet(required))}
+		deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+		engine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)}))
+		process, err := engine.RestoreTree(t.Context(), deployment, tree)
 		if allowed {
-			if parseErr != nil {
-				t.Fatalf("granted Effect rejected: %v", parseErr)
+			if err != nil {
+				t.Fatalf("granted Effect rejected: %v", err)
 			}
-		} else if !errors.Is(parseErr, ErrInvalidSnapshot) || !errors.Is(parseErr, ErrInvalidCapability) {
-			t.Errorf("ungranted Effect parse error = %v; want invalid capability snapshot", parseErr)
+			_ = process.Kill(context.WithoutCancel(t.Context()), "test complete")
+			_ = process.Join(context.WithoutCancel(t.Context()))
+		} else if !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrInvalidCapability) {
+			t.Errorf("ungranted Effect restore error = %v; want invalid capability snapshot", err)
 		}
+		mustCloseEngine(t, engine)
 	}
 }
 

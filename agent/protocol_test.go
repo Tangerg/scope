@@ -186,15 +186,14 @@ func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
 		}
 		return value
 	}
-	left := decode(`{"target":"dispatcher","payload":{"b":2,"a":1},"required_capabilities":["tool.read","tool.write"]}`)
+	left := decode(`{"target":"dispatcher","payload":{"b":2,"a":1}}`)
 	for _, test := range []struct {
 		name string
 		raw  string
 		want bool
 	}{
-		{"canonical content", `{"target":"dispatcher","payload":{ "a":1,"b":2 },"required_capabilities":["tool.write","tool.read"]}`, true},
-		{"different payload", `{"target":"dispatcher","payload":{"a":2,"b":2},"required_capabilities":["tool.read","tool.write"]}`, false},
-		{"different authority", `{"target":"dispatcher","payload":{"a":1,"b":2},"required_capabilities":["tool.read"]}`, false},
+		{"canonical content", `{"target":"dispatcher","payload":{ "a":1,"b":2 }}`, true},
+		{"different payload", `{"target":"dispatcher","payload":{"a":2,"b":2}}`, false},
 		{"invalid request", "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
