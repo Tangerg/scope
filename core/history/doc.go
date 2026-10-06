@@ -27,7 +27,7 @@
 // Persistent backends live in independent leaf modules so database drivers do
 // not enter Core:
 //
-//	historystores/postgres/  — PostgreSQL (pgx + JSONB)
+//	historystores/postgres/  — PostgreSQL (pgx + binary Core wire)
 //	historystores/redis/     — Redis (RPUSH / LRANGE lists)
 //	historystores/mongodb/   — MongoDB (document per message)
 //	historystores/cassandra/ — Cassandra (TIMEUUID clustering key)

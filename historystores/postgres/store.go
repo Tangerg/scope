@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -44,7 +45,8 @@ type StoreConfig struct {
 
 	// InitializeSchema, when true, creates the table and index if
 	// they don't already exist. When false the store assumes the
-	// schema is already provisioned.
+	// schema is already provisioned. Both paths verify the message column
+	// stores canonical Core wire bytes as BYTEA.
 	InitializeSchema bool
 }
 
@@ -80,7 +82,7 @@ var (
 //	CREATE TABLE <schema>.<table> (
 //	    seq             BIGSERIAL    PRIMARY KEY,
 //	    conversation_id TEXT         NOT NULL,
-//	    message         JSONB        NOT NULL,
+//	    message         BYTEA        NOT NULL,
 //	    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 //	);
 //	CREATE INDEX <index>
@@ -98,13 +100,12 @@ type Store struct {
 	writeSQL  string
 	clearSQL  string
 	listSQL   string
+	schemaSQL string
 	createSQL []string
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its backing schema exists would fail on
-// the first index rather than at wiring, where the misconfiguration actually
-// is.
+// NewStore verifies the binary message column even when the Host provisions
+// the schema. JSONB cannot preserve the full Core wire vocabulary.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -121,7 +122,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 			qualified,
 		),
 		writeSQL: fmt.Sprintf(
-			"INSERT INTO %s (conversation_id, message) VALUES ($1, $2)",
+			"INSERT INTO %s (conversation_id, message) VALUES ($1, $2::bytea)",
 			qualified,
 		),
 		clearSQL: fmt.Sprintf(
@@ -132,12 +133,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 			"SELECT DISTINCT conversation_id FROM %s",
 			qualified,
 		),
+		schemaSQL: "SELECT message FROM " + qualified + " LIMIT 0",
 		createSQL: []string{
 			fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, config.SchemaName),
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 				seq             BIGSERIAL    PRIMARY KEY,
 				conversation_id TEXT         NOT NULL,
-				message         JSONB        NOT NULL,
+				message         BYTEA        NOT NULL,
 				created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 			)`, qualified),
 			fmt.Sprintf(
@@ -152,8 +154,28 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 			return nil, fmt.Errorf("postgres: initialize schema: %w", err)
 		}
 	}
+	rows, err := s.pool.Query(ctx, s.schemaSQL)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: verify message column: %w", err)
+	}
+	defer rows.Close()
+	if err := s.validateMessageColumn(rows); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: verify message column: %w", err)
+	}
 
 	return s, nil
+}
+
+func (s *Store) validateMessageColumn(rows pgx.Rows) error {
+	fields := rows.FieldDescriptions()
+	if len(fields) != 1 || fields[0].DataTypeOID != pgtype.ByteaOID {
+		return errors.New("postgres: message column must be bytea containing canonical Core wire bytes")
+	}
+	return nil
 }
 
 // initSchema creates the table + index if they don't exist. Idempotent.
@@ -166,9 +188,8 @@ func (s *Store) initSchema(ctx context.Context) error {
 	return nil
 }
 
-// Write appends every message under conversationID. Messages within one call
-// are queued in order; concurrent calls may interleave. Empty writes are a
-// no-op.
+// Write validates the complete batch, checks each native insert acknowledgment,
+// and commits all messages together. Empty writes are a no-op.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -189,10 +210,37 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		batch.Queue(s.writeSQL, conversationID.String(), raw)
 	}
 
-	outcome.Uncertain = true
-	results := s.pool.SendBatch(ctx, batch)
-	if err = results.Close(); err != nil {
+	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return outcome, fmt.Errorf("postgres: write: begin transaction: %w", err)
+	}
+	defer func() {
+		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			err = errors.Join(err, fmt.Errorf("postgres: write: rollback: %w", rollbackErr))
+		}
+	}()
+	results := transaction.SendBatch(ctx, batch)
+	for index := range encoded {
+		tag, execErr := results.Exec()
+		if execErr != nil {
+			err = execErr
+			break
+		}
+		if tag.RowsAffected() != 1 {
+			err = fmt.Errorf("message %d: expected one inserted row, got %d", index, tag.RowsAffected())
+			break
+		}
+	}
+	err = errors.Join(err, results.Close())
+	if err != nil {
 		return outcome, fmt.Errorf("postgres: write: execute batch: %w", err)
+	}
+	outcome.Uncertain = true
+	if err = transaction.Commit(ctx); err != nil {
+		if errors.Is(err, pgx.ErrTxCommitRollback) {
+			outcome = history.WriteOutcome{}
+		}
+		return outcome, fmt.Errorf("postgres: write: commit: %w", err)
 	}
 	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
@@ -212,6 +260,9 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 		return nil, fmt.Errorf("postgres: read: query: %w", err)
 	}
 	defer rows.Close()
+	if err := s.validateMessageColumn(rows); err != nil {
+		return nil, err
+	}
 
 	storedMessages = []chat.Message{}
 	for rows.Next() {

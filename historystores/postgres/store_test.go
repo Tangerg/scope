@@ -1,10 +1,8 @@
 package postgres_test
 
 import (
-	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -13,14 +11,7 @@ import (
 	"github.com/Tangerg/scope/historystores/postgres"
 )
 
-// stubPool is a sentinel non-nil *pgxpool.Pool used to exercise the
-// config-validation paths that don't actually issue SQL. The pool is
-// never queried — tests that want real I/O need testcontainers or a
-// live postgres and live outside the unit suite.
-//
-// pgxpool.Pool has unexported fields, so we can't construct one
-// directly without a real connection. The cheap fix: tests that only
-// inspect validation use a hand-built struct via pointer-to-zero.
+// Invalid configurations must fail before the pool is used.
 func stubPool() *pgxpool.Pool { return new(pgxpool.Pool) }
 
 func TestNewStoreRequiresPool(t *testing.T) {
@@ -72,47 +63,31 @@ func TestNewStoreRejectsBadIdentifier(t *testing.T) {
 	}
 }
 
-func TestNewStoreAcceptsValidIdentifiers(t *testing.T) {
-	// InitializeSchema=false so we don't issue SQL — only validation
-	// runs. The stub pool would crash any real query.
-	_, err := postgres.NewStore(t.Context(), postgres.StoreConfig{
+func TestConfigAcceptsValidIdentifiers(t *testing.T) {
+	err := (postgres.StoreConfig{
 		Pool:       stubPool(),
 		SchemaName: "my_schema",
 		TableName:  "chat_history",
 		IndexName:  "chat_history_lookup",
-	})
+	}).Validate()
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
 
-func TestWriteMarksOutcomeUncertainWhenBatchExecutionFails(t *testing.T) {
-	config, err := pgxpool.ParseConfig("postgres://127.0.0.1:1/db?connect_timeout=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.MinConns = 0
-	config.MaxConns = 1
-	config.ConnConfig.ConnectTimeout = 10 * time.Millisecond
-
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-
-	store, err := postgres.NewStore(context.Background(), postgres.StoreConfig{Pool: pool})
+func TestWriteConfirmsNoEffectWhenTransactionCannotBegin(t *testing.T) {
+	pool := protocolPool(t, protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: messageDescription()})
+	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	outcome, err := store.Write(ctx, history.ConversationID("conversation"), chat.NewUserMessage(chat.NewTextPart("hello")))
+	pool.Close()
+	outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), chat.NewUserMessage(chat.NewTextPart("hello")))
 	if err == nil {
-		t.Fatal("expected batch execution error")
+		t.Fatal("expected transaction admission error")
 	}
-	if outcome != (history.WriteOutcome{Uncertain: true}) {
-		t.Fatalf("outcome = %+v, want uncertain outcome", outcome)
+	if outcome != (history.WriteOutcome{}) {
+		t.Fatalf("outcome = %+v, want no effect before transaction admission", outcome)
 	}
 }
