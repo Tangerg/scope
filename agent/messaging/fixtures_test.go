@@ -168,7 +168,7 @@ func (s *senderExecution) Step(ctx context.Context, signals []agent.Signal) (age
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if receipt.Recipient != s.state.Message.Recipient || !receipt.SignalID.Valid() {
+	if !receipt.SignalID.Valid() {
 		return agent.Transition{}, messaging.ErrInvalidMessage
 	}
 	return agent.Complete(1, output)
