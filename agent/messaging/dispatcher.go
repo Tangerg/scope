@@ -51,10 +51,11 @@ func NewDispatcher(config DispatcherConfig) (*Dispatcher, error) {
 }
 
 // Receipt is the successful admission result carried by a settlement Signal.
-// It establishes delivery, not the receiver's committed consumption.
+// It establishes delivery, not the receiver's committed consumption. The
+// Message owns its recipient; the receipt carries only the SignalID the
+// recipient admitted, which derives from the sending Effect.
 type Receipt struct {
-	Recipient agent.ProcessID `json:"recipient"`
-	SignalID  agent.SignalID  `json:"signal_id"`
+	SignalID agent.SignalID `json:"signal_id"`
 }
 
 func (d *Dispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPolicy {
@@ -87,7 +88,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
 	}
-	payload, err := jsonv2.Marshal(Receipt{Recipient: message.Recipient, SignalID: signal.ID()})
+	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID()})
 	if err != nil {
 		return agent.Settlement{}, err
 	}

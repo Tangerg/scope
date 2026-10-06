@@ -134,7 +134,7 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 		if !receipts[len(receipts)-1].Matches(calls[0]) {
 			t.Fatal("adjudication lacks admission evidence")
 		}
-		proof := input(t, messaging.Receipt{Recipient: receiver.ID(), SignalID: calls[0].ID()})
+		proof := input(t, messaging.Receipt{SignalID: calls[0].ID()})
 		settlement, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, proof.JSON())
 		if err != nil {
 			t.Fatal(err)
