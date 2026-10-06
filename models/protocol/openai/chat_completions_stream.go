@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
@@ -27,7 +28,7 @@ type openAIStreamState struct {
 	dialect    responseDialect
 	chunkKey   string
 	refused    bool
-	finish     corechat.FinishReason
+	stopReason string
 	params     *openaisdk.ChatCompletionNewParams
 	audioID    string
 	audio      []byte
@@ -59,17 +60,11 @@ func (o *openAIStreamState) mapChunk(chunk openaisdk.ChatCompletionChunk) (*core
 		return nil, fmt.Errorf("openai: stream chunk has %d choices; Core supports one output", len(chunk.Choices))
 	}
 	if len(chunk.Choices) == 1 {
-		parts, finish, err := o.mapChunkOutput(chunk.Choices[0])
+		parts, err := o.mapChunkOutput(chunk.Choices[0])
 		if err != nil {
 			return nil, fmt.Errorf("openai: stream output: %w", err)
 		}
 		mapped.Parts = parts
-		if finish != "" {
-			if o.finish != "" {
-				return nil, fmt.Errorf("openai: stream emitted more than one finish reason")
-			}
-			o.finish = finish
-		}
 	}
 	if err := mapped.Metadata.Extra.Set(o.chunkKey, exactProviderResponse(chunk.RawJSON(), chunk)); err != nil {
 		return nil, err
@@ -77,15 +72,18 @@ func (o *openAIStreamState) mapChunk(chunk openaisdk.ChatCompletionChunk) (*core
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("openai: mapped stream response: %w", err)
 	}
+	if len(chunk.Choices) == 1 && chunk.Choices[0].FinishReason != "" {
+		o.stopReason = chunk.Choices[0].FinishReason
+	}
 	return mapped, nil
 }
 
 func (o *openAIStreamState) finished() bool {
-	return o.finish != ""
+	return o.stopReason != ""
 }
 
 func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
-	if delta == nil || o.finish == "" {
+	if delta == nil || o.stopReason == "" {
 		return nil, fmt.Errorf("openai: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
 	// A Core tool-call delta cannot carry arguments without an id and a name,
@@ -125,16 +123,22 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 		}
 		delta.Parts = append(delta.Parts, corechat.NewMediaDelta(value))
 	}
-	delta.FinishReason = o.finish
+	delta.FinishReason = normalizeFinishReason(o.stopReason)
+	if o.refused {
+		delta.FinishReason = corechat.FinishReasonRefusal
+	}
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("openai: terminal stream response: %w", err)
 	}
 	return delta, nil
 }
 
-func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkChoice) ([]corechat.PartDelta, corechat.FinishReason, error) {
+func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkChoice) ([]corechat.PartDelta, error) {
 	if choice.Index != 0 {
-		return nil, "", fmt.Errorf("choice index is %d, want 0", choice.Index)
+		return nil, fmt.Errorf("choice index is %d, want 0", choice.Index)
+	}
+	if o.finished() {
+		return nil, validateOpenAIStreamTail(choice)
 	}
 	message := &corechat.Message{Role: corechat.RoleAssistant}
 	if choice.Delta.Content != "" {
@@ -143,17 +147,17 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	}
 	if o.dialect != nil {
 		if err := o.dialect.FinalizeDelta(choice.Delta, message, o.sequence); err != nil {
-			return nil, "", fmt.Errorf("response dialect: %w", err)
+			return nil, fmt.Errorf("response dialect: %w", err)
 		}
 	}
 	parts, err := stablePartsAsDeltas(message.Parts)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && field.Raw() != "null" {
 		var annotations []openaisdk.ChatCompletionMessageAnnotation
 		if decodeErr := jsonv2.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
-			return nil, "", fmt.Errorf("annotations: %w", decodeErr)
+			return nil, fmt.Errorf("annotations: %w", decodeErr)
 		}
 		for _, annotation := range annotations {
 			parts = append(parts, corechat.NewCitationDelta(corechat.Citation{Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}))
@@ -162,7 +166,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	for i := range choice.Delta.ToolCalls {
 		call, include, err := o.mapChunkTool(choice.Delta.ToolCalls[i])
 		if err != nil {
-			return nil, "", fmt.Errorf("tool_calls[%d]: %w", i, err)
+			return nil, fmt.Errorf("tool_calls[%d]: %w", i, err)
 		}
 		if include {
 			parts = append(parts, corechat.NewToolCallDelta(call))
@@ -179,26 +183,46 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 			Transcript string `json:"transcript"`
 		}
 		if err := jsonv2.Unmarshal([]byte(field.Raw()), &audio); err != nil {
-			return nil, "", fmt.Errorf("audio delta: %w", err)
+			return nil, fmt.Errorf("audio delta: %w", err)
 		}
 		if audio.ID != "" {
 			if o.audioID != "" && o.audioID != audio.ID {
-				return nil, "", fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)
+				return nil, fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)
 			}
 			o.audioID = audio.ID
 		}
 		data, err := base64.StdEncoding.DecodeString(audio.Data)
 		if err != nil {
-			return nil, "", fmt.Errorf("audio data: %w", err)
+			return nil, fmt.Errorf("audio data: %w", err)
 		}
 		o.audio = append(o.audio, data...)
 		o.transcript.WriteString(audio.Transcript)
 	}
-	finish := normalizeFinishReason(choice.FinishReason)
-	if finish != "" && o.refused {
-		finish = corechat.FinishReasonRefusal
+	return parts, nil
+}
+
+// Audio expiry is a native metadata tail with a choice, unlike usage. It must
+// remain observable without reopening generation after the stop reason.
+func validateOpenAIStreamTail(choice openaisdk.ChatCompletionChunkChoice) error {
+	if choice.FinishReason != "" {
+		return fmt.Errorf("openai: stream: %w: more than one finish reason", corechat.ErrInvalidResponse)
 	}
-	return parts, finish, nil
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal([]byte(choice.Delta.RawJSON()), &fields); err != nil {
+		return fmt.Errorf("openai: stream: %w: invalid terminal delta: %w", corechat.ErrInvalidResponse, err)
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	if len(fields) == 1 && fields["audio"] != nil {
+		var expiry struct {
+			ExpiresAt *int64 `json:"expires_at"`
+		}
+		if err := jsonv2.Unmarshal(fields["audio"], &expiry, jsonv2.RejectUnknownMembers(true)); err == nil && expiry.ExpiresAt != nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("openai: stream: %w: generation continued after finish reason", corechat.ErrInvalidResponse)
 }
 
 func stablePartsAsDeltas(parts []corechat.Part) ([]corechat.PartDelta, error) {

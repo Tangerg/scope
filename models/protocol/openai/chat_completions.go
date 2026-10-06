@@ -136,7 +136,9 @@ func (c *ChatCompletions) Call(ctx context.Context, req *corechat.Request) (*cor
 
 // Stream performs one streaming Chat Completions request. Stable tool identity
 // is retained in adapter-local state until each incomplete wire delta can be
-// expressed as a Core response delta.
+// expressed as a Core response delta. Generation after a native finish reason
+// returns [corechat.ErrInvalidResponse]; audio expiry and usage metadata may
+// follow it. Successful termination is yielded only after the transport ends.
 func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := c.buildRequest(req)
