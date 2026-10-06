@@ -56,7 +56,7 @@ func request(key, worker, value string) TaskRequest {
 }
 func finish(turn Turn, text string) Decision {
 	output := require(agent.EncodePayload(text))
-	return Decision{Mode: ModeComplete, State: turn.State, Output: output}
+	return Decision{State: turn.State, Output: output}
 }
 func echo() agent.Deployment {
 	return transformed("test.echo", func(_ context.Context, text string) (string, error) { return "echo: " + text, nil })
@@ -229,7 +229,7 @@ func TestDefinitionConformance(t *testing.T) {
 
 func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
-		return Decision{Mode: ModeComplete, State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
+		return Decision{State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
 	}, echo())
 	config.OutputSchema = require(agent.ParseSchema([]byte(`{"type":"null"}`)))
 	definition := require(NewDefinition(config))

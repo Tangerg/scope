@@ -27,7 +27,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.phase() {
+	switch e.state.phase(e.definition) {
 	case phaseReadySense:
 		if len(signals) != 0 {
 			return agent.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
@@ -166,7 +166,6 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 		return agent.Transition{}, err
 	}
 	e.state.CurrentActionName = binding.action.name
-	e.state.Child = &childcall.Single{}
 	e.state.Phase = phaseAwaitingAction
 	return agent.Continue(consumedSignals, effect)
 }
@@ -218,7 +217,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 		return stepfail.Transition(1, agent.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
 	}
 	result := outcome.Result()
-	e.state.Child = nil
+	e.state.Child = childcall.Single{}
 	if result.Status() != agent.StatusCompleted {
 		e.state.recordFailedAction(result.Termination().Reason())
 	}
@@ -232,7 +231,7 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (a
 	}
 	if failure, failed := result.Failure(); failed {
 		e.state.recordFailedAction(failure.Code() + ": " + failure.Message())
-		e.state.Child = nil
+		e.state.Child = childcall.Single{}
 		return e.requestSense(1)
 	}
 	waitKey, err := planningChildWaitKey(key, e.state.Child.ProcessID())

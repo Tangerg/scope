@@ -168,24 +168,20 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	}
 }
 
-func TestProvisionalBudgetReleaseRequiresExactReservation(t *testing.T) {
+func TestProvisionalBudgetReleaseRequiresAReservation(t *testing.T) {
 	_, process := newChildCompletionTestProcess(t)
-	budget := Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(3)}
-	process.provisionalChildBudget = new(budget)
 	func() {
 		defer func() {
 			if recover() == nil {
-				t.Error("mismatched release was silently ignored")
+				t.Error("release without a reservation was silently ignored")
 			}
 		}()
-		process.releaseProvisionalChildBudget(Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(2)})
+		process.releaseProvisionalChildBudget()
 	}()
-	if *process.provisionalChildBudget != budget {
-		t.Fatal("rejected release changed the reservation")
-	}
-	process.releaseProvisionalChildBudget(budget)
+	process.provisionalChildBudget = new(Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(3)})
+	process.releaseProvisionalChildBudget()
 	if process.provisionalChildBudget != nil {
-		t.Fatal("exact release retained the reservation")
+		t.Fatal("release retained the reservation")
 	}
 }
 

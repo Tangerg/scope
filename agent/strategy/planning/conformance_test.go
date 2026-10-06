@@ -89,7 +89,7 @@ func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
 	}
 	for _, raw := range []string{
 		`null`, `{}`, `{"input":"wrong-schema"}`,
-		`{"input":{},"action":{"name":"missing","description":"Missing action.","world_state":{}}}`,
+		`{"input":{},"action":{"name":"missing","world_state":{}}}`,
 	} {
 		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
 		if effectErr != nil {

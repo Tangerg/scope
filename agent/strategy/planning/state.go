@@ -32,16 +32,21 @@ func (p phase) valid() bool {
 }
 
 type executionState struct {
-	Phase             phase             `json:"phase"`
-	Input             json.RawMessage   `json:"input"`
-	WorldState        WorldState        `json:"world_state"`
-	Attempts          []Attempt         `json:"attempts,omitempty"`
-	CurrentActionName string            `json:"current_action_name,omitempty"`
-	Child             *childcall.Single `json:"child,omitzero"`
+	Phase             phase           `json:"phase"`
+	Input             json.RawMessage `json:"input"`
+	WorldState        WorldState      `json:"world_state"`
+	Attempts          []Attempt       `json:"attempts,omitempty"`
+	CurrentActionName string          `json:"current_action_name,omitempty"`
+	// Child is the handshake progress of a child-bound current Action; the
+	// Action's binding, not this value, says whether a child is involved.
+	Child childcall.Single `json:"child,omitzero"`
 }
 
-func (e executionState) phase() phase {
-	if e.Phase == phaseAwaitingAction && e.Child != nil {
+func (e executionState) phase(definition *Definition) phase {
+	if e.Phase != phaseAwaitingAction {
+		return e.Phase
+	}
+	if binding, found := definition.binding(e.CurrentActionName); found && binding.target == bindingTargetChild {
 		return phaseChild
 	}
 	return e.Phase
@@ -124,8 +129,8 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
-	if e.Phase == phaseAwaitingAction && (e.Child != nil) != (binding.target == bindingTargetChild) {
-		return fmt.Errorf("%w: current Action does not match the execution phase", ErrInvalidExecutionState)
+	if binding.target != bindingTargetChild && e.Child != (childcall.Single{}) {
+		return fmt.Errorf("%w: Dispatcher Action retains child progress", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -144,7 +149,7 @@ func (e executionState) validateProgress(definition *Definition) error {
 }
 
 func (e executionState) validatePhase() error {
-	if e.Child != nil && e.Phase != phaseAwaitingAction {
+	if e.Child != (childcall.Single{}) && e.Phase != phaseAwaitingAction {
 		return fmt.Errorf("%w: child state disagrees with execution phase", ErrInvalidExecutionState)
 	}
 	hasAction := e.CurrentActionName != ""
@@ -186,7 +191,7 @@ func (e *executionState) complete(ctx context.Context, definition *Definition) (
 	candidate := *e
 	candidate.Phase = phaseCompleted
 	candidate.CurrentActionName = ""
-	candidate.Child = nil
+	candidate.Child = childcall.Single{}
 	if err := candidate.validate(ctx, definition); err != nil {
 		return Output{}, err
 	}

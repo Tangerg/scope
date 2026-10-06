@@ -20,9 +20,9 @@ func TestRejectsDecisionBatchBeforeDeclaringActions(t *testing.T) {
 	for name, decision := range map[string]Decision{
 		"mode":               {Mode: "invalid", State: input("x")},
 		"state schema":       {Mode: ModeContinue, State: require(agent.EncodePayload(1))},
-		"missing output":     {Mode: ModeComplete, State: input("x")},
-		"complete with task": {Mode: ModeComplete, State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x")}, Output: requireOutput("x")},
-		"output schema":      {Mode: ModeComplete, State: input("x"), Output: requireOutput(1)},
+		"undecided":          {State: input("x")},
+		"complete with task": {State: input("x"), Tasks: []TaskRequest{request("work", "test.echo", "x")}, Output: requireOutput("x")},
+		"output schema":      {State: input("x"), Output: requireOutput(1)},
 		"nonterminal output": {Mode: ModeContinue, State: input("x"), Output: requireOutput("x")},
 		"unavailable worker": {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("work", "absent", "x")}},
 		"reserved key":       {Mode: ModeContinue, State: input("x"), Tasks: []TaskRequest{request("collaboration.turn.1", "test.echo", "x")}},
@@ -167,7 +167,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		current := state.phase(require(state.decision()).Mode)
+		current := state.phase(require(state.decision()))
 		cases[index].Name = fmt.Sprintf("phase%d-%c", current, 'a'+index)
 		phases[current] = true
 		if len(state.Controls) != 0 && state.Controls[0].Result != nil {

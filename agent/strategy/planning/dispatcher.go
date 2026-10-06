@@ -148,13 +148,13 @@ func (d *Dispatcher) execute(
 	call actionCall,
 ) (agent.Settlement, error) {
 	bound, found := d.executors[call.Name]
-	if !found || bound.action.description != call.Description || !bound.action.Applicable(call.WorldState) ||
+	if !found || !bound.action.Applicable(call.WorldState) ||
 		!effectRequest.Effect().RequiredCapabilities().Allows(bound.required) {
 		return planningFailureSettlement(fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
 	}
 	request := ActionRequest{
 		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
-		ActionDescription: call.Description, WorldState: call.WorldState,
+		ActionDescription: bound.action.description, WorldState: call.WorldState,
 	}
 	result, err := bound.executor.Execute(ctx, request)
 	if err != nil {

@@ -22,7 +22,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	switch e.state.phase(decision.Mode) {
+	switch e.state.phase(decision) {
 	case phaseReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidProtocol
@@ -295,7 +295,7 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 	for _, control := range decision.Controls {
 		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
 	}
-	if decision.Mode == ModeComplete {
+	if decision.completes() {
 		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {

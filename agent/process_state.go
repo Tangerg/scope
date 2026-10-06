@@ -267,20 +267,20 @@ func (p *processState) reserveProvisionalChildBudget(requested Budget, childAllo
 
 // installProvisionalChildBudget hands the reservation to tree membership,
 // which charges the grant when the started child joins it.
-func (p *processState) installProvisionalChildBudget(requested Budget) error {
-	if p.provisionalChildBudget == nil || *p.provisionalChildBudget != requested {
+func (p *processState) installProvisionalChildBudget() error {
+	if p.provisionalChildBudget == nil {
 		return ErrResourceLimitExceeded
 	}
-	if _, ok := p.handle.budget.allocation(requested); !ok {
+	if _, ok := p.handle.budget.allocation(*p.provisionalChildBudget); !ok {
 		return ErrResourceLimitExceeded
 	}
 	p.provisionalChildBudget = nil
 	return nil
 }
 
-func (p *processState) releaseProvisionalChildBudget(requested Budget) {
-	if p.provisionalChildBudget == nil || *p.provisionalChildBudget != requested {
-		panic("agent: provisional child budget does not match its reservation")
+func (p *processState) releaseProvisionalChildBudget() {
+	if p.provisionalChildBudget == nil {
+		panic("agent: no provisional child budget is reserved")
 	}
 	p.provisionalChildBudget = nil
 }

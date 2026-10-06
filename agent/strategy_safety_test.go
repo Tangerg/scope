@@ -262,12 +262,12 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 }
 
 func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
-	for _, mode := range []collaboration.Mode{collaboration.ModeContinue, collaboration.ModeWait, collaboration.ModeComplete} {
-		t.Run(string(mode), func(t *testing.T) {
+	for _, mode := range []collaboration.Mode{collaboration.ModeContinue, collaboration.ModeWait, collaboration.ModeUndecided} {
+		t.Run(mode.String(), func(t *testing.T) {
 			output := safetyValue(agent.EncodePayload("done"))
 			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodePayload("initial"))}
 			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(agent.SchemaFor[string]()), AnswerSchema: safetyValue(agent.SchemaFor[string]())})), nil)
-			if mode == collaboration.ModeComplete {
+			if mode == collaboration.ModeUndecided {
 				decision.Output = output
 			} else {
 				decision.Tasks = []collaboration.TaskRequest{{Key: safetyValue(agent.ParseChildKey("new-work")), Worker: "safety.worker", Input: safetyValue(agent.EncodePayload("work"))}}

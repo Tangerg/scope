@@ -21,7 +21,7 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 		if turn.Number != 2 || require(turn.State.Decode[string]()) != "working" || turn.Tasks[0].Outcome == nil {
 			return Decision{}, errors.New("turn lost its predecessor decision or task outcome")
 		}
-		return Decision{Mode: ModeComplete, State: input("finished"), Output: input("done")}, nil
+		return Decision{State: input("finished"), Output: input("done")}, nil
 	}, echo())
 	instance := require(definition.Start(input("initial")))
 	initial := require(instance.Snapshot())
@@ -58,7 +58,7 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	}
 	recovered := require(definition.Restore(t.Context(), state)).(*execution)
 	decision := require(recovered.state.decision())
-	if recovered.state.number() != 2 || decision.Mode != ModeComplete || require(recovered.state.workingState(decision).Decode[string]()) != "finished" {
+	if recovered.state.number() != 2 || !decision.completes() || require(recovered.state.workingState(decision).Decode[string]()) != "finished" {
 		t.Fatal("recovery did not derive progress from the recorded turn and decision")
 	}
 }

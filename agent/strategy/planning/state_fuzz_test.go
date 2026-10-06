@@ -97,7 +97,7 @@ func FuzzExecutionStateRestore(f *testing.F) {
 
 func FuzzPlanningProtocol(f *testing.F) {
 	f.Add([]byte(`{"input":{}}`))
-	f.Add([]byte(`{"input":{},"action":{"name":"action.finish","description":"Finish work.","world_state":{"conditions":[]}}}`))
+	f.Add([]byte(`{"input":{},"action":{"name":"action.finish","world_state":{"conditions":[]}}}`))
 	f.Add([]byte(`{"sensing":{"world_state":{"conditions":[]}}}`))
 	f.Add([]byte(`{"action":{}}`))
 	f.Add([]byte(`{"host_error":"action binding rejected"}`))

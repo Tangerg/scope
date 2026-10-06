@@ -95,21 +95,3 @@ func TestModelResultRejectsProviderErrorMember(t *testing.T) {
 		t.Fatalf("decodeSignal = %v, want ErrInvalidProtocol wrapping an unknown member", err)
 	}
 }
-
-func TestToolInputPauseCountDoesNotWrap(t *testing.T) {
-	request, err := newToolInputRequest(
-		json.RawMessage(`"provide another value"`),
-		json.RawMessage(`{"type":"string"}`),
-		json.RawMessage(`{"continuation":true}`),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	call := toolDispatchRequest{
-		Invocation: toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "input", Arguments: `{}`}},
-		Resume:     &toolResume{Checkpoint: toolCheckpoint{PauseCount: math.MaxUint64, InputRequest: request}, InputResponse: json.RawMessage(`"answer"`)},
-	}
-	if _, err := newToolEffect(call); err == nil {
-		t.Fatal("exhausted Tool input pause count admitted another call")
-	}
-}

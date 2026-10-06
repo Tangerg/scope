@@ -172,7 +172,7 @@ func (t *toolExecution) acceptInputResponse(signal agent.Signal, envelope signal
 	}
 	return t.request(1, toolDispatchRequest{
 		Invocation: t.state.Call,
-		Resume:     &toolResume{Checkpoint: *t.state.Checkpoint, InputResponse: envelope.InputResponse},
+		Resume:     &toolResume{InputRequest: t.state.Checkpoint.InputRequest, InputResponse: envelope.InputResponse},
 	})
 }
 
@@ -199,8 +199,8 @@ func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelop
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	outcome := envelope.ToolResult
-	if outcome.Checkpoint != nil {
-		return t.openInputWait(*outcome.Checkpoint)
+	if outcome.InputRequest != nil {
+		return t.openInputWait(*outcome.InputRequest)
 	}
 	result := outcome.Completion
 	if err := result.validateCall(t.state.Call.Call); err != nil {
@@ -216,14 +216,15 @@ func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelop
 	return agent.Complete(1, output)
 }
 
-func (t *toolExecution) openInputWait(checkpoint toolCheckpoint) (agent.Transition, error) {
+func (t *toolExecution) openInputWait(request toolInputRequest) (agent.Transition, error) {
 	previous := uint64(0)
 	if t.state.Checkpoint != nil {
 		previous = t.state.Checkpoint.PauseCount
 	}
-	if previous == math.MaxUint64 || checkpoint.PauseCount != previous+1 {
-		return agent.Transition{}, ErrInvalidExecutionState
+	if previous == math.MaxUint64 {
+		return agent.Transition{}, fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidExecutionState)
 	}
+	checkpoint := toolCheckpoint{PauseCount: previous + 1, InputRequest: request}
 	key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
 	if err != nil {
 		return agent.Transition{}, err

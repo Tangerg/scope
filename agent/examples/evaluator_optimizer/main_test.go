@@ -43,7 +43,7 @@ func TestExhaustionReturnsBestAttemptNotLatestAttempt(t *testing.T) {
 	if report.Accepted || len(report.History) != 3 || evidence.ProcessCount != 10 {
 		t.Fatalf("report=%#v evidence=%#v", report, evidence)
 	}
-	if report.best().Candidate.Revision != 2 || report.best().Assessment.Score != 0.9 {
+	if report.best() != report.History[1] || report.best().Assessment.Score != 0.9 {
 		t.Fatalf("best=%#v, want revision 2 at 0.9", report.best())
 	}
 	if !strings.Contains(report.History[1].Candidate.Content, report.History[0].Assessment.Feedback) {
@@ -98,7 +98,7 @@ func TestEqualScoresKeepEarliestAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.best().Candidate.Revision != 1 || report.best().Assessment.Score != 0.8 {
+	if report.best() != report.History[0] || report.best().Assessment.Score != 0.8 {
 		t.Fatalf("best=%#v, want earliest tied revision", report.best())
 	}
 }
@@ -127,7 +127,7 @@ func TestConfigurationIsExplicitAndFinite(t *testing.T) {
 
 func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
 	state := optimizationState{Objective: "one history", History: []attempt{
-		{Candidate: candidate{Revision: 1, Content: "draft"}, Assessment: assessment{Score: 0.95, Feedback: "accepted"}},
+		{Candidate: candidate{Content: "draft"}, Assessment: assessment{Score: 0.95, Feedback: "accepted"}},
 	}}
 	if err := state.validateSettled(); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"objective":"one history","history":[{"candidate":{"revision":1,"content":"draft"},"assessment":{"score":0.95,"feedback":"accepted"}}]}`
+	const want = `{"objective":"one history","history":[{"candidate":{"content":"draft"},"assessment":{"score":0.95,"feedback":"accepted"}}]}`
 	if string(data) != want {
 		t.Fatalf("evaluated state duplicates history: %s", data)
 	}

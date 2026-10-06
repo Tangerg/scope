@@ -231,7 +231,7 @@ func (c childIndex) settledChildResult(snapshot agent.TreeSnapshot, process agen
 		return nil, err
 	}
 	if child, found := c[process.ProcessID()][toolKey]; found {
-		return settledToolResult(snapshot, child, sequence, index, call)
+		return settledToolResult(snapshot, child)
 	}
 	delegateKey, err := DelegateChildKey(sequence, call)
 	if err != nil {
@@ -267,14 +267,10 @@ func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {
 	return true
 }
 
-func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
-	state, err := decodeToolState(process.CommittedExecutionState())
-	if err != nil {
-		return nil, err
-	}
-	if state.Call.ModelCallSequence != sequence || state.Call.ToolCallIndex != index || state.Call.Call != call {
-		return nil, ErrInvalidExecutionState
-	}
+// settledToolResult reads the child the call's ChildKey names. The Engine
+// started it from the parent's own request, so its input is not re-checked
+// against the parent's response.
+func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) (*toolCallResult, error) {
 	// A completed Tool child's Output is its result; its state never repeats it.
 	if result, terminal := process.Result(); terminal && result.Status() == agent.StatusCompleted {
 		output, _ := result.Output()

@@ -70,8 +70,8 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.phase(require(decoded.decision()).Mode) != phaseFailed {
-				t.Fatalf("failed turn was not retained: phase %d", decoded.phase(require(decoded.decision()).Mode))
+			if decoded.phase(require(decoded.decision())) != phaseFailed {
+				t.Fatalf("failed turn was not retained: phase %d", decoded.phase(require(decoded.decision())))
 			}
 			if _, err := definition.Restore(t.Context(), state); err != nil {
 				t.Fatal(err)

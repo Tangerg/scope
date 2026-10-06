@@ -197,15 +197,15 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 // phase derives the next protocol step. A turn fails, before any decision
 // applies, when its start fails or its drained outcome failed or retains
 // unresolved Effects.
-func (e executionState) phase(mode Mode) phase {
+func (e executionState) phase(decision Decision) phase {
 	switch {
 	case e.Turn == nil:
 		return phaseReady
-	case mode == ModeComplete:
+	case decision.completes():
 		return phaseCompleted
 	case e.Turn.Start == nil && e.Turn.Outcome == nil:
 		return phaseStartingTurn
-	case mode == ModeUndecided && e.Turn.ended():
+	case !decision.decided() && e.Turn.ended():
 		return phaseFailed
 	case e.unapplied() != 0:
 		return phaseApplying
@@ -234,7 +234,7 @@ func (e executionState) workingState(decision Decision) agent.Payload {
 	if e.Turn == nil {
 		return e.InitialState
 	}
-	if decision.Mode == ModeUndecided {
+	if !decision.decided() {
 		return e.Turn.State
 	}
 	return decision.State
@@ -409,7 +409,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err != nil {
 		return err
 	}
-	current := e.phase(decision.Mode)
+	current := e.phase(decision)
 	if current == phaseReady {
 		return e.validateReady()
 	}
@@ -572,7 +572,7 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map
 	if err := e.validateTurnStart(d, ids, current); err != nil {
 		return err
 	}
-	if decision.Mode == ModeUndecided {
+	if !decision.decided() {
 		return e.validateUndecidedTurn(current)
 	}
 	return e.validateAppliedDecision(ctx, d, decision)
@@ -640,7 +640,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 	if err := decision.validateShape(); err != nil {
 		return err
 	}
-	if decision.Mode == ModeComplete {
+	if decision.completes() {
 		if err := definition.descriptor.ValidateOutput(decision.Output); err != nil {
 			return fmt.Errorf("%w: output: %w", ErrInvalidDecision, err)
 		}
