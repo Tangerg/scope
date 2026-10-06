@@ -102,11 +102,11 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	spec := childTestSpec(key, parent.deployment().DeploymentRef(), input)
 	prepared := runtime.prepareChildStart(parent, effectID, spec)
 	if prepared.plan == nil {
-		t.Fatalf("prepare child failed: %+v", prepared.result)
+		t.Fatalf("prepare child failed: %+v", prepared.failure)
 	}
 	result := prepared.plan.execute(t.Context())
 	if !result.started() {
-		t.Fatalf("initialize child failed: %+v", result.result)
+		t.Fatalf("initialize child failed: %+v", result.failure)
 	}
 	// Initialization succeeded, but no pending Effect can accept its settlement.
 	runtime.applyChildStartCompletion(parent, &processJob{

@@ -412,10 +412,10 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, err)
 		}
 		processWire := snapshot.state
-		if _, duplicate := processes[processWire.ProcessID]; duplicate {
+		if _, duplicate := processes[processWire.processID()]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate ProcessID", ErrInvalidTreeSnapshot)
 		}
-		processes[processWire.ProcessID] = processWire
+		processes[processWire.processID()] = processWire
 	}
 	if !wire.ProcessSnapshots[0].Relation().IsRoot() || !wire.TreeLimits.admitsTreeSize(uint64(len(processes))) {
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)
@@ -523,7 +523,7 @@ func (t *treeSnapshotValidation) validateChildSettlements() error {
 			if err != nil {
 				return err
 			}
-			if err := operation.validateTree(t, parent.ProcessID, record); err != nil {
+			if err := operation.validateTree(t, parent.processID(), record); err != nil {
 				return fmt.Errorf("%w: framework operation: %w", ErrInvalidTreeSnapshot, err)
 			}
 		}

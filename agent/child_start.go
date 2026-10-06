@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
+// childStartPreparation either plans a start or records why it failed.
 type childStartPreparation struct {
-	plan   *childStartPlan
-	result ChildStartResult
+	plan    *childStartPlan
+	failure Failure
 }
 
 type childStartPlan struct {
@@ -28,8 +29,10 @@ func (c *childStartPlan) parentID() ProcessID {
 	return parentID
 }
 
+// childStartJobResult carries the failure of an unsuccessful start; a started
+// child's identity follows from the Effect, not from this result.
 type childStartJobResult struct {
-	result     ChildStartResult
+	failure    Failure
 	deployment Deployment
 	execution  Execution
 	state      ExecutionState
@@ -39,34 +42,32 @@ type childStartJobResult struct {
 func (childStartJobResult) jobKind() processJobKind { return processJobChildStart }
 
 func (c childStartJobResult) started() bool {
-	_, failed := c.result.Failure()
-	return !failed && c.deployment.Valid() && c.execution != nil &&
+	return !c.failure.Valid() && c.deployment.Valid() && c.execution != nil &&
 		c.state.Valid() && !c.startedAt.IsZero()
 }
 
 func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	deployment, resolveErr := c.resolveDeployment()
 	if resolveErr != nil {
-		return childStartJobResult{result: failedChildStart(failureKindForError(resolveErr, FailureKindExternal), failureCodeEngineChildDeploymentUnavailable, resolveErr)}
+		return childStartJobResult{failure: failedChildStart(failureKindForError(resolveErr, FailureKindExternal), failureCodeEngineChildDeploymentUnavailable, resolveErr)}
 	}
 	if validateErr := deployment.Descriptor().ValidateInput(c.spec.Input); validateErr != nil {
-		return childStartJobResult{result: failedChildStart(FailureKindContract, failureCodeEngineChildInputInvalid, validateErr)}
+		return childStartJobResult{failure: failedChildStart(FailureKindContract, failureCodeEngineChildInputInvalid, validateErr)}
 	}
 	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
 	if admissionErr := requestProcessAdmission(ctx, c.admitter, admission); admissionErr != nil {
-		return childStartJobResult{result: failedChildStart(failureKindForError(admissionErr, FailureKindExternal), failureCodeEngineChildAdmissionRejected, admissionErr)}
+		return childStartJobResult{failure: failedChildStart(failureKindForError(admissionErr, FailureKindExternal), failureCodeEngineChildAdmissionRejected, admissionErr)}
 	}
 	startedAt := canonicalTime(time.Now())
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), c.spec.Input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitialization(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
-		return childStartJobResult{result: failedChildStart(failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr))}
+		return childStartJobResult{failure: failedChildStart(failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr))}
 	}
 	if err := acknowledgeProcessInitialization(ctx, c.acknowledger, initializedProcessOutcome(admission, startedAt)); err != nil {
-		return childStartJobResult{result: failedChildStart(failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err)}
+		return childStartJobResult{failure: failedChildStart(failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err)}
 	}
 	return childStartJobResult{
-		result:     ChildStartResult{processID: c.childID()},
 		deployment: deployment, execution: execution, state: state, startedAt: startedAt,
 	}
 }
@@ -103,6 +104,6 @@ func resolveDeployment(resolver DeploymentResolver, reference DeploymentRef) (De
 	return deployment, nil
 }
 
-func failedChildStart(kind FailureKind, code string, cause error) ChildStartResult {
-	return ChildStartResult{failure: newEngineFailure(kind, code, cause)}
+func failedChildStart(kind FailureKind, code string, cause error) Failure {
+	return newEngineFailure(kind, code, cause)
 }

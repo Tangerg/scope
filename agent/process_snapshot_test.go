@@ -195,7 +195,7 @@ func TestPreparedConsumptionUsesOnlyPendingSignals(t *testing.T) {
 	wire.Mailbox = mailbox.wire()
 	wire.CommittedSteps++
 	for index := range wire.Prepared.Effects {
-		wire.Prepared.Effects[index].ID = wire.ProcessID.effectID(wire.CommittedSteps+1, index)
+		wire.Prepared.Effects[index].ID = wire.processID().effectID(wire.CommittedSteps+1, index)
 	}
 	for _, consumed := range []uint32{0, 1, 2, math.MaxUint32} {
 		wire.Prepared.Intent = controlValue(Continue(consumed))
@@ -244,7 +244,7 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 	}
 	wire.CommittedSteps = math.MaxUint64
 	wire.Budget.Steps = NewQuota(math.MaxUint64)
-	wire.Prepared.Effects[0].ID = wire.ProcessID.effectID(0, 0)
+	wire.Prepared.Effects[0].ID = wire.processID().effectID(0, 0)
 	data, err := jsonv2.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -392,7 +392,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			for index, item := range sample.effects {
 				effects[index] = effect
 				record := preparedEffect{
-					ID:     wire.ProcessID.effectID(wire.CommittedSteps+1, index),
+					ID:     wire.processID().effectID(wire.CommittedSteps+1, index),
 					Effect: effect,
 				}
 				if item.phase != effectPhasePlanned {
@@ -592,7 +592,7 @@ func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	wire := controlValue(snapshot.wire())
 	for index, record := range wire.Prepared.Effects {
-		if record.ID != wire.ProcessID.effectID(wire.CommittedSteps+1, index) {
+		if record.ID != wire.processID().effectID(wire.CommittedSteps+1, index) {
 			t.Fatalf("decoded Effect %d identity = %s", index, record.ID)
 		}
 	}

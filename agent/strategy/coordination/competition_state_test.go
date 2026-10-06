@@ -177,17 +177,10 @@ func competitionWaitID(t *testing.T) agent.WaitID {
 
 func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []agent.ChildOutcome) agent.Signal {
 	t.Helper()
-	boundary := agent.ChildWaitBoundaryResult
-	if len(outcomes) != 0 {
-		if _, drained := outcomes[0].SubtreeUnresolvedEffects(); drained {
-			boundary = agent.ChildWaitBoundaryDrained
-		}
-	}
 	payload := struct {
-		Operation string                  `json:"operation"`
-		Boundary  agent.ChildWaitBoundary `json:"boundary"`
-		Outcomes  []agent.ChildOutcome    `json:"outcomes"`
-	}{"child_wait_satisfied", boundary, outcomes}
+		Operation string               `json:"operation"`
+		Outcomes  []agent.ChildOutcome `json:"outcomes"`
+	}{"child_wait_satisfied", outcomes}
 	data, err := jsonv2.Marshal(struct {
 		ID      string       `json:"id"`
 		WaitID  agent.WaitID `json:"wait_id"`

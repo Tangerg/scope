@@ -701,17 +701,17 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	foreign := base.clone()
-	foreign.ProcessID, _ = ParseProcessID("foreign")
-	foreign.Relation = rootProcessRelation(foreign.ProcessID)
+	foreignID, _ := ParseProcessID("foreign")
+	foreign.Relation = rootProcessRelation(foreignID)
 	foreignSnapshot, err := newProcessSnapshot(foreign)
 	if err != nil {
 		t.Fatal(err)
 	}
 	orphan := base.clone()
-	orphan.ProcessID, _ = ParseProcessID("orphan")
+	orphanID, _ := ParseProcessID("orphan")
 	parentID, _ := ParseProcessID("absent")
 	key, _ := ParseChildKey("orphan")
-	orphan.Relation = childProcessRelation(orphan.ProcessID, ProcessRelation{processID: parentID, rootID: tree.RootID()}, key)
+	orphan.Relation = childProcessRelation(orphanID, ProcessRelation{processID: parentID, rootID: tree.RootID()}, key)
 	orphanSnapshot, err := newProcessSnapshot(orphan)
 	if err != nil {
 		t.Fatal(err)

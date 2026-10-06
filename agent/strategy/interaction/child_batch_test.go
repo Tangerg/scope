@@ -336,20 +336,6 @@ type childCompletionTestPayload struct {
 	Outcomes  []childOutcomeTestWire `json:"outcomes"`
 }
 
-// MarshalJSON states the boundary once: drained exactly when the outcomes
-// carry descendant evidence.
-func (c childCompletionTestPayload) MarshalJSON() ([]byte, error) {
-	boundary := agent.ChildWaitBoundaryResult
-	if len(c.Outcomes) != 0 && c.Outcomes[0].DescendantUnresolvedEffects != nil {
-		boundary = agent.ChildWaitBoundaryDrained
-	}
-	return jsonv2.Marshal(struct {
-		Operation string                  `json:"operation"`
-		Boundary  agent.ChildWaitBoundary `json:"boundary"`
-		Outcomes  []childOutcomeTestWire  `json:"outcomes"`
-	}{c.Operation, boundary, c.Outcomes})
-}
-
 // childOutcomeTestWire carries DescendantUnresolvedEffects exactly when the child
 // drained.
 type childOutcomeTestWire struct {

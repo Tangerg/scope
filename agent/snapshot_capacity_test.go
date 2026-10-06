@@ -245,19 +245,19 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID()) })
 	preparation := runtime.prepareChildStart(root, effectID, spec)
 	if preparation.plan == nil {
-		t.Fatalf("child preparation failed: %+v", preparation.result)
+		t.Fatalf("child preparation failed: %+v", preparation.failure)
 	}
 	result := preparation.plan.execute(t.Context())
 	if !result.started() {
-		t.Fatalf("child initialization failed: %+v", result.result)
+		t.Fatalf("child initialization failed: %+v", result.failure)
 	}
 	reserved := runtime.members.childAllocation(root.handle.processID())
-	pending := &pendingChildStartPublication{effectID: effectID, plan: preparation.plan, result: result}
-	if err := runtime.applyChildStart(pending); err != nil {
+	pending := &pendingChildStartPublication{plan: preparation.plan, result: result}
+	if err := runtime.applyChildStart(effectID, pending); err != nil {
 		t.Fatalf("capacity rejection became a runtime fault: %v", err)
 	}
 	runtime.discardChildStart(preparation.plan)
-	failure, failed := pending.result.result.Failure()
+	failure, failed := pending.result.failure, pending.result.failure.Valid()
 	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
@@ -302,12 +302,12 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			preparation := runtime.prepareChildStart(root, effectID, spec)
 			if preparation.plan == nil {
-				t.Fatalf("preparation failed: %+v", preparation.result)
+				t.Fatalf("preparation failed: %+v", preparation.failure)
 			}
 			if mode == "capture_failed" {
 				root.committedExecutionState = ExecutionState{}
 			}
-			result := childStartJobResult{result: failedChildStart(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
+			result := childStartJobResult{failure: failedChildStart(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
 			if runtime.childDebits(root) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")

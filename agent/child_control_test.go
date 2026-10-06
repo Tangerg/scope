@@ -262,7 +262,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal())).wire()
 	childKey := controlValue(ParseChildKey("recipient"))
-	child := processSnapshotWire{ProcessID: childID,
+	child := processSnapshotWire{
 		Relation: childProcessRelation(childID, rootProcessRelation(parentID), childKey), Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}
 	for name, mutate := range map[string]func(*processSnapshotWire){
 		"missing receipt": func(child *processSnapshotWire) { child.Mailbox.Signals = nil },

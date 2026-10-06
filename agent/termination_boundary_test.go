@@ -49,7 +49,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				}
 				runtime.applyCompletion(treeJobCompletion{
 					processID: process.handle.processID(), attempt: 1,
-					result: dispatchJobResult{effectID: record.ID, settlement: settlement},
+					result: dispatchJobResult{settlement: settlement},
 				})
 			}
 			if runtime.writer.committing() {
