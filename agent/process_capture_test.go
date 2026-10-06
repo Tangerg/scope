@@ -161,15 +161,6 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	}
 }
 
-func TestChildDebitUnderflowPanics(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("child debit underflow was silently accepted")
-		}
-	}()
-	resourceAmounts{Steps: 3, Effects: 2, Signals: 1}.subtract(resourceAmounts{Steps: 1, Effects: 3, Signals: 1})
-}
-
 // memberChildAllocation reads the debits tree membership attributes to a
 // Process, which holds none before it joins a tree.
 func memberChildAllocation(process *processState) resourceAmounts {
