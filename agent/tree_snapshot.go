@@ -178,7 +178,7 @@ func (d *decodedProcesses) childOutcome(parent, child ProcessID, boundary ChildW
 	if !d.subtreeTerminal(child) {
 		return ChildOutcome{}, errors.New("answered child has not drained")
 	}
-	outcome.subtreeUnresolvedEffects = new(subtreeUnresolvedEffects(child,
+	outcome.descendantUnresolvedEffects = new(descendantUnresolvedEffects(child,
 		func(id ProcessID) []ProcessID { return d.children[id] },
 		func(id ProcessID) Termination { return d.byID[id].state.publishedTermination() }))
 	return outcome, nil

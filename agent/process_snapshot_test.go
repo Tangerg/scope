@@ -537,7 +537,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	for _, drained := range []bool{false, true} {
 		original := ChildOutcome{result: result}
 		if drained {
-			original.subtreeUnresolvedEffects = new([]UnresolvedEffect{})
+			original.descendantUnresolvedEffects = new([]UnresolvedEffect{})
 		}
 		data, err := jsonv2.Marshal(original)
 		if err != nil {

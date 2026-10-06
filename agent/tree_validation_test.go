@@ -72,7 +72,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	root := wire.ProcessSnapshots[0].state
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
-	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{{result: result, subtreeUnresolvedEffects: new([]UnresolvedEffect{})}}))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	root.Mailbox.Signals[1].Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	return controlValue(newTreeSnapshot(wire))

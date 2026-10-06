@@ -205,7 +205,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(state.Tasks[0].Outcome)), &wire); err != nil {
 					t.Fatal(err)
 				}
-				delete(wire, "subtree_unresolved_effects")
+				delete(wire, "descendant_unresolved_effects")
 				var outcome agent.ChildOutcome
 				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(wire)), &outcome); err != nil {
 					t.Fatal(err)

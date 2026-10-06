@@ -47,7 +47,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 							Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
 						}}
 						if boundary == agent.ChildWaitBoundaryDrained {
-							outcome.SubtreeUnresolvedEffects = new([]agent.UnresolvedEffect{})
+							outcome.DescendantUnresolvedEffects = new([]agent.UnresolvedEffect{})
 						}
 						payload = childCompletionTestPayload{Operation: "child_wait_satisfied", Outcomes: []childOutcomeTestWire{outcome}}
 					}
@@ -215,7 +215,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 	signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
 		Operation: "child_wait_satisfied",
 		Outcomes: []childOutcomeTestWire{{
-			SubtreeUnresolvedEffects: new([]agent.UnresolvedEffect{}),
+			DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}),
 			Result: childResultTestWire{
 				ProcessID: *batch.Invocations[1].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 				Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
@@ -336,11 +336,11 @@ type childCompletionTestPayload struct {
 	Outcomes  []childOutcomeTestWire `json:"outcomes"`
 }
 
-// childOutcomeTestWire carries SubtreeUnresolvedEffects exactly when the child
+// childOutcomeTestWire carries DescendantUnresolvedEffects exactly when the child
 // drained.
 type childOutcomeTestWire struct {
-	Result                   childResultTestWire       `json:"result"`
-	SubtreeUnresolvedEffects *[]agent.UnresolvedEffect `json:"subtree_unresolved_effects,omitzero"`
+	Result                      childResultTestWire       `json:"result"`
+	DescendantUnresolvedEffects *[]agent.UnresolvedEffect `json:"descendant_unresolved_effects,omitzero"`
 }
 
 type childResultTestWire struct {
@@ -384,7 +384,7 @@ func TestToolChildTerminationPreservesFailureAndCause(t *testing.T) {
 			batch := execution.state.ToolRound.ChildBatch
 			signal := childBatchTestSignal(t, *batch.WaitID, childCompletionTestPayload{
 				Operation: "child_wait_satisfied",
-				Outcomes: []childOutcomeTestWire{{SubtreeUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{
+				Outcomes: []childOutcomeTestWire{{DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{
 					ProcessID: *batch.Invocations[0].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Termination: json.RawMessage(test.termination),
 				}}},
 			})
@@ -405,8 +405,7 @@ func TestDelegateUnresolvedEffectsStopParent(t *testing.T) {
 	batch := execution.state.ToolRound.ChildBatch
 	outcomes := make([]childOutcomeTestWire, len(batch.Invocations))
 	for index, invocation := range batch.Invocations {
-		effectID, _ := agent.ParseEffectID("effect:remote-write")
-		outcomes[index] = childOutcomeTestWire{SubtreeUnresolvedEffects: new([]agent.UnresolvedEffect{{ProcessID: *invocation.ProcessID, EffectID: effectID}}), Result: childResultTestWire{
+		outcomes[index] = childOutcomeTestWire{DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{
 			ProcessID: *invocation.ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
 			Termination: json.RawMessage(`{"cause":"engine_kill","reason":"operator stopped child","unresolved_effect_ids":["effect:remote-write"]}`),
 		}}
@@ -440,12 +439,10 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 					if kind == childCallsTool {
 						output, _ = agent.EncodePayload(toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")})
 					}
-					outcomes[index] = childOutcomeTestWire{SubtreeUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"cause":"completion"}`)}}
+					outcomes[index] = childOutcomeTestWire{DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"cause":"completion"}`)}}
 				}
 				execution.state.ToolRound.Response.Output.Message = &message
 				if kind == childCallsDelegate {
-					effectID, _ := agent.ParseEffectID("effect:remote-write")
-					outcomes[failedIndex].SubtreeUnresolvedEffects = new([]agent.UnresolvedEffect{{ProcessID: outcomes[failedIndex].Result.ProcessID, EffectID: effectID}})
 					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"cause":"engine_kill","reason":"stopped","unresolved_effect_ids":["effect:remote-write"]}`)
 				} else {
 					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"cause":"engine_kill","reason":"stopped"}`)

@@ -17,7 +17,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 		child := runtime.members.get(id)
 		child.mailbox = newSignalMailbox()
 		child.installTermination(termination, output, child.handle.startedAt)
-		outcomes = append(outcomes, ChildOutcome{result: child.result(), subtreeUnresolvedEffects: new([]UnresolvedEffect{})})
+		outcomes = append(outcomes, ChildOutcome{result: child.result(), descendantUnresolvedEffects: new([]UnresolvedEffect{})})
 	}
 	waitID := controlValue(ParseWaitID("wait:drained-benchmark"))
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: children, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}

@@ -49,8 +49,8 @@ func (t *treeMembers) relation(processID ProcessID) ProcessRelation {
 	return ProcessRelation{}
 }
 
-func (t *treeMembers) subtreeUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
-	return subtreeUnresolvedEffects(processID, t.childrenOf,
+func (t *treeMembers) descendantUnresolvedEffects(processID ProcessID) []UnresolvedEffect {
+	return descendantUnresolvedEffects(processID, t.childrenOf,
 		func(id ProcessID) Termination { return t.byID[id].publishedTermination() })
 }
 
@@ -151,7 +151,7 @@ func (t *treeMembers) childWaitAnswer(opened openedChildWait) (Signal, bool, err
 		}
 		outcome := ChildOutcome{result: child.result()}
 		if spec.Boundary == ChildWaitBoundaryDrained {
-			outcome.subtreeUnresolvedEffects = new(t.subtreeUnresolvedEffects(childID))
+			outcome.descendantUnresolvedEffects = new(t.descendantUnresolvedEffects(childID))
 		}
 		outcomes = append(outcomes, outcome)
 	}
