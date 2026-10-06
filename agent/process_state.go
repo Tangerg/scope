@@ -152,8 +152,7 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	// also fit the settlements appended when that candidate is adopted.
 	remainingPending -= p.prepared.consumedSignals()
 	allocated := childAllocation
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
-		!resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, reserved, count) ||
+	if !limits.admitsPendingSignals(p.mailbox.pendingCount(), remainingPending, reserved, count) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
 		return nil, ErrResourceLimitExceeded
 	}
@@ -388,7 +387,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, effectCount) ||
+	if !limits.admitsPendingSignals(p.mailbox.pendingCount(), remainingPending, effectCount, 0) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, effectCount) {
 		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,

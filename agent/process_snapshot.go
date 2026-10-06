@@ -530,8 +530,7 @@ func (p ProcessSnapshot) validateCapacity(limits TreeLimits) error {
 	}
 	pending := uint64(len(p.state.Mailbox.Signals)) - p.state.Mailbox.SignalCursor
 	remaining, reserved, _ := p.state.pendingSignals()
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, pending) ||
-		!resourceQuantitiesFit(limits.MaxPendingSignals, remaining, reserved) {
+	if !limits.admitsPendingSignals(pending, remaining, reserved, 0) {
 		return fmt.Errorf("%w: pending Signals exceed MaxPendingSignals", ErrInvalidSnapshot)
 	}
 	if !limits.MaxProcessSnapshotBytes.Allows(uint64(len(p.data))) {

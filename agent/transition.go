@@ -44,8 +44,11 @@ func (t TransitionKind) String() string {
 // Transition is an immutable candidate lifecycle intent. The Engine validates
 // ConsumedSignals against the delivered Signal window, captures the candidate
 // ExecutionState, and assigns EffectID values before committing anything.
+//
+// A Transition with a wait, pause, output, or failure is that kind; advance
+// names the two kinds that carry no payload of their own.
 type Transition struct {
-	kind            TransitionKind
+	advance         TransitionKind
 	consumedSignals uint32
 	effects         []Effect
 	waitID          WaitID
@@ -61,14 +64,14 @@ func Continue(consumedSignals uint32, effects ...Effect) (Transition, error) {
 	if err != nil {
 		return Transition{}, err
 	}
-	return Transition{kind: TransitionKindContinue, consumedSignals: consumedSignals, effects: owned}, nil
+	return Transition{advance: TransitionKindContinue, consumedSignals: consumedSignals, effects: owned}, nil
 }
 
 // Checkpoint commits the consumed Signal prefix and candidate state; the
 // TreeCommitter must acknowledge the complete tree before any further Step or
 // Effect in this Process runs. It creates no settlement Signal.
 func Checkpoint(consumedSignals uint32) (Transition, error) {
-	return Transition{kind: TransitionKindCheckpoint, consumedSignals: consumedSignals}, nil
+	return Transition{advance: TransitionKindCheckpoint, consumedSignals: consumedSignals}, nil
 }
 
 // Wait moves the Process to Waiting for an Engine-minted WaitID already stored
@@ -77,7 +80,7 @@ func Wait(consumedSignals uint32, waitID WaitID) (Transition, error) {
 	if !waitID.Valid() {
 		return Transition{}, fmt.Errorf("%w: wait ID: %w", ErrInvalidTransition, ErrInvalidIdentity)
 	}
-	return Transition{kind: TransitionKindWait, consumedSignals: consumedSignals, waitID: waitID}, nil
+	return Transition{consumedSignals: consumedSignals, waitID: waitID}, nil
 }
 
 func Pause(consumedSignals uint32, reason string) (Transition, error) {
@@ -85,7 +88,7 @@ func Pause(consumedSignals uint32, reason string) (Transition, error) {
 	if err != nil {
 		return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
 	}
-	return Transition{kind: TransitionKindPause, consumedSignals: consumedSignals, pause: requested}, nil
+	return Transition{consumedSignals: consumedSignals, pause: requested}, nil
 }
 
 // Complete supplies the final semantic Output. The Engine must validate it
@@ -94,7 +97,7 @@ func Complete(consumedSignals uint32, output Payload) (Transition, error) {
 	if !output.Valid() {
 		return Transition{}, fmt.Errorf("%w: output: %w", ErrInvalidTransition, ErrInvalidPayload)
 	}
-	return Transition{kind: TransitionKindComplete, consumedSignals: consumedSignals, output: output}, nil
+	return Transition{consumedSignals: consumedSignals, output: output}, nil
 }
 
 // Fail supplies a stable Strategy-declared failure without making the
@@ -103,36 +106,56 @@ func Fail(consumedSignals uint32, failure Failure) (Transition, error) {
 	if !failure.Valid() {
 		return Transition{}, fmt.Errorf("%w: failure: %w", ErrInvalidTransition, ErrInvalidFailure)
 	}
-	return Transition{kind: TransitionKindFail, consumedSignals: consumedSignals, failure: failure}, nil
+	return Transition{consumedSignals: consumedSignals, failure: failure}, nil
 }
 
-func (t Transition) Kind() TransitionKind { return t.kind }
+func (t Transition) Kind() TransitionKind {
+	switch {
+	case t.waitID.Valid():
+		return TransitionKindWait
+	case t.pause.valid():
+		return TransitionKindPause
+	case t.output.Valid():
+		return TransitionKindComplete
+	case t.failure.Valid():
+		return TransitionKindFail
+	default:
+		return t.advance
+	}
+}
 
 func (t Transition) ConsumedSignals() uint32 { return t.consumedSignals }
 
 // Effects returns independently owned operation intents in declaration order.
 func (t Transition) Effects() []Effect { return cloneEffectsUnchecked(t.effects) }
 
-func (t Transition) WaitID() (WaitID, bool) { return t.waitID, t.kind == TransitionKindWait }
+func (t Transition) WaitID() (WaitID, bool) { return t.waitID, t.waitID.Valid() }
 
-func (t Transition) Reason() (string, bool) { return t.pause.reason, t.kind == TransitionKindPause }
+func (t Transition) Reason() (string, bool) { return t.pause.reason, t.pause.valid() }
 
-func (t Transition) Output() (Payload, bool) { return t.output, t.kind == TransitionKindComplete }
+func (t Transition) Output() (Payload, bool) { return t.output, t.output.Valid() }
 
-func (t Transition) Failure() (Failure, bool) { return t.failure, t.kind == TransitionKindFail }
+func (t Transition) Failure() (Failure, bool) { return t.failure, t.failure.Valid() }
 
-// Valid requires each kind to carry exactly its own payload field.
+// Valid requires exactly one variant: one payload, or one payload-free kind.
 func (t Transition) Valid() bool {
-	if !t.kind.Valid() {
+	variants := 0
+	for _, present := range []bool{t.waitID.Valid(), t.pause.valid(), t.output.Valid(), t.failure.Valid()} {
+		if present {
+			variants++
+		}
+	}
+	switch t.advance {
+	case TransitionKindContinue, TransitionKindCheckpoint:
+		variants++
+	case TransitionKindInvalid:
+	default:
 		return false
 	}
-	if len(t.effects) != 0 && (t.kind != TransitionKindContinue || !validEffects(t.effects)) {
+	if variants != 1 {
 		return false
 	}
-	return t.waitID.Valid() == (t.kind == TransitionKindWait) &&
-		t.pause.valid() == (t.kind == TransitionKindPause) &&
-		t.output.Valid() == (t.kind == TransitionKindComplete) &&
-		t.failure.Valid() == (t.kind == TransitionKindFail)
+	return len(t.effects) == 0 || t.advance == TransitionKindContinue && validEffects(t.effects)
 }
 
 func cloneEffects(effects []Effect) ([]Effect, error) {
@@ -166,7 +189,7 @@ func (t Transition) MarshalJSON() ([]byte, error) {
 		return nil, ErrInvalidTransition
 	}
 	wire := transitionWire{ConsumedSignals: t.consumedSignals}
-	switch t.kind {
+	switch t.Kind() {
 	case TransitionKindContinue:
 		wire.Continue = new(t.effects)
 		if t.effects == nil {
@@ -206,15 +229,15 @@ func transitionFromWire(wire transitionWire) (Transition, error) {
 	value := Transition{consumedSignals: wire.ConsumedSignals}
 	members := 0
 	if wire.Continue != nil {
-		value.kind, value.effects = TransitionKindContinue, *wire.Continue
+		value.advance, value.effects = TransitionKindContinue, *wire.Continue
 		members++
 	}
 	if wire.Checkpoint != nil {
-		value.kind = TransitionKindCheckpoint
+		value.advance = TransitionKindCheckpoint
 		members++
 	}
 	if wire.Wait != nil {
-		value.kind, value.waitID = TransitionKindWait, *wire.Wait
+		value.waitID = *wire.Wait
 		members++
 	}
 	if wire.Pause != nil {
@@ -222,7 +245,7 @@ func transitionFromWire(wire transitionWire) (Transition, error) {
 		if err != nil {
 			return Transition{}, fmt.Errorf("%w: %w", ErrInvalidTransition, err)
 		}
-		value.kind, value.pause = TransitionKindPause, requested
+		value.pause = requested
 		members++
 	}
 	if len(wire.Complete) != 0 {
@@ -230,11 +253,11 @@ func transitionFromWire(wire transitionWire) (Transition, error) {
 		if err != nil {
 			return Transition{}, fmt.Errorf("%w: output: %w", ErrInvalidTransition, err)
 		}
-		value.kind, value.output = TransitionKindComplete, output
+		value.output = output
 		members++
 	}
 	if wire.Fail != nil {
-		value.kind, value.failure = TransitionKindFail, *wire.Fail
+		value.failure = *wire.Fail
 		members++
 	}
 	if members != 1 || !value.Valid() {

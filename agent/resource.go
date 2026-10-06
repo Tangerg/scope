@@ -253,6 +253,15 @@ func (t TreeLimits) validate() error {
 // admitsDepth reports whether a Process at depth may exist in this tree.
 func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
+// admitsPendingSignals is the one MaxPendingSignals rule: the unconsumed
+// suffix, and the suffix after the prepared Step consumes its inputs and
+// appends reserved settlements, each fit with incoming more Signals. Runtime
+// admission passes prospective arrivals; snapshot validation passes none.
+func (t TreeLimits) admitsPendingSignals(pending, afterPrepared, reserved, incoming uint64) bool {
+	return resourceQuantitiesFit(t.MaxPendingSignals, pending, incoming) &&
+		resourceQuantitiesFit(t.MaxPendingSignals, afterPrepared, reserved, incoming)
+}
+
 // admitsChildren reports whether one Process may hold children lifetime
 // children, active of which are non-terminal. Runtime admission checks the
 // prospective counts; snapshot validation checks the captured ones.

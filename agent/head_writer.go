@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 )
 
@@ -52,26 +51,28 @@ func (h *headWriter) commitStart(ctx context.Context, snapshot TreeSnapshot) err
 	return nil
 }
 
-// activate fences the previous writer of snapshot's tree and adopts snapshot,
-// which must carry this writer's identity, as the head of a fresh sequence.
-func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, snapshot TreeSnapshot) error {
-	if snapshot.IncarnationID() != h.identity {
-		return errors.New("agent: activation snapshot does not belong to this writer")
+// activate fences the previous writer of the tree and adopts wire, stamped
+// with this writer's identity, as the head of a fresh sequence.
+func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, wire treeSnapshotWire) (TreeSnapshot, error) {
+	wire.IncarnationID = h.identity
+	snapshot, err := newTreeSnapshot(wire)
+	if err != nil {
+		return TreeSnapshot{}, err
 	}
 	activation, err := newTreeActivation(previous.IncarnationID(), previous.Digest(), snapshot)
 	if err != nil {
-		return err
+		return TreeSnapshot{}, err
 	}
 	if err := activateTree(ctx, h.committer, activation); err != nil {
-		return err
+		return TreeSnapshot{}, err
 	}
 	h.establish(snapshot)
-	return nil
+	return snapshot, nil
 }
 
 func (h *headWriter) establish(snapshot TreeSnapshot) {
-	if !snapshot.Valid() || snapshot.IncarnationID() != h.identity {
-		panic("agent: durable tree head does not belong to this writer")
+	if !snapshot.Valid() {
+		panic("agent: durable tree head is invalid")
 	}
 	h.acknowledged = snapshot
 }
