@@ -80,8 +80,10 @@ func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor)
 // Dispatch executes one validated Planning protocol operation. Sensor errors
 // and valid ActionResult failures are definite failed settlements; an
 // ActionExecutor error leaves the Effect outcome unknown. The Engine enforces
-// the capabilities Policy declares for each Action before dispatch. Local protocol or binding rejection returns a Failed host_error settlement;
-// Execution consumes it as a contract failure without another external attempt.
+// the capabilities Policy declares for each Action before dispatch. Input that
+// violates the Definition schema or an Action whose binding does not admit the
+// request's world state returns a Failed host_error settlement; Execution
+// consumes it as a contract failure without another external attempt.
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	request agent.EffectRequest,
