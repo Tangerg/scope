@@ -187,15 +187,11 @@ func mapProtocolMessages(messages []corechat.Message) ([]nativeMessage, error) {
 				if !ok {
 					return nil, fmt.Errorf("ollama: messages[%d].parts[%d]: media Tool output is unsupported", i, j)
 				}
-				id := result.ID
-				if strings.HasPrefix(id, protocolGeneratedToolPrefix) {
-					id = ""
-				}
 				mapped = append(mapped, nativeMessage{
 					Role:       "tool",
 					Content:    content,
 					ToolName:   result.Name,
-					ToolCallID: id,
+					ToolCallID: result.ID,
 				})
 			}
 		default:
@@ -262,12 +258,8 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 			if err != nil {
 				return nativeMessage{}, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
 			}
-			id := part.ToolCall.ID
-			if strings.HasPrefix(id, protocolGeneratedToolPrefix) {
-				id = ""
-			}
 			mapped.ToolCalls = append(mapped.ToolCalls, nativeToolCall{
-				ID: id,
+				ID: part.ToolCall.ID,
 				Function: nativeToolCallFunction{
 					Index:     len(mapped.ToolCalls),
 					Name:      part.ToolCall.Name,

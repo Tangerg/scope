@@ -226,16 +226,12 @@ func mapProtocolMessages(provider string, messages []corechat.Message) (*genai.C
 			parts := make([]*genai.Part, 0, len(message.Parts))
 			for j := range message.Parts {
 				result := message.Parts[j].ToolResult
-				id := result.ID
-				if strings.HasPrefix(id, protocolGeneratedToolPrefixFor(provider)) {
-					id = ""
-				}
 				response, responseParts, err := protocolToolResult(result.Output, result.IsError)
 				if err != nil {
 					return nil, nil, fmt.Errorf("google: messages[%d].parts[%d].tool_result.output: %w", i, j, err)
 				}
 				parts = append(parts, &genai.Part{FunctionResponse: &genai.FunctionResponse{
-					ID:       id,
+					ID:       result.ID,
 					Name:     result.Name,
 					Response: response,
 					Parts:    responseParts,
@@ -295,12 +291,8 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 					return nil, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
 				}
 			}
-			id := part.ToolCall.ID
-			if strings.HasPrefix(id, protocolGeneratedToolPrefixFor(provider)) {
-				id = ""
-			}
 			mapped = append(mapped, &genai.Part{FunctionCall: &genai.FunctionCall{
-				ID:   id,
+				ID:   part.ToolCall.ID,
 				Name: part.ToolCall.Name,
 				Args: arguments,
 			}})

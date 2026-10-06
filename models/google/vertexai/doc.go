@@ -12,6 +12,8 @@
 // owns sampling, output format, reasoning effort, system messages, function
 // tools, and tool choice; duplicate native fields are rejected. Provider-only
 // safety, grounding, modalities, and thinking-budget fields remain available.
+// Core ToolCall.ID is replayed unchanged on the call and its matching result,
+// including IDs synthesized when the provider omitted one.
 // Core Citation owns validation of native citations with a URI. Invalid
 // citations fail Call and Stream rather than disappearing from a successful response.
 // Thought signatures, including empty-text Parts, survive Core history

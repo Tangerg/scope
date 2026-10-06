@@ -2,6 +2,8 @@
 // [NewChatCompletions] targets Ollama's OpenAI-compatible chat endpoint.
 // Native chat maps a natural stop with tool calls to Core tool_calls while
 // preserving interrupted outcomes and the native done reason.
+// Core ToolCall.ID is replayed unchanged on the call and its matching result,
+// including IDs synthesized when the provider omitted one.
 //
 // Stream termination. A chunk with done true is the only claim that the
 // generation finished, and the non-streaming path already refuses a response
