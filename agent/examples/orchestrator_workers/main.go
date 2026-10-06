@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	plannedWorkerCount  = 3
 	workerBudgetSteps   = 32
 	workerBudgetEffects = 32
 	workerBudgetSignals = 64
@@ -68,9 +67,6 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	tree, err := engine.CaptureTree(ctx, process.ID())
 	if err != nil {
 		return err
-	}
-	if len(report.Results) != plannedWorkerCount {
-		return fmt.Errorf("orchestration returned %d worker results", len(report.Results))
 	}
 	_, err = fmt.Fprintf(
 		output,

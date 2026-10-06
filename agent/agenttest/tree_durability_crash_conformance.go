@@ -91,11 +91,12 @@ func (c crashCommitPoint) valid() bool {
 type crashCommitObservation struct {
 	ctx            context.Context
 	phase          crashCommitPhase
-	rootID         agent.ProcessID
 	previousDigest agent.Digest
 	prospective    agent.TreeSnapshot
 	boundary       agent.EffectBoundary
 }
+
+func (c crashCommitObservation) rootID() agent.ProcessID { return c.prospective.RootID() }
 
 // durableDigest is the only head storage may hold at the cut: the base before
 // the commit, or the prospective head once the delegate has installed it.
@@ -148,7 +149,6 @@ func (t *treeCommitterCommitGate) ActivateTree(
 ) error {
 	observation := crashCommitObservation{
 		ctx:            ctx,
-		rootID:         activation.TreeSnapshot().RootID(),
 		previousDigest: activation.PreviousTreeDigest(),
 		prospective:    activation.TreeSnapshot(),
 	}
@@ -163,7 +163,6 @@ func (t *treeCommitterCommitGate) CommitEffect(
 ) error {
 	observation := crashCommitObservation{
 		ctx:            ctx,
-		rootID:         boundary.TreeSnapshot().RootID(),
 		previousDigest: boundary.PreviousTreeDigest(),
 		prospective:    boundary.TreeSnapshot(),
 		boundary:       boundary,
@@ -183,7 +182,6 @@ func (t *treeCommitterCommitGate) CommitCheckpoint(
 	}
 	observation := crashCommitObservation{
 		ctx:            ctx,
-		rootID:         checkpoint.TreeSnapshot().RootID(),
 		previousDigest: checkpoint.PreviousTreeDigest(),
 		prospective:    checkpoint.TreeSnapshot(),
 	}
@@ -307,8 +305,8 @@ func runCrashBeforeRootStartCommit(t *testing.T, store TreeCommitterConformanceD
 	engine := newCrashEngine(t, gate, nil)
 	started := startCrashProcessAsync(t, engine, deployment)
 	observation := gate.await(t)
-	assertCrashHeadAbsent(t, store, observation.rootID)
-	if _, found := engine.Process(observation.rootID); found {
+	assertCrashHeadAbsent(t, store, observation.rootID())
+	if _, found := engine.Process(observation.rootID()); found {
 		t.Fatal("root Process published before its base head commit")
 	}
 	gate.abort()
@@ -327,8 +325,8 @@ func runCrashAfterRootStartCommit(t *testing.T, store TreeCommitterConformanceDr
 	engine := newCrashEngine(t, gate, nil)
 	started := startCrashProcessAsync(t, engine, deployment)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
-	if _, found := engine.Process(observation.rootID); found {
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
+	if _, found := engine.Process(observation.rootID()); found {
 		t.Fatal("root Process published before its committed base callback returned")
 	}
 
@@ -356,7 +354,7 @@ func runCrashBeforePendingCommit(t *testing.T, store TreeCommitterConformanceDri
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	if len(dispatcher.Requests()) != 0 {
 		t.Fatal("Dispatcher ran before pending state became authoritative")
 	}
@@ -383,7 +381,7 @@ func runCrashAfterPendingCommit(t *testing.T, store TreeCommitterConformanceDriv
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	if len(dispatcher.Requests()) != 0 {
 		t.Fatal("Dispatcher ran before the pending callback returned")
 	}
@@ -414,7 +412,7 @@ func runCrashBeforeSettledCommit(t *testing.T, store TreeCommitterConformanceDri
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	if len(dispatcher.Requests()) != 1 {
 		t.Fatalf("dispatches=%d, want 1", len(dispatcher.Requests()))
 	}
@@ -445,7 +443,7 @@ func runCrashAfterSettledCommit(t *testing.T, store TreeCommitterConformanceDriv
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	if inspectConformanceProcess(t, engine, original).Status().Terminal() {
 		t.Fatal("settled state was applied in memory before its callback returned")
 	}
@@ -473,7 +471,7 @@ func runCrashAfterParkedCommit(t *testing.T, store TreeCommitterConformanceDrive
 	engine := newCrashEngine(t, gate, recorder)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	assertCrashEventAbsent(t, recorder, agent.EventProcessPaused)
 
 	restoredEngine := newCrashEngine(t, store, nil)
@@ -501,7 +499,7 @@ func runCrashAfterTerminalCommit(t *testing.T, store TreeCommitterConformanceDri
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	awaited := awaitCrashProcessAsync(t.Context(), original)
 	observation := gate.await(t)
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	select {
 	case result := <-awaited:
 		t.Fatalf("Result published before terminal callback returned: %+v", result)
@@ -533,7 +531,7 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeCommitterConformanceD
 	firstEngine := newCrashEngine(t, gate, nil)
 	firstRestore := restoreCrashTreeAsync(t.Context(), firstEngine, deployment, head)
 	observation := gate.await(t)
-	newHead := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	newHead := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	if _, found := firstEngine.Process(source.ID()); found {
 		t.Fatal("restored Process published before activation callback returned")
 	}
@@ -576,8 +574,8 @@ func runCrashProgressCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 	if phase == crashCommitAfter {
 		wantSteps = 1
 	}
-	head := assertCrashHead(t, store, observation.rootID, observation.durableDigest())
-	if root := conformanceSnapshotByID(head.ProcessSnapshots(), observation.rootID); root.Usage().CommittedSteps != wantSteps {
+	head := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
+	if root := conformanceSnapshotByID(head.ProcessSnapshots(), observation.rootID()); root.Usage().CommittedSteps != wantSteps {
 		t.Fatalf("progress committed Steps=%d, want=%d", root.Usage().CommittedSteps, wantSteps)
 	}
 	restoredEngine := newCrashEngine(t, store, nil)

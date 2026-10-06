@@ -57,6 +57,6 @@ func runDetachedStorageShutdown(t *testing.T, store TreeCommitterConformanceDriv
 	if err := process.Join(ctx); !errors.Is(err, errSimulatedHostCrash) {
 		t.Fatalf("Join did not drain failed storage: %v", err)
 	}
-	assertCrashHead(t, store, observation.rootID, observation.durableDigest())
+	assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
 	closeCrashEngine(t, engine)
 }

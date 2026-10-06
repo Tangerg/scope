@@ -90,12 +90,16 @@ func (t turnExecution) decision() (Decision, error) {
 	return decision, nil
 }
 
+// collaborationWaitKey names the one wait a collaboration holds open at a
+// time. A Step consumes the previous wait's answer before it opens the next,
+// so the key never names two open waits.
+const collaborationWaitKey = "collaboration.wait"
+
 type executionState struct {
 	InitialState agent.Payload    `json:"initial_state,omitzero"`
 	Tasks        []Task           `json:"tasks,omitempty"`
 	Controls     []ControlReceipt `json:"controls,omitempty"`
 	Turn         *turnExecution   `json:"turn,omitzero"`
-	WaitSequence uint64           `json:"wait_sequence"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
 }
 
@@ -151,7 +155,7 @@ func (e executionState) MarshalJSON() ([]byte, error) {
 }
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
-	document, err := jsonwire.Decode[executionStateDocument](data, "wait_sequence")
+	document, err := jsonwire.Decode[executionStateDocument](data)
 	if err != nil {
 		return err
 	}
@@ -311,12 +315,9 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 }
 
 func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
-	key, err := agent.ParseWaitKey(fmt.Sprintf("collaboration.wait.%d", e.WaitSequence))
+	key, err := agent.ParseWaitKey(collaborationWaitKey)
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
-	}
-	if e.WaitSequence == 0 {
-		return agent.ChildWaitSpec{}, fmt.Errorf("%w: wait requires a sequence", ErrInvalidExecutionState)
 	}
 	batch, err := e.batch(d)
 	if err != nil {
@@ -429,14 +430,11 @@ func (e executionState) validateBounds(d *Definition) error {
 	if !d.maxTurns.Allows(e.number()) || !d.maxTasks.Allows(uint64(len(e.Tasks))) || uint64(len(e.Controls)) > uint64(d.maxControlsPerTurn) {
 		return fmt.Errorf("%w: turn, task, or control bound exceeded", ErrInvalidExecutionState)
 	}
-	if e.WaitSequence > e.number() && e.WaitSequence-e.number() > uint64(len(e.Tasks)) {
-		return fmt.Errorf("%w: wait sequence exceeds declared turns and tasks", ErrInvalidExecutionState)
-	}
 	return nil
 }
 
 func (e executionState) validateReady() error {
-	if len(e.Tasks)+len(e.Controls) != 0 || e.WaitSequence != 0 || e.WaitID != nil {
+	if len(e.Tasks)+len(e.Controls) != 0 || e.WaitID != nil {
 		return fmt.Errorf("%w: ready phase retains execution progress", ErrInvalidExecutionState)
 	}
 	return nil

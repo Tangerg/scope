@@ -8,3 +8,4 @@
 
 # Compiled test binaries from `go test -c` and profiling runs.
 *.test
+/agent/examples/workflow/workflow

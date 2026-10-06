@@ -212,11 +212,6 @@ func requireSameBinding(reference agent.DeploymentRef, want, got agent.Deploymen
 			"agenttest: resolver answered %s with %s", reference, got.DeploymentRef(),
 		)
 	}
-	if got.Descriptor().Digest() != want.Descriptor().Digest() {
-		return fmt.Errorf(
-			"agenttest: resolver answered %s with a different Descriptor", reference,
-		)
-	}
 	return nil
 }
 

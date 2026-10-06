@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -21,7 +20,6 @@ const (
 	patternChildBudgetSteps   = 16
 	patternChildBudgetEffects = 8
 	patternChildBudgetSignals = 16
-	sectionWorkerCount        = 2
 	sectionWindowSize         = 2
 	voteWindowSize            = 2
 	urgentRouteID             = "urgent"
@@ -73,8 +71,12 @@ type routedState struct {
 	Route      string `json:"route"`
 }
 
-// finding and ballot carry only what each parallel worker adds; the Fork
-// reducer joins them with the routed state the Fork received.
+// sectionContent and ballot carry only what each parallel worker adds; the
+// Fork reducer joins them with their branch and the state the Fork received.
+type sectionContent struct {
+	Content string `json:"content"`
+}
+
 type finding struct {
 	Section string `json:"section"`
 	Content string `json:"content"`
@@ -262,14 +264,20 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 	if err != nil {
 		return nil, err
 	}
-	section, err := workflow.Fork(workflow.ForkConfig[routedState, finding, findingBundle]{
-		ID: "section",
-		Branches: []workflow.ForkBranch{
-			{ID: "facts", Deployment: children.facts, Budget: budget},
-			{ID: "risks", Deployment: children.risks, Budget: budget},
+	sections := []workflow.ForkBranch{
+		{ID: "facts", Deployment: children.facts, Budget: budget},
+		{ID: "risks", Deployment: children.risks, Budget: budget},
+	}
+	section, err := workflow.Fork(workflow.ForkConfig[routedState, sectionContent, findingBundle]{
+		ID: "section", Branches: sections, WindowSize: sectionWindowSize,
+		// Fork outputs arrive in branch declaration order.
+		Reduce: func(_ context.Context, state routedState, contents []sectionContent) (findingBundle, error) {
+			bundle := findingBundle{Normalized: state.Normalized, Summary: state.Summary, Route: state.Route}
+			for index, content := range contents {
+				bundle.Findings = append(bundle.Findings, finding{Section: sections[index].ID, Content: content.Content})
+			}
+			return bundle, nil
 		},
-		WindowSize: sectionWindowSize,
-		Reduce:     reduceFindings,
 	})
 	if err != nil {
 		return nil, err
@@ -315,16 +323,6 @@ func selectPatternRoute(_ context.Context, state chainState) (string, error) {
 		return urgentRouteID, nil
 	}
 	return standardRouteID, nil
-}
-
-func reduceFindings(_ context.Context, state routedState, findings []finding) (findingBundle, error) {
-	if len(findings) != sectionWorkerCount {
-		return findingBundle{}, errors.New("parallel sections returned an incomplete bundle")
-	}
-	return findingBundle{
-		Normalized: state.Normalized, Summary: state.Summary,
-		Route: state.Route, Findings: slices.Clone(findings),
-	}, nil
 }
 
 func newPatternRoot(
@@ -388,11 +386,11 @@ func findingDeployment(section string) (agent.Deployment, error) {
 		struct {
 			Section string `json:"section"`
 		}{Section: section},
-		func(_ context.Context, state routedState) (finding, error) {
+		func(_ context.Context, state routedState) (sectionContent, error) {
 			if state.Route == "" || state.Summary == "" {
-				return finding{}, errors.New("section worker received incomplete routed state")
+				return sectionContent{}, errors.New("section worker received incomplete routed state")
 			}
-			return finding{Section: section, Content: section + " for " + state.Summary}, nil
+			return sectionContent{Content: section + " for " + state.Summary}, nil
 		},
 	)
 }
@@ -408,8 +406,10 @@ func ballotDeployment(name, choice string) (agent.Deployment, error) {
 			Choice string `json:"choice"`
 		}{Choice: choice},
 		func(_ context.Context, bundle findingBundle) (ballot, error) {
-			if len(bundle.Findings) != 2 || bundle.Findings[0].Content == "" || bundle.Findings[1].Content == "" {
-				return ballot{}, errors.New("voter requires both parallel sections")
+			for _, finding := range bundle.Findings {
+				if finding.Content == "" {
+					return ballot{}, errors.New("voter requires every parallel section")
+				}
 			}
 			return ballot{Choice: choice}, nil
 		},
