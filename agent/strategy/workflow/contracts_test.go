@@ -36,7 +36,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
-		Reduce: func(_ context.Context, values []branchOutput) (forkOutput, error) {
+		Reduce: func(_ context.Context, _ forkInput, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
 			for index, value := range values {
 				result.Branches[index] = value.Branch

@@ -268,7 +268,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, consumedSignals uint3
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	if start == count {
-		value, err := stage.fanout.complete(ctx, e.state.CompletedFanoutOutputs)
+		value, err := stage.fanout.complete(ctx, e.state.CurrentValue, e.state.CompletedFanoutOutputs)
 		if err != nil {
 			return agent.Transition{}, err
 		}

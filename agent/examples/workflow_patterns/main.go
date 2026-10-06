@@ -73,12 +73,11 @@ type routedState struct {
 	Route      string `json:"route"`
 }
 
+// finding and ballot carry only what each parallel worker adds; the Fork
+// reducer joins them with the routed state the Fork received.
 type finding struct {
-	Normalized string `json:"normalized"`
-	Summary    string `json:"summary"`
-	Route      string `json:"route"`
-	Section    string `json:"section"`
-	Content    string `json:"content"`
+	Section string `json:"section"`
+	Content string `json:"content"`
 }
 
 type findingBundle struct {
@@ -89,12 +88,7 @@ type findingBundle struct {
 }
 
 type ballot struct {
-	Normalized string   `json:"normalized"`
-	Summary    string   `json:"summary"`
-	Route      string   `json:"route"`
-	Sections   []string `json:"sections"`
-	Evidence   []string `json:"evidence"`
-	Choice     string   `json:"choice"`
+	Choice string `json:"choice"`
 }
 
 type patternReport struct {
@@ -323,14 +317,13 @@ func selectPatternRoute(_ context.Context, state chainState) (string, error) {
 	return standardRouteID, nil
 }
 
-func reduceFindings(_ context.Context, findings []finding) (findingBundle, error) {
-	if len(findings) != sectionWorkerCount || findings[0].Normalized != findings[1].Normalized ||
-		findings[0].Summary != findings[1].Summary || findings[0].Route != findings[1].Route {
-		return findingBundle{}, errors.New("parallel sections returned inconsistent context")
+func reduceFindings(_ context.Context, state routedState, findings []finding) (findingBundle, error) {
+	if len(findings) != sectionWorkerCount {
+		return findingBundle{}, errors.New("parallel sections returned an incomplete bundle")
 	}
 	return findingBundle{
-		Normalized: findings[0].Normalized, Summary: findings[0].Summary,
-		Route: findings[0].Route, Findings: slices.Clone(findings),
+		Normalized: state.Normalized, Summary: state.Summary,
+		Route: state.Route, Findings: slices.Clone(findings),
 	}, nil
 }
 
@@ -399,10 +392,7 @@ func findingDeployment(section string) (agent.Deployment, error) {
 			if state.Route == "" || state.Summary == "" {
 				return finding{}, errors.New("section worker received incomplete routed state")
 			}
-			return finding{
-				Normalized: state.Normalized, Summary: state.Summary, Route: state.Route,
-				Section: section, Content: section + " for " + state.Summary,
-			}, nil
+			return finding{Section: section, Content: section + " for " + state.Summary}, nil
 		},
 	)
 }
@@ -421,30 +411,19 @@ func ballotDeployment(name, choice string) (agent.Deployment, error) {
 			if len(bundle.Findings) != 2 || bundle.Findings[0].Content == "" || bundle.Findings[1].Content == "" {
 				return ballot{}, errors.New("voter requires both parallel sections")
 			}
-			sections := []string{bundle.Findings[0].Section, bundle.Findings[1].Section}
-			evidence := []string{bundle.Findings[0].Content, bundle.Findings[1].Content}
-			return ballot{
-				Normalized: bundle.Normalized, Summary: bundle.Summary, Route: bundle.Route,
-				Sections: sections, Evidence: evidence, Choice: choice,
-			}, nil
+			return ballot{Choice: choice}, nil
 		},
 	)
 }
 
-func reduceBallots(_ context.Context, ballots []ballot) (patternReport, error) {
+func reduceBallots(_ context.Context, bundle findingBundle, ballots []ballot) (patternReport, error) {
 	if len(ballots) == 0 {
 		return patternReport{}, errors.New("parallel vote returned no ballots")
 	}
 	counts := make(map[string]int)
-	first := ballots[0]
 	for index, ballot := range ballots {
 		if ballot.Choice != "approve" && ballot.Choice != "reject" {
 			return patternReport{}, fmt.Errorf("ballot %d has invalid choice", index)
-		}
-		if ballot.Normalized != first.Normalized || ballot.Summary != first.Summary ||
-			ballot.Route != first.Route || !slices.Equal(ballot.Sections, first.Sections) ||
-			!slices.Equal(ballot.Evidence, first.Evidence) {
-			return patternReport{}, errors.New("parallel ballots returned inconsistent context")
 		}
 		counts[ballot.Choice]++
 	}
@@ -456,9 +435,13 @@ func reduceBallots(_ context.Context, ballots []ballot) (patternReport, error) {
 			winnerVotes = counts[ballot.Choice]
 		}
 	}
+	sections := make([]string, len(bundle.Findings))
+	for index, finding := range bundle.Findings {
+		sections[index] = finding.Section
+	}
 	return patternReport{
-		Normalized: first.Normalized, Summary: first.Summary, Route: first.Route,
-		Sections: slices.Clone(first.Sections), Decision: winner,
+		Normalized: bundle.Normalized, Summary: bundle.Summary, Route: bundle.Route,
+		Sections: sections, Decision: winner,
 		DecisionVotes: winnerVotes, TotalVotes: len(ballots),
 	}, nil
 }

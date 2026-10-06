@@ -85,7 +85,9 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 			{ID: "right", Deployment: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
 		WindowSize: 1,
-		Reduce:     func(_ context.Context, outputs []numberOutput) (numberOutput, error) { return outputs[0], nil },
+		Reduce: func(_ context.Context, _ numberInput, outputs []numberOutput) (numberOutput, error) {
+			return outputs[0], nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -97,7 +97,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)
 	}
 	codec := mapValueCodec{id: config.ID, maxItems: config.MaxItems, schemas: schemas}
-	collect := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
+	collect := func(ctx context.Context, _ json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
 		return codec.collect[O](ctx, raw)
 	}
 	return Stage{
