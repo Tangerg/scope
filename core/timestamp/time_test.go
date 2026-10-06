@@ -1,11 +1,11 @@
-package wiretime_test
+package timestamp_test
 
 import (
 	jsonv2 "encoding/json/v2"
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/core/internal/wiretime"
+	"github.com/Tangerg/scope/core/timestamp"
 )
 
 func TestValidatedTimestampPreservesItsInstant(t *testing.T) {
@@ -28,7 +28,7 @@ func TestValidatedTimestampPreservesItsInstant(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := wiretime.Validate(test.value); (err == nil) != test.valid {
+			if err := timestamp.Validate(test.value); (err == nil) != test.valid {
 				t.Fatalf("Validate() = %v; want valid=%v", err, test.valid)
 			}
 			if !test.valid {

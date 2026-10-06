@@ -1,5 +1,5 @@
-// Package wiretime owns lossless RFC 3339 admission for protocol timestamps.
-package wiretime
+// Package timestamp owns lossless RFC 3339 admission for protocol timestamps.
+package timestamp
 
 import (
 	"errors"
@@ -7,6 +7,8 @@ import (
 )
 
 // Validate accepts omitted zero times or timestamps that JSON can preserve.
+// Optional timestamp fields must use omitzero; the zero instant is treated as
+// absent even when its location has an otherwise unrepresentable offset.
 func Validate(value time.Time) error {
 	if value.IsZero() {
 		return nil

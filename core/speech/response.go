@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Tangerg/scope/core/internal/wiretime"
 	"github.com/Tangerg/scope/core/metadata"
+	"github.com/Tangerg/scope/core/timestamp"
 )
 
 // Output is one chunk of generated audio. For synchronous calls the
@@ -85,7 +85,7 @@ func (r *ResponseMetadata) validate() error {
 	if !utf8.ValidString(r.Model) {
 		return fmt.Errorf("%w: response metadata model must be valid UTF-8", ErrInvalidResponse)
 	}
-	if err := wiretime.Validate(r.CreatedAt); err != nil {
+	if err := timestamp.Validate(r.CreatedAt); err != nil {
 		return fmt.Errorf("%w: response metadata created_at: %w", ErrInvalidResponse, err)
 	}
 	if r.Model != "" && strings.TrimSpace(r.Model) != r.Model {

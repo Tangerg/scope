@@ -24,6 +24,7 @@ var targetPublicPackages = map[string]struct{}{
 	"moderation":            {},
 	"rerank":                {},
 	"speech":                {},
+	"timestamp":             {},
 	"tokenizer":             {},
 	"tool":                  {},
 	"transcription":         {},
