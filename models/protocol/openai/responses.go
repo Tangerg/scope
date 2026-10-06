@@ -119,7 +119,8 @@ func (r *Responses) CountInputTokens(ctx context.Context, req *corechat.Request)
 // response deltas. Each function-call item owns its fixed call identity and
 // open lifetime. Reused identities, changed correlations, or arguments after
 // item completion return [corechat.ErrInvalidResponse]. Incomplete responses
-// may preserve a tool whose generation did not reach item completion.
+// may preserve a tool whose generation did not reach item completion. Completion
+// is published after the native body ends successfully; later events are invalid.
 func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := r.buildResponsesRequest(req)
@@ -135,13 +136,25 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 		defer stream.Close()
 
 		state := newResponsesStreamState()
+		var terminal *corechat.ResponseDelta
 		for stream.Next() {
 			response, include, mapErr := state.addEvent(stream.Current())
 			if mapErr != nil {
 				yield(nil, mapErr)
 				return
 			}
-			if include && (!yield(response, nil) || response.FinishReason != "") {
+			if terminal != nil {
+				yield(nil, fmt.Errorf("%w: openai responses: event after terminal response", corechat.ErrInvalidResponse))
+				return
+			}
+			if !include {
+				continue
+			}
+			if response.FinishReason != "" {
+				terminal = response
+				continue
+			}
+			if !yield(response, nil) {
 				return
 			}
 		}
@@ -149,7 +162,11 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 			yield(nil, r.api.wrapError(streamErr))
 			return
 		}
-		yield(nil, fmt.Errorf("%w: openai responses: stream ended without a terminal response", corechat.ErrInvalidResponse))
+		if terminal == nil {
+			yield(nil, fmt.Errorf("%w: openai responses: stream ended without a terminal response", corechat.ErrInvalidResponse))
+			return
+		}
+		yield(terminal, nil)
 	}
 }
 
