@@ -17,17 +17,17 @@ func TestTreeCommitCanonicalIdentityAndContent(t *testing.T) {
 		{
 			"Effect", boundary.Identity(), boundary.ContentDigest,
 			"commit:dd3bd92daf50dd536c10f0820182387862285f9baf85999ef5c6ebe4d730fb52",
-			"sha256:1d8486dca195fe198173a0a15383b525840e4bc19fa8a9af043ae2b1bf79f0ca",
+			"sha256:d42afbb9c9371dfaee2538a275d2c4b3e032af65449f5adf501afb12c0bc40a4",
 		},
 		{
 			"checkpoint", checkpoint.Identity(), checkpoint.ContentDigest,
 			"commit:b1709ed5c05ad3aad4cb95d0fbc4c7c31e7bfe42a6534b12a22c47d8918b8dda",
-			"sha256:0def0a93001c610d8bece51fe57c4ee50c384cad9f80ad85e76942f7975e5175",
+			"sha256:b4c9df14d6c388922c0d302120c6709f5aa19a78127062a6f5eb5a633dc802ff",
 		},
 		{
 			"activation", activation.Identity(), activation.ContentDigest,
 			"commit:e31e5b013e3a77b32ee9f64318160c171ad470f3eb1e8b2f7e6e6f2faabec024",
-			"sha256:59c9ceaefd4a57049e3c3d9c0810c99b389d9ed4c401b52034e8890298b6cbd7",
+			"sha256:f13eaa8660622179b633f28336d9a29efea12a154aa75bef5d3c69faecd59615",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

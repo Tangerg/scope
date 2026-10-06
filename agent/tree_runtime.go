@@ -1840,7 +1840,7 @@ func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error 
 }
 
 func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
-	process.counters.DroppedDeltas = saturatingCountAdd(process.counters.DroppedDeltas, result.dropped)
+	process.droppedDeltas = saturatingCountAdd(process.droppedDeltas, result.dropped)
 	t.events.dispatchFinished(process, job.effectID, job.effectAttempt, result)
 }
 

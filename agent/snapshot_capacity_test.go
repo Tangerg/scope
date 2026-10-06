@@ -175,7 +175,6 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`"` + strings.Repeat("x", 53<<14) + `"`)))
 	for _, process := range runtime.members.all() {
 		process.currentWaitID = WaitID{}
-		process.counters.PreparedEffects = 2
 		process.prepared = &preparedStep{Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
 			{ID: process.handle.processID().effectID(1, 0), Effect: effect},
 			{ID: process.handle.processID().effectID(1, 1), Effect: effect},
@@ -234,7 +233,6 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		Input: controlValue(EncodePayload(engineTestInput{Value: strings.Repeat("x", 22<<14)})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
 	}
 	root.prepared.Effects = preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), progress: &effectProgress{}}}
-	root.counters.PreparedEffects = 1
 	if err := runtime.validateSnapshotCapacity(); err != nil {
 		t.Fatalf("parent and existing tree must fit before initialization: %v", err)
 	}
@@ -289,7 +287,6 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0)),
 				Effects: preparedEffects{{ID: effectID, Effect: controlValue(NewChildStartEffect(spec)), progress: &effectProgress{}}},
 			}
-			root.counters.PreparedEffects = 1
 			if err := runtime.engine.reserveProcessStart(root.handle.relation); err != nil {
 				t.Fatal(err)
 			}

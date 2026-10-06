@@ -60,7 +60,7 @@ func restoreProcessState(
 		handle: handle, execution: execution,
 		committedSteps:          wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		counters: wire.Counters,
+		droppedDeltas: wire.DroppedDeltas,
 	}
 	if wire.CurrentWaitID != nil {
 		process.currentWaitID = *wire.CurrentWaitID

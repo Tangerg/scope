@@ -204,7 +204,6 @@ func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {
 	for index, effect := range effects {
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: wire.processID().effectID(1, index), Effect: effect})
 	}
-	wire.Counters.PreparedEffects = uint64(len(effects))
 	snapshot := controlValue(newProcessSnapshot(wire))
 	tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{snapshot}}))
 	dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}

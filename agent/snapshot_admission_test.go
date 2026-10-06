@@ -34,7 +34,7 @@ func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64
 		reason := strings.Repeat("\x00", maxTerminationReasonBytes)
 		pauseReason := strings.Repeat("\x00", maxPauseReasonBytes)
 		p.PauseReason = pauseReason
-		p.Counters.DroppedDeltas = ^uint64(0)
+		p.DroppedDeltas = ^uint64(0)
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reason, PauseReason: pauseReason,
 			Deadline:     &deadlineIntentWire{Owner: deadlineOwnerParent, Reason: reason},
