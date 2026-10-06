@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -10,22 +9,24 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-type responsesToolIdentity struct {
-	id   string
-	name string
+type responsesStreamTool struct {
+	itemID string
+	callID string
+	name   string
+	open   bool
 }
 
 type responsesStreamState struct {
 	responseID string
 	model      string
 	createdAt  time.Time
-	tools      map[string]responsesToolIdentity
+	tools      map[int64]responsesStreamTool
 	reasoning  map[string]responsesReasoningSegment
 }
 
 func newResponsesStreamState() *responsesStreamState {
 	return &responsesStreamState{
-		tools: make(map[string]responsesToolIdentity), reasoning: make(map[string]responsesReasoningSegment),
+		tools: make(map[int64]responsesStreamTool), reasoning: make(map[string]responsesReasoningSegment),
 	}
 }
 
@@ -43,15 +44,22 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			return nil, false, nil
 		}
 		call := typed.Item.AsFunctionCall()
-		id := call.CallID
-		if id == "" {
-			id = call.ID
+		if typed.OutputIndex < 0 || call.CallID == "" || call.Name == "" {
+			return nil, false, fmt.Errorf("openai responses: %w: function call lacks a valid index, call ID, or name", corechat.ErrInvalidResponse)
 		}
-		if id == "" || call.Name == "" {
-			return nil, false, errors.New("openai responses: stream function call lacks ID or name")
+		if _, exists := r.tools[typed.OutputIndex]; exists {
+			return nil, false, fmt.Errorf("openai responses: %w: tool item %d added twice", corechat.ErrInvalidResponse, typed.OutputIndex)
 		}
-		r.tools[call.ID] = responsesToolIdentity{id: id, name: call.Name}
-		return r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: id, Name: call.Name}))
+		for _, other := range r.tools {
+			if other.callID == call.CallID || call.ID != "" && other.itemID == call.ID {
+				return nil, false, fmt.Errorf("openai responses: %w: tool identity reused at output index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
+			}
+		}
+		response, include, err := r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: call.CallID, Name: call.Name, Arguments: call.Arguments}))
+		if err == nil {
+			r.tools[typed.OutputIndex] = responsesStreamTool{itemID: call.ID, callID: call.CallID, name: call.Name, open: true}
+		}
+		return response, include, err
 	case responses.ResponseTextDeltaEvent:
 		if typed.Delta == "" {
 			return nil, false, nil
@@ -69,14 +77,14 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		}
 		return r.deltaResponse(corechat.NewRefusalDelta(typed.Delta))
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
+		tool, exists := r.tools[typed.OutputIndex]
+		if !exists || !tool.open || typed.ItemID == "" || tool.itemID != typed.ItemID {
+			return nil, false, fmt.Errorf("openai responses: %w: arguments delta for closed, unknown, or mismatched tool item %q at index %d", corechat.ErrInvalidResponse, typed.ItemID, typed.OutputIndex)
+		}
 		if typed.Delta == "" {
 			return nil, false, nil
 		}
-		identity, ok := r.tools[typed.ItemID]
-		if !ok {
-			return nil, false, fmt.Errorf("openai responses: arguments delta for unknown item %q", typed.ItemID)
-		}
-		return r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: identity.id, Name: identity.name, Arguments: typed.Delta}))
+		return r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: tool.callID, Name: tool.name, Arguments: typed.Delta}))
 	case responses.ResponseReasoningTextDeltaEvent:
 		return r.reasoningDelta(typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
@@ -97,6 +105,16 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseOutputItemDoneEvent:
+		if typed.Item.Type == responsesItemTypeFunctionCall {
+			call := typed.Item.AsFunctionCall()
+			tool, exists := r.tools[typed.OutputIndex]
+			if !exists || !tool.open || !tool.matches(call) {
+				return nil, false, fmt.Errorf("openai responses: %w: completion of closed, unknown, or changed tool item at index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
+			}
+			tool.open = false
+			r.tools[typed.OutputIndex] = tool
+			return nil, false, nil
+		}
 		if typed.Item.Type != responsesItemTypeReasoning {
 			return nil, false, nil
 		}
@@ -122,9 +140,15 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		}
 		return r.deltaResponse(part)
 	case responses.ResponseCompletedEvent:
+		if err := r.validateTerminalTools(typed.Response); err != nil {
+			return nil, false, err
+		}
 		delta, err := responsesTerminalDelta(&typed.Response)
 		return delta, err == nil, err
 	case responses.ResponseIncompleteEvent:
+		if err := r.validateTerminalTools(typed.Response); err != nil {
+			return nil, false, err
+		}
 		delta, err := responsesTerminalDelta(&typed.Response)
 		return delta, err == nil, err
 	case responses.ResponseFailedEvent:
@@ -135,6 +159,22 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	default:
 		return nil, false, nil
 	}
+}
+
+func (r responsesStreamTool) matches(call responses.ResponseFunctionToolCall) bool {
+	return r.callID == call.CallID && r.name == call.Name && (r.itemID == "" || r.itemID == call.ID)
+}
+
+func (r *responsesStreamState) validateTerminalTools(response responses.Response) error {
+	for index, tool := range r.tools {
+		if response.Status == responses.ResponseStatusCompleted && tool.open {
+			return fmt.Errorf("openai responses: %w: tool item %d is still open at response.completed", corechat.ErrInvalidResponse, index)
+		}
+		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeFunctionCall || !tool.matches(response.Output[index].AsFunctionCall()) {
+			return fmt.Errorf("openai responses: %w: terminal response changed tool identity at index %d", corechat.ErrInvalidResponse, index)
+		}
+	}
+	return nil
 }
 
 func (r *responsesStreamState) reasoningDelta(text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, bool, error) {

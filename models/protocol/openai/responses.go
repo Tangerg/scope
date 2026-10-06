@@ -116,7 +116,10 @@ func (r *Responses) CountInputTokens(ctx context.Context, req *corechat.Request)
 }
 
 // Stream performs one streaming Responses API request and yields ordered Core
-// response deltas.
+// response deltas. Each function-call item owns its fixed call identity and
+// open lifetime. Reused identities, changed correlations, or arguments after
+// item completion return [corechat.ErrInvalidResponse]. Incomplete responses
+// may preserve a tool whose generation did not reach item completion.
 func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := r.buildResponsesRequest(req)
