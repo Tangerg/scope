@@ -40,7 +40,7 @@ func (h *headWriter) committing() bool { return h.inFlight != nil }
 // commitStart durably creates the tree: the first head is the only one with no
 // predecessor, and it opens this incarnation's commit sequence.
 func (h *headWriter) commitStart(ctx context.Context, snapshot TreeSnapshot) error {
-	checkpoint, err := newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, snapshot)
+	checkpoint, err := newTreeCheckpoint(1, checkpointCauseCut, Digest{}, snapshot)
 	if err != nil {
 		return err
 	}
@@ -76,14 +76,15 @@ func (h *headWriter) establish(snapshot TreeSnapshot) {
 	h.acknowledged = snapshot
 }
 
-// commitEffect starts the Effect boundary of kind for request, carrying
-// commit's prospective snapshot. ctx must already be detached from caller
+// commitEffect starts the Effect boundary for commit's Effect, carrying its
+// prospective snapshot. ctx must already be detached from caller
 // cancellation, because the Host owns storage deadlines.
-func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit, kind EffectBoundaryKind, request EffectRequest, settlement Settlement) error {
+func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit) error {
 	if commit == nil || !commit.processID.Valid() {
 		panic("agent: invalid tree Effect commit")
 	}
-	boundary, err := newEffectBoundary(h.sequence+1, kind, request, settlement, h.acknowledged.Digest(), commit.snapshot)
+	boundary, err := newEffectBoundary(h.sequence+1, commit.kind == treeCommitEffectResolved,
+		commit.processID, commit.effectID, h.acknowledged.Digest(), commit.snapshot)
 	if err != nil {
 		return err
 	}
@@ -91,8 +92,8 @@ func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit, kind 
 	return nil
 }
 
-func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, kind TreeCheckpointKind) error {
-	checkpoint, err := newTreeCheckpoint(h.sequence+1, kind, h.acknowledged.Digest(), commit.snapshot)
+func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, cause checkpointCause) error {
+	checkpoint, err := newTreeCheckpoint(h.sequence+1, cause, h.acknowledged.Digest(), commit.snapshot)
 	if err != nil {
 		return err
 	}

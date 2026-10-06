@@ -20,8 +20,8 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
 					runtime.writer.establish(previous)
-					commit := &treeCommit{processID: request.ProcessID(), snapshot: snapshot}
-					if err := runtime.writer.commitEffect(b.Context(), commit, EffectBoundaryKindPending, request, Settlement{}); err != nil {
+					commit := &treeCommit{kind: treeCommitEffectPending, processID: request.ProcessID(), effectID: request.ID(), snapshot: snapshot}
+					if err := runtime.writer.commitEffect(b.Context(), commit); err != nil {
 						b.Fatal(err)
 					}
 					completed := <-runtime.writer.done
@@ -64,19 +64,25 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 	return runtime, runtime.effectRequestFor(root, 0, root.prepared.Effects[0]), snapshot
 }
 
-func TestEffectBoundaryConstructionRejectsMismatchedEffect(t *testing.T) {
+func TestEffectBoundaryDerivesItsEffectFromTheProspectiveTree(t *testing.T) {
 	_, request, snapshot := effectBoundaryFixture(t, 3, 64)
 	previous := ComputeDigest([]byte("previous tree"))
-	if _, err := newEffectBoundary(1, EffectBoundaryKindPending, request, Settlement{}, previous, snapshot); err != nil {
-		t.Fatal(err)
-	}
-	var err error
-	request.effect, err = NewDispatcherEffect([]byte(`{"different":true}`))
+	boundary, err := newEffectBoundary(1, false, request.ProcessID(), request.ID(), previous, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newEffectBoundary(1, EffectBoundaryKindPending, request, Settlement{}, previous, snapshot); err == nil {
-		t.Fatal("mismatched effect was admitted")
+	if boundary.Kind() != EffectBoundaryKindPending || boundary.Request().ID() != request.ID() ||
+		!boundary.Request().Effect().equal(request.Effect()) {
+		t.Fatalf("boundary = %s %+v, want the captured pending request", boundary.Kind(), boundary.Request())
+	}
+	if _, settled := boundary.Settlement(); settled {
+		t.Fatal("pending boundary reported a settlement")
+	}
+	if _, err := newEffectBoundary(1, false, request.ProcessID(), request.ProcessID().effectID(9, 0), previous, snapshot); err == nil {
+		t.Fatal("boundary for an uncaptured Effect was admitted")
+	}
+	if _, err := newEffectBoundary(1, true, request.ProcessID(), request.ID(), previous, snapshot); err == nil {
+		t.Fatal("pending Effect was admitted as a resolution")
 	}
 	if (EffectBoundary{}).Valid() {
 		t.Fatal("zero boundary is valid")
