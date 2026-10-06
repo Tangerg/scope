@@ -167,7 +167,13 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	return ProcessSnapshot{data: normalized, state: wire, openChildWaits: mailbox.openChildWaits()}, nil
+	snapshot := ProcessSnapshot{data: normalized, state: wire}
+	// A terminal Process's waits end with it; its mailbox only closes the
+	// waits it consumed.
+	if !wire.status().Terminal() {
+		snapshot.openChildWaits = mailbox.openChildWaits()
+	}
+	return snapshot, nil
 }
 
 // JSON returns an independently owned snapshot representation.
@@ -562,7 +568,7 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 	if err := p.validateRelation(); err != nil {
 		return signalMailbox{}, err
 	}
-	mailbox, err := restoreSignalMailbox(p.Mailbox, p.status())
+	mailbox, err := restoreSignalMailbox(p.Mailbox)
 	if err != nil {
 		return signalMailbox{}, fmt.Errorf("%w: mailbox: %w", ErrInvalidSnapshot, err)
 	}

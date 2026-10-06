@@ -46,7 +46,6 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 		}
 		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 			controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
-		child.mailbox.closeAllWaits()
 		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{
 			Key:      controlValue(ParseWaitKey(fmt.Sprintf("result-%d", len(effects)))),
 			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),

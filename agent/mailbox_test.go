@@ -38,7 +38,7 @@ func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
 	if decodeErr := jsonv2.Unmarshal(encoded, &wire); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	restored, err := restoreSignalMailbox(wire, StatusRunning)
+	restored, err := restoreSignalMailbox(wire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestMailboxRestoreEnforcesPayloadConsumptionBoundary(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			record := mailboxRecordWire(signal)
 			test.mutate(&record)
-			if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{record}, SignalCursor: test.cursor}, StatusRunning); err == nil {
+			if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{record}, SignalCursor: test.cursor}); err == nil {
 				t.Fatal("restored an inconsistent payload retention boundary")
 			}
 		})
@@ -127,7 +127,7 @@ func TestMailboxRejectsConflictingIdentityAfterConsumptionAndRestore(t *testing.
 	if err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoreSignalMailbox(mailbox.wire(), StatusRunning)
+	restored, err := restoreSignalMailbox(mailbox.wire())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	if unmarshalErr := jsonv2.Unmarshal(data, &decoded); unmarshalErr != nil {
 		t.Fatal(unmarshalErr)
 	}
-	restored, err := restoreSignalMailbox(decoded, StatusRunning)
+	restored, err := restoreSignalMailbox(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestMailboxRestoreRejectsInvalidWire(t *testing.T) {
 		{SignalCursor: 1},
 		{Signals: []signalRecordWire{mailboxRecordWire(signal), mailboxRecordWire(signal)}},
 	} {
-		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
+		if _, err := restoreSignalMailbox(wire); err == nil {
 			t.Fatalf("restoreSignalMailbox(%+v) unexpectedly succeeded", wire)
 		}
 	}
@@ -320,7 +320,7 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 	} {
 		wire := mailbox.wire()
 		wire.Signals[0].Opens = &opens
-		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
+		if _, err := restoreSignalMailbox(wire); err == nil {
 			t.Fatalf("restored %s wait authority", name)
 		}
 	}
@@ -335,7 +335,7 @@ func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 		t.Fatalf("opening that does not announce its spec error = %v", err)
 	}
 	openTestChildWait(t, &mailbox, "signal:engine:announced", waitID, spec)
-	restored := restoredMailbox(t, mailbox, StatusRunning)
+	restored := restoredMailbox(t, mailbox)
 	if pending := restored.pending(); len(pending) != 1 || !bytes.Equal(pending[0].payload, childWaitOpenedPayload()) {
 		t.Fatal("restored opening lost its acknowledgement")
 	}
@@ -346,7 +346,7 @@ func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 	} {
 		wire := mailbox.wire()
 		mutate(&wire.Signals[0])
-		if _, err := restoreSignalMailbox(wire, StatusRunning); err == nil {
+		if _, err := restoreSignalMailbox(wire); err == nil {
 			t.Fatalf("child-wait opening stored its derived %s", name)
 		}
 	}
@@ -370,7 +370,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 				} else if err := mailbox.openWait(key, mustMailboxSignal(t, openingID, id, waitOpenedPayload())); err != nil {
 					t.Fatal(err)
 				}
-				mailbox = restoredMailbox(t, mailbox, StatusRunning)
+				mailbox = restoredMailbox(t, mailbox)
 				if shouldWait, err := mailbox.enterWait(id); err != nil || !shouldWait {
 					t.Fatalf("unanswered wait=%t error=%v", shouldWait, err)
 				}
@@ -382,35 +382,34 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 				if accepted, err := mailbox.enqueue(StatusRunning, answer, source); err != nil || !accepted {
 					t.Fatalf("answer accepted=%t error=%v", accepted, err)
 				}
-				mailbox = restoredMailbox(t, mailbox, StatusRunning)
+				mailbox = restoredMailbox(t, mailbox)
 				if accepted, err := mailbox.enqueue(StatusRunning, answer, source); err != nil || accepted {
 					t.Fatalf("restored duplicate accepted=%t error=%v", accepted, err)
 				}
 				if index == 2 {
-					mailbox.closeAllWaits()
-					restoredMailbox(t, mailbox, StatusKilled)
+					restoredMailbox(t, mailbox)
 					break
 				}
 				if err := mailbox.commit(1); err != nil {
 					t.Fatal(err)
 				}
-				mailbox = restoredMailbox(t, mailbox, StatusRunning)
+				mailbox = restoredMailbox(t, mailbox)
 				if shouldWait, err := mailbox.enterWait(id); err != nil || shouldWait {
 					t.Fatalf("early answer wait=%t error=%v", shouldWait, err)
 				}
 				if err := mailbox.commit(1); err != nil {
 					t.Fatal(err)
 				}
-				mailbox = restoredMailbox(t, mailbox, StatusRunning)
+				mailbox = restoredMailbox(t, mailbox)
 			}
 		})
 	}
 }
 
-func restoredMailbox(t testing.TB, mailbox signalMailbox, status Status) signalMailbox {
+func restoredMailbox(t testing.TB, mailbox signalMailbox) signalMailbox {
 	t.Helper()
 	wire := mailbox.wire()
-	restored, err := restoreSignalMailbox(wire, status)
+	restored, err := restoreSignalMailbox(wire)
 	if err != nil {
 		t.Fatal(err)
 	}

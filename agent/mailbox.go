@@ -281,16 +281,6 @@ func (s *signalMailbox) closeWait(id WaitID) error {
 	return nil
 }
 
-// closeAllWaits makes every remaining wait terminal with its Process.
-func (s *signalMailbox) closeAllWaits() {
-	for id, record := range s.waits {
-		if !record.closed {
-			record.closed = true
-			s.waits[id] = record
-		}
-	}
-}
-
 func (s *signalMailbox) pending() []Signal {
 	if s.signalCursor >= uint64(len(s.records)) {
 		return nil
@@ -687,7 +677,7 @@ func (s *signalMailbox) blockedByCurrentWait(currentWaitID, waitID WaitID, answe
 
 // Restoration replays portable facts through the live mailbox transitions.
 // Only final Process termination can close an unanswered or unconsumed wait.
-func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error) {
+func restoreSignalMailbox(wire mailboxWire) (signalMailbox, error) {
 	if wire.SignalCursor > uint64(len(wire.Signals)) {
 		return signalMailbox{}, errMailboxCursor
 	}
@@ -706,9 +696,6 @@ func restoreSignalMailbox(wire mailboxWire, status Status) (signalMailbox, error
 				return signalMailbox{}, err
 			}
 		}
-	}
-	if status.Terminal() {
-		mailbox.closeAllWaits()
 	}
 	return mailbox, nil
 }

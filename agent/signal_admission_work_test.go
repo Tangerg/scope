@@ -138,7 +138,7 @@ func TestSignalAdmissionAppliesWaitAnswerAndFollowingSignalTogether(t *testing.T
 			if got := process.mailbox.records[11:]; len(got) != 2 || got[0].id != answer.ID() || got[1].id != steer.ID() {
 				t.Fatal("accepted batch lost arrival order")
 			}
-			restored := restoredMailbox(t, process.mailbox, process.status())
+			restored := restoredMailbox(t, process.mailbox)
 			process.mailbox = restored
 			before := *process
 			before.mailbox = process.mailbox.clone()

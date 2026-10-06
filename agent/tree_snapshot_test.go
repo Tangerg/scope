@@ -282,7 +282,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if childErr != nil {
 				t.Fatal(childErr)
 			}
-			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox, child.status())
+			mailbox, restoreErr := restoreSignalMailbox(child.Mailbox)
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}

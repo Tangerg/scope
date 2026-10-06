@@ -72,7 +72,10 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	openWaits := func() int {
 		count := 0
 		for _, ownerID := range owners {
-			count += len(runtime.members.get(ownerID).mailbox.openChildWaits())
+			// A terminal owner's waits end with it.
+			if owner := runtime.members.get(ownerID); !owner.status().Terminal() {
+				count += len(owner.mailbox.openChildWaits())
+			}
 		}
 		return count
 	}

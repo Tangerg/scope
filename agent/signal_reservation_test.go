@@ -187,7 +187,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			mailbox, err := restoreSignalMailbox(wire.Mailbox, wire.status())
+			mailbox, err := restoreSignalMailbox(wire.Mailbox)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -221,7 +221,7 @@ func TestSnapshotRejectsUnfundedSignalReservations(t *testing.T) {
 func TestTreeLimitsRejectUnfundedPendingSignalReservations(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	wire := controlValue(snapshot.wire())
-	mailbox := controlValue(restoreSignalMailbox(wire.Mailbox, wire.status()))
+	mailbox := controlValue(restoreSignalMailbox(wire.Mailbox))
 	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:unfunded-reservation")), WaitID{}, []byte(`{}`)))
 	if accepted, err := mailbox.enqueue(StatusRunning, signal, signalSourceExternal); err != nil || !accepted {
 		t.Fatalf("enqueue=%t error=%v", accepted, err)

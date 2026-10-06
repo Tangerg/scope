@@ -496,7 +496,6 @@ func (p *processState) installTermination(termination Termination, output Payloa
 		return
 	}
 	p.finish = &processFinish{Termination: termination, FinishedAt: finishedAt}
-	p.mailbox.closeAllWaits()
 	p.currentWaitID = WaitID{}
 	p.pause = pause{}
 	p.pendingControl = pendingControl{}

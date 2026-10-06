@@ -183,7 +183,6 @@ func immediateChildWaitScenario(t *testing.T, limit func(*TreeLimits)) (*treeRun
 		child := runtime.members.get(id)
 		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 			controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})), child.handle.startedAt)
-		child.mailbox.closeAllWaits()
 	}
 	effect := controlValue(NewChildWaitEffect(ChildWaitSpec{
 		Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
