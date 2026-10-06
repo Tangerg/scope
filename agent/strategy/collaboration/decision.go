@@ -15,12 +15,10 @@ const (
 	// Older outstanding tasks still delay the turn when every new start fails;
 	// use ModeContinue to process action receipts without waiting for those tasks.
 	ModeWait Mode = "wait"
-	// ModeComplete ends this collaboration and cancels unfinished descendants.
-	ModeComplete Mode = "complete"
 )
 
 func (m Mode) Valid() bool {
-	return m == ModeUndecided || m == ModeContinue || m == ModeWait || m == ModeComplete
+	return m == ModeUndecided || m == ModeContinue || m == ModeWait
 }
 
 func (m Mode) String() string {
@@ -91,9 +89,10 @@ type Turn struct {
 }
 
 // Decision is the coordinator's output contract. The entire batch is validated
-// before any action is declared. ModeComplete requires Output and no actions; other
-// modes require a zero Output. An explicit JSON null is a present Output.
-// Input and Output retain the configured domain schemas.
+// before any action is declared. A present Output completes the collaboration
+// and cancels unfinished descendants; it admits no Mode or actions. Otherwise
+// Mode chooses how the next turn starts. An explicit JSON null is a present
+// Output. Input and Output retain the configured domain schemas.
 type Decision struct {
 	Mode     Mode          `json:"mode"`
 	State    agent.Payload `json:"state"`
@@ -102,17 +101,20 @@ type Decision struct {
 	Output   agent.Payload `json:"output,omitzero"`
 }
 
+func (d Decision) completes() bool { return d.Output.Valid() }
+
+// decided distinguishes a coordinator's Decision from the zero value a turn
+// holds before its coordinator answers.
+func (d Decision) decided() bool { return d.completes() || d.Mode != ModeUndecided }
+
 func (d Decision) validateShape() error {
-	switch d.Mode {
-	case ModeComplete:
-		if !d.Output.Valid() || len(d.Tasks) != 0 || len(d.Controls) != 0 {
+	if d.completes() {
+		if d.Mode != ModeUndecided || len(d.Tasks) != 0 || len(d.Controls) != 0 {
 			return ErrInvalidDecision
 		}
-	case ModeContinue, ModeWait:
-		if d.Output.Valid() {
-			return ErrInvalidDecision
-		}
-	default:
+		return nil
+	}
+	if d.Mode != ModeContinue && d.Mode != ModeWait {
 		return ErrInvalidDecision
 	}
 	return nil
