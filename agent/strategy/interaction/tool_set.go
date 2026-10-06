@@ -42,9 +42,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if config.Observer != nil && lo.IsNil(config.Observer) {
 		return ToolSet{}, fmt.Errorf("%w: Observer is typed nil", ErrInvalidToolSet)
 	}
-	dispatcher := &toolDispatcher{
-		tools: make(map[string]boundTool), deferredToolNames: make(map[string]struct{}), observer: config.Observer,
-	}
+	dispatcher := newToolDispatcher(config.Observer)
 	for index, executable := range config.Tools {
 		if err := dispatcher.bindTool(executable, false); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: Tools[%d]: %w", ErrInvalidToolSet, index, err)
@@ -66,17 +64,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if err != nil {
 		return ToolSet{}, fmt.Errorf("%w: %w", ErrInvalidToolSet, err)
 	}
-	manifest := toolManifest{
-		initialDefinitions: cloneDefinitions(dispatcher.initialDefinitions),
-		entries:            make(map[string]toolManifestEntry, len(dispatcher.tools)),
-	}
-	for name, binding := range dispatcher.tools {
-		manifest.entries[name] = toolManifestEntry{
-			contract: binding.binding.Contract(), deferred: binding.deferred,
-			direct: binding.direct, concurrent: binding.concurrent,
-		}
-	}
-	return ToolSet{deployment: deployment, manifest: manifest, dispatcher: dispatcher}, nil
+	return ToolSet{deployment: deployment, manifest: dispatcher.manifest, dispatcher: dispatcher}, nil
 }
 
 // Deployment returns the exact child binding each Tool call runs under. An
@@ -135,6 +123,10 @@ type toolManifest struct {
 	entries            map[string]toolManifestEntry
 }
 
+func (t toolManifest) deferred(name string) bool {
+	return t.entries[name].deferred
+}
+
 func (t toolManifest) completesDirectly(name string) bool {
 	return t.entries[name].direct
 }
@@ -166,7 +158,7 @@ func (t toolManifest) validateAdvertisements(names []string) error {
 		return err
 	}
 	for _, name := range names {
-		if entry, found := t.entries[name]; !found || !entry.deferred {
+		if !t.deferred(name) {
 			return fmt.Errorf("tool %q is not a bound deferred Tool", name)
 		}
 	}

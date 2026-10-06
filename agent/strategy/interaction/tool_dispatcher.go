@@ -11,16 +11,9 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-type boundTool struct {
-	binding    tool.Binding
-	deferred   bool
-	direct     bool
-	concurrent func(tool.Invocation) (string, bool)
-}
-
 type preparedToolCall struct {
 	call       chat.ToolCall
-	binding    *boundTool
+	binding    tool.Binding
 	invocation tool.Invocation
 	rejection  *chat.ToolResult
 }
@@ -34,12 +27,21 @@ func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, adve
 	return &completion
 }
 
+// toolDispatcher executes bound Tools. Its manifest is the one index of each
+// Tool's scheduling policy; the ToolSet shares it with the Interaction.
 type toolDispatcher struct {
-	tools               map[string]boundTool
-	initialDefinitions  []chat.ToolDefinition
-	deferredToolNames   map[string]struct{}
+	bindings            map[string]tool.Binding
+	manifest            toolManifest
 	observer            ToolObserver
 	observationFailures observationFailureCounters
+}
+
+func newToolDispatcher(observer ToolObserver) *toolDispatcher {
+	return &toolDispatcher{
+		bindings: make(map[string]tool.Binding),
+		manifest: toolManifest{entries: make(map[string]toolManifestEntry)},
+		observer: observer,
+	}
 }
 
 func (*toolDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy { return agent.ReplayPolicyNever }
@@ -86,7 +88,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 		return err
 	}
 	definition := binding.Contract().Definition()
-	if _, duplicate := t.tools[definition.Name]; duplicate {
+	if _, duplicate := t.bindings[definition.Name]; duplicate {
 		return fmt.Errorf("duplicate tool name %q", definition.Name)
 	}
 	direct, err := directResultCapability(executable)
@@ -97,14 +99,12 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	t.tools[definition.Name] = boundTool{
-		binding: binding, deferred: deferred,
-		direct: direct, concurrent: concurrent,
+	t.bindings[definition.Name] = binding
+	t.manifest.entries[definition.Name] = toolManifestEntry{
+		contract: binding.Contract(), deferred: deferred, direct: direct, concurrent: concurrent,
 	}
-	if deferred {
-		t.deferredToolNames[definition.Name] = struct{}{}
-	} else {
-		t.initialDefinitions = append(t.initialDefinitions, definition)
+	if !deferred {
+		t.manifest.initialDefinitions = append(t.manifest.initialDefinitions, definition)
 	}
 	return nil
 }
@@ -147,7 +147,7 @@ func (t *toolDispatcher) callTool(
 		t.observeToolSettled(ctx, invocation, settlement)
 	}()
 	binding := prepared.binding
-	advertiser := newToolAdvertiser(t.deferredToolNames)
+	advertiser := newToolAdvertiser(t.manifest)
 	ctx = withToolInvocation(ctx, invocation)
 	ctx = withToolAdvertiser(ctx, advertiser)
 	defer func() {
@@ -159,7 +159,7 @@ func (t *toolDispatcher) callTool(
 			err = &agent.CallbackPanicError{Operation: "Tool.Call", Value: recovered}
 		}
 	}()
-	output, err := binding.binding.Call(ctx, prepared.invocation)
+	output, err := binding.Call(ctx, prepared.invocation)
 	names := advertiser.close()
 	result, required, rejected, err = modelToolResult(call, output, err)
 	if err != nil {
@@ -176,14 +176,14 @@ func (t *toolDispatcher) callTool(
 
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 	prepared := preparedToolCall{call: call}
-	binding, found := t.tools[call.Name]
+	binding, found := t.bindings[call.Name]
 	if !found {
 		result := rejectedToolResult(call, fmt.Sprintf("tool %q is not available", call.Name))
 		prepared.rejection = &result
 		return prepared
 	}
-	prepared.binding = &binding
-	invocation, err := binding.binding.Contract().Prepare(call)
+	prepared.binding = binding
+	invocation, err := binding.Contract().Prepare(call)
 	if err != nil {
 		result := rejectedToolResult(call, "invalid arguments: "+agent.NormalizeDiagnostic(err.Error()))
 		prepared.rejection = &result

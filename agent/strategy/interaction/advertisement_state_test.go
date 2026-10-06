@@ -119,7 +119,8 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			dispatcher := &toolDispatcher{tools: make(map[string]boundTool), deferredToolNames: map[string]struct{}{"deferred": {}}}
+			dispatcher := newToolDispatcher(nil)
+			dispatcher.manifest.entries["deferred"] = toolManifestEntry{deferred: true}
 			if err := dispatcher.bindTool(executable, false); err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +152,7 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 
 func TestToolAdvertisementCloseIsAtomicWithAdmission(t *testing.T) {
 	for range 100 {
-		advertiser := newToolAdvertiser(map[string]struct{}{"deferred": {}})
+		advertiser := newToolAdvertiser(toolManifest{entries: map[string]toolManifestEntry{"deferred": {deferred: true}}})
 		ctx := withToolAdvertiser(t.Context(), advertiser)
 		start := make(chan struct{})
 		accepted := make(chan error, 1)

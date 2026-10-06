@@ -28,17 +28,17 @@ func AdvertiseTools(ctx context.Context, names ...string) error {
 }
 
 type toolAdvertiser struct {
-	mu      sync.Mutex
-	allowed map[string]struct{}
-	seen    map[string]struct{}
-	names   []string
-	closed  bool
+	mu       sync.Mutex
+	manifest toolManifest
+	seen     map[string]struct{}
+	names    []string
+	closed   bool
 }
 
-func newToolAdvertiser(allowed map[string]struct{}) *toolAdvertiser {
+func newToolAdvertiser(manifest toolManifest) *toolAdvertiser {
 	return &toolAdvertiser{
-		allowed: allowed,
-		seen:    make(map[string]struct{}),
+		manifest: manifest,
+		seen:     make(map[string]struct{}),
 	}
 }
 
@@ -55,7 +55,7 @@ func (t *toolAdvertiser) advertise(names []string) error {
 		if name == "" || strings.TrimSpace(name) != name {
 			return fmt.Errorf("%w: tool name %q is empty or has surrounding whitespace", ErrInvalidToolAdvertisement, name)
 		}
-		if _, allowed := t.allowed[name]; !allowed {
+		if !t.manifest.deferred(name) {
 			return fmt.Errorf("%w: tool %q is not deferred", ErrInvalidToolAdvertisement, name)
 		}
 	}

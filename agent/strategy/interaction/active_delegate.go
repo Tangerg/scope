@@ -15,7 +15,6 @@ type ActiveDelegateChild struct {
 	modelCallSequence uint64
 	toolCallIndex     uint32
 	toolCall          chat.ToolCall
-	childKey          agent.ChildKey
 	processID         agent.ProcessID
 	parentProcessID   agent.ProcessID
 }
@@ -30,7 +29,11 @@ func (a ActiveDelegateChild) ToolCallIndex() uint32 { return a.toolCallIndex }
 
 func (a ActiveDelegateChild) ToolCall() chat.ToolCall { return a.toolCall }
 
-func (a ActiveDelegateChild) ChildKey() agent.ChildKey { return a.childKey }
+// ChildKey derives the child's key from the ToolCall that requested it.
+func (a ActiveDelegateChild) ChildKey() agent.ChildKey {
+	key, _ := DelegateChildKey(a.modelCallSequence, a.toolCall)
+	return key
+}
 
 func (a ActiveDelegateChild) ProcessID() agent.ProcessID { return a.processID }
 
@@ -42,12 +45,8 @@ func (a ActiveDelegateChild) Reference() (ToolCallRef, bool) {
 }
 
 func (a ActiveDelegateChild) Valid() bool {
-	if a.modelCallSequence == 0 || a.toolCall.Validate() != nil ||
-		!a.childKey.Valid() || !a.processID.Valid() || !a.parentProcessID.Valid() {
-		return false
-	}
-	key, err := DelegateChildKey(a.modelCallSequence, a.toolCall)
-	return err == nil && key == a.childKey
+	return a.modelCallSequence != 0 && a.toolCall.Validate() == nil &&
+		a.processID.Valid() && a.parentProcessID.Valid()
 }
 
 // ActiveDelegateChildren interprets only Interaction-owned state.
@@ -85,16 +84,10 @@ func ActiveDelegateChildren(
 		if invocation == nil || invocation.ProcessID == nil {
 			continue
 		}
-		call := activeCalls[index]
-		childKey, keyErr := DelegateChildKey(state.ModelCallCount, call)
-		if keyErr != nil {
-			return nil, false, fmt.Errorf("%w: active Delegate child key: %w", ErrInvalidExecutionState, keyErr)
-		}
 		child := ActiveDelegateChild{
 			modelCallSequence: state.ModelCallCount,
 			toolCallIndex:     state.ToolRound.nextCallIndex() + uint32(index),
-			toolCall:          call,
-			childKey:          childKey,
+			toolCall:          activeCalls[index],
 			processID:         *invocation.ProcessID,
 			parentProcessID:   snapshot.ProcessID(),
 		}
