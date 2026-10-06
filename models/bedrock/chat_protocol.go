@@ -82,6 +82,8 @@ type converseAPI interface {
 }
 
 // Chat implements Core chat through Bedrock's provider-neutral Converse API.
+// Responses support text, reasoning, and client tool calls. Native content
+// without a Core mapping returns [errors.ErrUnsupported].
 type Chat struct {
 	api      converseAPI
 	defaults corechat.Options
@@ -118,7 +120,9 @@ func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Respo
 }
 
 // Stream performs one Bedrock ConverseStream request and yields validated
-// provider deltas with cumulative usage snapshots.
+// provider deltas with cumulative usage snapshots. Invalid message or content
+// block lifecycles return [corechat.ErrInvalidResponse], including clean transport
+// EOF before messageStop. Termination follows all metadata and transport checks.
 func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		input, model, err := c.buildConverseStreamInput(req)

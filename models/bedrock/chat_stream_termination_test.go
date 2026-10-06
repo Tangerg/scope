@@ -2,9 +2,9 @@ package bedrock
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -13,7 +13,8 @@ import (
 func textDeltaEvent(text string) types.ConverseStreamOutput {
 	return &types.ConverseStreamOutputMemberContentBlockDelta{
 		Value: types.ContentBlockDeltaEvent{
-			Delta: &types.ContentBlockDeltaMemberText{Value: text},
+			ContentBlockIndex: aws.Int32(0),
+			Delta:             &types.ContentBlockDeltaMemberText{Value: text},
 		},
 	}
 }
@@ -30,7 +31,7 @@ func messageStopEvent(reason types.StopReason) types.ConverseStreamOutput {
 func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newProtocolChunkAccumulator("model")
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	if _, _, err := accumulator.add(textDeltaEvent("half")); err != nil {
 		t.Fatalf("add(text) = %v, want nil", err)
 	}
@@ -38,6 +39,9 @@ func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 		t.Fatal("terminated() = true after a content delta, want false")
 	}
 
+	if _, _, err := accumulator.add(blockStopEvent(0)); err != nil {
+		t.Fatal(err)
+	}
 	response, include, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn))
 	if err != nil || !include {
 		t.Fatalf("add(messageStop) = (%v, %t), want (nil, true)", err, include)
@@ -69,7 +73,7 @@ func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 func TestCompleteRefusesAStreamThatNeverFinished(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newProtocolChunkAccumulator("model")
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	delta, _, err := accumulator.add(textDeltaEvent("half"))
 	if err != nil {
 		t.Fatalf("add(text) = %v, want nil", err)
@@ -86,12 +90,12 @@ func TestCompleteRefusesAStreamThatNeverFinished(t *testing.T) {
 func TestChunkAccumulatorRejectsSecondTerminalEvent(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newProtocolChunkAccumulator("model")
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	if _, _, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn)); err != nil {
 		t.Fatalf("add(messageStop) = %v, want nil", err)
 	}
 	_, _, err := accumulator.add(messageStopEvent(types.StopReasonMaxTokens))
-	if err == nil || !strings.Contains(err.Error(), "more than one messageStop") {
+	if !errors.Is(err, corechat.ErrInvalidResponse) {
 		t.Fatalf("add(second messageStop) = %v, want a duplicate-terminal error", err)
 	}
 }
@@ -102,7 +106,7 @@ func TestChunkAccumulatorRejectsContentAfterMessageStop(t *testing.T) {
 		"delta": textDeltaEvent("late content"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newProtocolChunkAccumulator("model")
+			accumulator := newStartedProtocolChunkAccumulator(t, "model")
 			if _, _, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn)); err != nil {
 				t.Fatal(err)
 			}

@@ -76,7 +76,7 @@ func TestChatBuildConverseStreamInput(t *testing.T) {
 }
 
 func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
-	accumulator := newProtocolChunkAccumulator("model")
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	index := int32(2)
 	start := &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
 		ContentBlockIndex: &index,
@@ -126,7 +126,7 @@ func TestProtocolChunkAccumulatorRejectsCompetingToolIdentities(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newProtocolChunkAccumulator("model")
+			accumulator := newStartedProtocolChunkAccumulator(t, "model")
 			start := &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
 				ContentBlockIndex: aws.Int32(0),
 				Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
@@ -183,7 +183,7 @@ func TestProtocolChunkAccumulatorRejectsAnUnidentifiedToolBlockStart(t *testing.
 
 	for name, event := range tests {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newProtocolChunkAccumulator("model")
+			accumulator := newStartedProtocolChunkAccumulator(t, "model")
 			_, _, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{Value: event})
 			if err == nil {
 				t.Fatal("add() = nil error, want the unidentified toolUse block reported")
@@ -192,21 +192,18 @@ func TestProtocolChunkAccumulatorRejectsAnUnidentifiedToolBlockStart(t *testing.
 	}
 }
 
-// A start payload that is not toolUse still opens an ordinary content block,
-// so it is passed over rather than reported.
-func TestProtocolChunkAccumulatorIgnoresANonToolBlockStart(t *testing.T) {
-	accumulator := newProtocolChunkAccumulator("model")
-	index := int32(0)
+func TestProtocolChunkAccumulatorRejectsMissingBlockStartPayload(t *testing.T) {
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	delta, include, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{
-		Value: types.ContentBlockStartEvent{ContentBlockIndex: &index},
+		Value: types.ContentBlockStartEvent{ContentBlockIndex: aws.Int32(0)},
 	})
-	if err != nil || include || delta != nil {
-		t.Fatalf("add() = %#v, %v, %v; want it passed over", delta, include, err)
+	if !errors.Is(err, corechat.ErrInvalidResponse) || include || delta != nil {
+		t.Fatalf("add() = %#v, %v, %v; want ErrInvalidResponse", delta, include, err)
 	}
 }
 
 func TestProtocolChunkAccumulatorPreservesReasoningKind(t *testing.T) {
-	accumulator := newProtocolChunkAccumulator("model")
+	accumulator := newStartedProtocolChunkAccumulator(t, "model")
 	index := int32(0)
 	event := &types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
 		ContentBlockIndex: &index,
@@ -322,7 +319,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 		StopReason:                    types.StopReasonEndTurn,
 		AdditionalModelResponseFields: document.NewLazyDocument(map[string]any{"provider_count": int64(9007199254740993)}),
 	}}
-	mapper := newProtocolChunkAccumulator("model")
+	mapper := newStartedProtocolChunkAccumulator(t, "model")
 	delta, include, err := mapper.add(event)
 	if err != nil || !include {
 		t.Fatalf("add = %v, %v", include, err)
@@ -331,7 +328,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 	if err != nil || !found || !strings.Contains(string(native), `"AdditionalModelResponseFields":{"provider_count":9007199254740993}`) {
 		t.Fatalf("native event = %s, %v, %v", native, found, err)
 	}
-	model := &Chat{defaults: corechat.Options{Model: "model"}, api: &scriptedConverse{events: []types.ConverseStreamOutput{event, &types.ConverseStreamOutputMemberMetadata{Value: types.ConverseStreamMetadataEvent{Usage: &types.TokenUsage{InputTokens: aws.Int32(11), OutputTokens: aws.Int32(7), CacheReadInputTokens: aws.Int32(3)}}}}}}
+	model := &Chat{defaults: corechat.Options{Model: "model"}, api: &scriptedConverse{events: []types.ConverseStreamOutput{messageStartEvent(), event, &types.ConverseStreamOutputMemberMetadata{Value: types.ConverseStreamMetadataEvent{Usage: &types.TokenUsage{InputTokens: aws.Int32(11), OutputTokens: aws.Int32(7), CacheReadInputTokens: aws.Int32(3)}}}}}}
 	response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}})
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +342,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 		t.Fatalf("usage = %#v", usage)
 	}
 	event.Value.AdditionalModelResponseFields = document.NewLazyDocument(make(chan int))
-	if delta, _, err := newProtocolChunkAccumulator("model").add(event); err == nil || delta != nil {
+	if delta, _, err := newStartedProtocolChunkAccumulator(t, "model").add(event); err == nil || delta != nil {
 		t.Fatalf("invalid native document = %v, %v", delta, err)
 	}
 }

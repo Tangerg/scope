@@ -50,6 +50,7 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.Header().Set("Content-Type", bedrockEventStreamContentType)
 				writer.WriteHeader(http.StatusOK)
+				writeBedrockEvent(writer, "messageStart", []byte(`{"role":"assistant"}`))
 				writeBedrockEvent(writer, "contentBlockDelta", mustBedrockJSON(map[string]any{
 					"contentBlockIndex": 0,
 					"delta":             map[string]any{"text": "before"},
@@ -95,6 +96,7 @@ const bedrockEventStreamContentType = "application/vnd.amazon.eventstream"
 func writeBedrockBehaviorEvent(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", bedrockEventStreamContentType)
 	writer.WriteHeader(http.StatusOK)
+	writeBedrockEvent(writer, "messageStart", []byte(`{"role":"assistant"}`))
 	writeBedrockEvent(writer, "contentBlockDelta", mustBedrockJSON(map[string]any{
 		"contentBlockIndex": 0,
 		"delta":             map[string]any{"text": "ready"},

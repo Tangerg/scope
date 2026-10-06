@@ -75,9 +75,7 @@ func TestChat_CoreConformance(t *testing.T) {
 func scriptedConverseEvents() []types.ConverseStreamOutput {
 	index := int32(0)
 	return []types.ConverseStreamOutput{
-		&types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
-			ContentBlockIndex: &index,
-		}},
+		messageStartEvent(),
 		&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
 			ContentBlockIndex: &index,
 			Delta:             &types.ContentBlockDeltaMemberText{Value: "hello"},
@@ -86,6 +84,7 @@ func scriptedConverseEvents() []types.ConverseStreamOutput {
 			ContentBlockIndex: &index,
 			Delta:             &types.ContentBlockDeltaMemberText{Value: " there"},
 		}},
+		blockStopEvent(index),
 		&types.ConverseStreamOutputMemberMessageStop{Value: types.MessageStopEvent{
 			StopReason: types.StopReasonEndTurn,
 		}},
