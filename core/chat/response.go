@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/internal/wiretime"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -25,6 +27,15 @@ type ResponseMetadata struct {
 func (r *ResponseMetadata) validate() error {
 	if r == nil {
 		return nil
+	}
+	if !utf8.ValidString(r.Model) {
+		return fmt.Errorf("%w: response metadata model must be valid UTF-8", ErrInvalidResponse)
+	}
+	if !utf8.ValidString(r.ID) {
+		return fmt.Errorf("%w: response metadata ID must be valid UTF-8", ErrInvalidResponse)
+	}
+	if err := wiretime.Validate(r.CreatedAt); err != nil {
+		return fmt.Errorf("%w: response metadata created_at: %w", ErrInvalidResponse, err)
 	}
 	if r.ID != "" && strings.TrimSpace(r.ID) != r.ID {
 		return fmt.Errorf("%w: response metadata ID must not have surrounding whitespace", ErrInvalidResponse)

@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/internal/ptr"
 	"github.com/Tangerg/scope/core/metadata"
@@ -108,6 +109,9 @@ func (o *Options) applyOverride(override Options) error {
 }
 
 func (o Options) Validate() error {
+	if !utf8.ValidString(o.Model) {
+		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
+	}
 	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
 		return fmt.Errorf("%w: model must not have surrounding whitespace", ErrInvalidOptions)
 	}
@@ -129,6 +133,9 @@ func (o Options) Validate() error {
 		return fmt.Errorf("%w: %w", ErrInvalidOptions, err)
 	}
 	for i, stop := range o.Stop {
+		if !utf8.ValidString(stop) {
+			return fmt.Errorf("%w: stop[%d] must be valid UTF-8", ErrInvalidOptions, i)
+		}
 		if stop == "" {
 			return fmt.Errorf("%w: stop[%d] must not be empty", ErrInvalidOptions, i)
 		}

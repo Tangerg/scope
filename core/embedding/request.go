@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/internal/ptr"
 	"github.com/Tangerg/scope/core/metadata"
@@ -57,6 +58,9 @@ func (o *Options) applyOverride(override Options) error {
 }
 
 func (o Options) Validate() error {
+	if !utf8.ValidString(o.Model) {
+		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
+	}
 	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
 		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
 	}
@@ -117,6 +121,9 @@ func (r *Request) Validate() error {
 		return fmt.Errorf("%w: texts must contain at least one entry", ErrInvalidRequest)
 	}
 	for i, text := range r.Texts {
+		if !utf8.ValidString(text) {
+			return fmt.Errorf("%w: texts[%d] must be valid UTF-8", ErrInvalidRequest, i)
+		}
 		if text == "" {
 			return fmt.Errorf("%w: texts[%d] must not be empty", ErrInvalidRequest, i)
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Request is one reranking call. Result indices address Documents in this
@@ -28,6 +29,9 @@ func (r *Request) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: nil request", ErrInvalidRequest)
 	}
+	if !utf8.ValidString(r.Query) {
+		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidRequest)
+	}
 	if strings.TrimSpace(r.Query) == "" {
 		return fmt.Errorf("%w: query must not be blank", ErrInvalidRequest)
 	}
@@ -35,6 +39,9 @@ func (r *Request) Validate() error {
 		return fmt.Errorf("%w: documents must contain at least one entry", ErrInvalidRequest)
 	}
 	for index, document := range r.Documents {
+		if !utf8.ValidString(document) {
+			return fmt.Errorf("%w: documents[%d] must be valid UTF-8", ErrInvalidRequest, index)
+		}
 		if strings.TrimSpace(document) == "" {
 			return fmt.Errorf("%w: documents[%d] must not be blank", ErrInvalidRequest, index)
 		}

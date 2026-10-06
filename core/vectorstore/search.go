@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -160,6 +161,9 @@ func NewSearchRequest(query string) (*SearchRequest, error) {
 func (s *SearchRequest) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: search request is nil", ErrInvalidRequest)
+	}
+	if !utf8.ValidString(s.Query) {
+		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(s.Query) == "" {
 		return fmt.Errorf("%w: query must not be empty", ErrInvalidRequest)

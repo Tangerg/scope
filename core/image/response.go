@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/scope/core/internal/wiretime"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -78,6 +79,9 @@ type ResponseMetadata struct {
 func (r *ResponseMetadata) validate() error {
 	if r == nil {
 		return nil
+	}
+	if err := wiretime.Validate(r.CreatedAt); err != nil {
+		return fmt.Errorf("%w: response metadata created_at: %w", ErrInvalidResponse, err)
 	}
 	if err := r.Extra.Validate(); err != nil {
 		return fmt.Errorf("%w: response metadata: %w", ErrInvalidResponse, err)

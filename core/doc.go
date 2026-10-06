@@ -28,6 +28,8 @@
 // JSON decoders reject unknown struct members before replacing the receiver,
 // including nested protocol values. Metadata, namespaced extensions, JSON
 // schemas, and tool-defined payloads retain their open data contracts.
+// Protocol validation rejects strings and timestamps that cannot be encoded
+// losslessly, so accepted values can cross the JSON boundary without repair.
 //
 // # Shared values
 //

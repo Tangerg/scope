@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
@@ -104,6 +105,9 @@ func (o OutputFormat) Validate() error {
 }
 
 func (o OutputFormat) validateJSONSchema() error {
+	if !utf8.ValidString(o.Name) || !utf8.ValidString(o.Description) {
+		return fmt.Errorf("%w: json_schema name and description must be valid UTF-8", ErrInvalidOutputFormat)
+	}
 	if o.Name == "" {
 		return fmt.Errorf("%w: json_schema name must not be empty", ErrInvalidOutputFormat)
 	}

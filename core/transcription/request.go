@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
@@ -57,6 +58,12 @@ func (o *Options) applyOverride(override Options) error {
 }
 
 func (o Options) Validate() error {
+	if !utf8.ValidString(o.Language) {
+		return fmt.Errorf("%w: language must be valid UTF-8", ErrInvalidOptions)
+	}
+	if !utf8.ValidString(o.Model) {
+		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
+	}
 	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
 		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
 	}

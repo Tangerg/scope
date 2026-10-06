@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -36,6 +37,9 @@ type Source struct {
 }
 
 func (s Source) Validate() error {
+	if !utf8.ValidString(s.URI) || !utf8.ValidString(s.Ref) {
+		return fmt.Errorf("%w: URI and reference must be valid UTF-8", ErrInvalidSource)
+	}
 	switch s.Kind {
 	case SourceBytes:
 		if !s.carriesOnly(SourceBytes) {
@@ -140,6 +144,12 @@ func NewReference(mimeType, reference string) (*Media, error) {
 func (m *Media) Validate() error {
 	if m == nil {
 		return ErrNilMedia
+	}
+	if !utf8.ValidString(m.MIME) {
+		return fmt.Errorf("%w: must be valid UTF-8", ErrInvalidMIME)
+	}
+	if !utf8.ValidString(m.ID) || !utf8.ValidString(m.Name) {
+		return errors.New("media: ID and name must be valid UTF-8")
 	}
 	mediaType, _, err := mime.ParseMediaType(m.MIME)
 	if err != nil || !strings.Contains(mediaType, "/") {

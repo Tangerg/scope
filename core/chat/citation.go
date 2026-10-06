@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 var ErrInvalidCitation = errors.New("chat: invalid citation")
@@ -31,6 +32,9 @@ type CitationSource struct {
 }
 
 func (c CitationSource) Validate() error {
+	if !utf8.ValidString(c.Value) {
+		return fmt.Errorf("%w: source value must be valid UTF-8", ErrInvalidCitation)
+	}
 	if !c.Kind.Valid() {
 		return fmt.Errorf("%w: unknown source kind %q", ErrInvalidCitation, c.Kind)
 	}
@@ -57,6 +61,9 @@ type Citation struct {
 func (c Citation) Validate() error {
 	if err := c.Source.Validate(); err != nil {
 		return err
+	}
+	if !utf8.ValidString(c.Title) || !utf8.ValidString(c.Quote) {
+		return fmt.Errorf("%w: title and quote must be valid UTF-8", ErrInvalidCitation)
 	}
 	if strings.TrimSpace(c.Title) != c.Title {
 		return fmt.Errorf("%w: title must not have surrounding whitespace", ErrInvalidCitation)

@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // ToolCall is one complete, untrusted model proposal to invoke a named tool.
@@ -29,13 +30,7 @@ type ToolCallDelta struct {
 }
 
 func (t ToolCallDelta) Validate() error {
-	if t.ID == "" {
-		return fmt.Errorf("%w: delta ID must not be empty", ErrInvalidToolCall)
-	}
-	if t.Name == "" {
-		return fmt.Errorf("%w: delta name must not be empty", ErrInvalidToolCall)
-	}
-	return nil
+	return ToolCall(t).Validate()
 }
 
 // ToolOutput is the provider-neutral value produced by a Tool. Content is the
@@ -143,6 +138,9 @@ func (t ToolCall) Validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: name must not be empty", ErrInvalidToolCall)
 	}
+	if !utf8.ValidString(t.ID) || !utf8.ValidString(t.Name) || !utf8.ValidString(t.Arguments) {
+		return fmt.Errorf("%w: ID, name, and arguments must be valid UTF-8", ErrInvalidToolCall)
+	}
 	return nil
 }
 
@@ -165,6 +163,9 @@ func (t ToolResult) Validate() error {
 	}
 	if t.Name == "" {
 		return fmt.Errorf("%w: name must not be empty", ErrInvalidToolResult)
+	}
+	if !utf8.ValidString(t.ID) || !utf8.ValidString(t.Name) {
+		return fmt.Errorf("%w: ID and name must be valid UTF-8", ErrInvalidToolResult)
 	}
 	if err := t.Output.Validate(); err != nil {
 		return fmt.Errorf("%w: output: %w", ErrInvalidToolResult, err)

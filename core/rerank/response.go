@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -145,6 +146,9 @@ type ResponseMetadata struct {
 func (r *ResponseMetadata) validate() error {
 	if r == nil {
 		return nil
+	}
+	if !utf8.ValidString(r.Model) {
+		return fmt.Errorf("%w: response metadata model must be valid UTF-8", ErrInvalidResponse)
 	}
 	if r.Model != "" && strings.TrimSpace(r.Model) != r.Model {
 		return fmt.Errorf("%w: response metadata model must not have surrounding whitespace", ErrInvalidResponse)

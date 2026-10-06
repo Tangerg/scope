@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/internal/ptr"
 	"github.com/Tangerg/scope/core/metadata"
@@ -103,6 +104,12 @@ func (o *Options) applyOverride(override Options) error {
 }
 
 func (o Options) Validate() error {
+	if !utf8.ValidString(o.NegativePrompt) {
+		return fmt.Errorf("%w: negative prompt must be valid UTF-8", ErrInvalidOptions)
+	}
+	if !utf8.ValidString(o.Model) {
+		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
+	}
 	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
 		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
 	}
@@ -166,6 +173,9 @@ func NewRequest(prompt string) (*Request, error) {
 func (r *Request) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: nil request", ErrInvalidRequest)
+	}
+	if !utf8.ValidString(r.Prompt) {
+		return fmt.Errorf("%w: prompt must be valid UTF-8", ErrInvalidRequest)
 	}
 	if r.Prompt == "" {
 		return fmt.Errorf("%w: prompt must not be empty", ErrInvalidRequest)
