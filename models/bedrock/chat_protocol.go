@@ -123,6 +123,7 @@ func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Respo
 // provider deltas with cumulative usage snapshots. Invalid message or content
 // block lifecycles return [corechat.ErrInvalidResponse], including clean transport
 // EOF before messageStop. Termination follows all metadata and transport checks.
+// Server tool use returns [errors.ErrUnsupported] before publishing a tool call.
 func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		input, model, err := c.buildConverseStreamInput(req)

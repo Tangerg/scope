@@ -106,6 +106,9 @@ func TestChatRejectsIncompleteOrCompetingStreamLifecycles(t *testing.T) {
 
 func TestChatReportsUnmappedNativeContent(t *testing.T) {
 	for name, event := range map[string]types.ConverseStreamOutput{
+		"server tool use": &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{ContentBlockIndex: aws.Int32(0), Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
+			ToolUseId: aws.String("call-1"), Name: aws.String("lookup"), Type: types.ToolUseTypeServerToolUse,
+		}}}},
 		"image start":       &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{ContentBlockIndex: aws.Int32(0), Start: &types.ContentBlockStartMemberImage{}}},
 		"tool result start": &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{ContentBlockIndex: aws.Int32(0), Start: &types.ContentBlockStartMemberToolResult{}}},
 		"citation delta":    &types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{ContentBlockIndex: aws.Int32(0), Delta: &types.ContentBlockDeltaMemberCitation{}}},
@@ -118,7 +121,20 @@ func TestChatReportsUnmappedNativeContent(t *testing.T) {
 			}}}
 			response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}})
 			if response != nil || !errors.Is(err, errors.ErrUnsupported) {
-				t.Fatalf("unmapped native content returned success: %#v, %v", response, err)
+				t.Errorf("unmapped native content returned success: %#v, %v", response, err)
+			}
+			for delta, streamErr := range model.Stream(t.Context(), &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}) {
+				if streamErr != nil {
+					if !errors.Is(streamErr, errors.ErrUnsupported) {
+						t.Errorf("Stream error = %v, want unsupported", streamErr)
+					}
+					break
+				}
+				for _, part := range delta.Parts {
+					if part.ToolCall != nil {
+						t.Error("unsupported server tool use published as a caller-owned tool call")
+					}
+				}
 			}
 		})
 	}

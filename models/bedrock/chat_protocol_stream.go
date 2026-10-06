@@ -82,6 +82,9 @@ func (p *protocolChunkAccumulator) add(event types.ConverseStreamOutput) (*corec
 		if !ok {
 			return nil, false, fmt.Errorf("bedrock: stream: %w: content block start %T", errors.ErrUnsupported, typed.Value.Start)
 		}
+		if tool.Value.Type != "" {
+			return nil, false, fmt.Errorf("bedrock: stream: %w: tool use type %q", errors.ErrUnsupported, tool.Value.Type)
+		}
 		if tool.Value.ToolUseId == nil || *tool.Value.ToolUseId == "" || tool.Value.Name == nil || *tool.Value.Name == "" {
 			return nil, false, fmt.Errorf("bedrock: stream: %w: toolUse content block opened without an id or name", corechat.ErrInvalidResponse)
 		}
