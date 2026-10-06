@@ -19,9 +19,10 @@ import (
 // IDGenerator produces an identifier for a document. Implementations may
 // derive identity from content or generate an unconditional random identity.
 type IDGenerator interface {
-	// Generate returns a non-blank identifier for one document without mutating
-	// it. Content-addressed implementations must be deterministic; random
-	// implementations must still honor ctx and reject nil documents.
+	// Generate returns a non-blank UTF-8 identifier without surrounding whitespace
+	// for one document without mutating it. Content-addressed implementations must
+	// be deterministic; random implementations must still honor ctx and reject nil
+	// documents.
 	Generate(ctx context.Context, document *document.Document) (string, error)
 }
 

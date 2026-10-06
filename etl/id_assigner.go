@@ -37,6 +37,7 @@ func NewIDAssigner(config IDAssignerConfig) (*IDAssigner, error) {
 
 // Assign validates and clones every document before assigning IDs. It returns
 // no partial output on failure and never mutates the input slice or documents.
+// Generated identities must satisfy the canonical document contract.
 func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -72,6 +73,9 @@ func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*
 }
 
 func assignID(ctx context.Context, doc *document.Document, generator IDGenerator) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if doc == nil {
 		return ErrNilDocument
 	}
@@ -82,9 +86,17 @@ func assignID(ctx context.Context, doc *document.Document, generator IDGenerator
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if generated == "" || generated != strings.TrimSpace(generated) {
 		return errors.New("etl: ID generator returned a blank or padded ID")
 	}
-	doc.ID = generated
+	candidate := *doc
+	candidate.ID = generated
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("etl: ID generator produced an invalid document: %w", err)
+	}
+	doc.ID = candidate.ID
 	return nil
 }

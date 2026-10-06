@@ -63,17 +63,13 @@ func (d *Document) UnmarshalJSON(data []byte) error {
 // NewDocument requires text or media; their agreement remains the caller's
 // responsibility.
 func NewDocument(text string, payload *media.Media) (*Document, error) {
-	if text == "" && payload == nil {
-		return nil, fmt.Errorf("document: create: %w: text or media is required", ErrInvalidDocument)
-	}
-
 	doc := &Document{
 		Text:     text,
 		Media:    payload,
 		Metadata: metadata.Map{},
 	}
 	if err := doc.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("document: create: %w", err)
 	}
 	return doc, nil
 }
