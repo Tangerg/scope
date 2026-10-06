@@ -23,7 +23,6 @@ func TestRun(t *testing.T) {
 		"score: 0.95\n" +
 		"attempts: 3\n" +
 		"accepted: true\n" +
-		"iterations: 3\n" +
 		"processes: 10\n"
 	if output.String() != want {
 		t.Fatalf("output=%q, want %q", output.String(), want)
@@ -41,16 +40,16 @@ func TestExhaustionReturnsBestAttemptNotLatestAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Accepted || report.Iterations != 3 || len(report.History) != 3 || evidence.ProcessCount != 10 {
+	if report.Accepted || len(report.History) != 3 || evidence.ProcessCount != 10 {
 		t.Fatalf("report=%#v evidence=%#v", report, evidence)
 	}
-	if report.Best.Candidate.Revision != 2 || report.Best.Assessment.Score != 0.9 {
-		t.Fatalf("best=%#v, want revision 2 at 0.9", report.Best)
+	if report.best().Candidate.Revision != 2 || report.best().Assessment.Score != 0.9 {
+		t.Fatalf("best=%#v, want revision 2 at 0.9", report.best())
 	}
 	if !strings.Contains(report.History[1].Candidate.Content, report.History[0].Assessment.Feedback) {
 		t.Fatalf("second candidate did not consume first feedback: %#v", report.History)
 	}
-	if report.History[2].Candidate == report.Best.Candidate {
+	if report.History[2].Candidate == report.best().Candidate {
 		t.Fatal("latest lower-scoring candidate replaced the stable best attempt")
 	}
 	wantDeployments := expectedDeployments(3)
@@ -70,7 +69,7 @@ func TestAcceptedAttemptStopsBeforeLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Accepted || report.Iterations != 1 || len(report.History) != 1 {
+	if !report.Accepted || len(report.History) != 1 {
 		t.Fatalf("report=%#v, want one accepted iteration", report)
 	}
 	wantDeployments := expectedDeployments(1)
@@ -99,8 +98,8 @@ func TestEqualScoresKeepEarliestAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Best.Candidate.Revision != 1 || report.Best.Assessment.Score != 0.8 {
-		t.Fatalf("best=%#v, want earliest tied revision", report.Best)
+	if report.best().Candidate.Revision != 1 || report.best().Assessment.Score != 0.8 {
+		t.Fatalf("best=%#v, want earliest tied revision", report.best())
 	}
 }
 
