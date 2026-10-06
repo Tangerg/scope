@@ -20,6 +20,7 @@ const (
 type protocolResponseMapper struct {
 	partOffset   int
 	provider     string
+	modelVersion string
 	stopReason   genai.FinishReason
 	hasToolCalls bool
 }
@@ -118,7 +119,10 @@ func (p *protocolResponseMapper) candidate(candidate *genai.Candidate) (*genai.C
 }
 
 func (p *protocolResponseMapper) mapMetadata(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseMetadata, error) {
-	modelName := response.ModelVersion
+	if response.ModelVersion != "" {
+		p.modelVersion = response.ModelVersion
+	}
+	modelName := p.modelVersion
 	if modelName == "" {
 		modelName = requestModel
 	}

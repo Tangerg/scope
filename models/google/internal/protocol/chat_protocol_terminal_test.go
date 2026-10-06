@@ -87,7 +87,7 @@ func newTerminalChat(t *testing.T, provider, tail string) *protocol.Chat {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range []string{
-			`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"answer"}]},"finishReason":"STOP"}]}`,
+			`{"modelVersion":"gemini-3-pro-001","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"answer"}]},"finishReason":"STOP"}]}`,
 			tail,
 			`{"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2,"totalTokenCount":3}}`,
 		} {
@@ -114,6 +114,9 @@ func newTerminalChat(t *testing.T, provider, tail string) *protocol.Chat {
 
 func checkTerminalChatResponse(t *testing.T, provider string, response *corechat.Response) {
 	t.Helper()
+	if response.Metadata.Model != "gemini-3-pro-001" {
+		t.Errorf("model = %q, want reported model version", response.Metadata.Model)
+	}
 	if response.Output.FinishReason != corechat.FinishReasonStop {
 		t.Errorf("finish = %s, want stop", response.Output.FinishReason)
 	}
