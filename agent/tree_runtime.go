@@ -458,7 +458,7 @@ func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 // ownsActiveWork is the lock-free view Engine.Close uses: jobs, the in-flight
 // commit, and a held freeze each keep the tree busy.
 func (t *treeRuntime) ownsActiveWork() bool {
-	return t.jobs.active.Load() != 0 || t.writer.busy.Load() || t.freeze.engagedFlag.Load()
+	return t.jobs.active.Load() != 0 || t.writer.committing() || t.freeze.engaged()
 }
 
 func (t *treeRuntime) canStop() bool {

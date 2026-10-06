@@ -33,18 +33,20 @@ func (a *activeTreeFreeze) answer(result treeFreezeAcquisitionResult) {
 }
 
 // freezeBarrier owns the tree's snapshot barrier: at most one freeze is being
-// acquired or held. engagedFlag mirrors that state for lock-free Engine.Close
-// checks; only the tree owner goroutine changes either.
+// acquired or held. active is atomic because Engine.Close also reads it
+// without the owner; only the tree owner goroutine changes it.
 type freezeBarrier struct {
-	active      *activeTreeFreeze
-	engagedFlag atomic.Bool
+	active atomic.Pointer[activeTreeFreeze]
 }
 
 // engaged reports a freeze being acquired or held.
-func (f *freezeBarrier) engaged() bool { return f.active != nil }
+func (f *freezeBarrier) engaged() bool { return f.active.Load() != nil }
 
 // held reports a freeze whose snapshot was granted to its caller.
-func (f *freezeBarrier) held() bool { return f.active != nil && f.active.answered() }
+func (f *freezeBarrier) held() bool {
+	active := f.active.Load()
+	return active != nil && active.answered()
+}
 
 func (f *freezeBarrier) phase() TreeFreezePhase {
 	switch {
@@ -58,35 +60,34 @@ func (f *freezeBarrier) phase() TreeFreezePhase {
 }
 
 func (f *freezeBarrier) cancellation() <-chan struct{} {
-	if f.active == nil {
+	active := f.active.Load()
+	if active == nil {
 		return nil
 	}
-	return f.active.canceled
+	return active.canceled
 }
 
 func (f *freezeBarrier) begin(acquisition *treeFreezeAcquisition, freeze *treeFreeze) {
-	if f.active != nil {
+	active := &activeTreeFreeze{acquisition: acquisition, freeze: freeze, canceled: acquisition.canceled}
+	if !f.active.CompareAndSwap(nil, active) {
 		panic("agent: concurrent tree freeze")
 	}
-	f.active = &activeTreeFreeze{acquisition: acquisition, freeze: freeze, canceled: acquisition.canceled}
-	f.engagedFlag.Store(true)
 }
 
 func (f *freezeBarrier) owns(freeze *treeFreeze) bool {
-	return f.active != nil && freeze != nil && f.active.freeze == freeze
+	active := f.active.Load()
+	return active != nil && freeze != nil && active.freeze == freeze
 }
 
 func (f *freezeBarrier) grant(snapshot TreeSnapshot) {
-	f.active.answer(treeFreezeAcquisitionResult{freeze: f.active.freeze, snapshot: snapshot})
+	active := f.active.Load()
+	active.answer(treeFreezeAcquisitionResult{freeze: active.freeze, snapshot: snapshot})
 }
 
 // end removes the barrier and returns it so a caller still acquiring it can
 // be answered.
 func (f *freezeBarrier) end() *activeTreeFreeze {
-	ended := f.active
-	f.active = nil
-	f.engagedFlag.Store(false)
-	return ended
+	return f.active.Swap(nil)
 }
 
 // treeFreeze identifies the active snapshot barrier. Only CaptureTree receives
