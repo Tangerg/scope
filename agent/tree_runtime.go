@@ -501,7 +501,7 @@ func (t *treeRuntime) prepareChildStart(
 	transferred := false
 	defer func() {
 		if !transferred {
-			process.releaseProvisionalChildBudget(spec.Budget)
+			process.releaseProvisionalChildBudget()
 		}
 	}()
 	if reserveProcessStartErr := t.engine.reserveProcessStart(
@@ -750,7 +750,7 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	if child := t.members.get(plan.childID); child != nil {
 		t.removeProcess(plan.childID)
 	} else if parent != nil {
-		parent.releaseProvisionalChildBudget(plan.spec.Budget)
+		parent.releaseProvisionalChildBudget()
 	}
 	t.runQueue.remove(plan.childID)
 	delete(t.publications, plan.childID)
@@ -1731,7 +1731,7 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		if candidate.prepared == nil {
 			return errors.New("child start parent has no prepared Step")
 		}
-		if err := candidate.installProvisionalChildBudget(pending.plan.spec.Budget); err != nil {
+		if err := candidate.installProvisionalChildBudget(); err != nil {
 			return err
 		}
 		handle := newProcessHandle(

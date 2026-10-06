@@ -193,7 +193,7 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 	if parent.reserveProvisionalChildBudget(Budget{}, members.childAllocation(parentID)) {
 		t.Fatal("second provisional grant overwrote the first")
 	}
-	parent.releaseProvisionalChildBudget(Budget{Effects: NewQuota(7)})
+	parent.releaseProvisionalChildBudget()
 	if parent.provisionalChildBudget != nil || members.childAllocation(parentID).Effects != 3 {
 		t.Fatal("provisional rollback changed published allocation")
 	}
