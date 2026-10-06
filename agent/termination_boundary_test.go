@@ -36,7 +36,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				process.recoveryOwed = true
 			}
 			if mode == "in_flight" {
-				runtime.setProcessJob(process.handle.processID, &processJob{kind: processJobDispatch, attempt: 1, effectID: record.ID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}})
+				runtime.setProcessJob(process.handle.processID(), &processJob{kind: processJobDispatch, attempt: 1, effectID: record.ID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}})
 			}
 			runtime.failProcessContract(process, "engine.contract.failed", errors.New("contract failure"))
 			if mode == "in_flight" {
@@ -48,7 +48,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 					t.Fatal(settlementErr)
 				}
 				runtime.applyCompletion(treeJobCompletion{
-					processID: process.handle.processID, attempt: 1,
+					processID: process.handle.processID(), attempt: 1,
 					result: dispatchJobResult{effectID: record.ID, settlement: settlement},
 				})
 			}
@@ -122,20 +122,20 @@ func TestTerminalOutcomeCannotBeReplacedOrRepublished(t *testing.T) {
 func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	job := &processJob{kind: processJobRestore, attempt: 1}
-	runtime.setProcessJob(process.handle.processID, job)
+	runtime.setProcessJob(process.handle.processID(), job)
 	func() {
 		defer func() {
 			if recover() == nil {
 				t.Error("removed a Process while its job still owned a completion")
 			}
 		}()
-		runtime.removeProcess(process.handle.processID)
+		runtime.removeProcess(process.handle.processID())
 	}()
-	if runtime.members.get(process.handle.processID) != process || runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
+	if runtime.members.get(process.handle.processID()) != process || runtime.jobs.get(process.handle.processID()) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("rejected removal changed Process ownership")
 	}
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, attempt: 1,
+		processID: process.handle.processID(), attempt: 1,
 		result: restoreJobResult{execution: process.execution},
 	})
 	if !runtime.jobs.empty() || runtime.jobs.active.Load() != 0 {
@@ -145,8 +145,8 @@ func TestProcessMembershipRetainsOwnedWork(t *testing.T) {
 
 func TestSignalCommitWithoutCallerStillCompletes(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
-	runtime.applySuccessfulTreeCommit(&treeCommit{kind: treeCommitSignals, processID: process.handle.processID})
-	if !runtime.runQueue.contains(process.handle.processID) {
+	runtime.applySuccessfulTreeCommit(&treeCommit{kind: treeCommitSignals, processID: process.handle.processID()})
+	if !runtime.runQueue.contains(process.handle.processID()) {
 		t.Fatal("acknowledgment did not schedule the Process")
 	}
 }
@@ -154,26 +154,26 @@ func TestSignalCommitWithoutCallerStillCompletes(t *testing.T) {
 func TestCompletionRejectsOrphanedOwnedWork(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	job := &processJob{kind: processJobRestore, attempt: 1}
-	runtime.setProcessJob(process.handle.processID, job)
-	runtime.members.remove(process.handle.processID)
+	runtime.setProcessJob(process.handle.processID(), job)
+	runtime.members.remove(process.handle.processID())
 	defer func() {
 		if recover() == nil {
 			t.Fatal("orphaned work was silently retained")
 		}
 	}()
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, attempt: job.attempt, result: restoreJobResult{},
+		processID: process.handle.processID(), attempt: job.attempt, result: restoreJobResult{},
 	})
 }
 
 func TestStaleCompletionPreservesCurrentOwnedWork(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	job := &processJob{kind: processJobRestore, attempt: 2}
-	runtime.setProcessJob(process.handle.processID, job)
+	runtime.setProcessJob(process.handle.processID(), job)
 	runtime.applyCompletion(treeJobCompletion{
-		processID: process.handle.processID, attempt: 1, result: restoreJobResult{},
+		processID: process.handle.processID(), attempt: 1, result: restoreJobResult{},
 	})
-	if runtime.jobs.get(process.handle.processID) != job || runtime.jobs.active.Load() != 1 {
+	if runtime.jobs.get(process.handle.processID()) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("stale completion released the current attempt")
 	}
 }

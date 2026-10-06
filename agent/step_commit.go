@@ -20,22 +20,40 @@ func newFinalizationFailure(limitCode string, err error) *stepFailure {
 	return &stepFailure{kind: FailureKindContract, code: failureCodeEngineFinalizeInvalid, cause: err}
 }
 
-// The candidate mailbox owns every wait the Step opens, consumes, or closes;
-// openedChildWaits only lists the child waits that may already be satisfied.
+// The candidate mailbox owns every wait the Step opens, consumes, or closes.
 type preparedStepFinalization struct {
-	process          *processState
-	prepared         *preparedStep
-	mailbox          signalMailbox
-	openedChildWaits []openedChildWait
-	commit           preparedStepCommit
+	process  *processState
+	prepared *preparedStep
+	mailbox  signalMailbox
+	commit   preparedStepCommit
 }
 
+// openedChildWaits lists the child waits this Step's batch opens, which may
+// already be satisfied. Each opening's WaitID derives from its Effect.
+func (p *preparedStepFinalization) openedChildWaits() ([]openedChildWait, error) {
+	var opened []openedChildWait
+	for _, record := range p.prepared.Effects {
+		if record.Effect.Target() != EffectTargetFramework {
+			continue
+		}
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
+		if err != nil {
+			return nil, err
+		}
+		if wait, opens := operation.(childWaitOperation); opens {
+			opened = append(opened, openedChildWait{waitID: record.ID.waitID(), spec: wait.spec})
+		}
+	}
+	return opened, nil
+}
+
+// preparedStepCommit holds only what finalization decides beyond the
+// prepared Intent: the termination it resolves and when it finished. The
+// Intent keeps owning the wait it enters, the pause it requests, and its
+// Output.
 type preparedStepCommit struct {
-	currentWaitID WaitID
-	pause         pause
-	finalOutput   Payload
-	termination   Termination
-	finishedAt    time.Time
+	termination Termination
+	finishedAt  time.Time
 }
 
 func newPreparedStepFinalization(process *processState, prepared *preparedStep) (*preparedStepFinalization, error) {
@@ -89,13 +107,8 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 	case TransitionKindWait:
 		return p.prepareWaitTransition(transition)
 	case TransitionKindPause:
-		p.commit.pause = transition.pause
 	case TransitionKindComplete:
-		output, _ := transition.Output()
 		p.prepareTermination(completedOutcome(), finishedAt)
-		if p.commit.termination.Status() == StatusCompleted {
-			p.commit.finalOutput = output
-		}
 	case TransitionKindFail:
 		failure, _ := transition.Failure()
 		outcome, err := failedOutcome(failure)
@@ -111,11 +124,17 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 
 func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) error {
 	waitID, _ := transition.WaitID()
-	if err := p.mailbox.enterWait(waitID); err != nil {
-		return err
+	return p.mailbox.enterWait(waitID)
+}
+
+// finalOutput is the Intent's Output only when the resolved termination still
+// completes; a higher-priority termination supersedes it.
+func (p *preparedStepFinalization) finalOutput() Payload {
+	if p.commit.termination.Status() != StatusCompleted {
+		return Payload{}
 	}
-	p.commit.currentWaitID = waitID
-	return nil
+	output, _ := p.prepared.Intent.Output()
+	return output
 }
 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {

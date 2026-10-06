@@ -107,7 +107,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		relation := childProcessRelation(id, handle.relation, key)
 		last = &processState{
 			finish: &processFinish{Termination: termination, FinishedAt: now, Output: output},
-			handle: &processHandle{processID: id, relation: relation, startedAt: now, budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}},
+			handle: &processHandle{relation: relation, startedAt: now, budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}},
 		}
 		if !last.result().Valid() {
 			t.Fatal("invalid child result")
@@ -116,7 +116,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 		children = append(children, id)
 	}
 	spec := ChildWaitSpec{Boundary: ChildWaitBoundaryResult, Key: waitKey, Children: children, Condition: AllChildren()}
-	openTestChildWait(t, &parent.mailbox, "signal:engine:oversized-opened", waitID, spec)
+	openTestChildWait(t, &parent.mailbox, waitID, spec)
 	parent.currentWaitID = waitID
 	runtime.propagateProcessTermination(last)
 	if !parent.pendingControl.failure.Valid() {
@@ -133,7 +133,7 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
 		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
 	}
-	if snapshot, err := runtime.members.get(handle.processID).capture(); err != nil || !snapshot.Valid() {
+	if snapshot, err := runtime.members.get(handle.processID()).capture(); err != nil || !snapshot.Valid() {
 		t.Fatalf("terminal snapshot = %v, error = %v", snapshot.Valid(), err)
 	}
 }
@@ -148,7 +148,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	if err != nil || control.failure != parent.pendingControl.failure {
 		t.Fatalf("pending failure round trip = %+v, error = %v", control, err)
 	}
-	id := parent.handle.processID.effectID(1, 0)
+	id := parent.handle.processID().effectID(1, 0)
 	effect, err := NewDispatcherEffect([]byte(`{}`))
 	if err != nil {
 		t.Fatal(err)

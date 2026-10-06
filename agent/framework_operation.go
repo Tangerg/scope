@@ -100,11 +100,7 @@ func (c childWaitOperation) apply(finalization *preparedStepFinalization, record
 	if err != nil {
 		return err
 	}
-	if err := finalization.mailbox.openChildWait(c.spec, signal); err != nil {
-		return err
-	}
-	finalization.openedChildWaits = append(finalization.openedChildWaits, openedChildWait{waitID: signal.waitID, spec: c.spec})
-	return nil
+	return finalization.mailbox.openChildWait(c.spec, signal)
 }
 
 func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, _ preparedEffect) error {

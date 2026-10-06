@@ -416,11 +416,11 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	process := &processState{
 		handle: &processHandle{
-			processID: processID, relation: relation, deployment: deployment,
+			relation: relation, deployment: deployment,
 		},
 	}
 
-	runtime := newTreeRuntime(engine, process.handle.processID, DefaultTreeLimits(), context.Background())
+	runtime := newTreeRuntime(engine, process.handle.processID(), DefaultTreeLimits(), context.Background())
 	process.processEventSequence = 7
 	func() {
 		defer func() {

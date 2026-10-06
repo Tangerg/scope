@@ -626,7 +626,7 @@ func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
 			Key: controlValue(ParseWaitKey(name)), Children: []ProcessID{childID},
 			Boundary: ChildWaitBoundaryResult, Condition: AllChildren(),
 		}
-		openTestChildWait(t, &mailbox, "signal:engine:opened-"+name, waitID, spec)
+		openTestChildWait(t, &mailbox, waitID, spec)
 	}
 	duplicate := mustMailboxSignal(t, "signal:engine:duplicate", controlValue(ParseWaitID("wait:a")), json.RawMessage(`{}`))
 	if err := mailbox.openChildWait(testChildWaitSpec(t, "duplicate"), duplicate); !errors.Is(err, errWaitState) {
@@ -1264,7 +1264,7 @@ func directChildIDs(t *testing.T, engine *Engine, parentID ProcessID) []string {
 	for _, handle := range engine.processes {
 		actualParent, child := handle.relation.ParentID()
 		if child && actualParent == parentID {
-			ids = append(ids, handle.processID.String())
+			ids = append(ids, handle.processID().String())
 		}
 	}
 	slices.Sort(ids)

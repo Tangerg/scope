@@ -41,7 +41,6 @@ type EffectRequest struct {
 	relation      ProcessRelation
 	stepSequence  uint64
 	batchIndex    uint32
-	id            EffectID
 	attemptID     EffectAttemptID
 	effect        Effect
 }
@@ -52,7 +51,7 @@ func (e EffectRequest) clone() EffectRequest {
 }
 
 func (e EffectRequest) Valid() bool {
-	return e.deploymentRef.Valid() && e.relation.Valid() && e.stepSequence > 0 && e.id.Valid() &&
+	return e.deploymentRef.Valid() && e.relation.Valid() && e.stepSequence > 0 &&
 		e.effect.Valid()
 }
 
@@ -62,12 +61,11 @@ func newEffectRequest(
 	relation ProcessRelation,
 	stepSequence uint64,
 	batchIndex uint32,
-	id EffectID,
 	effect Effect,
 ) EffectRequest {
 	return EffectRequest{
 		incarnationID: incarnationID, deploymentRef: deploymentRef, relation: relation,
-		stepSequence: stepSequence, batchIndex: batchIndex, id: id,
+		stepSequence: stepSequence, batchIndex: batchIndex,
 		effect: effect.clone(),
 	}
 }
@@ -91,7 +89,10 @@ func (e EffectRequest) StepSequence() uint64 { return e.stepSequence }
 // BatchIndex returns the zero-based declaration order within the Step Effect batch.
 func (e EffectRequest) BatchIndex() uint32 { return e.batchIndex }
 
-func (e EffectRequest) ID() EffectID { return e.id }
+// ID derives from the Process, Step, and batch position the request names.
+func (e EffectRequest) ID() EffectID {
+	return e.relation.ProcessID().effectID(e.stepSequence, int(e.batchIndex))
+}
 
 // AttemptID identifies this physical Dispatch invocation. Captured requests and
 // durability boundaries describe logical Effects without an active invocation;

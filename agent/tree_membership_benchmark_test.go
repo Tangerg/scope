@@ -119,14 +119,14 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.Cleanup(func() {
-				parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: context.Canceled})
+				parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID(), cause: context.Canceled})
 				parent.handle.finishBookkeeping()
 				if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
 					b.Error(err)
 				}
 			})
-			engine.processes[parent.handle.processID] = parent.handle
-			runtime := newTreeRuntime(engine, parent.handle.processID, engine.treeLimits, b.Context(), parent)
+			engine.processes[parent.handle.processID()] = parent.handle
+			runtime := newTreeRuntime(engine, parent.handle.processID(), engine.treeLimits, b.Context(), parent)
 			for range retained {
 				id := newProcessID()
 				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deployment,
@@ -138,7 +138,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			key := controlValue(ParseChildKey("worker"))
 			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))
 			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment().DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
-			effectID := parent.handle.processID.effectID(1, 0)
+			effectID := parent.handle.processID().effectID(1, 0)
 			b.ReportAllocs()
 			for b.Loop() {
 				prepared := runtime.prepareChildStart(parent, effectID, spec)

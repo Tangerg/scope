@@ -226,15 +226,19 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 	return callDefinition, fanoutDefinition
 }
 
-func TestRestorePreservesOutputSchemaError(t *testing.T) {
-	state, err := agent.ParseExecutionState(executionStateKind,
-		json.RawMessage(`{"stage_index":1,"current_value":{"value":"invalid"}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = stateTestDefinition(t).Restore(t.Context(), state)
-	if !errors.Is(err, ErrInvalidExecutionState) || !errors.Is(err, agent.ErrInvalidPayload) {
-		t.Fatalf("Restore error = %v, want invalid state and invalid output", err)
+func TestCompletedStateLeavesOutputToTheEngine(t *testing.T) {
+	for payload, valid := range map[string]bool{
+		`{"stage_index":1}`: true,
+		`{"stage_index":1,"current_value":{"value":"done"}}`: false,
+	} {
+		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = stateTestDefinition(t).Restore(t.Context(), state)
+		if valid && err != nil || !valid && !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("Restore(%s) error = %v, want valid=%t", payload, err, valid)
+		}
 	}
 }
 

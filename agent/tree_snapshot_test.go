@@ -286,7 +286,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			if restoreErr != nil {
 				t.Fatal(restoreErr)
 			}
-			openTestChildWait(t, &mailbox, "signal:engine:foreign-wait", foreignID, rootWaits[0].spec)
+			openTestChildWait(t, &mailbox, foreignID, rootWaits[0].spec)
 			child.Mailbox = mailbox.wire()
 			child.PauseReason = ""
 			child.CurrentWaitID = &foreignID

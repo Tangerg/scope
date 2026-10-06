@@ -41,7 +41,7 @@ type Process struct {
 
 // ID returns the stable Process identity.
 func (p *Process) ID() ProcessID {
-	return p.handle.processID
+	return p.handle.processID()
 }
 
 func (p *Process) DeploymentRef() DeploymentRef {
@@ -251,7 +251,7 @@ func (p *Process) submit(ctx context.Context, request processRequest, reply proc
 		return err
 	}
 	select {
-	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID, request: request, reply: reply}:
+	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID(), request: request, reply: reply}:
 		return nil
 	case <-p.handle.outcomePublished:
 		return p.handle.closedRequestError()

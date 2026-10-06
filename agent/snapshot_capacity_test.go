@@ -177,8 +177,8 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 		process.currentWaitID = WaitID{}
 		process.counters.PreparedEffects = 2
 		process.prepared = &preparedStep{Intent: controlValue(Continue(0)), CandidateState: process.committedExecutionState, Effects: preparedEffects{
-			{ID: process.handle.processID.effectID(1, 0), Effect: effect},
-			{ID: process.handle.processID.effectID(1, 1), Effect: effect},
+			{ID: process.handle.processID().effectID(1, 0), Effect: effect},
+			{ID: process.handle.processID().effectID(1, 1), Effect: effect},
 		}}
 		if _, err := process.snapshotAdmissionSize(runtime.treeLimits); err != nil {
 			t.Fatalf("individual process exceeds capacity: %v", err)
@@ -228,7 +228,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 			CandidateState: state, Intent: controlValue(Continue(0)),
 		}
 	}
-	effectID := root.handle.processID.effectID(1, 0)
+	effectID := root.handle.processID().effectID(1, 0)
 	spec := ChildSpec{
 		Key: controlValue(ParseChildKey("large-child")), DeploymentRef: deployment.DeploymentRef(),
 		Input: controlValue(EncodePayload(engineTestInput{Value: strings.Repeat("x", 22<<14)})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
@@ -242,7 +242,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(root.handle)
-	t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
+	t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID()) })
 	preparation := runtime.prepareChildStart(root, effectID, spec)
 	if preparation.plan == nil {
 		t.Fatalf("child preparation failed: %+v", preparation.result)
@@ -251,7 +251,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !result.started() {
 		t.Fatalf("child initialization failed: %+v", result.result)
 	}
-	reserved := runtime.members.childAllocation(root.handle.processID)
+	reserved := runtime.members.childAllocation(root.handle.processID())
 	pending := &pendingChildStartPublication{effectID: effectID, plan: preparation.plan, result: result}
 	if err := runtime.applyChildStart(pending); err != nil {
 		t.Fatalf("capacity rejection became a runtime fault: %v", err)
@@ -261,7 +261,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
-	if runtime.members.childAllocation(root.handle.processID) != reserved || root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
+	if runtime.members.childAllocation(root.handle.processID()) != reserved || root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
 		t.Fatal("rejection retained child resources or lost the failed start fact")
 	}
 	assertNoPendingProcessStarts(t, runtime.engine)
@@ -280,7 +280,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				MaxDepth: 1, MaxChildren: NewQuota(1), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(2),
 			}
 			runtime.treeLimits = limits
-			effectID := root.handle.processID.effectID(1, 0)
+			effectID := root.handle.processID().effectID(1, 0)
 			spec := ChildSpec{
 				Key: controlValue(ParseChildKey("rejected")), DeploymentRef: root.deployment().DeploymentRef(),
 				Input: controlValue(EncodePayload(childTestInput{Mode: "leaf"})), Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)},
@@ -294,7 +294,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime.engine.publishProcessStart(root.handle)
-			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID) })
+			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID()) })
 			{
 				runtime.writer.committer = &recordingTreeCommitter{}
 				runtime.writer.identity = newTreeIncarnationID()

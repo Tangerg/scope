@@ -135,7 +135,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	})
 	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment().DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
 	spec.Budget = Budget{}
-	effectID := parent.handle.processID.effectID(1, 0)
+	effectID := parent.handle.processID().effectID(1, 0)
 	rejected := runtime.prepareChildStart(parent, effectID, spec)
 	failure, failed := rejected.result.Failure()
 	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || runtime.childDebits(parent) != (resourceAmounts{}) {
@@ -171,7 +171,7 @@ func TestQuotaConfigurationIdentityDistinguishesAllModes(t *testing.T) {
 func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing.T) {
 	parentID := newProcessID()
 	parentRelation := rootProcessRelation(parentID)
-	parent := &processState{handle: &processHandle{processID: parentID, relation: parentRelation, budget: Budget{Effects: NewQuota(10)}}}
+	parent := &processState{handle: &processHandle{relation: parentRelation, budget: Budget{Effects: NewQuota(10)}}}
 	members := newTreeMembers(3)
 	members.add(parent)
 	var secondID ProcessID
@@ -179,7 +179,7 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 		childID := newProcessID()
 		key := controlValue(ParseChildKey(fmt.Sprintf("child-%d", index)))
 		members.add(&processState{handle: &processHandle{
-			processID: childID, relation: childProcessRelation(childID, parentRelation, key), budget: budget,
+			relation: childProcessRelation(childID, parentRelation, key), budget: budget,
 		}})
 		secondID = childID
 	}

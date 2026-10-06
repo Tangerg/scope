@@ -9,7 +9,7 @@ func TestProcessHandleCompletionIsOrderedAndRetainsFirstOutcome(t *testing.T) {
 	process := admissionTestProcess(t, 0)
 	handle := process.handle
 	cause := errors.New("committer unavailable")
-	failure := &RuntimeError{processID: handle.processID, cause: cause}
+	failure := &RuntimeError{processID: handle.processID(), cause: cause}
 	if !handle.publishRuntimeFailure(failure) || handle.publishResult(Result{}) {
 		t.Fatal("outcome publication did not retain the first result")
 	}

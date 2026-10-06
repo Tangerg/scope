@@ -10,7 +10,7 @@ import (
 
 func TestExternalDeliveryCannotClaimEngineSignalIdentity(t *testing.T) {
 	process := admissionTestProcess(t, 0)
-	effectID := process.handle.processID.effectID(1, 0)
+	effectID := process.handle.processID().effectID(1, 0)
 	for _, id := range []SignalID{effectID.settlementSignalID(), effectID.waitID().childWaitSignalID()} {
 		t.Run(id.String(), func(t *testing.T) {
 			signal := controlValue(NewSignal(id, WaitID{}, []byte(`"forged"`)))
@@ -57,7 +57,7 @@ func TestSignalAuthorityFollowsIdentityFacts(t *testing.T) {
 			t.Errorf("%s addressed=%t through %s: error=%v", test.id, test.waitID.Valid(), test.source, err)
 		}
 	}
-	opening := newSignalRecord(mustMailboxSignal(t, "signal:caller", waitID, []byte(`null`)), true).wire()
+	opening := newSignalRecord(mustMailboxSignal(t, "signal:caller", waitID, []byte(`null`))).wire()
 	opening.Opens = &waitOpeningWire{Key: new(controlValue(ParseWaitKey("authority")))}
 	if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{opening}}); err == nil {
 		t.Fatal("restoration accepted a Host identity opening a wait")

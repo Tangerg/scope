@@ -149,7 +149,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
+	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
+	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
-	opened := mustMailboxSignal(t, "signal:engine:opened", waitID, waitOpenedPayload())
+	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
 	if err := mailbox.openWait(key, opened); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 func TestMailboxCommitClosesOnlyConsumedChildWaits(t *testing.T) {
 	mailbox := newSignalMailbox()
 	waitID, _ := ParseWaitID("wait:children")
-	openTestChildWait(t, &mailbox, "signal:engine:opened", waitID, testChildWaitSpec(t, "children"))
+	openTestChildWait(t, &mailbox, waitID, testChildWaitSpec(t, "children"))
 	answer := mustMailboxSignal(t, "signal:engine:answer", waitID, json.RawMessage(`{}`))
 	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceChildWait); err != nil {
 		t.Fatal(err)
@@ -303,7 +303,7 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 	mailbox := newSignalMailbox()
 	key := controlValue(ParseWaitKey("authority"))
 	id := controlValue(ParseWaitID("wait:authority"))
-	opening := mustMailboxSignal(t, "signal:engine:authority", id, waitOpenedPayload())
+	opening := controlValue(NewSignal(id.openingSignalID(), id, waitOpenedPayload()))
 	if err := mailbox.openChildWait(ChildWaitSpec{Key: key}, opening); !errors.Is(err, errWaitState) {
 		t.Fatalf("openChildWait(invalid spec) error = %v", err)
 	}
@@ -334,7 +334,7 @@ func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 	if err := mailbox.openChildWait(spec, unannounced); !errors.Is(err, errWaitState) {
 		t.Fatalf("opening that does not announce its spec error = %v", err)
 	}
-	openTestChildWait(t, &mailbox, "signal:engine:announced", waitID, spec)
+	openTestChildWait(t, &mailbox, waitID, spec)
 	restored := restoredMailbox(t, mailbox)
 	if pending := restored.pending(); len(pending) != 1 || !bytes.Equal(pending[0].payload, childWaitOpenedPayload()) {
 		t.Fatal("restored opening lost its acknowledgement")
@@ -363,11 +363,10 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 			}
 			for index := range 3 {
 				id, _ := ParseWaitID("wait:" + strconv.Itoa(index))
-				openingID := "signal:engine:opened-" + strconv.Itoa(index)
 				if kind == WaitKindChildren {
 					spec := testChildWaitSpec(t, "reusable")
-					openTestChildWait(t, &mailbox, openingID, id, spec)
-				} else if err := mailbox.openWait(key, mustMailboxSignal(t, openingID, id, waitOpenedPayload())); err != nil {
+					openTestChildWait(t, &mailbox, id, spec)
+				} else if err := mailbox.openWait(key, controlValue(NewSignal(id.openingSignalID(), id, waitOpenedPayload()))); err != nil {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)
@@ -437,9 +436,11 @@ func testChildWaitSpec(t testing.TB, key string) ChildWaitSpec {
 }
 
 // openTestChildWait opens spec with the Signal the Engine would announce it by.
-func openTestChildWait(t testing.TB, mailbox *signalMailbox, signalID string, waitID WaitID, spec ChildWaitSpec) {
+// openTestChildWait opens waitID with the acknowledgement identity the wait
+// derives, as the Engine does.
+func openTestChildWait(t testing.TB, mailbox *signalMailbox, waitID WaitID, spec ChildWaitSpec) {
 	t.Helper()
-	opening := mustMailboxSignal(t, signalID, waitID, childWaitOpenedPayload())
+	opening := controlValue(NewSignal(waitID.openingSignalID(), waitID, childWaitOpenedPayload()))
 	if err := mailbox.openChildWait(spec, opening); err != nil {
 		t.Fatal(err)
 	}
@@ -469,5 +470,5 @@ func waitOpenings(wire mailboxWire) int {
 }
 
 func mailboxRecordWire(signal Signal) signalRecordWire {
-	return newSignalRecord(signal, false).wire()
+	return newSignalRecord(signal).wire()
 }

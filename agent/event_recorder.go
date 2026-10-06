@@ -79,7 +79,7 @@ func (e eventRecorder) deltas(process *processState, effectID EffectID, attempt 
 	}
 	return &deltaStream{
 		observation: e.observation, context: e.context,
-		processID: process.handle.processID, effectID: effectID,
+		processID: process.handle.processID(), effectID: effectID,
 		incarnationID: e.writer.incarnation(), attemptID: attempt.id,
 	}
 }

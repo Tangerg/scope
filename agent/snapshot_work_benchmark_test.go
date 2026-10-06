@@ -148,11 +148,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		signalID, err := ParseSignalID(fmt.Sprintf("signal:engine:waiting-%d", index))
-		if err != nil {
-			t.Fatal(err)
-		}
-		signal, err := NewSignal(signalID, waitID, waitOpenedPayload())
+		signal, err := NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +223,7 @@ func BenchmarkTreeAdmissionRetainedState(b *testing.B) {
 							process.mailbox = newSignalMailbox()
 							for index := range history {
 								signal := controlValue(NewSignal(controlValue(ParseSignalID(fmt.Sprintf("signal:history-%d", index))), WaitID{}, []byte(`{}`)))
-								process.mailbox.acceptRecord(newSignalRecord(signal, false))
+								process.mailbox.acceptRecord(newSignalRecord(signal))
 							}
 							if err := process.mailbox.commit(uint32(history)); err != nil {
 								b.Fatal(err)

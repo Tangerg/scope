@@ -48,7 +48,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 			controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
 		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{
 			Key:      controlValue(ParseWaitKey(fmt.Sprintf("result-%d", len(effects)))),
-			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID}, Condition: AllChildren(),
+			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID()}, Condition: AllChildren(),
 		})))
 	}
 	failure := prepareTestStep(parent, runtime.treeLimits, stepJobResult{
@@ -96,14 +96,14 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	if finalization.commit.termination.Status() != StatusKilled {
 		t.Fatalf("resolved status=%s, want %s", finalization.commit.termination.Status(), StatusKilled)
 	}
-	if finalization.commit.finalOutput.Valid() {
+	if finalization.finalOutput().Valid() {
 		t.Fatal("superseded completion output survived Kill priority")
 	}
 }
 
 func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	childID := parent.handle.processID.effectID(1, 0).childProcessID()
+	childID := parent.handle.processID().effectID(1, 0).childProcessID()
 	childKey, _ := ParseChildKey("worker")
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
@@ -129,7 +129,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 	prepared := &preparedStep{Intent: transition}
 	for index, effect := range effects {
 		record := preparedEffect{
-			ID: parent.handle.processID.effectID(2, index), Effect: effect, progress: &effectProgress{},
+			ID: parent.handle.processID().effectID(2, index), Effect: effect, progress: &effectProgress{},
 		}
 		if err := settleTestFramework(&record, Failure{}); err != nil {
 			t.Fatal(err)
@@ -151,7 +151,7 @@ func TestRejectedFinalizationReleasesEveryNewChildWait(t *testing.T) {
 
 func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	childID := parent.handle.processID.effectID(1, 0).childProcessID()
+	childID := parent.handle.processID().effectID(1, 0).childProcessID()
 	childKey := controlValue(ParseChildKey("worker"))
 	handle := newProcessHandle(
 		childProcessRelation(childID, parent.handle.relation, childKey),
@@ -161,14 +161,14 @@ func TestRejectedFinalizationPreservesExistingChildWait(t *testing.T) {
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("worker-result")), Children: []ProcessID{childID},
 		Boundary: ChildWaitBoundaryResult, Condition: AllChildren()}
 	record := preparedEffect{
-		ID: parent.handle.processID.effectID(2, 0), Effect: controlValue(NewChildWaitEffect(spec)), progress: &effectProgress{},
+		ID: parent.handle.processID().effectID(2, 0), Effect: controlValue(NewChildWaitEffect(spec)), progress: &effectProgress{},
 	}
 	if err := settleTestFramework(&record, Failure{}); err != nil {
 		t.Fatal(err)
 	}
 	parent.prepared = &preparedStep{Intent: controlValue(Continue(0, record.Effect)), Effects: preparedEffects{record}}
 	waitID := record.ID.waitID()
-	openTestChildWait(t, &parent.mailbox, "signal:engine:existing", waitID, spec)
+	openTestChildWait(t, &parent.mailbox, waitID, spec)
 	if failure := runtime.finalizePrepared(parent); failure == nil || !errors.Is(failure.cause, errWaitState) {
 		t.Fatalf("duplicate child wait finalization = %+v", failure)
 	}

@@ -58,7 +58,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 	if err := store.CommitCheckpoint(t.Context(), checkpoint); !errors.Is(err, ErrCommitConflict) {
 		t.Fatalf("historical checkpoint: %v", err)
 	}
-	head, exists, err := store.LoadTree(t.Context(), process.handle.processID)
+	head, exists, err := store.LoadTree(t.Context(), process.handle.processID())
 	if err != nil || !exists || head.Digest() != initial.Digest() {
 		t.Fatalf("rejected commits changed head: %v", err)
 	}

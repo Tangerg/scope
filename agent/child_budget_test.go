@@ -96,7 +96,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
-	effectID := parent.handle.processID.effectID(1, 0)
+	effectID := parent.handle.processID().effectID(1, 0)
 	key, _ := ParseChildKey("worker")
 	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
 	spec := childTestSpec(key, parent.deployment().DeploymentRef(), input)
@@ -143,9 +143,9 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if !runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("free tree slot was rejected")
 	}
-	childID := first.handle.processID.effectID(1, 0).childProcessID()
+	childID := first.handle.processID().effectID(1, 0).childProcessID()
 	relation := childProcessRelation(childID, first.handle.relation, controlValue(ParseChildKey("worker")))
-	runtime.jobs.start(first.handle.processID, &processJob{kind: processJobChildStart, childStart: &childStartPlan{relation: relation}})
+	runtime.jobs.start(first.handle.processID(), &processJob{kind: processJobChildStart, childStart: &childStartPlan{relation: relation}})
 	if runtime.canStartChild(second) {
 		t.Fatal("sibling start ignored the last in-flight tree slot")
 	}
@@ -159,7 +159,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")
 	}
-	if _, finished := runtime.jobs.finish(treeJobCompletion{processID: first.handle.processID, result: childStartJobResult{}}); !finished {
+	if _, finished := runtime.jobs.finish(treeJobCompletion{processID: first.handle.processID(), result: childStartJobResult{}}); !finished {
 		t.Fatal("in-flight child start was not retired")
 	}
 	runtime.removeProcess(childID)
@@ -171,15 +171,15 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 func TestChildStartJobOwnsItsProvisionalGrant(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	budget := Budget{Steps: NewQuota(1), Effects: NewQuota(2), Signals: NewQuota(3)}
-	childID := process.handle.processID.effectID(1, 0).childProcessID()
+	childID := process.handle.processID().effectID(1, 0).childProcessID()
 	relation := childProcessRelation(childID, process.handle.relation, controlValue(ParseChildKey("provisional")))
 	job := &processJob{kind: processJobChildStart, childStart: &childStartPlan{relation: relation, spec: ChildSpec{Budget: budget}}}
-	runtime.jobs.start(process.handle.processID, job)
+	runtime.jobs.start(process.handle.processID(), job)
 	want, _ := process.handle.budget.allocation(budget)
 	if got := runtime.childDebits(process); got != want {
 		t.Fatalf("in-flight start debits = %+v, want %+v", got, want)
 	}
-	runtime.jobs.finish(treeJobCompletion{processID: process.handle.processID, result: childStartJobResult{}})
+	runtime.jobs.finish(treeJobCompletion{processID: process.handle.processID(), result: childStartJobResult{}})
 	if got := runtime.childDebits(process); got != (resourceAmounts{}) {
 		t.Fatalf("finished start retained debits %+v", got)
 	}

@@ -60,7 +60,7 @@ func (t *treeMembers) descendantUnresolvedEffects(processID ProcessID) []Unresol
 }
 
 func (t *treeMembers) add(process *processState) {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	if t.byID[processID] != nil {
 		panic("agent: duplicate tree Process")
 	}
@@ -105,7 +105,7 @@ func (t *treeMembers) substituted(candidates []*processState) iter.Seq[*processS
 	return func(yield func(*processState) bool) {
 		replacements := make(map[ProcessID]*processState, len(candidates))
 		for _, candidate := range candidates {
-			replacements[candidate.handle.processID] = candidate
+			replacements[candidate.handle.processID()] = candidate
 		}
 		for processID, member := range t.byID {
 			if replacement := replacements[processID]; replacement != nil {
@@ -116,7 +116,7 @@ func (t *treeMembers) substituted(candidates []*processState) iter.Seq[*processS
 			}
 		}
 		for _, candidate := range candidates {
-			if t.byID[candidate.handle.processID] == nil && !yield(candidate) {
+			if t.byID[candidate.handle.processID()] == nil && !yield(candidate) {
 				return
 			}
 		}

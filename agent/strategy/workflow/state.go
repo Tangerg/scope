@@ -25,8 +25,10 @@ const (
 )
 
 type executionState struct {
-	StageIndex             uint32             `json:"stage_index"`
-	CurrentValue           json.RawMessage    `json:"current_value"`
+	StageIndex uint32 `json:"stage_index"`
+	// CurrentValue feeds the current Stage; a completed workflow's value is
+	// the Engine-owned Output and is not repeated here.
+	CurrentValue           json.RawMessage    `json:"current_value,omitzero"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
 	Child                  *childcall.Single  `json:"child,omitzero"`
 	FanoutWaitID           *agent.WaitID      `json:"fanout_wait_id,omitzero"`
@@ -99,16 +101,18 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if uint64(e.StageIndex) > uint64(len(definition.stages)) {
 		return fmt.Errorf("%w: stage index %d exceeds stage count", ErrInvalidExecutionState, e.StageIndex)
 	}
+	if e.StageIndex == uint32(len(definition.stages)) {
+		if e.CurrentValue != nil {
+			return fmt.Errorf("%w: completed workflow repeats its Output", ErrInvalidExecutionState)
+		}
+		return e.validatePhaseState(ctx, definition)
+	}
 	input, err := agent.ParsePayload(e.CurrentValue)
 	if err != nil {
 		return fmt.Errorf("%w: current value: %w", ErrInvalidExecutionState, err)
 	}
-	if e.StageIndex < uint32(len(definition.stages)) {
-		if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
-			return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
-		}
-	} else if err := definition.descriptor.ValidateOutput(input); err != nil {
-		return fmt.Errorf("%w: final value schema: %w", ErrInvalidExecutionState, err)
+	if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
+		return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 	}
 	return e.validatePhaseState(ctx, definition)
 }

@@ -117,7 +117,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 		waitID := controlValue(ParseWaitID(fmt.Sprintf("wait:retained-%d", index)))
 		spec := original.spec.clone()
 		spec.Key = controlValue(ParseWaitKey(fmt.Sprintf("retained-%d", index)))
-		openTestChildWait(t, &mailbox, fmt.Sprintf("signal:engine:retained-%d", index), waitID, spec)
+		openTestChildWait(t, &mailbox, waitID, spec)
 		retained = append(retained, openedChildWait{waitID: waitID, spec: spec})
 	}
 	if err := mailbox.commit(uint32(count)); err != nil {

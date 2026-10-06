@@ -422,14 +422,14 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 	}
 	t.finishIfTerminal(process)
 	if !process.status().Terminal() {
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 		if checkpoint {
 			snapshot, err := t.captureTree()
 			if err == nil {
 				err = t.startCheckpointCommit(snapshot)
 			}
 			if err != nil {
-				t.failRuntime(err, process.handle.processID, EffectID{})
+				t.failRuntime(err, process.handle.processID(), EffectID{})
 			}
 		}
 	}
@@ -514,8 +514,8 @@ func (t *treeRuntime) prepareChildStart(
 // start's requested budget. The job owns the reservation; membership takes it
 // over when the child joins.
 func (t *treeRuntime) childDebits(process *processState) resourceAmounts {
-	allocated := t.members.childAllocation(process.handle.processID)
-	job := t.jobs.get(process.handle.processID)
+	allocated := t.members.childAllocation(process.handle.processID())
+	job := t.jobs.get(process.handle.processID())
 	if job == nil || job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
 		return allocated
 	}
@@ -533,7 +533,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 	if !limits.admitsDepth(parent.handle.relation.Depth() + 1) {
 		return false
 	}
-	children := t.members.childrenOf(parent.handle.processID)
+	children := t.members.childrenOf(parent.handle.processID())
 	childCount, treeCount := uint64(len(children)), uint64(t.members.len())
 	var active uint64
 	for _, childID := range children {
@@ -546,7 +546,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 			continue
 		}
 		treeCount++
-		if parentID, _ := job.childStart.relation.ParentID(); parentID == parent.handle.processID {
+		if parentID, _ := job.childStart.relation.ParentID(); parentID == parent.handle.processID() {
 			childCount++
 			active++
 		}
@@ -565,7 +565,7 @@ func (t *treeRuntime) controlChild(
 ) {
 	var result ChildControlResult
 	child := t.members.get(request.ChildID)
-	if child == nil || child.handle.relation.parentID != parent.handle.processID {
+	if child == nil || child.handle.relation.parentID != parent.handle.processID() {
 		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildControlNotOwned,
 			errors.New("control recipient is not a direct child"))
 	} else {
@@ -576,7 +576,7 @@ func (t *treeRuntime) controlChild(
 		return
 	}
 	t.events.publishSettlement(parent, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
-	t.enqueueProcess(parent.handle.processID)
+	t.enqueueProcess(parent.handle.processID())
 	t.commitSettledEffect(parent, record.ID)
 }
 
@@ -604,7 +604,7 @@ func (t *treeRuntime) applyChildControl(child *processState, request childContro
 		for _, event := range events {
 			t.stageCommittedEvent(event)
 		}
-		t.enqueueProcess(child.handle.processID)
+		t.enqueueProcess(child.handle.processID())
 	}
 	return result
 }
@@ -620,7 +620,6 @@ func (t *treeRuntime) effectRequestFor(
 		process.handle.relation,
 		process.preparedStepSequence(),
 		batchIndex,
-		record.ID,
 		record.Effect,
 	)
 }
@@ -630,7 +629,7 @@ func (t *treeRuntime) effectRequestFor(
 func (t *treeRuntime) commitSettledEffect(process *processState, effectID EffectID) {
 	err := t.commitEffect(process, treeCommitEffectSettled, effectID, nil)
 	if err != nil {
-		t.failRuntime(err, process.handle.processID, effectID)
+		t.failRuntime(err, process.handle.processID(), effectID)
 	}
 }
 
@@ -647,7 +646,7 @@ func (t *treeRuntime) commitEffect(
 		return err
 	}
 	commit := &treeCommit{
-		kind: commitKind, processID: process.handle.processID,
+		kind: commitKind, processID: process.handle.processID(),
 		effectID: effectID, snapshot: snapshot, reply: reply,
 	}
 	return t.writer.commitEffect(t.context, commit)
@@ -663,7 +662,7 @@ func (t *treeRuntime) startSignalCommit(process *processState, reply processRepl
 		return err
 	}
 	return t.startCheckpoint(&treeCommit{
-		kind: treeCommitSignals, processID: process.handle.processID,
+		kind: treeCommitSignals, processID: process.handle.processID(),
 		snapshot: snapshot, reply: reply, events: events,
 	}, checkpointCauseSignals)
 }
@@ -801,7 +800,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 		return
 	default:
 	}
-	if t.publications.owesTerminal(process.handle.processID) {
+	if t.publications.owesTerminal(process.handle.processID()) {
 		return
 	}
 	event := t.events.prepare(process,
@@ -871,7 +870,7 @@ func (t *treeRuntime) failRuntime(
 		acknowledged[snapshot.ProcessID()] = struct{}{}
 	}
 	for _, process := range t.members.ordered() {
-		memberID := process.handle.processID
+		memberID := process.handle.processID()
 		if _, published := acknowledged[memberID]; !published {
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.
@@ -916,7 +915,7 @@ func (t *treeRuntime) abandonJobs() {
 }
 
 func (t *treeRuntime) stopProcessRuntime(process *processState, unresolved []EffectID) {
-	if !process.handle.publishRuntimeFailure(t.runtimeError(process.handle.processID, unresolved)) {
+	if !process.handle.publishRuntimeFailure(t.runtimeError(process.handle.processID(), unresolved)) {
 		return
 	}
 	failure := newTreeRuntimeFailure(t.fault)
@@ -1017,7 +1016,7 @@ func (t *treeRuntime) scheduleControl(process *processState) {
 	}
 	t.finishIfTerminal(process)
 	if !process.status().Terminal() {
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 	}
 }
 
@@ -1026,7 +1025,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, effectID Effec
 		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
-	if t.jobs.get(process.handle.processID) != nil {
+	if t.jobs.get(process.handle.processID()) != nil {
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
@@ -1052,7 +1051,7 @@ func (t *treeRuntime) commitResolution(process *processState, effectID EffectID,
 
 	if err := t.commitEffect(process, treeCommitEffectResolved, effectID, reply); err != nil {
 		reply.send(processResponse{err: err})
-		t.failRuntime(err, process.handle.processID, effectID)
+		t.failRuntime(err, process.handle.processID(), effectID)
 	}
 }
 
@@ -1061,7 +1060,7 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, effectID Effect
 		reply.send(processResponse{err: ErrProcessFinished})
 		return
 	}
-	if process.prepared == nil || t.jobs.get(process.handle.processID) != nil {
+	if process.prepared == nil || t.jobs.get(process.handle.processID()) != nil {
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
@@ -1168,14 +1167,14 @@ func (t *treeRuntime) releaseCurrentFreeze() *activeTreeFreeze {
 	ended := t.freeze.end()
 	for _, process := range t.members.all() {
 		if !process.status().Terminal() {
-			t.enqueueProcess(process.handle.processID)
+			t.enqueueProcess(process.handle.processID())
 		}
 	}
 	return ended
 }
 
 func (t *treeRuntime) invalidateStep(process *processState) {
-	job := t.jobs.get(process.handle.processID)
+	job := t.jobs.get(process.handle.processID())
 	if job == nil || job.kind != processJobStep || job.stale {
 		return
 	}
@@ -1187,12 +1186,12 @@ func (t *treeRuntime) invalidateStep(process *processState) {
 func (t *treeRuntime) stopProcessTree(process *processState) {
 	termination := process.effectiveTermination()
 	if !process.status().Terminal() {
-		if job := t.jobs.get(process.handle.processID); job != nil {
+		if job := t.jobs.get(process.handle.processID()); job != nil {
 			job.interrupt()
 		}
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 	}
-	for _, childID := range t.members.childrenOf(process.handle.processID) {
+	for _, childID := range t.members.childrenOf(process.handle.processID()) {
 		child := t.members.get(childID)
 		if !child.status().Terminal() {
 			child.recordParentTermination(termination)
@@ -1248,7 +1247,7 @@ func (t *treeRuntime) deliverSignals(process *processState, requests []SignalReq
 
 	if err := t.startSignalCommit(process, reply, events); err != nil {
 		reply.send(processResponse{err: err})
-		t.failRuntime(err, process.handle.processID, EffectID{})
+		t.failRuntime(err, process.handle.processID(), EffectID{})
 	}
 }
 
@@ -1331,7 +1330,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 }
 
 func (t *treeRuntime) startStep(process *processState) {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	definition := process.deployment().Definition()
 
 	if failure := process.stepSchedulingFailure(t.childDebits(process)); failure != nil {
@@ -1386,7 +1385,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 	if !ok {
 		return
 	}
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	definition := process.deployment().Definition()
 	state := process.committedExecutionState
 	restoreCtx, cancel := context.WithCancel(context.Background())
@@ -1418,7 +1417,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		record = &process.prepared.Effects[index]
 		if record.Effect.Target() == EffectTargetDispatcher {
 			if err := t.commitEffect(process, treeCommitEffectPending, record.ID, nil); err != nil {
-				t.failRuntime(err, process.handle.processID, EffectID{})
+				t.failRuntime(err, process.handle.processID(), EffectID{})
 			}
 			return
 		}
@@ -1471,7 +1470,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
 			return
 		}
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 		return
 	}
 	replayPolicy := ReplayPolicyNever
@@ -1504,7 +1503,7 @@ func (t *treeRuntime) startChild(
 	spec ChildSpec,
 	observation effectAttempt,
 ) {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	attempt, ok := t.allocateAttempt(process)
 	if !ok {
 		return
@@ -1538,7 +1537,7 @@ func (t *treeRuntime) startDispatch(
 	record preparedEffect,
 	reply processReply,
 ) {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	dispatcher := process.deployment().dispatcher
 
 	attempt, ok := t.allocateAttempt(process)
@@ -1634,7 +1633,7 @@ func (t *treeRuntime) retireStaleJob(process *processState, kind processJobKind)
 		t.startRestore(process)
 	}
 	if !t.freeze.engaged() {
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 	}
 }
 
@@ -1671,7 +1670,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		if publicationErr != nil {
 			t.failProcessContract(parent, failureCodeEngineChildSettlementInvalid, publicationErr)
 		} else if checkpointErr != nil {
-			t.failRuntime(checkpointErr, parent.handle.processID, job.effectID)
+			t.failRuntime(checkpointErr, parent.handle.processID(), job.effectID)
 		}
 	}()
 	if publicationErr = t.applyChildStart(pending); publicationErr != nil {
@@ -1685,7 +1684,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	snapshot, err := t.captureTree()
 	if err == nil {
 		commit := &treeCommit{
-			kind: treeCommitEffectSettled, processID: parent.handle.processID,
+			kind: treeCommitEffectSettled, processID: parent.handle.processID(),
 			effectID: pending.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
 		}
 		if pending.result.started() {
@@ -1834,7 +1833,7 @@ func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error 
 			return err
 		}
 		if wait, ok := operation.(childWaitOperation); ok {
-			if err := wait.spec.validateRelations(candidate.handle.processID, t.members.relation); err != nil {
+			if err := wait.spec.validateRelations(candidate.handle.processID(), t.members.relation); err != nil {
 				return err
 			}
 		}
@@ -1874,7 +1873,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	if err := t.validateSnapshotCapacity(candidate); err != nil {
-		t.failRuntime(err, process.handle.processID, record.ID)
+		t.failRuntime(err, process.handle.processID(), record.ID)
 		return
 	}
 	process.adoptCandidate(candidate)
@@ -1892,7 +1891,7 @@ func (t *treeRuntime) publishJoins() bool {
 		processes := orderedProcesses(t.joinCandidates)
 		for index := len(processes) - 1; index >= 0; index-- {
 			process := processes[index]
-			delete(t.joinCandidates, process.handle.processID)
+			delete(t.joinCandidates, process.handle.processID())
 			changed = t.publishJoin(process) || changed
 		}
 	}
@@ -1903,7 +1902,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	if process.handle.joinDone() {
 		return false
 	}
-	if t.jobs.get(process.handle.processID) != nil {
+	if t.jobs.get(process.handle.processID()) != nil {
 		return false
 	}
 	select {
@@ -1918,7 +1917,7 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 		unresolved = append(unresolved, failure.UnresolvedEffectIDs()...)
 	}
 	ready := true
-	for _, childID := range t.members.childrenOf(process.handle.processID) {
+	for _, childID := range t.members.childrenOf(process.handle.processID()) {
 		child := t.members.get(childID)
 		select {
 		case <-child.handle.joined:
@@ -1935,11 +1934,11 @@ func (t *treeRuntime) publishJoin(process *processState) bool {
 	}
 	var joinErr *RuntimeError
 	if failed {
-		joinErr = t.runtimeError(process.handle.processID, unresolved)
+		joinErr = t.runtimeError(process.handle.processID(), unresolved)
 	}
 	process.handle.finishJoin(joinErr)
 	if joinErr == nil {
-		t.notifyChildWaits(process.handle.processID, ChildWaitBoundaryDrained)
+		t.notifyChildWaits(process.handle.processID(), ChildWaitBoundaryDrained)
 	}
 	if parentID, child := process.handle.relation.ParentID(); child {
 		t.queueJoin(t.members.get(parentID))
@@ -1955,7 +1954,7 @@ func (t *treeRuntime) queueJoin(process *processState) {
 	}
 	select {
 	case <-process.handle.bookkeepingDone:
-		t.joinCandidates[process.handle.processID] = process
+		t.joinCandidates[process.handle.processID()] = process
 	default:
 	}
 }
@@ -1974,7 +1973,7 @@ func (t *treeRuntime) finishIfTerminal(process *processState) {
 }
 
 func (t *treeRuntime) propagateProcessTermination(process *processState) {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	t.stopProcessTree(process)
 	t.notifyChildWaits(processID, ChildWaitBoundaryResult)
 }
@@ -2009,7 +2008,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 			continue
 		}
 		if t.deliverChildWaitSatisfied(parent, signal) {
-			t.enqueueProcess(parent.handle.processID)
+			t.enqueueProcess(parent.handle.processID())
 		} else if parent.pendingControl.hasTerminalIntent() {
 			t.stopProcessTree(parent)
 		}
@@ -2025,7 +2024,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 	process.handle.tree = &t.binding
 	t.queueJoin(process)
 	if !process.status().Terminal() {
-		t.enqueueProcess(process.handle.processID)
+		t.enqueueProcess(process.handle.processID())
 	}
 }
 
@@ -2088,7 +2087,7 @@ func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
 // local transition leaves no wait behind. Only immediate child-wait answers and the resulting snapshot can exceed a
 // bound here, so each failure is classified where it arises.
 func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
-	processID := process.handle.processID
+	processID := process.handle.processID()
 	finalization, err := newPreparedStepFinalization(process, process.prepared)
 	if err == nil {
 		err = finalization.prepareSettlements()
@@ -2096,7 +2095,11 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	if err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
-	immediate, err := t.childWaitAnswers(processID, finalization.openedChildWaits)
+	opened, err := finalization.openedChildWaits()
+	if err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
+	}
+	immediate, err := t.childWaitAnswers(processID, opened)
 	if err != nil {
 		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
 	}
@@ -2144,7 +2147,7 @@ func (t *treeRuntime) childWaitAnswers(processID ProcessID, opened []openedChild
 }
 
 func (t *treeRuntime) terminatePreparedProcess(process *processState) {
-	if t.jobs.get(process.handle.processID) != nil {
+	if t.jobs.get(process.handle.processID()) != nil {
 		t.stopProcessTree(process)
 		return
 	}
@@ -2253,5 +2256,5 @@ func (t *treeRuntime) settleLocally(process *processState, record *preparedEffec
 		return
 	}
 	t.events.publishSettlement(process, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
-	t.enqueueProcess(process.handle.processID)
+	t.enqueueProcess(process.handle.processID())
 }

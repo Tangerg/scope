@@ -27,7 +27,7 @@ func TestTreeMembersSubstituteCandidatesAndAdmitNewOnes(t *testing.T) {
 	root := runtime.members.get(runtime.rootID)
 	replacement := root.candidate()
 	child := runtime.members.get(runtime.members.childrenOf(runtime.rootID)[0])
-	runtime.removeProcess(child.handle.processID)
+	runtime.removeProcess(child.handle.processID())
 	var yielded []*processState
 	for member := range runtime.members.substituted([]*processState{replacement, child}) {
 		yielded = append(yielded, member)

@@ -121,7 +121,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 					} else {
 						limits.MaxProcessSnapshotBytes = NewQuota(1 << 30)
 					}
-					record := preparedEffect{ID: root.handle.processID.effectID(1, 0), Effect: effect}
+					record := preparedEffect{ID: root.handle.processID().effectID(1, 0), Effect: effect}
 					if phase != effectPhasePlanned {
 						record.progress = &effectProgress{}
 					}
@@ -189,7 +189,7 @@ func TestArithmeticAdmissionReservesLargeUncertainBatch(t *testing.T) {
 	wire.Prepared = &preparedStep{CandidateState: root.committedExecutionState, Intent: controlValue(Continue(0))}
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	for index := range 3000 {
-		id := root.handle.processID.effectID(1, index)
+		id := root.handle.processID().effectID(1, index)
 		settlement := controlValue(NewSettlement(SettlementStatusUnknown, json.RawMessage(`null`)))
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: &settlement}})
 	}

@@ -67,7 +67,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:completed-child-drain")
 	waitKey, _ := ParseWaitKey("completed-child-drain")
 	spec := ChildWaitSpec{Key: waitKey, Children: []ProcessID{childID}, Condition: AllChildren(), Boundary: ChildWaitBoundaryDrained}
-	openTestChildWait(t, &parent.mailbox, "signal:engine:completed-child-opened", waitID, spec)
+	openTestChildWait(t, &parent.mailbox, waitID, spec)
 	parent.currentWaitID = waitID
 	_, err = parent.capture()
 	if err != nil {
@@ -77,7 +77,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	// before its local join is published. The parent's runtime has already failed.
 	cause := errors.New("sibling storage acknowledgment lost")
 	runtime.fault = cause
-	parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID, cause: cause})
+	parent.handle.publishRuntimeFailure(&RuntimeError{processID: parent.handle.processID(), cause: cause})
 	runtime.finishProcessBookkeeping(parent)
 	runtime.runQueue.clear()
 	beforeUsage := parent.usage()

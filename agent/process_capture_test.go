@@ -165,7 +165,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 // Process, which holds none before it joins a tree.
 func memberChildAllocation(process *processState) resourceAmounts {
 	if runtime := process.handle.treeRuntime(); runtime != nil {
-		return runtime.members.childAllocation(process.handle.processID)
+		return runtime.members.childAllocation(process.handle.processID())
 	}
 	return resourceAmounts{}
 }

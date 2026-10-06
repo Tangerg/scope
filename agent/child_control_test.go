@@ -163,7 +163,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 		t.Fatal("accepted unknown member")
 	}
 	mailbox := newSignalMailbox()
-	signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:opening")), wait, waitOpenedPayload()))
+	signal := controlValue(NewSignal(wait.openingSignalID(), wait, waitOpenedPayload()))
 	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal); err != nil {
 		t.Fatal(err)
 	}
@@ -178,13 +178,13 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			runtime, parent := newChildCompletionTestProcess(t)
 			_, child := newChildCompletionTestProcess(t)
 			key := controlValue(ParseChildKey("worker"))
-			child.handle.relation = childProcessRelation(child.handle.processID, parent.handle.relation, key)
+			child.handle.relation = childProcessRelation(child.handle.processID(), parent.handle.relation, key)
 			child.handle.budget = Budget{Steps: NewQuota(100), Effects: NewQuota(100), Signals: NewQuota(100)}
 			runtime.addProcess(child)
-			recipient := child.handle.processID
+			recipient := child.handle.processID()
 			switch target {
 			case "self":
-				recipient = parent.handle.processID
+				recipient = parent.handle.processID()
 			case "foreign":
 				recipient = newProcessID()
 			case "missing":
@@ -260,7 +260,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	var result ChildControlResult
 	id := parentID.effectID(1, 0)
 	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
-	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
+	receipt := newSignalRecord(controlValue(request.signal())).wire()
 	childKey := controlValue(ParseChildKey("recipient"))
 	child := processSnapshotWire{ProcessID: childID,
 		Relation: childProcessRelation(childID, rootProcessRelation(parentID), childKey), Mailbox: mailboxWire{Signals: []signalRecordWire{receipt}}}

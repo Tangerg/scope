@@ -65,7 +65,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 		for _, outcome := range completed.Outcomes() {
 			got = append(got, outcome.Result().ProcessID())
 		}
-		if !slices.Equal(got, []ProcessID{first.handle.processID, second.handle.processID}) {
+		if !slices.Equal(got, []ProcessID{first.handle.processID(), second.handle.processID()}) {
 			t.Fatalf("completion outcomes=%v", got)
 		}
 	}
@@ -156,7 +156,7 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		return newProcessState(handle, execution, state)
 	}
 	root := makeProcess(nil, "root")
-	runtime := newTreeRuntime(engine, root.handle.processID, engine.treeLimits, b.Context(), root)
+	runtime := newTreeRuntime(engine, root.handle.processID(), engine.treeLimits, b.Context(), root)
 	var notified *processState
 	for index := range parents {
 		parent := makeProcess(root, fmt.Sprintf("parent-%d", index))
@@ -185,16 +185,16 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 			b.Fatal(err)
 		}
 		spec := ChildWaitSpec{
-			Key: key, Children: []ProcessID{first.handle.processID, second.handle.processID},
+			Key: key, Children: []ProcessID{first.handle.processID(), second.handle.processID()},
 			Boundary: ChildWaitBoundaryResult, Condition: AllChildren(),
 		}
-		openTestChildWait(b, &parent.mailbox, fmt.Sprintf("signal:engine:parent-%d", index), waitID, spec)
+		openTestChildWait(b, &parent.mailbox, waitID, spec)
 		if err := parent.mailbox.commit(1); err != nil {
 			b.Fatal(err)
 		}
 		parent.currentWaitID = waitID
 		opened := []openedChildWait{{waitID: waitID, spec: spec}}
-		if answers, err := runtime.childWaitAnswers(parent.handle.processID, opened); err != nil || len(answers) != 0 {
+		if answers, err := runtime.childWaitAnswers(parent.handle.processID(), opened); err != nil || len(answers) != 0 {
 			b.Fatalf("opened wait answers=%d error=%v", len(answers), err)
 		}
 		notified = first

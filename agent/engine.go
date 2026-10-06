@@ -355,7 +355,7 @@ func (e *Engine) startClose() (<-chan struct{}, error) {
 		default:
 			return nil, fmt.Errorf(
 				"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
-				ErrEngineHasActiveProcesses, handle.processID,
+				ErrEngineHasActiveProcesses, handle.processID(),
 			)
 		}
 	}
@@ -445,9 +445,9 @@ func (e *Engine) discardProcessStart(relation ProcessRelation) {
 func (e *Engine) publishProcessStart(handle *processHandle) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_, reserved := e.startReservations[handle.processID]
+	_, reserved := e.startReservations[handle.processID()]
 	if !reserved || e.closeDone != nil ||
-		e.processes[handle.processID] != nil {
+		e.processes[handle.processID()] != nil {
 		panic("agent: invalid Process start reservation")
 	}
 	identity, isChild := handle.relation.childIdentity()
@@ -460,11 +460,11 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	if handle.treeRuntime() == nil {
 		panic("agent: Process start has no tree runtime")
 	}
-	delete(e.startReservations, handle.processID)
-	e.processes[handle.processID] = handle
+	delete(e.startReservations, handle.processID())
+	e.processes[handle.processID()] = handle
 	if isChild {
 		delete(e.childStartReservations, identity)
-		e.children[identity] = handle.processID
+		e.children[identity] = handle.processID()
 	}
 }
 
@@ -784,12 +784,12 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 	}
 	for _, process := range runtime.members.all() {
 		handle := process.handle
-		if _, reserved := e.startReservations[handle.processID]; reserved || e.processes[handle.processID] != nil {
+		if _, reserved := e.startReservations[handle.processID()]; reserved || e.processes[handle.processID()] != nil {
 			panic("agent: restored Process reservation changed")
 		}
-		e.processes[handle.processID] = handle
+		e.processes[handle.processID()] = handle
 		if identity, child := handle.relation.childIdentity(); child {
-			e.children[identity] = handle.processID
+			e.children[identity] = handle.processID()
 		}
 	}
 	e.releaseRestoredTree(restoration)

@@ -277,7 +277,7 @@ func (t TreeSnapshot) effect(processID ProcessID, id EffectID) (EffectRequest, p
 		if record.ID == id {
 			return newEffectRequest(t.IncarnationID(), process.DeploymentRef(),
 				process.Relation(), process.state.CommittedSteps+1, uint32(index),
-				record.ID, record.Effect), record, true
+				record.Effect), record, true
 		}
 	}
 	return EffectRequest{}, preparedEffect{}, false

@@ -21,7 +21,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	}
 	waitID := controlValue(ParseWaitID("wait:drained-benchmark"))
 	spec := ChildWaitSpec{Key: controlValue(ParseWaitKey("children")), Children: children, Boundary: ChildWaitBoundaryDrained, Condition: AllChildren()}
-	openTestChildWait(t, &root.mailbox, "signal:engine:drained-benchmark", waitID, spec)
+	openTestChildWait(t, &root.mailbox, waitID, spec)
 	if err := root.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}

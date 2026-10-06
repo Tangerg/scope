@@ -81,7 +81,7 @@ func TestProcessSnapshotOwnsMutableWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared.Mailbox.Signals = []signalRecordWire{newSignalRecord(signal, false).wire()}
+	prepared.Mailbox.Signals = []signalRecordWire{newSignalRecord(signal).wire()}
 	failure, _ := NewFailure(FailureKindContract, "test.pending.failure", "pending failure")
 	prepared.PendingControl.Failure = &failure
 	completed, err := completedEngineTestSnapshot(t).wire()

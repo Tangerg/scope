@@ -14,7 +14,7 @@ func BenchmarkChildWaitNotification(b *testing.B) {
 			runtime, child := waitingOwnerFixture(b, parents)
 			b.ReportAllocs()
 			for b.Loop() {
-				runtime.notifyChildWaits(child.handle.processID, ChildWaitBoundaryResult)
+				runtime.notifyChildWaits(child.handle.processID(), ChildWaitBoundaryResult)
 			}
 		})
 	}

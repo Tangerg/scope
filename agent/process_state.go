@@ -272,7 +272,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 
 func (p *processState) result() Result {
 	return Result{
-		processID: p.handle.processID, startedAt: p.handle.startedAt,
+		processID: p.handle.processID(), startedAt: p.handle.startedAt,
 		finishedAt: lo.FromPtr(p.finish).FinishedAt, output: lo.FromPtr(p.finish).Output,
 		termination: p.publishedTermination(), usage: p.usage(),
 	}
@@ -406,7 +406,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	prepared := preparedStep{CandidateState: result.candidateState, Intent: transition}
 	for index, effect := range effects {
 		prepared.Effects = append(prepared.Effects, preparedEffect{
-			ID: p.handle.processID.effectID(sequence, index), Effect: effect,
+			ID: p.handle.processID().effectID(sequence, index), Effect: effect,
 		})
 	}
 	if err := p.validatePreparedWaits(&prepared); err != nil {
@@ -608,17 +608,17 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	p.mailbox = finalization.mailbox
 	p.committedSteps = p.preparedStepSequence()
 	p.prepared = nil
-	if finalization.commit.termination.Valid() {
-		p.installTermination(finalization.commit.termination, finalization.commit.finalOutput, finalization.commit.finishedAt)
+	if commit := finalization.commit; commit.termination.Valid() {
+		p.installTermination(commit.termination, finalization.finalOutput(), commit.finishedAt)
 	} else {
-		p.currentWaitID = finalization.commit.currentWaitID
-		p.pause = finalization.commit.pause
+		p.currentWaitID, _ = finalization.prepared.Intent.WaitID()
+		p.pause = finalization.prepared.Intent.pause
 	}
 }
 
 func (p *processState) snapshotWire() processSnapshotWire {
 	wire := processSnapshotWire{
-		ProcessID:     p.handle.processID,
+		ProcessID:     p.handle.processID(),
 		Relation:      p.handle.relation,
 		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
 		CommittedSteps: p.committedSteps,

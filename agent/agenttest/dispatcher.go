@@ -54,9 +54,10 @@ type frozenCall struct {
 type ScriptedDispatcher struct {
 	replayPolicy agent.ReplayPolicy
 
-	mu       sync.Mutex
-	calls    []frozenCall
-	next     int
+	mu    sync.Mutex
+	calls []frozenCall
+	// requests records every consumed request; the next scripted call is the
+	// one at its length.
 	requests []agent.EffectRequest
 }
 
@@ -133,13 +134,12 @@ func (s *ScriptedDispatcher) Dispatch(
 func (s *ScriptedDispatcher) consume(request agent.EffectRequest) (frozenCall, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	next := len(s.requests)
 	s.requests = append(s.requests, request)
-	if s.next >= len(s.calls) {
+	if next >= len(s.calls) {
 		return frozenCall{}, ErrUnexpectedDispatch
 	}
-	call := s.calls[s.next]
-	s.next++
-	return call, nil
+	return s.calls[next], nil
 }
 
 func (f frozenCall) dispatch(
@@ -199,5 +199,5 @@ func (s *ScriptedDispatcher) Remaining() int {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.calls) - s.next
+	return max(len(s.calls)-len(s.requests), 0)
 }

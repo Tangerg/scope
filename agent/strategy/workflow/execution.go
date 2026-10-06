@@ -198,6 +198,7 @@ func (e *execution) finishStage(consumedSignals uint32) (agent.Transition, error
 	if err != nil {
 		return agent.Transition{}, err
 	}
+	e.state.CurrentValue = nil
 	return agent.Complete(consumedSignals, output)
 }
 

@@ -11,7 +11,6 @@ import (
 type processHandle struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
 	// so callers can inspect them without contending with the runtime owner goroutine.
-	processID    ProcessID
 	deployment   Deployment
 	relation     ProcessRelation
 	budget       Budget
@@ -44,7 +43,7 @@ func newProcessHandle(
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
-		processID: relation.ProcessID(), deployment: deployment, relation: relation,
+		deployment: deployment, relation: relation,
 		budget: budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
@@ -153,3 +152,6 @@ func (p *processHandle) treeRuntime() *treeRuntime {
 	}
 	return p.tree.Load()
 }
+
+// processID is the identity the Process's relation names.
+func (p *processHandle) processID() ProcessID { return p.relation.ProcessID() }

@@ -40,20 +40,16 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	effectID, err := ParseEffectID("process:deployment:step:1:effect:0")
-	if err != nil {
-		t.Fatal(err)
-	}
 	relation := rootProcessRelation(processID)
 	request := newEffectRequest(
-		TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effectID, effect,
+		TreeIncarnationID{}, deployment.DeploymentRef(), relation, 1, 0, effect,
 	)
 	if incarnationID, durable := request.TreeIncarnationID(); durable || incarnationID.Valid() {
 		t.Fatal("unbound request carries a writer identity")
 	}
 	copyOfEffect := request.Effect()
 	copyOfEffect.payload[0] = '['
-	if request.ProcessID() != processID || request.DeploymentRef() != deployment.DeploymentRef() ||
+	if request.ProcessID() != processID || request.ID() != processID.effectID(1, 0) || request.DeploymentRef() != deployment.DeploymentRef() ||
 		request.Relation() != relation || string(request.Effect().Payload()) != `{"operation":"test"}` {
 		t.Fatalf("EffectRequest did not freeze Effect: %+v", request)
 	}

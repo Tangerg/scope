@@ -21,7 +21,7 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 		}
 		for len(runtime.processCommands) < cap(runtime.processCommands) {
 			runtime.processCommands <- processTreeCommand{
-				processID: process.handle.processID, request: resumeRequest{}, reply: commandResponses,
+				processID: process.handle.processID(), request: resumeRequest{}, reply: commandResponses,
 			}
 		}
 	}
@@ -83,7 +83,7 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 	runtime.completions <- completion
 	response := make(processReply, 1)
 	runtime.processCommands <- processTreeCommand{
-		processID: process.handle.processID, request: killRequest{reason: "stop before adopting the ready Step"}, reply: response,
+		processID: process.handle.processID(), request: killRequest{reason: "stop before adopting the ready Step"}, reply: response,
 	}
 	for range schedulingProgressTurns {
 		runtime.advanceReadyWork()
@@ -139,13 +139,13 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	if !runtime.writer.committing() {
 		t.Fatal("continuous queries prevented a safe checkpoint")
 	}
-	if inspectionStatus(t, runtime, process.handle.processID) != StatusRunning {
+	if inspectionStatus(t, runtime, process.handle.processID()) != StatusRunning {
 		t.Fatal("parked state was published before checkpoint acknowledgment")
 	}
 	runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
 	checkpoints := committer.treeCheckpoints()
 	if len(checkpoints) != 1 || checkpoints[0].Kind() != TreeCheckpointKindParked ||
-		inspectionStatus(t, runtime, process.handle.processID) != StatusPaused {
+		inspectionStatus(t, runtime, process.handle.processID()) != StatusPaused {
 		t.Fatal("safe checkpoint did not publish the parked state")
 	}
 }

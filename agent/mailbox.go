@@ -24,25 +24,36 @@ var (
 // signalRecord's arrival sequence is its one-based position in the mailbox
 // history and its source follows from its identity facts, so neither the
 // record nor its wire stores them.
+// A pending record keeps its payload; consumption replaces it with the
+// digest that remains its only content, so exactly one of the two is set.
 type signalRecord struct {
-	id            SignalID
-	waitID        WaitID
-	payloadDigest Digest
-	payload       json.RawMessage
-	opensWait     bool
+	id             SignalID
+	waitID         WaitID
+	payload        json.RawMessage
+	consumedDigest Digest
 }
 
-func newSignalRecord(signal Signal, opensWait bool) signalRecord {
-	return signalRecord{
-		id: signal.id, waitID: signal.waitID, payload: signal.payload,
-		payloadDigest: ComputeDigest(signal.payload), opensWait: opensWait,
+func newSignalRecord(signal Signal) signalRecord {
+	return signalRecord{id: signal.id, waitID: signal.waitID, payload: signal.payload}
+}
+
+// opensWait follows from identity: only the Engine's acknowledgement of a
+// wait carries the SignalID that wait derives for its opening.
+func (s signalRecord) opensWait() bool {
+	return s.waitID.Valid() && s.id == s.waitID.openingSignalID()
+}
+
+func (s signalRecord) payloadDigest() Digest {
+	if s.payload != nil {
+		return ComputeDigest(s.payload)
 	}
+	return s.consumedDigest
 }
 
 // newAdmissionRecord accepts signal only through the channel its identity
 // facts assign it to.
 func newAdmissionRecord(signal Signal, source signalSource) (signalRecord, error) {
-	record := newSignalRecord(signal, false)
+	record := newSignalRecord(signal)
 	if !signal.Valid() || record.source() != source {
 		return signalRecord{}, fmt.Errorf("%w: %w", ErrSignalRejected, ErrInvalidSignal)
 	}
@@ -56,7 +67,7 @@ func (s signalRecord) source() signalSource {
 	switch {
 	case !s.id.engineOwned():
 		return signalSourceExternal
-	case s.waitID.Valid() && !s.opensWait:
+	case s.waitID.Valid() && !s.opensWait():
 		return signalSourceChildWait
 	default:
 		return signalSourceSettlement
@@ -64,14 +75,15 @@ func (s signalRecord) source() signalSource {
 }
 
 func (s signalRecord) sameContent(other signalRecord) bool {
-	return s.id == other.id && s.waitID == other.waitID && s.payloadDigest == other.payloadDigest && s.opensWait == other.opensWait
+	return s.id == other.id && s.waitID == other.waitID &&
+		s.payloadDigest() == other.payloadDigest()
 }
 
 // wire keeps a pending payload or a consumed digest, never both.
 func (s signalRecord) wire() signalRecordWire {
 	wire := signalRecordWire{ID: s.id, Payload: bytes.Clone(s.payload)}
 	if s.payload == nil {
-		wire.PayloadDigest = new(s.payloadDigest)
+		wire.PayloadDigest = new(s.consumedDigest)
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -232,7 +244,7 @@ func (s *signalMailbox) openSettledWait(wait waitRecord, signal Signal) error {
 	if !signal.Valid() || !addressed {
 		return fmt.Errorf("%w: addressed opening Signal is required", errWaitState)
 	}
-	return s.openWaitRecord(wait, newSignalRecord(signal, true))
+	return s.openWaitRecord(wait, newSignalRecord(signal))
 }
 
 func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) error {
@@ -240,8 +252,8 @@ func (s *signalMailbox) openWaitRecord(wait waitRecord, record signalRecord) err
 	if !key.Valid() {
 		return fmt.Errorf("%w: invalid wait key", errWaitState)
 	}
-	if record.source() != signalSourceSettlement {
-		return fmt.Errorf("%w: opening Signal requires Engine identity", errWaitState)
+	if !record.opensWait() || record.source() != signalSourceSettlement {
+		return fmt.Errorf("%w: opening Signal requires the wait's Engine identity", errWaitState)
 	}
 	if _, exists := s.waits[id]; exists {
 		return fmt.Errorf("%w: duplicate wait ID", errWaitState)
@@ -310,7 +322,8 @@ func (s *signalMailbox) commit(consumedSignals uint32) error {
 	for index := s.signalCursor; index < s.signalCursor+uint64(consumedSignals); index++ {
 		// Candidate adoption owns consumption; history only needs identity,
 		// content agreement, and wait facts after that boundary.
-		s.records[index].payload = nil
+		record := &s.records[index]
+		record.consumedDigest, record.payload = record.payloadDigest(), nil
 	}
 	s.signalCursor += uint64(consumedSignals)
 	return nil
@@ -557,12 +570,11 @@ func (m mailboxWire) receipts() []SignalReceipt {
 		consumed := arrivalSequence <= m.SignalCursor
 		// A validated capture always derives its content.
 		payload, digest, _ := record.content(consumed)
-		receipt := SignalReceipt{
-			id: record.ID, waitID: lo.FromPtr(record.WaitID), payloadDigest: digest,
-			arrivalSequence: arrivalSequence, external: !record.ID.engineOwned(),
-		}
-		if !consumed {
-			receipt.pending = Signal{id: receipt.id, waitID: receipt.waitID, payload: payload}
+		receipt := SignalReceipt{id: record.ID, waitID: lo.FromPtr(record.WaitID), arrivalSequence: arrivalSequence}
+		if consumed {
+			receipt.consumedDigest = digest
+		} else {
+			receipt.pendingPayload = payload
 		}
 		receipts = append(receipts, receipt)
 	}
@@ -616,7 +628,7 @@ func (s *signalMailbox) wire() mailboxWire {
 	wire := mailboxWire{SignalCursor: s.signalCursor}
 	for _, record := range s.records {
 		encoded := record.wire()
-		if record.opensWait {
+		if record.opensWait() {
 			wait := s.waits[record.waitID]
 			encoded.Opens = wait.openingWire()
 			encoded.Payload, encoded.PayloadDigest = nil, nil
@@ -724,10 +736,14 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 	if err != nil {
 		return signalRecord{}, err
 	}
-	return signalRecord{
-		id: s.ID, waitID: lo.FromPtr(s.WaitID),
-		payloadDigest: digest, payload: payload, opensWait: s.Opens != nil,
-	}, nil
+	record := signalRecord{id: s.ID, waitID: lo.FromPtr(s.WaitID), payload: payload}
+	if record.opensWait() != (s.Opens != nil) {
+		return signalRecord{}, fmt.Errorf("%w: only a wait's acknowledgement opens it", errWaitState)
+	}
+	if payload == nil {
+		record.consumedDigest = digest
+	}
+	return record, nil
 }
 
 // answersChildWait follows the record's identity facts: only the Engine

@@ -73,7 +73,7 @@ func TestUnlimitedTreeQuotasDoNotDisableConcurrency(t *testing.T) {
 	if runtime.canStartChild(root) {
 		t.Fatal("active child capacity was disabled")
 	}
-	child := runtime.members.get(runtime.members.childrenOf(root.handle.processID)[0])
+	child := runtime.members.get(runtime.members.childrenOf(root.handle.processID())[0])
 	child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
 		controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
 	if !runtime.canStartChild(root) {
