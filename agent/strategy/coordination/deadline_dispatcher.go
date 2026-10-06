@@ -68,7 +68,7 @@ func (DeadlineDispatcher) Dispatch(ctx context.Context, request agent.EffectRequ
 	}
 	operation, err := decodeTimerEffect(request.Effect())
 	if err != nil {
-		return timerFailureSettlement(request.ID(), err)
+		return timerFailureSettlement(err)
 	}
 	var result timerResult
 	if ctx.Err() == nil {
@@ -80,9 +80,9 @@ func (DeadlineDispatcher) Dispatch(ctx context.Context, request agent.EffectRequ
 	}
 	payload, err := jsonv2.Marshal(result)
 	if err != nil {
-		return timerFailureSettlement(request.ID(), err)
+		return timerFailureSettlement(err)
 	}
-	return agent.NewSettlement(request.ID(), status, payload)
+	return agent.NewSettlement(status, payload)
 }
 
 func waitUntil(ctx context.Context, deadline time.Time) bool {
@@ -103,10 +103,10 @@ func waitUntil(ctx context.Context, deadline time.Time) bool {
 	}
 }
 
-func timerFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+func timerFailureSettlement(cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }

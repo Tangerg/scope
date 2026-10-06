@@ -139,7 +139,7 @@ func (m modelCallResult) validate() error {
 	return nil
 }
 
-func (m modelCallResult) settlement(id agent.EffectID, maxBytes int) (agent.Settlement, error) {
+func (m modelCallResult) settlement(maxBytes int) (agent.Settlement, error) {
 	signal := signalEnvelope{ModelResult: &m}
 	if err := signal.validateModelResult(); err != nil {
 		return agent.Settlement{}, err
@@ -151,7 +151,7 @@ func (m modelCallResult) settlement(id agent.EffectID, maxBytes int) (agent.Sett
 	if len(payload.JSON()) > maxBytes {
 		return agent.Settlement{}, ErrModelResponseTooLarge
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusSucceeded, payload.JSON())
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload.JSON())
 }
 
 type steerInput struct {
@@ -328,7 +328,7 @@ func (s signalEnvelope) validateToolResult() error {
 	return s.ToolResult.validate()
 }
 
-func (t toolDispatchResult) settlement(id agent.EffectID) (agent.Settlement, error) {
+func (t toolDispatchResult) settlement() (agent.Settlement, error) {
 	if err := t.validate(); err != nil {
 		return agent.Settlement{}, err
 	}
@@ -336,7 +336,7 @@ func (t toolDispatchResult) settlement(id agent.EffectID) (agent.Settlement, err
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusSucceeded, payload.JSON())
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload.JSON())
 }
 
 func (t toolDispatchResult) validate() error {

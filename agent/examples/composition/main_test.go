@@ -155,7 +155,8 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if resolveErr := child.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
+	effectID, _ := unknownEvent.EffectID()
+	if resolveErr := child.ResolveUnknownEffect(ctx, effectID, settlement); resolveErr != nil {
 		t.Fatal(resolveErr)
 	}
 	result, err := restored.Await(ctx)

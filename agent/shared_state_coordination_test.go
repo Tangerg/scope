@@ -134,7 +134,7 @@ func (r *revisionStore) Dispatch(ctx context.Context, request agent.EffectReques
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	settlement, err := agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload.JSON())
+	settlement, err := agent.NewSettlement(agent.SettlementStatusSucceeded, payload.JSON())
 	if err != nil {
 		return agent.Settlement{}, err
 	}

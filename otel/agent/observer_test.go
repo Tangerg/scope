@@ -695,7 +695,7 @@ func (testDispatcher) Dispatch(
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(request.ID(), status, payload)
+	return agent.NewSettlement(status, payload)
 }
 
 func (testDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {

@@ -130,7 +130,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settlement, err := NewSettlement(record.ID, SettlementStatusSucceeded, []byte(`{"result":"retained"}`))
+	settlement, err := NewSettlement(SettlementStatusSucceeded, []byte(`{"result":"retained"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

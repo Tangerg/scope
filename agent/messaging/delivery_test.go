@@ -135,11 +135,11 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 			t.Fatal("adjudication lacks admission evidence")
 		}
 		proof := input(t, messaging.Receipt{SignalID: calls[0].ID()})
-		settlement, err := agent.NewSettlement(unknown[0], agent.SettlementStatusSucceeded, proof.JSON())
+		settlement, err := agent.NewSettlement(agent.SettlementStatusSucceeded, proof.JSON())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolveErr := sender.ResolveUnknownEffect(t.Context(), settlement); resolveErr != nil {
+		if resolveErr := sender.ResolveUnknownEffect(t.Context(), unknown[0], settlement); resolveErr != nil {
 			t.Fatal(resolveErr)
 		}
 		if result := finish(t, sender); result.Status() != agent.StatusCompleted {

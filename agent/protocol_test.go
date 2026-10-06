@@ -116,13 +116,12 @@ func TestDispatcherEffectIsOpaqueAndImmutable(t *testing.T) {
 }
 
 func TestSettlementPreservesUnknownWithoutImplyingRetry(t *testing.T) {
-	effectID, _ := ParseEffectID("process:1:step:2:effect:0")
-	settlement, err := NewSettlement(effectID, SettlementStatusUnknown, json.RawMessage(`{"reason":"connection_lost"}`))
+	settlement, err := NewSettlement(SettlementStatusUnknown, json.RawMessage(`{"reason":"connection_lost"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settlement.Status() != SettlementStatusUnknown || settlement.EffectID() != effectID {
-		t.Fatalf("Settlement = status %s effect %v", settlement.Status(), settlement.EffectID())
+	if settlement.Status() != SettlementStatusUnknown {
+		t.Fatalf("Settlement = status %s", settlement.Status())
 	}
 	data, err := jsonv2.Marshal(settlement)
 	if err != nil {
@@ -226,17 +225,16 @@ func TestSettlementEqualityKeepsIdentityStatusAndPayload(t *testing.T) {
 		}
 		return value
 	}
-	left := decode(`{"effect_id":"effect:one","status":"unknown","payload":{"b":2,"a":1}}`)
+	left := decode(`{"status":"unknown","payload":{"b":2,"a":1}}`)
 	for _, test := range []struct {
 		name string
 		raw  string
 		want bool
 	}{
-		{"canonical content", `{"effect_id":"effect:one","status":"unknown","payload":{ "a":1,"b":2 }}`, true},
-		{"different identity", `{"effect_id":"effect:two","status":"unknown","payload":{"a":1,"b":2}}`, false},
-		{"definite success", `{"effect_id":"effect:one","status":"succeeded","payload":{"a":1,"b":2}}`, false},
-		{"definite failure", `{"effect_id":"effect:one","status":"failed","payload":{"a":1,"b":2}}`, false},
-		{"different payload", `{"effect_id":"effect:one","status":"unknown","payload":{"a":2,"b":2}}`, false},
+		{"canonical content", `{"status":"unknown","payload":{ "a":1,"b":2 }}`, true},
+		{"definite success", `{"status":"succeeded","payload":{"a":1,"b":2}}`, false},
+		{"definite failure", `{"status":"failed","payload":{"a":1,"b":2}}`, false},
+		{"different payload", `{"status":"unknown","payload":{"a":2,"b":2}}`, false},
 		{"invalid settlement", "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

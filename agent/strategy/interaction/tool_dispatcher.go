@@ -48,10 +48,10 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	ctx = agent.RequireContext(ctx)
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return protocolFailureSettlement(request.ID(), err)
+		return protocolFailureSettlement(err)
 	}
 	if envelope.operation() != operationToolCall || envelope.ToolCall == nil {
-		return protocolFailureSettlement(request.ID(), errors.New("interaction: Tool dispatcher requires one tool_call"))
+		return protocolFailureSettlement(errors.New("interaction: Tool dispatcher requires one tool_call"))
 	}
 	call := envelope.ToolCall.Invocation
 	resume := envelope.ToolCall.Resume
@@ -73,15 +73,15 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		}
 		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
 	}
-	return outcome.settlement(request.ID())
+	return outcome.settlement()
 }
 
-func protocolFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+func protocolFailureSettlement(cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }
 
 func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {

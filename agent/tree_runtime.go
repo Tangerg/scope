@@ -1039,7 +1039,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, request process
 	case killRequest:
 		reply.send(processResponse{err: process.requestKill(request.reason)})
 	case resolveUnknownEffectRequest:
-		t.resolveUnknownEffect(process, request.settlement, reply)
+		t.resolveUnknownEffect(process, request.effectID, request.settlement, reply)
 		return
 	case replayUnknownEffectRequest:
 		t.replayUnknownEffect(process, request.effectID, reply)
@@ -1064,7 +1064,7 @@ func (t *treeRuntime) scheduleControl(process *processState) {
 	}
 }
 
-func (t *treeRuntime) resolveUnknownEffect(process *processState, settlement Settlement, reply processReply) {
+func (t *treeRuntime) resolveUnknownEffect(process *processState, effectID EffectID, settlement Settlement, reply processReply) {
 	if process.status().Terminal() || process.pendingControl.hasTerminalIntent() {
 		reply.send(processResponse{err: ErrProcessFinished})
 		return
@@ -1073,11 +1073,11 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, settlement Set
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	t.commitResolution(process, settlement, reply)
+	t.commitResolution(process, effectID, settlement, reply)
 }
 
-func (t *treeRuntime) commitResolution(process *processState, settlement Settlement, reply processReply) {
-	candidate, index, err := process.prepareResolution(settlement, t.treeLimits)
+func (t *treeRuntime) commitResolution(process *processState, effectID EffectID, settlement Settlement, reply processReply) {
+	candidate, index, err := process.prepareResolution(effectID, settlement, t.treeLimits)
 	if err == nil {
 		err = t.validateSnapshotCapacity(candidate)
 	}
@@ -1095,7 +1095,7 @@ func (t *treeRuntime) commitResolution(process *processState, settlement Settlem
 
 	if err := t.startUnknownResolutionCommit(process, index, settlement, reply); err != nil {
 		reply.send(processResponse{err: err})
-		t.failRuntime(err, process.handle.processID, settlement.EffectID())
+		t.failRuntime(err, process.handle.processID, effectID)
 	}
 }
 
@@ -1599,12 +1599,12 @@ func (t *treeRuntime) startDispatch(
 	go func() {
 		settlement, err := dispatchEffect(dispatchCtx, dispatcher, request, deltas.emitter())
 		dropped := deltas.close()
-		if err == nil && (!settlement.Valid() || settlement.EffectID() != record.ID) {
+		if err == nil && !settlement.Valid() {
 			err = ErrInvalidSettlement
 		}
 		if err != nil {
 			var settlementErr error
-			settlement, settlementErr = NewSettlement(record.ID, SettlementStatusUnknown, json.RawMessage(nullJSON))
+			settlement, settlementErr = NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON))
 			err = errors.Join(err, settlementErr)
 		}
 		t.completions <- treeJobCompletion{
@@ -1906,7 +1906,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 			job.reply.send(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
 		}
-		t.commitResolution(process, settlement, job.reply)
+		t.commitResolution(process, record.ID, settlement, job.reply)
 		return
 	}
 

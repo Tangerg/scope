@@ -135,7 +135,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if err != nil {
 				t.Fatal(err)
 			}
-			if resolveErr := owner.ResolveUnknownEffect(ctx, resolution); resolveErr != nil {
+			if resolveErr := owner.ResolveUnknownEffect(ctx, gate.unknownRequest.ID(), resolution); resolveErr != nil {
 				t.Fatal(resolveErr)
 			}
 			result, err := restored.Await(ctx)
@@ -272,7 +272,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	if !ok {
 		t.Fatal("missing Tool process")
 	}
-	if resolveErr := owner.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
+	if resolveErr := owner.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
 		t.Fatal(resolveErr)
 	}
 	final, err := root.Await(ctx)
@@ -384,7 +384,7 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					if !ok {
 						t.Fatal("missing owner")
 					}
-					if resolveErr := owner.ResolveUnknownEffect(t.Context(), settlement); resolveErr != nil {
+					if resolveErr := owner.ResolveUnknownEffect(t.Context(), request.ID(), settlement); resolveErr != nil {
 						t.Fatal(resolveErr)
 					}
 				}

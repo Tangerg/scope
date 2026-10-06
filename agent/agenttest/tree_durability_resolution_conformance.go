@@ -26,9 +26,9 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 	engine := newCrashEngine(t, gate, nil)
 	original := startConformanceProcess(t, engine, deployment, crashInputValue)
 	effectID := waitForConformanceUnknownEffect(t, engine, original)
-	resolution := conformanceResolution(t, effectID, crashInputValue)
+	resolution := conformanceResolution(t, crashInputValue)
 	resolved := make(chan error, 1)
-	go func() { resolved <- original.ResolveUnknownEffect(t.Context(), resolution) }()
+	go func() { resolved <- original.ResolveUnknownEffect(t.Context(), effectID, resolution) }()
 	observation := gate.await(t)
 	select {
 	case err := <-resolved:
@@ -42,7 +42,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 		if restoredID := waitForConformanceUnknownEffect(t, restoredEngine, restored); restoredID != effectID {
 			t.Fatalf("uncommitted resolution changed Unknown identity: %s", restoredID)
 		}
-		if err := restored.ResolveUnknownEffect(t.Context(), resolution); err != nil {
+		if err := restored.ResolveUnknownEffect(t.Context(), effectID, resolution); err != nil {
 			t.Fatal(err)
 		}
 	}

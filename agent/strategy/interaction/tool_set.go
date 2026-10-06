@@ -114,7 +114,7 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolO
 	if err := completion.validateCall(call); err != nil {
 		return agent.Settlement{}, err
 	}
-	return (toolDispatchResult{Completion: completion}).settlement(request.ID())
+	return (toolDispatchResult{Completion: completion}).settlement()
 }
 
 // Configured distinguishes a constructed ToolSet from the optional absence of Tools.

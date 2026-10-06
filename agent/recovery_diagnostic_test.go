@@ -63,9 +63,8 @@ func TestTreeSnapshotReportsTheContradictedTreeLimit(t *testing.T) {
 
 func TestPreparedEffectReportsContradictorySettlements(t *testing.T) {
 	id := newProcessID().effectID(1, 0)
-	succeeded := controlValue(NewSettlement(id, SettlementStatusSucceeded, []byte(`null`)))
-	unknown := controlValue(NewSettlement(id, SettlementStatusUnknown, []byte(`null`)))
-	foreign := controlValue(NewSettlement(newProcessID().effectID(1, 0), SettlementStatusSucceeded, []byte(`null`)))
+	succeeded := controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`)))
+	unknown := controlValue(NewSettlement(SettlementStatusUnknown, []byte(`null`)))
 	invalid := Settlement{}
 	for _, test := range []struct {
 		name       string
@@ -76,11 +75,9 @@ func TestPreparedEffectReportsContradictorySettlements(t *testing.T) {
 		{"invalid settlement", preparedEffect{progress: &effectProgress{settlement: &invalid}}, (*preparedEffect).validatePhase, "prepared Effect settlement is invalid"},
 		{"settle twice", preparedEffect{progress: &effectProgress{settlement: &succeeded}}, func(p *preparedEffect) error { return p.settle(succeeded, nil) }, "effect is not pending"},
 		{"settle invalid", preparedEffect{progress: &effectProgress{}}, func(p *preparedEffect) error { return p.settle(invalid, nil) }, "incoming settlement is invalid"},
-		{"settle foreign", preparedEffect{progress: &effectProgress{}}, func(p *preparedEffect) error { return p.settle(foreign, nil) }, "incoming settlement identifies another Effect"},
 		{"resolve definite", preparedEffect{progress: &effectProgress{settlement: &succeeded}}, func(p *preparedEffect) error { return p.resolveUnknown(succeeded) }, "effect outcome is already definite"},
 		{"resolve invalid", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(invalid) }, "resolution must supply a definite settlement"},
 		{"resolve unknown", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(unknown) }, "resolution must supply a definite settlement"},
-		{"resolve foreign", preparedEffect{progress: &effectProgress{settlement: &unknown}}, func(p *preparedEffect) error { return p.resolveUnknown(foreign) }, "resolution identifies another Effect"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			record := test.record

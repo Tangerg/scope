@@ -62,7 +62,7 @@ func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
 		"Resume":               func() { _ = process.Resume(nilContext) },
 		"RequestCancellation":  func() { _ = process.RequestCancellation(nilContext, "cancel") },
 		"Kill":                 func() { _ = process.Kill(nilContext, "kill") },
-		"ResolveUnknownEffect": func() { _ = process.ResolveUnknownEffect(nilContext, Settlement{}) },
+		"ResolveUnknownEffect": func() { _ = process.ResolveUnknownEffect(nilContext, EffectID{}, Settlement{}) },
 		"ReplayUnknownEffect":  func() { _ = process.ReplayUnknownEffect(nilContext, EffectID{}) },
 		"Await":                func() { _, _ = process.Await(nilContext) },
 		"Join":                 func() { _ = process.Join(nilContext) },
@@ -486,7 +486,7 @@ func (e *engineTestDispatcher) Dispatch(
 		}
 	}
 	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value + ":done"})
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
+	return NewSettlement(SettlementStatusSucceeded, payload)
 }
 
 func (e *engineTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return e.policy }
@@ -513,7 +513,7 @@ func (p *partialBatchDispatcher) Dispatch(
 		return Settlement{}, errors.New("second Effect result is unknown")
 	}
 	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value})
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
+	return NewSettlement(SettlementStatusSucceeded, payload)
 }
 
 func (*partialBatchDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
@@ -664,8 +664,8 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 		t.Fatalf("ReplayPolicyNever dispatcher calls=%d, want 1", dispatcher.calls.Load())
 	}
 	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
-	settlement, _ := NewSettlement(effectID, SettlementStatusSucceeded, payload)
-	if err := restored.ResolveUnknownEffect(context.Background(), settlement); err != nil {
+	settlement, _ := NewSettlement(SettlementStatusSucceeded, payload)
+	if err := restored.ResolveUnknownEffect(context.Background(), unknown[0], settlement); err != nil {
 		t.Fatal(err)
 	}
 	result := awaitResult(t, restored)
@@ -713,8 +713,8 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 		t.Fatalf("dispatcher calls=%d, want 2", dispatcher.calls.Load())
 	}
 	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "second"})
-	settlement, _ := NewSettlement(wire.Prepared.Effects[1].ID, SettlementStatusSucceeded, payload)
-	if err := restored.ResolveUnknownEffect(context.Background(), settlement); err != nil {
+	settlement, _ := NewSettlement(SettlementStatusSucceeded, payload)
+	if err := restored.ResolveUnknownEffect(context.Background(), unknown[0], settlement); err != nil {
 		t.Fatal(err)
 	}
 	result := awaitResult(t, restored)

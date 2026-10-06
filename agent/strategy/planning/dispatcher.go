@@ -93,14 +93,14 @@ func (d *Dispatcher) Dispatch(
 		return agent.Settlement{}, ErrInvalidProtocol
 	}
 	if d == nil || !d.descriptor.Valid() || lo.IsNil(d.sensor) {
-		return planningFailureSettlement(request.ID(), ErrInvalidDispatcherConfig)
+		return planningFailureSettlement(ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return planningFailureSettlement(request.ID(), err)
+		return planningFailureSettlement(err)
 	}
 	if err := d.descriptor.ValidateInput(envelope.Input); err != nil {
-		return planningFailureSettlement(request.ID(), fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err))
+		return planningFailureSettlement(fmt.Errorf("%w: Effect Input: %w", ErrInvalidProtocol, err))
 	}
 	switch envelope.operation() {
 	case operationSense:
@@ -108,7 +108,7 @@ func (d *Dispatcher) Dispatch(
 	case operationAction:
 		return d.execute(ctx, request, envelope.Input, *envelope.Action)
 	default:
-		return planningFailureSettlement(request.ID(), ErrInvalidProtocol)
+		return planningFailureSettlement(ErrInvalidProtocol)
 	}
 }
 
@@ -132,13 +132,13 @@ func (d *Dispatcher) sense(
 	state, senseErr := d.sensor.Sense(ctx, request)
 	payload, err := senseSignal(state, senseErr)
 	if err != nil {
-		return planningFailureSettlement(effectID, err)
+		return planningFailureSettlement(err)
 	}
 	status := agent.SettlementStatusSucceeded
 	if senseErr != nil {
 		status = agent.SettlementStatusFailed
 	}
-	return agent.NewSettlement(effectID, status, payload)
+	return agent.NewSettlement(status, payload)
 }
 
 func (d *Dispatcher) execute(
@@ -150,7 +150,7 @@ func (d *Dispatcher) execute(
 	bound, found := d.executors[call.Name]
 	if !found || bound.action.description != call.Description || !bound.action.Applicable(call.WorldState) ||
 		!effectRequest.Effect().RequiredCapabilities().Allows(bound.required) {
-		return planningFailureSettlement(effectRequest.ID(), fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
+		return planningFailureSettlement(fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
 	}
 	request := ActionRequest{
 		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
@@ -163,15 +163,15 @@ func (d *Dispatcher) execute(
 	if !result.Valid() {
 		return agent.Settlement{}, fmt.Errorf("planning: Action %q returned an invalid result", call.Name)
 	}
-	return NewActionSettlement(effectRequest.ID(), result)
+	return NewActionSettlement(result)
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
 
-func planningFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+func planningFailureSettlement(cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(signalEnvelope{HostError: agent.NormalizeDiagnostic(cause.Error())})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }

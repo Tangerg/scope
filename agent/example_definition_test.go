@@ -134,7 +134,7 @@ func (echoDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest,
 	if emit != nil {
 		emit(payload)
 	}
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
 func (echoDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {

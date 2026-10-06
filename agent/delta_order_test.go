@@ -29,7 +29,7 @@ func (c concurrentDeltaDispatcher) Dispatch(_ context.Context, request EffectReq
 	}
 	close(start)
 	workers.Wait()
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
 }
 
 func (c concurrentDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
@@ -105,7 +105,7 @@ func (o optionalDeltaDispatcher) Dispatch(_ context.Context, request EffectReque
 	if emit != nil {
 		emit(json.RawMessage(`{"text":"observed"}`))
 	}
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
 }
 
 func (o optionalDeltaDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
@@ -158,7 +158,7 @@ func (r *replayDeltaDispatcher) Dispatch(_ context.Context, request EffectReques
 	if r.calls == 1 {
 		return Settlement{}, errors.New("unknown first attempt")
 	}
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"done"}`))
 }
 
 func TestReplayDeltasCarryAttemptIdentityAcrossSlowDelivery(t *testing.T) {

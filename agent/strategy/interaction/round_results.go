@@ -301,8 +301,8 @@ func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapsho
 // Signals it has not consumed. Wait openings belong to the Engine.
 func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) []json.RawMessage {
 	var payloads []json.RawMessage
-	for _, settlement := range process.Settlements() {
-		request, found := snapshot.EffectRequest(process.ProcessID(), settlement.EffectID())
+	for effectID, settlement := range process.Settlements() {
+		request, found := snapshot.EffectRequest(process.ProcessID(), effectID)
 		if found && request.Effect().Target() == agent.EffectTargetDispatcher && settlement.Status() != agent.SettlementStatusUnknown {
 			payloads = append(payloads, settlement.Payload())
 		}
@@ -322,8 +322,8 @@ func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.Proce
 // Delegate batch, because starts settle in declaration order.
 func delegateStartRefusals(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, state *executionState) (map[agent.ChildKey]agent.Failure, error) {
 	refusals := make(map[agent.ChildKey]agent.Failure)
-	for _, settlement := range process.Settlements() {
-		request, found := snapshot.EffectRequest(process.ProcessID(), settlement.EffectID())
+	for effectID, settlement := range process.Settlements() {
+		request, found := snapshot.EffectRequest(process.ProcessID(), effectID)
 		if !found || settlement.Status() != agent.SettlementStatusFailed {
 			continue
 		}

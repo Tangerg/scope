@@ -141,16 +141,16 @@ func (p *Process) Kill(ctx context.Context, reason string) error {
 	return err
 }
 
-// ResolveUnknownEffect supplies a definite result after an Effect attempt became
-// unknown. The Engine never converts unknown into retry or success implicitly.
+// ResolveUnknownEffect supplies a definite result for effectID after its attempt
+// became unknown. The Engine never converts unknown into retry or success implicitly.
 // Acknowledged resolution publishes EventEffectResolved, not an attempt event.
 // A definite result exceeding Process or tree snapshot capacity returns
 // ErrResourceLimitExceeded without changing the Unknown record or durable head;
 // the caller can then supply a smaller result.
 // Terminal intent or a committed terminal result returns ErrProcessFinished;
 // retained interrupted-batch evidence cannot resume a terminated execution.
-func (p *Process) ResolveUnknownEffect(ctx context.Context, settlement Settlement) error {
-	_, err := p.request(ctx, resolveUnknownEffectRequest{settlement: settlement})
+func (p *Process) ResolveUnknownEffect(ctx context.Context, effectID EffectID, settlement Settlement) error {
+	_, err := p.request(ctx, resolveUnknownEffectRequest{effectID: effectID, settlement: settlement})
 	return err
 }
 
@@ -334,7 +334,10 @@ type killRequest struct{ reason string }
 
 func (killRequest) processRequest() {}
 
-type resolveUnknownEffectRequest struct{ settlement Settlement }
+type resolveUnknownEffectRequest struct {
+	effectID   EffectID
+	settlement Settlement
+}
 
 func (resolveUnknownEffectRequest) processRequest() {}
 

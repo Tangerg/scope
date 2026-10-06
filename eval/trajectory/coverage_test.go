@@ -340,7 +340,7 @@ func (c *coverageReplayDispatcher) Dispatch(_ context.Context, request agent.Eff
 	if c.calls.Add(1) <= c.unknownAttempts {
 		return agent.Settlement{}, errors.New("fixture outcome is uncertain")
 	}
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, []byte(`{"value":"confirmed"}`))
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, []byte(`{"value":"confirmed"}`))
 }
 
 func (*coverageReplayDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {

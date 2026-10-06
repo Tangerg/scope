@@ -125,7 +125,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 				t.Fatalf("recovery boundaries = %+v", boundaries)
 			}
 			settlement, _ := boundaries[0].Settlement()
-			if settlement.Status() != SettlementStatusUnknown || settlement.EffectID() != request.ID() {
+			if settlement.Status() != SettlementStatusUnknown || boundaries[0].Request().ID() != request.ID() {
 				t.Errorf("recovery settlement = %+v", settlement)
 			}
 			mustCloseEngine(t, recoveredEngine)
@@ -155,7 +155,7 @@ type cancellationRecoveryDispatcher struct {
 
 func (c *cancellationRecoveryDispatcher) Dispatch(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
 	c.calls.Add(1)
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
 func (c *cancellationRecoveryDispatcher) ReplayPolicy(Effect) ReplayPolicy {

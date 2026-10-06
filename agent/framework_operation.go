@@ -55,11 +55,11 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 type waitOperation struct{ key WaitKey }
 
 // A wait settles locally the moment it begins, so it never fails.
-func (w waitOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+func (waitOperation) settlement(_ EffectID, failure Failure) (Settlement, error) {
 	if failure.Valid() {
 		return Settlement{}, errors.New("a wait Effect cannot fail")
 	}
-	return NewSettlement(id, SettlementStatusSucceeded, waitOpenedPayload())
+	return NewSettlement(SettlementStatusSucceeded, waitOpenedPayload())
 }
 
 func (waitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }
@@ -83,11 +83,11 @@ func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, prepared
 type childWaitOperation struct{ spec ChildWaitSpec }
 
 // A child wait settles locally the moment it begins, so it never fails.
-func (c childWaitOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+func (childWaitOperation) settlement(_ EffectID, failure Failure) (Settlement, error) {
 	if failure.Valid() {
 		return Settlement{}, errors.New("a child-wait Effect cannot fail")
 	}
-	return NewSettlement(id, SettlementStatusSucceeded, childWaitOpenedPayload())
+	return NewSettlement(SettlementStatusSucceeded, childWaitOpenedPayload())
 }
 
 func (childWaitOperation) settledFailure(Settlement) (Failure, error) { return Failure{}, nil }
@@ -127,7 +127,7 @@ func (c childStartOperation) settlement(id EffectID, failure Failure) (Settlemen
 	if err != nil {
 		return Settlement{}, err
 	}
-	return NewSettlement(id, result.settlementStatus(), payload)
+	return NewSettlement(result.settlementStatus(), payload)
 }
 
 func (childStartOperation) settledFailure(settlement Settlement) (Failure, error) {
@@ -187,13 +187,13 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 type childControlOperation struct{ request childControlEffectWire }
 
 // The request fixes the recipient, operation, and delivered SignalID.
-func (childControlOperation) settlement(id EffectID, failure Failure) (Settlement, error) {
+func (childControlOperation) settlement(_ EffectID, failure Failure) (Settlement, error) {
 	result := ChildControlResult{failure: failure}
 	payload, err := result.MarshalJSON()
 	if err != nil {
 		return Settlement{}, err
 	}
-	return NewSettlement(id, result.settlementStatus(), payload)
+	return NewSettlement(result.settlementStatus(), payload)
 }
 
 func (childControlOperation) settledFailure(settlement Settlement) (Failure, error) {

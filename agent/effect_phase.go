@@ -154,7 +154,7 @@ func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
 			return preparedEffect{}, errors.New("prepared Dispatcher settlement stores a Framework failure")
 		}
 		var err error
-		if settlement, err = NewSettlement(id, stored.Status, stored.Payload); err != nil {
+		if settlement, err = NewSettlement(stored.Status, stored.Payload); err != nil {
 			return preparedEffect{}, err
 		}
 	} else {
@@ -270,9 +270,6 @@ func (p *preparedEffect) settle(settlement Settlement, cause error) error {
 	if !settlement.Valid() {
 		return errors.New("incoming settlement is invalid")
 	}
-	if settlement.EffectID() != p.ID {
-		return errors.New("incoming settlement identifies another Effect")
-	}
 	p.progress.settlement = &settlement
 	if cause != nil {
 		diagnostic := dispatchFailure(cause)
@@ -285,9 +282,7 @@ func (p *preparedEffect) settleUnknown() error {
 	if p == nil || !p.ID.Valid() {
 		return errors.New("effect identity is invalid")
 	}
-	settlement, err := NewSettlement(
-		p.ID, SettlementStatusUnknown, json.RawMessage(nullJSON),
-	)
+	settlement, err := NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON))
 	if err != nil {
 		return err
 	}
@@ -303,9 +298,6 @@ func (p *preparedEffect) resolveUnknown(settlement Settlement) error {
 	}
 	if !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
 		return errors.New("resolution must supply a definite settlement")
-	}
-	if settlement.EffectID() != p.ID {
-		return errors.New("resolution identifies another Effect")
 	}
 	p.progress.settlement = &settlement
 	return nil

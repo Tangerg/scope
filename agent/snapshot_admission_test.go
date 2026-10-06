@@ -127,7 +127,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 					}
 					if phase == effectPhaseSettled {
 						if effect.Target() == EffectTargetDispatcher {
-							settlement := controlValue(NewSettlement(record.ID, SettlementStatusUnknown, payload))
+							settlement := controlValue(NewSettlement(SettlementStatusUnknown, payload))
 							record.progress.settlement = &settlement
 						} else if err := settleTestFramework(&record, Failure{}); err != nil {
 							t.Fatal(err)
@@ -190,7 +190,7 @@ func TestArithmeticAdmissionReservesLargeUncertainBatch(t *testing.T) {
 	effect := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
 	for index := range 3000 {
 		id := root.handle.processID.effectID(1, index)
-		settlement := controlValue(NewSettlement(id, SettlementStatusUnknown, json.RawMessage(`null`)))
+		settlement := controlValue(NewSettlement(SettlementStatusUnknown, json.RawMessage(`null`)))
 		wire.Prepared.Effects = append(wire.Prepared.Effects, preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: &settlement}})
 	}
 	if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {

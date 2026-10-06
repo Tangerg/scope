@@ -396,7 +396,7 @@ func (m managedBranchDispatcher) Dispatch(
 		return agent.Settlement{}, ctx.Err()
 	}
 	payload, _ := jsonv2.Marshal(branchOutput{Branch: call.Branch, Value: call.Value})
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
 func (managedBranchDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
