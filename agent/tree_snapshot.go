@@ -247,19 +247,24 @@ func (t TreeSnapshot) ProcessSnapshots() []ProcessSnapshot {
 // replay. Adopted Steps are not retained, so absence does not prove
 // non-execution.
 func (t TreeSnapshot) EffectRequest(processID ProcessID, id EffectID) (EffectRequest, bool) {
-	for _, process := range t.state.ProcessSnapshots {
-		if process.ProcessID() != processID || process.state.Prepared == nil {
-			continue
-		}
-		for index, record := range process.state.Prepared.Effects {
-			if record.ID == id {
-				return newEffectRequest(t.IncarnationID(), process.DeploymentRef(),
-					process.Relation(), process.state.CommittedSteps+1, uint32(index),
-					record.ID, record.Effect), true
-			}
+	request, _, found := t.effect(processID, id)
+	return request, found
+}
+
+// effect finds the prepared Effect id of processID with the request it implies.
+func (t TreeSnapshot) effect(processID ProcessID, id EffectID) (EffectRequest, preparedEffect, bool) {
+	process := t.state.processSnapshot(processID)
+	if !process.Valid() || process.state.Prepared == nil {
+		return EffectRequest{}, preparedEffect{}, false
+	}
+	for index, record := range process.state.Prepared.Effects {
+		if record.ID == id {
+			return newEffectRequest(t.IncarnationID(), process.DeploymentRef(),
+				process.Relation(), process.state.CommittedSteps+1, uint32(index),
+				record.ID, record.Effect), record, true
 		}
 	}
-	return EffectRequest{}, false
+	return EffectRequest{}, preparedEffect{}, false
 }
 
 func (t TreeSnapshot) Valid() bool {

@@ -628,13 +628,13 @@ func (t *treeRuntime) startPendingEffectCommit(
 	batchIndex uint32,
 	record preparedEffect,
 ) error {
-	return t.commitEffect(process, treeCommitEffectPending, EffectBoundaryKindPending, batchIndex, record, Settlement{}, nil)
+	return t.commitEffect(process, treeCommitEffectPending, record, nil)
 }
 
 // commitSettledEffect makes record's adopted settlement durable. A settlement
 // that cannot be committed stops the writer with record left unresolved.
 func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint32, record preparedEffect) {
-	err := t.commitEffect(process, treeCommitEffectSettled, EffectBoundaryKindSettled, batchIndex, record, *record.settlement(), nil)
+	err := t.commitEffect(process, treeCommitEffectSettled, record, nil)
 	if err != nil {
 		t.failRuntime(err, process.handle.processID, record.ID)
 	}
@@ -645,10 +645,7 @@ func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint
 func (t *treeRuntime) commitEffect(
 	process *processState,
 	commitKind treeCommitKind,
-	boundaryKind EffectBoundaryKind,
-	batchIndex uint32,
 	record preparedEffect,
-	settlement Settlement,
 	reply processReply,
 ) error {
 	snapshot, err := t.captureTree()
@@ -659,7 +656,7 @@ func (t *treeRuntime) commitEffect(
 		kind: commitKind, processID: process.handle.processID,
 		effectID: record.ID, snapshot: snapshot, reply: reply,
 	}
-	return t.writer.commitEffect(t.context, commit, boundaryKind, t.effectRequestFor(process, batchIndex, record), settlement)
+	return t.writer.commitEffect(t.context, commit)
 }
 
 func (t *treeRuntime) startUnknownResolutionCommit(
@@ -668,8 +665,7 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	settlement Settlement,
 	reply processReply,
 ) error {
-	return t.commitEffect(process, treeCommitEffectResolved, EffectBoundaryKindResolved,
-		uint32(index), process.prepared.Effects[index], settlement, reply)
+	return t.commitEffect(process, treeCommitEffectResolved, process.prepared.Effects[index], reply)
 }
 
 func (t *treeRuntime) startCheckpointCommit(

@@ -17,7 +17,7 @@ func TestTreeCommitCanonicalIdentityAndContent(t *testing.T) {
 		{
 			"Effect", boundary.Identity(), boundary.ContentDigest,
 			"commit:dd3bd92daf50dd536c10f0820182387862285f9baf85999ef5c6ebe4d730fb52",
-			"sha256:b86971f36d971ad003b457f5c94897416066506d9575018103d046b5dae4978c",
+			"sha256:1d8486dca195fe198173a0a15383b525840e4bc19fa8a9af043ae2b1bf79f0ca",
 		},
 		{
 			"checkpoint", checkpoint.Identity(), checkpoint.ContentDigest,
@@ -42,11 +42,6 @@ func TestTreeCommitCanonicalIdentityAndContent(t *testing.T) {
 func TestTreeCommitIdentityScopes(t *testing.T) {
 	boundary, checkpoint, activation := treeCommitIdentityFixture(t)
 	originalDigest := controlValue(boundary.ContentDigest())
-	attempt := boundary
-	attempt.request.attemptID = newEffectAttemptID()
-	if attempt.Identity() != boundary.Identity() || controlValue(attempt.ContentDigest()) != originalDigest {
-		t.Fatal("physical attempt changed a logical commit fact")
-	}
 	later := boundary
 	later.sequence++
 	if later.Identity() != boundary.Identity() || controlValue(later.ContentDigest()) == originalDigest {
@@ -56,7 +51,6 @@ func TestTreeCommitIdentityScopes(t *testing.T) {
 	wire.IncarnationID = newTreeIncarnationID()
 	restored := boundary
 	restored.treeSnapshot = controlValue(newTreeSnapshot(wire))
-	restored.request.incarnationID = wire.IncarnationID
 	if restored.Identity() != boundary.Identity() || controlValue(restored.ContentDigest()) == originalDigest {
 		t.Fatal("activation lost cross-incarnation Effect deduplication or writer content")
 	}
@@ -83,7 +77,7 @@ func TestInvalidTreeCommitHasNoIdentityOrContent(t *testing.T) {
 		content  func() (Digest, error)
 	}{
 		{(EffectBoundary{}).Identity(), (EffectBoundary{}).ContentDigest},
-		{(EffectBoundary{kind: EffectBoundaryKindPending}).Identity(), (EffectBoundary{kind: EffectBoundaryKindPending}).ContentDigest},
+		{(EffectBoundary{sequence: 1}).Identity(), (EffectBoundary{sequence: 1}).ContentDigest},
 		{(TreeCheckpoint{}).Identity(), (TreeCheckpoint{}).ContentDigest},
 		{(TreeCheckpoint{kind: TreeCheckpointKindStart}).Identity(), (TreeCheckpoint{kind: TreeCheckpointKindStart}).ContentDigest},
 		{(TreeActivation{}).Identity(), (TreeActivation{}).ContentDigest},
@@ -109,7 +103,7 @@ func treeCommitIdentityFixture(t *testing.T) (EffectBoundary, TreeCheckpoint, Tr
 	}
 	previous := controlValue(ParseDigest("sha256:a8fda0511f82a72f80c26b5833804253ffc8e7e731c1c19db86732c42f5f6810"))
 	previousWriter := controlValue(parseTreeIncarnationID("incarnation:22222222222222222222222222222222"))
-	return controlValue(newEffectBoundary(2, EffectBoundaryKindPending, request, Settlement{}, previous, snapshot)),
+	return controlValue(newEffectBoundary(2, false, request.ProcessID(), request.ID(), previous, snapshot)),
 		controlValue(newTreeCheckpoint(2, TreeCheckpointKindProgress, previous, snapshot)),
 		controlValue(newTreeActivation(previousWriter, previous, snapshot))
 }
@@ -121,5 +115,9 @@ func settledIdentityFixture(t *testing.T, boundary EffectBoundary, kind EffectBo
 	process.Prepared.Effects[0].progress = &effectProgress{settlement: &settlement}
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
 	snapshot := controlValue(newTreeSnapshot(wire))
-	return controlValue(newEffectBoundary(boundary.sequence+1, kind, boundary.request, settlement, boundary.treeSnapshot.Digest(), snapshot))
+	resolved := controlValue(newEffectBoundary(boundary.sequence+1, kind == EffectBoundaryKindResolved, boundary.processID, boundary.effectID, boundary.treeSnapshot.Digest(), snapshot))
+	if resolved.Kind() != kind {
+		t.Fatalf("boundary kind = %s, want %s", resolved.Kind(), kind)
+	}
+	return resolved
 }

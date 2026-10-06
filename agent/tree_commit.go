@@ -48,26 +48,29 @@ func (e EffectBoundaryKind) String() string {
 // dispatch uses a pending permission followed by settlement. Tree-local child
 // controls settle directly, atomically with the recipient's mailbox or intent;
 // they perform no external I/O requiring a pending dispatch permission.
+//
+// The prospective tree owns the Effect's request and settlement; the boundary
+// names the Effect and adds only whether its settlement resolved an Unknown.
 type EffectBoundary struct {
 	sequence           uint64
-	kind               EffectBoundaryKind
-	request            EffectRequest
-	settlement         Settlement
+	resolution         bool
+	processID          ProcessID
+	effectID           EffectID
 	previousTreeDigest Digest
 	treeSnapshot       TreeSnapshot
 }
 
 func newEffectBoundary(
 	sequence uint64,
-	kind EffectBoundaryKind,
-	request EffectRequest,
-	settlement Settlement,
+	resolution bool,
+	processID ProcessID,
+	effectID EffectID,
 	previousTreeDigest Digest,
 	treeSnapshot TreeSnapshot,
 ) (EffectBoundary, error) {
 	boundary := EffectBoundary{
-		sequence: sequence,
-		kind:     kind, request: request, settlement: settlement,
+		sequence: sequence, resolution: resolution,
+		processID: processID, effectID: effectID,
 		previousTreeDigest: previousTreeDigest,
 		treeSnapshot:       treeSnapshot,
 	}
@@ -80,12 +83,37 @@ func newEffectBoundary(
 // Sequence identifies this commit within its tree incarnation. Retries retain it.
 func (e EffectBoundary) Sequence() uint64 { return e.sequence }
 
-func (e EffectBoundary) Kind() EffectBoundaryKind { return e.kind }
+// Kind follows from the Effect's captured phase: a pending record grants
+// dispatch, and a settled one is either its first settlement or a resolution.
+func (e EffectBoundary) Kind() EffectBoundaryKind {
+	_, record, found := e.treeSnapshot.effect(e.processID, e.effectID)
+	switch {
+	case !found:
+		return EffectBoundaryKindInvalid
+	case record.phase() == effectPhasePending && !e.resolution:
+		return EffectBoundaryKindPending
+	case record.phase() != effectPhaseSettled:
+		return EffectBoundaryKindInvalid
+	case !e.resolution:
+		return EffectBoundaryKindSettled
+	case record.unknown():
+		return EffectBoundaryKindInvalid
+	default:
+		return EffectBoundaryKindResolved
+	}
+}
 
-func (e EffectBoundary) Request() EffectRequest { return e.request.clone() }
+func (e EffectBoundary) Request() EffectRequest {
+	request, _, _ := e.treeSnapshot.effect(e.processID, e.effectID)
+	return request
+}
 
 func (e EffectBoundary) Settlement() (Settlement, bool) {
-	return e.settlement.clone(), e.kind == EffectBoundaryKindSettled || e.kind == EffectBoundaryKindResolved
+	_, record, found := e.treeSnapshot.effect(e.processID, e.effectID)
+	if !found || record.settlement() == nil {
+		return Settlement{}, false
+	}
+	return record.settlement().clone(), true
 }
 
 func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDigest }
@@ -101,42 +129,27 @@ func (e EffectBoundary) Identity() string {
 		return ""
 	}
 	return deriveIdentity(treeCommitIdentityPrefix, "effect-boundary",
-		e.treeSnapshot.RootID().String(), e.request.ID().String(), e.kind.String()).String()
+		e.treeSnapshot.RootID().String(), e.effectID.String(), e.Kind().String()).String()
 }
 
-// ContentDigest covers the complete Scope boundary, including its predecessor,
-// sequence, request coordinates, settlement, and prospective recovery cut. It
-// excludes physical dispatch attempts and Host-owned business write sets.
-// Equal identity and content do not authorize historical replay: the store must
-// still atomically check the current writer, head, and sequence.
+// ContentDigest covers the complete Scope boundary: its predecessor, sequence,
+// kind, Effect, and prospective recovery cut, whose digest covers the request
+// and settlement. It excludes physical dispatch attempts and Host-owned
+// business write sets. Equal identity and content do not authorize historical
+// replay: the store must still atomically check the current writer, head, and
+// sequence.
 func (e EffectBoundary) ContentDigest() (Digest, error) {
 	if !e.Valid() {
 		return Digest{}, errors.New("agent: invalid Effect boundary")
 	}
-	content := struct {
-		Sequence      uint64
-		Kind          EffectBoundaryKind
-		ProcessID     ProcessID
-		DeploymentRef DeploymentRef
-		Relation      processRelationWire
-		StepSequence  uint64
-		BatchIndex    uint32
-		EffectID      EffectID
-		Effect        Effect
-		Settlement    *Settlement
-		Previous      Digest
-		Snapshot      Digest
-	}{
-		Sequence: e.sequence, Kind: e.kind, ProcessID: e.request.ProcessID(),
-		DeploymentRef: e.request.DeploymentRef(), Relation: e.request.Relation().wire(),
-		StepSequence: e.request.StepSequence(), BatchIndex: e.request.BatchIndex(),
-		EffectID: e.request.ID(), Effect: e.request.Effect(),
-		Previous: e.previousTreeDigest, Snapshot: e.treeSnapshot.Digest(),
-	}
-	if settlement, present := e.Settlement(); present {
-		content.Settlement = &settlement
-	}
-	encoded, err := jsonv2.Marshal(content, jsonv2.Deterministic(true))
+	encoded, err := jsonv2.Marshal(struct {
+		Sequence  uint64
+		Kind      EffectBoundaryKind
+		ProcessID ProcessID
+		EffectID  EffectID
+		Previous  Digest
+		Snapshot  Digest
+	}{e.sequence, e.Kind(), e.processID, e.effectID, e.previousTreeDigest, e.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
 	if err != nil {
 		return Digest{}, fmt.Errorf("agent: encode Effect boundary content: %w", err)
 	}
@@ -144,41 +157,8 @@ func (e EffectBoundary) ContentDigest() (Digest, error) {
 }
 
 func (e EffectBoundary) Valid() bool {
-	if e.sequence == 0 || !e.kind.Valid() || !e.request.Valid() || !e.previousTreeDigest.Valid() ||
-		!e.treeSnapshot.Valid() || e.previousTreeDigest == e.treeSnapshot.Digest() ||
-		e.treeSnapshot.RootID() != e.request.Relation().RootID() {
-		return false
-	}
-	incarnationID := e.treeSnapshot.IncarnationID()
-	return incarnationID.Valid() && e.request.incarnationID == incarnationID &&
-		e.matchesProspectiveTree() && e.settlementMatchesKind()
-}
-
-func (e EffectBoundary) settlementMatchesKind() bool {
-	if e.kind == EffectBoundaryKindPending {
-		return !e.settlement.Valid()
-	}
-	if !e.settlement.Valid() {
-		return false
-	}
-	return e.kind != EffectBoundaryKindResolved || e.settlement.Status() != SettlementStatusUnknown
-}
-
-func (e EffectBoundary) matchesProspectiveTree() bool {
-	process := e.treeSnapshot.state.processSnapshot(e.request.ProcessID())
-	if !process.Valid() || process.DeploymentRef() != e.request.DeploymentRef() ||
-		process.Relation() != e.request.Relation() {
-		return false
-	}
-	record, found := process.preparedEffect(e.request.StepSequence(), e.request.BatchIndex())
-	if !found || record.ID != e.request.ID() || !record.Effect.equal(e.request.effect) {
-		return false
-	}
-	if e.kind == EffectBoundaryKindPending {
-		return record.phase() == effectPhasePending && record.settlement() == nil
-	}
-	return record.phase() == effectPhaseSettled && record.settlement() != nil &&
-		record.settlement().equal(e.settlement)
+	return e.sequence != 0 && e.previousTreeDigest.Valid() && e.treeSnapshot.Valid() &&
+		e.previousTreeDigest != e.treeSnapshot.Digest() && e.Kind().Valid()
 }
 
 // TreeCheckpointKind distinguishes absent-head creation from writer-fenced
@@ -459,7 +439,7 @@ func activateTree(ctx context.Context, committer TreeCommitter, activation TreeA
 // Construction already checked the complete immutable boundary, so this call
 // only crosses the Host I/O boundary and need not repeat tree matching.
 func commitEffectBoundary(ctx context.Context, committer TreeCommitter, boundary EffectBoundary) error {
-	if committer == nil || !boundary.kind.Valid() {
+	if committer == nil || !boundary.effectID.Valid() {
 		return errors.New("invalid durable Effect boundary")
 	}
 	return invokeCallbackErr("TreeCommitter.CommitEffect", func() error {

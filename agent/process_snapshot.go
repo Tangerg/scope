@@ -250,14 +250,6 @@ func (p ProcessSnapshot) Settlements() iter.Seq2[EffectID, Settlement] {
 	}
 }
 
-func (p ProcessSnapshot) preparedEffect(stepSequence uint64, batchIndex uint32) (preparedEffect, bool) {
-	prepared := p.state.Prepared
-	if prepared == nil || p.state.CommittedSteps+1 != stepSequence || uint64(batchIndex) >= uint64(len(prepared.Effects)) {
-		return preparedEffect{}, false
-	}
-	return prepared.Effects[batchIndex], true
-}
-
 // EffectDiagnostic returns the bounded diagnostic retained for an uncertain
 // dispatch attempt while its prepared Step remains captured, including after
 // restoration or explicit resolution. It does not establish failure of the
