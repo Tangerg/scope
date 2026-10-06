@@ -184,10 +184,9 @@ func runChildControlCrashConformance(t *testing.T, factory func() TreeCommitterC
 	for _, control := range []struct {
 		name      string
 		operation childControlOperation
-		kind      crashCommitKind
 	}{
-		{name: "signal", operation: childControlSignal, kind: crashCommitChildSignal},
-		{name: "cancel", operation: childControlCancel, kind: crashCommitChildCancel},
+		{name: "signal", operation: childControlSignal},
+		{name: "cancel", operation: childControlCancel},
 	} {
 		for _, crash := range []struct {
 			name  string
@@ -197,7 +196,7 @@ func runChildControlCrashConformance(t *testing.T, factory func() TreeCommitterC
 			{name: "stored before acknowledgment", phase: crashCommitAfter},
 		} {
 			t.Run(control.name+"/"+crash.name, func(t *testing.T) {
-				runChildControlCrash(t, factory(), control.operation, crashCommitPoint{kind: control.kind, phase: crash.phase})
+				runChildControlCrash(t, factory(), control.operation, crashCommitPoint{kind: childControlCommitKind(control.operation), phase: crash.phase})
 			})
 		}
 	}
@@ -464,23 +463,42 @@ const (
 	childControlParked   childControlPhase = "parked"
 )
 
+// childControlState stores only ready or starting; issued and parked follow
+// from what the Process recorded: a parent's started child and adopted
+// receipts, or a child's pause.
 type childControlState struct {
 	Child   bool                       `json:"child"`
 	Phase   childControlPhase          `json:"phase"`
+	Paused  bool                       `json:"paused,omitzero"`
 	ChildID agent.ProcessID            `json:"child_id,omitzero"`
 	Results []agent.ChildControlResult `json:"results"`
 }
 
-// phase derives a parent's control progress from what it recorded: the
-// started child's identity, then the adopted receipts.
 func (c childControlState) phase() childControlPhase {
 	switch {
+	case c.Child && c.Paused:
+		return childControlParked
 	case c.Child || c.Phase != childControlStarting || !c.ChildID.Valid():
 		return c.Phase
 	case len(c.Results) == 0:
 		return childControlIssued
 	default:
 		return childControlParked
+	}
+}
+
+// valid admits only states this fixture writes.
+func (c childControlState) valid() bool {
+	if c.Child {
+		return c.Phase == childControlReady && !c.ChildID.Valid() && len(c.Results) == 0
+	}
+	switch c.Phase {
+	case childControlReady:
+		return !c.Paused && !c.ChildID.Valid() && len(c.Results) == 0
+	case childControlStarting:
+		return !c.Paused && (c.ChildID.Valid() || len(c.Results) == 0)
+	default:
+		return false
 	}
 }
 
@@ -508,9 +526,7 @@ func (c *childControlDefinition) Restore(_ context.Context, state agent.Executio
 	if err != nil {
 		return nil, err
 	}
-	switch value.Phase {
-	case childControlReady, childControlStarting, childControlIssued, childControlParked:
-	default:
+	if !value.valid() {
 		return nil, agent.ErrInvalidExecutionState
 	}
 	return &childControlExecution{definition: c, state: value}, nil
@@ -538,8 +554,8 @@ func (c *childControlExecution) Step(ctx context.Context, signals []agent.Signal
 }
 
 func (c *childControlExecution) stepChild(signals []agent.Signal) (agent.Transition, error) {
-	if c.state.Phase != childControlParked {
-		c.state.Phase = childControlParked
+	if !c.state.Paused {
+		c.state.Paused = true
 		return agent.Pause(0, "hold control input for independent inspection")
 	}
 	if len(signals) != 1 {

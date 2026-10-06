@@ -28,6 +28,12 @@ const (
 
 var compositionChildKeys = [compositionChildCount]string{"local", "model"}
 
+// uppercaseStateKind names the Definition and its ExecutionState kind.
+const uppercaseStateKind = "example.uppercase"
+
+// compositionStateKind names the Definition and its ExecutionState kind.
+const compositionStateKind = "example.composition"
+
 func main() {
 	if err := run(context.Background(), os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -106,7 +112,7 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 		return agent.Deployment{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "example.uppercase", Description: "Return input text in uppercase.",
+		Name: uppercaseStateKind, Description: "Return input text in uppercase.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
@@ -135,7 +141,7 @@ func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error
 }
 
 func (*uppercaseDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := state.Decode[uppercaseExecution]("example.uppercase")
+	execution, err := state.Decode[uppercaseExecution](uppercaseStateKind)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +173,7 @@ func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("example.uppercase", payload)
+	return agent.ParseExecutionState(uppercaseStateKind, payload)
 }
 
 func newModelDeployment() (agent.Deployment, error) {
@@ -221,7 +227,7 @@ func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, 
 		return agent.Deployment{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "example.composition", Description: "Compose deterministic local and model child Processes.",
+		Name: compositionStateKind, Description: "Compose deterministic local and model child Processes.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
@@ -261,7 +267,7 @@ func (c *compositionDefinition) Restore(ctx context.Context, state agent.Executi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	decoded, err := state.Decode[compositionState]("example.composition")
+	decoded, err := state.Decode[compositionState](compositionStateKind)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +534,7 @@ func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("example.composition", payload)
+	return agent.ParseExecutionState(compositionStateKind, payload)
 }
 
 type compositionModel struct{}

@@ -94,15 +94,11 @@ func TestMapCountStopsBeforeScanningLaterInvalidItem(t *testing.T) {
 }
 
 func TestFanoutOutputDecodeStopsBetweenItems(t *testing.T) {
-	schema, err := agent.SchemaFor[int]()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, kind := range []string{"Map", "Fork"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
 			defer cancel()
-			outputs := fanoutOutputs{stageName: kind, stageID: "items", memberName: "item", memberSchema: schema}
+			outputs := fanoutOutputs{stageName: kind, stageID: "items", memberName: "item"}
 			values, err := outputs.decode[int](ctx, []json.RawMessage{json.RawMessage(`1`), json.RawMessage(`"invalid"`)})
 			if values != nil || !errors.Is(err, context.Canceled) {
 				t.Fatalf("decode continued after cancellation: %v %v", values, err)

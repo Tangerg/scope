@@ -179,9 +179,8 @@ func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.Chi
 	if !present {
 		return stepfail.Transition(1, agent.FailureKindContract, e.stage().failureCode(failureSuffixOutputMissing), "Completed child Process returned no Output")
 	}
-	if err := e.singleChildOutputSchema().Validate(output.JSON()); err != nil {
-		return stepfail.Transition(1, agent.FailureKindContract, e.stage().failureCode(failureSuffixOutputInvalid), "Child Process Output violated the Stage contract")
-	}
+	// The Engine admitted this Output against the child's own Descriptor,
+	// which the Stage contract equals.
 	if e.stage().kind == StageKindLoop {
 		return e.finishLoopIteration(ctx, 1, output)
 	}
@@ -218,14 +217,6 @@ func (e *execution) waitKey() (agent.WaitKey, error) {
 		"single", e.stage().id, e.state.SelectedCaseID,
 		strconv.FormatUint(e.state.LoopIteration, 10),
 	)
-}
-
-func (e *execution) singleChildOutputSchema() agent.Schema {
-	if e.stage().kind == StageKindLoop {
-		// A Loop body maps T to T, so its output schema is the Stage input.
-		return e.stage().inputSchema
-	}
-	return e.stage().outputSchema
 }
 
 func (e *execution) finishLoopIteration(

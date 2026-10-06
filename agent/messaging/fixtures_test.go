@@ -12,6 +12,9 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 )
 
+// senderStateKind names the sender ExecutionState kind its Snapshot writes and Restore reads.
+const senderStateKind = "test.sender"
+
 func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {
 	t.Helper()
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
@@ -129,7 +132,7 @@ func (s senderDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	return &senderExecution{state: senderState{Message: message}}, nil
 }
 func (s senderDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != "test.sender" {
+	if state.Kind() != senderStateKind {
 		return nil, agent.ErrInvalidExecutionState
 	}
 	input, err := agent.ParsePayload(state.Payload())
@@ -178,7 +181,7 @@ func (s *senderExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("test.sender", encoded.JSON())
+	return agent.ParseExecutionState(senderStateKind, encoded.JSON())
 }
 
 type recipientPort struct {

@@ -216,7 +216,7 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (agent.Payload, error) {
 func (m mapValueCodec) collect[O any](ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
 	outputs := fanoutOutputs{
 		stageName: "Map", stageID: m.id, memberName: "item",
-		memberSchema: m.schemas.itemOutput, resultSchema: m.schemas.output,
+		resultSchema: m.schemas.output,
 	}
 	values, err := outputs.decode[O](ctx, raw)
 	if err != nil {

@@ -41,10 +41,9 @@ type childStartJobResult struct {
 
 func (childStartJobResult) jobKind() processJobKind { return processJobChildStart }
 
-func (c childStartJobResult) started() bool {
-	return !c.failure.Valid() && c.deployment.Valid() && c.execution != nil &&
-		c.state.Valid() && !c.startedAt.IsZero()
-}
+// started is the absence of a failure; execute supplies the initialized
+// child exactly when it reports none.
+func (c childStartJobResult) started() bool { return !c.failure.Valid() }
 
 func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	deployment, resolveErr := c.resolveDeployment()

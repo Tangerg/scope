@@ -13,6 +13,9 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 )
 
+// scriptedEffectStateKind names the Definition and its ExecutionState kind.
+const scriptedEffectStateKind = "agenttest.scripted_effect"
+
 func TestNewScriptedDispatcherRejectsContradictorySteps(t *testing.T) {
 	injected := errors.New("injected dispatch failure")
 	tests := []struct {
@@ -153,7 +156,7 @@ func newScriptedEffectDefinition(t *testing.T, effect agent.Effect) *scriptedEff
 		t.Fatal(err)
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "agenttest.scripted_effect", Description: "Exercises the public scripted dispatcher fixture.",
+		Name: scriptedEffectStateKind, Description: "Exercises the public scripted dispatcher fixture.",
 		InputSchema: schema, OutputSchema: schema,
 	})
 	if err != nil {
@@ -176,7 +179,7 @@ func (s *scriptedEffectDefinition) Start(input agent.Payload) (agent.Execution, 
 }
 
 func (s *scriptedEffectDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if state.Kind() != "agenttest.scripted_effect" {
+	if state.Kind() != scriptedEffectStateKind {
 		return nil, errors.New("unexpected scripted-effect state")
 	}
 	var restored scriptedEffectState
@@ -215,7 +218,7 @@ func (s *scriptedEffectExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("agenttest.scripted_effect", payload)
+	return agent.ParseExecutionState(scriptedEffectStateKind, payload)
 }
 
 func TestScriptedDispatcherSettlementStatuses(t *testing.T) {

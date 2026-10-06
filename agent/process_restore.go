@@ -16,11 +16,6 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, err
 	}
-	if wire.DeploymentRef != deployment.DeploymentRef() {
-		return nil, fmt.Errorf(
-			"%w: exact Deployment does not match", ErrInvalidSnapshot,
-		)
-	}
 	if output := lo.FromPtr(wire.Finish).Output; output.Valid() {
 		if validateOutputErr := deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, fmt.Errorf(

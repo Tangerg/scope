@@ -17,7 +17,6 @@ const (
 	failureSuffixChildNotCompleted = "child_not_completed"
 	failureSuffixNotCompleted      = "not_completed"
 	failureSuffixOutputMissing     = "output_missing"
-	failureSuffixOutputInvalid     = "output_invalid"
 	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
 )
 
@@ -223,13 +222,6 @@ func (s Stage) fanoutOutcome(
 			s.fanoutFailureMessage(index, "returned no Output"),
 		)
 		return &failure, nil, err
-	}
-	if err := s.fanout.outputSchema.Validate(output.JSON()); err != nil {
-		failure, failureErr := stepfail.Failure(
-			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputInvalid),
-			s.fanoutFailureMessage(index, "violated its Output contract"),
-		)
-		return &failure, nil, failureErr
 	}
 	return nil, output.JSON(), nil
 }
