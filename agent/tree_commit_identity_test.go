@@ -17,7 +17,7 @@ func TestTreeCommitCanonicalIdentityAndContent(t *testing.T) {
 		{
 			"Effect", boundary.Identity(), boundary.ContentDigest,
 			"commit:dd3bd92daf50dd536c10f0820182387862285f9baf85999ef5c6ebe4d730fb52",
-			"sha256:1ab0ba02eda76b38545ea6186d87474d6b8eafd47a53cb00ae1b9fde95b58998",
+			"sha256:b86971f36d971ad003b457f5c94897416066506d9575018103d046b5dae4978c",
 		},
 		{
 			"checkpoint", checkpoint.Identity(), checkpoint.ContentDigest,

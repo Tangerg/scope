@@ -93,33 +93,37 @@ func (p ProcessRelation) childIdentity() (childIdentity, bool) {
 	return childIdentity{parent: p.parentID, key: p.childKey}, true
 }
 
+// processRelationWire carries what a standalone record cannot derive: a root
+// is its own root at depth zero, so only a child names its parent, key, root,
+// and depth.
 type processRelationWire struct {
 	ParentID *ProcessID `json:"parent_id,omitzero"`
-	RootID   ProcessID  `json:"root_id"`
+	RootID   *ProcessID `json:"root_id,omitzero"`
 	ChildKey *ChildKey  `json:"child_key,omitzero"`
-	Depth    uint32     `json:"depth"`
+	Depth    uint32     `json:"depth,omitzero"`
 }
 
 func (p ProcessRelation) wire() processRelationWire {
-	wire := processRelationWire{RootID: p.rootID, Depth: p.depth}
-	if p.parentID.Valid() {
-		parentID := p.parentID
-		wire.ParentID = &parentID
+	identity, child := p.childIdentity()
+	if !child {
+		return processRelationWire{}
 	}
-	if p.childKey.Valid() {
-		childKey := p.childKey
-		wire.ChildKey = &childKey
+	return processRelationWire{
+		ParentID: new(identity.parent), RootID: new(p.rootID),
+		ChildKey: new(identity.key), Depth: p.depth,
 	}
-	return wire
 }
 
 func processRelationFromWire(processID ProcessID, wire processRelationWire) (ProcessRelation, error) {
-	relation := ProcessRelation{processID: processID, rootID: wire.RootID, depth: wire.Depth}
-	if wire.ParentID != nil {
-		relation.parentID = *wire.ParentID
+	if wire == (processRelationWire{}) {
+		return rootProcessRelation(processID), nil
 	}
-	if wire.ChildKey != nil {
-		relation.childKey = *wire.ChildKey
+	if wire.ParentID == nil || wire.RootID == nil || wire.ChildKey == nil {
+		return ProcessRelation{}, ErrInvalidProcessRelation
+	}
+	relation := ProcessRelation{
+		processID: processID, parentID: *wire.ParentID, rootID: *wire.RootID,
+		childKey: *wire.ChildKey, depth: wire.Depth,
 	}
 	if !relation.Valid() {
 		return ProcessRelation{}, ErrInvalidProcessRelation
