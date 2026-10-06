@@ -100,13 +100,13 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			var operation <-chan error
 			if scenario.effect == EffectBoundaryKindResolved {
 				snapshot := waitForUnknownSettlement(t, root)
-				settlement, settlementErr := NewSettlement(snapshot.UnknownEffectIDs()[0], SettlementStatusSucceeded, []byte(`{"kind":"result","value":"resolved"}`))
+				settlement, settlementErr := NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"resolved"}`))
 				if settlementErr != nil {
 					t.Fatal(settlementErr)
 				}
 				done := make(chan error, 1)
 				operation = done
-				go func() { done <- root.ResolveUnknownEffect(t.Context(), settlement) }()
+				go func() { done <- root.ResolveUnknownEffect(t.Context(), snapshot.UnknownEffectIDs()[0], settlement) }()
 			}
 			if scenario.checkpoint == TreeCheckpointKindSignals {
 				waitForStatus(t, root, StatusPaused)

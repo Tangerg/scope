@@ -72,13 +72,13 @@ func (p *preparedStep) pendingEffect(id EffectID) (int, *preparedEffect) {
 }
 
 // Both live and durable resolution use this transition before publication.
-func (p *preparedStep) resolveUnknown(settlement Settlement) (int, *preparedEffect, error) {
+func (p *preparedStep) resolveUnknown(effectID EffectID, settlement Settlement) (int, *preparedEffect, error) {
 	if p == nil || !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
 		return 0, nil, ErrEffectNotPending
 	}
 	for index := range p.Effects {
 		record := &p.Effects[index]
-		if record.ID == settlement.EffectID() {
+		if record.ID == effectID {
 			if err := record.resolveUnknown(settlement); err != nil {
 				return 0, nil, ErrEffectNotPending
 			}

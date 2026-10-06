@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"slices"
 	"time"
@@ -231,20 +232,22 @@ func (p ProcessSnapshot) CommittedExecutionState() ExecutionState {
 	return p.state.CommittedExecutionState.clone()
 }
 
-// Settlements returns retained Effect outcomes in declaration order. These are
-// execution facts even when cancellation prevented candidate-state adoption.
-// Adopted outcomes move into SignalReceipts until consumed by the Strategy;
-// this is not a historical journal and absence does not imply non-execution.
-func (p ProcessSnapshot) Settlements() []Settlement {
-	var settlements []Settlement
-	if p.state.Prepared != nil {
+// Settlements yields retained Effect outcomes, keyed by the Effect each
+// answers, in declaration order. These are execution facts even when
+// cancellation prevented candidate-state adoption. Adopted outcomes move into
+// SignalReceipts until consumed by the Strategy; this is not a historical
+// journal and absence does not imply non-execution.
+func (p ProcessSnapshot) Settlements() iter.Seq2[EffectID, Settlement] {
+	return func(yield func(EffectID, Settlement) bool) {
+		if p.state.Prepared == nil {
+			return
+		}
 		for _, record := range p.state.Prepared.Effects {
-			if record.settlement() != nil {
-				settlements = append(settlements, record.settlement().clone())
+			if record.settlement() != nil && !yield(record.ID, record.settlement().clone()) {
+				return
 			}
 		}
 	}
-	return settlements
 }
 
 func (p ProcessSnapshot) preparedEffect(stepSequence uint64, batchIndex uint32) (preparedEffect, bool) {

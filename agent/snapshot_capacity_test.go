@@ -122,8 +122,8 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 				t.Fatalf("padding admission = %t, %v", accepted, err)
 			}
 			before := controlValue(engine.InspectTree(t.Context(), process.ID()))
-			oversize := controlValue(NewSettlement(unknown, SettlementStatusSucceeded, json.RawMessage(`"`+strings.Repeat("x", 50<<14)+`"`)))
-			if err := process.ResolveUnknownEffect(t.Context(), oversize); !errors.Is(err, ErrResourceLimitExceeded) {
+			oversize := controlValue(NewSettlement(SettlementStatusSucceeded, json.RawMessage(`"`+strings.Repeat("x", 50<<14)+`"`)))
+			if err := process.ResolveUnknownEffect(t.Context(), unknown, oversize); !errors.Is(err, ErrResourceLimitExceeded) {
 				t.Fatalf("oversize resolution = %v", err)
 			}
 			after := controlValue(engine.InspectTree(t.Context(), process.ID()))
@@ -133,8 +133,8 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 			if got := after.Processes[0].Snapshot.UnknownEffectIDs(); len(got) != 1 || got[0] != unknown {
 				t.Fatal("rejection lost Unknown evidence")
 			}
-			small := controlValue(NewSettlement(unknown, SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"resolved"}`)))
-			if err := process.ResolveUnknownEffect(t.Context(), small); err != nil {
+			small := controlValue(NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"resolved"}`)))
+			if err := process.ResolveUnknownEffect(t.Context(), unknown, small); err != nil {
 				t.Fatalf("small resolution after rejection: %v", err)
 			}
 			result, err := process.Await(t.Context())

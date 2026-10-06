@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -321,7 +322,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 				t.Fatalf("unexpected capacity: %d admitted Signals", acceptedCount)
 			}
 			record := &process.prepared.Effects[0]
-			unknown := controlValue(NewSettlement(record.ID, SettlementStatusUnknown, json.RawMessage(nullJSON)))
+			unknown := controlValue(NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON)))
 			if err := record.settle(unknown, errors.New("connection lost")); err != nil {
 				t.Fatal(err)
 			}
@@ -339,7 +340,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 				t.Fatal("failure reason was lost or rewritten")
 			}
 			ids := result.Termination().UnresolvedEffectIDs()
-			if len(ids) != 1 || ids[0] != unknown.EffectID() || len(snapshot.SignalReceipts()) != acceptedCount {
+			if len(ids) != 1 || ids[0] != record.ID || len(snapshot.SignalReceipts()) != acceptedCount {
 				t.Fatal("termination lost unresolved Effect or admitted Signal evidence")
 			}
 			if retained, ok := snapshot.EffectDiagnostic(ids[0]); !ok || retained != diagnostic {
@@ -367,7 +368,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				payload := controlValue(jsonv2.Marshal(engineTestMessage{Kind: "result", Value: strings.Repeat("x", 400<<10)}))
 				dispatcher := effectFailureTestDispatcher{dispatch: func(request EffectRequest) (Settlement, error) {
 					calls.Add(1)
-					return NewSettlement(request.ID(), SettlementStatusSucceeded, payload)
+					return NewSettlement(SettlementStatusSucceeded, payload)
 				}}
 				definition := newEngineTestDefinition(t, "engine.effect", "effect")
 				deployment := engineTestDeployment(t, definition, dispatcher)
@@ -404,7 +405,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				}
 				tree = controlValue(ParseTreeSnapshot(tree.JSON()))
 				snapshot := tree.ProcessSnapshots()[0]
-				if snapshot.Status().Terminal() || len(snapshot.Settlements()) != 0 {
+				if snapshot.Status().Terminal() || len(maps.Collect(snapshot.Settlements())) != 0 {
 					t.Fatal("capacity refusal adopted a settlement or fabricated termination")
 				}
 				restoredEngine := controlValue(NewEngine(config))
@@ -418,8 +419,8 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				if len(unknown) != 1 || unknown[0] != ids[0] || calls.Load() != 1 {
 					t.Fatal("recovery replayed an uncertain Effect or changed its identity")
 				}
-				settlement := controlValue(NewSettlement(ids[0], SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"reconciled"}`)))
-				if err := restored.ResolveUnknownEffect(t.Context(), settlement); err != nil {
+				settlement := controlValue(NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"reconciled"}`)))
+				if err := restored.ResolveUnknownEffect(t.Context(), unknown[0], settlement); err != nil {
 					t.Fatal(err)
 				}
 				if err := restored.Join(t.Context()); err != nil {
@@ -455,7 +456,7 @@ func TestDispatchPermissionRequiresUncertainOutcomeCapacity(t *testing.T) {
 				var calls atomic.Int32
 				dispatcher := effectFailureTestDispatcher{dispatch: func(request EffectRequest) (Settlement, error) {
 					calls.Add(1)
-					return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"dispatched"}`))
+					return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"kind":"result","value":"dispatched"}`))
 				}}
 				engine := controlValue(NewEngine(config))
 				defer mustCloseEngine(t, engine)

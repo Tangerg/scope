@@ -105,17 +105,17 @@ func (d *Dispatcher) Dispatch(
 ) (agent.Settlement, error) {
 	ctx = agent.RequireContext(ctx)
 	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
-		return modelHostFailureSettlement(request.ID(), ErrInvalidDispatcherConfig)
+		return modelHostFailureSettlement(ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return modelHostFailureSettlement(request.ID(), err)
+		return modelHostFailureSettlement(err)
 	}
 	switch envelope.operation() {
 	case operationModelCall:
 		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
-		return modelHostFailureSettlement(request.ID(), errors.New("interaction: unsupported dispatcher operation"))
+		return modelHostFailureSettlement(errors.New("interaction: unsupported dispatcher operation"))
 	}
 }
 
@@ -133,11 +133,11 @@ func (d *Dispatcher) dispatchModel(
 	modelRequest := call.Request.Clone()
 	definitions, err := d.modelDefinitions(call.AdvertisedToolNames)
 	if err != nil {
-		return modelHostFailureSettlement(request.ID(), err)
+		return modelHostFailureSettlement(err)
 	}
 	modelRequest.Tools = definitions
 	if validateErr := modelRequest.Validate(); validateErr != nil {
-		return modelHostFailureSettlement(request.ID(), fmt.Errorf("interaction: prepare model request: %w", validateErr))
+		return modelHostFailureSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
 	}
 	invocation := modelInvocationFromRequest(
 		request,
@@ -150,17 +150,11 @@ func (d *Dispatcher) dispatchModel(
 			ctx, invocation, modelRequest.Clone(),
 		)
 		if reduceErr != nil {
-			return modelHostFailureSettlement(
-				request.ID(),
-				fmt.Errorf("interaction: reduce model context: %w", reduceErr),
-			)
+			return modelHostFailureSettlement(fmt.Errorf("interaction: reduce model context: %w", reduceErr))
 		}
 		modelRequest.Messages = cloneMessages(effectiveMessages)
 		if validateErr := modelRequest.Validate(); validateErr != nil {
-			return modelHostFailureSettlement(
-				request.ID(),
-				fmt.Errorf("interaction: reduced model context: %w", validateErr),
-			)
+			return modelHostFailureSettlement(fmt.Errorf("interaction: reduced model context: %w", validateErr))
 		}
 	}
 	result := &modelCallResult{}
@@ -171,24 +165,24 @@ func (d *Dispatcher) dispatchModel(
 	}
 	base, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
-		return modelHostFailureSettlement(request.ID(), err)
+		return modelHostFailureSettlement(err)
 	}
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
 	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
 	minimum, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
-		return modelHostFailureSettlement(request.ID(), err)
+		return modelHostFailureSettlement(err)
 	}
 	if len(minimum.JSON()) > d.maxResponseBytes {
-		return modelHostFailureSettlement(request.ID(), ErrModelResponseTooLarge)
+		return modelHostFailureSettlement(ErrModelResponseTooLarge)
 	}
 	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
 	result.Response = response
-	return result.settlement(request.ID(), d.maxResponseBytes)
+	return result.settlement(d.maxResponseBytes)
 }
 
 // SettleModelResult validates an investigated response without calling the model
@@ -219,7 +213,7 @@ func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *ch
 	if !reflect.DeepEqual(envelope.ModelCall.Request.Messages, effective.Messages) {
 		result.ReplacementMessages = effective.Messages
 	}
-	return result.settlement(request.ID(), d.maxResponseBytes)
+	return result.settlement(d.maxResponseBytes)
 }
 
 func (d *Dispatcher) modelDefinitions(advertisedToolNames []string) ([]chat.ToolDefinition, error) {
@@ -328,14 +322,14 @@ func (d *Dispatcher) callModel(
 	return response, nil
 }
 
-func modelHostFailureSettlement(effectID agent.EffectID, cause error) (agent.Settlement, error) {
+func modelHostFailureSettlement(cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(signalEnvelope{
 		ModelResult: &modelCallResult{HostError: agent.NormalizeDiagnostic(cause.Error())},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(effectID, agent.SettlementStatusFailed, payload)
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }
 
 func cloneDefinitions(definitions []chat.ToolDefinition) []chat.ToolDefinition {

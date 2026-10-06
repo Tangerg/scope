@@ -221,12 +221,12 @@ func (p *processState) requestKill(reason string) error {
 	return nil
 }
 
-func (p *processState) prepareResolution(settlement Settlement, limits TreeLimits) (*processState, int, error) {
+func (p *processState) prepareResolution(effectID EffectID, settlement Settlement, limits TreeLimits) (*processState, int, error) {
 	if p.prepared == nil {
 		return nil, 0, ErrEffectNotPending
 	}
 	candidate := p.candidate()
-	index, _, err := candidate.prepared.resolveUnknown(settlement)
+	index, _, err := candidate.prepared.resolveUnknown(effectID, settlement)
 	if err != nil {
 		return nil, 0, err
 	}

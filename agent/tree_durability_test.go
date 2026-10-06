@@ -559,8 +559,8 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 	wire, _ := snapshot.wire()
 	effectID := wire.Prepared.Effects[0].ID
 	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
-	settlement, _ := NewSettlement(effectID, SettlementStatusSucceeded, payload)
-	if err := process.ResolveUnknownEffect(context.Background(), settlement); err != nil {
+	settlement, _ := NewSettlement(SettlementStatusSucceeded, payload)
+	if err := process.ResolveUnknownEffect(context.Background(), effectID, settlement); err != nil {
 		t.Fatal(err)
 	}
 	if result := awaitResult(t, process); result.Status() != StatusCompleted {
@@ -577,11 +577,11 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 		t.Fatalf("pending settlement=%+v present=%t", pending, present)
 	}
 	unknown, present := boundaries[1].Settlement()
-	if !present || unknown.Status() != SettlementStatusUnknown || unknown.EffectID() != effectID {
+	if !present || unknown.Status() != SettlementStatusUnknown || boundaries[1].Request().ID() != effectID {
 		t.Fatalf("unknown settlement=%+v present=%t", unknown, present)
 	}
 	resolved, present := boundaries[2].Settlement()
-	if !present || resolved.Status() != SettlementStatusSucceeded || resolved.EffectID() != effectID {
+	if !present || resolved.Status() != SettlementStatusSucceeded || boundaries[2].Request().ID() != effectID {
 		t.Fatalf("resolved settlement=%+v present=%t", resolved, present)
 	}
 }
@@ -674,7 +674,7 @@ func assertRecoveryBoundary(
 	boundary := boundaries[0]
 	settlement, present := boundary.Settlement()
 	if boundary.Kind() != EffectBoundaryKindSettled || !present ||
-		boundary.Request().ID() != effectID || settlement.EffectID() != effectID ||
+		boundary.Request().ID() != effectID ||
 		settlement.Status() != wantStatus {
 		t.Fatalf("recovery boundary=%+v settlement=%+v present=%t", boundary, settlement, present)
 	}

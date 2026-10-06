@@ -10,7 +10,7 @@ import (
 type deploymentTestDispatcher struct{}
 
 func (*deploymentTestDispatcher) Dispatch(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 }
 
 func (*deploymentTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicySameIdentity }
@@ -56,7 +56,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 		t.Fatalf("EffectRequest did not freeze Effect: %+v", request)
 	}
 	settlement, err := deployment.dispatcher.Dispatch(context.Background(), request, func(json.RawMessage) {})
-	if err != nil || settlement.EffectID() != request.ID() {
+	if err != nil || !settlement.Valid() {
 		t.Fatalf("Dispatch settlement = %+v, %v", settlement, err)
 	}
 }

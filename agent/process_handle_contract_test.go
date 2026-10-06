@@ -30,7 +30,9 @@ func TestProcessRequiresEngineIssuedHandle(t *testing.T) {
 		{"Resume", func(process *agent.Process) { _ = process.Resume(t.Context()) }},
 		{"RequestCancellation", func(process *agent.Process) { _ = process.RequestCancellation(t.Context(), "cancel") }},
 		{"Kill", func(process *agent.Process) { _ = process.Kill(t.Context(), "kill") }},
-		{"ResolveUnknownEffect", func(process *agent.Process) { _ = process.ResolveUnknownEffect(t.Context(), agent.Settlement{}) }},
+		{"ResolveUnknownEffect", func(process *agent.Process) {
+			_ = process.ResolveUnknownEffect(t.Context(), agent.EffectID{}, agent.Settlement{})
+		}},
 		{"Await", func(process *agent.Process) { _, _ = process.Await(t.Context()) }},
 		{"Join", func(process *agent.Process) { _ = process.Join(t.Context()) }},
 	}

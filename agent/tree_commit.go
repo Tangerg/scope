@@ -158,7 +158,7 @@ func (e EffectBoundary) settlementMatchesKind() bool {
 	if e.kind == EffectBoundaryKindPending {
 		return !e.settlement.Valid()
 	}
-	if !e.settlement.Valid() || e.settlement.EffectID() != e.request.ID() {
+	if !e.settlement.Valid() {
 		return false
 	}
 	return e.kind != EffectBoundaryKindResolved || e.settlement.Status() != SettlementStatusUnknown

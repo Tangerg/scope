@@ -64,11 +64,11 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					if replay {
 						err = process.ReplayUnknownEffect(t.Context(), effectID)
 					} else {
-						settlement, settleErr := agent.NewSettlement(effectID, agent.SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
+						settlement, settleErr := agent.NewSettlement(agent.SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 						if settleErr != nil {
 							t.Fatal(settleErr)
 						}
-						err = process.ResolveUnknownEffect(t.Context(), settlement)
+						err = process.ResolveUnknownEffect(t.Context(), effectID, settlement)
 					}
 					if err != nil {
 						t.Fatal(err)
@@ -193,6 +193,6 @@ func (u *uncertainDispatcher) Dispatch(ctx context.Context, request agent.Effect
 	case "panic":
 		panic("private-dispatch-payload")
 	default:
-		return agent.NewSettlement(request.ID(), agent.SettlementStatusUnknown, json.RawMessage(`null`))
+		return agent.NewSettlement(agent.SettlementStatusUnknown, json.RawMessage(`null`))
 	}
 }

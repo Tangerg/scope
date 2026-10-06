@@ -28,7 +28,7 @@ func TestDispatchRequestCorrelatesPhysicalAttemptsWithoutPersistingThem(t *testi
 				if count == 1 {
 					return Settlement{}, errors.New("execution result unavailable")
 				}
-				return NewSettlement(request.ID(), SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
+				return NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 			},
 		}
 		deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)

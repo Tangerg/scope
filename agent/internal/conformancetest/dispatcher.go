@@ -84,14 +84,13 @@ func newRejectionDeployment(t *testing.T, dispatcher agent.Dispatcher, effect ag
 }
 
 type dispatchOutcome struct {
-	id         agent.EffectID
 	settlement agent.Settlement
 	err        error
 }
 
 func (d dispatchOutcome) definiteFailure() bool {
 	return d.err == nil && d.settlement.Valid() &&
-		d.settlement.Status() == agent.SettlementStatusFailed && d.settlement.EffectID() == d.id
+		d.settlement.Status() == agent.SettlementStatusFailed
 }
 
 type rejectionDispatcher struct {
@@ -104,7 +103,7 @@ func (r *rejectionDispatcher) ReplayPolicy(effect agent.Effect) agent.ReplayPoli
 }
 func (r *rejectionDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	settlement, err := r.next.Dispatch(ctx, request, emit)
-	r.outcome <- dispatchOutcome{id: request.ID(), settlement: settlement, err: err}
+	r.outcome <- dispatchOutcome{settlement: settlement, err: err}
 	return settlement, err
 }
 

@@ -161,7 +161,7 @@ func (f frozenCall) dispatch(
 	if f.err != nil {
 		return agent.Settlement{}, f.err
 	}
-	return agent.NewSettlement(request.ID(), f.settlementStatus, f.settlementPayload)
+	return agent.NewSettlement(f.settlementStatus, f.settlementPayload)
 }
 
 func (f frozenCall) matches(effect agent.Effect) (bool, error) {

@@ -325,11 +325,11 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 		runtime.Gosched()
 	}
 	world.applyState(t, action)
-	settlement, err := planning.NewActionSettlement(request.EffectID, planning.ActionSucceeded())
+	settlement, err := planning.NewActionSettlement(planning.ActionSucceeded())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolveEffectErr := process.ResolveUnknownEffect(context.Background(), settlement); resolveEffectErr != nil {
+	if resolveEffectErr := process.ResolveUnknownEffect(context.Background(), request.EffectID, settlement); resolveEffectErr != nil {
 		t.Fatal(resolveEffectErr)
 	}
 	result, err := process.Await(context.Background())

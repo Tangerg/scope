@@ -139,7 +139,7 @@ func (c *capabilityTestDispatcher) Dispatch(
 	_ DeltaEmitter,
 ) (Settlement, error) {
 	c.calls.Add(1)
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
 func (*capabilityTestDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }

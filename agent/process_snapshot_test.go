@@ -290,14 +290,14 @@ func TestPreparedEffectProgressOwnsMonotonicTransitions(t *testing.T) {
 	if beginErr := record.begin(); beginErr != nil || record.phase() != effectPhasePending {
 		t.Fatalf("begin phase = %s, error = %v", record.phase(), beginErr)
 	}
-	settlement, err := NewSettlement(record.ID, SettlementStatusUnknown, json.RawMessage(`null`))
+	settlement, err := NewSettlement(SettlementStatusUnknown, json.RawMessage(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if settleErr := record.settle(settlement, nil); settleErr != nil || !record.unknown() {
 		t.Fatalf("settle phase = %s, unknown = %t, error = %v", record.phase(), record.unknown(), settleErr)
 	}
-	definite, err := NewSettlement(record.ID, SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
+	definite, err := NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 					record.progress = &effectProgress{}
 				}
 				if item.settlement.Valid() {
-					settlement, settlementErr := NewSettlement(record.ID, item.settlement, json.RawMessage(`null`))
+					settlement, settlementErr := NewSettlement(item.settlement, json.RawMessage(`null`))
 					if settlementErr != nil {
 						t.Fatal(settlementErr)
 					}
@@ -594,9 +594,6 @@ func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
 	for index, record := range wire.Prepared.Effects {
 		if record.ID != wire.ProcessID.effectID(wire.CommittedSteps+1, index) {
 			t.Fatalf("decoded Effect %d identity = %s", index, record.ID)
-		}
-		if record.settlement() != nil && record.settlement().EffectID() != record.ID {
-			t.Fatalf("decoded settlement %d identifies %s", index, record.settlement().EffectID())
 		}
 	}
 	var fields map[string]json.RawMessage

@@ -68,9 +68,9 @@ func TestTreeCommitIdentityScopes(t *testing.T) {
 	if activation.Identity() == checkpoint.Identity() || activation.Identity() == boundary.Identity() {
 		t.Fatal("activation shares another boundary's identity domain")
 	}
-	unknown := controlValue(NewSettlement(boundary.Request().ID(), SettlementStatusUnknown, []byte(`{"result":"uncertain"}`)))
+	unknown := controlValue(NewSettlement(SettlementStatusUnknown, []byte(`{"result":"uncertain"}`)))
 	settled := settledIdentityFixture(t, boundary, EffectBoundaryKindSettled, unknown)
-	definite := controlValue(NewSettlement(boundary.Request().ID(), SettlementStatusSucceeded, []byte(`{"result":"accepted"}`)))
+	definite := controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`{"result":"accepted"}`)))
 	resolved := settledIdentityFixture(t, settled, EffectBoundaryKindResolved, definite)
 	if boundary.Identity() == settled.Identity() || settled.Identity() == resolved.Identity() || resolved.Identity() == boundary.Identity() {
 		t.Fatal("Effect stages share a commit identity")

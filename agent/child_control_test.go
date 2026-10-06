@@ -259,7 +259,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	effect := controlValue(NewChildSignalEffect(childID, request))
 	var result ChildControlResult
 	id := parentID.effectID(1, 0)
-	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
+	record := preparedEffect{ID: id, Effect: effect, progress: &effectProgress{settlement: new(controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(jsonv2.Marshal(result)))))}}
 	receipt := newSignalRecord(controlValue(request.signal()), false).wire()
 	childKey := controlValue(ParseChildKey("recipient"))
 	child := processSnapshotWire{ProcessID: childID,
@@ -299,7 +299,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 	cancel := controlValue(NewChildCancelEffect(childID, "stop"))
 	var canceled ChildControlResult
 	record.Effect = cancel
-	record.progress.settlement = new(controlValue(NewSettlement(id, SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
+	record.progress.settlement = new(controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(jsonv2.Marshal(canceled)))))
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 		t.Fatal("cancellation without intent accepted")
 	}

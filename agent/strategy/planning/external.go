@@ -90,8 +90,8 @@ func (a ActionResult) Valid() bool {
 }
 
 // NewActionSettlement closes an investigated action Effect with a definite result.
-func NewActionSettlement(effectID agent.EffectID, result ActionResult) (agent.Settlement, error) {
-	if !effectID.Valid() || !result.Valid() {
+func NewActionSettlement(result ActionResult) (agent.Settlement, error) {
+	if !result.Valid() {
 		return agent.Settlement{}, ErrInvalidProtocol
 	}
 	payload, err := actionSignal(result)
@@ -102,5 +102,5 @@ func NewActionSettlement(effectID agent.EffectID, result ActionResult) (agent.Se
 	if !result.Succeeded() {
 		status = agent.SettlementStatusFailed
 	}
-	return agent.NewSettlement(effectID, status, payload)
+	return agent.NewSettlement(status, payload)
 }

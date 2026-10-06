@@ -76,7 +76,7 @@ func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolveErr := root.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
+	if resolveErr := root.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
 		t.Fatal(resolveErr)
 	}
 	result, err := root.Await(ctx)

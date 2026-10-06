@@ -104,7 +104,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 			settlement, err := decorator.Dispatch(t.Context(), request, func(payload json.RawMessage) {
 				deltas = append(deltas, bytes.Clone(payload))
 			})
-			if err != nil || settlement.EffectID() != request.ID() || settlement.Status() != agent.SettlementStatusSucceeded ||
+			if err != nil || settlement.Status() != agent.SettlementStatusSucceeded ||
 				!bytes.Equal(settlement.Payload(), request.Effect().Payload()) {
 				t.Fatalf("settlement=%+v error=%v", settlement, err)
 			}

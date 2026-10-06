@@ -113,9 +113,9 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					if got := mustAwait(t, restored); got.Status() != result.Status() || got.Usage() != result.Usage() {
 						t.Fatalf("restored result = %+v, want %+v", got, result)
 					}
-					resolution, _ := NewSettlement(first.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
+					resolution, _ := NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 					for _, terminal := range []*Process{process, restored} {
-						if err := terminal.ResolveUnknownEffect(t.Context(), resolution); !errors.Is(err, ErrProcessFinished) {
+						if err := terminal.ResolveUnknownEffect(t.Context(), settled.ID, resolution); !errors.Is(err, ErrProcessFinished) {
 							t.Errorf("terminal resolution error = %v", err)
 						}
 						if current := inspectProcessSnapshot(t, terminal); !bytes.Equal(current.JSON(), snapshot.JSON()) {
@@ -222,7 +222,7 @@ func (c *cancellationDispatcher) Dispatch(
 ) (Settlement, error) {
 	c.entered <- request
 	if request.BatchIndex() != c.frontier {
-		return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{"done":true}`))
+		return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{"done":true}`))
 	}
 	select {
 	case <-ctx.Done():
@@ -233,7 +233,7 @@ func (c *cancellationDispatcher) Dispatch(
 	if c.status == SettlementStatusUnknown {
 		return Settlement{}, errors.New("external outcome is uncertain")
 	}
-	return NewSettlement(request.ID(), c.status, json.RawMessage(`{"done":true}`))
+	return NewSettlement(c.status, json.RawMessage(`{"done":true}`))
 }
 
 func (c *cancellationDispatcher) ReplayPolicy(Effect) ReplayPolicy {

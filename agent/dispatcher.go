@@ -125,8 +125,8 @@ type DeltaEmitter func(payload json.RawMessage)
 // original identity. Observation counters count dispatch attempts, including
 // replay, not distinct logical operations; the Definition example shows one.
 type Dispatcher interface {
-	// Dispatch performs one frozen Effect. The Settlement must address
-	// request.ID; a non-nil error means the external outcome is unknown, not
+	// Dispatch performs one frozen Effect and returns the Settlement answering
+	// request; a non-nil error means the external outcome is unknown, not
 	// definitely failed. emit is valid only during this call. The runtime
 	// cancels ctx, which keeps Host values, when terminal intent reaches this
 	// Process or an ancestor, and still collects the returned settlement. Panics

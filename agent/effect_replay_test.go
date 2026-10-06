@@ -51,7 +51,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 								return Settlement{}, errors.New("still uncertain")
 							}
 						}
-						return NewSettlement(request.ID(), SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
+						return NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 					}}
 					config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
 					store := &recordingTreeCommitter{}
@@ -84,8 +84,8 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 					if replayErr := process.ReplayUnknownEffect(t.Context(), ids[0]); !errors.Is(replayErr, ErrEffectNotPending) {
 						t.Fatalf("concurrent replay: %v", replayErr)
 					}
-					settlement, _ := NewSettlement(ids[0], SettlementStatusSucceeded, []byte(`{"kind":"result","value":"forged"}`))
-					if resolveErr := process.ResolveUnknownEffect(t.Context(), settlement); !errors.Is(resolveErr, ErrEffectNotPending) {
+					settlement, _ := NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"forged"}`))
+					if resolveErr := process.ResolveUnknownEffect(t.Context(), ids[0], settlement); !errors.Is(resolveErr, ErrEffectNotPending) {
 						t.Fatalf("concurrent resolution: %v", resolveErr)
 					}
 					canceled := outcome == "canceled_success" || outcome == "canceled_unknown"

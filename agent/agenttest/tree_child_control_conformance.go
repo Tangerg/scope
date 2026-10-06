@@ -275,8 +275,8 @@ func assertChildControlUnpublished(
 	if !rootFound || !childFound || !bytes.Equal(publishedChild.Snapshot.JSON(), priorChild.JSON()) {
 		t.Fatal("framework control recipient published before acknowledgment")
 	}
-	for _, settlement := range published.Snapshot.Settlements() {
-		if settlement.EffectID() == observation.boundary.Request().ID() {
+	for effectID := range published.Snapshot.Settlements() {
+		if effectID == observation.boundary.Request().ID() {
 			t.Fatal("framework control settlement published before acknowledgment")
 		}
 	}
@@ -303,7 +303,7 @@ func assertChildControlCut(t *testing.T, head agent.TreeSnapshot, boundary agent
 	if err := jsonv2.Unmarshal(settlement.Payload(), &result); err != nil {
 		t.Fatalf("framework control receipt is invalid: %v", err)
 	}
-	if !retainsSettlement(parent, settlement) {
+	if !retainsSettlement(parent, boundary.Request().ID(), settlement) {
 		t.Fatal("acknowledged parent is missing the framework control receipt")
 	}
 	scenario.assertFailure(t, "framework control", result)
@@ -320,9 +320,9 @@ func assertChildControlCut(t *testing.T, head agent.TreeSnapshot, boundary agent
 	assertChildControlAllocation(t, parent, child, before)
 }
 
-func retainsSettlement(process agent.ProcessSnapshot, settlement agent.Settlement) bool {
-	for _, recorded := range process.Settlements() {
-		if recorded.EffectID() == settlement.EffectID() && bytes.Equal(recorded.Payload(), settlement.Payload()) {
+func retainsSettlement(process agent.ProcessSnapshot, effectID agent.EffectID, settlement agent.Settlement) bool {
+	for recordedID, recorded := range process.Settlements() {
+		if recordedID == effectID && bytes.Equal(recorded.Payload(), settlement.Payload()) {
 			return true
 		}
 	}

@@ -47,7 +47,7 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 							return Settlement{}, errors.New("uncertain")
 						}
 						time.Sleep(7 * time.Millisecond)
-						return NewSettlement(request.ID(), SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
+						return NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 					}}
 					deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
 					input, err := EncodePayload(engineTestInput{Value: "original"})
@@ -71,12 +71,12 @@ func TestUnknownResolutionSeparatesAttemptsFromCommittedFacts(t *testing.T) {
 							result <- process.ReplayUnknownEffect(t.Context(), ids[0])
 							return
 						}
-						settlement, settlementErr := NewSettlement(ids[0], SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
+						settlement, settlementErr := NewSettlement(SettlementStatusSucceeded, []byte(`{"kind":"result","value":"confirmed"}`))
 						if settlementErr != nil {
 							result <- settlementErr
 							return
 						}
-						result <- process.ResolveUnknownEffect(t.Context(), settlement)
+						result <- process.ResolveUnknownEffect(t.Context(), ids[0], settlement)
 					}()
 					if mode != "memory" {
 						<-committer.entered
@@ -160,7 +160,7 @@ func TestDispatchFinishedPrecedesSettlementAcknowledgment(t *testing.T) {
 				engine := controlValue(NewEngine(EngineConfig{TreeCommitter: committer, EventListeners: []EventListener{listener}}))
 				defer mustCloseEngine(t, engine)
 				dispatcher := replayTestDispatcher{policy: ReplayPolicyNever, dispatch: func(_ context.Context, request EffectRequest) (Settlement, error) {
-					return NewSettlement(request.ID(), status, []byte(`{"kind":"result","value":"done"}`))
+					return NewSettlement(status, []byte(`{"kind":"result","value":"done"}`))
 				}}
 				process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher), controlValue(EncodePayload(engineTestInput{Value: "input"}))))
 				<-committer.entered
@@ -216,7 +216,7 @@ func TestDispatchCompletionRemainsObservableAfterRuntimeRejection(t *testing.T) 
 			} else {
 				runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(1)
 			}
-			completion := treeJobCompletion{processID: runtime.rootID, result: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`null`)))}}
+			completion := treeJobCompletion{processID: runtime.rootID, result: dispatchJobResult{effectID: request.ID(), settlement: controlValue(NewSettlement(SettlementStatusSucceeded, json.RawMessage(`null`)))}}
 			runtime.applyCompletion(completion)
 			runtime.applyCompletion(completion)
 			started, finished := 0, 0

@@ -43,12 +43,8 @@ func TestDispatcherUnknownRetainsControlledFailureObservation(t *testing.T) {
 		{name: "invalid settlement", kind: FailureKindContract, code: "engine.dispatch.settlement.invalid", dispatch: func(EffectRequest) (Settlement, error) {
 			return Settlement{}, nil
 		}},
-		{name: "different effect", kind: FailureKindContract, code: "engine.dispatch.settlement.invalid", dispatch: func(EffectRequest) (Settlement, error) {
-			id, _ := ParseEffectID("effect:another")
-			return NewSettlement(id, SettlementStatusSucceeded, []byte(`null`))
-		}},
 		{name: "explicit unknown", dispatch: func(request EffectRequest) (Settlement, error) {
-			return NewSettlement(request.ID(), SettlementStatusUnknown, []byte(`null`))
+			return NewSettlement(SettlementStatusUnknown, []byte(`null`))
 		}},
 	} {
 		for _, recording := range []bool{false, true} {

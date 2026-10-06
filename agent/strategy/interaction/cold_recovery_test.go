@@ -107,7 +107,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 			if !found {
 				t.Fatal("unknown owner was not restored")
 			}
-			if resolveErr := owner.ResolveUnknownEffect(ctx, settlement); resolveErr != nil {
+			if resolveErr := owner.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
 				t.Fatal(resolveErr)
 			}
 			result, err := root.Await(ctx)

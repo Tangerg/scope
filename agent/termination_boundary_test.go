@@ -43,7 +43,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				if process.status().Terminal() || record.phase() != effectPhasePending {
 					t.Fatal("failure discarded an owned attempt before its completion")
 				}
-				settlement, settlementErr := NewSettlement(record.ID, SettlementStatusUnknown, []byte(`null`))
+				settlement, settlementErr := NewSettlement(SettlementStatusUnknown, []byte(`null`))
 				if settlementErr != nil {
 					t.Fatal(settlementErr)
 				}

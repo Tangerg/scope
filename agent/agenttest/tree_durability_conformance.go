@@ -640,7 +640,7 @@ func (c conformanceDispatcher) Dispatch(
 	if c.unknown {
 		status = agent.SettlementStatusUnknown
 	}
-	return agent.NewSettlement(request.ID(), status, payload)
+	return agent.NewSettlement(status, payload)
 }
 
 func (conformanceDispatcher) ReplayPolicy(agent.Effect) agent.ReplayPolicy {
@@ -677,18 +677,18 @@ func startConformanceProcess(
 func resolveConformanceUnknown(t *testing.T, engine *agent.Engine, process *agent.Process, value string) {
 	t.Helper()
 	effectID := waitForConformanceUnknownEffect(t, engine, process)
-	if err := process.ResolveUnknownEffect(t.Context(), conformanceResolution(t, effectID, value)); err != nil {
+	if err := process.ResolveUnknownEffect(t.Context(), effectID, conformanceResolution(t, value)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func conformanceResolution(t *testing.T, effectID agent.EffectID, value string) agent.Settlement {
+func conformanceResolution(t *testing.T, value string) agent.Settlement {
 	t.Helper()
 	payload, err := jsonv2.Marshal(conformanceOutput{Value: value})
 	if err != nil {
 		t.Fatal(err)
 	}
-	settlement, err := agent.NewSettlement(effectID, agent.SettlementStatusSucceeded, payload)
+	settlement, err := agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 	if err != nil {
 		t.Fatal(err)
 	}

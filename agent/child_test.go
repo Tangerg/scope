@@ -1151,7 +1151,7 @@ func (c contextCheckingChildDispatcher) Dispatch(
 	if ctx.Done() == nil {
 		return Settlement{}, errors.New("child context has no owned cancellation path")
 	}
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
 func (contextCheckingChildDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }
@@ -1188,7 +1188,7 @@ func (b *blockingChildDispatcher) Dispatch(
 	}
 	b.started <- input.Name
 	<-release.done
-	return NewSettlement(request.ID(), SettlementStatusSucceeded, json.RawMessage(`{}`))
+	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
 }
 
 func (*blockingChildDispatcher) ReplayPolicy(Effect) ReplayPolicy { return ReplayPolicyNever }

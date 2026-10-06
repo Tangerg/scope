@@ -75,15 +75,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 		return agent.Settlement{}, ErrInvalidMessage
 	}
 	if d == nil || lo.IsNil(d.port) {
-		return messageFailureSettlement(request.ID(), ErrInvalidMessage)
+		return messageFailureSettlement(ErrInvalidMessage)
 	}
 	message, err := decodeMessage(request.Effect())
 	if err != nil {
-		return messageFailureSettlement(request.ID(), err)
+		return messageFailureSettlement(err)
 	}
 	signal, err := message.signalRequest(request.ID())
 	if err != nil {
-		return messageFailureSettlement(request.ID(), err)
+		return messageFailureSettlement(err)
 	}
 	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
@@ -92,15 +92,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(request.ID(), agent.SettlementStatusSucceeded, payload)
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
 var _ agent.Dispatcher = (*Dispatcher)(nil)
 
-func messageFailureSettlement(id agent.EffectID, cause error) (agent.Settlement, error) {
+func messageFailureSettlement(cause error) (agent.Settlement, error) {
 	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(id, agent.SettlementStatusFailed, payload)
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }
