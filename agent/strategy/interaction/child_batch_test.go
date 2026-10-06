@@ -534,7 +534,7 @@ func isolatedToolManifest(t *testing.T) (toolManifest, weak.Pointer[retainedTool
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tools.manifest, weak.Make(retained)
+	return tools.manifest(), weak.Make(retained)
 }
 
 func TestConcurrencyClassifierPanicFailsScheduling(t *testing.T) {
@@ -554,7 +554,7 @@ func TestConcurrencyClassifierPanicFailsScheduling(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []chat.ToolCall{{ID: "call", Name: "classified", Arguments: `{"task":"run"}`}}
-	end, err := tools.manifest.concurrentBatchEnd(t.Context(), calls)
+	end, err := tools.manifest().concurrentBatchEnd(t.Context(), calls)
 	panicErr, isPanic := errors.AsType[*agent.CallbackPanicError](err)
 	if end != 0 || !isPanic || panicErr.Operation != "ConcurrentTool policy" || panicErr.Value != "classifier failed" {
 		t.Fatalf("classifier panic = %d, %v", end, err)

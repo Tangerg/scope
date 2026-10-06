@@ -50,20 +50,17 @@ func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor)
 	executors := make(map[string]boundExecutor)
 	for _, binding := range bindings {
 		executor, found := supplied[binding.action.name]
-		switch binding.target {
-		case bindingTargetDispatcher:
-			if !found || lo.IsNil(executor) {
-				return nil, fmt.Errorf("%w: missing executor for Action %q", ErrInvalidDispatcherConfig, binding.action.name)
-			}
-			executors[binding.action.name] = boundExecutor{
-				action: binding.action, required: binding.required, executor: executor,
-			}
-		case bindingTargetChild:
+		if binding.delegatesToChild() {
 			if found {
 				return nil, fmt.Errorf("%w: child Action %q cannot have an executor", ErrInvalidDispatcherConfig, binding.action.name)
 			}
-		default:
-			return nil, ErrInvalidDispatcherConfig
+			continue
+		}
+		if !found || lo.IsNil(executor) {
+			return nil, fmt.Errorf("%w: missing executor for Action %q", ErrInvalidDispatcherConfig, binding.action.name)
+		}
+		executors[binding.action.name] = boundExecutor{
+			action: binding.action, required: binding.required, executor: executor,
 		}
 	}
 	for name, executor := range supplied {

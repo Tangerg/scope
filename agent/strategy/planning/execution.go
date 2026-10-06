@@ -126,20 +126,16 @@ func (e *execution) startAction(consumedSignals uint32, binding ActionBinding) (
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	switch binding.target {
-	case bindingTargetDispatcher:
-		effect, err := newActionEffect(input, binding, e.state.WorldState)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		e.state.CurrentActionName = binding.action.name
-		e.state.Phase = phaseAwaitingAction
-		return agent.Continue(consumedSignals, effect)
-	case bindingTargetChild:
+	if binding.delegatesToChild() {
 		return e.startChild(consumedSignals, binding, input)
-	default:
-		return agent.Transition{}, fmt.Errorf("%w: Action %q has an unknown binding target", ErrInvalidExecutionState, binding.action.name)
 	}
+	effect, err := newActionEffect(input, binding, e.state.WorldState)
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	e.state.CurrentActionName = binding.action.name
+	e.state.Phase = phaseAwaitingAction
+	return agent.Continue(consumedSignals, effect)
 }
 
 func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, input agent.Payload) (agent.Transition, error) {

@@ -67,7 +67,9 @@ func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) 
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidPendingToolInput, err)
 		}
-		if state.phase() != toolWaitingInput || state.WaitID == nil || waitID != *state.WaitID {
+		// The Engine owns which wait the Process awaits; the Tool state only
+		// says that it awaits input.
+		if state.phase() != toolWaitingInput {
 			return nil, ErrInvalidPendingToolInput
 		}
 		request := state.Checkpoint.InputRequest

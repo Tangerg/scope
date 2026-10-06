@@ -615,7 +615,7 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 	}
 	output, present := result.Output()
 	delegate, found := e.definition.delegate(call.Name)
-	if !present || !found || delegate.outputSchema.Validate(output.JSON()) != nil {
+	if !present || !found || delegate.deployment.Descriptor().OutputSchema().Validate(output.JSON()) != nil {
 		return fmt.Errorf("%w: Delegate child output violates its frozen contract", ErrInvalidExecutionState)
 	}
 	return nil

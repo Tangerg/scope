@@ -46,7 +46,7 @@ func (e executionState) phase(definition *Definition) phase {
 	if e.Phase != phaseAwaitingAction {
 		return e.Phase
 	}
-	if binding, found := definition.binding(e.CurrentActionName); found && binding.target == bindingTargetChild {
+	if binding, found := definition.binding(e.CurrentActionName); found && binding.delegatesToChild() {
 		return phaseChild
 	}
 	return e.Phase
@@ -129,7 +129,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
-	if binding.target != bindingTargetChild && e.Child != (childcall.Single{}) {
+	if !binding.delegatesToChild() && e.Child != (childcall.Single{}) {
 		return fmt.Errorf("%w: Dispatcher Action retains child progress", ErrInvalidExecutionState)
 	}
 	return nil

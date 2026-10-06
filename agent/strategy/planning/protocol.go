@@ -83,7 +83,7 @@ func newSenseEffect(input agent.Payload) (agent.Effect, error) {
 }
 
 func newActionEffect(input agent.Payload, binding ActionBinding, state WorldState) (agent.Effect, error) {
-	if !input.Valid() || !binding.Valid() || binding.target != bindingTargetDispatcher ||
+	if !input.Valid() || !binding.Valid() || binding.delegatesToChild() ||
 		!binding.action.Applicable(state) {
 		return agent.Effect{}, ErrInvalidProtocol
 	}

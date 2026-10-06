@@ -82,7 +82,6 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 			return fmt.Errorf("%w: candidate %d result is invalid", ErrInvalidExecutionState, index)
 		}
 	}
-	keys := make(map[agent.ChildKey]struct{}, len(f.Candidates))
 	for _, candidate := range f.Candidates {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -90,11 +89,8 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		if !candidate.Valid() {
 			return fmt.Errorf("%w: invalid candidate", ErrInvalidExecutionState)
 		}
-		if _, duplicate := keys[candidate.Key]; duplicate {
-			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidExecutionState)
-		}
-		keys[candidate.Key] = struct{}{}
 	}
+	// The batch owns key uniqueness across candidates.
 	if err := f.batch().Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}

@@ -71,20 +71,9 @@ func (e executionState) phase() phase {
 
 type artifactRecord struct {
 	ModelCallSequence uint64        `json:"model_call_sequence"`
-	ToolCallIndex     uint32        `json:"tool_call_index"`
 	ToolCallID        string        `json:"tool_call_id"`
 	DelegateName      string        `json:"delegate_name"`
 	Output            agent.Payload `json:"output"`
-}
-
-func (a *artifactRecord) UnmarshalJSON(data []byte) error {
-	type wire artifactRecord
-	decoded, err := jsonwire.Decode[wire](data, "tool_call_index")
-	if err != nil {
-		return err
-	}
-	*a = artifactRecord(decoded)
-	return nil
 }
 
 func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) error {
@@ -92,15 +81,16 @@ func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) 
 	if a.ModelCallSequence == 0 || a.ModelCallSequence > modelCallCount || a.ToolCallID == "" || !found || !a.Output.Valid() {
 		return errors.New("invalid identity or output")
 	}
-	if err := delegate.outputSchema.Validate(a.Output.JSON()); err != nil {
+	if err := delegate.deployment.Descriptor().OutputSchema().Validate(a.Output.JSON()); err != nil {
 		return fmt.Errorf("violates Delegate output contract: %w", err)
 	}
 	return nil
 }
 
+// follows keeps records in model-call order; within one model call the slice
+// keeps the ToolCall order in which the round recorded them.
 func (a artifactRecord) follows(previous artifactRecord) bool {
-	return a.ModelCallSequence > previous.ModelCallSequence ||
-		a.ModelCallSequence == previous.ModelCallSequence && a.ToolCallIndex > previous.ToolCallIndex
+	return a.ModelCallSequence >= previous.ModelCallSequence
 }
 
 func (e executionState) validate(ctx context.Context, definition *Definition) error {
@@ -307,7 +297,7 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *Defin
 			return fmt.Errorf("%w: artifact %d %w", ErrInvalidExecutionState, index, err)
 		}
 		if index > 0 && !artifact.follows(e.ArtifactRecords[index-1]) {
-			return fmt.Errorf("%w: artifacts are not in strict ToolCall order", ErrInvalidExecutionState)
+			return fmt.Errorf("%w: artifacts are not in model-call order", ErrInvalidExecutionState)
 		}
 		identity := artifactIdentity{modelCallSequence: artifact.ModelCallSequence, toolCallID: artifact.ToolCallID}
 		if _, duplicate := seen[identity]; duplicate {
@@ -335,8 +325,7 @@ func (e *executionState) recordRoundArtifacts(definition *Definition) error {
 			return fmt.Errorf("%w: Delegate result output: %w", ErrInvalidExecutionState, err)
 		}
 		e.ArtifactRecords = append(e.ArtifactRecords, artifactRecord{
-			ModelCallSequence: e.ModelCallCount, ToolCallIndex: uint32(index),
-			ToolCallID: calls[index].ID, DelegateName: calls[index].Name, Output: output,
+			ModelCallSequence: e.ModelCallCount, ToolCallID: calls[index].ID, DelegateName: calls[index].Name, Output: output,
 		})
 	}
 	return nil

@@ -121,7 +121,7 @@ func (d Decision) validateShape() error {
 }
 
 func (c Control) effect(task *Task) (agent.Effect, error) {
-	if task == nil || task.Request.Key != c.Task || (c.Signal == nil) == (c.CancelReason == nil) {
+	if task == nil || (c.Signal == nil) == (c.CancelReason == nil) {
 		return agent.Effect{}, ErrInvalidDecision
 	}
 	id, started := task.processID()

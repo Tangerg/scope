@@ -97,7 +97,7 @@ func (d *Definition) ChildDeployments() []agent.Deployment {
 	}
 	var children []agent.Deployment
 	for _, binding := range d.bindings {
-		if binding.target == bindingTargetChild {
+		if binding.delegatesToChild() {
 			children = append(children, binding.childDeployment)
 		}
 	}

@@ -1,8 +1,8 @@
 package interaction
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -27,29 +27,29 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 		{
 			name: "unknown Delegate",
 			artifacts: []artifactRecord{{
-				ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_1",
+				ModelCallSequence: 1, ToolCallID: "call_1",
 				DelegateName: "missing", Output: validOutput,
 			}},
 		},
 		{
 			name: "wrong schema",
 			artifacts: []artifactRecord{{
-				ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_1",
+				ModelCallSequence: 1, ToolCallID: "call_1",
 				DelegateName: "delegate_fuzz", Output: wrongOutput,
 			}},
 		},
 		{
 			name: "duplicate identity",
 			artifacts: []artifactRecord{
-				{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "same", DelegateName: "delegate_fuzz", Output: validOutput},
-				{ModelCallSequence: 1, ToolCallIndex: 1, ToolCallID: "same", DelegateName: "delegate_fuzz", Output: validOutput},
+				{ModelCallSequence: 1, ToolCallID: "same", DelegateName: "delegate_fuzz", Output: validOutput},
+				{ModelCallSequence: 1, ToolCallID: "same", DelegateName: "delegate_fuzz", Output: validOutput},
 			},
 		},
 		{
-			name: "reversed position",
+			name: "reversed model calls",
 			artifacts: []artifactRecord{
-				{ModelCallSequence: 1, ToolCallIndex: 1, ToolCallID: "later", DelegateName: "delegate_fuzz", Output: validOutput},
-				{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "earlier", DelegateName: "delegate_fuzz", Output: validOutput},
+				{ModelCallSequence: 2, ToolCallID: "later", DelegateName: "delegate_fuzz", Output: validOutput},
+				{ModelCallSequence: 1, ToolCallID: "earlier", DelegateName: "delegate_fuzz", Output: validOutput},
 			},
 		},
 	}
@@ -85,7 +85,7 @@ func TestRestoreStopsBetweenArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := executionState{ModelCallCount: 1, ArtifactRecords: []artifactRecord{
-		{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_1", DelegateName: "delegate_fuzz", Output: output}, {},
+		{ModelCallSequence: 1, ToolCallID: "call_1", DelegateName: "delegate_fuzz", Output: output}, {},
 	}}
 	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
 	defer cancel()
@@ -104,8 +104,8 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 		ModelCallCount: 3,
 		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
 		ArtifactRecords: []artifactRecord{
-			{ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
-			{ModelCallSequence: 2, ToolCallIndex: 7, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
+			{ModelCallSequence: 1, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
+			{ModelCallSequence: 2, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
 		},
 	}
 	envelope, err := agent.EncodeExecutionState(executionStateKind, state)
@@ -133,33 +133,8 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 			t.Fatalf("provenance=%+v", artifact)
 		}
 	}
-	if decoded.ArtifactRecords[1].ToolCallIndex != 7 {
-		t.Fatal("Restore changed an Artifact's original call position")
-	}
-	for _, mode := range []string{"missing", "null"} {
-		var fields map[string]json.RawMessage
-		if err = jsonv2.Unmarshal(envelope.Payload(), &fields); err != nil {
-			t.Fatal(err)
-		}
-		var records []map[string]json.RawMessage
-		if err = jsonv2.Unmarshal(fields["artifact_records"], &records); err != nil {
-			t.Fatal(err)
-		}
-		delete(records[1], "tool_call_index")
-		if mode == "null" {
-			records[1]["tool_call_index"] = json.RawMessage(`null`)
-		}
-		fields["artifact_records"], err = jsonv2.Marshal(records)
-		if err != nil {
-			t.Fatal(err)
-		}
-		invalid, encodeErr := agent.EncodeExecutionState(envelope.Kind(), fields)
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-		if _, restoreErr := definition.Restore(t.Context(), invalid); !errors.Is(restoreErr, ErrInvalidExecutionState) {
-			t.Fatalf("Restore accepted a missing Artifact position: %v", restoreErr)
-		}
+	if !bytes.Contains(again.Payload(), []byte(`"tool_call_id":"reused"`)) || bytes.Contains(again.Payload(), []byte("tool_call_index")) {
+		t.Fatalf("Artifact records keep a position beside their call identity: %s", again.Payload())
 	}
 }
 
@@ -179,7 +154,7 @@ func TestOpenRoundKeepsItsArtifactsInItsResults(t *testing.T) {
 	execution := childBatchTestExecution(t, childCallsDelegate, phaseWaitingChildren)
 	output, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
 	execution.state.ArtifactRecords = []artifactRecord{{
-		ModelCallSequence: execution.state.ModelCallCount, ToolCallIndex: 0, ToolCallID: "call_batch",
+		ModelCallSequence: execution.state.ModelCallCount, ToolCallID: "call_batch",
 		DelegateName: "delegate_fuzz", Output: output,
 	}}
 	captured, err := execution.Snapshot()

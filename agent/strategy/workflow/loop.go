@@ -46,7 +46,6 @@ type LoopConfig[T any] struct {
 type loopStage struct {
 	binding       childBinding
 	maxIterations agent.Quota
-	valueSchema   agent.Schema
 	predicate     func(context.Context, json.RawMessage) (bool, error)
 	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
 }
@@ -75,7 +74,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		id: config.ID, kind: StageKindLoop,
 		inputSchema: valueSchema, outputSchema: resultSchema,
 		loop: loopStage{
-			binding: binding, maxIterations: config.MaxIterations, valueSchema: valueSchema,
+			binding: binding, maxIterations: config.MaxIterations,
 			predicate: loopPredicate(config.ID, valueSchema, config.Predicate),
 			result:    loopResult[T](resultSchema),
 		},

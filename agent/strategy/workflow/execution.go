@@ -222,7 +222,8 @@ func (e *execution) waitKey() (agent.WaitKey, error) {
 
 func (e *execution) singleChildOutputSchema() agent.Schema {
 	if e.stage().kind == StageKindLoop {
-		return e.stage().loop.valueSchema
+		// A Loop body maps T to T, so its output schema is the Stage input.
+		return e.stage().inputSchema
 	}
 	return e.stage().outputSchema
 }

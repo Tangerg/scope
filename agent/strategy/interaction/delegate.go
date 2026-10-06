@@ -33,8 +33,6 @@ type DelegateConfig struct {
 type Delegate struct {
 	definition   chat.ToolDefinition
 	deployment   agent.Deployment
-	inputSchema  agent.Schema
-	outputSchema agent.Schema
 	budget       agent.Budget
 	capabilities agent.CapabilitySet
 }
@@ -56,14 +54,14 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 	}
 	return Delegate{
 		definition: definition, deployment: config.Deployment,
-		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(), budget: config.Budget,
+		budget:       config.Budget,
 		capabilities: config.Capabilities,
 	}, nil
 }
 
 func (d Delegate) Valid() bool {
 	return d.definition.Validate() == nil && agent.ValidDescription(d.definition.Description) &&
-		d.deployment.Valid() && d.inputSchema.Valid() && d.outputSchema.Valid() &&
+		d.deployment.Valid() &&
 		d.capabilities.Valid()
 }
 
@@ -71,7 +69,7 @@ func (d Delegate) validateInput(input agent.Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
 	}
-	return d.inputSchema.Validate(input.JSON())
+	return d.deployment.Descriptor().InputSchema().Validate(input.JSON())
 }
 
 func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResult, error) {

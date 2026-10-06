@@ -132,6 +132,19 @@ func TestRestoreKeepsCompletionWithoutItsOutput(t *testing.T) {
 	}
 }
 
+// fuzzWorkerDefinition supplies the Delegate contract the fuzz state targets;
+// restoration never runs it.
+type fuzzWorkerDefinition struct{ descriptor agent.Descriptor }
+
+func (f fuzzWorkerDefinition) Descriptor() agent.Descriptor       { return f.descriptor }
+func (fuzzWorkerDefinition) ChildDeployments() []agent.Deployment { return nil }
+func (fuzzWorkerDefinition) Start(agent.Payload) (agent.Execution, error) {
+	return nil, errors.New("fuzz worker never starts")
+}
+func (fuzzWorkerDefinition) Restore(context.Context, agent.ExecutionState) (agent.Execution, error) {
+	return nil, errors.New("fuzz worker never restores")
+}
+
 func fuzzInteractionDefinition(f testing.TB) *Definition {
 	f.Helper()
 	inputSchema, err := agent.SchemaFor[fuzzDelegateInput]()
@@ -142,15 +155,15 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 	if err != nil {
 		f.Fatal(err)
 	}
-	workerDefinition, err := NewDefinition(DefinitionConfig{
+	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name: "interaction.fuzz_worker", Description: "Provide a deterministic fuzz worker contract.",
-		MaxModelCalls: agent.NewQuota(1),
+		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
 		f.Fatal(err)
 	}
 	workerDeployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: workerDefinition, Dispatcher: fuzzDispatcher{},
+		Definition: fuzzWorkerDefinition{descriptor: descriptor}, Dispatcher: fuzzDispatcher{},
 		ImplementationDigest: agent.ComputeDigest([]byte("interaction-fuzz-worker-implementation")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("interaction-fuzz-worker-configuration")),
 	})
@@ -163,8 +176,8 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 			Name: "delegate_fuzz", Description: "Delegate one fuzz task to the exact worker.",
 			InputSchema: inputSchema.JSON(),
 		},
-		deployment: workerDeployment, inputSchema: inputSchema, outputSchema: outputSchema,
-		budget: budget, capabilities: agent.CapabilitySet{},
+		deployment: workerDeployment,
+		budget:     budget, capabilities: agent.CapabilitySet{},
 	}
 	definition, err := NewDefinition(DefinitionConfig{
 		Name: "interaction.fuzz", Description: "Exercise strict Interaction state restoration.",
@@ -211,7 +224,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 		{
 			WorkingContext: request.Clone(), ModelCallCount: 2,
 			ArtifactRecords: []artifactRecord{{
-				ModelCallSequence: 1, ToolCallIndex: 0, ToolCallID: "call_settled",
+				ModelCallSequence: 1, ToolCallID: "call_settled",
 				DelegateName: "delegate_fuzz", Output: artifactOutput,
 			}},
 		},

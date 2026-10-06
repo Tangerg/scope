@@ -6,14 +6,6 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-type bindingTarget uint8
-
-const (
-	bindingTargetInvalid bindingTarget = iota
-	bindingTargetDispatcher
-	bindingTargetChild
-)
-
 // ChildInputFunc derives a child Process input from the parent input and the
 // WorldState observed when the Action is selected.
 type ChildInputFunc func(processInput agent.Payload, worldState WorldState) (agent.Payload, error)
@@ -41,10 +33,10 @@ type ChildBindingConfig struct {
 }
 
 // ActionBinding is an immutable association between predictive Action
-// semantics and exactly one external execution mechanism.
+// semantics and exactly one external execution mechanism: a child Deployment
+// when one is bound, and the planning Dispatcher otherwise.
 type ActionBinding struct {
 	action            Action
-	target            bindingTarget
 	required          agent.CapabilitySet
 	childDeployment   agent.Deployment
 	childBudget       agent.Budget
@@ -60,7 +52,7 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 	if err != nil {
 		return ActionBinding{}, fmt.Errorf("%w: required capabilities: %w", ErrInvalidAction, err)
 	}
-	return ActionBinding{action: config.Action, target: bindingTargetDispatcher, required: required}, nil
+	return ActionBinding{action: config.Action, required: required}, nil
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
@@ -68,7 +60,7 @@ func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
 	return ActionBinding{
-		action: config.Action, target: bindingTargetChild,
+		action:          config.Action,
 		childDeployment: config.Deployment, childBudget: config.Budget, childCapabilities: config.Capabilities,
 		childInput: config.Input,
 	}, nil
@@ -76,20 +68,16 @@ func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 
 func (a ActionBinding) Action() Action { return a.action }
 
+func (a ActionBinding) delegatesToChild() bool { return a.childDeployment.Valid() }
+
 func (a ActionBinding) Valid() bool {
 	if !a.action.Valid() || !a.required.Valid() {
 		return false
 	}
-	switch a.target {
-	case bindingTargetDispatcher:
-		return !a.childDeployment.Valid() &&
-			a.childInput == nil
-	case bindingTargetChild:
-		return len(a.required.Values()) == 0 && a.childDeployment.Valid() &&
-			a.childCapabilities.Valid()
-	default:
-		return false
+	if a.delegatesToChild() {
+		return len(a.required.Values()) == 0 && a.childCapabilities.Valid()
 	}
+	return a.childInput == nil
 }
 
 func (a ActionBinding) childSpec(key agent.ChildKey, input agent.Payload) agent.ChildSpec {
