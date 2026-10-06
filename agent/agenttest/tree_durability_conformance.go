@@ -289,7 +289,6 @@ type conformanceDurabilityProbe struct {
 	mu          sync.Mutex
 	effects     []agent.EffectBoundary
 	checkpoints []agent.TreeCheckpoint
-	start       agent.TreeCheckpoint
 }
 
 func newConformanceDurabilityProbe(
@@ -333,9 +332,6 @@ func (c *conformanceDurabilityProbe) CommitCheckpoint(
 	if err == nil {
 		c.mu.Lock()
 		c.checkpoints = append(c.checkpoints, checkpoint)
-		if checkpoint.Kind() == agent.TreeCheckpointKindStart {
-			c.start = checkpoint
-		}
 		c.mu.Unlock()
 	}
 	return err
@@ -354,10 +350,16 @@ func (c *conformanceDurabilityProbe) latestCheckpoint() agent.TreeCheckpoint {
 	return c.checkpoints[len(c.checkpoints)-1]
 }
 
+// startCheckpoint is the recorded checkpoint that created the tree.
 func (c *conformanceDurabilityProbe) startCheckpoint() agent.TreeCheckpoint {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.start
+	for _, checkpoint := range c.checkpoints {
+		if checkpoint.Kind() == agent.TreeCheckpointKindStart {
+			return checkpoint
+		}
+	}
+	return agent.TreeCheckpoint{}
 }
 
 func (c *conformanceDurabilityProbe) effectBoundaries() []agent.EffectBoundary {

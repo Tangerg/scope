@@ -24,6 +24,12 @@ const (
 	voteWindowSize            = 2
 	urgentRouteID             = "urgent"
 	standardRouteID           = "standard"
+	factsSectionID            = "facts"
+	risksSectionID            = "risks"
+	approveFirstBallotID      = "approve_first"
+	rejectFirstBallotID       = "reject_first"
+	rejectSecondBallotID      = "reject_second"
+	approveSecondBallotID     = "approve_second"
 )
 
 func main() {
@@ -49,7 +55,7 @@ func run(ctx context.Context, output io.Writer) error {
 		report.Decision,
 		report.DecisionVotes,
 		report.TotalVotes,
-		evidence.ProcessCount,
+		evidence.ProcessCount(),
 	)
 	return err
 }
@@ -104,8 +110,16 @@ type patternReport struct {
 }
 
 type executionEvidence struct {
-	ProcessCount int
-	Deployments  map[string]int
+	Deployments map[string]int
+}
+
+// ProcessCount totals the Processes the Deployment counts already record.
+func (e executionEvidence) ProcessCount() int {
+	count := 0
+	for _, processes := range e.Deployments {
+		count += processes
+	}
+	return count
 }
 
 func execute(
@@ -144,7 +158,7 @@ func execute(
 		return patternReport{}, executionEvidence{}, err
 	}
 	snapshots := tree.ProcessSnapshots()
-	evidence := executionEvidence{ProcessCount: len(snapshots), Deployments: make(map[string]int)}
+	evidence := executionEvidence{Deployments: make(map[string]int)}
 	for _, snapshot := range snapshots {
 		evidence.Deployments[snapshot.DeploymentRef().Name()]++
 	}
@@ -205,35 +219,35 @@ func newPatternChildren() (patternChildren, error) {
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.urgent, err = routeDeployment("urgent")
+	children.urgent, err = routeDeployment(urgentRouteID)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.standard, err = routeDeployment("standard")
+	children.standard, err = routeDeployment(standardRouteID)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.facts, err = findingDeployment("facts")
+	children.facts, err = findingDeployment(factsSectionID)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.risks, err = findingDeployment("risks")
+	children.risks, err = findingDeployment(risksSectionID)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.approveFirst, err = ballotDeployment("approve_first", "approve")
+	children.approveFirst, err = ballotDeployment(approveFirstBallotID, "approve")
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.rejectFirst, err = ballotDeployment("reject_first", "reject")
+	children.rejectFirst, err = ballotDeployment(rejectFirstBallotID, "reject")
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.rejectSecond, err = ballotDeployment("reject_second", "reject")
+	children.rejectSecond, err = ballotDeployment(rejectSecondBallotID, "reject")
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.approveSecond, err = ballotDeployment("approve_second", "approve")
+	children.approveSecond, err = ballotDeployment(approveSecondBallotID, "approve")
 	if err != nil {
 		return patternChildren{}, err
 	}
@@ -265,8 +279,8 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 		return nil, err
 	}
 	sections := []workflow.ForkBranch{
-		{ID: "facts", Deployment: children.facts, Budget: budget},
-		{ID: "risks", Deployment: children.risks, Budget: budget},
+		{ID: factsSectionID, Deployment: children.facts, Budget: budget},
+		{ID: risksSectionID, Deployment: children.risks, Budget: budget},
 	}
 	section, err := workflow.Fork(workflow.ForkConfig[routedState, sectionContent, findingBundle]{
 		ID: "section", Branches: sections, WindowSize: sectionWindowSize,
@@ -285,10 +299,10 @@ func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow
 	vote, err := workflow.Fork(workflow.ForkConfig[findingBundle, ballot, patternReport]{
 		ID: "vote",
 		Branches: []workflow.ForkBranch{
-			{ID: "approve_first", Deployment: children.approveFirst, Budget: budget},
-			{ID: "reject_first", Deployment: children.rejectFirst, Budget: budget},
-			{ID: "reject_second", Deployment: children.rejectSecond, Budget: budget},
-			{ID: "approve_second", Deployment: children.approveSecond, Budget: budget},
+			{ID: approveFirstBallotID, Deployment: children.approveFirst, Budget: budget},
+			{ID: rejectFirstBallotID, Deployment: children.rejectFirst, Budget: budget},
+			{ID: rejectSecondBallotID, Deployment: children.rejectSecond, Budget: budget},
+			{ID: approveSecondBallotID, Deployment: children.approveSecond, Budget: budget},
 		},
 		WindowSize: voteWindowSize,
 		Reduce:     reduceBallots,
@@ -358,7 +372,7 @@ func newPatternRoot(
 }
 
 func routeDeployment(route string) (agent.Deployment, error) {
-	if route != "urgent" && route != "standard" {
+	if route != urgentRouteID && route != standardRouteID {
 		return agent.Deployment{}, errors.New("route must be urgent or standard")
 	}
 	return transformDeployment(
@@ -377,7 +391,7 @@ func routeDeployment(route string) (agent.Deployment, error) {
 }
 
 func findingDeployment(section string) (agent.Deployment, error) {
-	if section != "facts" && section != "risks" {
+	if section != factsSectionID && section != risksSectionID {
 		return agent.Deployment{}, errors.New("section must be facts or risks")
 	}
 	return transformDeployment(

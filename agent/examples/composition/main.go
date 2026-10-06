@@ -324,20 +324,29 @@ func (c compositionState) validChildren() bool {
 		c.ChildIDs[0] != c.ChildIDs[1]
 }
 
-func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
-	if c.WaitID == nil || completed.WaitID() != *c.WaitID {
-		return nil, errors.New("composition received another wait's result")
+// compositionWaitSpec is the one wait the composition opens over children.
+func compositionWaitSpec(children []agent.ProcessID) (agent.ChildWaitSpec, error) {
+	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
+	if err != nil {
+		return agent.ChildWaitSpec{}, err
 	}
-	outcomes := completed.Outcomes()
-	if len(outcomes) != compositionChildCount {
+	return agent.ChildWaitSpec{
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
+	}, nil
+}
+
+// waitOutcomes lets ChildWaitSatisfied.Matches correlate the answer with the
+// wait this state opened.
+func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
+	spec, err := compositionWaitSpec(c.ChildIDs)
+	if err != nil {
+		return nil, err
+	}
+	if c.WaitID == nil || !completed.Matches(*c.WaitID, spec) {
 		return nil, agent.ErrInvalidChildWait
 	}
-	for index, outcome := range outcomes {
-		if outcome.Result().ProcessID() != c.ChildIDs[index] {
-			return nil, agent.ErrInvalidChildWait
-		}
-	}
-	return outcomes, nil
+	return completed.Outcomes(), nil
 }
 
 type compositionExecution struct {
@@ -441,14 +450,11 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 	if failure != nil {
 		return agent.Fail(compositionChildCount, *failure)
 	}
-	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
+	spec, err := compositionWaitSpec(children)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	waitEffect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
-		Boundary: agent.ChildWaitBoundaryDrained,
-		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
-	})
+	waitEffect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}

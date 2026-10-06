@@ -65,7 +65,7 @@ func verifyExactResolution(config DeploymentResolverConformanceConfig) error {
 		if err != nil {
 			return fmt.Errorf("agenttest: resolver rejected its own binding %s: %w", reference.Name(), err)
 		}
-		if err := requireSameBinding(reference, deployment, resolved); err != nil {
+		if err := requireSameBinding(deployment, resolved); err != nil {
 			return err
 		}
 	}
@@ -110,7 +110,7 @@ func verifyRepeatedResolution(config DeploymentResolverConformanceConfig) error 
 			if err != nil {
 				return fmt.Errorf("agenttest: round %d rejected %s: %w", round, reference.Name(), err)
 			}
-			if err := requireSameBinding(reference, deployment, resolved); err != nil {
+			if err := requireSameBinding(deployment, resolved); err != nil {
 				return fmt.Errorf("agenttest: round %d: %w", round, err)
 			}
 		}
@@ -132,7 +132,7 @@ func verifyConcurrentResolution(config DeploymentResolverConformanceConfig) erro
 					failures <- fmt.Errorf("agenttest: concurrent lookup rejected %s: %w", reference.Name(), err)
 					return
 				}
-				if err := requireSameBinding(reference, deployment, resolved); err != nil {
+				if err := requireSameBinding(deployment, resolved); err != nil {
 					failures <- err
 				}
 			}()
@@ -203,7 +203,8 @@ func nameCollisionReference(deployment agent.Deployment) (agent.DeploymentRef, e
 	return collision, nil
 }
 
-func requireSameBinding(reference agent.DeploymentRef, want, got agent.Deployment) error {
+func requireSameBinding(want, got agent.Deployment) error {
+	reference := want.DeploymentRef()
 	if !got.Valid() {
 		return fmt.Errorf("agenttest: resolver returned an invalid Deployment for %s", reference.Name())
 	}
