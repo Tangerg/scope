@@ -268,9 +268,7 @@ func protocolCitations(metadata *genai.CitationMetadata) []corechat.Citation {
 			Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: citation.URI},
 			Title:  citation.Title,
 		}
-		if mapped.Validate() == nil {
-			result = append(result, mapped)
-		}
+		result = append(result, mapped)
 	}
 	return result
 }

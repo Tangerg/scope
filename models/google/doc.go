@@ -4,6 +4,8 @@
 // Native chat maps a natural stop with function calls to Core tool_calls while
 // preserving interrupted and invalid-call outcomes and the native finish reason.
 // Native chat request extensions use the SDK's camelCase JSON fields only.
+// Core Citation owns validation of native citations with a URI. Invalid
+// citations fail Call and Stream rather than disappearing from a successful response.
 // Sampling, output format, reasoning effort, system messages, function tools,
 // and tool choice belong to Core; attempts to set them again in native config
 // are rejected even when the Core value is absent. Native safety, grounding,
