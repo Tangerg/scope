@@ -149,92 +149,98 @@ func TestNativeCitationAdmission(t *testing.T) {
 			{name: "padded title", uri: "https://example.com/source", title: " Source ", invalid: true},
 			{name: "no URI", title: "Source without a portable identity"},
 		} {
-			t.Run(provider+"/"+sample.name, func(t *testing.T) {
-				citations, err := jsonv2.Marshal([]genai.Citation{{URI: sample.uri, Title: sample.title}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				citationField := "citations"
-				if provider == "google" {
-					citationField = "citationSources"
-				}
-				data := fmt.Sprintf(`{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP","citationMetadata":{%q:%s}}]}`, citationField, citations)
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "text/event-stream")
-					fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"prefix \"}]}}]}\n\n")
-					fmt.Fprintf(w, "data: %s\n\n", data)
-				}))
-				defer server.Close()
-				model := newNativeChat(t, provider, server)
-				request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
-				if err != nil {
-					t.Fatal(err)
-				}
-				assertResponse := func(t *testing.T, response *chat.Response) {
-					t.Helper()
-					if response.Text() != "prefix answer" {
-						t.Fatalf("response text = %q", response.Text())
+			for _, text := range []string{"answer", ""} {
+				t.Run(provider+"/"+sample.name+"/text="+text, func(t *testing.T) {
+					citations, err := jsonv2.Marshal([]genai.Citation{{URI: sample.uri, Title: sample.title}})
+					if err != nil {
+						t.Fatal(err)
 					}
-					citations := response.Output.Message.Parts[0].Citations
-					if sample.uri == "" {
-						if len(citations) != 0 {
-							t.Fatalf("source-less citations = %#v", citations)
+					citationField := "citations"
+					if provider == "google" {
+						citationField = "citationSources"
+					}
+					contentField := ""
+					if text != "" {
+						contentField = fmt.Sprintf(`"content":{"parts":[{"text":%q}]},`, text)
+					}
+					data := fmt.Sprintf(`{"candidates":[{%s"finishReason":"STOP","citationMetadata":{%q:%s}}]}`, contentField, citationField, citations)
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "text/event-stream")
+						fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"prefix \"}]}}]}\n\n")
+						fmt.Fprintf(w, "data: %s\n\n", data)
+					}))
+					defer server.Close()
+					model := newNativeChat(t, provider, server)
+					request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertResponse := func(t *testing.T, response *chat.Response) {
+						t.Helper()
+						if response.Text() != "prefix "+text {
+							t.Fatalf("response text = %q", response.Text())
 						}
-						return
-					}
-					if len(citations) != 1 || citations[0].Source.Value != sample.uri || citations[0].Title != sample.title {
-						t.Fatalf("citations = %#v", citations)
-					}
-				}
-				t.Run("call", func(t *testing.T) {
-					response, callErr := model.Call(t.Context(), request)
-					if sample.invalid {
-						if response != nil || !errors.Is(callErr, chat.ErrInvalidCitation) {
-							t.Fatalf("invalid citation: response = %#v, error = %v", response, callErr)
-						}
-						return
-					}
-					if callErr != nil {
-						t.Fatal(callErr)
-					}
-					assertResponse(t, response)
-				})
-				t.Run("stream", func(t *testing.T) {
-					var accumulator chat.ResponseAccumulator
-					var streamErr error
-					errorsObserved := 0
-					for delta, deltaErr := range model.Stream(t.Context(), request) {
-						if deltaErr != nil {
-							if delta != nil {
-								t.Fatal("failed citation mapping yielded a response")
+						citations := response.Output.Message.Parts[0].Citations
+						if sample.uri == "" {
+							if len(citations) != 0 {
+								t.Fatalf("source-less citations = %#v", citations)
 							}
-							streamErr = deltaErr
-							errorsObserved++
-							continue
+							return
 						}
-						if addErr := accumulator.Add(delta); addErr != nil {
-							t.Fatal(addErr)
+						if len(citations) != 1 || citations[0].Source.Value != sample.uri || citations[0].Title != sample.title {
+							t.Fatalf("citations = %#v", citations)
 						}
 					}
-					if sample.invalid {
-						if errorsObserved != 1 || !errors.Is(streamErr, chat.ErrInvalidCitation) {
-							t.Fatalf("invalid citation: errors = %d, error = %v", errorsObserved, streamErr)
+					t.Run("call", func(t *testing.T) {
+						response, callErr := model.Call(t.Context(), request)
+						if sample.invalid {
+							if response != nil || !errors.Is(callErr, chat.ErrInvalidCitation) {
+								t.Fatalf("invalid citation: response = %#v, error = %v", response, callErr)
+							}
+							return
 						}
-						if response, completeErr := accumulator.Response(); completeErr == nil || response != nil {
-							t.Fatalf("failed stream completed: response = %#v, error = %v", response, completeErr)
+						if callErr != nil {
+							t.Fatal(callErr)
 						}
-						return
-					}
-					if streamErr != nil {
-						t.Fatal(streamErr)
-					}
-					response, completeErr := accumulator.Response()
-					if completeErr != nil {
-						t.Fatal(completeErr)
-					}
-					assertResponse(t, response)
+						assertResponse(t, response)
+					})
+					t.Run("stream", func(t *testing.T) {
+						var accumulator chat.ResponseAccumulator
+						var streamErr error
+						errorsObserved := 0
+						for delta, deltaErr := range model.Stream(t.Context(), request) {
+							if deltaErr != nil {
+								if delta != nil {
+									t.Fatal("failed citation mapping yielded a response")
+								}
+								streamErr = deltaErr
+								errorsObserved++
+								continue
+							}
+							if addErr := accumulator.Add(delta); addErr != nil {
+								t.Fatal(addErr)
+							}
+						}
+						if sample.invalid {
+							if errorsObserved != 1 || !errors.Is(streamErr, chat.ErrInvalidCitation) {
+								t.Fatalf("invalid citation: errors = %d, error = %v", errorsObserved, streamErr)
+							}
+							if response, completeErr := accumulator.Response(); completeErr == nil || response != nil {
+								t.Fatalf("failed stream completed: response = %#v, error = %v", response, completeErr)
+							}
+							return
+						}
+						if streamErr != nil {
+							t.Fatal(streamErr)
+						}
+						response, completeErr := accumulator.Response()
+						if completeErr != nil {
+							t.Fatal(completeErr)
+						}
+						assertResponse(t, response)
+					})
 				})
-			})
+			}
 		}
 	}
 }

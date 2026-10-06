@@ -20,7 +20,6 @@ const (
 type protocolResponseMapper struct {
 	partOffset   int
 	provider     string
-	lastPartKind corechat.PartKind
 	finish       corechat.FinishReason
 	hasToolCalls bool
 }
@@ -163,11 +162,12 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 			return err
 		}
 	}
-	if candidate.Content == nil {
-		return nil
+	var parts []*genai.Part
+	if candidate.Content != nil {
+		parts = candidate.Content.Parts
 	}
 	offset := p.partOffset
-	for partIndex, part := range candidate.Content.Parts {
+	for partIndex, part := range parts {
 		if part == nil {
 			return fmt.Errorf("content.parts[%d]: nil part", partIndex)
 		}
@@ -177,15 +177,12 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 		}
 		if include {
 			response.Parts = append(response.Parts, delta)
-			p.lastPartKind = kind
 			p.hasToolCalls = p.hasToolCalls || kind == corechat.PartToolCall
 		}
 	}
-	p.partOffset = offset + len(candidate.Content.Parts)
-	if p.lastPartKind == corechat.PartText {
-		for _, citation := range protocolCitations(candidate.CitationMetadata) {
-			response.Parts = append(response.Parts, corechat.NewCitationDelta(citation))
-		}
+	p.partOffset = offset + len(parts)
+	for _, citation := range protocolCitations(candidate.CitationMetadata) {
+		response.Parts = append(response.Parts, corechat.NewCitationDelta(citation))
 	}
 	return nil
 }

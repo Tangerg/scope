@@ -16,6 +16,7 @@
 // including IDs synthesized when the provider omitted one.
 // Core Citation owns validation of native citations with a URI. Invalid
 // citations fail Call and Stream rather than disappearing from a successful response.
+// Citation-only chunks reach Core's accumulator, which owns text attachment.
 // Thought signatures, including empty-text Parts, survive Core history
 // serialization and replay in their original Part positions.
 // Core Part.Kind owns the thought classification of visible text. Native

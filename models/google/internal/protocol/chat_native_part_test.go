@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -237,6 +238,18 @@ func TestProtocolMapsCitationMetadata(t *testing.T) {
 	citations := response.Output.Message.Parts[0].Citations
 	if len(citations) != 1 || citations[0].Source.Value != "https://example.com/source" || citations[0].Title != "Source" {
 		t.Fatalf("citations = %#v", citations)
+	}
+}
+
+func TestProtocolCitationAttachmentUsesCoreContent(t *testing.T) {
+	for _, content := range []*genai.Content{nil, {Parts: []*genai.Part{{Text: "reasoning", Thought: true}}}} {
+		response, err := aggregateProtocolResponse(t, "google", &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+			Content: content, FinishReason: genai.FinishReasonStop,
+			CitationMetadata: &genai.CitationMetadata{Citations: []*genai.Citation{{URI: "https://example.com/source"}}},
+		}}})
+		if response != nil || !errors.Is(err, corechat.ErrInvalidResponse) {
+			t.Fatalf("citation without visible text completed: response = %#v, error = %v", response, err)
+		}
 	}
 }
 
