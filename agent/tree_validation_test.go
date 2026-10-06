@@ -72,7 +72,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 	root := wire.ProcessSnapshots[0].state
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
-	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, ChildWaitBoundaryDrained, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	root.Mailbox.Signals[1].Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	return controlValue(newTreeSnapshot(wire))
@@ -124,7 +124,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 		t.Fatal(err)
 	}
 	for _, wait := range retained {
-		signal := controlValue(encodeChildWaitSatisfied(wait.waitID, outcomes))
+		signal := controlValue(encodeChildWaitSatisfied(wait.waitID, wait.spec.Boundary, outcomes))
 		if _, err := mailbox.enqueue(StatusPaused, signal, signalSourceChildWait); err != nil {
 			t.Fatal(err)
 		}
@@ -183,7 +183,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
 	record := &root.Mailbox.Signals[1]
 	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
-	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
+	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, satisfied.boundary, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
 	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {

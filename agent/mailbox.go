@@ -532,7 +532,7 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 	if err != nil {
 		return nil, fmt.Errorf("%w: child-wait answer needs its opened wait: %w", errWaitState, err)
 	}
-	satisfied := ChildWaitSatisfied{waitID: waitID}
+	satisfied := ChildWaitSatisfied{waitID: waitID, boundary: spec.Boundary}
 	for _, child := range answered {
 		outcome, outcomeErr := outcomes(child, spec.Boundary)
 		if outcomeErr != nil {
@@ -543,7 +543,7 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 	if !satisfied.Matches(waitID, spec) {
 		return nil, fmt.Errorf("%w: answered children do not satisfy their wait", errWaitState)
 	}
-	signal, err := encodeChildWaitSatisfied(waitID, satisfied.outcomes)
+	signal, err := encodeChildWaitSatisfied(waitID, spec.Boundary, satisfied.outcomes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: child-wait answer: %w", errWaitState, err)
 	}

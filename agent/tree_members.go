@@ -156,7 +156,7 @@ func (t *treeMembers) childWaitAnswer(opened openedChildWait) (Signal, bool, err
 	if uint32(len(outcomes)) < spec.required() {
 		return Signal{}, false, nil
 	}
-	signal, err := encodeChildWaitSatisfied(opened.waitID, outcomes)
+	signal, err := encodeChildWaitSatisfied(opened.waitID, spec.Boundary, outcomes)
 	if err != nil {
 		return Signal{}, false, err
 	}

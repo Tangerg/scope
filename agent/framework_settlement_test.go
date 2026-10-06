@@ -49,7 +49,7 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "test failure"))
 	now := time.Now().UTC()
 	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
-	completed := controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
+	completed := controlValue(encodeChildWaitSatisfied(waitID, ChildWaitBoundaryDrained, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
 	for _, test := range []struct {
 		name   string
 		signal Signal
@@ -293,5 +293,39 @@ func settleTestFramework(record *preparedEffect, failure Failure) error {
 		return record.settleLocally(operation)
 	default:
 		return record.settleOperation(operation, failure)
+	}
+}
+
+func TestChildWaitSatisfiedStatesItsBoundaryOnce(t *testing.T) {
+	effectID := controlValue(ParseProcessID("process:satisfied")).effectID(1, 0)
+	waitID, childID := effectID.waitID(), effectID.childProcessID()
+	now := time.Unix(1, 0).UTC()
+	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "failed"))
+	result := Result{processID: childID, startedAt: now, finishedAt: now, termination: failure.termination()}
+	signal := controlValue(encodeChildWaitSatisfied(waitID, ChildWaitBoundaryDrained, []ChildOutcome{{result: result, descendantUnresolvedEffects: new([]UnresolvedEffect{})}}))
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(signal.Payload(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["boundary"]) != `"subtree_drained"` || strings.Contains(string(fields["outcomes"]), "descendant_unresolved_effects") {
+		t.Fatalf("satisfaction payload = %s, want one boundary and no per-outcome marker", signal.Payload())
+	}
+	satisfied := controlValue(ParseChildWaitSatisfied(signal))
+	if !satisfied.Outcomes()[0].SubtreeResolved() {
+		t.Fatal("drained boundary did not mark its outcome resolved")
+	}
+	descendant := controlValue(ParseProcessID("process:grandchild"))
+	evidence := `[{"process_id":"` + descendant.String() + `","effect_id":"` + descendant.effectID(1, 0).String() + `"}]`
+	for name, payload := range map[string]string{
+		"missing boundary":                 strings.Replace(string(signal.Payload()), `"boundary":"subtree_drained",`, ``, 1),
+		"descendants at a result boundary": strings.Replace(strings.Replace(string(signal.Payload()), `subtree_drained`, `terminal_result`, 1), `}}]`, `},"descendant_unresolved_effects":`+evidence+`}]`, 1),
+	} {
+		if payload == string(signal.Payload()) {
+			t.Fatalf("%s fixture did not change the payload", name)
+		}
+		forged := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, json.RawMessage(payload)))
+		if _, err := ParseChildWaitSatisfied(forged); !errors.Is(err, ErrInvalidChildWait) {
+			t.Errorf("%s accepted: %v", name, err)
+		}
 	}
 }
