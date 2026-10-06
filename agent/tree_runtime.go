@@ -91,10 +91,9 @@ type treeCommit struct {
 // pendingChildStartPublication carries a finished child start to its
 // commit. The plan owns the parent and child identities.
 type pendingChildStartPublication struct {
-	effectID EffectID
-	plan     *childStartPlan
-	result   childStartJobResult
-	event    eventDraft
+	plan   *childStartPlan
+	result childStartJobResult
+	event  eventDraft
 }
 
 type stepJobResult struct {
@@ -126,8 +125,8 @@ const (
 	stepJobStageRestore
 )
 
+// dispatchJobResult answers the job it completes; that job owns the EffectID.
 type dispatchJobResult struct {
-	effectID   EffectID
 	settlement Settlement
 	dropped    uint64
 	err        error
@@ -481,26 +480,26 @@ func (t *treeRuntime) prepareChildStart(
 	spec ChildSpec,
 ) childStartPreparation {
 	if !spec.Valid() || !process.handle.relation.Valid() {
-		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
+		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
 	}
 	relation := childProcessRelation(effectID.childProcessID(), process.handle.relation, spec.Key)
 	if !process.handle.capabilities.Allows(spec.Capabilities) {
-		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
+		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
 	}
 	if !t.canStartChild(process) {
-		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
+		return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
 	}
 	if !process.canReserveChildBudget(spec.Budget, t.childDebits(process)) {
-		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
+		return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
 	}
 	if reserveProcessStartErr := t.engine.reserveProcessStart(relation); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
-			return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
+			return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
 		}
 		if errors.Is(reserveProcessStartErr, ErrEngineClosed) {
-			return childStartPreparation{result: failedChildStart(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
+			return childStartPreparation{failure: failedChildStart(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
 		}
-		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
+		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
 	}
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
@@ -1342,7 +1341,7 @@ func (t *treeRuntime) startStep(process *processState) {
 	if !ok {
 		return
 	}
-	sequence := process.committedSteps + 1
+	sequence := process.preparedStepSequence()
 	t.events.emit(process, EventStepStarted, sequence, EffectID{}, emptyEventPayload())
 	execution := process.execution
 	process.execution = nil
@@ -1510,7 +1509,7 @@ func (t *treeRuntime) startChild(
 	}
 	preparation := t.prepareChildStart(process, record.ID, spec)
 	if preparation.plan == nil {
-		if err := t.settleChildStart(process, record.ID, preparation.result, observation); err != nil {
+		if err := t.settleChildStart(process, record.ID, preparation.failure, observation); err != nil {
 			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
 			return
 		}
@@ -1575,7 +1574,6 @@ func (t *treeRuntime) startDispatch(
 			attempt:   attempt,
 			result: dispatchJobResult{
 				err:        err,
-				effectID:   record.ID,
 				settlement: settlement,
 				dropped:    dropped,
 			},
@@ -1660,7 +1658,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	result childStartJobResult,
 ) {
 	plan := job.childStart
-	pending := &pendingChildStartPublication{effectID: job.effectID, plan: plan, result: result}
+	pending := &pendingChildStartPublication{plan: plan, result: result}
 	transferred := false
 	var publicationErr, checkpointErr error
 	defer func() {
@@ -1673,19 +1671,19 @@ func (t *treeRuntime) applyChildStartCompletion(
 			t.failRuntime(checkpointErr, parent.handle.processID(), job.effectID)
 		}
 	}()
-	if publicationErr = t.applyChildStart(pending); publicationErr != nil {
+	if publicationErr = t.applyChildStart(job.effectID, pending); publicationErr != nil {
 		return
 	}
 
 	pending.event = t.events.settlement(parent,
 		job.effectID, EffectTargetFramework,
-		pending.result.result.settlementStatus(), job.effectAttempt, nil,
+		ChildStartResult{failure: pending.result.failure}.settlementStatus(), job.effectAttempt, nil,
 	)
 	snapshot, err := t.captureTree()
 	if err == nil {
 		commit := &treeCommit{
 			kind: treeCommitEffectSettled, processID: parent.handle.processID(),
-			effectID: pending.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
+			effectID: job.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
 		}
 		if pending.result.started() {
 			commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
@@ -1696,7 +1694,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	transferred = err == nil && pending.result.started()
 }
 
-func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) error {
+func (t *treeRuntime) applyChildStart(effectID EffectID, pending *pendingChildStartPublication) error {
 	if pending == nil || pending.plan == nil {
 		return errors.New("child start publication is incomplete")
 	}
@@ -1716,15 +1714,15 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 			pending.plan.spec.Capabilities,
 			pending.result.startedAt)
 		child := newProcessState(handle, pending.result.execution, pending.result.state)
-		if _, err := t.applyChildStartSettlement(candidate, pending.effectID, pending.result.result); err != nil {
+		if _, err := t.applyChildStartSettlement(candidate, effectID, pending.result.failure); err != nil {
 			return err
 		}
 		if err := t.validateSnapshotCapacity(candidate, child); err != nil {
 			if !errors.Is(err, ErrResourceLimitExceeded) {
 				return err
 			}
-			pending.result = childStartJobResult{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
-			_, err = t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
+			pending.result = childStartJobResult{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
+			_, err = t.applyChildStartSettlement(parent, effectID, pending.result.failure)
 			return err
 		}
 		parent.adoptCandidate(candidate)
@@ -1735,17 +1733,17 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		}
 		return nil
 	}
-	_, err := t.applyChildStartSettlement(parent, pending.effectID, pending.result.result)
+	_, err := t.applyChildStartSettlement(parent, effectID, pending.result.failure)
 	return err
 }
 
 func (t *treeRuntime) settleChildStart(
 	parent *processState,
 	effectID EffectID,
-	result ChildStartResult,
+	failure Failure,
 	observation effectAttempt,
 ) error {
-	status, err := t.applyChildStartSettlement(parent, effectID, result)
+	status, err := t.applyChildStartSettlement(parent, effectID, failure)
 	if err != nil {
 		return err
 	}
@@ -1756,7 +1754,7 @@ func (t *treeRuntime) settleChildStart(
 func (t *treeRuntime) applyChildStartSettlement(
 	parent *processState,
 	effectID EffectID,
-	result ChildStartResult,
+	failure Failure,
 ) (SettlementStatus, error) {
 	_, record := parent.prepared.pendingEffect(effectID)
 	if record == nil {
@@ -1766,7 +1764,7 @@ func (t *treeRuntime) applyChildStartSettlement(
 	if err != nil {
 		return SettlementStatusInvalid, err
 	}
-	if err := record.settleOperation(operation, result.failure); err != nil {
+	if err := record.settleOperation(operation, failure); err != nil {
 		return SettlementStatusInvalid, err
 	}
 	return record.settlement().Status(), nil
@@ -1781,7 +1779,7 @@ func (t *treeRuntime) applyStepCompletion(
 	process *processState,
 	result stepJobResult,
 ) {
-	sequence := process.committedSteps + 1
+	sequence := process.preparedStepSequence()
 	if result.err != nil {
 		t.failStep(process, result)
 		return
@@ -1815,7 +1813,7 @@ func (t *treeRuntime) failStep(process *processState, result stepJobResult) {
 		code = failureCodeExecutionSnapshotUnrestorable
 	}
 	sealed, ok := errors.AsType[*callbackError](result.err)
-	if !ok || sealed == nil || result.stage != stepJobStageExecution || sealed.kind == FailureKindPanic || !sealed.step.Valid() {
+	if !ok || sealed == nil || result.stage != stepJobStageExecution || !sealed.step.Valid() {
 		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
 		return
 	}
@@ -1843,7 +1841,7 @@ func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error 
 
 func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
 	process.counters.DroppedDeltas = saturatingCountAdd(process.counters.DroppedDeltas, result.dropped)
-	t.events.dispatchFinished(process, job.effectAttempt, result)
+	t.events.dispatchFinished(process, job.effectID, job.effectAttempt, result)
 }
 
 func (t *treeRuntime) applyDispatchCompletion(
@@ -1854,7 +1852,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	// A current dispatch job owns the Effect frontier: nothing else may settle,
 	// revoke, or resolve that Effect while the job runs.
 	index, record, nextErr := process.prepared.nextEffect()
-	if nextErr != nil || record == nil || record.ID != result.effectID {
+	if nextErr != nil || record == nil || record.ID != job.effectID {
 		panic("agent: dispatch completion does not answer the Effect frontier")
 	}
 	settlement := result.settlement

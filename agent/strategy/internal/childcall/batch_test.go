@@ -226,15 +226,10 @@ func batchCompletion(t *testing.T, waitID string, drained bool, processIDs ...st
 		}
 		outcomes = append(outcomes, value.Outcomes()...)
 	}
-	boundary := agent.ChildWaitBoundaryResult
-	if drained {
-		boundary = agent.ChildWaitBoundaryDrained
-	}
 	payload := struct {
-		Operation string                  `json:"operation"`
-		Boundary  agent.ChildWaitBoundary `json:"boundary"`
-		Outcomes  []agent.ChildOutcome    `json:"outcomes"`
-	}{"child_wait_satisfied", boundary, outcomes}
+		Operation string               `json:"operation"`
+		Outcomes  []agent.ChildOutcome `json:"outcomes"`
+	}{"child_wait_satisfied", outcomes}
 	data, err := jsonv2.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)

@@ -25,7 +25,7 @@ func drainedSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	if err := root.mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := root.mailbox.enqueue(StatusWaiting, controlValue(encodeChildWaitSatisfied(waitID, spec.Boundary, outcomes)), signalSourceChildWait); err != nil {
+	if _, err := root.mailbox.enqueue(StatusWaiting, controlValue(encodeChildWaitSatisfied(waitID, outcomes)), signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
 	root.pause = pause{reason: "retain child outcomes"}

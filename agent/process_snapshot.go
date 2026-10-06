@@ -74,6 +74,8 @@ type processSnapshotRecord processSnapshotWire
 // committed progress; its pending child-wait answers render from its retained
 // children. Only a tree, which owns that context, decodes it.
 type processSnapshotDocument struct {
+	// ProcessID persists the identity the in-memory relation owns.
+	ProcessID ProcessID `json:"process_id"`
 	processSnapshotRecord
 	ParentID *ProcessID        `json:"parent_id,omitzero"`
 	ChildKey *ChildKey         `json:"child_key,omitzero"`
@@ -124,7 +126,7 @@ func (p processSnapshotDocument) snapshot(relation ProcessRelation, outcomes chi
 		if wire.CommittedSteps == math.MaxUint64 {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 		}
-		prepared, err := p.Prepared.step(wire.ProcessID, wire.CommittedSteps+1, grants)
+		prepared, err := p.Prepared.step(relation.ProcessID(), wire.CommittedSteps+1, grants)
 		if err != nil {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step: %w", ErrInvalidSnapshot, err)
 		}
@@ -138,7 +140,7 @@ func (p processSnapshotWire) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	document := processSnapshotDocument{processSnapshotRecord: processSnapshotRecord(p), Mailbox: mailbox}
+	document := processSnapshotDocument{ProcessID: p.processID(), processSnapshotRecord: processSnapshotRecord(p), Mailbox: mailbox}
 	if identity, child := p.Relation.childIdentity(); child {
 		document.ParentID, document.ChildKey = &identity.parent, &identity.key
 	}
@@ -193,7 +195,7 @@ func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
 }
 
 func (p ProcessSnapshot) ProcessID() ProcessID {
-	return p.state.ProcessID
+	return p.state.processID()
 }
 
 func (p ProcessSnapshot) DeploymentRef() DeploymentRef {
@@ -333,8 +335,8 @@ type cancellationIntentWire struct {
 
 // processSnapshotWire persists lifecycle facts, never the Status they project.
 type processSnapshotWire struct {
-	ProcessID ProcessID `json:"process_id"`
-	// Relation is complete in memory; the document persists only its link.
+	// Relation is complete in memory and owns the Process identity; the
+	// document persists only that identity and its parent link.
 	Relation                ProcessRelation    `json:"-"`
 	DeploymentRef           DeploymentRef      `json:"deployment_ref"`
 	StartedAt               time.Time          `json:"started_at"`
@@ -456,8 +458,10 @@ func (p processSnapshotWire) clone() processSnapshotWire {
 	return clone
 }
 
+func (p processSnapshotWire) processID() ProcessID { return p.Relation.ProcessID() }
+
 func (p processSnapshotWire) validateContract() error {
-	if !p.ProcessID.Valid() {
+	if !p.processID().Valid() {
 		return fmt.Errorf("%w: Process identity is invalid", ErrInvalidSnapshot)
 	}
 	if !p.DeploymentRef.Valid() {
@@ -477,7 +481,7 @@ func (p processSnapshotWire) validateContract() error {
 
 func (p processSnapshotWire) validateRelation() error {
 	relation := p.Relation
-	if !relation.Valid() || relation.ProcessID() != p.ProcessID {
+	if !relation.Valid() {
 		return fmt.Errorf("%w: relation: %w", ErrInvalidSnapshot, ErrInvalidProcessRelation)
 	}
 	return nil
@@ -661,7 +665,7 @@ func (p processSnapshotWire) result() (Result, bool) {
 		return Result{}, false
 	}
 	return Result{
-		processID: p.ProcessID, startedAt: p.StartedAt, finishedAt: p.Finish.FinishedAt,
+		processID: p.processID(), startedAt: p.StartedAt, finishedAt: p.Finish.FinishedAt,
 		output: p.Finish.Output, termination: p.publishedTermination(), usage: p.usage(),
 	}, true
 }

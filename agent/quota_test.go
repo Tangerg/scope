@@ -137,7 +137,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	spec.Budget = Budget{}
 	effectID := parent.handle.processID().effectID(1, 0)
 	rejected := runtime.prepareChildStart(parent, effectID, spec)
-	failure, failed := rejected.result.Failure()
+	failure, failed := rejected.failure, rejected.failure.Valid()
 	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || runtime.childDebits(parent) != (resourceAmounts{}) {
 		t.Fatalf("finite parent admitted unlimited grant: %+v", rejected)
 	}

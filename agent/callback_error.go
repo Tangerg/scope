@@ -12,7 +12,6 @@ import (
 type callbackError struct {
 	cause    error
 	message  string
-	kind     FailureKind
 	step     Failure
 	dispatch Failure
 	runtime  Failure
@@ -26,7 +25,6 @@ func sealCallbackError(err error) error {
 		return nil
 	}
 	c := &callbackError{cause: err, message: err.Error()}
-	c.kind = failureKindForError(err, FailureKindExecution)
 	c.step, _ = StepFailure(err)
 	c.dispatch = dispatchFailure(err)
 	c.runtime = newTreeRuntimeFailure(err)
@@ -38,7 +36,6 @@ func callbackPanic(operation string, value any) error {
 	cause := &CallbackPanicError{Operation: operation, Value: value}
 	return &callbackError{
 		cause: cause, message: "agent: " + operation + " panicked: " + message,
-		kind:     FailureKindPanic,
 		runtime:  newEngineFailure(FailureKindExternal, failureCodeEngineTreeCommitterFailed, errors.New("agent: "+operation+" panicked: "+message)),
 		dispatch: dispatchPanicFailure(),
 	}

@@ -72,7 +72,6 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 	}
 	var extra struct {
 		Operation string            `json:"operation"`
-		Boundary  string            `json:"boundary"`
 		Outcomes  []json.RawMessage `json:"outcomes"`
 	}
 	if err := jsonv2.Unmarshal(completionSignal(t, "wait", true, "child").Payload(), &extra); err != nil {
@@ -197,15 +196,15 @@ func openingSignal(t *testing.T, waitID string) agent.Signal {
 	return signal(t, waitID, json.RawMessage(`{"operation":"child_wait_opened"}`))
 }
 
-// completionSignal answers waitID with processID's completed outcome at the
-// drained or terminal-result boundary.
+// completionSignal answers waitID with processID's completed outcome, carrying
+// an empty descendant list exactly when drained.
 func completionSignal(t *testing.T, waitID string, drained bool, processID string) agent.Signal {
 	t.Helper()
-	boundary := agent.ChildWaitBoundaryResult
+	subtree := ""
 	if drained {
-		boundary = agent.ChildWaitBoundaryDrained
+		subtree = `,"descendant_unresolved_effects":[]`
 	}
-	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","boundary":%q,"outcomes":[{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}}]}`, boundary, processID)
+	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","outcomes":[{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}%s}]}`, processID, subtree)
 	return signal(t, waitID, json.RawMessage(payload))
 }
 

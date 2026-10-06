@@ -131,13 +131,13 @@ func (e eventRecorder) stepFinished(process *processState, result stepJobResult,
 	}
 	work, delay := int64(result.workDuration), int64(time.Since(result.finishedAt))
 	payload := marshalEventPayload(stepFinishedEventPayload{StepStatus: status, WorkDurationNS: &work, AdoptionDelayNS: &delay})
-	e.emit(process, EventStepFinished, process.committedSteps+1, EffectID{}, payload)
+	e.emit(process, EventStepFinished, process.preparedStepSequence(), EffectID{}, payload)
 }
 
-func (e eventRecorder) dispatchFinished(process *processState, attempt effectAttempt, result dispatchJobResult) {
+func (e eventRecorder) dispatchFinished(process *processState, effectID EffectID, attempt effectAttempt, result dispatchJobResult) {
 	if result.dropped > 0 {
 		payload := marshalEventPayload(deltaDroppedEventPayload{DroppedDeltaCount: result.dropped, AttemptID: attempt.id})
-		e.emit(process, EventDeltaDropped, process.preparedStepSequence(), result.effectID, payload)
+		e.emit(process, EventDeltaDropped, process.preparedStepSequence(), effectID, payload)
 	}
-	e.publishSettlement(process, result.effectID, EffectTargetDispatcher, result.settlement.Status(), attempt, result.err)
+	e.publishSettlement(process, effectID, EffectTargetDispatcher, result.settlement.Status(), attempt, result.err)
 }

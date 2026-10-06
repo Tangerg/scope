@@ -16,7 +16,7 @@ func TestProcessSnapshotReportsTheContradictedContract(t *testing.T) {
 		mutate func(*processSnapshotWire)
 		detail string
 	}{
-		{"identity", func(p *processSnapshotWire) { p.ProcessID = ProcessID{} }, "Process identity is invalid"},
+		{"identity", func(p *processSnapshotWire) { p.Relation = ProcessRelation{} }, "Process identity is invalid"},
 		{"deployment", func(p *processSnapshotWire) { p.DeploymentRef = DeploymentRef{} }, "Deployment reference is invalid"},
 		{"start", func(p *processSnapshotWire) { p.StartedAt = time.Time{} }, "Process start time is missing"},
 		{"state", func(p *processSnapshotWire) { p.CommittedExecutionState = ExecutionState{} }, "committed Execution state is invalid"},

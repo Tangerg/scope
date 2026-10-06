@@ -143,7 +143,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			for b.Loop() {
 				prepared := runtime.prepareChildStart(parent, effectID, spec)
 				if prepared.plan == nil {
-					b.Fatalf("child admission failed: %+v", prepared.result)
+					b.Fatalf("child admission failed: %+v", prepared.failure)
 				}
 				runtime.discardChildStart(prepared.plan)
 			}

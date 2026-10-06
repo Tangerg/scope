@@ -102,9 +102,11 @@ type Engine struct {
 	startReservations       map[ProcessID]struct{}
 	treeRestoreReservations map[ProcessID]*treeRestoration
 	// These indexes project the same reservation and change only under mu.
-	restoredProcesses      map[ProcessID]*treeRestoration
-	restoredChildren       map[childIdentity]*treeRestoration
-	children               map[childIdentity]ProcessID
+	restoredProcesses map[ProcessID]*treeRestoration
+	restoredChildren  map[childIdentity]*treeRestoration
+	// children indexes the parent-scoped keys of published Processes so key
+	// uniqueness is checked under e.mu without reading tree-owned membership.
+	children               map[childIdentity]struct{}
 	childStartReservations map[childIdentity]struct{}
 	// One channel closes admission at allocation and joins completion on close,
 	// avoiding separate shutdown flags that could disagree.
@@ -204,7 +206,7 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		treeRestoreReservations:    make(map[ProcessID]*treeRestoration),
 		restoredProcesses:          make(map[ProcessID]*treeRestoration),
 		restoredChildren:           make(map[childIdentity]*treeRestoration),
-		children:                   make(map[childIdentity]ProcessID),
+		children:                   make(map[childIdentity]struct{}),
 		childStartReservations:     make(map[childIdentity]struct{}),
 	}, nil
 }
@@ -452,7 +454,8 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	}
 	identity, isChild := handle.relation.childIdentity()
 	if isChild {
-		if _, reserved := e.childStartReservations[identity]; !reserved || e.children[identity].Valid() ||
+		_, childReserved := e.childStartReservations[identity]
+		if _, published := e.children[identity]; !childReserved || published ||
 			e.processes[identity.parent] == nil {
 			panic("agent: invalid child Process start reservation")
 		}
@@ -464,7 +467,7 @@ func (e *Engine) publishProcessStart(handle *processHandle) {
 	e.processes[handle.processID()] = handle
 	if isChild {
 		delete(e.childStartReservations, identity)
-		e.children[identity] = handle.processID()
+		e.children[identity] = struct{}{}
 	}
 }
 
@@ -789,7 +792,7 @@ func (e *Engine) publishRestoredTree(restoration *treeRestoration) {
 		}
 		e.processes[handle.processID()] = handle
 		if identity, child := handle.relation.childIdentity(); child {
-			e.children[identity] = handle.processID()
+			e.children[identity] = struct{}{}
 		}
 	}
 	e.releaseRestoredTree(restoration)

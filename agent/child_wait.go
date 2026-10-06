@@ -10,8 +10,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -234,6 +232,10 @@ func (c ChildOutcome) SubtreeResolved() bool {
 		len(c.result.Termination().UnresolvedEffectIDs()) == 0
 }
 
+// drained reports whether the outcome carries the evidence of a drained
+// boundary.
+func (c ChildOutcome) drained() bool { return c.descendantUnresolvedEffects != nil }
+
 func (c ChildOutcome) Valid() bool {
 	if !c.result.Valid() {
 		return false
@@ -286,11 +288,10 @@ func (ChildOutcome) JSONSchemaAlias() any { return childOutcomeWire{} }
 // ChildWaitSatisfied is one condition-satisfying, request-ordered child result
 // set. For any or quorum it includes every child at the requested boundary at
 // the atomic satisfaction check, without canceling or omitting based on status.
-// The wait it answers owns the key and boundary; every outcome is observed at
-// that one boundary.
+// The wait it answers owns the key and boundary; each outcome carries the
+// evidence it observed, which Matches correlates with that boundary.
 type ChildWaitSatisfied struct {
 	waitID   WaitID
-	boundary ChildWaitBoundary
 	outcomes []ChildOutcome
 }
 
@@ -302,7 +303,7 @@ func (c ChildWaitSatisfied) Outcomes() []ChildOutcome {
 }
 
 func (c ChildWaitSatisfied) Valid() bool {
-	if !c.waitID.Valid() || !c.boundary.Valid() || len(c.outcomes) == 0 {
+	if !c.waitID.Valid() || len(c.outcomes) == 0 {
 		return false
 	}
 	seen := make(map[ProcessID]struct{}, len(c.outcomes))
@@ -321,12 +322,15 @@ func (c ChildWaitSatisfied) Valid() bool {
 // Matches correlates a satisfaction with the entire active wait, including its
 // boundary, required count, and request order.
 func (c ChildWaitSatisfied) Matches(id WaitID, spec ChildWaitSpec) bool {
-	if !c.Valid() || !spec.Valid() || c.waitID != id || uint32(len(c.outcomes)) < spec.required() ||
-		c.boundary != spec.Boundary {
+	if !c.Valid() || !spec.Valid() || c.waitID != id || uint32(len(c.outcomes)) < spec.required() {
 		return false
 	}
+	drained := spec.Boundary == ChildWaitBoundaryDrained
 	next := 0
 	for _, outcome := range c.outcomes {
+		if outcome.drained() != drained {
+			return false
+		}
 		for next < len(spec.Children) && spec.Children[next] != outcome.Result().ProcessID() {
 			next++
 		}
@@ -352,9 +356,9 @@ func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
 	if wire.Operation != childWaitSignalSatisfied || len(wire.Outcomes) == 0 {
 		return ChildWaitSatisfied{}, ErrInvalidChildWait
 	}
-	completed := ChildWaitSatisfied{waitID: waitID, boundary: wire.Boundary}
+	completed := ChildWaitSatisfied{waitID: waitID}
 	for _, encoded := range wire.Outcomes {
-		outcome, err := encoded.value(wire.Boundary)
+		outcome, err := encoded.value()
 		if err != nil {
 			return ChildWaitSatisfied{}, err
 		}
@@ -394,35 +398,9 @@ type childWaitOpenedWire struct {
 	Operation childWaitSignalKind `json:"operation"`
 }
 
-// childWaitSatisfiedWire states its boundary once; each outcome lists its
-// descendants' unresolved Effects only at a drained boundary.
 type childWaitSatisfiedWire struct {
-	Operation childWaitSignalKind    `json:"operation"`
-	Boundary  ChildWaitBoundary      `json:"boundary"`
-	Outcomes  []satisfiedOutcomeWire `json:"outcomes"`
-}
-
-type satisfiedOutcomeWire struct {
-	Result                      resultWire         `json:"result"`
-	DescendantUnresolvedEffects []UnresolvedEffect `json:"descendant_unresolved_effects,omitempty"`
-}
-
-func (s satisfiedOutcomeWire) value(boundary ChildWaitBoundary) (ChildOutcome, error) {
-	result, err := s.Result.value()
-	if err != nil {
-		return ChildOutcome{}, err
-	}
-	outcome := ChildOutcome{result: result}
-	switch {
-	case boundary == ChildWaitBoundaryDrained:
-		outcome.descendantUnresolvedEffects = new(append([]UnresolvedEffect{}, s.DescendantUnresolvedEffects...))
-	case len(s.DescendantUnresolvedEffects) != 0:
-		return ChildOutcome{}, fmt.Errorf("%w: only a drained boundary proves descendants", ErrInvalidChildWait)
-	}
-	if !outcome.Valid() {
-		return ChildOutcome{}, ErrInvalidChildWait
-	}
-	return outcome, nil
+	Operation childWaitSignalKind `json:"operation"`
+	Outcomes  []childOutcomeWire  `json:"outcomes"`
 }
 
 // childOutcomeWire keeps an explicitly empty descendant list: its presence is
@@ -505,20 +483,14 @@ func (r resultWire) value() (Result, error) {
 	return result, nil
 }
 
-func encodeChildWaitSatisfied(waitID WaitID, boundary ChildWaitBoundary, outcomes []ChildOutcome) (Signal, error) {
-	completed := ChildWaitSatisfied{waitID: waitID, boundary: boundary, outcomes: slices.Clone(outcomes)}
+func encodeChildWaitSatisfied(waitID WaitID, outcomes []ChildOutcome) (Signal, error) {
+	completed := ChildWaitSatisfied{waitID: waitID, outcomes: slices.Clone(outcomes)}
 	if !completed.Valid() {
 		return Signal{}, ErrInvalidChildWait
 	}
-	wire := childWaitSatisfiedWire{
-		Operation: childWaitSignalSatisfied, Boundary: boundary,
-		Outcomes: make([]satisfiedOutcomeWire, len(outcomes)),
-	}
+	wire := childWaitSatisfiedWire{Operation: childWaitSignalSatisfied, Outcomes: make([]childOutcomeWire, len(outcomes))}
 	for index, outcome := range outcomes {
-		wire.Outcomes[index] = satisfiedOutcomeWire{Result: outcome.result.wire()}
-		if boundary == ChildWaitBoundaryDrained {
-			wire.Outcomes[index].DescendantUnresolvedEffects = slices.Clone(lo.FromPtr(outcome.descendantUnresolvedEffects))
-		}
+		wire.Outcomes[index] = outcome.wire()
 	}
 	payload, err := jsonv2.Marshal(wire)
 	if err != nil {
