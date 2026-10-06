@@ -422,7 +422,7 @@ func (t *treeRuntime) advancePrepared(process *processState) {
 		if checkpoint {
 			snapshot, err := t.captureTree()
 			if err == nil {
-				err = t.startCheckpointCommit(t.checkpointKind(), snapshot)
+				err = t.startCheckpointCommit(snapshot)
 			}
 			if err != nil {
 				t.failRuntime(err, process.handle.processID, EffectID{})
@@ -668,11 +668,8 @@ func (t *treeRuntime) startUnknownResolutionCommit(
 	return t.commitEffect(process, treeCommitEffectResolved, process.prepared.Effects[index], reply)
 }
 
-func (t *treeRuntime) startCheckpointCommit(
-	kind TreeCheckpointKind,
-	snapshot TreeSnapshot,
-) error {
-	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, kind)
+func (t *treeRuntime) startCheckpointCommit(snapshot TreeSnapshot) error {
+	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, checkpointCauseCut)
 }
 
 func (t *treeRuntime) startSignalCommit(process *processState, reply processReply, events []eventDraft) error {
@@ -683,11 +680,11 @@ func (t *treeRuntime) startSignalCommit(process *processState, reply processRepl
 	return t.startCheckpoint(&treeCommit{
 		kind: treeCommitSignals, processID: process.handle.processID,
 		snapshot: snapshot, reply: reply, events: events,
-	}, TreeCheckpointKindSignals)
+	}, checkpointCauseSignals)
 }
 
-func (t *treeRuntime) startCheckpoint(commit *treeCommit, kind TreeCheckpointKind) error {
-	return t.writer.commitCheckpoint(t.context, commit, kind)
+func (t *treeRuntime) startCheckpoint(commit *treeCommit, cause checkpointCause) error {
+	return t.writer.commitCheckpoint(t.context, commit, cause)
 }
 
 func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion) {
@@ -787,7 +784,6 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 	if t.fault != nil || t.writer.committing() || t.freeze.engaged() || !t.readyForCheckpoint() {
 		return false
 	}
-	kind := t.checkpointKind()
 	snapshot, err := t.captureTree()
 	if err != nil {
 		t.failRuntime(err, ProcessID{}, EffectID{})
@@ -800,7 +796,7 @@ func (t *treeRuntime) tryStartCheckpoint() bool {
 		t.publishAcknowledgedChanges()
 		return published
 	}
-	if err := t.startCheckpointCommit(kind, snapshot); err != nil {
+	if err := t.startCheckpointCommit(snapshot); err != nil {
 		t.failRuntime(err, ProcessID{}, EffectID{})
 	}
 	return true
@@ -819,16 +815,6 @@ func (t *treeRuntime) readyForCheckpoint() bool {
 		}
 	}
 	return false
-}
-
-func (t *treeRuntime) checkpointKind() TreeCheckpointKind {
-	return classifyCheckpointCut(func(yield func(Status, *preparedStep) bool) {
-		for _, process := range t.members.all() {
-			if !yield(process.status(), process.prepared) {
-				return
-			}
-		}
-	})
 }
 
 func (t *treeRuntime) stageTerminal(process *processState) {
@@ -1145,7 +1131,7 @@ func (t *treeRuntime) completeFreeze() {
 		return
 	}
 	if snapshot.Digest() != t.writer.head().Digest() {
-		if err := t.startCheckpointCommit(t.checkpointKind(), snapshot); err != nil {
+		if err := t.startCheckpointCommit(snapshot); err != nil {
 			t.failRuntime(err, ProcessID{}, EffectID{})
 		}
 		return
@@ -1726,7 +1712,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 		if pending.result.started() {
 			commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
 		}
-		err = t.startCheckpoint(commit, TreeCheckpointKindChildStart)
+		err = t.startCheckpoint(commit, checkpointCauseChildStart)
 	}
 	checkpointErr = err
 	transferred = err == nil && pending.result.started()

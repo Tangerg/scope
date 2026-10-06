@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"iter"
 	"strconv"
 )
 
@@ -194,26 +193,38 @@ func (t TreeCheckpointKind) String() string {
 	return string(t)
 }
 
+// checkpointCause is the runtime event a checkpoint commits. Only admission
+// events need naming: a checkpoint without a predecessor starts the tree, and
+// every other cut's kind follows from its snapshot.
+type checkpointCause uint8
+
+const (
+	checkpointCauseInvalid checkpointCause = iota
+	checkpointCauseCut
+	checkpointCauseChildStart
+	checkpointCauseSignals
+)
+
 // TreeCheckpoint keeps child publication, input acceptance, and execution
 // progress on the same head so recovery cannot observe partially accepted work.
 // Input, child, and progress cuts can coexist with sibling jobs because those
 // jobs expose only committed Execution state or already recorded Effect intent.
 type TreeCheckpoint struct {
 	sequence           uint64
-	kind               TreeCheckpointKind
+	cause              checkpointCause
 	previousTreeDigest Digest
 	treeSnapshot       TreeSnapshot
 }
 
 func newTreeCheckpoint(
 	sequence uint64,
-	kind TreeCheckpointKind,
+	cause checkpointCause,
 	previousTreeDigest Digest,
 	treeSnapshot TreeSnapshot,
 ) (TreeCheckpoint, error) {
 	checkpoint := TreeCheckpoint{
 		sequence: sequence,
-		kind:     kind, previousTreeDigest: previousTreeDigest, treeSnapshot: treeSnapshot,
+		cause:    cause, previousTreeDigest: previousTreeDigest, treeSnapshot: treeSnapshot,
 	}
 	if !checkpoint.Valid() {
 		return TreeCheckpoint{}, errors.New("invalid durable tree checkpoint")
@@ -224,7 +235,38 @@ func newTreeCheckpoint(
 // Sequence identifies this commit within its tree incarnation. Retries retain it.
 func (t TreeCheckpoint) Sequence() uint64 { return t.sequence }
 
-func (t TreeCheckpoint) Kind() TreeCheckpointKind { return t.kind }
+// Kind is the admission event the checkpoint commits, or else the cut its
+// snapshot captures: the first head starts the tree, and later cuts classify
+// as progress, parked, or terminal.
+func (t TreeCheckpoint) Kind() TreeCheckpointKind {
+	switch {
+	case t.cause == checkpointCauseInvalid || !t.treeSnapshot.Valid():
+		return TreeCheckpointKindInvalid
+	case t.previousTreeDigest == (Digest{}):
+		if t.cause != checkpointCauseCut {
+			return TreeCheckpointKindInvalid
+		}
+		return TreeCheckpointKindStart
+	case t.cause == checkpointCauseChildStart:
+		return TreeCheckpointKindChildStart
+	case t.cause == checkpointCauseSignals:
+		return TreeCheckpointKindSignals
+	}
+	// A live member blocks progress only while waiting, paused, or holding an
+	// Unknown settlement.
+	kind := TreeCheckpointKindTerminal
+	for _, snapshot := range t.treeSnapshot.state.ProcessSnapshots {
+		status := snapshot.Status()
+		if status.Terminal() {
+			continue
+		}
+		if !status.parked() && !snapshot.state.Prepared.hasUnknownSettlement() {
+			return TreeCheckpointKindProgress
+		}
+		kind = TreeCheckpointKindParked
+	}
+	return kind
+}
 
 func (t TreeCheckpoint) PreviousTreeDigest() Digest { return t.previousTreeDigest }
 
@@ -254,7 +296,7 @@ func (t TreeCheckpoint) ContentDigest() (Digest, error) {
 		Kind     TreeCheckpointKind
 		Previous string
 		Snapshot Digest
-	}{t.kind, t.previousTreeDigest.String(), t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
+	}{t.Kind(), t.previousTreeDigest.String(), t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
 	if err != nil {
 		return Digest{}, fmt.Errorf("agent: encode tree checkpoint content: %w", err)
 	}
@@ -262,51 +304,15 @@ func (t TreeCheckpoint) ContentDigest() (Digest, error) {
 }
 
 func (t TreeCheckpoint) Valid() bool {
-	if t.sequence == 0 || !t.kind.Valid() || !t.treeSnapshot.Valid() {
+	kind := t.Kind()
+	if t.sequence == 0 || !kind.Valid() {
 		return false
 	}
-	if t.kind == TreeCheckpointKindStart {
-		if t.sequence != 1 || t.previousTreeDigest != (Digest{}) {
-			return false
-		}
-	} else if !t.previousTreeDigest.Valid() || t.previousTreeDigest == t.treeSnapshot.Digest() {
-		return false
-	}
-	return t.matchesSafeCut()
-}
-
-func (t TreeCheckpoint) matchesSafeCut() bool {
-	if t.kind == TreeCheckpointKindStart {
+	if kind == TreeCheckpointKindStart {
 		snapshots := t.treeSnapshot.state.ProcessSnapshots
-		return len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
+		return t.sequence == 1 && len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
 	}
-	if t.kind == TreeCheckpointKindSignals || t.kind == TreeCheckpointKindChildStart {
-		return true
-	}
-	return t.kind == classifyCheckpointCut(func(yield func(Status, *preparedStep) bool) {
-		for _, snapshot := range t.treeSnapshot.state.ProcessSnapshots {
-			if !yield(snapshot.Status(), snapshot.state.Prepared) {
-				return
-			}
-		}
-	})
-}
-
-// classifyCheckpointCut is the one rule shared by the runtime choosing a
-// checkpoint kind and a store validating it. A live member blocks progress
-// only while waiting, paused, or holding an Unknown settlement.
-func classifyCheckpointCut(members iter.Seq2[Status, *preparedStep]) TreeCheckpointKind {
-	kind := TreeCheckpointKindTerminal
-	for status, prepared := range members {
-		if status.Terminal() {
-			continue
-		}
-		if !status.parked() && !prepared.hasUnknownSettlement() {
-			return TreeCheckpointKindProgress
-		}
-		kind = TreeCheckpointKindParked
-	}
-	return kind
+	return t.previousTreeDigest.Valid() && t.previousTreeDigest != t.treeSnapshot.Digest()
 }
 
 // TreeActivation changes writer identity and recovery state together so the
@@ -448,7 +454,7 @@ func commitEffectBoundary(ctx context.Context, committer TreeCommitter, boundary
 }
 
 func commitTreeCheckpoint(ctx context.Context, committer TreeCommitter, checkpoint TreeCheckpoint) error {
-	if committer == nil || !checkpoint.kind.Valid() {
+	if committer == nil || checkpoint.cause == checkpointCauseInvalid {
 		return errors.New("invalid durable tree checkpoint")
 	}
 	return invokeCallbackErr("TreeCommitter.CommitCheckpoint", func() error {

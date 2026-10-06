@@ -40,7 +40,7 @@ func (h *headWriter) committing() bool { return h.inFlight != nil }
 // commitStart durably creates the tree: the first head is the only one with no
 // predecessor, and it opens this incarnation's commit sequence.
 func (h *headWriter) commitStart(ctx context.Context, snapshot TreeSnapshot) error {
-	checkpoint, err := newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, snapshot)
+	checkpoint, err := newTreeCheckpoint(1, checkpointCauseCut, Digest{}, snapshot)
 	if err != nil {
 		return err
 	}
@@ -92,8 +92,8 @@ func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit) error
 	return nil
 }
 
-func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, kind TreeCheckpointKind) error {
-	checkpoint, err := newTreeCheckpoint(h.sequence+1, kind, h.acknowledged.Digest(), commit.snapshot)
+func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, cause checkpointCause) error {
+	checkpoint, err := newTreeCheckpoint(h.sequence+1, cause, h.acknowledged.Digest(), commit.snapshot)
 	if err != nil {
 		return err
 	}

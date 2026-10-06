@@ -174,7 +174,7 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 	first := controlValue(owner.captureTree())
 	root.pause = pause{reason: "second"}
 	second := controlValue(owner.captureTree())
-	start := controlValue(newTreeCheckpoint(1, TreeCheckpointKindStart, Digest{}, initial))
+	start := controlValue(newTreeCheckpoint(1, checkpointCauseCut, Digest{}, initial))
 	for _, count := range []int{1, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("commits_%d", count), func(b *testing.B) {
 			b.ReportAllocs()
@@ -189,7 +189,7 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 					if index%2 != 0 {
 						next = second
 					}
-					checkpoint := controlValue(newTreeCheckpoint(uint64(index+2), TreeCheckpointKindParked, previous.Digest(), next))
+					checkpoint := controlValue(newTreeCheckpoint(uint64(index+2), checkpointCauseCut, previous.Digest(), next))
 					if err := store.CommitCheckpoint(b.Context(), checkpoint); err != nil {
 						b.Fatal(err)
 					}

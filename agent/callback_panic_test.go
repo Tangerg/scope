@@ -63,7 +63,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 			return commitEffectBoundary(t.Context(), callbacks, EffectBoundary{effectID: newProcessID().effectID(1, 0)})
 		}},
 		{"TreeCommitter.CommitCheckpoint", func() error {
-			return commitTreeCheckpoint(t.Context(), callbacks, TreeCheckpoint{kind: TreeCheckpointKindStart})
+			return commitTreeCheckpoint(t.Context(), callbacks, TreeCheckpoint{cause: checkpointCauseCut})
 		}},
 	} {
 		t.Run(test.operation, func(t *testing.T) {
