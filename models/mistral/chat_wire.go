@@ -95,11 +95,8 @@ func (f finishReason) normalized() corechat.FinishReason {
 // metadata records the provider's own finish reason
 // whenever the portable one is Other, so the distinction Other erases stays
 // available.
-func (f finishReason) metadata(
-
-	mapped corechat.FinishReason,
-) (*corechat.OutputMetadata, error) {
-	if mapped != corechat.FinishReasonOther {
+func (f finishReason) metadata() (*corechat.OutputMetadata, error) {
+	if f.normalized() != corechat.FinishReasonOther {
 		return nil, nil
 	}
 	outputMetadata := &corechat.OutputMetadata{}

@@ -19,15 +19,17 @@
 // [chat.ErrInvalidResponse] rather than handing back the fragment it did
 // deliver. finish_reason model_length is the model's own context filling
 // rather than the caller's budget, and both report as a truncation.
+// The native reason owns completion; Core receives it only on the last delta
+// after the stream ends normally, so trailing usage is included and a tail
+// failure cannot follow a published terminal delta. Content and Tool calls
+// after the native finish_reason are invalid.
 //
 // Finish reasons. Mistral's own client types the field as stop, length,
 // model_length, error or an unrecognized string. error and an unrecognized
 // value both map to [chat.FinishReasonOther] — a known terminal state with
 // no portable match — and the provider's own word for it rides along on the
 // output, so an errored generation stays distinguishable from a provider
-// limit. error used to reach Other through a default branch, which files a
-// documented value under "not classified", and the synchronous path dropped
-// the native value the streaming path already kept.
+// limit.
 //
 // See https://docs.mistral.ai/ for the full API reference.
 // Core Options.ReasoningEffort is the only request control for reasoning

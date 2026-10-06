@@ -160,6 +160,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 		events.MaxLineBytes = mistralStreamMaxBytes
 		events.MaxEventBytes = mistralStreamMaxBytes
 		state := newChatStreamState()
+		var terminal *corechat.ResponseDelta
 		for event, eventErr := range events.Messages() {
 			if eventErr != nil {
 				yield(nil, fmt.Errorf("mistral: read chat stream: %w", eventErr))
@@ -170,22 +171,36 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 				break
 			}
 			var chunk chatCompletionChunk
-			if err := jsonv2.Unmarshal(data, &chunk); err != nil {
-				yield(nil, fmt.Errorf("mistral: decode chat stream chunk: %w", err))
+			if decodeErr := jsonv2.Unmarshal(data, &chunk); decodeErr != nil {
+				yield(nil, fmt.Errorf("mistral: decode chat stream chunk: %w", decodeErr))
 				return
 			}
-			response, err := state.mapChunk(chunk)
-			if err != nil {
-				yield(nil, err)
+			response, mapErr := state.mapChunk(chunk)
+			if mapErr != nil {
+				yield(nil, mapErr)
 				return
+			}
+			if terminal != nil {
+				if !yield(terminal, nil) {
+					return
+				}
+				terminal = response
+				continue
+			}
+			if state.terminated() {
+				terminal = response
+				continue
 			}
 			if !yield(response, nil) {
 				return
 			}
 		}
-		if !state.terminated() {
-			yield(nil, fmt.Errorf("mistral: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
+		terminal, err = state.complete(terminal)
+		if err != nil {
+			yield(nil, err)
+			return
 		}
+		yield(terminal, nil)
 	}
 }
 

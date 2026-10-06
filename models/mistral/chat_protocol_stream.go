@@ -20,7 +20,7 @@ type chatStreamTool struct {
 
 type chatStreamState struct {
 	tools            map[int]chatStreamTool
-	finished         bool
+	finish           finishReason
 	thinkingBlock    uint64
 	thinkingPosition uint64
 }
@@ -33,7 +33,7 @@ func newChatStreamState() *chatStreamState {
 // stops without one delivered a partial answer, and neither the closing
 // [DONE] marker nor a clean end of body distinguishes that from a complete
 // one, so the caller must be told rather than handed the fragment.
-func (c *chatStreamState) terminated() bool { return c.finished }
+func (c *chatStreamState) terminated() bool { return c.finish != "" }
 
 func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.ResponseDelta, error) {
 	response := &corechat.ResponseDelta{
@@ -52,9 +52,15 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		if wireChoice.Index != firstChoiceIndex {
 			return nil, fmt.Errorf("mistral: stream choice index is %d, want %d", wireChoice.Index, firstChoiceIndex)
 		}
+		if c.terminated() && len(wireChoice.Delta.ToolCalls) != 0 {
+			return nil, fmt.Errorf("mistral: stream: %w: tool calls after finish_reason", corechat.ErrInvalidResponse)
+		}
 		parts, err := c.mapContentDeltas(wireChoice.Delta.Content)
 		if err != nil {
 			return nil, fmt.Errorf("mistral: stream output content: %w", err)
+		}
+		if c.terminated() && len(parts) != 0 {
+			return nil, fmt.Errorf("mistral: stream: %w: content after finish_reason", corechat.ErrInvalidResponse)
 		}
 		toolParts, err := c.mapToolDeltas(wireChoice.Delta.ToolCalls)
 		if err != nil {
@@ -62,21 +68,11 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		}
 		parts = append(parts, toolParts...)
 		response.Parts = parts
-		response.FinishReason = wireChoice.FinishReason.normalized()
-		if response.FinishReason != "" {
-			if c.finished {
-				return nil, errors.New("mistral: stream emitted more than one finish reason")
+		if wireChoice.FinishReason != "" {
+			if c.terminated() {
+				return nil, fmt.Errorf("mistral: stream: %w: more than one finish_reason", corechat.ErrInvalidResponse)
 			}
-			c.finished = true
-			if err := c.requireIdentifiedTools(); err != nil {
-				return nil, err
-			}
-		}
-		if response.FinishReason == corechat.FinishReasonOther {
-			response.OutputMetadata = &corechat.OutputMetadata{}
-			if err := response.OutputMetadata.Extra.Set(nativeFinishReasonKey, wireChoice.FinishReason); err != nil {
-				return nil, err
-			}
+			c.finish = wireChoice.FinishReason
 		}
 	}
 	if err := response.Validate(); err != nil {
@@ -85,14 +81,27 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 	return response, nil
 }
 
-// requireIdentifiedTools refuses a terminal chunk while a tool call is still
-// held back. A Core tool-call delta cannot carry arguments without an id and a
-// name, so an index is buffered until Mistral sends both. A buffer still held
-// when the finish reason arrives belongs to a call the stream described and
-// never identified, and yielding the terminal chunk would hand back something
-// that looks whole while missing that call, its arguments discarded. The check
-// runs before the chunk is yielded, because afterwards the caller has already
-// been told the response is complete.
+func (c *chatStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
+	if delta == nil || !c.terminated() {
+		return nil, fmt.Errorf("mistral: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
+	}
+	if err := c.requireIdentifiedTools(); err != nil {
+		return nil, err
+	}
+	delta.FinishReason = c.finish.normalized()
+	outputMetadata, err := c.finish.metadata()
+	if err != nil {
+		return nil, err
+	}
+	delta.OutputMetadata = outputMetadata
+	if err := delta.Validate(); err != nil {
+		return nil, fmt.Errorf("mistral: terminal stream response: %w", err)
+	}
+	return delta, nil
+}
+
+// An unidentified buffer is a call the stream described but cannot report.
+// Publishing completion would hide that call and discard its arguments.
 func (c *chatStreamState) requireIdentifiedTools() error {
 	for _, index := range slices.Sorted(maps.Keys(c.tools)) {
 		tool := c.tools[index]

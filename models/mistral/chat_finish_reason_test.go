@@ -34,10 +34,8 @@ func TestFinishReasonCoversEveryDocumentedValue(t *testing.T) {
 	}
 }
 
-// Other erases which terminal state it was, so the provider's own word for it
-// rides along. The streaming path already did this; the synchronous one dropped
-// it, so an errored generation and a provider iteration limit arrived
-// indistinguishable.
+// Other erases which terminal state it was, so the native value must remain
+// distinguishable from a provider iteration limit.
 func TestNativeFinishReasonSurvivesOther(t *testing.T) {
 	t.Parallel()
 
@@ -47,7 +45,7 @@ func TestNativeFinishReasonSurvivesOther(t *testing.T) {
 			if mapped != corechat.FinishReasonOther {
 				t.Fatalf("finishReason(%q).normalized() = %q, want %q", raw, mapped, corechat.FinishReasonOther)
 			}
-			outputMetadata, err := raw.metadata(mapped)
+			outputMetadata, err := raw.metadata()
 			if err != nil {
 				t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
 			}
@@ -72,8 +70,7 @@ func TestNativeFinishReasonStaysAbsentForAPortableReason(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []finishReason{finishReasonStop, finishReasonLength, finishReasonToolCalls} {
-		mapped := raw.normalized()
-		outputMetadata, err := raw.metadata(mapped)
+		outputMetadata, err := raw.metadata()
 		if err != nil {
 			t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
 		}
