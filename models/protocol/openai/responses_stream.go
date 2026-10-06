@@ -162,7 +162,7 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 }
 
 func (r responsesStreamTool) matches(call responses.ResponseFunctionToolCall) bool {
-	return r.callID == call.CallID && r.name == call.Name && (r.itemID == "" || r.itemID == call.ID)
+	return r.callID == call.CallID && r.name == call.Name && (r.itemID == "" || call.ID == "" || r.itemID == call.ID)
 }
 
 func (r *responsesStreamState) validateTerminalTools(response responses.Response) error {

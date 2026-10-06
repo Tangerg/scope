@@ -37,8 +37,10 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		{name: "valid fragments", events: []modeltest.AnthropicEvent{start, arguments, done}, valid: true},
 		{name: "initial arguments", events: []modeltest.AnthropicEvent{responsesToolAdded(0, doneItem), done}, valid: true},
 		{name: "optional native item ID", events: []modeltest.AnthropicEvent{responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`), responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, valid: true},
+		{name: "optional native item ID omitted on completion", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, terminalItem: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`, valid: true},
 		{name: "partial tool truncation", events: []modeltest.AnthropicEvent{start, responsesToolArguments(0, "fc_1", "{")}, valid: true, incomplete: true},
 		{name: "changed terminal identity", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":"{}"}`},
+		{name: "changed terminal native item ID", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_2","call_id":"call_1","name":"lookup","arguments":"{}"}`},
 		{name: "negative output index", events: []modeltest.AnthropicEvent{responsesToolAdded(-1, startItem)}},
 		{name: "duplicate start", events: []modeltest.AnthropicEvent{start, start, arguments, done}},
 		{name: "changed identity", events: []modeltest.AnthropicEvent{start, responsesToolAdded(0, `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":""}`), arguments, done}},
@@ -50,6 +52,7 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		{name: "unknown done", events: []modeltest.AnthropicEvent{done}},
 		{name: "changed index", events: []modeltest.AnthropicEvent{start, responsesToolArguments(1, "fc_1", "{}"), done}},
 		{name: "changed done identity", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":"{}"}`)}},
+		{name: "changed done native item ID", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","id":"fc_2","call_id":"call_1","name":"lookup","arguments":"{}"}`)}},
 		{name: "missing done", events: []modeltest.AnthropicEvent{start, arguments}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
