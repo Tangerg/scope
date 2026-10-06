@@ -344,7 +344,7 @@ func TestPreparedEffectWireHasOneProgressRepresentation(t *testing.T) {
 		t.Fatalf("pending permission disappeared: %s", pending)
 	}
 	decoded := controlValue(jsonwire.Decode[preparedEffectWire](pending))
-	if restored := controlValue(decoded.record(record.ID)); restored.phase() != effectPhasePending {
+	if restored := controlValue(decoded.record(record.ID, nil)); restored.phase() != effectPhasePending {
 		t.Fatalf("restored pending effect phase = %s", restored.phase())
 	}
 	legacy := append(bytes.TrimSuffix(planned, []byte(`}`)), []byte(`,"phase":"planned"}`)...)
@@ -626,9 +626,13 @@ func parseTestProcessSnapshot(data json.RawMessage) (ProcessSnapshot, error) {
 	if _, child, linkErr := document.link(); linkErr != nil || child {
 		return ProcessSnapshot{}, errors.Join(ErrInvalidSnapshot, linkErr, errors.New("test parses only root records"))
 	}
-	return document.snapshot(rootProcessRelation(document.ProcessID), func(ProcessID, ChildWaitBoundary) (ChildOutcome, error) {
-		return ChildOutcome{}, errors.New("test root records have no children")
-	})
+	return document.snapshot(rootProcessRelation(document.ProcessID),
+		func(ProcessID, ChildWaitBoundary) (ChildOutcome, error) {
+			return ChildOutcome{}, errors.New("test root records have no children")
+		},
+		func(ProcessID) (ChildSpec, error) {
+			return ChildSpec{}, errors.New("test root records have no children")
+		})
 }
 
 func TestSnapshotFinishRequiresItsTerminationAndTime(t *testing.T) {

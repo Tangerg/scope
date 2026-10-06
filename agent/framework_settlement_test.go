@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -136,8 +137,22 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	if stored.Progress.Settlement.Status != SettlementStatusInvalid || stored.Progress.Settlement.Payload != nil {
 		t.Fatalf("child start stored settlement facts its request determines: %+v", stored.Progress.Settlement)
 	}
+	if stored.Effect != nil || stored.StartedChild == nil || !bytes.Equal(stored.StartedChild.Input.JSON(), spec.Input.JSON()) {
+		t.Fatalf("started child stored more than its input: %+v", stored)
+	}
+	grant := spec
+	grant.Input = Payload{}
+	grants := func(ProcessID) (ChildSpec, error) { return grant, nil }
+	if restored := controlValue(stored.record(record.ID, grants)); !restored.Effect.equal(effect) {
+		t.Fatal("started child request did not decode from its child's grant")
+	}
+	withGrant := stored
+	withGrant.Effect, withGrant.StartedChild = &effect, nil
+	if _, err := withGrant.record(record.ID, grants); err == nil {
+		t.Fatal("started child accepted a stored copy of its child's grant")
+	}
 	stored.Progress.Settlement = &preparedSettlementWire{Status: SettlementStatusSucceeded, Payload: record.settlement().Payload()}
-	if _, err := stored.record(record.ID); err == nil {
+	if _, err := stored.record(record.ID, grants); err == nil {
 		t.Fatal("child start accepted a stored copy of its request")
 	}
 	snapshot := controlValue(newProcessSnapshot(wire))
@@ -156,22 +171,20 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {
 		t.Fatalf("matching child rejected: %v", err)
 	}
-	for _, mutation := range []string{"allocation", "deployment"} {
-		t.Run("child/"+mutation, func(t *testing.T) {
-			parentWire := wire.clone()
-			childWire := controlValue(childSnapshot.wire())
-			switch mutation {
-			case "allocation":
-				childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
-			case "deployment":
-				childWire.DeploymentRef = parentWire.DeploymentRef
-			}
-			tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), controlValue(newProcessSnapshot(childWire))}}
-			if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) {
-				t.Fatalf("contradictory captured child accepted: %v", err)
-			}
-		})
-	}
+	t.Run("child owns its grant", func(t *testing.T) {
+		childWire := controlValue(childSnapshot.wire())
+		childWire.Budget.Steps = NewQuota(childWire.Budget.Steps.maximum + 1)
+		tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{parentSnapshot, controlValue(newProcessSnapshot(childWire))}}))
+		parsed := controlValue(ParseTreeSnapshot(tree.JSON()))
+		request, found := parsed.EffectRequest(wire.ProcessID, record.ID)
+		if !found {
+			t.Fatal("started child request is missing")
+		}
+		granted := controlValue(ParseChildStartEffect(request.Effect()))
+		if granted.Budget != childWire.Budget || !bytes.Equal(granted.Input.JSON(), spec.Input.JSON()) {
+			t.Fatalf("decoded request = %+v, want the child's grant with the parent's input", granted)
+		}
+	})
 	t.Run("child before settlement", func(t *testing.T) {
 		parentWire := wire.clone()
 		parentWire.Prepared.Effects = preparedEffects{{ID: record.ID, Effect: effect, progress: &effectProgress{}}}

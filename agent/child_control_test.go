@@ -88,12 +88,12 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if stored.Status != SettlementStatusInvalid || stored.Payload != nil || (stored.Failure != nil) != failed {
 				t.Fatalf("Framework settlement stored derived facts: %+v", stored)
 			}
-			restored := controlValue(wire.record(id))
+			restored := controlValue(wire.record(id, nil))
 			if !restored.settlement().equal(*record.settlement()) {
 				t.Fatal("decoded settlement differs from the one its request determines")
 			}
 			wire.Progress.Settlement = &preparedSettlementWire{Status: record.settlement().Status(), Payload: payload}
-			if _, err := wire.record(id); err == nil {
+			if _, err := wire.record(id, nil); err == nil {
 				t.Fatal("Framework settlement accepted a stored copy of its request")
 			}
 		}

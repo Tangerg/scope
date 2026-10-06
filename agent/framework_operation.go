@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 )
 
 // The closed protocol binds decoding, preparation, execution and recovery for
@@ -150,11 +149,14 @@ func (c childStartOperation) apply(finalization *preparedStepFinalization, recor
 	return finalization.enqueueSettlement(signal)
 }
 
-func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
-	// A child publishes atomically with its start settlement, so an unsettled
-	// start never has its child in the tree.
+// A started child's request decodes from the child's own record, so a
+// successful start needs only that the child is captured; an unsettled start
+// never has its child in the tree, because the child publishes atomically with
+// its start settlement.
+func (c childStartOperation) validateTree(t *treeSnapshotValidation, _ ProcessID, record preparedEffect) error {
+	_, exists := t.processes[record.ID.childProcessID()]
 	if !record.definitelySettled() {
-		if _, exists := t.processes[record.ID.childProcessID()]; exists {
+		if exists {
 			return fmt.Errorf("%w: child exists before its start settled", ErrInvalidChildStart)
 		}
 		return nil
@@ -163,28 +165,8 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent Proc
 	if err != nil {
 		return err
 	}
-	childID, started := result.ProcessID()
-	if !started {
-		return nil
-	}
-	child, exists := t.processes[childID]
-	if !exists {
+	if _, started := result.ProcessID(); started && !exists {
 		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
-	}
-	if actualParent, _ := child.Relation.ParentID(); actualParent != parent {
-		return fmt.Errorf("%w: child parent identity disagrees with start", ErrInvalidChildStart)
-	}
-	if key, _ := child.Relation.ChildKey(); key != c.spec.Key {
-		return fmt.Errorf("%w: child key disagrees with start", ErrInvalidChildStart)
-	}
-	if child.DeploymentRef != c.spec.DeploymentRef {
-		return fmt.Errorf("%w: child Deployment disagrees with start", ErrInvalidChildStart)
-	}
-	if child.Budget != c.spec.Budget {
-		return fmt.Errorf("%w: child budget disagrees with start", ErrInvalidChildStart)
-	}
-	if !slices.Equal(child.Capabilities.Values(), c.spec.Capabilities.Values()) {
-		return fmt.Errorf("%w: child capabilities disagree with start", ErrInvalidChildStart)
 	}
 	return nil
 }

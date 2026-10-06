@@ -88,11 +88,22 @@ func (p preparedEffect) diagnostic() *Failure {
 
 // preparedEffectWire omits what the record's position and request determine:
 // its EffectID and, for a Framework Effect, every settlement fact except an
-// optional failure.
+// optional failure. A child start that published its child keeps only the
+// input: the child's record owns the key, Deployment, budget, and
+// capabilities it was granted, so the request decodes from that record.
 type preparedEffectWire struct {
-	Effect   Effect              `json:"effect"`
-	Progress *effectProgressWire `json:"progress,omitzero"`
+	Effect       *Effect             `json:"effect,omitzero"`
+	StartedChild *startedChildWire   `json:"started_child,omitzero"`
+	Progress     *effectProgressWire `json:"progress,omitzero"`
 }
+
+type startedChildWire struct {
+	Input Payload `json:"input"`
+}
+
+// childGrantSource returns the ChildSpec, without input, that a published
+// child's record was granted.
+type childGrantSource func(child ProcessID) (ChildSpec, error)
 
 type effectProgressWire struct {
 	Settlement *preparedSettlementWire `json:"settlement,omitzero"`
@@ -108,7 +119,7 @@ type preparedSettlementWire struct {
 }
 
 func (p preparedEffect) wire() (preparedEffectWire, error) {
-	wire := preparedEffectWire{Effect: p.Effect}
+	wire := preparedEffectWire{Effect: new(p.Effect)}
 	if p.progress == nil {
 		return wire, nil
 	}
@@ -132,14 +143,23 @@ func (p preparedEffect) wire() (preparedEffectWire, error) {
 	wire.Progress.Settlement = &preparedSettlementWire{}
 	if failure.Valid() {
 		wire.Progress.Settlement.Failure = &failure
+		return wire, nil
+	}
+	if start, starts := operation.(childStartOperation); starts {
+		wire.Effect, wire.StartedChild = nil, &startedChildWire{Input: start.spec.Input}
 	}
 	return wire, nil
 }
 
 // record rebuilds the prepared Effect at id, deriving a Framework settlement
-// from its request and retained failure.
-func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
-	record := preparedEffect{ID: id, Effect: p.Effect}
+// from its request and retained failure, and a started child's request from
+// the grant its child's record owns.
+func (p preparedEffectWire) record(id EffectID, grants childGrantSource) (preparedEffect, error) {
+	effect, err := p.effect(id, grants)
+	if err != nil {
+		return preparedEffect{}, err
+	}
+	record := preparedEffect{ID: id, Effect: effect}
 	if p.Progress == nil {
 		return record, nil
 	}
@@ -149,7 +169,7 @@ func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
 		return record, nil
 	}
 	var settlement Settlement
-	if p.Effect.Target() != EffectTargetFramework {
+	if effect.Target() != EffectTargetFramework {
 		if stored.Failure != nil {
 			return preparedEffect{}, errors.New("prepared Dispatcher settlement stores a Framework failure")
 		}
@@ -161,9 +181,12 @@ func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
 		if stored.Status != SettlementStatusInvalid || stored.Payload != nil {
 			return preparedEffect{}, errors.New("prepared Framework settlement stores what its request determines")
 		}
-		operation, err := decodeFrameworkOperation(p.Effect.payload)
+		operation, err := decodeFrameworkOperation(effect.payload)
 		if err != nil {
 			return preparedEffect{}, err
+		}
+		if _, starts := operation.(childStartOperation); starts && p.StartedChild == nil && stored.Failure == nil {
+			return preparedEffect{}, errors.New("started child request stores the grant its child owns")
 		}
 		if settlement, err = operation.settlement(id, lo.FromPtr(stored.Failure)); err != nil {
 			return preparedEffect{}, err
@@ -171,6 +194,25 @@ func (p preparedEffectWire) record(id EffectID) (preparedEffect, error) {
 	}
 	record.progress.settlement = &settlement
 	return record, nil
+}
+
+func (p preparedEffectWire) effect(id EffectID, grants childGrantSource) (Effect, error) {
+	switch {
+	case (p.Effect == nil) == (p.StartedChild == nil):
+		return Effect{}, errors.New("prepared Effect needs exactly one request or started child")
+	case p.Effect != nil:
+		return *p.Effect, nil
+	}
+	settlement := lo.FromPtr(p.Progress).Settlement
+	if settlement == nil || settlement.Failure != nil {
+		return Effect{}, errors.New("started child requires its successful settlement")
+	}
+	spec, err := grants(id.childProcessID())
+	if err != nil {
+		return Effect{}, err
+	}
+	spec.Input = p.StartedChild.Input
+	return NewChildStartEffect(spec)
 }
 
 // preparedEffects owns the sequential execution frontier. An uncertain result

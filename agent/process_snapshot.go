@@ -110,8 +110,9 @@ func (p processSnapshotDocument) link() (childIdentity, bool, error) {
 }
 
 // snapshot completes the record at relation, which the tree derived from its
-// link, with the outcomes its children reached, and validates it.
-func (p processSnapshotDocument) snapshot(relation ProcessRelation, outcomes childOutcomeSource) (ProcessSnapshot, error) {
+// link, with the outcomes its children reached and the grants its started
+// children hold, and validates it.
+func (p processSnapshotDocument) snapshot(relation ProcessRelation, outcomes childOutcomeSource, grants childGrantSource) (ProcessSnapshot, error) {
 	wire := processSnapshotWire(p.processSnapshotRecord)
 	wire.Relation = relation
 	mailbox, err := p.Mailbox.wire(outcomes)
@@ -123,7 +124,7 @@ func (p processSnapshotDocument) snapshot(relation ProcessRelation, outcomes chi
 		if wire.CommittedSteps == math.MaxUint64 {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step sequence overflows", ErrInvalidSnapshot)
 		}
-		prepared, err := p.Prepared.step(wire.ProcessID, wire.CommittedSteps+1)
+		prepared, err := p.Prepared.step(wire.ProcessID, wire.CommittedSteps+1, grants)
 		if err != nil {
 			return ProcessSnapshot{}, fmt.Errorf("%w: prepared Step: %w", ErrInvalidSnapshot, err)
 		}

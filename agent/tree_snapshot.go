@@ -125,9 +125,11 @@ func (t treeSnapshotDocument) processSnapshots() ([]ProcessSnapshot, error) {
 	})
 	decoded := newDecodedProcesses(len(order))
 	for _, id := range order {
-		snapshot, err := documents[id].snapshot(relations[id], func(child ProcessID, boundary ChildWaitBoundary) (ChildOutcome, error) {
-			return decoded.childOutcome(id, child, boundary)
-		})
+		snapshot, err := documents[id].snapshot(relations[id],
+			func(child ProcessID, boundary ChildWaitBoundary) (ChildOutcome, error) {
+				return decoded.childOutcome(id, child, boundary)
+			},
+			func(child ProcessID) (ChildSpec, error) { return decoded.childGrant(id, child) })
 		if err != nil {
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, err)
 		}
@@ -157,6 +159,20 @@ func (d *decodedProcesses) add(snapshot ProcessSnapshot) {
 	if parentID, child := snapshot.Relation().ParentID(); child {
 		d.children[parentID] = append(d.children[parentID], snapshot.ProcessID())
 	}
+}
+
+// childGrant returns what parent's direct child was granted when it started.
+func (d *decodedProcesses) childGrant(parent, child ProcessID) (ChildSpec, error) {
+	snapshot, decoded := d.byID[child]
+	actualParent, _ := snapshot.Relation().ParentID()
+	if !decoded || actualParent != parent {
+		return ChildSpec{}, fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
+	}
+	key, _ := snapshot.Relation().ChildKey()
+	return ChildSpec{
+		Key: key, DeploymentRef: snapshot.DeploymentRef(),
+		Budget: snapshot.Budget(), Capabilities: snapshot.Capabilities(),
+	}, nil
 }
 
 // childOutcome derives what parent's direct child reached at boundary: its
