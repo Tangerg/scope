@@ -23,7 +23,7 @@ func TestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	const want = "objective: ship agent\n" +
-		"workers: facts, risks, recommendation\n" +
+		"workers: 3\n" +
 		"summary: synthesized 3 ordered worker results\n" +
 		"processes: 6\n"
 	if output.String() != want {
@@ -295,13 +295,13 @@ func delegatePlanningTasks(request *chat.Request) (*chat.Response, error) {
 		return nil, fmt.Errorf("planning Delegate manifest=%#v", request.Tools)
 	}
 	first, err := jsonv2.Marshal(workerTask{
-		ID: "facts", Objective: "ship agent", Instruction: "review facts",
+		ID: "facts", Instruction: "review facts",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode first Planning task: %w", err)
 	}
 	second, err := jsonv2.Marshal(workerTask{
-		ID: "risks", Objective: "ship agent", Instruction: "review risks",
+		ID: "risks", Instruction: "review risks",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode second Planning task: %w", err)

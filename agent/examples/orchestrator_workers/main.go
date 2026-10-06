@@ -48,7 +48,8 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
-	input, err := agent.EncodePayload(orchestrationGoal{Objective: "ship agent"})
+	goal := orchestrationGoal{Objective: "ship agent"}
+	input, err := agent.EncodePayload(goal)
 	if err != nil {
 		return err
 	}
@@ -73,11 +74,9 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}
 	_, err = fmt.Fprintf(
 		output,
-		"objective: %s\nworkers: %s, %s, %s\nsummary: %s\nprocesses: %d\n",
-		report.Objective,
-		report.Results[0].TaskID,
-		report.Results[1].TaskID,
-		report.Results[2].TaskID,
+		"objective: %s\nworkers: %d\nsummary: %s\nprocesses: %d\n",
+		goal.Objective,
+		len(report.Results),
 		report.Summary,
 		len(tree.ProcessSnapshots()),
 	)
@@ -90,7 +89,6 @@ type orchestrationGoal struct {
 
 type workerTask struct {
 	ID          string `json:"id"`
-	Objective   string `json:"objective"`
 	Instruction string `json:"instruction"`
 }
 
@@ -98,16 +96,15 @@ type workPlan struct {
 	Tasks []workerTask `json:"tasks"`
 }
 
+// workerResult carries only the worker's finding; Map keeps results in task
+// order, so the plan, not the result, names the task.
 type workerResult struct {
-	TaskID    string `json:"task_id"`
-	Objective string `json:"objective"`
-	Finding   string `json:"finding"`
+	Finding string `json:"finding"`
 }
 
 type orchestrationReport struct {
-	Objective string         `json:"objective"`
-	Summary   string         `json:"summary"`
-	Results   []workerResult `json:"results"`
+	Summary string         `json:"summary"`
+	Results []workerResult `json:"results"`
 }
 
 func newOrchestratorWorkers() (agent.Deployment, error) {
@@ -214,13 +211,10 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 }
 
 func executeWorkerTask(_ context.Context, task workerTask) (workerResult, error) {
-	if task.ID == "" || task.Objective == "" || task.Instruction == "" {
+	if task.ID == "" || task.Instruction == "" {
 		return workerResult{}, errors.New("worker task is incomplete")
 	}
-	return workerResult{
-		TaskID: task.ID, Objective: task.Objective,
-		Finding: task.Instruction + ": complete",
-	}, nil
+	return workerResult{Finding: task.Instruction + ": complete"}, nil
 }
 
 func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask, error) {
@@ -319,9 +313,9 @@ func (decompositionModel) Call(_ context.Context, request *chat.Request) (*chat.
 		return nil, errors.New("decomposition model received an invalid objective")
 	}
 	plan := workPlan{Tasks: []workerTask{
-		{ID: "facts", Objective: goal.Objective, Instruction: "collect facts for " + goal.Objective},
-		{ID: "risks", Objective: goal.Objective, Instruction: "identify risks for " + goal.Objective},
-		{ID: "recommendation", Objective: goal.Objective, Instruction: "recommend next steps for " + goal.Objective},
+		{ID: "facts", Instruction: "collect facts for " + goal.Objective},
+		{ID: "risks", Instruction: "identify risks for " + goal.Objective},
+		{ID: "recommendation", Instruction: "recommend next steps for " + goal.Objective},
 	}}
 	return jsonResponse(plan)
 }
@@ -333,16 +327,14 @@ func (synthesisModel) Call(_ context.Context, request *chat.Request) (*chat.Resp
 	if err := jsonv2.Unmarshal([]byte(request.Messages[0].Text()), &results); err != nil || len(results) == 0 {
 		return nil, errors.New("synthesis model received invalid worker results")
 	}
-	objective := results[0].Objective
 	for index, result := range results {
-		if result.TaskID == "" || result.Objective != objective || result.Finding == "" {
+		if result.Finding == "" {
 			return nil, fmt.Errorf("worker result %d is incomplete", index)
 		}
 	}
 	return jsonResponse(orchestrationReport{
-		Objective: objective,
-		Summary:   fmt.Sprintf("synthesized %d ordered worker results", len(results)),
-		Results:   results,
+		Summary: fmt.Sprintf("synthesized %d ordered worker results", len(results)),
+		Results: results,
 	})
 }
 
