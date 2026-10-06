@@ -29,10 +29,10 @@ func (e effectEnvelope) operation() operation {
 	return operationSense
 }
 
+// actionCall names the bound Action; the binding owns its description.
 type actionCall struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	WorldState  WorldState `json:"world_state"`
+	Name       string     `json:"name"`
+	WorldState WorldState `json:"world_state"`
 }
 
 // signalEnvelope carries exactly one of a host rejection, a sensing result,
@@ -90,7 +90,7 @@ func newActionEffect(input agent.Payload, binding ActionBinding, state WorldStat
 	payload, err := jsonv2.Marshal(effectEnvelope{
 		Input: input,
 		Action: &actionCall{
-			Name: binding.action.name, Description: binding.action.description, WorldState: state,
+			Name: binding.action.name, WorldState: state,
 		},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
@@ -114,7 +114,7 @@ func (e effectEnvelope) valid() bool {
 	if !e.Input.Valid() {
 		return false
 	}
-	return e.Action == nil || agent.ValidQualifiedName(e.Action.Name) && agent.ValidDescription(e.Action.Description)
+	return e.Action == nil || agent.ValidQualifiedName(e.Action.Name)
 }
 
 func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
