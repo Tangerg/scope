@@ -209,7 +209,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 		ID:         "fanout",
 		Branches:   []ForkBranch{{ID: "only", Deployment: child, Budget: budget}},
 		WindowSize: 1,
-		Reduce: func(_ context.Context, values []stateFixture) (stateFixture, error) {
+		Reduce: func(_ context.Context, _ stateFixture, values []stateFixture) (stateFixture, error) {
 			return values[0], nil
 		},
 	})

@@ -89,8 +89,9 @@ type normalizedRequest struct {
 	Text string `json:"text"`
 }
 
+// review carries only what a reviewer adds; the Fork reducer pairs it with
+// the request the Fork received.
 type review struct {
-	Request  string `json:"request"`
 	Reviewer string `json:"reviewer"`
 	Verdict  string `json:"verdict"`
 }
@@ -135,11 +136,11 @@ func newManagedWorkflow() (agent.Deployment, error) {
 			{ID: "safety", Deployment: safety, Budget: budget},
 		},
 		WindowSize: reviewerCount,
-		Reduce: func(_ context.Context, reviews []review) (reviewReport, error) {
-			if len(reviews) != reviewerCount || reviews[0].Request != reviews[1].Request {
-				return reviewReport{}, errors.New("review branches returned inconsistent results")
+		Reduce: func(_ context.Context, request normalizedRequest, reviews []review) (reviewReport, error) {
+			if len(reviews) != reviewerCount {
+				return reviewReport{}, errors.New("review branches returned an incomplete report")
 			}
-			return reviewReport{Request: reviews[0].Request, Reviews: reviews}, nil
+			return reviewReport{Request: request.Text, Reviews: reviews}, nil
 		},
 	})
 	if err != nil {
@@ -167,8 +168,8 @@ func reviewerDeployment(reviewer string) (agent.Deployment, error) {
 	return transformDeployment(
 		"example.workflow.reviewer_"+reviewer,
 		"Return one deterministic "+reviewer+" review.",
-		func(_ context.Context, input normalizedRequest) (review, error) {
-			return review{Request: input.Text, Reviewer: reviewer, Verdict: "ready"}, nil
+		func(_ context.Context, _ normalizedRequest) (review, error) {
+			return review{Reviewer: reviewer, Verdict: "ready"}, nil
 		},
 	)
 }

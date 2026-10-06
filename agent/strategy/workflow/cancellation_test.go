@@ -37,7 +37,9 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 				return workflow.Fork(workflow.ForkConfig[numberInput, numberInput, numberInput]{
 					ID: "work", WindowSize: 1,
 					Branches: []workflow.ForkBranch{{ID: "child", Deployment: child, Budget: mustBudget(t)}},
-					Reduce:   canceledWorkflowCallback[[]numberInput, numberInput](entered),
+					Reduce: func(ctx context.Context, _ numberInput, outputs []numberInput) (numberInput, error) {
+						return canceledWorkflowCallback[[]numberInput, numberInput](entered)(ctx, outputs)
+					},
 				})
 			},
 		},

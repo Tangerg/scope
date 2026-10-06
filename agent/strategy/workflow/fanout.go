@@ -27,7 +27,9 @@ type fanoutStage struct {
 	source       fanoutSource
 	windowSize   uint32
 	outputSchema agent.Schema
-	complete     func(context.Context, []json.RawMessage) (json.RawMessage, error)
+	// complete receives the Stage input with the member outputs, so members
+	// never carry the input forward themselves.
+	complete func(ctx context.Context, input json.RawMessage, outputs []json.RawMessage) (json.RawMessage, error)
 }
 
 type fanoutOutputs struct {

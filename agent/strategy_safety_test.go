@@ -239,7 +239,7 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 					return "", errors.New("next stage ran")
 				}))
 			case "fork":
-				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: test.kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, []string) (string, error) {
+				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: test.kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, string, []string) (string, error) {
 					reducerCalls.Add(1)
 					return "", errors.New("fanout reduced unsafe output")
 				}}))

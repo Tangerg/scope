@@ -9,10 +9,11 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// ForkReducer combines branch outputs in declaration order. It must be
+// ForkReducer combines the Fork's input with its branch outputs in
+// declaration order; branches therefore return only what they add. It must be
 // bounded, deterministic, side-effect-free, honor ctx cancellation, and never
 // retain the slice. Context is not a source of domain input.
-type ForkReducer[B, O any] func(ctx context.Context, branchOutputs []B) (O, error)
+type ForkReducer[I, B, O any] func(ctx context.Context, input I, branchOutputs []B) (O, error)
 
 type ForkBranch struct {
 	// ID is unique within this Fork Stage and stable across restoration.
@@ -38,7 +39,7 @@ type ForkConfig[I, B, O any] struct {
 	// execution window before the next window begins.
 	WindowSize uint32
 
-	Reduce ForkReducer[B, O]
+	Reduce ForkReducer[I, B, O]
 }
 
 type forkSource struct{ branches []fanoutMember }
@@ -147,12 +148,20 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		stageName: "Fork", stageID: config.ID, memberName: "branch",
 		memberSchema: branchSchema, resultSchema: outputSchema,
 	}
-	reduce := func(ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
+	reduce := func(ctx context.Context, rawInput json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
+		input, err := agent.ParsePayload(rawInput)
+		if err != nil {
+			return nil, err
+		}
+		value, err := input.Decode[I]()
+		if err != nil {
+			return nil, fmt.Errorf("Fork %q input: %w", config.ID, err)
+		}
 		values, err := outputs.decode[B](ctx, raw)
 		if err != nil {
 			return nil, err
 		}
-		result, err := reducer(ctx, values)
+		result, err := reducer(ctx, value, values)
 		if err != nil {
 			return nil, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}

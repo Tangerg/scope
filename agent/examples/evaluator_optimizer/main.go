@@ -49,13 +49,12 @@ func run(ctx context.Context, output io.Writer) error {
 	}
 	_, err = fmt.Fprintf(
 		output,
-		"objective: %s\nbest: %s\nscore: %.2f\nattempts: %d\naccepted: %t\niterations: %d\nprocesses: %d\n",
+		"objective: %s\nbest: %s\nscore: %.2f\nattempts: %d\naccepted: %t\nprocesses: %d\n",
 		report.Objective,
-		report.Best.Candidate.Content,
-		report.Best.Assessment.Score,
+		report.best().Candidate.Content,
+		report.best().Assessment.Score,
 		len(report.History),
 		report.Accepted,
-		report.Iterations,
 		evidence.ProcessCount,
 	)
 	return err
@@ -145,12 +144,17 @@ func (o optimizationState) accepted(threshold float64) bool {
 	return present && best.Assessment.Score >= threshold
 }
 
+// optimizationReport keeps one attempt per iteration; the best attempt and the
+// iteration count follow from that history.
 type optimizationReport struct {
-	Objective  string    `json:"objective"`
-	History    []attempt `json:"history"`
-	Best       attempt   `json:"best"`
-	Accepted   bool      `json:"accepted"`
-	Iterations uint64    `json:"iterations"`
+	Objective string    `json:"objective"`
+	History   []attempt `json:"history"`
+	Accepted  bool      `json:"accepted"`
+}
+
+func (o optimizationReport) best() attempt {
+	best, _ := optimizationState{History: o.History}.earliestBest()
+	return best
 }
 
 type executionEvidence struct {
@@ -352,21 +356,19 @@ func initializeOptimization(_ context.Context, request optimizationRequest) (opt
 	return optimizationState{Objective: objective, History: []attempt{}}, nil
 }
 
-func finalizeOptimization(result workflow.LoopResult[optimizationState], threshold float64) (optimizationReport, error) {
+func finalizeOptimization(result workflow.LoopResult[optimizationState]) (optimizationReport, error) {
 	state := result.Value
-	if !result.Valid() || result.Satisfied != state.accepted(threshold) {
-		return optimizationReport{}, errors.New("loop result and acceptance state disagree")
+	if !result.Valid() {
+		return optimizationReport{}, errors.New("loop result is invalid")
 	}
 	if err := state.validateSettled(); err != nil {
 		return optimizationReport{}, err
 	}
-	best, present := state.earliestBest()
-	if !present || uint64(len(state.History)) != result.Iterations {
-		return optimizationReport{}, errors.New("loop result has incomplete attempt history")
+	if _, present := state.earliestBest(); !present {
+		return optimizationReport{}, errors.New("loop result has no attempt")
 	}
 	return optimizationReport{
-		Objective: state.Objective, History: slices.Clone(state.History), Best: best,
-		Accepted: state.accepted(threshold), Iterations: result.Iterations,
+		Objective: state.Objective, History: slices.Clone(state.History), Accepted: result.Satisfied,
 	}, nil
 }
 
@@ -398,7 +400,7 @@ func newOptimizationRoot(
 	finalize, err := workflow.Transform("finalize", func(_ context.Context,
 		result workflow.LoopResult[optimizationState],
 	) (optimizationReport, error) {
-		return finalizeOptimization(result, threshold)
+		return finalizeOptimization(result)
 	})
 	if err != nil {
 		return agent.Deployment{}, err
