@@ -56,6 +56,9 @@ func (w WaitKind) String() string {
 type ProcessSnapshot struct {
 	data  json.RawMessage
 	state processSnapshotWire
+	// awaitedWaitID projects the restored mailbox's answer to the entered
+	// wait, so status reads one rule with the live Process.
+	awaitedWaitID WaitID
 	// openChildWaits projects the mailbox replay validation already performed,
 	// so tree validation can check each wait without replaying it again.
 	openChildWaits []openedChildWait
@@ -167,10 +170,10 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	snapshot := ProcessSnapshot{data: normalized, state: wire}
+	snapshot := ProcessSnapshot{data: normalized, state: wire, awaitedWaitID: mailbox.awaited(lo.FromPtr(wire.CurrentWaitID))}
 	// A terminal Process's waits end with it; its mailbox only closes the
 	// waits it consumed.
-	if !wire.status().Terminal() {
+	if !wire.terminal() {
 		snapshot.openChildWaits = mailbox.openChildWaits()
 	}
 	return snapshot, nil
@@ -212,7 +215,7 @@ func (p ProcessSnapshot) Capabilities() CapabilitySet {
 }
 
 func (p ProcessSnapshot) Status() Status {
-	return p.state.status()
+	return p.state.status(p.awaitedWaitID)
 }
 
 func (p ProcessSnapshot) Usage() Usage {
@@ -278,8 +281,7 @@ func (p ProcessSnapshot) Result() (Result, bool) { return p.state.result() }
 // WaitID returns the current unanswered Engine-minted wait identity, including
 // while the captured Process is Paused.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	waitID := p.state.awaitedWaitID()
-	return waitID, waitID.Valid()
+	return p.awaitedWaitID, p.awaitedWaitID.Valid()
 }
 
 // WaitKind distinguishes Host input from Framework child completion while the
@@ -361,7 +363,7 @@ const (
 // Dispatcher payloads are external outcomes, not predictable admission facts.
 func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 	var pendingSize, terminalGrowth, effectGrowth uint64
-	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
+	if !p.terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		reservation := snapshotTextReservation{}
 		failure := reservation.failure()
 		if p.Prepared != nil {
@@ -507,7 +509,7 @@ func (p processSnapshotWire) validateCapacity(childAllocation resourceAmounts) e
 // consumption cannot exceed the pending suffix.
 func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedSteps uint64) {
 	remaining = uint64(len(p.Mailbox.Signals)) - p.Mailbox.SignalCursor
-	if p.Prepared != nil && !p.status().Terminal() {
+	if p.Prepared != nil && !p.terminal() {
 		remaining -= p.Prepared.consumedSignals()
 		reserved = p.Prepared.settlementSignalCount()
 		preparedSteps = 1
@@ -537,7 +539,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 	if p.Prepared == nil {
 		return nil
 	}
-	if p.status() != StatusRunning && !p.status().Terminal() || p.status() == StatusCompleted {
+	if status := p.status(mailbox.awaited(lo.FromPtr(p.CurrentWaitID))); status != StatusRunning && !status.Terminal() || status == StatusCompleted {
 		return fmt.Errorf("%w: prepared Step requires Running or interrupted terminal status", ErrInvalidSnapshot)
 	}
 	if p.CommittedSteps == math.MaxUint64 {
@@ -547,7 +549,7 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
 	for _, record := range p.Prepared.Effects {
-		if p.status().Terminal() && record.phase() == effectPhasePending {
+		if p.terminal() && record.phase() == effectPhasePending {
 			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 		}
 	}
@@ -581,24 +583,18 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 	return mailbox, nil
 }
 
-func (p processSnapshotWire) status() Status {
-	return lifecycleStatus(lo.FromPtr(p.Finish).Termination, p.PauseReason != "", p.awaitedWaitID().Valid())
+// status needs the wait the restored mailbox still awaits; terminal does not.
+func (p processSnapshotWire) status(awaited WaitID) Status {
+	return lifecycleStatus(lo.FromPtr(p.Finish).Termination, p.PauseReason != "", awaited.Valid())
 }
 
-// awaitedWaitID mirrors processState.awaitedWaitID over the portable mailbox.
-func (p processSnapshotWire) awaitedWaitID() WaitID {
-	waitID := lo.FromPtr(p.CurrentWaitID)
-	if !waitID.Valid() || p.Mailbox.answered(waitID) {
-		return WaitID{}
-	}
-	return waitID
-}
+func (p processSnapshotWire) terminal() bool { return lo.FromPtr(p.Finish).Termination.Valid() }
 
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 	if err := p.validateFinish(); err != nil {
 		return err
 	}
-	status := p.status()
+	status := p.status(mailbox.awaited(lo.FromPtr(p.CurrentWaitID)))
 	if (status == StatusCompleted) != lo.FromPtr(p.Finish).Output.Valid() {
 		return fmt.Errorf("%w: exactly a Completed Process contains Output", ErrInvalidSnapshot)
 	}
@@ -660,7 +656,7 @@ func (p processSnapshotWire) publishedTermination() Termination {
 // result requires a validated capture, whose terminal status guarantees its
 // finish time and termination.
 func (p processSnapshotWire) result() (Result, bool) {
-	if !p.status().Terminal() {
+	if !p.terminal() {
 		return Result{}, false
 	}
 	return Result{

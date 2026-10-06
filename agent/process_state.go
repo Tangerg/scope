@@ -95,14 +95,7 @@ func (p *processState) status() Status {
 	return lifecycleStatus(lo.FromPtr(p.finish).Termination, p.pause.valid(), p.awaitedWaitID().Valid())
 }
 
-// awaitedWaitID is the wait the last committed Step entered while its
-// mailbox has not answered it; the mailbox owns whether it is answered.
-func (p *processState) awaitedWaitID() WaitID {
-	if !p.currentWaitID.Valid() || p.mailbox.waits[p.currentWaitID].answered {
-		return WaitID{}
-	}
-	return p.currentWaitID
-}
+func (p *processState) awaitedWaitID() WaitID { return p.mailbox.awaited(p.currentWaitID) }
 
 func (p *processState) adoptCandidate(candidate *processState) {
 	if candidate.handle != p.handle {

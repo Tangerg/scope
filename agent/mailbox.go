@@ -263,6 +263,15 @@ func (s *signalMailbox) appendRecord(record signalRecord) {
 	s.records = append(s.records, record)
 }
 
+// awaited returns entered while this mailbox has not answered it: the wait a
+// Step entered keeps its Process Waiting only until its answer arrives.
+func (s *signalMailbox) awaited(entered WaitID) WaitID {
+	if !entered.Valid() || s.waits[entered].answered {
+		return WaitID{}
+	}
+	return entered
+}
+
 // enterWait admits id as the wait a Step enters; an early answer leaves the
 // Process runnable without another transition.
 func (s *signalMailbox) enterWait(id WaitID) error {
@@ -602,16 +611,6 @@ func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBound
 		}
 	}
 	return waits
-}
-
-// answered reports whether a non-opening record addresses id.
-func (m mailboxWire) answered(id WaitID) bool {
-	for _, record := range m.Signals {
-		if record.Opens == nil && lo.FromPtr(record.WaitID) == id {
-			return true
-		}
-	}
-	return false
 }
 
 func (m mailboxWire) waitKind(id WaitID) (WaitKind, bool) {

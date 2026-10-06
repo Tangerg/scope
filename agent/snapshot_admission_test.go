@@ -16,7 +16,7 @@ import (
 // It must remain independent of the arithmetic used by production admission.
 func materializedAdmissionSize(p processSnapshotWire, limits TreeLimits) (uint64, error) {
 	var pendingSize int
-	if !p.status().Terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
+	if !p.terminal() && (limits.MaxProcessSnapshotBytes.limited || limits.MaxSnapshotBytes.limited) {
 		failure := Failure{kind: FailureKindExecution, code: strings.Repeat("x", maxQualifiedNameBytes), message: strings.Repeat("\x00", MaxDiagnosticBytes)}
 		if p.Prepared != nil {
 			prepared := p.Prepared.clone()
@@ -166,7 +166,7 @@ func TestArithmeticAdmissionMatchesMaterializedWire(t *testing.T) {
 		for _, reason := range []string{"", "<paused>"} {
 			wire.PauseReason = reason
 			if got, want := controlValue(wire.admissionSize(limits)), controlValue(materializedAdmissionSize(wire, limits)); got != want {
-				t.Fatalf("%s: %d != %d", wire.status(), got, want)
+				t.Fatalf("pause %q: %d != %d", wire.PauseReason, got, want)
 			}
 		}
 		wire.PauseReason, wire.CurrentWaitID = "", nil

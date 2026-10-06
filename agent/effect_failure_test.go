@@ -183,7 +183,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil || wire.Prepared == nil || len(wire.Prepared.Effects) != 2 {
 		t.Fatalf("contract failure discarded evidence: %v", err)
 	}
-	if wire.status() != StatusFailed || wire.Prepared.Effects[0].settlement().Status() != SettlementStatusSucceeded ||
+	if controlValue(newProcessSnapshot(wire)).Status() != StatusFailed || wire.Prepared.Effects[0].settlement().Status() != SettlementStatusSucceeded ||
 		wire.Prepared.Effects[1].phase() != effectPhasePlanned || len(wire.Mailbox.Signals) != 0 ||
 		wire.usage() != (Usage{PreparedEffects: 2}) || len(wire.Finish.Termination.UnresolvedEffectIDs()) != 0 {
 		t.Fatalf("contract failure changed settled evidence or adopted candidate: %+v", wire)

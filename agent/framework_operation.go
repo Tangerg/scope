@@ -109,7 +109,7 @@ func (c childWaitOperation) apply(finalization *preparedStepFinalization, record
 }
 
 func (c childWaitOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, _ preparedEffect) error {
-	if t.processes[parent].status().Terminal() {
+	if t.processes[parent].terminal() {
 		return nil
 	}
 	return c.spec.validateRelations(parent, t.processRelation)
@@ -234,7 +234,7 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 		return ErrInvalidChildControl
 	}
 	if c.request.Operation == frameworkOperationCancelChild {
-		if !child.status().Terminal() && child.PendingControl.Cancellation == nil {
+		if !child.terminal() && child.PendingControl.Cancellation == nil {
 			return ErrInvalidChildControl
 		}
 		return nil

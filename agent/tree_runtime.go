@@ -1471,6 +1471,10 @@ func (t *treeRuntime) recoverPendingEffect(
 			t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
 			return
 		}
+		if !process.handle.capabilities.Allows(policy.RequiredCapabilities) {
+			t.failProcessContract(process, failureCodeEngineCapabilityDenied, ErrInvalidCapability)
+			return
+		}
 		replayPolicy = policy.Replay
 	}
 	if replayPolicy == ReplayPolicySameIdentity {

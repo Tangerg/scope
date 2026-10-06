@@ -47,7 +47,7 @@ func TestPauseReasonSurvivesControlAndRestoration(t *testing.T) {
 			waitForStatus(t, process, StatusPaused)
 			tree := controlValue(ParseTreeSnapshot(controlValue(engine.CaptureTree(t.Context(), process.ID())).JSON()))
 			paused := controlValue(parseTestProcessSnapshot(tree.ProcessSnapshots()[0].JSON()))
-			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || wire.status() != StatusPaused {
+			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || controlValue(newProcessSnapshot(wire)).Status() != StatusPaused {
 				t.Fatal("capture changed the pause reason or status")
 			}
 			restoredEngine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(tree)}))

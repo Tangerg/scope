@@ -445,7 +445,7 @@ func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child pro
 	}
 	t.children[identity] = relation.ProcessID()
 	t.childCounts[identity.parent]++
-	if !child.status().Terminal() {
+	if !child.terminal() {
 		t.activeChildCounts[identity.parent]++
 	}
 	debit, ok := parent.Budget.allocation(child.Budget)
