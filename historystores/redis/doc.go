@@ -10,7 +10,8 @@
 // retains a confirmed append even if expiry refresh fails.
 //
 // Enumeration scans each Redis Cluster master to completion and merges the
-// results. A Ring supports Read, Write and Clear, but Conversations returns
+// results. Invalid stored conversation IDs return an error without a partial list.
+// A Ring supports Read, Write and Clear, but Conversations returns
 // errors.ErrUnsupported: the SDK's ForEachShard silently skips down shards and
 // exposes no complete current topology with which to verify coverage. Only
 // concrete go-redis multi-node clients can be recognized; a wrapper hiding one

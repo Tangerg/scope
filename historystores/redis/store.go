@@ -207,7 +207,7 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 	collector := &conversationCollector{
 		keyPrefix: s.keyPrefix,
 		match:     scanPatternEscaper.Replace(s.keyPrefix) + "*",
-		seen:      make(map[string]struct{}),
+		ids:       make(map[history.ConversationID]struct{}),
 	}
 
 	// ForEachMaster runs concurrently and returns the first error, which is
@@ -239,9 +239,8 @@ type conversationCollector struct {
 	keyPrefix string
 	match     string
 
-	mu   sync.Mutex
-	seen map[string]struct{}
-	ids  []history.ConversationID
+	mu  sync.Mutex
+	ids map[history.ConversationID]struct{}
 }
 
 func (c *conversationCollector) scanNode(ctx context.Context, node *goredis.Client) error {
@@ -261,7 +260,9 @@ func (c *conversationCollector) scan(ctx context.Context, scanner keyScanner) er
 		if err != nil {
 			return fmt.Errorf("redis: list conversations: scan keys: %w", err)
 		}
-		c.collect(keys)
+		if err := c.collect(keys); err != nil {
+			return err
+		}
 
 		if next == 0 {
 			return nil
@@ -270,7 +271,7 @@ func (c *conversationCollector) scan(ctx context.Context, scanner keyScanner) er
 	}
 }
 
-func (c *conversationCollector) collect(keys []string) {
+func (c *conversationCollector) collect(keys []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -282,15 +283,12 @@ func (c *conversationCollector) collect(keys []string) {
 			continue
 		}
 		conversationID := history.ConversationID(id)
-		if conversationID.Validate() != nil {
-			continue
+		if err := conversationID.Validate(); err != nil {
+			return fmt.Errorf("redis: list conversations: invalid stored ID %q: %w", id, err)
 		}
-		if _, duplicate := c.seen[id]; duplicate {
-			continue
-		}
-		c.seen[id] = struct{}{}
-		c.ids = append(c.ids, conversationID)
+		c.ids[conversationID] = struct{}{}
 	}
+	return nil
 }
 
 func (c *conversationCollector) sorted() []history.ConversationID {
@@ -299,8 +297,10 @@ func (c *conversationCollector) sorted() []history.ConversationID {
 
 	// Non-nil even when no conversations exist — every backend's
 	// Conversations returns an empty slice, not nil.
-	ids := make([]history.ConversationID, len(c.ids))
-	copy(ids, c.ids)
+	ids := make([]history.ConversationID, 0, len(c.ids))
+	for id := range c.ids {
+		ids = append(ids, id)
+	}
 	slices.Sort(ids)
 	return ids
 }

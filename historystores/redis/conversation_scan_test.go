@@ -48,7 +48,7 @@ func newCollector() *conversationCollector {
 	return &conversationCollector{
 		keyPrefix: DefaultKeyPrefix,
 		match:     DefaultKeyPrefix + "*",
-		seen:      make(map[string]struct{}),
+		ids:       make(map[history.ConversationID]struct{}),
 	}
 }
 
@@ -177,5 +177,24 @@ func TestConversationsScansASingleClientDirectly(t *testing.T) {
 	}
 	if want := []uint64{0, 17}; !slices.Equal(client.scanner.cursors, want) {
 		t.Fatalf("cursors = %v, want %v", client.scanner.cursors, want)
+	}
+}
+
+func TestConversationsRejectsMalformedStoredIdentities(t *testing.T) {
+	for _, id := range []string{"", " padded", "control\n", string([]byte{0xff})} {
+		t.Run(id, func(t *testing.T) {
+			client := &singleNodeClient{scanner: &pagedScanner{pages: [][]string{
+				{DefaultKeyPrefix + "valid"},
+				{DefaultKeyPrefix + id},
+			}}}
+			store, err := NewStore(t.Context(), StoreConfig{Client: client})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, err := store.Conversations(t.Context())
+			if ids != nil || !errors.Is(err, history.ErrInvalidConversationID) {
+				t.Fatalf("malformed stored ID returned a partial list: ids = %v, error = %v", ids, err)
+			}
+		})
 	}
 }
