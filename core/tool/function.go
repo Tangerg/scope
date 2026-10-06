@@ -77,13 +77,23 @@ func (f Func[In, Out]) Definition() chat.ToolDefinition {
 	}
 }
 
+// Call checks cancellation before entering the application function. Once
+// dispatched, that function owns the outcome, including acknowledged effects;
+// cancellation never replaces its completed result. Successful output must
+// satisfy the canonical ToolOutput contract.
 func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
 	if f.function == nil {
 		return chat.ToolOutput{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return chat.ToolOutput{}, ctxErr
+	}
 	input, err := decodeFuncInput[In](invocation.Arguments())
 	if err != nil {
 		return chat.ToolOutput{}, fmt.Errorf("tool: decode function arguments: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return chat.ToolOutput{}, ctxErr
 	}
 	output, err := f.function(ctx, input)
 	if err != nil {
@@ -116,7 +126,11 @@ func decodeFuncInput[In any](arguments []byte) (In, error) {
 func (Func[In, Out]) encodeResult(output Out) (chat.ToolOutput, error) {
 	value := reflect.ValueOf(output)
 	if value.IsValid() && value.Kind() == reflect.String {
-		return chat.NewTextToolOutput(value.String()), nil
+		result := chat.NewTextToolOutput(value.String())
+		if err := result.Validate(); err != nil {
+			return chat.ToolOutput{}, err
+		}
+		return result, nil
 	}
 	encoded, err := jsonv2.Marshal(output)
 	if err != nil {

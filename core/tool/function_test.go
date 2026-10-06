@@ -239,6 +239,78 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 	})
 }
 
+func TestFuncRejectsInvalidTextOutput(t *testing.T) {
+	type textValue string
+	for name, text := range map[string]string{"invalid": "\xff", "empty": "", "unicode": "确认\x00\n"} {
+		t.Run(name, func(t *testing.T) {
+			plain, err := tool.NewFunc(tool.FuncConfig{Name: "plain"}, func(context.Context, struct{}) (string, error) {
+				return text, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defined, err := tool.NewFunc(tool.FuncConfig{Name: "defined"}, func(context.Context, struct{}) (textValue, error) {
+				return textValue(text), nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, executable := range []tool.Tool{plain, defined} {
+				output, callErr := call(t, t.Context(), executable, `{}`)
+				if name == "invalid" {
+					if !errors.Is(callErr, chat.ErrInvalidToolOutput) || output.Content != nil || output.Details != nil {
+						t.Fatalf("invalid text published: output=%#v error=%v", output, callErr)
+					}
+					continue
+				}
+				if callErr != nil || output.Validate() != nil || output.Details != nil {
+					t.Fatalf("valid text rejected: output=%#v error=%v", output, callErr)
+				}
+				if text == "" {
+					if output.Content != nil {
+						t.Fatalf("empty text published content: %#v", output)
+					}
+				} else if len(output.Content) != 1 || output.Content[0].Kind != chat.PartText || output.Content[0].Text != text {
+					t.Fatalf("text changed: %#v", output)
+				}
+			}
+		})
+	}
+}
+
+func TestFuncCancelledContextDoesNotExecute(t *testing.T) {
+	calls := 0
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, struct{}) (string, error) {
+		calls++
+		return "executed", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	output, callErr := call(t, ctx, function, `{}`)
+	if !errors.Is(callErr, context.Canceled) || calls != 0 || output.Content != nil || output.Details != nil {
+		t.Fatalf("canceled invocation executed: calls=%d output=%#v error=%v", calls, output, callErr)
+	}
+}
+
+func TestFuncPreservesCompletedOutputOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, struct{}) (string, error) {
+		cancel()
+		return "written", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, callErr := call(t, ctx, function, `{}`)
+	if callErr != nil || len(output.Content) != 1 || output.Content[0].Kind != chat.PartText || output.Content[0].Text != "written" || output.Details != nil {
+		t.Fatalf("completed outcome discarded: output=%#v error=%v", output, callErr)
+	}
+}
+
 func TestFuncConcurrentCalls(t *testing.T) {
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "concurrent"}, func(_ context.Context, input addInput) (int, error) {
 		return input.A + input.B, nil

@@ -27,9 +27,8 @@ func (t TranscriptionModelConfig) protocol() protocol.TranscriptionModelConfig {
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
 
-// TranscriptionModel is the shared protocol type itself rather than a
-// wrapper, so this provider adds no second public surface for callers to
-// choose between.
+// TranscriptionModel exposes the VertexAI transcription capability. Its zero
+// value rejects calls.
 type TranscriptionModel = callModel[transcription.Request, transcription.Response]
 
 // NewTranscriptionModel rejects an invalid provider binding before the first transcription call.

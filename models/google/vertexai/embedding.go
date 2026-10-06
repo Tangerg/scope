@@ -27,9 +27,8 @@ func (e EmbeddingModelConfig) protocol() protocol.EmbeddingModelConfig {
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
 
-// EmbeddingModel is the shared protocol type itself rather than a wrapper,
-// so this provider adds no second public surface for callers to choose
-// between.
+// EmbeddingModel exposes the VertexAI embedding capability. Its zero value
+// rejects calls.
 type EmbeddingModel = callModel[embedding.Request, embedding.Response]
 
 // NewEmbeddingModel rejects an invalid provider binding before the first embedding call.

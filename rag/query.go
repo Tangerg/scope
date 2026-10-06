@@ -136,9 +136,10 @@ func (q Query) WithText(text string) (Query, error) {
 	if err := q.Validate(); err != nil {
 		return Query{}, err
 	}
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return Query{}, fmt.Errorf("%w: text must not be blank", ErrInvalidQuery)
+	updated, err := NewQuery(text)
+	if err != nil {
+		return Query{}, err
 	}
-	return Query{text: text, values: q.values}, nil
+	updated.values = q.values
+	return updated, nil
 }
