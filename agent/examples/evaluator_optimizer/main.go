@@ -64,9 +64,10 @@ type optimizationRequest struct {
 	Objective string `json:"objective"`
 }
 
+// candidate is identified by its position: revision n is History[n-1], or
+// Current while it awaits evaluation.
 type candidate struct {
-	Revision uint32 `json:"revision"`
-	Content  string `json:"content"`
+	Content string `json:"content"`
 }
 
 type assessment struct {
@@ -79,8 +80,8 @@ type attempt struct {
 	Assessment assessment `json:"assessment"`
 }
 
-func (a attempt) validAt(revision uint32) bool {
-	return a.Candidate.Revision == revision && strings.TrimSpace(a.Candidate.Content) != "" &&
+func (a attempt) valid() bool {
+	return strings.TrimSpace(a.Candidate.Content) != "" &&
 		validScore(a.Assessment.Score) && strings.TrimSpace(a.Assessment.Feedback) != ""
 }
 
@@ -94,8 +95,7 @@ func (o optimizationState) validatePending() error {
 	if err := o.validateHistory(); err != nil {
 		return err
 	}
-	wantRevision := uint32(len(o.History) + 1)
-	if o.Current == nil || o.Current.Revision != wantRevision || strings.TrimSpace(o.Current.Content) == "" {
+	if o.Current == nil || strings.TrimSpace(o.Current.Content) == "" {
 		return errors.New("optimizer did not produce the next complete revision")
 	}
 	return nil
@@ -119,7 +119,7 @@ func (o optimizationState) validateHistory() error {
 		return errors.New("optimization history must be initialized")
 	}
 	for index, recorded := range o.History {
-		if !recorded.validAt(uint32(index + 1)) {
+		if !recorded.valid() {
 			return fmt.Errorf("attempt %d is invalid", index)
 		}
 	}
@@ -274,7 +274,7 @@ func newOptimizerDeployment() (agent.Deployment, error) {
 			if len(state.History) > 0 {
 				content += "; addressed: " + state.History[len(state.History)-1].Assessment.Feedback
 			}
-			state.Current = &candidate{Revision: revision, Content: content}
+			state.Current = &candidate{Content: content}
 			return state, nil
 		},
 	)
@@ -294,7 +294,7 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 			}
 			index := len(state.History)
 			score := scores[index]
-			feedback := fmt.Sprintf("raise quality after revision %d", state.Current.Revision)
+			feedback := fmt.Sprintf("raise quality after revision %d", index+1)
 			if score >= threshold {
 				feedback = "accept this revision"
 			}
