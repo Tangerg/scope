@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 type ContentFormat string
@@ -73,6 +74,9 @@ func (f *FetchRequest) Validate() error {
 }
 
 func isHTTPURL(raw string) bool {
+	if !utf8.ValidString(raw) {
+		return false
+	}
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	return err == nil && parsed.Hostname() != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
@@ -85,6 +89,9 @@ type FetchResponse struct {
 func (f *FetchResponse) Validate() error {
 	if f == nil {
 		return ErrMissingFetchResponse
+	}
+	if !utf8.ValidString(f.Content) {
+		return fmt.Errorf("%w: content must be valid UTF-8", ErrInvalidFetchResponse)
 	}
 	if f.Format == "" {
 		return fmt.Errorf("%w: response format is empty", ErrInvalidFetchResponse)

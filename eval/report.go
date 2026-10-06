@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -75,6 +76,9 @@ func (r Report) validate(depth int) error {
 	}
 	if err := r.validateOutcomes(); err != nil {
 		return err
+	}
+	if !utf8.ValidString(r.Feedback) {
+		return fmt.Errorf("%w: feedback must be valid UTF-8", ErrInvalidReport)
 	}
 	if err := r.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidReport, err)

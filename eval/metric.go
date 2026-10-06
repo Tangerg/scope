@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -103,6 +104,9 @@ func (m Metric) Validate() error {
 	if m.unit != strings.TrimSpace(m.unit) {
 		return fmt.Errorf("%w: unit must not contain surrounding whitespace", ErrInvalidMetric)
 	}
+	if !utf8.ValidString(m.unit) {
+		return fmt.Errorf("%w: unit must be valid UTF-8", ErrInvalidMetric)
+	}
 	if err := m.direction.Validate(); err != nil {
 		return err
 	}
@@ -155,6 +159,9 @@ func (m Metric) identity() (string, error) {
 }
 
 func validateMetricPart(label, value string, optional bool) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidMetric, label)
+	}
 	if value == "" && optional {
 		return nil
 	}

@@ -55,6 +55,8 @@
 // identical policy identity; no significance or repeat-at-k estimate is implied.
 // JSON decoding rejects unknown Report, Decision, and Metric members, including
 // nested details, while metadata and identity parameters retain open JSON values.
+// Owned identities, feedback, policies, and execution reasons must be valid
+// UTF-8 at admission; borrowed generic subjects and outputs keep their own contracts.
 //
 // Domain vocabularies live outside the kernel: judge supplies generic
 // model-backed evaluation, text owns generated-text metrics, ranking owns

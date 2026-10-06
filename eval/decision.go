@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -19,6 +20,9 @@ type Decision struct {
 }
 
 func (d Decision) Validate() error {
+	if !utf8.ValidString(d.Policy) {
+		return fmt.Errorf("%w: decision policy must be valid UTF-8", ErrInvalidReport)
+	}
 	if d.Policy == "" || strings.TrimSpace(d.Policy) != d.Policy {
 		return fmt.Errorf("%w: decision policy must be non-empty without surrounding whitespace", ErrInvalidReport)
 	}

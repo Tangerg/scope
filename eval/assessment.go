@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/samber/lo"
 )
@@ -14,6 +15,9 @@ import (
 type AssessmentID string
 
 func (a AssessmentID) Validate() error {
+	if !utf8.ValidString(string(a)) {
+		return fmt.Errorf("%w: assessment id must be valid UTF-8", ErrInvalidAssessment)
+	}
 	if a == "" || strings.TrimSpace(string(a)) != string(a) {
 		return fmt.Errorf("%w: assessment id must be non-empty without surrounding whitespace", ErrInvalidAssessment)
 	}

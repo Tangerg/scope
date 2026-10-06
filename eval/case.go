@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -15,6 +16,9 @@ func (c CaseID) String() string { return string(c) }
 
 func (c CaseID) Validate() error {
 	value := c.String()
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%w: id must be valid UTF-8", ErrInvalidCase)
+	}
 	if value == "" || value != strings.TrimSpace(value) {
 		return fmt.Errorf("%w: id must be non-empty without surrounding whitespace", ErrInvalidCase)
 	}

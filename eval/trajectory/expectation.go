@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/metadata"
@@ -69,6 +70,9 @@ type ToolExpectation struct {
 }
 
 func (t ToolExpectation) Validate() error {
+	if !utf8.ValidString(t.Name) {
+		return fmt.Errorf("%w: tool name must be valid UTF-8", ErrInvalidSample)
+	}
 	if t.Name == "" || t.Name != strings.TrimSpace(t.Name) {
 		return fmt.Errorf("%w: tool name must be non-empty without surrounding whitespace", ErrInvalidSample)
 	}

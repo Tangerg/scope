@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 
 	documentfrontmatter "github.com/adrg/frontmatter"
 	"go.yaml.in/yaml/v4"
@@ -24,7 +25,7 @@ type Skill struct {
 
 // Parse requires exact YAML fences so arbitrary Markdown cannot silently enter
 // the skill discovery path as a partially populated manifest. The body after
-// the closing fence remains untouched Markdown instruction content.
+// the closing fence remains untouched UTF-8 Markdown instruction content.
 func Parse(content []byte) (*Skill, error) {
 	content = bytes.TrimPrefix(content, []byte("\ufeff"))
 	if !bytes.HasPrefix(content, []byte(frontmatterFence+"\n")) && !bytes.HasPrefix(content, []byte(frontmatterFence+"\r\n")) {
@@ -64,6 +65,9 @@ func hasExactClosingFence(consumed []byte) bool {
 func (s *Skill) Validate() error {
 	if s == nil {
 		return ErrNilSkill
+	}
+	if !utf8.ValidString(s.Instructions) {
+		return fmt.Errorf("%w: instructions must be valid UTF-8", ErrInvalidSkill)
 	}
 	return s.Frontmatter.Validate()
 }

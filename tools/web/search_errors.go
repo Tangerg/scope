@@ -5,7 +5,8 @@ import "errors"
 var (
 	ErrMissingSearchRequest = errors.New("web: search request must not be nil")
 
-	ErrEmptyQuery = errors.New("web: search query must not be empty")
+	ErrEmptyQuery   = errors.New("web: search query must not be empty")
+	ErrInvalidQuery = errors.New("web: search query must be valid UTF-8")
 
 	ErrDomainsBothSides  = errors.New("web: allowed_domains and blocked_domains are mutually exclusive")
 	ErrInvalidMaxResults = errors.New("web: max_results must be between 1 and 20 when set")

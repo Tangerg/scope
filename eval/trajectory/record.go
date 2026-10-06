@@ -3,6 +3,7 @@ package trajectory
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
@@ -97,6 +98,9 @@ func (m ModelCall) Validate() error {
 }
 
 func (m ModelCall) validateSettlement() error {
+	if !utf8.ValidString(m.Failure) {
+		return fmt.Errorf("%w: model failure must be valid UTF-8", ErrInvalidTrajectory)
+	}
 	if m.Outcome() == ModelOutcomeInvalid || m.Failure != strings.TrimSpace(m.Failure) {
 		return fmt.Errorf("%w: invalid model outcome", ErrInvalidTrajectory)
 	}
@@ -221,6 +225,9 @@ func (t ToolCall) validateEvidence() error {
 }
 
 func (t ToolCall) validateSettlement() error {
+	if !utf8.ValidString(t.Failure) {
+		return fmt.Errorf("%w: tool failure must be valid UTF-8", ErrInvalidTrajectory)
+	}
 	if t.Outcome() == ToolOutcomeInvalid || t.Failure != strings.TrimSpace(t.Failure) {
 		return fmt.Errorf("%w: tool call carries competing settlements or an invalid failure diagnostic", ErrInvalidTrajectory)
 	}

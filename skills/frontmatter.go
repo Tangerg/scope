@@ -41,6 +41,21 @@ func (f Frontmatter) Validate() error {
 	if err := ValidateName(f.Name); err != nil {
 		errs = append(errs, err)
 	}
+	for _, field := range []struct{ name, value string }{
+		{"description", f.Description},
+		{"license", f.License},
+		{"compatibility", f.Compatibility},
+		{"allowed-tools", f.AllowedTools},
+	} {
+		if !utf8.ValidString(field.value) {
+			errs = append(errs, fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidSkill, field.name))
+		}
+	}
+	for key, value := range f.Metadata {
+		if !utf8.ValidString(key) || !utf8.ValidString(value) {
+			errs = append(errs, fmt.Errorf("%w: metadata keys and values must be valid UTF-8", ErrInvalidSkill))
+		}
+	}
 
 	// The specification measures these limits in characters, not bytes.
 	descriptionLen := utf8.RuneCountInString(f.Description)

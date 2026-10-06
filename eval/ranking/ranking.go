@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
@@ -132,6 +133,9 @@ func validateIdentities(label string, identities []string) error {
 }
 
 func validateIdentity(label, identity string) error {
+	if !utf8.ValidString(identity) {
+		return fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidSample, label)
+	}
 	if identity == "" || identity != strings.TrimSpace(identity) {
 		return fmt.Errorf("%w: %s must be non-empty without surrounding whitespace", ErrInvalidSample, label)
 	}

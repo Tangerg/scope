@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -87,6 +88,7 @@ func (c Citation) Validate() error {
 	return nil
 }
 
+// NewAugmentation preserves non-blank UTF-8 generation text exactly.
 func NewAugmentation(text string) (Augmentation, error) {
 	augmentation := Augmentation{text: text}
 	if err := augmentation.Validate(); err != nil {
@@ -111,6 +113,9 @@ func (a Augmentation) WithCitations(citations Citations) (Augmentation, error) {
 }
 
 func (a Augmentation) Validate() error {
+	if !utf8.ValidString(a.text) {
+		return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidAugmentation)
+	}
 	if strings.TrimSpace(a.text) == "" {
 		return fmt.Errorf("%w: text must not be blank", ErrInvalidAugmentation)
 	}

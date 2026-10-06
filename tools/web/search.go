@@ -6,8 +6,11 @@ import (
 	"net/netip"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+
+	"github.com/Tangerg/scope/core/timestamp"
 )
 
 const (
@@ -69,6 +72,9 @@ func (s *SearchRequest) Prepare() (*SearchRequest, error) {
 func (s *SearchRequest) Validate() error {
 	if s == nil {
 		return ErrMissingSearchRequest
+	}
+	if !utf8.ValidString(s.Query) {
+		return ErrInvalidQuery
 	}
 	if strings.TrimSpace(s.Query) == "" {
 		return ErrEmptyQuery
@@ -182,6 +188,29 @@ type SearchResult struct {
 	Source        string    `json:"source,omitempty"`
 }
 
+func (s *SearchResult) Validate() error {
+	if s == nil {
+		return fmt.Errorf("%w: result is nil", ErrInvalidSearchResponse)
+	}
+	if !isHTTPURL(s.URL) {
+		return fmt.Errorf("%w: result has invalid URL %q", ErrInvalidSearchResponse, s.URL)
+	}
+	for _, field := range []struct{ name, value string }{
+		{"title", s.Title},
+		{"snippet", s.Snippet},
+		{"favicon_url", s.FaviconURL},
+		{"source", s.Source},
+	} {
+		if !utf8.ValidString(field.value) {
+			return fmt.Errorf("%w: result %s must be valid UTF-8", ErrInvalidSearchResponse, field.name)
+		}
+	}
+	if err := timestamp.Validate(s.PublishedTime); err != nil {
+		return fmt.Errorf("%w: published_time: %w", ErrInvalidSearchResponse, err)
+	}
+	return nil
+}
+
 type SearchResponse struct {
 	// Query is the caller's prepared query, never a provider's echo of it:
 	// providers may receive rewritten text such as appended site: operators
@@ -194,15 +223,15 @@ func (s *SearchResponse) Validate() error {
 	if s == nil {
 		return ErrMissingSearchResponse
 	}
+	if !utf8.ValidString(s.Query) {
+		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidSearchResponse)
+	}
 	if strings.TrimSpace(s.Query) == "" {
 		return fmt.Errorf("%w: query is blank", ErrInvalidSearchResponse)
 	}
 	for index, result := range s.Results {
-		if result == nil {
-			return fmt.Errorf("%w: result %d is nil", ErrInvalidSearchResponse, index)
-		}
-		if !isHTTPURL(result.URL) {
-			return fmt.Errorf("%w: result %d has invalid URL %q", ErrInvalidSearchResponse, index, result.URL)
+		if err := result.Validate(); err != nil {
+			return fmt.Errorf("web: result %d: %w", index, err)
 		}
 	}
 	return nil

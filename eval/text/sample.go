@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 var ErrInvalidSample = errors.New("eval/text: invalid sample")
@@ -20,13 +21,10 @@ type AnswerRelevanceSample struct {
 }
 
 func (a AnswerRelevanceSample) Validate() error {
-	if strings.TrimSpace(a.Input) == "" {
-		return fmt.Errorf("%w: input is required", ErrInvalidSample)
+	if err := validateRequiredText("input", a.Input); err != nil {
+		return err
 	}
-	if strings.TrimSpace(a.Output) == "" {
-		return fmt.Errorf("%w: output is required", ErrInvalidSample)
-	}
-	return nil
+	return validateRequiredText("output", a.Output)
 }
 
 // GroundednessSample keeps evidence separate from generated output so support
@@ -52,8 +50,13 @@ func (g GroundednessSample) EvidenceText() string {
 }
 
 func (g GroundednessSample) Validate() error {
-	if strings.TrimSpace(g.Output) == "" {
-		return fmt.Errorf("%w: output is required", ErrInvalidSample)
+	if err := validateRequiredText("output", g.Output); err != nil {
+		return err
+	}
+	for index, evidence := range g.Evidence {
+		if !utf8.ValidString(evidence) {
+			return fmt.Errorf("%w: evidence[%d] must be valid UTF-8", ErrInvalidSample, index)
+		}
 	}
 	if g.EvidenceText() == "" {
 		return fmt.Errorf("%w: evidence is required", ErrInvalidSample)
@@ -70,14 +73,21 @@ type CorrectnessSample struct {
 }
 
 func (c CorrectnessSample) Validate() error {
-	if strings.TrimSpace(c.Input) == "" {
-		return fmt.Errorf("%w: input is required", ErrInvalidSample)
+	if err := validateRequiredText("input", c.Input); err != nil {
+		return err
 	}
-	if strings.TrimSpace(c.Output) == "" {
-		return fmt.Errorf("%w: output is required", ErrInvalidSample)
+	if err := validateRequiredText("output", c.Output); err != nil {
+		return err
 	}
-	if strings.TrimSpace(c.Reference) == "" {
-		return fmt.Errorf("%w: reference is required", ErrInvalidSample)
+	return validateRequiredText("reference", c.Reference)
+}
+
+func validateRequiredText(label, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidSample, label)
+	}
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalidSample, label)
 	}
 	return nil
 }

@@ -6,12 +6,13 @@ import (
 	"maps"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/samber/lo"
 )
 
 var (
-	// ErrInvalidQuery identifies blank text or invalid typed values.
+	// ErrInvalidQuery identifies invalid text or typed values.
 	ErrInvalidQuery = errors.New("rag: invalid query")
 	ErrNilRetriever = errors.New("rag: retriever must not be nil")
 	// ErrInvalidQueryValueKey identifies a zero or malformed typed slot.
@@ -75,7 +76,7 @@ type Query struct {
 	values map[*valueKeyIdentity]any
 }
 
-// NewQuery trims surrounding whitespace.
+// NewQuery trims surrounding whitespace and requires valid UTF-8 text.
 func NewQuery(text string) (Query, error) {
 	query := Query{text: strings.TrimSpace(text)}
 	if err := query.Validate(); err != nil {
@@ -85,6 +86,9 @@ func NewQuery(text string) (Query, error) {
 }
 
 func (q Query) Validate() error {
+	if !utf8.ValidString(q.text) {
+		return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidQuery)
+	}
 	if q.text == "" || q.text != strings.TrimSpace(q.text) {
 		return fmt.Errorf("%w: text must be non-empty without surrounding whitespace", ErrInvalidQuery)
 	}

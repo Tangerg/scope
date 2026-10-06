@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -35,6 +36,9 @@ type Execution[O any] struct {
 }
 
 func (e Execution[O]) Validate() error {
+	if !utf8.ValidString(e.Reason) {
+		return fmt.Errorf("%w: reason must be valid UTF-8", ErrInvalidExecution)
+	}
 	switch e.Status {
 	case ExecutionCompleted:
 		if e.Reason != "" {
