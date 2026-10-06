@@ -46,10 +46,11 @@ type processState struct {
 	// Restore bookkeeping is consumed by the owner goroutine before admitting
 	// new work, preventing recovered effects from racing fresh execution.
 	restored bool
-	// restoredReplayPolicy is valid while the one pending Effect a restored
-	// prepared Step retains still owes its recovery decision.
-	restoredReplayPolicy ReplayPolicy
-	attemptSequence      uint64
+	// recoveryOwed marks the one pending Effect a restored prepared Step
+	// retains until its recovery decision runs; the Dispatcher's Policy decides
+	// that recovery when it runs.
+	recoveryOwed    bool
+	attemptSequence uint64
 }
 
 type pendingControl struct {
@@ -91,7 +92,16 @@ func (p *processState) preparedStepSequence() uint64 { return p.committedSteps +
 func (p *processState) deployment() Deployment { return p.handle.deployment }
 
 func (p *processState) status() Status {
-	return lifecycleStatus(lo.FromPtr(p.finish).Termination, p.pause.valid(), p.currentWaitID.Valid())
+	return lifecycleStatus(lo.FromPtr(p.finish).Termination, p.pause.valid(), p.awaitedWaitID().Valid())
+}
+
+// awaitedWaitID is the wait the last committed Step entered while its
+// mailbox has not answered it; the mailbox owns whether it is answered.
+func (p *processState) awaitedWaitID() WaitID {
+	if !p.currentWaitID.Valid() || p.mailbox.waits[p.currentWaitID].answered {
+		return WaitID{}
+	}
+	return p.currentWaitID
 }
 
 func (p *processState) adoptCandidate(candidate *processState) {
@@ -129,7 +139,7 @@ func (p *processState) recordParentTermination(parent Termination) {
 
 // Admission validates the complete batch before changing mailbox or wait state.
 func (p *processState) prepareSignals(signals []Signal, source signalSource, limits TreeLimits, childAllocation resourceAmounts) (*processState, error) {
-	records, err := p.mailbox.prepareAdmission(p.status(), p.currentWaitID, signals, source)
+	records, err := p.mailbox.prepareAdmission(p.status(), p.awaitedWaitID(), signals, source)
 	if err != nil {
 		return nil, err
 	}
@@ -161,9 +171,6 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	candidate := p.candidate()
 	for _, record := range records {
 		candidate.mailbox.acceptRecord(record)
-	}
-	if candidate.currentWaitID.Valid() && candidate.mailbox.waits[candidate.currentWaitID].answered {
-		candidate.currentWaitID = WaitID{}
 	}
 	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
 		return nil, err
@@ -366,7 +373,6 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		if record.phase() != effectPhasePending {
 			continue
 		}
-		policy := ReplayPolicyNever
 		if record.Effect.Target() == EffectTargetFramework {
 			operation, err := decodeFrameworkOperation(record.Effect.Payload())
 			if err != nil {
@@ -375,13 +381,11 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 			if _, starts := operation.(childStartOperation); !starts {
 				continue
 			}
-		} else if !p.pendingControl.hasTerminalIntent() {
-			policy = effectPolicy.Replay
 		}
-		if p.restoredReplayPolicy.Valid() {
+		if p.recoveryOwed {
 			return fmt.Errorf("%w: multiple pending Effects", ErrInvalidSnapshot)
 		}
-		p.restoredReplayPolicy = policy
+		p.recoveryOwed = true
 	}
 	p.preparedExecution = candidate
 	p.prepared = &prepared

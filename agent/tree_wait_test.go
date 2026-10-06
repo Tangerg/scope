@@ -25,7 +25,7 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
 	second.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
 	runtime.finishIfTerminal(second)
-	if parent.status() != StatusPaused || parent.currentWaitID.Valid() || parent.mailbox.pendingCount() != 1 {
+	if parent.status() != StatusPaused || parent.awaitedWaitID().Valid() || parent.mailbox.pendingCount() != 1 {
 		t.Fatal("child completion did not clear only the wait")
 	}
 	if err := parent.resume(); err != nil || parent.status() != StatusRunning {

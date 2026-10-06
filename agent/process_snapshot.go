@@ -278,7 +278,7 @@ func (p ProcessSnapshot) Result() (Result, bool) { return p.state.result() }
 // WaitID returns the current unanswered Engine-minted wait identity, including
 // while the captured Process is Paused.
 func (p ProcessSnapshot) WaitID() (WaitID, bool) {
-	waitID := lo.FromPtr(p.state.CurrentWaitID)
+	waitID := p.state.awaitedWaitID()
 	return waitID, waitID.Valid()
 }
 
@@ -582,7 +582,16 @@ func (p processSnapshotWire) validate() (signalMailbox, error) {
 }
 
 func (p processSnapshotWire) status() Status {
-	return lifecycleStatus(lo.FromPtr(p.Finish).Termination, p.PauseReason != "", p.CurrentWaitID != nil)
+	return lifecycleStatus(lo.FromPtr(p.Finish).Termination, p.PauseReason != "", p.awaitedWaitID().Valid())
+}
+
+// awaitedWaitID mirrors processState.awaitedWaitID over the portable mailbox.
+func (p processSnapshotWire) awaitedWaitID() WaitID {
+	waitID := lo.FromPtr(p.CurrentWaitID)
+	if !waitID.Valid() || p.Mailbox.answered(waitID) {
+		return WaitID{}
+	}
+	return waitID
 }
 
 func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
@@ -622,8 +631,8 @@ func (p processSnapshotWire) validateCurrentWait(mailbox signalMailbox) error {
 	if p.CurrentWaitID == nil {
 		return nil
 	}
-	if shouldWait, err := mailbox.enterWait(*p.CurrentWaitID); err != nil || !shouldWait {
-		return fmt.Errorf("%w: current WaitID requires an open unanswered wait", ErrInvalidSnapshot)
+	if err := mailbox.enterWait(*p.CurrentWaitID); err != nil {
+		return fmt.Errorf("%w: current WaitID requires an open wait", ErrInvalidSnapshot)
 	}
 	return nil
 }

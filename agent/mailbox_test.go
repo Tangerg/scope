@@ -166,9 +166,9 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	if err != nil || !accepted {
 		t.Fatalf("early answer enqueue = %t, %v", accepted, err)
 	}
-	shouldWait, err := mailbox.enterWait(waitID)
-	if err != nil || shouldWait {
-		t.Fatalf("enter answered wait = %t, %v", shouldWait, err)
+	err = mailbox.enterWait(waitID)
+	if answered := mailbox.waits[waitID].answered; err != nil || !answered {
+		t.Fatalf("enter answered wait: answered=%t, %v", answered, err)
 	}
 
 	secondID, _ := ParseSignalID("signal:second-answer")
@@ -240,7 +240,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	if accepted, err := restored.enqueue(StatusRunning, answer, signalSourceExternal); err != nil || accepted {
 		t.Fatalf("restored duplicate enqueue = %t, %v", accepted, err)
 	}
-	if _, err := restored.enterWait(waitID); !errors.Is(err, errWaitState) {
+	if err := restored.enterWait(waitID); !errors.Is(err, errWaitState) {
 		t.Fatalf("restored consumed answer error = %v, want errWaitState", err)
 	}
 }
@@ -256,8 +256,8 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	if err := mailbox.commit(1); err != nil {
 		t.Fatal(err)
 	}
-	if shouldWait, err := mailbox.enterWait(waitID); err != nil || !shouldWait {
-		t.Fatalf("enter open wait = %t, %v", shouldWait, err)
+	if err := mailbox.enterWait(waitID); err != nil || mailbox.waits[waitID].answered {
+		t.Fatalf("enter open wait: answered=%t, %v", mailbox.waits[waitID].answered, err)
 	}
 }
 
@@ -276,10 +276,10 @@ func TestMailboxCommitClosesOnlyConsumedChildWaits(t *testing.T) {
 	if err := candidate.commit(1); err != nil || len(candidate.openChildWaits()) != 0 {
 		t.Fatalf("consuming the answer left the child wait open: %v", err)
 	}
-	if _, err := candidate.enterWait(waitID); !errors.Is(err, errWaitState) {
+	if err := candidate.enterWait(waitID); !errors.Is(err, errWaitState) {
 		t.Fatalf("consumed child wait error = %v, want errWaitState", err)
 	}
-	if _, err := mailbox.enterWait(waitID); err != nil {
+	if err := mailbox.enterWait(waitID); err != nil {
 		t.Fatalf("candidate commit closed the authoritative wait: %v", err)
 	}
 	if mailbox.signalCursor != 0 || candidate.signalCursor != 2 {
@@ -371,8 +371,8 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)
-				if shouldWait, err := mailbox.enterWait(id); err != nil || !shouldWait {
-					t.Fatalf("unanswered wait=%t error=%v", shouldWait, err)
+				if err := mailbox.enterWait(id); err != nil || mailbox.waits[id].answered {
+					t.Fatalf("unanswered wait answered=%t error=%v", mailbox.waits[id].answered, err)
 				}
 				answerID := "signal:answer-" + strconv.Itoa(index)
 				if kind == WaitKindChildren {
@@ -394,8 +394,8 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)
-				if shouldWait, err := mailbox.enterWait(id); err != nil || shouldWait {
-					t.Fatalf("early answer wait=%t error=%v", shouldWait, err)
+				if err := mailbox.enterWait(id); err != nil || !mailbox.waits[id].answered {
+					t.Fatalf("early answer answered=%t error=%v", mailbox.waits[id].answered, err)
 				}
 				if err := mailbox.commit(1); err != nil {
 					t.Fatal(err)

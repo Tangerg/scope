@@ -1415,12 +1415,12 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 	}
 	if record.phase() == effectPhasePending &&
 		record.Effect.Target() == EffectTargetDispatcher &&
-		process.restoredReplayPolicy.Valid() {
+		process.recoveryOwed {
 		t.recoverPendingEffect(process, uint32(index), record)
 		return
 	}
 	if record.Effect.Target() == EffectTargetFramework {
-		process.restoredReplayPolicy = ReplayPolicyInvalid
+		process.recoveryOwed = false
 		observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetFramework)
 		operation, err := decodeFrameworkOperation(record.Effect.Payload())
 		if err != nil {
@@ -1447,8 +1447,7 @@ func (t *treeRuntime) recoverPendingEffect(
 	batchIndex uint32,
 	record *preparedEffect,
 ) {
-	replayPolicy := process.restoredReplayPolicy
-	process.restoredReplayPolicy = ReplayPolicyInvalid
+	process.recoveryOwed = false
 	if record.Effect.Target() == EffectTargetFramework {
 		// The authoritative cut contains no published child. Admission may have
 		// run, so retain a failed start instead of claiming it never began.
@@ -1465,24 +1464,24 @@ func (t *treeRuntime) recoverPendingEffect(
 		t.enqueueProcess(process.handle.processID)
 		return
 	}
-	if process.pendingControl.hasTerminalIntent() {
-		replayPolicy = ReplayPolicyNever
-	}
-	switch replayPolicy {
-	case ReplayPolicySameIdentity:
-		t.startDispatch(process, batchIndex, *record, nil)
-	case ReplayPolicyNever:
-		if err := record.settleUnknown(); err != nil {
+	replayPolicy := ReplayPolicyNever
+	if !process.pendingControl.hasTerminalIntent() {
+		policy, err := dispatcherEffectPolicy(process.deployment().dispatcher, record.Effect)
+		if err != nil {
 			t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
 			return
 		}
-
-		t.commitSettledEffect(process, record.ID)
-	default:
-		t.failProcessContract(
-			process, failureCodeEngineEffectRecoveryInvalid, errInvalidEffectPolicy,
-		)
+		replayPolicy = policy.Replay
 	}
+	if replayPolicy == ReplayPolicySameIdentity {
+		t.startDispatch(process, batchIndex, *record, nil)
+		return
+	}
+	if err := record.settleUnknown(); err != nil {
+		t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
+		return
+	}
+	t.commitSettledEffect(process, record.ID)
 }
 
 func (t *treeRuntime) startChild(
@@ -2143,7 +2142,7 @@ func (t *treeRuntime) terminatePreparedProcess(process *processState) {
 		if record.phase() != effectPhasePending {
 			continue
 		}
-		if process.restoredReplayPolicy.Valid() {
+		if process.recoveryOwed {
 			// Recovery owns the next completion. Termination resumes here after it
 			// settles, retaining any permissions already revoked in this pass.
 			t.recoverPendingEffect(process, uint32(index), record)

@@ -263,12 +263,14 @@ func (s *signalMailbox) appendRecord(record signalRecord) {
 	s.records = append(s.records, record)
 }
 
-func (s *signalMailbox) enterWait(id WaitID) (bool, error) {
+// enterWait admits id as the wait a Step enters; an early answer leaves the
+// Process runnable without another transition.
+func (s *signalMailbox) enterWait(id WaitID) error {
 	record, exists := s.waits[id]
 	if !exists || record.closed {
-		return false, errWaitState
+		return errWaitState
 	}
-	return !record.answered, nil
+	return nil
 }
 
 func (s *signalMailbox) closeWait(id WaitID) error {
@@ -602,6 +604,16 @@ func (s *signalMailbox) awaitingChild(childID ProcessID, boundary ChildWaitBound
 	return waits
 }
 
+// answered reports whether a non-opening record addresses id.
+func (m mailboxWire) answered(id WaitID) bool {
+	for _, record := range m.Signals {
+		if record.Opens == nil && lo.FromPtr(record.WaitID) == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (m mailboxWire) waitKind(id WaitID) (WaitKind, bool) {
 	for _, record := range m.Signals {
 		if record.Opens != nil && lo.FromPtr(record.WaitID) == id {
@@ -676,7 +688,7 @@ func (s *signalMailbox) blockedByCurrentWait(currentWaitID, waitID WaitID, answe
 }
 
 // Restoration replays portable facts through the live mailbox transitions.
-// Only final Process termination can close an unanswered or unconsumed wait.
+// A wait closes only when a Step consumes its answer.
 func restoreSignalMailbox(wire mailboxWire) (signalMailbox, error) {
 	if wire.SignalCursor > uint64(len(wire.Signals)) {
 		return signalMailbox{}, errMailboxCursor

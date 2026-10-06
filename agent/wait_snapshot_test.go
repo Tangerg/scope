@@ -49,6 +49,24 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The mailbox owns whether the entered wait is answered: an answered wait
+	// leaves the Process runnable (or Paused) without clearing what it entered.
+	for _, paused := range []bool{false, true} {
+		wire := controlValue(waiting.ProcessSnapshots()[0].wire())
+		signal := controlValue(answer.signal())
+		wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(signal))
+		want := StatusRunning
+		if paused {
+			wire.PauseReason, want = "inspect", StatusPaused
+		}
+		snapshot, parseErr := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(wire)))
+		if parseErr != nil {
+			t.Fatalf("answered current wait rejected: %v", parseErr)
+		}
+		if _, waitingOn := snapshot.WaitID(); snapshot.Status() != want || waitingOn {
+			t.Fatalf("answered current wait status=%s waiting=%t, want %s", snapshot.Status(), waitingOn, want)
+		}
+	}
 	tests := []struct {
 		name   string
 		tree   TreeSnapshot
@@ -75,25 +93,10 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 			},
 		},
 		{
-			name: "answered current wait", tree: waiting,
-			mutate: func(wire *processSnapshotWire) {
-				signal, _ := answer.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(signal))
-			},
-		},
-		{
 			name: "paused unknown current wait", tree: waiting,
 			mutate: func(wire *processSnapshotWire) {
 				unknown, _ := ParseWaitID("wait:unknown")
 				wire.PauseReason, wire.CurrentWaitID = "inspect", &unknown
-			},
-		},
-		{
-			name: "paused answered current wait", tree: waiting,
-			mutate: func(wire *processSnapshotWire) {
-				signal, _ := answer.signal()
-				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(signal))
-				wire.PauseReason = "inspect"
 			},
 		},
 		{

@@ -111,13 +111,10 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 
 func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) error {
 	waitID, _ := transition.WaitID()
-	shouldWait, err := p.mailbox.enterWait(waitID)
-	if err != nil {
+	if err := p.mailbox.enterWait(waitID); err != nil {
 		return err
 	}
-	if shouldWait {
-		p.commit.currentWaitID = waitID
-	}
+	p.commit.currentWaitID = waitID
 	return nil
 }
 
