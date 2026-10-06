@@ -44,7 +44,9 @@ func (f fixtureGatedExecution) Step(ctx context.Context, signals []agent.Signal)
 	if err := jsonv2.Unmarshal(s.Payload(), &state); err != nil {
 		return agent.Transition{}, err
 	}
-	if state.Child != nil && state.Child.ProcessID == "" {
+	// The only binding is child-bound, so an awaited Action without child
+	// progress is awaiting its start.
+	if state.Phase == "awaiting_action" && state.Child == nil {
 		select {
 		case <-f.gate:
 		case <-ctx.Done():

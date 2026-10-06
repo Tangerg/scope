@@ -232,7 +232,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		{"awaiting_action", json.RawMessage(`null`), false},
 		{"awaiting_action", json.RawMessage(`{"wait_id":"wait"}`), false},
 		{"awaiting_action", json.RawMessage(`{"process_id":"child","unknown":true}`), false},
-		{"awaiting_sense", json.RawMessage(`{}`), false},
+		{"awaiting_sense", json.RawMessage(`{"process_id":"child"}`), false},
 		{"child", json.RawMessage(`{}`), false},
 	} {
 		payload, encodeErr := jsonv2.Marshal(struct {
