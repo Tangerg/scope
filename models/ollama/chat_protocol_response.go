@@ -2,7 +2,6 @@ package ollama
 
 import (
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -28,10 +27,10 @@ func newProtocolResponseMapper() *protocolResponseMapper {
 	return new(protocolResponseMapper)
 }
 
-// terminated distinguishes a complete generation from premature EOF.
-func (p *protocolResponseMapper) terminated() bool { return p.finished }
-
 func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeChatResponse) (*corechat.ResponseDelta, error) {
+	if p.finished {
+		return nil, fmt.Errorf("ollama: stream: %w: response after done", corechat.ErrInvalidResponse)
+	}
 	metadata, err := response.metadata(requestModel)
 	if err != nil {
 		return nil, err
@@ -59,10 +58,6 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 		}
 	}
 	if response.Done {
-		if p.finished {
-			return nil, errors.New("ollama: stream marked the generation done twice")
-		}
-		p.finished = true
 		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
 		if response.DoneReason != "" {
 			mapped.OutputMetadata = &corechat.OutputMetadata{}
@@ -73,6 +68,9 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 	}
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("ollama: mapped response delta: %w", err)
+	}
+	if response.Done {
+		p.finished = true
 	}
 	return mapped, nil
 }

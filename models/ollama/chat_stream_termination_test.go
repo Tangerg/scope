@@ -92,3 +92,34 @@ func collectOllamaStream(t *testing.T, baseURL string) ([]*corechat.ResponseDelt
 	}
 	return deltas, streamErr
 }
+
+func TestStreamDoesNotCompleteBeforeItsNativeBody(t *testing.T) {
+	for name, tail := range map[string]string{
+		"content after done":   `{"model":"qwen3:8b","message":{"role":"assistant","content":"late"},"done":false}`,
+		"error after done":     `{"error":"tail failure"}`,
+		"malformed after done": `{"message":`,
+		"second done":          `{"model":"qwen3:8b","message":{"role":"assistant","content":""},"done":true,"done_reason":"length"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/x-ndjson")
+				fmt.Fprintln(writer, `{"model":"qwen3:8b","message":{"role":"assistant","content":"answer"},"done":false}`)
+				fmt.Fprintln(writer, `{"model":"qwen3:8b","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}`)
+				fmt.Fprintln(writer, tail)
+			}))
+			t.Cleanup(server.Close)
+			deltas, err := collectOllamaStream(t, server.URL)
+			if err == nil {
+				t.Fatal("invalid native tail returned success")
+			}
+			for _, delta := range deltas {
+				if delta.FinishReason != "" {
+					t.Fatalf("successful completion preceded tail failure: %#v", delta)
+				}
+			}
+			if len(deltas) != 1 || deltas[0].Parts[0].Text != "answer" {
+				t.Fatalf("valid partial response changed: %#v", deltas)
+			}
+		})
+	}
+}

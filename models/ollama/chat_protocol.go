@@ -62,7 +62,9 @@ func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Respo
 
 // Stream bridges Ollama's callback stream into Core's pull sequence. Returning
 // false from yield aborts the HTTP stream without surfacing a cancellation
-// error to the caller.
+// error to the caller. Responses after done are invalid. The terminal delta is
+// yielded only after the response body ends cleanly, so tail errors cannot
+// follow a successful completion.
 func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		apiReq, err := c.buildProtocolRequest(req)
@@ -73,10 +75,15 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 
 		mapper := newProtocolResponseMapper()
 		consumerStopped := false
+		var terminal *corechat.ResponseDelta
 		err = c.api.chat(ctx, apiReq, func(chunk nativeChatResponse) error {
 			mapped, mapErr := mapper.mapDelta(apiReq.Model, chunk)
 			if mapErr != nil {
 				return mapErr
+			}
+			if mapped.FinishReason != "" {
+				terminal = mapped
+				return nil
 			}
 			if !yield(mapped, nil) {
 				consumerStopped = true
@@ -90,9 +97,11 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			}
 			return
 		}
-		if !mapper.terminated() {
+		if terminal == nil {
 			yield(nil, fmt.Errorf("ollama: stream: %w: missing terminal response", corechat.ErrInvalidResponse))
+			return
 		}
+		yield(terminal, nil)
 	}
 }
 
