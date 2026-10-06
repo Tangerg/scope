@@ -281,7 +281,7 @@ func assertChildControlUnpublished(
 		}
 	}
 	state, err := published.Snapshot.CommittedExecutionState().Decode[childControlState](childControlDeploymentName)
-	if err != nil || len(state.Results) != 0 || state.Phase == childControlParked {
+	if err != nil || len(state.Results) != 0 || state.phase() == childControlParked {
 		t.Fatalf("control receipt published before acknowledgment: state=%+v error=%v", state, err)
 	}
 }
@@ -391,7 +391,7 @@ func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanc
 	parent := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
 	child := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
 	state, err := parent.CommittedExecutionState().Decode[childControlState](childControlDeploymentName)
-	if err != nil || state.Phase != childControlParked {
+	if err != nil || state.phase() != childControlParked {
 		t.Fatalf("parent did not adopt the control receipt: %v", err)
 	}
 	if len(state.Results) != scenario.controlCount() {
@@ -471,6 +471,19 @@ type childControlState struct {
 	Results []agent.ChildControlResult `json:"results"`
 }
 
+// phase derives a parent's control progress from what it recorded: the
+// started child's identity, then the adopted receipts.
+func (c childControlState) phase() childControlPhase {
+	switch {
+	case c.Child || c.Phase != childControlStarting || !c.ChildID.Valid():
+		return c.Phase
+	case len(c.Results) == 0:
+		return childControlIssued
+	default:
+		return childControlParked
+	}
+}
+
 type childControlDefinition struct {
 	descriptor agent.Descriptor
 	reference  agent.DeploymentRef
@@ -512,7 +525,7 @@ func (c *childControlExecution) Step(ctx context.Context, signals []agent.Signal
 	if c.state.Child {
 		return c.stepChild(signals)
 	}
-	switch c.state.Phase {
+	switch c.state.phase() {
 	case childControlReady:
 		return c.startChild()
 	case childControlStarting:
@@ -583,7 +596,6 @@ func (c *childControlExecution) issueControl(ctx context.Context, signals []agen
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	c.state.Phase = childControlIssued
 	if c.definition.scenario.duplicate {
 		return agent.Continue(1, effect, effect)
 	}
@@ -591,6 +603,9 @@ func (c *childControlExecution) issueControl(ctx context.Context, signals []agen
 }
 
 func (c *childControlExecution) adoptReceipts(signals []agent.Signal) (agent.Transition, error) {
+	if len(signals) == 0 {
+		return agent.Transition{}, errors.New("agenttest: control receipt is missing")
+	}
 	for _, signal := range signals {
 		result, err := agent.ParseChildControlResult(signal)
 		if err != nil {
@@ -598,7 +613,6 @@ func (c *childControlExecution) adoptReceipts(signals []agent.Signal) (agent.Tra
 		}
 		c.state.Results = append(c.state.Results, result)
 	}
-	c.state.Phase = childControlParked
 	return agent.Pause(uint32(len(signals)), "control receipt adopted")
 }
 

@@ -228,6 +228,21 @@ type crashTreeState struct {
 	WaitID  string         `json:"wait_id,omitempty"`
 }
 
+// phase derives the wait progress a stored phase reached from the identities
+// it produced, so a started child and an opened wait are never recorded twice.
+func (c crashTreeState) phase() crashTreePhase {
+	switch {
+	case c.Phase == crashTreePhaseChildStarting && c.WaitID != "":
+		return crashTreePhaseRootWaiting
+	case c.Phase == crashTreePhaseChildStarting && c.ChildID != "":
+		return crashTreePhaseRootWaitOpening
+	case c.Phase == crashTreePhaseChildWaitOpening && c.WaitID != "":
+		return crashTreePhaseChildWaiting
+	default:
+		return c.Phase
+	}
+}
+
 func (c crashTreeState) valid() bool {
 	switch c.Role {
 	case crashTreeRoleRoot:
@@ -241,15 +256,15 @@ func (c crashTreeState) valid() bool {
 
 func (c crashTreeState) validRoot() bool {
 	switch c.Phase {
-	case crashTreePhaseReady, crashTreePhaseChildStarting:
+	case crashTreePhaseReady:
 		return c.ChildID == "" && c.WaitID == ""
-	case crashTreePhaseRootWaitOpening:
-		_, err := agent.ParseProcessID(c.ChildID)
-		return err == nil && c.WaitID == ""
-	case crashTreePhaseRootWaiting:
+	case crashTreePhaseChildStarting:
+		if c.ChildID == "" {
+			return c.WaitID == ""
+		}
 		_, childErr := agent.ParseProcessID(c.ChildID)
 		_, waitErr := agent.ParseWaitID(c.WaitID)
-		return childErr == nil && waitErr == nil
+		return childErr == nil && (c.WaitID == "" || waitErr == nil)
 	case crashTreePhaseFinished:
 		return true
 	default:
@@ -259,11 +274,11 @@ func (c crashTreeState) validRoot() bool {
 
 func (c crashTreeState) validChild() bool {
 	switch c.Phase {
-	case crashTreePhaseReady, crashTreePhaseChildWaitOpening:
+	case crashTreePhaseReady:
 		return c.ChildID == "" && c.WaitID == ""
-	case crashTreePhaseChildWaiting:
+	case crashTreePhaseChildWaitOpening:
 		_, err := agent.ParseWaitID(c.WaitID)
-		return err == nil && c.ChildID == ""
+		return c.ChildID == "" && (c.WaitID == "" || err == nil)
 	case crashTreePhaseFinished:
 		return true
 	default:
@@ -319,7 +334,7 @@ func (c *crashTreeExecution) Step(
 }
 
 func (c *crashTreeExecution) stepRoot(signals []agent.Signal) (agent.Transition, error) {
-	switch c.state.Phase {
+	switch c.state.phase() {
 	case crashTreePhaseReady:
 		return c.startRootChild(signals)
 	case crashTreePhaseChildStarting:
@@ -383,7 +398,6 @@ func (c *crashTreeExecution) openRootChildWait(signals []agent.Signal) (agent.Tr
 		return agent.Transition{}, err
 	}
 	c.state.ChildID = childID.String()
-	c.state.Phase = crashTreePhaseRootWaitOpening
 	return agent.Continue(1, effect)
 }
 
@@ -396,12 +410,11 @@ func (c *crashTreeExecution) enterRootChildWait(signals []agent.Signal) (agent.T
 		return agent.Transition{}, err
 	}
 	c.state.WaitID = opened.WaitID().String()
-	c.state.Phase = crashTreePhaseRootWaiting
 	return agent.Wait(1, opened.WaitID())
 }
 
 func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition, error) {
-	switch c.state.Phase {
+	switch c.state.phase() {
 	case crashTreePhaseReady:
 		return c.openChildWait(signals)
 	case crashTreePhaseChildWaitOpening:
@@ -413,7 +426,6 @@ func (c *crashTreeExecution) stepChild(signals []agent.Signal) (agent.Transition
 			return agent.Transition{}, errors.New("agenttest: external wait acknowledgement has no WaitID")
 		}
 		c.state.WaitID = waitID.String()
-		c.state.Phase = crashTreePhaseChildWaiting
 		return agent.Wait(1, waitID)
 	case crashTreePhaseChildWaiting:
 		return c.complete(signals, "agenttest: external wait response is missing", nil)
