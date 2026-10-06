@@ -29,7 +29,7 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	if err := jsonv2.Unmarshal(initial.Payload(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"initial_state", "wait_sequence"}) {
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"initial_state"}) {
 		t.Fatalf("initial state fields = %v", got)
 	}
 	restored := require(definition.Restore(t.Context(), initial))
@@ -39,7 +39,7 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	if err := jsonv2.Unmarshal(started.Payload(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"turn", "wait_sequence"}) {
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"turn"}) {
 		t.Fatalf("started state fields = %v", got)
 	}
 	engine, process := run(t, definition, agent.NewMemoryTreeCommitter())
@@ -53,7 +53,7 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"tasks", "turn", "wait_sequence"}) {
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"tasks", "turn"}) {
 		t.Fatalf("completed state fields = %v", got)
 	}
 	recovered := require(definition.Restore(t.Context(), state)).(*execution)
@@ -63,41 +63,13 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	}
 }
 
-func TestRestoreRequiresExplicitWaitCounter(t *testing.T) {
-	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
-	execution := require(definition.Start(input("initial")))
-	state := require(execution.Snapshot())
-	for _, member := range []string{"wait_sequence"} {
-		for _, mode := range []string{"missing", "null"} {
-			t.Run(member+"/"+mode, func(t *testing.T) {
-				var fields map[string]json.RawMessage
-				if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
-					t.Fatal(err)
-				}
-				delete(fields, member)
-				if mode == "null" {
-					fields[member] = json.RawMessage(`null`)
-				}
-				corrupted := require(agent.EncodeExecutionState(state.Kind(), fields))
-				if _, err := definition.Restore(t.Context(), corrupted); !errors.Is(err, ErrInvalidExecutionState) {
-					t.Fatalf("incomplete progress was restored: %v", err)
-				}
-			})
-		}
-	}
-}
-
-func TestUnlimitedTurnAndWaitCountersStopBeforeWrap(t *testing.T) {
+func TestUnlimitedTurnCounterStopsBeforeWrap(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
 	execution := require(definition.Start(input("initial"))).(*execution)
 	require(execution.Step(t.Context(), nil))
 	execution.state.Turn.Number = ^uint64(0)
 	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.number() != ^uint64(0) {
 		t.Fatalf("turn identity wrapped: %v", err)
-	}
-	execution.state.WaitSequence = ^uint64(0)
-	if _, err := execution.openWait(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.WaitSequence != ^uint64(0) {
-		t.Fatalf("wait identity wrapped: %v", err)
 	}
 }
 

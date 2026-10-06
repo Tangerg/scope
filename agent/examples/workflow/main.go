@@ -17,7 +17,6 @@ import (
 
 const (
 	workflowChildBudgetUnits = 16
-	reviewerCount            = 2
 )
 
 func main() {
@@ -89,8 +88,12 @@ type normalizedRequest struct {
 	Text string `json:"text"`
 }
 
-// review carries only what a reviewer adds; the Fork reducer pairs it with
-// the request the Fork received.
+// verdict is all a reviewer branch adds; the Fork reducer pairs it with the
+// branch that returned it and with the request the Fork received.
+type verdict struct {
+	Verdict string `json:"verdict"`
+}
+
 type review struct {
 	Reviewer string `json:"reviewer"`
 	Verdict  string `json:"verdict"`
@@ -112,14 +115,8 @@ func newManagedWorkflow() (agent.Deployment, error) {
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	clarity, err := reviewerDeployment("clarity")
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	safety, err := reviewerDeployment("safety")
-	if err != nil {
-		return agent.Deployment{}, err
-	}
+	// Fork outputs arrive in branch declaration order.
+	reviewers := []string{"clarity", "safety"}
 	budget := agent.Budget{
 		Steps: agent.NewQuota(workflowChildBudgetUnits), Effects: agent.NewQuota(workflowChildBudgetUnits), Signals: agent.NewQuota(workflowChildBudgetUnits),
 	}
@@ -129,18 +126,22 @@ func newManagedWorkflow() (agent.Deployment, error) {
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	reviewers, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, review, reviewReport]{
-		ID: "review",
-		Branches: []workflow.ForkBranch{
-			{ID: "clarity", Deployment: clarity, Budget: budget},
-			{ID: "safety", Deployment: safety, Budget: budget},
-		},
-		WindowSize: reviewerCount,
-		Reduce: func(_ context.Context, request normalizedRequest, reviews []review) (reviewReport, error) {
-			if len(reviews) != reviewerCount {
-				return reviewReport{}, errors.New("review branches returned an incomplete report")
+	branches := make([]workflow.ForkBranch, 0, len(reviewers))
+	for _, reviewer := range reviewers {
+		deployment, reviewerErr := reviewerDeployment(reviewer)
+		if reviewerErr != nil {
+			return agent.Deployment{}, reviewerErr
+		}
+		branches = append(branches, workflow.ForkBranch{ID: reviewer, Deployment: deployment, Budget: budget})
+	}
+	reviewStage, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, verdict, reviewReport]{
+		ID: "review", Branches: branches, WindowSize: uint32(len(reviewers)),
+		Reduce: func(_ context.Context, request normalizedRequest, verdicts []verdict) (reviewReport, error) {
+			report := reviewReport{Request: request.Text}
+			for index, reviewer := range reviewers {
+				report.Reviews = append(report.Reviews, review{Reviewer: reviewer, Verdict: verdicts[index].Verdict})
 			}
-			return reviewReport{Request: request.Text, Reviews: reviews}, nil
+			return report, nil
 		},
 	})
 	if err != nil {
@@ -148,7 +149,7 @@ func newManagedWorkflow() (agent.Deployment, error) {
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.workflow.review", Description: "Normalize and review one request with managed child Processes.",
-		Stages: []workflow.Stage{normalize, reviewers},
+		Stages: []workflow.Stage{normalize, reviewStage},
 	})
 	if err != nil {
 		return agent.Deployment{}, err
@@ -168,8 +169,8 @@ func reviewerDeployment(reviewer string) (agent.Deployment, error) {
 	return transformDeployment(
 		"example.workflow.reviewer_"+reviewer,
 		"Return one deterministic "+reviewer+" review.",
-		func(_ context.Context, _ normalizedRequest) (review, error) {
-			return review{Reviewer: reviewer, Verdict: "ready"}, nil
+		func(_ context.Context, _ normalizedRequest) (verdict, error) {
+			return verdict{Verdict: "ready"}, nil
 		},
 	)
 }

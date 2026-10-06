@@ -101,10 +101,6 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 }
 
 func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
-	if e.state.WaitSequence == math.MaxUint64 {
-		return agent.Transition{}, agent.ErrCounterExhausted
-	}
-	e.state.WaitSequence++
 	e.state.WaitID = nil
 	spec, err := e.state.waitSpec(e.definition)
 	if err != nil {

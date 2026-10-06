@@ -225,7 +225,7 @@ func newEvaluatorOptimizer(
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	evaluator, err := newEvaluatorDeployment(frozenScores, threshold)
+	evaluator, err := newEvaluatorDeployment(frozenScores)
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -280,14 +280,15 @@ func newOptimizerDeployment() (agent.Deployment, error) {
 	)
 }
 
-func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployment, error) {
+// newEvaluatorDeployment scores candidates; the root Loop owns the acceptance
+// threshold, so feedback never decides acceptance.
+func newEvaluatorDeployment(scores []float64) (agent.Deployment, error) {
 	return transformDeployment(
 		"example.evaluator_optimizer.evaluator",
 		"Score one candidate, provide revision feedback, and retain the stable best attempt.",
 		struct {
-			Scores    []float64 `json:"scores"`
-			Threshold float64   `json:"threshold"`
-		}{Scores: scores, Threshold: threshold},
+			Scores []float64 `json:"scores"`
+		}{Scores: scores},
 		func(_ context.Context, state optimizationState) (optimizationState, error) {
 			if validatePendingStateErr := state.validatePending(); validatePendingStateErr != nil {
 				return optimizationState{}, validatePendingStateErr
@@ -295,9 +296,6 @@ func newEvaluatorDeployment(scores []float64, threshold float64) (agent.Deployme
 			index := len(state.History)
 			score := scores[index]
 			feedback := fmt.Sprintf("raise quality after revision %d", index+1)
-			if score >= threshold {
-				feedback = "accept this revision"
-			}
 			latest := attempt{
 				Candidate:  *state.Current,
 				Assessment: assessment{Score: score, Feedback: feedback},
