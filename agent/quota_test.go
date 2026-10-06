@@ -138,7 +138,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	effectID := parent.handle.processID.effectID(1, 0)
 	rejected := runtime.prepareChildStart(parent, effectID, spec)
 	failure, failed := rejected.result.Failure()
-	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || parent.provisionalChildBudget != nil {
+	if rejected.plan != nil || !failed || failure.Code() != failureCodeEngineChildBudgetExhausted || runtime.childDebits(parent) != (resourceAmounts{}) {
 		t.Fatalf("finite parent admitted unlimited grant: %+v", rejected)
 	}
 	parent.handle.budget = Budget{}
@@ -147,7 +147,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		t.Fatalf("unlimited parent rejected grant: %+v", accepted)
 	}
 	runtime.discardChildStart(accepted.plan)
-	if parent.provisionalChildBudget != nil || runtime.members.childAllocation(parent.handle.processID) != (resourceAmounts{}) {
+	if runtime.childDebits(parent) != (resourceAmounts{}) {
 		t.Fatal("discard retained an unlimited allocation")
 	}
 }
@@ -187,15 +187,11 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 	if allocated := members.childAllocation(parentID); allocated != (resourceAmounts{Effects: 3}) {
 		t.Fatalf("rollback lost existing grant: %+v", allocated)
 	}
-	if !parent.reserveProvisionalChildBudget(Budget{Effects: NewQuota(7)}, members.childAllocation(parentID)) {
+	if !parent.canReserveChildBudget(Budget{Effects: NewQuota(7)}, members.childAllocation(parentID)) {
 		t.Fatal("released finite debit remained charged")
 	}
-	if parent.reserveProvisionalChildBudget(Budget{}, members.childAllocation(parentID)) {
-		t.Fatal("second provisional grant overwrote the first")
-	}
-	parent.releaseProvisionalChildBudget()
-	if parent.provisionalChildBudget != nil || members.childAllocation(parentID).Effects != 3 {
-		t.Fatal("provisional rollback changed published allocation")
+	if parent.canReserveChildBudget(Budget{Effects: NewQuota(8)}, members.childAllocation(parentID)) {
+		t.Fatal("grant beyond the remaining budget was admitted")
 	}
 }
 

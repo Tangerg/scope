@@ -304,8 +304,8 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 			if err := parent.Join(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			members := &parent.handle.runtime.Load().members
-			if reserved := members.get(parent.ID()).reservedResources(members.childAllocation(parent.ID())); reserved != (resourceAmounts{}) {
+			members := &parent.handle.treeRuntime().members
+			if reserved := parent.handle.treeRuntime().childDebits(members.get(parent.ID())); reserved != (resourceAmounts{}) {
 				t.Fatalf("unacknowledged child retained budget: %+v", reserved)
 			}
 			assertNoPendingProcessStarts(t, engine)

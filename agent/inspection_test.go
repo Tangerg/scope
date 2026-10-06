@@ -15,7 +15,7 @@ func inspectProcessSnapshot(t testing.TB, process *Process) ProcessSnapshot {
 
 func inspectProcessSnapshotContext(ctx context.Context, t testing.TB, process *Process) ProcessSnapshot {
 	t.Helper()
-	runtime := process.handle.runtime.Load()
+	runtime := process.handle.treeRuntime()
 	if runtime == nil {
 		t.Fatal("Process tree was released before inspection")
 	}

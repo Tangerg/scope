@@ -21,7 +21,7 @@ func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = awaitResult(t, root)
-	<-root.handle.runtime.Load().done
+	<-root.handle.treeRuntime().done
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if snapshot, err := engine.CaptureTree(ctx, root.ID()); !errors.Is(err, context.Canceled) || snapshot.Valid() {
@@ -667,7 +667,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
 		t.Fatalf("conflicting reservation = %v", err)
 	}
-	engine.discardProcessStart(conflict.ProcessID())
+	engine.discardProcessStart(rootProcessRelation(conflict.ProcessID()))
 	checkStarts := func(want error) {
 		t.Helper()
 		for _, process := range restoration.wire.ProcessSnapshots {
@@ -677,7 +677,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
 			}
 			if err == nil {
-				engine.discardProcessStart(id)
+				engine.discardProcessStart(rootProcessRelation(id))
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,6 +15,8 @@ import (
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
 type treeRuntime struct {
+	// binding is the one cell every member handle reads its owner from.
+	binding    atomic.Pointer[treeRuntime]
 	engine     *Engine
 	rootID     ProcessID
 	treeLimits TreeLimits
@@ -159,6 +162,7 @@ func newTreeRuntime(
 		publications:    publicationLedger{},
 		done:            make(chan struct{}),
 	}
+	runtime.binding.Store(runtime)
 	for _, process := range processes {
 		runtime.addProcess(process)
 	}
@@ -486,15 +490,9 @@ func (t *treeRuntime) prepareChildStart(
 	if !t.canStartChild(process) {
 		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
 	}
-	if !process.reserveProvisionalChildBudget(spec.Budget, t.members.childAllocation(process.handle.processID)) {
+	if !process.canReserveChildBudget(spec.Budget, t.childDebits(process)) {
 		return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
 	}
-	transferred := false
-	defer func() {
-		if !transferred {
-			process.releaseProvisionalChildBudget()
-		}
-	}()
 	if reserveProcessStartErr := t.engine.reserveProcessStart(relation); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
@@ -504,12 +502,27 @@ func (t *treeRuntime) prepareChildStart(
 		}
 		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
 	}
-	transferred = true
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment(),
 		spec: spec, relation: relation,
 	}}
+}
+
+// childDebits is what process's budget has granted: its member children's
+// debits and, while its child-start job has not installed the child, that
+// start's requested budget. The job owns the reservation; membership takes it
+// over when the child joins.
+func (t *treeRuntime) childDebits(process *processState) resourceAmounts {
+	allocated := t.members.childAllocation(process.handle.processID)
+	job := t.jobs.get(process.handle.processID)
+	if job == nil || job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
+		return allocated
+	}
+	// Preparation admitted the start's grant beside these debits.
+	debit, _ := process.handle.budget.allocation(job.childStart.spec.Budget)
+	allocated, _ = allocated.add(debit)
+	return allocated
 }
 
 // Membership and in-flight child jobs are the resource facts. A completed job
@@ -710,23 +723,20 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	}
 }
 
-// The runtime releases the reservation it currently owns: the parent's
-// provisional grant before installation, the child's membership after it.
+// The runtime releases what the start still holds: the child's membership
+// once installed; before that, the finished job held the provisional grant.
 // Published children never use this path.
 func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	if plan == nil {
 		return
 	}
 	childID := plan.childID()
-	parent := t.members.get(plan.parentID())
-	if child := t.members.get(childID); child != nil {
+	if t.members.get(childID) != nil {
 		t.removeProcess(childID)
-	} else if parent != nil {
-		parent.releaseProvisionalChildBudget()
 	}
 	t.runQueue.remove(childID)
 	delete(t.publications, childID)
-	t.engine.discardProcessStart(childID)
+	t.engine.discardProcessStart(plan.relation)
 }
 
 func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) error {
@@ -865,7 +875,7 @@ func (t *treeRuntime) failRuntime(
 		if _, published := acknowledged[memberID]; !published {
 			// A prospective child that never entered an acknowledged head has
 			// no published lifecycle to stop.
-			t.engine.discardProcessStart(memberID)
+			t.engine.discardProcessStart(process.handle.relation)
 			t.removeProcess(memberID)
 			continue
 		}
@@ -1324,7 +1334,7 @@ func (t *treeRuntime) startStep(process *processState) {
 	processID := process.handle.processID
 	definition := process.deployment().Definition()
 
-	if failure := process.stepSchedulingFailure(t.members.childAllocation(process.handle.processID)); failure != nil {
+	if failure := process.stepSchedulingFailure(t.childDebits(process)); failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
 		t.finishIfTerminal(process)
 		return
@@ -1700,9 +1710,6 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 		if candidate.prepared == nil {
 			return errors.New("child start parent has no prepared Step")
 		}
-		if err := candidate.installProvisionalChildBudget(); err != nil {
-			return err
-		}
 		handle := newProcessHandle(
 			pending.plan.relation,
 			pending.result.deployment,
@@ -1780,7 +1787,7 @@ func (t *treeRuntime) applyStepCompletion(
 		t.failStep(process, result)
 		return
 	}
-	candidate, failure := process.prepareStep(result, t.treeLimits, t.members.childAllocation(process.handle.processID))
+	candidate, failure := process.prepareStep(result, t.treeLimits, t.childDebits(process))
 	if failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
 		return
@@ -2015,7 +2022,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 		panic("agent: invalid tree Process")
 	}
 	t.members.add(process)
-	process.handle.runtime.Store(t)
+	process.handle.tree = &t.binding
 	t.queueJoin(process)
 	if !process.status().Terminal() {
 		t.enqueueProcess(process.handle.processID)
@@ -2101,7 +2108,7 @@ func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
 	candidate.adopt(finalization)
 	if len(immediate) != 0 {
 		limitCode = failureCodeEngineLimitChildWaitSignal
-		if candidate, err = candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits, t.members.childAllocation(processID)); err != nil {
+		if candidate, err = candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits, t.childDebits(candidate)); err != nil {
 			return newFinalizationFailure(limitCode, err)
 		}
 	}
@@ -2180,7 +2187,7 @@ func (t *treeRuntime) installTermination(process *processState, outcome stepOutc
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
 
 func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventDraft, error) {
-	candidate, err := process.prepareSignals(signals, source, t.treeLimits, t.members.childAllocation(process.handle.processID))
+	candidate, err := process.prepareSignals(signals, source, t.treeLimits, t.childDebits(process))
 	if err != nil || candidate == nil {
 		return nil, err
 	}

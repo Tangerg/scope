@@ -17,7 +17,9 @@ type processHandle struct {
 	budget       Budget
 	capabilities CapabilitySet
 	startedAt    time.Time
-	runtime      atomic.Pointer[treeRuntime]
+	// tree is the cell its tree's runtime owns; every member shares it, so
+	// releasing the tree detaches all of them at once.
+	tree *atomic.Pointer[treeRuntime]
 
 	// Await joins outcome publication and immediate parent/child bookkeeping.
 	// Join additionally waits for owned descendant work and acknowledgments.
@@ -141,4 +143,13 @@ func (p *processHandle) closedRequestError() error {
 		return p.runtimeErr.clone()
 	}
 	return ErrProcessFinished
+}
+
+// treeRuntime returns the runtime that owns this Process, or nil before it
+// joins a tree and after its tree is released.
+func (p *processHandle) treeRuntime() *treeRuntime {
+	if p.tree == nil {
+		return nil
+	}
+	return p.tree.Load()
 }

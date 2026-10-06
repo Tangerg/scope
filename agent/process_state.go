@@ -37,11 +37,7 @@ type processState struct {
 	snapshot                ProcessSnapshot
 	snapshotSealed          bool
 
-	// Installed child grants belong to tree membership. A provisional grant is
-	// this Process's own reservation while a child start is undecided, and it
-	// is re-established on restore from the pending child-start Effect.
-	provisionalChildBudget *Budget
-	counters               processCounters
+	counters processCounters
 
 	// Restore bookkeeping is consumed by the owner goroutine before admitting
 	// new work, preventing recovered effects from racing fresh execution.
@@ -155,7 +151,7 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	// Step preparation bounds consumption by the pending suffix. Admission must
 	// also fit the settlements appended when that candidate is adopted.
 	remainingPending -= p.prepared.consumedSignals()
-	allocated := p.reservedResources(childAllocation)
+	allocated := childAllocation
 	if !resourceQuantitiesFit(limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
 		!resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, reserved, count) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
@@ -246,53 +242,11 @@ func (p *processState) unknownEffectIDs() []EffectID {
 	return p.prepared.Effects.unknownEffectIDs()
 }
 
-func (p *processState) reserveProvisionalChildBudget(requested Budget, childAllocation resourceAmounts) bool {
-	if p.provisionalChildBudget != nil {
-		return false
-	}
+// canReserveChildBudget reports whether requested fits beside the child
+// debits already held against this Process's budget.
+func (p *processState) canReserveChildBudget(requested Budget, childAllocation resourceAmounts) bool {
 	reserved, ok := childAllocation.add(resourceAmounts{Steps: 1, Signals: p.prepared.settlementSignalCount()})
-	if !ok || !p.handle.budget.canAllocate(p.usage(), reserved, requested) {
-		return false
-	}
-	p.provisionalChildBudget = new(requested)
-	return true
-}
-
-// installProvisionalChildBudget hands the reservation to tree membership,
-// which charges the grant when the started child joins it.
-func (p *processState) installProvisionalChildBudget() error {
-	if p.provisionalChildBudget == nil {
-		return ErrResourceLimitExceeded
-	}
-	if _, ok := p.handle.budget.allocation(*p.provisionalChildBudget); !ok {
-		return ErrResourceLimitExceeded
-	}
-	p.provisionalChildBudget = nil
-	return nil
-}
-
-func (p *processState) releaseProvisionalChildBudget() {
-	if p.provisionalChildBudget == nil {
-		panic("agent: no provisional child budget is reserved")
-	}
-	p.provisionalChildBudget = nil
-}
-
-// reservedResources adds this Process's provisional grant to the debits its
-// member children hold.
-func (p *processState) reservedResources(childAllocation resourceAmounts) resourceAmounts {
-	if p.provisionalChildBudget == nil {
-		return childAllocation
-	}
-	debit, ok := p.handle.budget.allocation(*p.provisionalChildBudget)
-	if !ok {
-		panic("agent: invalid provisional child allocation")
-	}
-	reserved, ok := childAllocation.add(debit)
-	if !ok {
-		panic("agent: Process resource reservation overflow")
-	}
-	return reserved
+	return ok && p.handle.budget.canAllocate(p.usage(), reserved, requested)
 }
 
 func (p *processState) capture() (ProcessSnapshot, error) {
@@ -386,8 +340,7 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 }
 
 func (p *processState) stepSchedulingFailure(childAllocation resourceAmounts) *stepFailure {
-	reserved := p.reservedResources(childAllocation)
-	if !p.handle.budget.Steps.Allows(p.committedSteps, reserved.Steps, 1) {
+	if !p.handle.budget.Steps.Allows(p.committedSteps, childAllocation.Steps, 1) {
 		return &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSteps, cause: ErrResourceLimitExceeded,
 		}
@@ -426,8 +379,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 		}
 	}
 	effectCount := uint64(len(effects))
-	allocated := p.reservedResources(childAllocation)
-	if !p.handle.budget.Effects.Allows(p.counters.PreparedEffects, allocated.Effects, effectCount) {
+	if !p.handle.budget.Effects.Allows(p.counters.PreparedEffects, childAllocation.Effects, effectCount) {
 		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
@@ -437,7 +389,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
 	if !resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, effectCount) ||
-		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, effectCount) {
+		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, effectCount) {
 		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
 		}

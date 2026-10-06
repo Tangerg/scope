@@ -164,7 +164,7 @@ func TestRepeatedCaptureTracksEffectSettlement(t *testing.T) {
 // memberChildAllocation reads the debits tree membership attributes to a
 // Process, which holds none before it joins a tree.
 func memberChildAllocation(process *processState) resourceAmounts {
-	if runtime := process.handle.runtime.Load(); runtime != nil {
+	if runtime := process.handle.treeRuntime(); runtime != nil {
 		return runtime.members.childAllocation(process.handle.processID)
 	}
 	return resourceAmounts{}

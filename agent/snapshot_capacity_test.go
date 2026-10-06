@@ -261,7 +261,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	if !failed || failure.Code() != failureCodeEngineChildTreeLimit || pending.result.started() || runtime.members.len() != 5 {
 		t.Fatalf("oversize child was installed: failure=%+v, members=%d", failure, runtime.members.len())
 	}
-	if runtime.members.childAllocation(root.handle.processID) != reserved || root.provisionalChildBudget != nil || root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
+	if runtime.members.childAllocation(root.handle.processID) != reserved || root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
 		t.Fatal("rejection retained child resources or lost the failed start fact")
 	}
 	assertNoPendingProcessStarts(t, runtime.engine)
@@ -309,7 +309,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			}
 			result := childStartJobResult{result: failedChildStart(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
 			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
-			if root.provisionalChildBudget != nil || runtime.members.childAllocation(root.handle.processID) != (resourceAmounts{}) || runtime.members.len() != 1 {
+			if runtime.childDebits(root) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")
 			}
 			assertNoPendingProcessStarts(t, runtime.engine)

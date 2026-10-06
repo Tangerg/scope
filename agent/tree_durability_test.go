@@ -493,7 +493,7 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	close(admitter.release)
 	dispatcher.ReleaseAll()
 	closeEngineEventually(t, engine)
-	stopped := root.handle.runtime.Load()
+	stopped := root.handle.treeRuntime()
 	<-stopped.done
 	after := inspectProcessSnapshot(t, root)
 	if string(before.JSON()) != string(after.JSON()) {

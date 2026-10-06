@@ -189,9 +189,9 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 					t.Fatalf("child rollback join error=%v", err)
 				}
 				assertNoPendingProcessStarts(t, engine)
-				runtime := root.handle.runtime.Load()
+				runtime := root.handle.treeRuntime()
 				parent := runtime.members.get(root.ID())
-				if parent.reservedResources(runtime.members.childAllocation(parent.handle.processID)) != (resourceAmounts{}) || runtime.members.len() != 1 {
+				if runtime.childDebits(parent) != (resourceAmounts{}) || runtime.members.len() != 1 {
 					t.Fatal("rejected child checkpoint retained child budget or prospective Process")
 				}
 			}

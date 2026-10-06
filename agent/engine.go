@@ -99,13 +99,13 @@ type Engine struct {
 	// expose a Process whose admission still appears unreserved.
 	mu                      sync.RWMutex
 	processes               map[ProcessID]*processHandle
-	startReservations       map[ProcessID]processStartReservation
+	startReservations       map[ProcessID]struct{}
 	treeRestoreReservations map[ProcessID]*treeRestoration
 	// These indexes project the same reservation and change only under mu.
 	restoredProcesses      map[ProcessID]*treeRestoration
 	restoredChildren       map[childIdentity]*treeRestoration
 	children               map[childIdentity]ProcessID
-	childStartReservations map[childIdentity]ProcessID
+	childStartReservations map[childIdentity]struct{}
 	// One channel closes admission at allocation and joins completion on close,
 	// avoiding separate shutdown flags that could disagree.
 	closeDone chan struct{}
@@ -200,12 +200,12 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 		capabilities:               config.Capabilities,
 		treeOperations:             make(map[ProcessID]*treeOperation),
 		processes:                  make(map[ProcessID]*processHandle),
-		startReservations:          make(map[ProcessID]processStartReservation),
+		startReservations:          make(map[ProcessID]struct{}),
 		treeRestoreReservations:    make(map[ProcessID]*treeRestoration),
 		restoredProcesses:          make(map[ProcessID]*treeRestoration),
 		restoredChildren:           make(map[childIdentity]*treeRestoration),
 		children:                   make(map[childIdentity]ProcessID),
-		childStartReservations:     make(map[childIdentity]ProcessID),
+		childStartReservations:     make(map[childIdentity]struct{}),
 	}, nil
 }
 
@@ -239,7 +239,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	published := false
 	defer func() {
 		if !published {
-			e.discardProcessStart(id)
+			e.discardProcessStart(relation)
 		}
 	}()
 	if requestProcessAdmissionErr := requestProcessAdmission(ctx, e.admitter, admission); requestProcessAdmissionErr != nil {
@@ -382,7 +382,6 @@ func (e *Engine) reserveProcessStart(relation ProcessRelation) error {
 	if !relation.Valid() {
 		return ErrInvalidProcessRelation
 	}
-	reservation := processStartReservation{relation: relation}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closeDone != nil {
@@ -392,9 +391,10 @@ func (e *Engine) reserveProcessStart(relation ProcessRelation) error {
 		return ErrProcessAlreadyExists
 	}
 	if relation.IsRoot() {
-		return e.reserveRootStart(reservation)
+		e.startReservations[relation.ProcessID()] = struct{}{}
+		return nil
 	}
-	return e.reserveChildStart(reservation)
+	return e.reserveChildStart(relation)
 }
 
 // processIdentityTaken and childIdentityTaken require e.mu. Published,
@@ -411,16 +411,9 @@ func (e *Engine) childIdentityTaken(identity childIdentity) bool {
 	return published || starting || e.restoredChildren[identity] != nil
 }
 
-// Hold e.mu so root publication cannot overtake its admission reservation.
-func (e *Engine) reserveRootStart(reservation processStartReservation) error {
-	e.startReservations[reservation.relation.ProcessID()] = reservation
-	return nil
-}
-
 // The tree owner admits resources and depth; e.mu reserves global identities
 // atomically.
-func (e *Engine) reserveChildStart(reservation processStartReservation) error {
-	relation := reservation.relation
+func (e *Engine) reserveChildStart(relation ProcessRelation) error {
 	identity, isChild := relation.childIdentity()
 	if !isChild {
 		return ErrInvalidProcessRelation
@@ -431,21 +424,20 @@ func (e *Engine) reserveChildStart(reservation processStartReservation) error {
 	if e.processes[identity.parent] == nil {
 		return ErrInvalidProcessRelation
 	}
-	processID := relation.ProcessID()
-	e.startReservations[processID] = reservation
-	e.childStartReservations[identity] = processID
+	e.startReservations[relation.ProcessID()] = struct{}{}
+	e.childStartReservations[identity] = struct{}{}
 	return nil
 }
 
-func (e *Engine) discardProcessStart(processID ProcessID) {
+// discardProcessStart releases the identities relation's start reserved.
+func (e *Engine) discardProcessStart(relation ProcessRelation) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	reservation, exists := e.startReservations[processID]
-	if !exists {
+	if _, reserved := e.startReservations[relation.ProcessID()]; !reserved {
 		return
 	}
-	delete(e.startReservations, processID)
-	if identity, child := reservation.relation.childIdentity(); child && e.childStartReservations[identity] == processID {
+	delete(e.startReservations, relation.ProcessID())
+	if identity, child := relation.childIdentity(); child {
 		delete(e.childStartReservations, identity)
 	}
 }
@@ -453,21 +445,20 @@ func (e *Engine) discardProcessStart(processID ProcessID) {
 func (e *Engine) publishProcessStart(handle *processHandle) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	reservation, exists := e.startReservations[handle.processID]
-	if !exists || reservation.relation != handle.relation || e.closeDone != nil ||
+	_, reserved := e.startReservations[handle.processID]
+	if !reserved || e.closeDone != nil ||
 		e.processes[handle.processID] != nil {
 		panic("agent: invalid Process start reservation")
 	}
-	runtime := handle.runtime.Load()
 	identity, isChild := handle.relation.childIdentity()
 	if isChild {
-		parent := e.processes[identity.parent]
-		if e.childStartReservations[identity] != handle.processID || e.children[identity].Valid() ||
-			parent == nil || runtime == nil || runtime != parent.runtime.Load() {
+		if _, reserved := e.childStartReservations[identity]; !reserved || e.children[identity].Valid() ||
+			e.processes[identity.parent] == nil {
 			panic("agent: invalid child Process start reservation")
 		}
-	} else if runtime == nil {
-		panic("agent: invalid root tree runtime")
+	}
+	if handle.treeRuntime() == nil {
+		panic("agent: Process start has no tree runtime")
 	}
 	delete(e.startReservations, handle.processID)
 	e.processes[handle.processID] = handle
@@ -582,13 +573,12 @@ func (e *Engine) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 		return ErrTreeNotFound
 	}
 	for processID, process := range runtime.members.all() {
-		handle := process.handle
-		if identity, child := handle.relation.childIdentity(); child {
+		if identity, child := process.handle.relation.childIdentity(); child {
 			delete(e.children, identity)
 		}
-		handle.runtime.Store(nil)
 		delete(e.processes, processID)
 	}
+	runtime.binding.Store(nil)
 	return nil
 }
 
@@ -855,11 +845,5 @@ func (e *Engine) rootRuntime(rootID ProcessID) *treeRuntime {
 	if root == nil || !root.relation.IsRoot() {
 		return nil
 	}
-	return root.runtime.Load()
-}
-
-// processStartReservation claims a Process identity until its start
-// publishes or is discarded; the started handle owns everything else.
-type processStartReservation struct {
-	relation ProcessRelation
+	return root.treeRuntime()
 }

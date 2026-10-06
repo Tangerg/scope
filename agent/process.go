@@ -180,7 +180,7 @@ func (p *Process) ReplayUnknownEffect(ctx context.Context, effectID EffectID) er
 // Descendants may still be settling after this Process's result is ready.
 func (p *Process) Await(ctx context.Context) (Result, error) {
 	ctx = RequireContext(ctx)
-	if runtime := p.handle.runtime.Load(); runtime != nil {
+	if runtime := p.handle.treeRuntime(); runtime != nil {
 		if err := runtime.checkEventListenerReentrancy(ctx, "Await"); err != nil {
 			return Result{}, err
 		}
@@ -203,7 +203,7 @@ func (p *Process) Await(ctx context.Context) (Result, error) {
 // wait on children through NewChildWaitEffect instead.
 func (p *Process) Join(ctx context.Context) error {
 	ctx = RequireContext(ctx)
-	if runtime := p.handle.runtime.Load(); runtime != nil {
+	if runtime := p.handle.treeRuntime(); runtime != nil {
 		if err := runtime.checkEventListenerReentrancy(ctx, "Join"); err != nil {
 			return err
 		}
@@ -243,7 +243,7 @@ func (p *Process) submit(ctx context.Context, request processRequest, reply proc
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	runtime := p.handle.runtime.Load()
+	runtime := p.handle.treeRuntime()
 	if runtime == nil {
 		return p.handle.closedRequestError()
 	}
