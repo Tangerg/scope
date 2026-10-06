@@ -94,8 +94,7 @@ func (d Deployment) boundChild(reference DeploymentRef) (Deployment, bool) {
 // the live Definition contract at startup and restoration boundaries.
 func (d Deployment) Valid() bool {
 	return d.reference.Valid() && d.descriptor.Valid() &&
-		!lo.IsNil(d.definition) && (d.dispatcher == nil || !lo.IsNil(d.dispatcher)) &&
-		d.reference.ContractDigest() == d.descriptor.Digest()
+		!lo.IsNil(d.definition) && (d.dispatcher == nil || !lo.IsNil(d.dispatcher))
 }
 
 func (d Deployment) validateDefinition() error {
