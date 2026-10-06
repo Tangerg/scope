@@ -1,11 +1,13 @@
 package anthropic
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -23,7 +25,17 @@ func TestMessagesRequireCompleteTerminalSequence(t *testing.T) {
 		valid  bool
 	}{
 		{name: "normal", events: []string{start, blockStart, blockStop, finish, stop}, valid: true},
+		{name: "ping events", events: []string{`{"type":"ping"}`, start, blockStart, `{"type":"ping"}`, blockStop, finish, stop}, valid: true},
 		{name: "tail usage", events: []string{start, blockStart, blockStop, finish, `{"type":"message_delta","delta":{},"usage":{"output_tokens":2}}`, stop}, valid: true},
+		{name: "missing message start", events: []string{blockStart, blockStop, finish, stop}},
+		{name: "duplicate message start", events: []string{start, blockStart, blockStop, start, finish, stop}},
+		{name: "unstarted text block", events: []string{start, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answer"}}`, finish, stop}},
+		{name: "unstarted thinking block", events: []string{start, `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"answer"}}`, finish, stop}},
+		{name: "tool arguments before block start", events: []string{start, `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}`, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu-1","name":"lookup","input":{}}}`, blockStop, finish, stop}},
+		{name: "text delta for tool block", events: []string{start, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu-1","name":"lookup","input":{}}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answer"}}`, blockStop, finish, stop}},
+		{name: "tool arguments for text block", events: []string{start, blockStart, `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}`, blockStop, finish, stop}},
+		{name: "signature for text block", events: []string{start, blockStart, `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`, blockStop, finish, stop}},
+		{name: "negative block index", events: []string{start, `{"type":"content_block_start","index":-1,"content_block":{"type":"text","text":"answer"}}`, `{"type":"content_block_stop","index":-1}`, finish, stop}},
 		{name: "missing message stop", events: []string{start, blockStart, blockStop, finish}},
 		{name: "missing block stop", events: []string{start, blockStart, finish, stop}},
 		{name: "missing finish reason", events: []string{start, blockStart, blockStop, stop}},
@@ -66,6 +78,62 @@ func TestMessagesRequireCompleteTerminalSequence(t *testing.T) {
 				t.Fatalf("output tokens = %d, want %d", response.Metadata.Usage.OutputTokens, wantTokens)
 			}
 		})
+	}
+}
+
+func TestMessagesPreserveNativeServerToolBlocksWithoutPromotingLocalCalls(t *testing.T) {
+	events := []string{
+		`{"type":"message_start","message":{"id":"msg-test","type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu-1","name":"web_search","input":{}}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"weather\"}"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"future_tool","id":"future-1","name":"remote","input":{},"opaque_extension":"preserved"}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"content_block_start","index":2,"content_block":{"type":"text","text":"answer"}}`,
+		`{"type":"content_block_stop","index":2}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+		`{"type":"message_stop"}`,
+	}
+	model := newLifecycleMessages(t, events)
+	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
+	response, err := model.Call(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text() != "answer" || len(response.Output.Message.Parts) != 1 || response.Output.FinishReason != corechat.FinishReasonStop {
+		t.Fatalf("native server tool promoted into Core calls: %#v", response)
+	}
+	var nativeEvents []string
+	for delta, streamErr := range model.Stream(t.Context(), request) {
+		if streamErr != nil {
+			t.Fatal(streamErr)
+		}
+		for _, part := range delta.Parts {
+			if part.Kind == corechat.PartDeltaToolCall {
+				t.Fatalf("native server tool promoted into a local call: %#v", part)
+			}
+		}
+		native, found, decodeErr := delta.Metadata.Extra.Decode[json.RawMessage](StreamEventExtensionKey)
+		if decodeErr != nil || !found {
+			t.Fatalf("preserved native event: found = %v, error = %v", found, decodeErr)
+		}
+		nativeEvents = append(nativeEvents, string(native))
+	}
+	if len(nativeEvents) != len(events) {
+		t.Fatalf("preserved %d native events, want %d", len(nativeEvents), len(events))
+	}
+	for index, event := range events {
+		var want, got any
+		if unmarshalErr := jsonv2.Unmarshal([]byte(event), &want); unmarshalErr != nil {
+			t.Fatal(unmarshalErr)
+		}
+		if unmarshalErr := jsonv2.Unmarshal([]byte(nativeEvents[index]), &got); unmarshalErr != nil {
+			t.Fatal(unmarshalErr)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("native event %d = %#v, want %#v", index, got, want)
+		}
 	}
 }
 

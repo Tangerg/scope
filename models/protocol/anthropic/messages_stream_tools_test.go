@@ -13,12 +13,6 @@ import (
 	"github.com/Tangerg/scope/models/protocol/anthropic"
 )
 
-// input_json_delta carries only partial JSON; the id and name come from the
-// content_block_start for that index. A Core tool-call delta cannot be built
-// without them, so arguments for an unstarted block are buffered. Nothing used
-// to flush or report a buffer still held at message_stop: the terminal
-// response came back with a normal stop reason and the tool call simply
-// absent, its arguments discarded.
 func TestStreamRefusesArgumentsForAnUnstartedToolBlock(t *testing.T) {
 	t.Parallel()
 

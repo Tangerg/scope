@@ -30,9 +30,10 @@ func TestChat_BehaviorConformance(t *testing.T) {
 			t.Helper()
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "text/event-stream")
-				writeAnthropicBehaviorEvent(writer, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"before"}}`)
+				writeAnthropicBehaviorStart(writer)
+				writeAnthropicBehaviorEvent(writer, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"before"}}`)
 				fmt.Fprint(writer, "event: content_block_delta\ndata: {\n\n")
-				writeAnthropicBehaviorEvent(writer, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"after"}}`)
+				writeAnthropicBehaviorEvent(writer, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"after"}}`)
 			}))
 			t.Cleanup(server.Close)
 			return newAnthropicBehaviorChat(t, server.URL)
@@ -55,10 +56,16 @@ func newAnthropicBehaviorChat(t *testing.T, baseURL string) *anthropic.Messages 
 
 func writeAnthropicBehaviorChunk(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/event-stream")
-	writeAnthropicBehaviorEvent(writer, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ready"}}`)
+	writeAnthropicBehaviorStart(writer)
+	writeAnthropicBehaviorEvent(writer, "content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ready"}}`)
 	writer.(http.Flusher).Flush()
 }
 
-func writeAnthropicBehaviorEvent(writer http.ResponseWriter, data string) {
-	fmt.Fprintf(writer, "event: content_block_delta\ndata: %s\n\n", data)
+func writeAnthropicBehaviorStart(writer http.ResponseWriter) {
+	writeAnthropicBehaviorEvent(writer, "message_start", `{"type":"message_start","message":{"id":"msg-behavior","type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`)
+	writeAnthropicBehaviorEvent(writer, "content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+}
+
+func writeAnthropicBehaviorEvent(writer http.ResponseWriter, eventName, data string) {
+	fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", eventName, data)
 }

@@ -14,10 +14,13 @@
 //     citations, fine-grained tool-result content blocks,
 //     cache_control.
 //
-// A successful stream requires the final message_stop after all content blocks
-// close and a message_delta supplies the finish reason. Premature EOF fails
-// with [chat.ErrInvalidResponse]. Thinking and redacted blocks retain their
-// individual identities through aggregation and history replay.
+// A successful stream begins with one message_start, opens each content block
+// before its deltas, and ends with message_stop after all blocks close and a
+// message_delta supplies the finish reason. Invalid event order or mismatched
+// delta types fail with [chat.ErrInvalidResponse]. Native server-tool and future
+// blocks remain in exact native event metadata without becoming local Tool
+// calls. Thinking and redacted blocks retain their identities through
+// aggregation and history replay.
 //
 // Provider packages exposing an Anthropic-compatible endpoint reuse the
 // Messages protocol through [NewCompatibleMessages] and select one typed
