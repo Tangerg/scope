@@ -62,7 +62,13 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		t.Fatalf("released tree capture error = %v", err)
 	}
 	engine.mu.RLock()
-	remainingProcesses, remainingTrees, remainingChildren := len(engine.processes), len(engine.trees), len(engine.children)
+	remainingTrees := 0
+	for rootID := range engine.processes {
+		if engine.rootRuntime(rootID) != nil {
+			remainingTrees++
+		}
+	}
+	remainingProcesses, remainingChildren := len(engine.processes), len(engine.children)
 	engine.mu.RUnlock()
 	if remainingProcesses != 1 || remainingTrees != 1 || remainingChildren != 0 {
 		t.Fatalf("registry sizes = %d, %d, %d; want only the independent root", remainingProcesses, remainingTrees, remainingChildren)

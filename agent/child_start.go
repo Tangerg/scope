@@ -18,8 +18,14 @@ type childStartPlan struct {
 	resolver         DeploymentResolver
 	parentDeployment Deployment
 	spec             ChildSpec
-	childID          ProcessID
 	relation         ProcessRelation
+}
+
+func (c *childStartPlan) childID() ProcessID { return c.relation.ProcessID() }
+
+func (c *childStartPlan) parentID() ProcessID {
+	parentID, _ := c.relation.ParentID()
+	return parentID
 }
 
 type childStartJobResult struct {
@@ -60,7 +66,7 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 		return childStartJobResult{result: failedChildStart(failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err)}
 	}
 	return childStartJobResult{
-		result:     ChildStartResult{processID: c.childID},
+		result:     ChildStartResult{processID: c.childID()},
 		deployment: deployment, execution: execution, state: state, startedAt: startedAt,
 	}
 }

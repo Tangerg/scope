@@ -33,7 +33,7 @@ func TestPreparedFailurePreservesDispatchEvidence(t *testing.T) {
 				t.Fatal(captureErr)
 			}
 			if mode == "recovered" {
-				process.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: ReplayPolicyNever}
+				process.restoredReplayPolicy = ReplayPolicyNever
 			}
 			if mode == "in_flight" {
 				runtime.setProcessJob(process.handle.processID, &processJob{kind: processJobDispatch, attempt: 1, effectID: record.ID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}})

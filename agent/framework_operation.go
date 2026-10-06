@@ -151,7 +151,12 @@ func (c childStartOperation) apply(finalization *preparedStepFinalization, recor
 }
 
 func (c childStartOperation) validateTree(t *treeSnapshotValidation, parent ProcessID, record preparedEffect) error {
+	// A child publishes atomically with its start settlement, so an unsettled
+	// start never has its child in the tree.
 	if !record.definitelySettled() {
+		if _, exists := t.processes[record.ID.childProcessID()]; exists {
+			return fmt.Errorf("%w: child exists before its start settled", ErrInvalidChildStart)
+		}
 		return nil
 	}
 	result, err := decodeChildStartResult(record.settlement().Payload())

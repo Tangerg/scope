@@ -172,6 +172,14 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 			}
 		})
 	}
+	t.Run("child before settlement", func(t *testing.T) {
+		parentWire := wire.clone()
+		parentWire.Prepared.Effects = preparedEffects{{ID: record.ID, Effect: effect, progress: &effectProgress{}}}
+		tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), childSnapshot}}
+		if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) || !strings.Contains(err.Error(), "before its start settled") {
+			t.Fatalf("child published before its start settled was accepted: %v", err)
+		}
+	})
 }
 
 func TestRestoreRejectsWaitConflictBeforeDispatch(t *testing.T) {

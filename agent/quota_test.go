@@ -119,7 +119,7 @@ func TestBudgetAllocationIsIndependentPerDimension(t *testing.T) {
 
 func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
-	if err := runtime.engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef()); err != nil {
+	if err := runtime.engine.reserveProcessStart(parent.handle.relation); err != nil {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(parent.handle)

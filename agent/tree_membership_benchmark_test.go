@@ -100,7 +100,6 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 			for b.Loop() {
 				b.StopTimer()
 				runtime.members.get(runtime.rootID).handle.runtime.Store(runtime)
-				engine.trees[runtime.rootID] = runtime
 				engine.processes[runtime.rootID] = runtime.members.get(runtime.rootID).handle
 				b.StartTimer()
 				if err := engine.ReleaseTree(b.Context(), runtime.rootID); err != nil {
@@ -166,10 +165,9 @@ func BenchmarkStartAdmissionDuringTreeRestore(b *testing.B) {
 			b.Cleanup(func() { runtime.engine.discardRestoredTree(restoration) })
 			id := newProcessID()
 			relation := rootProcessRelation(id)
-			ref := runtime.members.get(runtime.rootID).handle.deploymentRef()
 			b.ReportAllocs()
 			for b.Loop() {
-				if err := runtime.engine.reserveProcessStart(relation, ref); err != nil {
+				if err := runtime.engine.reserveProcessStart(relation); err != nil {
 					b.Fatal(err)
 				}
 				runtime.engine.discardProcessStart(id)

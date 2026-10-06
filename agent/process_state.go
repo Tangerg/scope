@@ -45,18 +45,11 @@ type processState struct {
 
 	// Restore bookkeeping is consumed by the owner goroutine before admitting
 	// new work, preventing recovered effects from racing fresh execution.
-	restored        bool
-	restoredPending restoredPendingEffect
-	attemptSequence uint64
-}
-
-type restoredPendingEffect struct {
-	id           EffectID
-	replayPolicy ReplayPolicy
-}
-
-func (r restoredPendingEffect) matches(effectID EffectID) bool {
-	return r.id.Valid() && r.id == effectID && r.replayPolicy.Valid()
+	restored bool
+	// restoredReplayPolicy is valid while the one pending Effect a restored
+	// prepared Step retains still owes its recovery decision.
+	restoredReplayPolicy ReplayPolicy
+	attemptSequence      uint64
 }
 
 type pendingControl struct {
@@ -376,10 +369,10 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 				return fmt.Errorf("%w: restore pending Effect: %w", ErrInvalidSnapshot, err)
 			}
 		}
-		if p.restoredPending.id.Valid() {
+		if p.restoredReplayPolicy.Valid() {
 			return fmt.Errorf("%w: multiple pending Effects", ErrInvalidSnapshot)
 		}
-		p.restoredPending = restoredPendingEffect{id: record.ID, replayPolicy: policy}
+		p.restoredReplayPolicy = policy
 	}
 	p.preparedExecution = candidate
 	p.prepared = &prepared

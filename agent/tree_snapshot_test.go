@@ -611,9 +611,11 @@ func TestTreeRestoreValidatesTerminalOutputAgainstExactDeployment(t *testing.T) 
 func assertNoChildWaitRegistrations(t *testing.T, engine *Engine) {
 	t.Helper()
 	engine.mu.RLock()
-	runtimes := make([]*treeRuntime, 0, len(engine.trees))
-	for _, runtime := range engine.trees {
-		runtimes = append(runtimes, runtime)
+	var runtimes []*treeRuntime
+	for rootID := range engine.processes {
+		if runtime := engine.rootRuntime(rootID); runtime != nil {
+			runtimes = append(runtimes, runtime)
+		}
 	}
 	engine.mu.RUnlock()
 	for _, runtime := range runtimes {
@@ -659,7 +661,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
 	conflict := restoration.wire.ProcessSnapshots[1]
-	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID()), conflict.DeploymentRef()); err != nil {
+	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID())); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
@@ -670,7 +672,7 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		t.Helper()
 		for _, process := range restoration.wire.ProcessSnapshots {
 			id := process.ProcessID()
-			err := engine.reserveProcessStart(rootProcessRelation(id), process.DeploymentRef())
+			err := engine.reserveProcessStart(rootProcessRelation(id))
 			if !errors.Is(err, want) {
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
 			}

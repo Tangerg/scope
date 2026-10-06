@@ -85,13 +85,13 @@ type treeCommit struct {
 	child     *pendingChildStartPublication
 }
 
+// pendingChildStartPublication carries a finished child start to its
+// commit. The plan owns the parent and child identities.
 type pendingChildStartPublication struct {
-	parentID      ProcessID
-	effectID      EffectID
-	plan          *childStartPlan
-	result        childStartJobResult
-	effectAttempt effectAttempt
-	event         eventDraft
+	effectID EffectID
+	plan     *childStartPlan
+	result   childStartJobResult
+	event    eventDraft
 }
 
 type stepJobResult struct {
@@ -479,16 +479,7 @@ func (t *treeRuntime) prepareChildStart(
 	if !spec.Valid() || !process.handle.relation.Valid() {
 		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
 	}
-	childID := effectID.childProcessID()
-	relation := childProcessRelation(childID, process.handle.relation, spec.Key)
-	// The child identity derives from this Effect, so a published child with it
-	// was started by this very request.
-	if existing, exists := t.engine.Process(childID); exists {
-		if existing.Relation() == relation && existing.DeploymentRef() == spec.DeploymentRef {
-			return childStartPreparation{result: ChildStartResult{processID: childID}}
-		}
-		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, ErrInvalidChildStart)}
-	}
+	relation := childProcessRelation(effectID.childProcessID(), process.handle.relation, spec.Key)
 	if !process.handle.capabilities.Allows(spec.Capabilities) {
 		return childStartPreparation{result: failedChildStart(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
 	}
@@ -504,9 +495,7 @@ func (t *treeRuntime) prepareChildStart(
 			process.releaseProvisionalChildBudget()
 		}
 	}()
-	if reserveProcessStartErr := t.engine.reserveProcessStart(
-		relation, spec.DeploymentRef,
-	); reserveProcessStartErr != nil {
+	if reserveProcessStartErr := t.engine.reserveProcessStart(relation); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
 			return childStartPreparation{result: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
 		}
@@ -519,7 +508,7 @@ func (t *treeRuntime) prepareChildStart(
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment(),
-		spec: spec, childID: childID, relation: relation,
+		spec: spec, relation: relation,
 	}}
 }
 
@@ -540,7 +529,7 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 		}
 	}
 	for _, job := range t.jobs.all() {
-		if job.childStart == nil || t.members.get(job.childStart.childID) != nil {
+		if job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
 			continue
 		}
 		treeCount++
@@ -575,7 +564,7 @@ func (t *treeRuntime) controlChild(
 	}
 	t.events.publishSettlement(parent, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
 	t.enqueueProcess(parent.handle.processID)
-	t.commitSettledEffect(parent, index, *record)
+	t.commitSettledEffect(parent, record.ID)
 }
 
 func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
@@ -623,29 +612,21 @@ func (t *treeRuntime) effectRequestFor(
 	)
 }
 
-func (t *treeRuntime) startPendingEffectCommit(
-	process *processState,
-	batchIndex uint32,
-	record preparedEffect,
-) error {
-	return t.commitEffect(process, treeCommitEffectPending, record, nil)
-}
-
 // commitSettledEffect makes record's adopted settlement durable. A settlement
 // that cannot be committed stops the writer with record left unresolved.
-func (t *treeRuntime) commitSettledEffect(process *processState, batchIndex uint32, record preparedEffect) {
-	err := t.commitEffect(process, treeCommitEffectSettled, record, nil)
+func (t *treeRuntime) commitSettledEffect(process *processState, effectID EffectID) {
+	err := t.commitEffect(process, treeCommitEffectSettled, effectID, nil)
 	if err != nil {
-		t.failRuntime(err, process.handle.processID, record.ID)
+		t.failRuntime(err, process.handle.processID, effectID)
 	}
 }
 
 // commitEffect captures the prospective tree and starts the Effect boundary
-// of kind for record; reply, when present, answers the requesting caller.
+// of kind for effectID; reply, when present, answers the requesting caller.
 func (t *treeRuntime) commitEffect(
 	process *processState,
 	commitKind treeCommitKind,
-	record preparedEffect,
+	effectID EffectID,
 	reply processReply,
 ) error {
 	snapshot, err := t.captureTree()
@@ -654,18 +635,9 @@ func (t *treeRuntime) commitEffect(
 	}
 	commit := &treeCommit{
 		kind: commitKind, processID: process.handle.processID,
-		effectID: record.ID, snapshot: snapshot, reply: reply,
+		effectID: effectID, snapshot: snapshot, reply: reply,
 	}
 	return t.writer.commitEffect(t.context, commit)
-}
-
-func (t *treeRuntime) startUnknownResolutionCommit(
-	process *processState,
-	index int,
-	settlement Settlement,
-	reply processReply,
-) error {
-	return t.commitEffect(process, treeCommitEffectResolved, process.prepared.Effects[index], reply)
 }
 
 func (t *treeRuntime) startCheckpointCommit(snapshot TreeSnapshot) error {
@@ -745,16 +717,16 @@ func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
 	if plan == nil {
 		return
 	}
-	parentID, _ := plan.relation.ParentID()
-	parent := t.members.get(parentID)
-	if child := t.members.get(plan.childID); child != nil {
-		t.removeProcess(plan.childID)
+	childID := plan.childID()
+	parent := t.members.get(plan.parentID())
+	if child := t.members.get(childID); child != nil {
+		t.removeProcess(childID)
 	} else if parent != nil {
 		parent.releaseProvisionalChildBudget()
 	}
-	t.runQueue.remove(plan.childID)
-	delete(t.publications, plan.childID)
-	t.engine.discardProcessStart(plan.childID)
+	t.runQueue.remove(childID)
+	delete(t.publications, childID)
+	t.engine.discardProcessStart(childID)
 }
 
 func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) error {
@@ -762,21 +734,14 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		return errors.New("child start publication is incomplete")
 	}
 	if pending.result.started() {
-		child := t.members.get(pending.plan.childID)
+		child := t.members.get(pending.plan.childID())
 		if child == nil {
 			return errors.New("started child is missing from prospective tree")
 		}
 		t.engine.publishProcessStart(child.handle)
 		t.events.emit(child, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
 	}
-	parent := t.members.get(pending.parentID)
-	if pending.event.processID().Valid() {
-		t.events.publish(parent, pending.event)
-	} else {
-		t.events.publishSettlement(parent, pending.effectID, EffectTargetFramework,
-			pending.result.result.settlementStatus(), pending.effectAttempt, nil,
-		)
-	}
+	t.events.publish(t.members.get(pending.plan.parentID()), pending.event)
 	return nil
 }
 
@@ -1075,7 +1040,7 @@ func (t *treeRuntime) commitResolution(process *processState, effectID EffectID,
 	t.stageEvent(process, EventEffectResolved,
 		process.preparedStepSequence(), record.ID, payload)
 
-	if err := t.startUnknownResolutionCommit(process, index, settlement, reply); err != nil {
+	if err := t.commitEffect(process, treeCommitEffectResolved, effectID, reply); err != nil {
 		reply.send(processResponse{err: err})
 		t.failRuntime(err, process.handle.processID, effectID)
 	}
@@ -1438,7 +1403,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		process.adoptCandidate(candidate)
 		record = &process.prepared.Effects[index]
 		if record.Effect.Target() == EffectTargetDispatcher {
-			if err := t.startPendingEffectCommit(process, uint32(index), *record); err != nil {
+			if err := t.commitEffect(process, treeCommitEffectPending, record.ID, nil); err != nil {
 				t.failRuntime(err, process.handle.processID, EffectID{})
 			}
 			return
@@ -1446,12 +1411,12 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 	}
 	if record.phase() == effectPhasePending &&
 		record.Effect.Target() == EffectTargetDispatcher &&
-		process.restoredPending.matches(record.ID) {
+		process.restoredReplayPolicy.Valid() {
 		t.recoverPendingEffect(process, uint32(index), record)
 		return
 	}
 	if record.Effect.Target() == EffectTargetFramework {
-		process.restoredPending = restoredPendingEffect{}
+		process.restoredReplayPolicy = ReplayPolicyInvalid
 		observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetFramework)
 		operation, err := decodeFrameworkOperation(record.Effect.Payload())
 		if err != nil {
@@ -1478,8 +1443,8 @@ func (t *treeRuntime) recoverPendingEffect(
 	batchIndex uint32,
 	record *preparedEffect,
 ) {
-	decision := process.restoredPending
-	process.restoredPending = restoredPendingEffect{}
+	replayPolicy := process.restoredReplayPolicy
+	process.restoredReplayPolicy = ReplayPolicyInvalid
 	if record.Effect.Target() == EffectTargetFramework {
 		// The authoritative cut contains no published child. Admission may have
 		// run, so retain a failed start instead of claiming it never began.
@@ -1497,9 +1462,9 @@ func (t *treeRuntime) recoverPendingEffect(
 		return
 	}
 	if process.pendingControl.hasTerminalIntent() {
-		decision.replayPolicy = ReplayPolicyNever
+		replayPolicy = ReplayPolicyNever
 	}
-	switch decision.replayPolicy {
+	switch replayPolicy {
 	case ReplayPolicySameIdentity:
 		t.startDispatch(process, batchIndex, *record, nil)
 	case ReplayPolicyNever:
@@ -1508,7 +1473,7 @@ func (t *treeRuntime) recoverPendingEffect(
 			return
 		}
 
-		t.commitSettledEffect(process, batchIndex, *record)
+		t.commitSettledEffect(process, record.ID)
 	default:
 		t.failProcessContract(
 			process, failureCodeEngineEffectRecoveryInvalid, errInvalidReplayPolicy,
@@ -1679,10 +1644,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	result childStartJobResult,
 ) {
 	plan := job.childStart
-	pending := &pendingChildStartPublication{
-		parentID: parent.handle.processID, effectID: job.effectID,
-		plan: plan, result: result, effectAttempt: job.effectAttempt,
-	}
+	pending := &pendingChildStartPublication{effectID: job.effectID, plan: plan, result: result}
 	transferred := false
 	var publicationErr, checkpointErr error
 	defer func() {
@@ -1706,7 +1668,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 	snapshot, err := t.captureTree()
 	if err == nil {
 		commit := &treeCommit{
-			kind: treeCommitEffectSettled, processID: pending.parentID,
+			kind: treeCommitEffectSettled, processID: parent.handle.processID,
 			effectID: pending.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
 		}
 		if pending.result.started() {
@@ -1722,7 +1684,7 @@ func (t *treeRuntime) applyChildStart(pending *pendingChildStartPublication) err
 	if pending == nil || pending.plan == nil {
 		return errors.New("child start publication is incomplete")
 	}
-	parent := t.members.get(pending.parentID)
+	parent := t.members.get(pending.plan.parentID())
 	if parent == nil {
 		return errors.New("child start parent is missing")
 	}
@@ -1902,7 +1864,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 		return
 	}
 	process.adoptCandidate(candidate)
-	t.commitSettledEffect(process, uint32(index), process.prepared.Effects[index])
+	t.commitSettledEffect(process, process.prepared.Effects[index].ID)
 }
 
 // A result can precede descendant cleanup. Publish each join once, from leaves
@@ -2177,7 +2139,7 @@ func (t *treeRuntime) terminatePreparedProcess(process *processState) {
 		if record.phase() != effectPhasePending {
 			continue
 		}
-		if process.restoredPending.matches(record.ID) {
+		if process.restoredReplayPolicy.Valid() {
 			// Recovery owns the next completion. Termination resumes here after it
 			// settles, retaining any permissions already revoked in this pass.
 			t.recoverPendingEffect(process, uint32(index), record)

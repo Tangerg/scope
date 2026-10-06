@@ -92,7 +92,7 @@ func TestSnapshotRejectsChildBudgetThatConsumesPreparedStep(t *testing.T) {
 func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	engine := runtime.engine
-	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef()); err != nil {
+	if err := engine.reserveProcessStart(parent.handle.relation); err != nil {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
@@ -115,7 +115,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	if parent.status() != StatusFailed {
 		t.Fatalf("rejected settlement parent status=%s", parent.status())
 	}
-	if _, exists := engine.Process(prepared.plan.childID); exists {
+	if _, exists := engine.Process(prepared.plan.childID()); exists {
 		t.Fatal("rejected child settlement published the child")
 	}
 	if parent.reservedResources(runtime.members.childAllocation(parent.handle.processID)) != (resourceAmounts{}) || runtime.members.len() != 1 {
@@ -123,10 +123,10 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	}
 	assertTreeMembership(t, runtime)
 	assertNoPendingProcessStarts(t, engine)
-	if err := engine.reserveProcessStart(prepared.plan.relation, spec.DeploymentRef); err != nil {
+	if err := engine.reserveProcessStart(prepared.plan.relation); err != nil {
 		t.Fatalf("released child identity and key could not be reserved again: %v", err)
 	}
-	engine.discardProcessStart(prepared.plan.childID)
+	engine.discardProcessStart(prepared.plan.childID())
 	go runtime.run(t.Context())
 	if err := (&Process{handle: parent.handle}).Join(t.Context()); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	}
 	childID := first.handle.processID.effectID(1, 0).childProcessID()
 	relation := childProcessRelation(childID, first.handle.relation, controlValue(ParseChildKey("worker")))
-	runtime.jobs.start(first.handle.processID, &processJob{kind: processJobChildStart, childStart: &childStartPlan{childID: childID, relation: relation}})
+	runtime.jobs.start(first.handle.processID, &processJob{kind: processJobChildStart, childStart: &childStartPlan{relation: relation}})
 	if runtime.canStartChild(second) {
 		t.Fatal("sibling start ignored the last in-flight tree slot")
 	}
@@ -188,13 +188,13 @@ func TestProvisionalBudgetReleaseRequiresAReservation(t *testing.T) {
 func TestChildPublicationRequiresTheReservedRequestDigest(t *testing.T) {
 	runtime, parent := newChildCompletionTestProcess(t)
 	engine := runtime.engine
-	if err := engine.reserveProcessStart(parent.handle.relation, parent.deployment().DeploymentRef()); err != nil {
+	if err := engine.reserveProcessStart(parent.handle.relation); err != nil {
 		t.Fatal(err)
 	}
 	engine.publishProcessStart(parent.handle)
 	key := controlValue(ParseChildKey("worker"))
 	relation := childProcessRelation(newProcessID(), parent.handle.relation, key)
-	if err := engine.reserveProcessStart(relation, parent.deployment().DeploymentRef()); err != nil {
+	if err := engine.reserveProcessStart(relation); err != nil {
 		t.Fatal(err)
 	}
 	for _, reserved := range []bool{false, true} {
