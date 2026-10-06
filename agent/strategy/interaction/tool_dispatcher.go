@@ -57,7 +57,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	resume := envelope.ToolCall.Resume
 	if resume != nil {
 		ctx = withToolInputContinuation(ctx, ToolInputContinuation{
-			state: resume.Checkpoint.InputRequest.continuationState, response: resume.InputResponse,
+			state: resume.InputRequest.continuationState, response: resume.InputResponse,
 		})
 	}
 	prepared := t.prepareToolCall(call.Call)
@@ -67,11 +67,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	}
 	outcome := toolDispatchResult{Completion: prepared.completion(result, rejected, advertised)}
 	if required != nil {
-		count := uint64(0)
-		if resume != nil {
-			count = resume.Checkpoint.PauseCount
-		}
-		outcome = toolDispatchResult{Checkpoint: &toolCheckpoint{PauseCount: count + 1, InputRequest: *required}}
+		outcome = toolDispatchResult{InputRequest: required}
 	}
 	return outcome.settlement()
 }

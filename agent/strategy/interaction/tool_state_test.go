@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"math"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -180,5 +181,26 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	}
 	if _, err := definition.Restore(t.Context(), legacy); !errors.Is(err, ErrInvalidExecutionState) {
 		t.Fatalf("accepted duplicate waiting phase: %v", err)
+	}
+}
+
+func TestToolExecutionOwnsItsInputPauseCount(t *testing.T) {
+	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := &toolExecution{state: toolExecutionState{Phase: toolAwaitingResult, Call: call}}
+	for want := uint64(1); want <= 2; want++ {
+		if _, err := execution.openInputWait(request); err != nil {
+			t.Fatal(err)
+		}
+		if execution.state.Checkpoint.PauseCount != want {
+			t.Fatalf("pause count = %d, want %d", execution.state.Checkpoint.PauseCount, want)
+		}
+	}
+	execution.state.Checkpoint.PauseCount = math.MaxUint64
+	if _, err := execution.openInputWait(request); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("exhausted pause count = %v, want ErrInvalidExecutionState", err)
 	}
 }

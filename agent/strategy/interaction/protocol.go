@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 
@@ -89,9 +88,11 @@ type toolDispatchRequest struct {
 	Resume     *toolResume `json:"resume,omitzero"`
 }
 
+// toolResume continues the Tool with the input it requested. The Tool
+// Execution owns how many times it has paused.
 type toolResume struct {
-	Checkpoint    toolCheckpoint  `json:"checkpoint"`
-	InputResponse json.RawMessage `json:"input_response"`
+	InputRequest  toolInputRequest `json:"input_request"`
+	InputResponse json.RawMessage  `json:"input_response"`
 }
 
 // signalEnvelope carries exactly one result or input; the member present
@@ -183,8 +184,8 @@ func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
 }
 
 type toolDispatchResult struct {
-	Completion *toolCallResult `json:"completion,omitzero"`
-	Checkpoint *toolCheckpoint `json:"checkpoint,omitzero"`
+	Completion   *toolCallResult   `json:"completion,omitzero"`
+	InputRequest *toolInputRequest `json:"input_request,omitzero"`
 }
 
 type toolCheckpoint struct {
@@ -274,13 +275,10 @@ func (e effectEnvelope) validateToolCall() error {
 	if resume == nil {
 		return nil
 	}
-	if err := resume.Checkpoint.validate(); err != nil {
-		return err
+	if !resume.InputRequest.valid() {
+		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
 	}
-	if resume.Checkpoint.PauseCount == math.MaxUint64 {
-		return fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidProtocol)
-	}
-	_, err := resume.Checkpoint.InputRequest.validateResponse(resume.InputResponse)
+	_, err := resume.InputRequest.validateResponse(resume.InputResponse)
 	return err
 }
 
@@ -340,11 +338,14 @@ func (t toolDispatchResult) settlement() (agent.Settlement, error) {
 }
 
 func (t toolDispatchResult) validate() error {
-	if (t.Completion == nil) == (t.Checkpoint == nil) {
-		return fmt.Errorf("%w: Tool dispatch requires one result or checkpoint", ErrInvalidProtocol)
+	if (t.Completion == nil) == (t.InputRequest == nil) {
+		return fmt.Errorf("%w: Tool dispatch requires one result or input request", ErrInvalidProtocol)
 	}
-	if t.Checkpoint != nil {
-		return t.Checkpoint.validate()
+	if t.InputRequest != nil {
+		if !t.InputRequest.valid() {
+			return fmt.Errorf("%w: tool input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
+		}
+		return nil
 	}
 	return t.Completion.validate()
 }

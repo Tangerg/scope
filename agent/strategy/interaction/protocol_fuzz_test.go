@@ -30,7 +30,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		{
 			ToolCall: &toolDispatchRequest{
 				Invocation: toolCall{ModelCallSequence: 1, ToolCallIndex: 2, Call: call},
-				Resume:     &toolResume{Checkpoint: *fuzzToolCheckpoint(f), InputResponse: json.RawMessage(`"Ada"`)},
+				Resume:     &toolResume{InputRequest: fuzzToolCheckpoint(f).InputRequest, InputResponse: json.RawMessage(`"Ada"`)},
 			},
 		},
 	} {
@@ -82,7 +82,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		{ModelResult: &modelCallResult{HostError: "request preparation failed"}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: result.Output, AdvertisedToolNames: []string{"ask"}}}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
-		{ToolResult: &toolDispatchResult{Checkpoint: checkpoint}},
+		{ToolResult: &toolDispatchResult{InputRequest: &checkpoint.InputRequest}},
 		{InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {
