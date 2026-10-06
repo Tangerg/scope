@@ -20,7 +20,7 @@ const (
 type protocolResponseMapper struct {
 	partOffset   int
 	provider     string
-	finish       corechat.FinishReason
+	stopReason   genai.FinishReason
 	hasToolCalls bool
 }
 
@@ -43,38 +43,43 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.G
 		return nil, err
 	}
 	mapped := &corechat.ResponseDelta{Metadata: metadata}
+	var stopReason genai.FinishReason
 	if len(response.Candidates) == 1 {
 		candidate, err := p.candidate(response.Candidates[0])
 		if err != nil {
 			return nil, err
 		}
+		if p.finished() && candidate.Content != nil && len(candidate.Content.Parts) > 0 {
+			return nil, fmt.Errorf("google: stream: %w: content after finish reason", corechat.ErrInvalidResponse)
+		}
+		if isProtocolStopReason(candidate.FinishReason) {
+			if p.finished() {
+				return nil, fmt.Errorf("google: stream: %w: more than one finish reason", corechat.ErrInvalidResponse)
+			}
+			stopReason = candidate.FinishReason
+		}
 		if err := p.mapCandidateDelta(candidate, mapped); err != nil {
 			return nil, fmt.Errorf("google: stream output: %w", err)
-		}
-		mapped.FinishReason = normalizeProtocolFinishReason(candidate.FinishReason, p.hasToolCalls)
-		if mapped.FinishReason != "" {
-			if p.finish != "" {
-				return nil, errors.New("google: stream emitted more than one finish reason")
-			}
-			p.finish = mapped.FinishReason
-			mapped.FinishReason = ""
 		}
 	}
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("google: mapped response delta: %w", err)
 	}
+	if stopReason != "" {
+		p.stopReason = stopReason
+	}
 	return mapped, nil
 }
 
 func (p *protocolResponseMapper) finished() bool {
-	return p.finish != ""
+	return p.stopReason != ""
 }
 
 func (p *protocolResponseMapper) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
-	if delta == nil || p.finish == "" {
+	if delta == nil || !p.finished() {
 		return nil, fmt.Errorf("google: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
-	delta.FinishReason = p.finish
+	delta.FinishReason = normalizeProtocolFinishReason(p.stopReason, p.hasToolCalls)
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("google: terminal stream response: %w", err)
 	}
@@ -147,7 +152,7 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
 	response.OutputMetadata = &corechat.OutputMetadata{}
-	if candidate.FinishReason != "" {
+	if isProtocolStopReason(candidate.FinishReason) {
 		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, "native_finish_reason"), candidate.FinishReason); err != nil {
 			return err
 		}
@@ -279,9 +284,10 @@ func protocolJSON(value any) (string, error) {
 }
 
 func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool) corechat.FinishReason {
-	switch reason {
-	case "", genai.FinishReasonUnspecified:
+	if !isProtocolStopReason(reason) {
 		return ""
+	}
+	switch reason {
 	case genai.FinishReasonStop:
 		if hasToolCalls {
 			return corechat.FinishReasonToolCalls
@@ -308,6 +314,10 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 	default:
 		return corechat.FinishReasonOther
 	}
+}
+
+func isProtocolStopReason(reason genai.FinishReason) bool {
+	return reason != "" && reason != genai.FinishReasonUnspecified
 }
 
 func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) *corechat.Usage {

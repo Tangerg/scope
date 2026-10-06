@@ -69,7 +69,9 @@ func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Respo
 }
 
 // Stream performs one streaming GenerateContent request. Candidate and logical
-// part offsets are retained only for the lifetime of this stream.
+// part offsets are retained only for the lifetime of this stream. A native finish
+// reason ends generation; subsequent content returns [corechat.ErrInvalidResponse].
+// Metadata may follow, and completion is published only after the stream ends.
 func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		modelName, contents, config, err := c.buildProtocolRequest(req)
