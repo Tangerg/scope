@@ -294,7 +294,7 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolveErr := process.ResolveUnknownEffect(t.Context(), settlement); resolveErr != nil {
+		if resolveErr := process.ResolveUnknownEffect(t.Context(), effect, settlement); resolveErr != nil {
 			t.Fatal(resolveErr)
 		}
 		recorded, err := recorder.Take(t.Context(), process, nil)
