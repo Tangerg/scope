@@ -272,7 +272,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: definition, Input: input("initial"), RestoredCases: cases})
 }
 
-func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
+func TestCompletedStateLeavesOutputToTheEngine(t *testing.T) {
 	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
 		if turn.Number == 1 {
 			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("work", "test.echo", "value")}}, nil
@@ -284,34 +284,20 @@ func TestCompletedSnapshotRejectsForgedOutputAndWorkerSchema(t *testing.T) {
 	tree := require(engine.InspectTree(t.Context(), process.ID()))
 	root, _ := tree.Process(process.ID())
 	state := root.Snapshot.CommittedExecutionState()
+	if string(state.Payload()) != `{"completed":true}` {
+		t.Fatalf("completed state = %s, want only the completion marker", state.Payload())
+	}
 	if _, err := definition.Restore(t.Context(), state); err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(map[string]any){
-		func(wire map[string]any) { wire["output"] = "forged final answer" },
-		func(wire map[string]any) {
-			tasks := wire["tasks"].([]any)
-			outcome := tasks[0].(map[string]any)["outcome"].(map[string]any)
-			outcome["result"].(map[string]any)["output"] = 42
-		},
-		func(wire map[string]any) {
-			task := wire["tasks"].([]any)[0].(map[string]any)
-			task["outcome"] = wire["turn"].(map[string]any)["outcome"]
-		},
-		func(wire map[string]any) {
-			task := wire["tasks"].([]any)[0].(map[string]any)
-			outcome := task["outcome"].(map[string]any)
-			task["start"] = map[string]any{"operation": "start_child", "process_id": outcome["result"].(map[string]any)["process_id"]}
-		},
+	for _, payload := range []string{
+		`{"completed":true,"output":"forged final answer"}`,
+		`{"completed":true,"initial_state":"seed"}`,
+		`{"completed":true,"turn":{"number":1,"state":"seed"}}`,
 	} {
-		var wire map[string]any
-		if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
-			t.Fatal(err)
-		}
-		mutate(wire)
-		altered := require(agent.ParseExecutionState(stateKind, require(jsonv2.Marshal(wire))))
+		altered := require(agent.ParseExecutionState(stateKind, json.RawMessage(payload)))
 		if _, err := definition.Restore(t.Context(), altered); !errors.Is(err, ErrInvalidExecutionState) {
-			t.Fatal("forged completed state accepted", err)
+			t.Fatalf("forged completed state %s accepted: %v", payload, err)
 		}
 	}
 }

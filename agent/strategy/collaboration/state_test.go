@@ -53,13 +53,13 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"tasks", "turn"}) {
+	// The Engine owns the final Decision's Output, so only the marker remains.
+	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, []string{"completed"}) {
 		t.Fatalf("completed state fields = %v", got)
 	}
 	recovered := require(definition.Restore(t.Context(), state)).(*execution)
-	decision := require(recovered.state.decision())
-	if recovered.state.number() != 2 || !decision.completes() || require(recovered.state.workingState(decision).Decode[string]()) != "finished" {
-		t.Fatal("recovery did not derive progress from the recorded turn and decision")
+	if _, err := recovered.Step(t.Context(), nil); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatalf("completed collaboration stepped again: %v", err)
 	}
 }
 

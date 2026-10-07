@@ -83,6 +83,9 @@ type executionState struct {
 	Controls     []ControlReceipt `json:"controls,omitempty"`
 	Turn         *turnExecution   `json:"turn,omitzero"`
 	WaitID       *agent.WaitID    `json:"wait_id,omitzero"`
+	// Completed marks a finished collaboration. The Engine owns the Output
+	// its final Decision produced, so the state keeps nothing else.
+	Completed bool `json:"completed,omitzero"`
 }
 
 // executionStateRecord carries the state's own fields without its encoding
@@ -183,10 +186,10 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 // phase derives the next protocol step.
 func (e executionState) phase(decision Decision) phase {
 	switch {
+	case e.Completed:
+		return phaseCompleted
 	case e.Turn == nil:
 		return phaseReady
-	case decision.completes():
-		return phaseCompleted
 	case e.Turn.Start == nil && e.Turn.Outcome == nil:
 		return phaseStartingTurn
 	case e.unapplied() != 0:
@@ -359,9 +362,18 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if e.Completed {
+		if e.InitialState.Valid() || len(e.Tasks) != 0 || len(e.Controls) != 0 || e.Turn != nil || e.WaitID != nil {
+			return fmt.Errorf("%w: completed collaboration repeats its Output", ErrInvalidExecutionState)
+		}
+		return nil
+	}
 	decision, decisionErr := e.decision()
 	if decisionErr != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, decisionErr)
+	}
+	if decision.completes() {
+		return fmt.Errorf("%w: a completing decision ends the collaboration", ErrInvalidExecutionState)
 	}
 	if e.Turn != nil && e.InitialState.Valid() {
 		return fmt.Errorf("%w: initial state retained after the first turn", ErrInvalidExecutionState)

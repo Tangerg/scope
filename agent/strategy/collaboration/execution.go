@@ -308,6 +308,7 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
 	}
 	if decision.completes() {
+		e.state = executionState{Completed: true}
 		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {
