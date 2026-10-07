@@ -62,7 +62,11 @@ func NewDeployment(config DeploymentConfig) (Deployment, error) {
 	if err != nil {
 		return Deployment{}, err
 	}
-	reference, err := newDeploymentRef(descriptor, config.ImplementationDigest, config.ConfigurationDigest, bindings)
+	reference, err := newDeploymentRef(deploymentIdentityWire{
+		Name: descriptor.Name(), ContractDigest: descriptor.Digest(),
+		ImplementationDigest: config.ImplementationDigest, ConfigurationDigest: config.ConfigurationDigest,
+		BindingsDigest: bindings,
+	})
 	if err != nil {
 		return Deployment{}, fmt.Errorf("%w: %w", ErrInvalidDeployment, err)
 	}

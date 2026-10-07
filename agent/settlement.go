@@ -76,12 +76,6 @@ func (s Settlement) Valid() bool {
 	return s.status.Valid() && len(s.payload) > 0
 }
 
-// definite reports a settlement the Engine delivers to the Execution: only an
-// unknown outcome stays with the Host until it is resolved.
-func (s Settlement) definite() bool {
-	return s.Valid() && s.status != SettlementStatusUnknown
-}
-
 // ParseSettlement reads a Dispatcher settlement delivered to an Execution.
 // Its Status owns whether the Effect succeeded; its Payload carries the
 // Dispatcher's result or diagnostic.

@@ -478,11 +478,8 @@ func (e executionState) validateApplying(mode Mode) error {
 }
 
 func (e executionState) validateWaitingTurn(d *Definition, mode Mode) error {
-	if mode == ModeWait && e.hasUnseenOutcome() {
-		return fmt.Errorf("%w: waiting decision has unseen task outcomes", ErrInvalidExecutionState)
-	}
-	if e.Turn.Outcome != nil && mode != ModeWait {
-		return fmt.Errorf("%w: waiting mode contradicts turn outcome", ErrInvalidExecutionState)
+	if e.Turn.Outcome != nil && !e.awaitsTasks(mode) {
+		return fmt.Errorf("%w: a decided turn waits only for running tasks with no unseen outcome", ErrInvalidExecutionState)
 	}
 	if _, err := e.waitSpec(d); err != nil {
 		return fmt.Errorf("%w: child wait: %w", ErrInvalidExecutionState, err)
@@ -666,6 +663,13 @@ func (e executionState) validateActions(ctx context.Context, definition *Definit
 		}
 	}
 	return nil
+}
+
+// awaitsTasks reports whether a decided turn waits for its running tasks
+// rather than starting the next turn. Step branches on it and Restore
+// requires it of a waiting decided turn.
+func (e executionState) awaitsTasks(mode Mode) bool {
+	return mode == ModeWait && !e.hasUnseenOutcome() && len(e.remaining()) != 0
 }
 
 func (e executionState) hasUnseenOutcome() bool {

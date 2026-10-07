@@ -41,11 +41,18 @@ func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 	return Signal{id: id, waitID: waitID, payload: normalized}, nil
 }
 
+// deliversSettlement reports whether status may accompany a delivery: only an
+// Engine-minted, unaddressed delivery of a definite Dispatcher settlement
+// carries one, because an unknown outcome stays with the Host.
+func deliversSettlement(id SignalID, waitID WaitID, status SettlementStatus) bool {
+	return id.engineOwned() && !waitID.Valid() && status.Valid() && status != SettlementStatusUnknown
+}
+
 // NewSettlementSignal builds the delivery of a definite Dispatcher settlement
 // for Definition tests and conformance cases. At runtime only the Engine mints
 // it, under the settlement identity of the Effect it settles.
 func NewSettlementSignal(id SignalID, settlement Settlement) (Signal, error) {
-	if !id.engineOwned() || !settlement.definite() {
+	if !settlement.Valid() || !deliversSettlement(id, WaitID{}, settlement.status) {
 		return Signal{}, fmt.Errorf("%w: settlement delivery requires an Engine identity and a definite settlement", ErrInvalidSignal)
 	}
 	signal, err := NewSignal(id, WaitID{}, settlement.payload)
@@ -115,16 +122,10 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if wire.Status != SettlementStatusInvalid {
-		if waitID.Valid() {
-			return fmt.Errorf("%w: a settlement cannot address a wait", ErrInvalidSignal)
+		if !deliversSettlement(wire.ID, waitID, wire.Status) {
+			return fmt.Errorf("%w: only an Engine delivery of a definite settlement has a status", ErrInvalidSignal)
 		}
-		settlement, settlementErr := NewSettlement(wire.Status, wire.Payload)
-		if settlementErr != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidSignal, settlementErr)
-		}
-		if value, err = NewSettlementSignal(wire.ID, settlement); err != nil {
-			return err
-		}
+		value.status = wire.Status
 	}
 	*s = value
 	return nil

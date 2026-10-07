@@ -23,6 +23,12 @@ type fanoutMember struct {
 	binding childBinding
 }
 
+// fanoutWindowLen is how many of count members the window at start covers:
+// windows tile the members in windowSize steps, and only the last is short.
+func fanoutWindowLen(start, count, windowSize uint32) uint32 {
+	return min(windowSize, count-start)
+}
+
 type fanoutStage struct {
 	source       fanoutSource
 	windowSize   uint32

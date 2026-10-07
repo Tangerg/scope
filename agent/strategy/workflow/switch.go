@@ -96,12 +96,12 @@ func newSwitchCases(stageID string, inputSchema agent.Schema, declared []SwitchC
 		}
 		seen[candidate.ID] = struct{}{}
 		descriptor := candidate.Deployment.Descriptor()
-		if !schemasEqual(inputSchema, descriptor.InputSchema()) {
+		if !inputSchema.Equal(descriptor.InputSchema()) {
 			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}
 		if index == 0 {
 			outputSchema = descriptor.OutputSchema()
-		} else if !schemasEqual(outputSchema, descriptor.OutputSchema()) {
+		} else if !outputSchema.Equal(descriptor.OutputSchema()) {
 			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q output schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}
 		cases = append(cases, switchCase{id: candidate.ID, binding: binding})

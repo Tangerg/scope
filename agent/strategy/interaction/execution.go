@@ -137,8 +137,7 @@ func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (ag
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidModelResponse, err)
 	}
-	if len(calls) > 0 && response.Output.FinishReason != chat.FinishReasonToolCalls &&
-		response.Output.FinishReason != chat.FinishReasonLength {
+	if len(calls) > 0 && !opensToolRound(response.Output.FinishReason) {
 		return stepfail.Transition(
 			consumedSignals,
 			agent.FailureKindExternal,
@@ -259,7 +258,7 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		return agent.Checkpoint(consumedSignals)
 	}
 	call := calls[e.state.ToolRound.nextCallIndex()]
-	if e.state.ToolRound.Response.Output.FinishReason == chat.FinishReasonLength {
+	if e.state.ToolRound.truncated() {
 		return e.rejectCall(consumedSignals, call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
 	}
 	if delegate, delegated := e.definition.delegate(call.Name); delegated {
@@ -618,14 +617,9 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 }
 
 func (e *execution) startToolChildren(ctx context.Context, consumed uint32, calls []chat.ToolCall) (agent.Transition, error) {
-	start := e.state.ToolRound.nextCallIndex()
-	count := 1
-	if e.definition.maxConcurrentToolCalls > 1 {
-		var err error
-		count, err = e.definition.tools.concurrentBatchEnd(ctx, calls[start:])
-		if err != nil {
-			return agent.Transition{}, err
-		}
+	count, err := e.definition.toolWindow(ctx, calls[e.state.ToolRound.nextCallIndex():])
+	if err != nil {
+		return agent.Transition{}, err
 	}
 	e.state.ToolRound.beginChildren(&childCallBatch{Kind: childCallsTool, Invocations: make([]*childInvocationState, count)})
 	return e.scheduleToolChildren(ctx, consumed)

@@ -50,13 +50,13 @@ type modelCall struct {
 
 type toolCall struct {
 	ModelCallSequence uint64        `json:"model_call_sequence"`
-	ToolCallIndex     uint32        `json:"tool_call_index"`
+	ToolCallIndex     uint32        `json:"tool_call_index" jsonwire:"required"`
 	Call              chat.ToolCall `json:"call"`
 }
 
 func (t *toolCall) UnmarshalJSON(data []byte) error {
 	type wire toolCall
-	decoded, err := jsonwire.Decode[wire](data, "tool_call_index")
+	decoded, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}

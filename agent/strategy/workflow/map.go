@@ -92,8 +92,8 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return Stage{}, err
 	}
 	descriptor := config.Deployment.Descriptor()
-	if !schemasEqual(schemas.itemInput, descriptor.InputSchema()) ||
-		!schemasEqual(schemas.itemOutput, descriptor.OutputSchema()) {
+	if !schemas.itemInput.Equal(descriptor.InputSchema()) ||
+		!schemas.itemOutput.Equal(descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)
 	}
 	codec := mapValueCodec{id: config.ID, maxItems: config.MaxItems, schemas: schemas}

@@ -131,7 +131,7 @@ func (w *WorldState) UnmarshalJSON(data []byte) error {
 	if w == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidWorldState)
 	}
-	wire, err := jsonwire.Decode[worldStateWire](data, "conditions")
+	wire, err := jsonwire.Decode[worldStateWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidWorldState, err)
 	}
@@ -144,7 +144,7 @@ func (w *WorldState) UnmarshalJSON(data []byte) error {
 }
 
 type worldStateWire struct {
-	Conditions []Condition `json:"conditions"`
+	Conditions []Condition `json:"conditions" jsonwire:"required"`
 }
 
 func (WorldState) JSONSchemaAlias() any { return worldStateWire{} }

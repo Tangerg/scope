@@ -75,24 +75,16 @@ type processSnapshotRecord processSnapshotWire
 // children. Only a tree, which owns that context, decodes it.
 type processSnapshotDocument struct {
 	// ProcessID persists the identity the in-memory relation owns.
-	ProcessID ProcessID `json:"process_id"`
+	ProcessID ProcessID `json:"process_id" jsonwire:"required"`
 	processSnapshotRecord
 	ParentID *ProcessID        `json:"parent_id,omitzero"`
 	ChildKey *ChildKey         `json:"child_key,omitzero"`
-	Mailbox  mailboxDocument   `json:"mailbox"`
+	Mailbox  mailboxDocument   `json:"mailbox" jsonwire:"required"`
 	Prepared *preparedStepWire `json:"prepared,omitzero"`
 }
 
-// Every always-emitted member is required: a decoded zero would silently
-// reset usage, authority, mailbox history, or pending control intent.
-var processSnapshotRequiredMembers = []string{
-	"process_id", "deployment_ref", "started_at", "committed_steps",
-	"budget", "capabilities", "dropped_deltas",
-	"committed_execution_state", "mailbox", "pending_control",
-}
-
 func decodeProcessSnapshotDocument(data json.RawMessage) (processSnapshotDocument, error) {
-	document, err := jsonwire.Decode[processSnapshotDocument](data, processSnapshotRequiredMembers...)
+	document, err := jsonwire.Decode[processSnapshotDocument](data)
 	if err != nil {
 		return processSnapshotDocument{}, fmt.Errorf("%w: decode: %w", ErrInvalidSnapshot, err)
 	}
@@ -334,22 +326,24 @@ type cancellationIntentWire struct {
 }
 
 // processSnapshotWire persists lifecycle facts, never the Status they project.
+// Every always-emitted member is required: a decoded zero would silently
+// reset usage, authority, mailbox history, or pending control intent.
 type processSnapshotWire struct {
 	// Relation is complete in memory and owns the Process identity; the
 	// document persists only that identity and its parent link.
 	Relation                ProcessRelation    `json:"-"`
-	DeploymentRef           DeploymentRef      `json:"deployment_ref"`
-	StartedAt               time.Time          `json:"started_at"`
-	CommittedSteps          uint64             `json:"committed_steps"`
-	Budget                  Budget             `json:"budget"`
-	Capabilities            CapabilitySet      `json:"capabilities"`
-	DroppedDeltas           uint64             `json:"dropped_deltas"`
-	CommittedExecutionState ExecutionState     `json:"committed_execution_state"`
+	DeploymentRef           DeploymentRef      `json:"deployment_ref" jsonwire:"required"`
+	StartedAt               time.Time          `json:"started_at" jsonwire:"required"`
+	CommittedSteps          uint64             `json:"committed_steps" jsonwire:"required"`
+	Budget                  Budget             `json:"budget" jsonwire:"required"`
+	Capabilities            CapabilitySet      `json:"capabilities" jsonwire:"required"`
+	DroppedDeltas           uint64             `json:"dropped_deltas" jsonwire:"required"`
+	CommittedExecutionState ExecutionState     `json:"committed_execution_state" jsonwire:"required"`
 	Mailbox                 mailboxWire        `json:"mailbox"`
 	Prepared                *preparedStep      `json:"prepared,omitzero"`
 	CurrentWaitID           *WaitID            `json:"current_wait_id,omitzero"`
 	PauseReason             string             `json:"pause_reason,omitempty"`
-	PendingControl          pendingControlWire `json:"pending_control"`
+	PendingControl          pendingControlWire `json:"pending_control" jsonwire:"required"`
 	Finish                  *processFinish     `json:"finish,omitzero"`
 }
 

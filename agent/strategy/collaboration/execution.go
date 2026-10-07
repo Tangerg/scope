@@ -273,7 +273,7 @@ func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if decision.Mode == ModeWait && !e.state.hasUnseenOutcome() && len(e.state.remaining()) != 0 {
+	if e.state.awaitsTasks(decision.Mode) {
 		return e.openWait(consumed)
 	}
 	return e.startTurn(consumed)

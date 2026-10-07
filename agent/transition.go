@@ -213,7 +213,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidTransition)
 	}
-	wire, err := jsonwire.Decode[transitionWire](data, "consumed_signals")
+	wire, err := jsonwire.Decode[transitionWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTransition, err)
 	}
@@ -268,7 +268,7 @@ func transitionFromWire(wire transitionWire) (Transition, error) {
 
 // transitionWire names its variant by the one member it carries.
 type transitionWire struct {
-	ConsumedSignals uint32          `json:"consumed_signals"`
+	ConsumedSignals uint32          `json:"consumed_signals" jsonwire:"required"`
 	Continue        *[]Effect       `json:"continue,omitzero"`
 	Checkpoint      *struct{}       `json:"checkpoint,omitzero"`
 	Wait            *WaitID         `json:"wait,omitzero"`

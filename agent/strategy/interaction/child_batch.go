@@ -214,7 +214,9 @@ func (c childCallBatch) childKey(modelCallSequence uint64, call chat.ToolCall) (
 	return ToolChildKey(modelCallSequence, call)
 }
 
-func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
+// validateBindings checks the batch against active, its own calls, and sizes a
+// Tool batch against remaining, every call from the round cursor on.
+func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls, remaining []chat.ToolCall) error {
 	for _, call := range calls {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -230,17 +232,16 @@ func (c childCallBatch) validateBindings(ctx context.Context, definition *Defini
 	if c.Kind == childCallsDelegate {
 		return nil
 	}
-	return c.validateToolWindow(ctx, definition, calls)
+	return c.validateToolWindow(ctx, definition, remaining)
 }
 
-func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Definition, calls []chat.ToolCall) error {
-	end, err := definition.tools.concurrentBatchEnd(ctx, calls)
+func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Definition, remaining []chat.ToolCall) error {
+	window, err := definition.toolWindow(ctx, remaining)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if !definition.toolDeployment.Valid() || end != len(calls) ||
-		definition.maxConcurrentToolCalls == 1 && len(calls) != 1 {
-		return fmt.Errorf("%w: Tool batch crosses an exclusive boundary", ErrInvalidExecutionState)
+	if !definition.toolDeployment.Valid() || window != len(c.Invocations) {
+		return fmt.Errorf("%w: Tool batch is not the window its calls admit", ErrInvalidExecutionState)
 	}
 	active := 0
 	for _, invocation := range c.Invocations {

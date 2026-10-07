@@ -94,7 +94,7 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidPlan)
 	}
-	wire, err := jsonwire.Decode[planWire](data, "actions")
+	wire, err := jsonwire.Decode[planWire](data)
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidPlan, err)
 	}
@@ -107,5 +107,5 @@ func (p *Plan) UnmarshalJSON(data []byte) error {
 }
 
 type planWire struct {
-	Actions []PlannedAction `json:"actions"`
+	Actions []PlannedAction `json:"actions" jsonwire:"required"`
 }

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -75,7 +77,7 @@ func ParseWaitOpened(signal Signal) (WaitID, error) {
 
 // waitOpenedPayload is the normalized payload of every external wait opening.
 func waitOpenedPayload() json.RawMessage {
-	return json.RawMessage(`{"operation":"` + string(frameworkOperationWait) + `"}`)
+	return lo.Must(jsonv2.Marshal(frameworkOperationHeader{Operation: frameworkOperationWait}))
 }
 
 // Typed constructors validate their requests before encoding, so only

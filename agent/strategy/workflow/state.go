@@ -25,7 +25,7 @@ const (
 )
 
 type executionState struct {
-	StageIndex uint32 `json:"stage_index"`
+	StageIndex uint32 `json:"stage_index" jsonwire:"required"`
 	// CurrentValue feeds the current Stage; a completed workflow's value is
 	// the Engine-owned Output and is not repeated here.
 	CurrentValue           json.RawMessage    `json:"current_value,omitzero"`
@@ -39,7 +39,7 @@ type executionState struct {
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
 	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "stage_index")
+	decoded, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func (e executionState) validateFanoutBoundary(ctx context.Context, definition *
 		return Stage{}, fmt.Errorf("%w: completed fan-out outputs leave no active window", ErrInvalidExecutionState)
 	}
 	start, windowSize := e.fanoutWindowStart(), stage.fanout.windowSize
-	if start%windowSize != 0 || uint64(len(e.ActiveFanoutWindow)) != uint64(min(windowSize, count-start)) {
+	if start%windowSize != 0 || uint64(len(e.ActiveFanoutWindow)) != uint64(fanoutWindowLen(start, count, windowSize)) {
 		return Stage{}, fmt.Errorf("%w: active fan-out window does not match source boundaries", ErrInvalidExecutionState)
 	}
 	return stage, nil

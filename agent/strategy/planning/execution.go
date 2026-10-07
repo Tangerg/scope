@@ -64,7 +64,7 @@ func (e *execution) requestSense(consumedSignals uint32) (agent.Transition, erro
 }
 
 func (e *execution) acceptSense(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	sensed, failure, err := decodeSettlement[senseResult](signals, "world_state")
+	sensed, failure, err := decodeSettlement[senseResult](signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}

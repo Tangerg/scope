@@ -56,8 +56,8 @@ func newForkSource(stageID string, inputSchema, branchSchema agent.Schema, decla
 			return forkSource{}, fmt.Errorf("%w: Fork %q has duplicate branch %q", ErrInvalidStage, stageID, branch.ID)
 		}
 		descriptor := branch.Deployment.Descriptor()
-		if !schemasEqual(inputSchema, descriptor.InputSchema()) ||
-			!schemasEqual(branchSchema, descriptor.OutputSchema()) {
+		if !inputSchema.Equal(descriptor.InputSchema()) ||
+			!branchSchema.Equal(descriptor.OutputSchema()) {
 			return forkSource{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, stageID, branch.ID)
 		}
 		seen[branch.ID] = struct{}{}
@@ -83,7 +83,7 @@ func (f forkSource) windowInputs(ctx context.Context, raw json.RawMessage, start
 		return nil, 0, err
 	}
 	var inputs []agent.Payload
-	if size := min(windowSize, count-start); size > 0 {
+	if size := fanoutWindowLen(start, count, windowSize); size > 0 {
 		inputs = make([]agent.Payload, size)
 	}
 	for index := range inputs {
@@ -175,8 +175,4 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 			outputSchema: branchSchema, complete: reduce,
 		},
 	}, nil
-}
-
-func schemasEqual(left, right agent.Schema) bool {
-	return left.Valid() && right.Valid() && string(left.JSON()) == string(right.JSON())
 }

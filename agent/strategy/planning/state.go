@@ -34,7 +34,7 @@ func (p phase) valid() bool {
 type executionState struct {
 	Phase             phase           `json:"phase"`
 	Input             json.RawMessage `json:"input"`
-	WorldState        WorldState      `json:"world_state"`
+	WorldState        WorldState      `json:"world_state" jsonwire:"required"`
 	Attempts          []Attempt       `json:"attempts,omitempty"`
 	CurrentActionName string          `json:"current_action_name,omitempty"`
 	// Child is the handshake progress of a child-bound current Action; the
@@ -54,7 +54,7 @@ func (e executionState) phase(definition *Definition) phase {
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
 	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "world_state")
+	decoded, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}

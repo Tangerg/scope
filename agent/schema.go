@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +44,11 @@ func SchemaFor[T any]() (Schema, error) {
 func (s Schema) JSON() json.RawMessage { return s.contract.JSON() }
 
 func (s Schema) Valid() bool { return s.contract.Valid() }
+
+// Equal reports whether two valid schemas state the same canonical contract.
+func (s Schema) Equal(other Schema) bool {
+	return s.Valid() && other.Valid() && bytes.Equal(s.JSON(), other.JSON())
+}
 
 // Validate checks one JSON value against this schema, independently of its role.
 // Invalid schemas return ErrInvalidSchema; rejected values return ErrSchemaValidation.

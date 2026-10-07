@@ -44,6 +44,17 @@ func (t *toolCallRound) knownResult(index int) *toolCallResult {
 	return nil
 }
 
+// opensToolRound reports whether a response that requested tool calls opens a
+// round for them: a tool_calls finish executes them, while a length finish
+// truncated them, so the round only rejects them.
+func opensToolRound(finish chat.FinishReason) bool {
+	return finish == chat.FinishReasonToolCalls || finish == chat.FinishReasonLength
+}
+
+func (t *toolCallRound) truncated() bool {
+	return t.Response.Output.FinishReason == chat.FinishReasonLength
+}
+
 func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error) {
 	if t == nil {
 		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
@@ -52,7 +63,7 @@ func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error
 	if err != nil || len(calls) == 0 || uint64(len(calls)) > math.MaxUint32 {
 		return nil, fmt.Errorf("%w: tool round has no bounded unambiguous tool calls", ErrInvalidExecutionState)
 	}
-	if t.Response.Output.FinishReason != chat.FinishReasonToolCalls {
+	if !opensToolRound(t.Response.Output.FinishReason) || t.truncated() {
 		return nil, fmt.Errorf("%w: tool round response must finish with tool_calls", ErrInvalidExecutionState)
 	}
 	if t.ChildBatch == nil || len(t.ChildBatch.Invocations) == 0 ||
@@ -104,7 +115,7 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 		if len(result.AdvertisedToolNames) != 0 {
 			return fmt.Errorf("%w: result %d retains advertisements the Interaction already applied", ErrInvalidExecutionState, index)
 		}
-		if t.Response.Output.FinishReason == chat.FinishReasonLength && result.Disposition != ResultRejected {
+		if t.truncated() && result.Disposition != ResultRejected {
 			return fmt.Errorf("%w: truncated calls can only have rejected results", ErrInvalidExecutionState)
 		}
 	}
@@ -121,8 +132,7 @@ func (t *toolCallRound) validateComplete(ctx context.Context) error {
 	if t == nil || t.ChildBatch != nil || t.Response == nil || t.Response.Output == nil {
 		return ErrInvalidExecutionState
 	}
-	finish := t.Response.Output.FinishReason
-	if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
+	if !opensToolRound(t.Response.Output.FinishReason) {
 		return ErrInvalidExecutionState
 	}
 	calls, err := validatedToolCalls(t.Response)

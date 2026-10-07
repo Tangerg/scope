@@ -59,7 +59,7 @@ func TestOversizedSignalBatchLeavesDurableTreeUsable(t *testing.T) {
 
 func TestTreeAdmissionSizeMatchesPersistedEncoding(t *testing.T) {
 	runtime := newWaitingSnapshotTree(t, 3)
-	header, err := jsonv2.Marshal(runtime.treeSnapshotBase())
+	header, err := runtime.treeSnapshotBase().encode()
 	if err != nil {
 		t.Fatal(err)
 	}

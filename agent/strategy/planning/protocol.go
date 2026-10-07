@@ -39,7 +39,7 @@ type actionCall struct {
 // sensing settlement carries the observed world state and a successful Action
 // settlement carries nothing; a failed settlement carries settlementFailure.
 type senseResult struct {
-	WorldState WorldState `json:"world_state"`
+	WorldState WorldState `json:"world_state" jsonwire:"required"`
 }
 
 type actionCompleted struct{}
@@ -125,7 +125,7 @@ func failedSettlement(failure settlementFailure) (agent.Settlement, error) {
 
 // decodeSettlement reads the single Dispatcher settlement of the awaited
 // operation. A failed settlement returns its explanation instead of a result.
-func decodeSettlement[T any](signals []agent.Signal, members ...string) (T, *settlementFailure, error) {
+func decodeSettlement[T any](signals []agent.Signal) (T, *settlementFailure, error) {
 	var result T
 	signal, err := oneSignal(signals)
 	if err != nil {
@@ -142,7 +142,7 @@ func decodeSettlement[T any](signals []agent.Signal, members ...string) (T, *set
 		}
 		return result, &failure, nil
 	}
-	if result, err = jsonwire.Decode[T](settlement.Payload(), members...); err != nil {
+	if result, err = jsonwire.Decode[T](settlement.Payload()); err != nil {
 		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
 	}
 	return result, nil, nil

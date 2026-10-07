@@ -95,18 +95,27 @@ type findingBundle struct {
 	Findings   []finding `json:"findings"`
 }
 
+type ballotChoice string
+
+const (
+	ballotApprove ballotChoice = "approve"
+	ballotReject  ballotChoice = "reject"
+)
+
+func (b ballotChoice) valid() bool { return b == ballotApprove || b == ballotReject }
+
 type ballot struct {
-	Choice string `json:"choice"`
+	Choice ballotChoice `json:"choice"`
 }
 
 type patternReport struct {
-	Normalized    string   `json:"normalized"`
-	Summary       string   `json:"summary"`
-	Route         string   `json:"route"`
-	Sections      []string `json:"sections"`
-	Decision      string   `json:"decision"`
-	DecisionVotes int      `json:"decision_votes"`
-	TotalVotes    int      `json:"total_votes"`
+	Normalized    string       `json:"normalized"`
+	Summary       string       `json:"summary"`
+	Route         string       `json:"route"`
+	Sections      []string     `json:"sections"`
+	Decision      ballotChoice `json:"decision"`
+	DecisionVotes int          `json:"decision_votes"`
+	TotalVotes    int          `json:"total_votes"`
 }
 
 type executionEvidence struct {
@@ -235,19 +244,19 @@ func newPatternChildren() (patternChildren, error) {
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.approveFirst, err = ballotDeployment(approveFirstBallotID, "approve")
+	children.approveFirst, err = ballotDeployment(approveFirstBallotID, ballotApprove)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.rejectFirst, err = ballotDeployment(rejectFirstBallotID, "reject")
+	children.rejectFirst, err = ballotDeployment(rejectFirstBallotID, ballotReject)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.rejectSecond, err = ballotDeployment(rejectSecondBallotID, "reject")
+	children.rejectSecond, err = ballotDeployment(rejectSecondBallotID, ballotReject)
 	if err != nil {
 		return patternChildren{}, err
 	}
-	children.approveSecond, err = ballotDeployment(approveSecondBallotID, "approve")
+	children.approveSecond, err = ballotDeployment(approveSecondBallotID, ballotApprove)
 	if err != nil {
 		return patternChildren{}, err
 	}
@@ -409,16 +418,14 @@ func findingDeployment(section string) (agent.Deployment, error) {
 	)
 }
 
-func ballotDeployment(name, choice string) (agent.Deployment, error) {
-	if choice != "approve" && choice != "reject" {
+func ballotDeployment(name string, choice ballotChoice) (agent.Deployment, error) {
+	if !choice.valid() {
 		return agent.Deployment{}, errors.New("ballot choice must be approve or reject")
 	}
 	return transformDeployment(
 		"example.workflow_patterns.vote_"+name,
-		"Return one deterministic "+choice+" ballot.",
-		struct {
-			Choice string `json:"choice"`
-		}{Choice: choice},
+		"Return one deterministic "+string(choice)+" ballot.",
+		ballot{Choice: choice},
 		func(_ context.Context, bundle findingBundle) (ballot, error) {
 			for _, finding := range bundle.Findings {
 				if finding.Content == "" {
@@ -434,14 +441,14 @@ func reduceBallots(_ context.Context, bundle findingBundle, ballots []ballot) (p
 	if len(ballots) == 0 {
 		return patternReport{}, errors.New("parallel vote returned no ballots")
 	}
-	counts := make(map[string]int)
+	counts := make(map[ballotChoice]int)
 	for index, ballot := range ballots {
-		if ballot.Choice != "approve" && ballot.Choice != "reject" {
+		if !ballot.Choice.valid() {
 			return patternReport{}, fmt.Errorf("ballot %d has invalid choice", index)
 		}
 		counts[ballot.Choice]++
 	}
-	winner := ""
+	var winner ballotChoice
 	winnerVotes := 0
 	for _, ballot := range ballots {
 		if counts[ballot.Choice] > winnerVotes {

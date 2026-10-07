@@ -578,3 +578,27 @@ func mustActiveChildKeys(t testing.TB, execution *execution) []agent.ChildKey {
 	}
 	return keys
 }
+
+func TestRestoreRequiresTheToolWindowStepWouldStart(t *testing.T) {
+	execution := childBatchTestExecution(t, childCallsTool, phaseAwaitingChildStarts)
+	calls := []chat.ToolCall{
+		{ID: "call_first", Name: "delegate_fuzz", Arguments: `{"task":"first"}`},
+		{ID: "call_second", Name: "delegate_fuzz", Arguments: `{"task":"second"}`},
+	}
+	message := chat.NewAssistantMessage(chat.NewToolCallPart(calls[0]), chat.NewToolCallPart(calls[1]))
+	execution.state.ToolRound.Response = &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}
+	for size, valid := range map[int]bool{1: false, 2: true} {
+		batch := &childCallBatch{Kind: childCallsTool}
+		for range size {
+			batch.Invocations = append(batch.Invocations, &childInvocationState{})
+		}
+		execution.state.ToolRound.ChildBatch = batch
+		captured, err := execution.state.snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := execution.definition.Restore(t.Context(), captured); (err == nil) != valid {
+			t.Fatalf("window of %d of 2 concurrent calls restored with %v, want valid=%t", size, err, valid)
+		}
+	}
+}

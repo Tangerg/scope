@@ -30,7 +30,7 @@ const (
 // is self-sufficient for the next model call; ToolRound owns each pending round.
 type executionState struct {
 	WorkingContext      *chat.Request    `json:"working_context"`
-	ModelCallCount      uint64           `json:"model_call_count"`
+	ModelCallCount      uint64           `json:"model_call_count" jsonwire:"required"`
 	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
 	ToolRound           *toolCallRound   `json:"tool_round,omitzero"`
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
@@ -43,7 +43,7 @@ type executionState struct {
 
 func (e *executionState) UnmarshalJSON(data []byte) error {
 	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data, "model_call_count")
+	decoded, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
@@ -165,8 +165,7 @@ func (e executionState) validateRoundBoundary(ctx context.Context) error {
 	if err != nil || len(calls) == 0 {
 		return fmt.Errorf("%w: round requires calls", ErrInvalidExecutionState)
 	}
-	finish := e.ToolRound.Response.Output.FinishReason
-	if finish != chat.FinishReasonToolCalls && finish != chat.FinishReasonLength {
+	if !opensToolRound(e.ToolRound.Response.Output.FinishReason) {
 		return ErrInvalidExecutionState
 	}
 	return e.ToolRound.validateResults(ctx, calls)
@@ -186,7 +185,11 @@ func (e executionState) validateActiveCallState(ctx context.Context, definition 
 	if err != nil {
 		return err
 	}
-	return e.ToolRound.ChildBatch.validateBindings(ctx, definition, active)
+	calls, err := validatedToolCalls(e.ToolRound.Response)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	}
+	return e.ToolRound.ChildBatch.validateBindings(ctx, definition, active, calls[e.ToolRound.nextCallIndex():])
 }
 
 func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, error) {

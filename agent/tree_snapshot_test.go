@@ -127,7 +127,7 @@ func TestTreeEncodingPreservesCanonicalBytes(t *testing.T) {
 		root.committedExecutionState = controlValue(ParseExecutionState("encoding", []byte(`{"z":"界🙂\n\"\\\u0000","a":[1,{},[]]}`)))
 		tree := controlValue(owner.captureTree())
 		wire := controlValue(tree.wire())
-		canonical := controlValue(jsonv2.Marshal(wire, jsonv2.Deterministic(true)))
+		canonical := controlValue(jsonv2.Marshal(encoderDocument(wire), jsonv2.Deterministic(true)))
 		if !bytes.Equal(tree.JSON(), canonical) || tree.Digest() != ComputeDigest(canonical) {
 			t.Fatal("tree encoding changed canonical content or digest")
 		}
@@ -245,7 +245,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		if retainedErr != nil {
 			t.Fatal(retainedErr)
 		}
-		encoded, encodeErr := jsonv2.Marshal(retained)
+		encoded, encodeErr := jsonv2.Marshal(encoderDocument(retained), jsonv2.Deterministic(true))
 		if encodeErr != nil || !bytes.Equal(encoded, tree.JSON()) {
 			t.Fatalf("wire mutation changed retained Process snapshots: %v", encodeErr)
 		}
@@ -723,7 +723,7 @@ func TestTreeSnapshotReportsFirstRelationErrorInCanonicalOrder(t *testing.T) {
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], foreignSnapshot, orphanSnapshot}, "Process belongs to another tree"},
 		{[]ProcessSnapshot{tree.ProcessSnapshots()[0], orphanSnapshot, foreignSnapshot}, "Process belongs to another tree"},
 	} {
-		data, err := jsonv2.Marshal(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: test.snapshots})
+		data, err := (treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: test.snapshots}).encode()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -777,7 +777,6 @@ func TestTreeSnapshotEffectRequestPreservesFrozenEvidence(t *testing.T) {
 // The spliced encoding is the canonical form every digest depends on, so it
 // must stay byte-identical to marshaling the wire through the encoder.
 func TestTreeSnapshotEncodingMatchesTheEncoder(t *testing.T) {
-	processBytes := jsonv2.MarshalFunc(func(snapshot ProcessSnapshot) ([]byte, error) { return snapshot.data, nil })
 	fixtures := map[string]TreeSnapshot{
 		"single waiting":  controlValue(newWaitingSnapshotTree(t, 1).captureTree()),
 		"waiting tree":    controlValue(newWaitingSnapshotTree(t, 40).captureTree()),
@@ -786,7 +785,7 @@ func TestTreeSnapshotEncodingMatchesTheEncoder(t *testing.T) {
 		"retained waits":  retainedWaitsSnapshotFixture(t, 6),
 	}
 	for name, snapshot := range fixtures {
-		want := controlValue(jsonv2.Marshal(snapshot.state, jsonv2.Deterministic(true), jsonv2.WithMarshalers(processBytes)))
+		want := controlValue(jsonv2.Marshal(encoderDocument(snapshot.state), jsonv2.Deterministic(true)))
 		if got := controlValue(snapshot.state.encode()); !bytes.Equal(got, want) {
 			t.Fatalf("%s: spliced encoding differs from the encoder:\n got %s\nwant %s", name, got, want)
 		}
@@ -845,4 +844,14 @@ func treeJSONWithDocument(t testing.TB, tree TreeSnapshot, processID ProcessID, 
 	}
 	fields["process_snapshots"] = controlValue(jsonv2.Marshal(processes))
 	return controlValue(jsonv2.Marshal(fields))
+}
+
+// encoderDocument is the tree document the encoder would produce from wire,
+// the reference the spliced encoding must match byte for byte.
+func encoderDocument(wire treeSnapshotWire) treeSnapshotDocument {
+	document := treeSnapshotDocument{IncarnationID: wire.IncarnationID, TreeLimits: wire.TreeLimits, ProcessSnapshots: []json.RawMessage{}}
+	for _, snapshot := range wire.ProcessSnapshots {
+		document.ProcessSnapshots = append(document.ProcessSnapshots, snapshot.data)
+	}
+	return document
 }

@@ -206,18 +206,19 @@ func (e *execution) stage() Stage {
 	return e.definition.stages[e.state.StageIndex]
 }
 
+// singleBindingIdentity names the current single-child binding: its Stage,
+// selected case, and loop iteration. Its child and its wait key both derive
+// from it.
+func (e *execution) singleBindingIdentity() []string {
+	return []string{"single", e.stage().id, e.state.SelectedCaseID, strconv.FormatUint(e.state.LoopIteration, 10)}
+}
+
 func (e *execution) childKey() (agent.ChildKey, error) {
-	return workflowChildKey(
-		"single", e.stage().id, e.state.SelectedCaseID,
-		strconv.FormatUint(e.state.LoopIteration, 10),
-	)
+	return workflowChildKey(e.singleBindingIdentity()...)
 }
 
 func (e *execution) waitKey() (agent.WaitKey, error) {
-	return workflowWaitKey(
-		"single", e.stage().id, e.state.SelectedCaseID,
-		strconv.FormatUint(e.state.LoopIteration, 10),
-	)
+	return workflowWaitKey(e.singleBindingIdentity()...)
 }
 
 func (e *execution) finishLoopIteration(

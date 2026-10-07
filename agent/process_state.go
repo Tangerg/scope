@@ -445,8 +445,8 @@ type processFinish struct {
 }
 
 type processFinishWire struct {
-	Termination committedTerminationWire `json:"termination"`
-	FinishedAt  time.Time                `json:"finished_at"`
+	Termination committedTerminationWire `json:"termination" jsonwire:"required"`
+	FinishedAt  time.Time                `json:"finished_at" jsonwire:"required"`
 }
 
 func (p processFinish) MarshalJSON() ([]byte, error) {
@@ -458,7 +458,7 @@ func (p processFinish) MarshalJSON() ([]byte, error) {
 }
 
 func (p *processFinish) UnmarshalJSON(data []byte) error {
-	wire, err := jsonwire.Decode[processFinishWire](data, "termination", "finished_at")
+	wire, err := jsonwire.Decode[processFinishWire](data)
 	if err != nil {
 		return err
 	}

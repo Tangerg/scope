@@ -66,8 +66,8 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Loop %q result schema: %w", ErrInvalidStage, config.ID, err)
 	}
 	descriptor := config.Body.Descriptor()
-	if !schemasEqual(valueSchema, descriptor.InputSchema()) ||
-		!schemasEqual(valueSchema, descriptor.OutputSchema()) {
+	if !valueSchema.Equal(descriptor.InputSchema()) ||
+		!valueSchema.Equal(descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Loop %q body must have an exact T-to-T contract", ErrInvalidStage, config.ID)
 	}
 	return Stage{

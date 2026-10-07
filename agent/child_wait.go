@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -415,12 +417,12 @@ type resultWire struct {
 	StartedAt   time.Time   `json:"started_at"`
 	FinishedAt  time.Time   `json:"finished_at"`
 	Termination Termination `json:"termination"`
-	Usage       Usage       `json:"usage"`
+	Usage       Usage       `json:"usage" jsonwire:"required"`
 }
 
 func (r *resultWire) UnmarshalJSON(data []byte) error {
 	type wire resultWire
-	value, err := jsonwire.Decode[wire](data, "usage")
+	value, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
@@ -453,7 +455,7 @@ func decodeChildWaitEffect(payload json.RawMessage) (ChildWaitSpec, error) {
 
 // childWaitOpenedPayload is the normalized payload of every opening Signal.
 func childWaitOpenedPayload() json.RawMessage {
-	return json.RawMessage(`{"operation":"` + string(childWaitSignalOpened) + `"}`)
+	return lo.Must(jsonv2.Marshal(childWaitOpenedWire{Operation: childWaitSignalOpened}))
 }
 
 func (c childOutcomeWire) value() (ChildOutcome, error) {

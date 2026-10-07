@@ -169,7 +169,7 @@ func Call(config CallConfig) (Stage, error) {
 func (s Stage) Valid() bool { return s.kind.Valid() }
 
 func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
-	return schemasEqual(s.inputSchema, schema)
+	return s.inputSchema.Equal(schema)
 }
 
 func (s Stage) fanoutMemberLabel(index uint32) string {

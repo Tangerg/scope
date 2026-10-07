@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -46,7 +45,7 @@ func TestRestoreRejectsUnrestorableCandidateBeforeExternalWork(t *testing.T) {
 				treeWire.IncarnationID = incarnation
 				config.TreeCommitter = committer
 			}
-			encoded, err := jsonv2.Marshal(treeWire)
+			encoded, err := treeWire.encode()
 			if err != nil {
 				t.Fatal(err)
 			}

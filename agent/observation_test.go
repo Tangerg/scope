@@ -144,7 +144,7 @@ func TestEventPhaseFollowsItsName(t *testing.T) {
 
 func FuzzEventJSONRoundTrip(f *testing.F) {
 	descriptor := testDescriptorForFuzz(f)
-	reference, err := newDeploymentRef(
+	reference, err := descriptorDeploymentRef(
 		descriptor,
 		ComputeDigest([]byte("event fuzz implementation")),
 		ComputeDigest([]byte("event fuzz configuration")),

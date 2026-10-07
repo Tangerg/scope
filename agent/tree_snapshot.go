@@ -33,7 +33,7 @@ type TreeSnapshot struct {
 // children they answered with, and a retained successful child-start
 // settlement must identify a captured child matching the complete request.
 func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
-	document, err := jsonwire.Decode[treeSnapshotDocument](data, "incarnation_id", "tree_limits", "process_snapshots")
+	document, err := jsonwire.Decode[treeSnapshotDocument](data)
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: decode: %w", ErrInvalidTreeSnapshot, err)
 	}
@@ -53,9 +53,9 @@ func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 // together because each relation's root and depth follow from the tree; the
 // root is the one record without a parent link.
 type treeSnapshotDocument struct {
-	IncarnationID    TreeIncarnationID `json:"incarnation_id"`
-	TreeLimits       TreeLimits        `json:"tree_limits"`
-	ProcessSnapshots []json.RawMessage `json:"process_snapshots"`
+	IncarnationID    TreeIncarnationID `json:"incarnation_id" jsonwire:"required"`
+	TreeLimits       TreeLimits        `json:"tree_limits" jsonwire:"required"`
+	ProcessSnapshots []json.RawMessage `json:"process_snapshots" jsonwire:"required"`
 }
 
 // processSnapshots derives every relation from the parent links: the record
@@ -315,47 +315,41 @@ func (t TreeSnapshot) wire() (treeSnapshotWire, error) {
 }
 
 // treeSnapshotWire holds only tree-wide facts. Each child wait belongs to the
-// mailbox of the Process that opened it.
+// mailbox of the Process that opened it. treeSnapshotDocument owns the
+// encoded member names; this value never encodes itself.
 type treeSnapshotWire struct {
-	IncarnationID    TreeIncarnationID `json:"incarnation_id"`
-	TreeLimits       TreeLimits        `json:"tree_limits"`
-	ProcessSnapshots []ProcessSnapshot `json:"process_snapshots"`
-}
-
-// treeSnapshotHeaderWire carries the members treeSnapshotWire encodes before
-// its Process snapshots, in the same order and under the same names.
-type treeSnapshotHeaderWire struct {
-	IncarnationID TreeIncarnationID `json:"incarnation_id"`
-	TreeLimits    TreeLimits        `json:"tree_limits"`
+	IncarnationID    TreeIncarnationID
+	TreeLimits       TreeLimits
+	ProcessSnapshots []ProcessSnapshot
 }
 
 // encode produces the canonical compact encoding of the wire. Every Process
-// snapshot is already validated canonical JSON, so its bytes are spliced in
-// verbatim: routing them through the encoder would re-parse and re-format
-// every Process on every capture. The result is byte-identical to marshaling
-// the wire with each snapshot's bytes as its value.
+// snapshot is already validated canonical JSON, so its bytes are spliced into
+// the document's encoding with an empty Process list: routing them through
+// the encoder would re-parse and re-format every Process on every capture.
+// The result is byte-identical to marshaling the document with each
+// snapshot's bytes as its value.
 func (t treeSnapshotWire) encode() ([]byte, error) {
-	header, err := jsonv2.Marshal(treeSnapshotHeaderWire{
-		IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits,
+	skeleton, err := jsonv2.Marshal(treeSnapshotDocument{
+		IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits, ProcessSnapshots: []json.RawMessage{},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
-	size := len(header) + len(`,"process_snapshots":[]`)
+	// The empty Process list closes the skeleton as `[]}`.
+	open := skeleton[:len(skeleton)-len("]}")]
+	size := len(skeleton)
 	for _, snapshot := range t.ProcessSnapshots {
 		size += len(snapshot.data) + 1
 	}
-	encoded := make([]byte, 0, size)
-	encoded = append(encoded, header[:len(header)-1]...)
-	encoded = append(encoded, `,"process_snapshots":[`...)
+	encoded := append(make([]byte, 0, size), open...)
 	for index, snapshot := range t.ProcessSnapshots {
 		if index > 0 {
 			encoded = append(encoded, ',')
 		}
 		encoded = append(encoded, snapshot.data...)
 	}
-	encoded = append(encoded, ']')
-	return append(encoded, '}'), nil
+	return append(encoded, ']', '}'), nil
 }
 
 // rootID follows from the canonical order, in which the root comes first.

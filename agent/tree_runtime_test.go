@@ -164,7 +164,7 @@ func newTreeRuntimeTestDeployment(t testing.TB) (Deployment, *treeRuntimeTestPro
 	}
 	implementation := ComputeDigest([]byte("tree-runtime-test-implementation"))
 	configuration := ComputeDigest([]byte("tree-runtime-test-configuration"))
-	reference, err := newDeploymentRef(descriptor, implementation, configuration, noChildBindings())
+	reference, err := descriptorDeploymentRef(descriptor, implementation, configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}

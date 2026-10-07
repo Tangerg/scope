@@ -11,7 +11,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 	descriptor := testDescriptor(t)
 	implementation := ComputeDigest([]byte("interaction implementation"))
 	configuration := ComputeDigest([]byte("model and dispatcher configuration"))
-	reference, err := newDeploymentRef(descriptor, implementation, configuration, noChildBindings())
+	reference, err := descriptorDeploymentRef(descriptor, implementation, configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,11 +23,11 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 		t.Fatalf("DeploymentRef text = %q, invalid = %q", reference.String(), (DeploymentRef{}).String())
 	}
 
-	changedImplementation, err := newDeploymentRef(descriptor, ComputeDigest([]byte("changed interaction implementation")), configuration, noChildBindings())
+	changedImplementation, err := descriptorDeploymentRef(descriptor, ComputeDigest([]byte("changed interaction implementation")), configuration, noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
-	changedConfiguration, err := newDeploymentRef(descriptor, implementation, ComputeDigest([]byte("changed model and dispatcher configuration")), noChildBindings())
+	changedConfiguration, err := descriptorDeploymentRef(descriptor, implementation, ComputeDigest([]byte("changed model and dispatcher configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) 
 }
 
 func TestDeploymentRefDigestFollowsItsComponents(t *testing.T) {
-	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
+	reference, err := descriptorDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestDeploymentRefDigestFollowsItsComponents(t *testing.T) {
 }
 
 func FuzzDeploymentRefJSONRoundTrip(f *testing.F) {
-	reference, err := newDeploymentRef(testDescriptorForFuzz(f), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
+	reference, err := descriptorDeploymentRef(testDescriptorForFuzz(f), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func testDescriptorForFuzz(f *testing.F) Descriptor {
 }
 
 func TestDeploymentRefRejectsInvalidIdentity(t *testing.T) {
-	reference, err := newDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
+	reference, err := descriptorDeploymentRef(testDescriptor(t), ComputeDigest([]byte("implementation")), ComputeDigest([]byte("configuration")), noChildBindings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,4 +155,11 @@ func TestDeploymentRefDecodingRequiresItsBindingsDigest(t *testing.T) {
 	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(fields)), &decoded); !errors.Is(err, ErrInvalidDeploymentRef) {
 		t.Fatalf("DeploymentRef without bindings digest decoded: %v", err)
 	}
+}
+
+func descriptorDeploymentRef(descriptor Descriptor, implementation, configuration, bindings Digest) (DeploymentRef, error) {
+	return newDeploymentRef(deploymentIdentityWire{
+		Name: descriptor.Name(), ContractDigest: descriptor.Digest(),
+		ImplementationDigest: implementation, ConfigurationDigest: configuration, BindingsDigest: bindings,
+	})
 }

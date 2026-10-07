@@ -148,6 +148,16 @@ func indexDelegates(delegates []Delegate, tools toolManifest) (map[string]int, e
 
 // ChildDeployments reports the Tool child binding, when Tools are configured,
 // and every Delegate binding.
+// toolWindow sizes the Tool batch that starts at the first remaining call:
+// the longest concurrent run the ToolSet admits, or one call when Tool calls
+// never overlap. Step sizes a batch with it and Restore requires it.
+func (d *Definition) toolWindow(ctx context.Context, remaining []chat.ToolCall) (int, error) {
+	if d.maxConcurrentToolCalls == 1 {
+		return 1, nil
+	}
+	return d.tools.concurrentBatchEnd(ctx, remaining)
+}
+
 func (d *Definition) ChildDeployments() []agent.Deployment {
 	if d == nil {
 		return nil

@@ -186,7 +186,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))
-	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); err != nil {
+	if _, err := ParseTreeSnapshot(controlValue(wire.encode())); err != nil {
 		t.Fatalf("ordered quorum subset rejected: %v", err)
 	}
 }

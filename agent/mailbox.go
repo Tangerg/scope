@@ -761,8 +761,7 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 		return signalRecord{}, err
 	}
 	record := signalRecord{id: s.ID, waitID: lo.FromPtr(s.WaitID), payload: payload, status: s.Status}
-	if s.Status != SettlementStatusInvalid && (s.Status == SettlementStatusUnknown || !s.Status.Valid() ||
-		!s.ID.engineOwned() || s.WaitID != nil || s.Opens != nil) {
+	if s.Status != SettlementStatusInvalid && !deliversSettlement(s.ID, lo.FromPtr(s.WaitID), s.Status) {
 		return signalRecord{}, fmt.Errorf("%w: only a delivered Dispatcher settlement has a status", errMailboxCursor)
 	}
 	if record.opensWait() != (s.Opens != nil) {

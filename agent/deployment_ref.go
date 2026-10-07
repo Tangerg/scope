@@ -24,25 +24,29 @@ type DeploymentRef struct {
 	digest               Digest
 }
 
-func newDeploymentRef(descriptor Descriptor, implementationDigest, configurationDigest, bindingsDigest Digest) (DeploymentRef, error) {
-	if !descriptor.Valid() {
-		return DeploymentRef{}, fmt.Errorf("%w: %w", ErrInvalidDeploymentRef, ErrInvalidDescriptor)
+// newDeploymentRef owns the identity rule for both a constructed Deployment
+// and a decoded reference.
+func newDeploymentRef(identity deploymentIdentityWire) (DeploymentRef, error) {
+	if !ValidQualifiedName(identity.Name) {
+		return DeploymentRef{}, fmt.Errorf("%w: name must be a qualified name", ErrInvalidDeploymentRef)
 	}
-	if !implementationDigest.Valid() {
-		return DeploymentRef{}, fmt.Errorf("%w: implementation: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
-	}
-	if !configurationDigest.Valid() {
-		return DeploymentRef{}, fmt.Errorf("%w: configuration: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
-	}
-	if !bindingsDigest.Valid() {
-		return DeploymentRef{}, fmt.Errorf("%w: bindings: %w", ErrInvalidDeploymentRef, ErrInvalidDigest)
+	for _, component := range []struct {
+		name   string
+		digest Digest
+	}{
+		{"contract", identity.ContractDigest}, {"implementation", identity.ImplementationDigest},
+		{"configuration", identity.ConfigurationDigest}, {"bindings", identity.BindingsDigest},
+	} {
+		if !component.digest.Valid() {
+			return DeploymentRef{}, fmt.Errorf("%w: %s: %w", ErrInvalidDeploymentRef, component.name, ErrInvalidDigest)
+		}
 	}
 	reference := DeploymentRef{
-		name:                 descriptor.Name(),
-		contractDigest:       descriptor.Digest(),
-		implementationDigest: implementationDigest,
-		configurationDigest:  configurationDigest,
-		bindingsDigest:       bindingsDigest,
+		name:                 identity.Name,
+		contractDigest:       identity.ContractDigest,
+		implementationDigest: identity.ImplementationDigest,
+		configurationDigest:  identity.ConfigurationDigest,
+		bindingsDigest:       identity.BindingsDigest,
 	}
 	digest, err := reference.computeDigest()
 	if err != nil {
@@ -94,19 +98,9 @@ func (d *DeploymentRef) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDeploymentRef, err)
 	}
-	value := DeploymentRef{
-		name:                 wire.Name,
-		contractDigest:       wire.ContractDigest,
-		implementationDigest: wire.ImplementationDigest,
-		configurationDigest:  wire.ConfigurationDigest,
-		bindingsDigest:       wire.BindingsDigest,
-	}
-	if !ValidQualifiedName(value.name) || !value.contractDigest.Valid() || !value.implementationDigest.Valid() ||
-		!value.configurationDigest.Valid() || !value.bindingsDigest.Valid() {
-		return fmt.Errorf("%w: identity components are required", ErrInvalidDeploymentRef)
-	}
-	if value.digest, err = value.computeDigest(); err != nil {
-		return fmt.Errorf("%w: digest: %w", ErrInvalidDeploymentRef, err)
+	value, err := newDeploymentRef(wire)
+	if err != nil {
+		return err
 	}
 	*d = value
 	return nil

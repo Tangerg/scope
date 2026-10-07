@@ -146,3 +146,13 @@ func TestSchemaRejectsInvalidDefinitions(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaEqualRequiresValidContracts(t *testing.T) {
+	text := controlValue(SchemaFor[string]())
+	if !text.Equal(controlValue(SchemaFor[string]())) || text.Equal(controlValue(SchemaFor[int]())) {
+		t.Fatal("schema equality does not follow the canonical contract")
+	}
+	if (Schema{}).Equal(Schema{}) {
+		t.Fatal("two absent schemas compared equal")
+	}
+}

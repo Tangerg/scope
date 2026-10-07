@@ -1,7 +1,6 @@
 package collaboration
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -45,8 +44,8 @@ func (c childBinding) validateCoordinatorContract() error {
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(inputSchema.JSON(), c.deployment.Descriptor().InputSchema().JSON()) ||
-		!bytes.Equal(outputSchema.JSON(), c.deployment.Descriptor().OutputSchema().JSON()) {
+	if !inputSchema.Equal(c.deployment.Descriptor().InputSchema()) ||
+		!outputSchema.Equal(c.deployment.Descriptor().OutputSchema()) {
 		return fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
 	}
 	return nil

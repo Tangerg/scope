@@ -59,10 +59,11 @@ func (d *Deadline) Start(input agent.Payload) (agent.Execution, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode deadline: %w", agent.ErrInvalidPayload, err)
 	}
-	if deadline.IsZero() {
-		return nil, fmt.Errorf("%w: absolute deadline is required", agent.ErrInvalidPayload)
+	state := deadlineState{Deadline: deadline, Phase: deadlineReady}
+	if err := state.validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", agent.ErrInvalidPayload, err)
 	}
-	return &deadlineExecution{state: deadlineState{Deadline: deadline, Phase: deadlineReady}}, nil
+	return &deadlineExecution{state: state}, nil
 }
 
 func (d *Deadline) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {

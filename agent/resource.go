@@ -30,17 +30,17 @@ const (
 // updates are not execution facts.
 type Usage struct {
 	// CommittedSteps counts finalized Steps.
-	CommittedSteps uint64 `json:"committed_steps"`
+	CommittedSteps uint64 `json:"committed_steps" jsonwire:"required"`
 
 	// PreparedEffects counts stable logical Effect identities, not replay attempts.
-	PreparedEffects uint64 `json:"prepared_effects"`
+	PreparedEffects uint64 `json:"prepared_effects" jsonwire:"required"`
 
 	// AcceptedSignals counts external and Engine-generated mailbox entries.
-	AcceptedSignals uint64 `json:"accepted_signals"`
+	AcceptedSignals uint64 `json:"accepted_signals" jsonwire:"required"`
 
 	// DroppedDeltas counts increments rejected by validation, the bounded queue,
 	// or exhausted sequence space. It saturates at math.MaxUint64.
-	DroppedDeltas uint64 `json:"dropped_deltas"`
+	DroppedDeltas uint64 `json:"dropped_deltas" jsonwire:"required"`
 }
 
 func (u *Usage) UnmarshalJSON(data []byte) error {
@@ -48,9 +48,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil usage receiver")
 	}
 	type wire Usage
-	value, err := jsonwire.Decode[wire](data,
-		"committed_steps", "prepared_effects", "accepted_signals", "dropped_deltas",
-	)
+	value, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
@@ -64,13 +62,13 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 // is independent; a finite parent cannot grant an unlimited child quota.
 type Budget struct {
 	// Steps bounds committed Steps. A finite zero forbids new computation.
-	Steps Quota `json:"steps"`
+	Steps Quota `json:"steps" jsonwire:"required"`
 	// Effects bounds stable Effect identities prepared across all Steps. A
 	// finite zero permits pure Steps but forbids Effects.
-	Effects Quota `json:"effects"`
+	Effects Quota `json:"effects" jsonwire:"required"`
 	// Signals bounds accepted external and Engine-generated Signals. A finite
 	// zero permits computations that need no runtime input or settlements.
-	Signals Quota `json:"signals"`
+	Signals Quota `json:"signals" jsonwire:"required"`
 }
 
 func (b *Budget) UnmarshalJSON(data []byte) error {
@@ -78,7 +76,7 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil budget receiver")
 	}
 	type wire Budget
-	value, err := jsonwire.Decode[wire](data, "steps", "effects", "signals")
+	value, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
@@ -158,31 +156,31 @@ type TreeLimits struct {
 	// The per-Process overhead described by MaxProcessSnapshotBytes accumulates
 	// across live members; terminal members contribute only their encoded size.
 	// A finite zero denies every new tree snapshot admission.
-	MaxSnapshotBytes Quota `json:"max_snapshot_bytes"`
+	MaxSnapshotBytes Quota `json:"max_snapshot_bytes" jsonwire:"required"`
 
 	// MaxProcessSnapshotBytes bounds each encoded Process snapshot, including
 	// retained history. Admission of a live Process also reserves worst-case
 	// control, termination, diagnostic, and Framework settlement growth; control
 	// strings alone reserve about 144 KiB after JSON escaping. Terminal Processes
 	// need only their encoded size. A finite zero denies every new admission.
-	MaxProcessSnapshotBytes Quota `json:"max_process_snapshot_bytes"`
+	MaxProcessSnapshotBytes Quota `json:"max_process_snapshot_bytes" jsonwire:"required"`
 
 	// MaxPendingSignals bounds each Process's unconsumed mailbox suffix and the
 	// suffix after its prepared Step consumes inputs and appends settlements.
 	// Every arriving Signal preserves both bounds regardless of its source.
 	// Capacity must fit the uint32 consumed-Signal count in one Transition.
-	MaxPendingSignals uint64 `json:"max_pending_signals"`
+	MaxPendingSignals uint64 `json:"max_pending_signals" jsonwire:"required"`
 
 	// MaxDepth bounds the root-relative depth of any Process.
-	MaxDepth uint32 `json:"max_depth"`
+	MaxDepth uint32 `json:"max_depth" jsonwire:"required"`
 	// MaxChildren bounds the lifetime child count of one Process. A finite
 	// zero confines new execution to the root.
-	MaxChildren Quota `json:"max_children"`
+	MaxChildren Quota `json:"max_children" jsonwire:"required"`
 	// MaxActiveChildren bounds concurrent non-terminal children of one Process.
-	MaxActiveChildren uint32 `json:"max_active_children"`
+	MaxActiveChildren uint32 `json:"max_active_children" jsonwire:"required"`
 	// MaxTreeProcesses bounds the lifetime Process count of one tree. A finite
 	// zero is rejected because a tree includes its root.
-	MaxTreeProcesses Quota `json:"max_tree_processes"`
+	MaxTreeProcesses Quota `json:"max_tree_processes" jsonwire:"required"`
 }
 
 func (t *TreeLimits) UnmarshalJSON(data []byte) error {
@@ -190,10 +188,7 @@ func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 		return errors.New("agent: nil tree limits receiver")
 	}
 	type wire TreeLimits
-	value, err := jsonwire.Decode[wire](data,
-		"max_snapshot_bytes", "max_process_snapshot_bytes", "max_pending_signals",
-		"max_depth", "max_children", "max_active_children", "max_tree_processes",
-	)
+	value, err := jsonwire.Decode[wire](data)
 	if err != nil {
 		return err
 	}
