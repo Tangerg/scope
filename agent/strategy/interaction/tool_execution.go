@@ -152,7 +152,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if hostFailure != "" {
 			return stepfail.Transition(1, agent.FailureKindExternal, failureCodeInteractionHostFailed, hostFailure)
 		}
-		return t.acceptResult(signal, envelope)
+		return t.acceptResult(envelope)
 	case toolWaitingInput:
 		envelope, err := decodeSignal(signal.Payload())
 		if err != nil {
@@ -202,8 +202,8 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 	return agent.Continue(consumed, effect)
 }
 
-func (t *toolExecution) acceptResult(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
-	if _, addressed := signal.WaitID(); !signal.EngineOwned() || addressed || envelope.operation() != operationToolCall {
+func (t *toolExecution) acceptResult(envelope signalEnvelope) (agent.Transition, error) {
+	if envelope.operation() != operationToolCall {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	outcome := envelope.ToolResult

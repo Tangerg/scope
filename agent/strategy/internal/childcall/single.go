@@ -45,9 +45,6 @@ func (s Single) Window(signals []agent.Signal) (agent.Signal, error) {
 			return agent.Signal{}, errors.New("childcall: opening suffix is not its completion")
 		}
 	}
-	if !signals[0].EngineOwned() {
-		return agent.Signal{}, errors.New("childcall: handshake requires an Engine-owned Signal")
-	}
 	return signals[0], nil
 }
 

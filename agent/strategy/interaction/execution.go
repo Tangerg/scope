@@ -345,9 +345,10 @@ func collectModelResult(signals []agent.Signal) (signalEnvelope, string, steerBa
 	var found bool
 	var steer steerBatch
 	for _, signal := range signals {
+		// ParseSettlement owns the settlement's Engine origin.
 		if _, settles := agent.ParseSettlement(signal); settles == nil {
-			if err := acceptModelResultSignal(signal, found); err != nil {
-				return signalEnvelope{}, "", steerBatch{}, 0, err
+			if found {
+				return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, operationModelCall)
 			}
 			envelope, diagnostic, err := decodeSettlement(signal)
 			if err != nil {
@@ -374,19 +375,6 @@ func collectModelResult(signals []agent.Signal) (signalEnvelope, string, steerBa
 		return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, operationModelCall)
 	}
 	return result, hostFailure, steer, uint32(len(signals)), nil
-}
-
-func acceptModelResultSignal(signal agent.Signal, duplicate bool) error {
-	if !signal.EngineOwned() {
-		return fmt.Errorf("%w: %q Signal requires Engine authority", ErrInvalidExecutionState, operationModelCall)
-	}
-	if duplicate {
-		return fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, operationModelCall)
-	}
-	if _, addressed := signal.WaitID(); addressed {
-		return fmt.Errorf("%w: %q Signal has invalid wait addressing", ErrInvalidExecutionState, operationModelCall)
-	}
-	return nil
 }
 
 func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {

@@ -135,11 +135,9 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []agent.Signal) (a
 }
 
 func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) != 1 || !signals[0].EngineOwned() {
-		return agent.Transition{}, fmt.Errorf("%w: deadline requires one Engine-owned timer settlement", ErrInvalidProtocol)
-	}
-	if _, addressed := signals[0].WaitID(); addressed {
-		return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
+	// ParseSettlement owns the settlement's Engine origin.
+	if len(signals) != 1 {
+		return agent.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
 	}
 	settlement, err := agent.ParseSettlement(signals[0])
 	if err != nil {

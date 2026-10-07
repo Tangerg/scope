@@ -251,10 +251,14 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 		if _, err := progress.Window([]agent.Signal{frame}); err != nil {
 			t.Fatal(err)
 		}
-		for _, window := range [][]agent.Signal{nil, {foreign}, {frame, frame}, {foreign, frame}, {frame, foreign}, {frame, frame, frame}} {
+		for _, window := range [][]agent.Signal{nil, {frame, frame}, {foreign, frame}, {frame, foreign}, {frame, frame, frame}} {
 			if _, err := progress.Window(window); err == nil {
 				t.Fatalf("phase=%v accepted invalid window", phase)
 			}
+		}
+		// The window owns cardinality; the phase's parser owns the origin.
+		if _, err := agent.ParseChildStartResult(foreign); err == nil {
+			t.Fatal("a foreign Signal parsed as a child start")
 		}
 		switch phase {
 		case childcall.PhaseAwaitingStart:

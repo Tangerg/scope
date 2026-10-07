@@ -127,11 +127,11 @@ func failedSettlement(failure settlementFailure) (agent.Settlement, error) {
 // operation. A failed settlement returns its explanation instead of a result.
 func decodeSettlement[T any](signals []agent.Signal) (T, *settlementFailure, error) {
 	var result T
-	signal, err := oneSignal(signals)
-	if err != nil {
-		return result, nil, err
+	// ParseSettlement owns the settlement's Engine origin.
+	if len(signals) != 1 {
+		return result, nil, fmt.Errorf("%w: exactly one settlement Signal is required", ErrInvalidProtocol)
 	}
-	settlement, err := agent.ParseSettlement(signal)
+	settlement, err := agent.ParseSettlement(signals[0])
 	if err != nil {
 		return result, nil, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -146,14 +146,4 @@ func decodeSettlement[T any](signals []agent.Signal) (T, *settlementFailure, err
 		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
 	}
 	return result, nil, nil
-}
-
-func oneSignal(signals []agent.Signal) (agent.Signal, error) {
-	if len(signals) != 1 || !signals[0].EngineOwned() {
-		return agent.Signal{}, fmt.Errorf("%w: exactly one Engine-owned settlement Signal is required", ErrInvalidProtocol)
-	}
-	if _, addressed := signals[0].WaitID(); addressed {
-		return agent.Signal{}, fmt.Errorf("%w: dispatcher settlement Signal must not address a wait", ErrInvalidProtocol)
-	}
-	return signals[0], nil
 }
