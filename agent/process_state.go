@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -435,19 +436,33 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 }
 
 // processFinish is a terminal Process's committed ending: a Process has
-// finished exactly when it has one.
+// finished exactly when it has one. Its Termination never holds unresolved
+// Effect identities: the prepared Effects own them and publication attaches
+// them, so the committed form has no member that could store a copy.
 type processFinish struct {
-	Termination Termination `json:"termination"`
-	FinishedAt  time.Time   `json:"finished_at"`
+	Termination Termination
+	FinishedAt  time.Time
+}
+
+type processFinishWire struct {
+	Termination committedTerminationWire `json:"termination"`
+	FinishedAt  time.Time                `json:"finished_at"`
+}
+
+func (p processFinish) MarshalJSON() ([]byte, error) {
+	termination, err := p.Termination.committedWire()
+	if err != nil {
+		return nil, err
+	}
+	return jsonv2.Marshal(processFinishWire{Termination: termination, FinishedAt: p.FinishedAt})
 }
 
 func (p *processFinish) UnmarshalJSON(data []byte) error {
-	type wire processFinish
-	value, err := jsonwire.Decode[wire](data, "termination", "finished_at")
+	wire, err := jsonwire.Decode[processFinishWire](data, "termination", "finished_at")
 	if err != nil {
 		return err
 	}
-	*p = processFinish(value)
+	*p = processFinish{Termination: wire.Termination.termination(), FinishedAt: wire.FinishedAt}
 	return nil
 }
 

@@ -190,9 +190,6 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 		"pending terminal effect": func(wire *processSnapshotWire) {
 			wire.Prepared.Effects[0].progress = &effectProgress{}
 		},
-		"stored termination uncertainty": func(wire *processSnapshotWire) {
-			wire.Finish.Termination = wire.Finish.Termination.withUnresolvedEffectIDs(wire.Prepared.Effects.unknownEffectIDs())
-		},
 	} {
 		wire, err := snapshot.wire()
 		if err != nil {
@@ -206,6 +203,18 @@ func assertInterruptedSnapshotValidation(t *testing.T, snapshot ProcessSnapshot)
 		if _, err := parseTestProcessSnapshot(data); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Errorf("%s accepted: %v", name, err)
 		}
+	}
+	// The prepared Effects own the unresolved identities; the committed
+	// termination has no member that could store a copy.
+	var document map[string]any
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &document); err != nil {
+		t.Fatal(err)
+	}
+	termination := document["finish"].(map[string]any)["termination"].(map[string]any)
+	wire := controlValue(snapshot.wire())
+	termination["unresolved_effect_ids"] = []string{wire.Prepared.Effects.unknownEffectIDs()[0].String()}
+	if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(document))); !errors.Is(err, ErrInvalidSnapshot) {
+		t.Errorf("stored termination uncertainty accepted: %v", err)
 	}
 }
 

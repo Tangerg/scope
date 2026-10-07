@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -367,6 +369,31 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	}
 	*t = value
 	return nil
+}
+
+// committedTerminationWire is a Termination as a Process commits it, before
+// publication attaches the unresolved Effects its prepared Step owns.
+type committedTerminationWire struct {
+	Cause   TerminationCause `json:"cause,omitzero"`
+	Reason  string           `json:"reason,omitempty"`
+	Failure *Failure         `json:"failure,omitzero"`
+	Output  Payload          `json:"output,omitzero"`
+}
+
+func (t Termination) committedWire() (committedTerminationWire, error) {
+	if !t.Valid() || len(t.unresolvedEffectIDs) != 0 {
+		return committedTerminationWire{}, errInvalidTermination
+	}
+	wire := committedTerminationWire{Cause: t.cause, Reason: t.reason, Output: t.output}
+	if t.failure.Valid() {
+		wire.Failure = &t.failure
+	}
+	return wire, nil
+}
+
+// termination leaves validity to the snapshot that decodes it.
+func (c committedTerminationWire) termination() Termination {
+	return Termination{cause: c.Cause, reason: c.Reason, failure: lo.FromPtr(c.Failure), output: c.Output}
 }
 
 type terminationWire struct {

@@ -635,9 +635,6 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 	if p.PendingControl != (pendingControlWire{}) {
 		return fmt.Errorf("%w: terminal Process cannot retain control state", ErrInvalidSnapshot)
 	}
-	if len(p.Finish.Termination.UnresolvedEffectIDs()) != 0 {
-		return fmt.Errorf("%w: termination stores a copy of its interrupted Effects", ErrInvalidSnapshot)
-	}
 	return nil
 }
 
