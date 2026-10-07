@@ -16,7 +16,7 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, err
 	}
-	if output := lo.FromPtr(wire.Finish).Output; output.Valid() {
+	if output := lo.FromPtr(wire.Finish).Termination.output; output.Valid() {
 		if validateOutputErr := deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, fmt.Errorf(
 				"%w: output schema: %w", ErrInvalidSnapshot, validateOutputErr,

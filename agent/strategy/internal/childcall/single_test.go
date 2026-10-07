@@ -204,7 +204,7 @@ func completionSignal(t *testing.T, waitID string, drained bool, processID strin
 	if drained {
 		subtree = `,"descendant_unresolved_effects":[]`
 	}
-	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","outcomes":[{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","output":7,"termination":{"cause":"completion"},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}%s}]}`, processID, subtree)
+	payload := fmt.Sprintf(`{"operation":"child_wait_satisfied","outcomes":[{"result":{"process_id":%q,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","termination":{"output":7},"usage":{"committed_steps":0,"prepared_effects":0,"accepted_signals":0,"dropped_deltas":0}}%s}]}`, processID, subtree)
 	return signal(t, waitID, json.RawMessage(payload))
 }
 

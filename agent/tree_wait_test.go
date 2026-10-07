@@ -23,7 +23,7 @@ func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
 		t.Fatalf("pause child wait: %v", err)
 	}
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
-	second.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
+	second.installTermination(first.finish.Termination, first.finish.FinishedAt)
 	runtime.finishIfTerminal(second)
 	if parent.status() != StatusPaused || parent.awaitedWaitID().Valid() || parent.mailbox.pendingCount() != 1 {
 		t.Fatal("child completion did not clear only the wait")
@@ -39,7 +39,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	parent := runtime.members.get(parentID)
 	waitID := parent.currentWaitID
 	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
-	second.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
+	second.installTermination(first.finish.Termination, first.finish.FinishedAt)
 	runtime.finishIfTerminal(second)
 	owners := runtime.members.childrenOf(runtime.rootID)
 	for _, ownerID := range owners {
@@ -89,7 +89,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 	if other == parent {
 		other = runtime.members.get(owners[1])
 	}
-	other.installTermination(first.finish.Termination, first.finish.Output, first.finish.FinishedAt)
+	other.installTermination(first.finish.Termination, first.finish.FinishedAt)
 	runtime.finishIfTerminal(other)
 	if openWaits() != 1 {
 		t.Fatal("terminating one parent closed another parent's wait")
@@ -169,11 +169,11 @@ func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState
 		if err != nil {
 			b.Fatal(err)
 		}
-		termination, err := (terminationInputs{outcome: completedOutcome()}).resolve()
+		termination, err := (terminationInputs{outcome: completedOutcome(output)}).resolve()
 		if err != nil {
 			b.Fatal(err)
 		}
-		first.installTermination(termination, output, now)
+		first.installTermination(termination, now)
 		first.handle.publishResult(first.result())
 		runtime.finishProcessBookkeeping(first)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:parent-%d", index))

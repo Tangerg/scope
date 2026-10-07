@@ -44,7 +44,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 						}
 						outcome := childOutcomeTestWire{Result: childResultTestWire{
 							ProcessID: want.Children[0], StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
-							Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
+							Termination: completedTermination(t, output),
 						}}
 						if boundary == agent.ChildWaitBoundaryDrained {
 							outcome.DescendantUnresolvedEffects = new([]agent.UnresolvedEffect{})
@@ -218,7 +218,7 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 			DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}),
 			Result: childResultTestWire{
 				ProcessID: *batch.Invocations[1].ProcessID, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0),
-				Output: output, Termination: json.RawMessage(`{"cause":"completion"}`),
+				Termination: completedTermination(t, output),
 			},
 		}},
 	})
@@ -347,9 +347,19 @@ type childResultTestWire struct {
 	ProcessID   agent.ProcessID `json:"process_id"`
 	StartedAt   time.Time       `json:"started_at"`
 	FinishedAt  time.Time       `json:"finished_at"`
-	Output      agent.Payload   `json:"output,omitzero"`
 	Termination json.RawMessage `json:"termination"`
 	Usage       agent.Usage     `json:"usage"`
+}
+
+func completedTermination(t testing.TB, output agent.Payload) json.RawMessage {
+	t.Helper()
+	data, err := jsonv2.Marshal(struct {
+		Output agent.Payload `json:"output"`
+	}{output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func childBatchTestSignal(t testing.TB, waitID agent.WaitID, payload any) agent.Signal {
@@ -439,7 +449,7 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 					if kind == childCallsTool {
 						output, _ = agent.EncodePayload(toolCallResult{Disposition: ResultSucceeded, Output: chat.NewTextToolOutput("done")})
 					}
-					outcomes[index] = childOutcomeTestWire{DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Output: output, Termination: json.RawMessage(`{"cause":"completion"}`)}}
+					outcomes[index] = childOutcomeTestWire{DescendantUnresolvedEffects: new([]agent.UnresolvedEffect{}), Result: childResultTestWire{ProcessID: id, StartedAt: time.Unix(1, 0), FinishedAt: time.Unix(2, 0), Termination: completedTermination(t, output)}}
 				}
 				execution.state.ToolRound.Response.Output.Message = &message
 				if kind == childCallsDelegate {
@@ -447,7 +457,6 @@ func TestBatchFailureAfterSuccessPrefixRemainsRestorable(t *testing.T) {
 				} else {
 					outcomes[failedIndex].Result.Termination = json.RawMessage(`{"cause":"engine_kill","reason":"stopped"}`)
 				}
-				outcomes[failedIndex].Result.Output = agent.Payload{}
 				before, err := execution.Snapshot()
 				if err != nil {
 					t.Fatal(err)

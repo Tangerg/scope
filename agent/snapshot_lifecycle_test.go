@@ -181,8 +181,7 @@ func immediateChildWaitScenario(t *testing.T, limit func(*TreeLimits)) (*treeRun
 	children := runtime.members.childrenOf(runtime.rootID)
 	for _, id := range children {
 		child := runtime.members.get(id)
-		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-			controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})), child.handle.startedAt)
+		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome(controlValue(EncodePayload(childTestOutput{CompletedKeys: []string{"done"}})))}).resolve()), child.handle.startedAt)
 	}
 	effect := controlValue(NewChildWaitEffect(ChildWaitSpec{
 		Key: controlValue(ParseWaitKey("child.result")), Boundary: ChildWaitBoundaryResult,
@@ -258,8 +257,7 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 			root := runtime.members.get(runtime.rootID)
 			runtime.treeLimits.MaxProcessSnapshotBytes = config.TreeLimits.MaxProcessSnapshotBytes
 			runtime.treeLimits.MaxSnapshotBytes = config.TreeLimits.MaxSnapshotBytes
-			root.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-				controlValue(EncodePayload(childTestOutput{})), root.handle.startedAt)
+			root.installTermination(controlValue((terminationInputs{outcome: completedOutcome(controlValue(EncodePayload(childTestOutput{})))}).resolve()), root.handle.startedAt)
 			if recording {
 				runtime.writer.identity = newTreeIncarnationID()
 				config.TreeCommitter = &recordingTreeCommitter{}

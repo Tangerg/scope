@@ -2183,7 +2183,7 @@ func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code 
 }
 
 func (t *treeRuntime) installTermination(process *processState, outcome stepOutcome) {
-	process.installTermination(process.resolveStepTermination(outcome), Payload{}, canonicalTime(time.Now()))
+	process.installTermination(process.resolveStepTermination(outcome), canonicalTime(time.Now()))
 }
 
 func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }

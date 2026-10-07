@@ -237,8 +237,7 @@ func TestChildControlAdmissionUsesDirectOwnershipAndMailbox(t *testing.T) {
 			if child.pendingControl.cancellation.owner != cancellationOwnerParent {
 				t.Fatal("missing parent cancellation intent")
 			}
-			child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-				controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
+			child.installTermination(controlValue((terminationInputs{outcome: completedOutcome(controlValue(EncodePayload(childTestOutput{})))}).resolve()), child.handle.startedAt)
 			third := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:terminal")), WaitID{}, []byte(`"late"`)))
 			rejected := runtime.applyChildControl(child, controlValue(decodeChildControlEffect(controlValue(NewChildSignalEffect(recipient, third)).Payload())))
 			if failure, failed := rejected.Failure(); !failed || failure.Code() != failureCodeEngineChildSignalRejected {
@@ -309,7 +308,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	child.PendingControl.Cancellation = nil
-	child.Finish = &processFinish{Termination: Termination{cause: TerminationCauseCompletion}}
+	child.Finish = &processFinish{Termination: Termination{output: controlValue(EncodePayload(childTestOutput{}))}}
 	validation.processes[childID] = child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("terminal cancellation rejected", err)
