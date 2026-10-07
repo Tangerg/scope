@@ -25,14 +25,16 @@ type ModelObserver interface {
 }
 
 // ModelSettlement describes a physical model call, not durable Effect
-// settlement. Response is a detached validated response. Unknown means no
-// complete response was established; Failure is a bounded diagnostic, never
-// proof that the provider did no work or consumed no tokens.
+// settlement. Response is a detached validated response; without one, no
+// complete response was established and Failure is a bounded diagnostic,
+// never proof that the provider did no work or consumed no tokens.
 type ModelSettlement struct {
 	Response *chat.Response
 	Failure  string
-	Unknown  bool
 }
+
+// Unknown reports a call that established no complete response.
+func (m ModelSettlement) Unknown() bool { return m.Response == nil }
 
 // ToolObserver receives exact Tool-call facts. Callbacks are observational,
 // must return in bounded time, and have their panics isolated. Tool children
@@ -53,18 +55,20 @@ type ToolObserver interface {
 // the value produced for the model; it enters the Tool child state only after
 // that Effect settles. InputRequired instead means the Tool
 // returned a continuation request; the Engine has not yet committed its wait.
-// Failure diagnoses an attempt that produced no ordinary ToolResult. Unknown
-// means its external outcome remains unestablished, including host failures,
-// cancellation, deadlines, and panics. Observation never settles the Effect.
+// With neither, the call's external outcome remains unestablished, including
+// host failures, cancellation, deadlines, and panics, and Failure diagnoses
+// it. Observation never settles the Effect.
 type ToolSettlement struct {
 	Result        *chat.ToolResult
 	InputRequired bool
 	Failure       string
-	Unknown       bool
 	// Evidence is non-final output from an unknown call. It is never promoted
 	// to Result and cannot establish whether the external operation succeeded.
 	Evidence *chat.ToolOutput
 }
+
+// Unknown reports a call whose external outcome remains unestablished.
+func (t ToolSettlement) Unknown() bool { return t.Result == nil && !t.InputRequired }
 
 // ObserverPanic is a detached diagnostic for one isolated callback failure.
 // Message retains at most 4 KiB of the formatted panic value and Stack retains

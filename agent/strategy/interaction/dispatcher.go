@@ -251,13 +251,13 @@ func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvo
 	defer func() {
 		if value := recover(); value != nil {
 			d.observeModelSettled(ctx, invocation, ModelSettlement{
-				Unknown: true, Failure: agent.NormalizeDiagnostic(fmt.Sprint(value)),
+				Failure: agent.NormalizeDiagnostic(fmt.Sprint(value)),
 			})
 			panic(value)
 		}
 		settlement := ModelSettlement{Response: response}
 		if err != nil {
-			settlement = ModelSettlement{Unknown: true, Failure: agent.NormalizeDiagnostic(err.Error())}
+			settlement = ModelSettlement{Failure: agent.NormalizeDiagnostic(err.Error())}
 		}
 		d.observeModelSettled(ctx, invocation, settlement)
 	}()

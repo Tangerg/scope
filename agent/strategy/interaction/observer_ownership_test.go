@@ -60,7 +60,7 @@ func (mutatingEvidenceObserver) OnToolSettled(_ context.Context, _ ToolInvocatio
 func TestToolObserverCannotChangeUnknownEvidence(t *testing.T) {
 	evidence := chat.NewTextToolOutput("partial output")
 	dispatcher := &toolDispatcher{observer: mutatingEvidenceObserver{}}
-	dispatcher.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{Unknown: true, Evidence: &evidence})
+	dispatcher.observeToolSettled(t.Context(), ToolInvocation{}, ToolSettlement{Evidence: &evidence})
 	if evidence.Content[0].Text != "partial output" {
 		t.Fatal("observer changed non-final evidence")
 	}
