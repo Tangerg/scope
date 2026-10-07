@@ -56,6 +56,8 @@ func (f fanoutChildState) settled() bool {
 	return f.ChildProcessID != nil || f.Failure != nil
 }
 
+func (f fanoutChildState) started() bool { return f.ChildProcessID != nil }
+
 func (f *fanoutChildState) recordStart(start agent.ChildStartResult) {
 	if failure, failed := start.Failure(); failed {
 		f.Failure = &failure
@@ -248,8 +250,6 @@ func (e executionState) validateFanoutBoundary(ctx context.Context, definition *
 type fanoutWindowSummary struct {
 	settled bool
 	started int
-	// failedAfterStart is legal only after the window wait has opened.
-	failedAfterStart int
 }
 
 func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindowSummary, error) {
@@ -268,10 +268,10 @@ func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindo
 		if child.ChildProcessID == nil {
 			continue
 		}
-		summary.started++
 		if child.Failure != nil {
-			summary.failedAfterStart++
+			return fanoutWindowSummary{}, fmt.Errorf("%w: a started fan-out child repeats a Failure the Engine owns", ErrInvalidExecutionState)
 		}
+		summary.started++
 	}
 	if settled != 0 && settled != len(e.ActiveFanoutWindow) {
 		return fanoutWindowSummary{}, fmt.Errorf("%w: fan-out window retains partially applied starts", ErrInvalidExecutionState)
@@ -299,19 +299,12 @@ func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stag
 	return ctx.Err()
 }
 
-// validateFanoutWindow checks what the derived phase cannot: a started member
-// fails only after its wait opens, and only started children are awaited. A
-// window whose starts all failed is the state its failing Step commits.
+// validateFanoutWindow checks what the derived phase cannot: settled starts
+// keep at least one started child, since a window with none failed at once,
+// and only a settled window is awaited.
 func validateFanoutWindow(current phase, window fanoutWindowSummary) error {
-	switch current {
-	case phaseAwaitingFanoutWaitOpen:
-		if window.failedAfterStart != 0 {
-			return fmt.Errorf("%w: fan-out child failed before its wait opened", ErrInvalidExecutionState)
-		}
-	case phaseWaitingFanout:
-		if !window.settled || window.started == 0 {
-			return fmt.Errorf("%w: fan-out wait requires started children", ErrInvalidExecutionState)
-		}
+	if current == phaseWaitingFanout && !window.settled || window.settled && window.started == 0 {
+		return fmt.Errorf("%w: fan-out wait requires started children", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -321,22 +314,18 @@ func (e *executionState) clearSingleChild() {
 	e.Child = nil
 }
 
-func (e executionState) firstFanoutFailure() agent.Failure {
-	for _, child := range e.ActiveFanoutWindow {
+// firstFanoutFailure returns the first failure in window order, whether a
+// member's start was refused or its outcome failed.
+func firstFanoutFailure(window []fanoutChildState, outcomeFailures []*agent.Failure) agent.Failure {
+	for offset, child := range window {
 		if child.Failure != nil {
 			return *child.Failure
 		}
-	}
-	return agent.Failure{}
-}
-
-func (e executionState) fanoutHasStartedChildren() bool {
-	for _, child := range e.ActiveFanoutWindow {
-		if child.ChildProcessID != nil {
-			return true
+		if offset < len(outcomeFailures) && outcomeFailures[offset] != nil {
+			return *outcomeFailures[offset]
 		}
 	}
-	return false
+	return agent.Failure{}
 }
 
 func (e *executionState) finishStage() {
