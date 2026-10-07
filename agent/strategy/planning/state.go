@@ -137,8 +137,8 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 
 func (e executionState) validateProgress(definition *Definition) error {
 	if e.Phase == phaseCompleted {
-		if err := e.output(definition).Validate(); err != nil {
-			return fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
+		if len(e.Attempts) != 0 || len(e.WorldState.conditions) != 0 {
+			return fmt.Errorf("%w: completed planning repeats its Output", ErrInvalidExecutionState)
 		}
 		return nil
 	}
@@ -174,7 +174,6 @@ func (e *executionState) confirmAction(action Action) {
 	attempt := Attempt{ActionName: e.CurrentActionName, Status: AttemptSucceeded}
 	if !e.WorldState.Satisfies(action.effects...) {
 		attempt.Status = AttemptUnconfirmed
-		attempt.Diagnostic = "Reobservation did not establish the Action's predicted effects"
 	}
 	e.Attempts = append(e.Attempts, attempt)
 	e.CurrentActionName = ""
@@ -188,19 +187,19 @@ func (e *executionState) recordFailedAction(reason string) {
 }
 
 func (e *executionState) complete(ctx context.Context, definition *Definition) (Output, error) {
-	candidate := *e
-	candidate.Phase = phaseCompleted
-	candidate.CurrentActionName = ""
-	candidate.Child = childcall.Single{}
-	if err := candidate.validate(ctx, definition); err != nil {
+	if err := e.validate(ctx, definition); err != nil {
 		return Output{}, err
 	}
-	output := candidate.output(definition)
+	output := e.output(definition)
+	if err := output.Validate(); err != nil {
+		return Output{}, fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
+	}
 	output.Attempts = slices.Clone(output.Attempts)
 	if output.Attempts == nil {
 		output.Attempts = []Attempt{}
 	}
-	*e = candidate
+	// The Engine owns the completed Output; the state keeps only its marker.
+	*e = executionState{Phase: phaseCompleted, Input: e.Input}
 	return output, nil
 }
 

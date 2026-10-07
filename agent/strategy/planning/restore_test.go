@@ -47,7 +47,7 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 			valid: true,
 		},
 		{
-			name:    "unreachable completion",
+			name:    "completion marker",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]}}`),
 			valid:   true,
 		},
@@ -57,23 +57,14 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 				"unexpected":true}`),
 		},
 		{
-			name: "already achieved completion",
+			name: "completion repeats its world state",
 			payload: json.RawMessage(`{"phase":"completed","input":{},
 				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]}}`),
-			valid: true,
 		},
 		{
-			name: "achieved completion after an attempt",
-			payload: json.RawMessage(`{"phase":"completed","input":{},
-				"world_state":{"conditions":[{"key":"world.done","truth":"true"}]},
-				"attempts":[{"action_name":"finish","status":"succeeded"}]}`),
-			valid: true,
-		},
-		{
-			name: "stuck completion after an excluded attempt",
+			name: "completion repeats its attempts",
 			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
 				"attempts":[{"action_name":"finish","status":"failed","diagnostic":"refused"}]}`),
-			valid: true,
 		},
 		{
 			name: "current action was excluded by failure",
@@ -83,9 +74,9 @@ func TestRestoreValidatesPlanningFacts(t *testing.T) {
 		},
 		{
 			name: "attempt follows exclusion",
-			payload: json.RawMessage(`{"phase":"completed","input":{},"world_state":{"conditions":[]},
+			payload: json.RawMessage(`{"phase":"awaiting_sense","input":{},"world_state":{"conditions":[]},
 				"attempts":[
-				{"action_name":"finish","status":"unconfirmed","diagnostic":"prediction failed"},
+				{"action_name":"finish","status":"unconfirmed"},
 				{"action_name":"finish","status":"succeeded"}]}`),
 		},
 	}

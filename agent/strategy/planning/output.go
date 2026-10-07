@@ -61,8 +61,8 @@ func (a AttemptStatus) String() string {
 	return string(a)
 }
 
-// Attempt is one final, portable Action-attempt fact. Diagnostic is empty only
-// for a succeeded attempt.
+// Attempt is one final, portable Action-attempt fact. Only a failed attempt
+// has a Diagnostic: an unconfirmed attempt is fully explained by its Status.
 type Attempt struct {
 	ActionName string        `json:"action_name" jsonschema:"pattern=^[a-z][a-z0-9._-]{0\\,127}$"`
 	Status     AttemptStatus `json:"status" jsonschema:"enum=succeeded,enum=failed,enum=unconfirmed"`
@@ -75,14 +75,14 @@ func (a Attempt) Validate() error {
 	if !agent.ValidQualifiedName(a.ActionName) || !a.Status.Valid() {
 		return fmt.Errorf("%w: invalid Action attempt identity or status", ErrInvalidResult)
 	}
-	if a.Status == AttemptSucceeded {
+	if a.Status != AttemptFailed {
 		if a.Diagnostic != "" {
-			return fmt.Errorf("%w: succeeded Action attempt has a diagnostic", ErrInvalidResult)
+			return fmt.Errorf("%w: only a failed Action attempt has a diagnostic", ErrInvalidResult)
 		}
 		return nil
 	}
 	if !agent.ValidDiagnostic(a.Diagnostic) {
-		return fmt.Errorf("%w: failed or unconfirmed Action attempt requires a bounded diagnostic", ErrInvalidResult)
+		return fmt.Errorf("%w: failed Action attempt requires a bounded diagnostic", ErrInvalidResult)
 	}
 	return nil
 }
