@@ -84,7 +84,7 @@ func BenchmarkCompetitionRecovery(b *testing.B) {
 	for _, count := range []int{64, 256, 1024} {
 		starts, outcomes := competitionOutcomes(b, count)
 		state := firstSuccessState{Results: startSlots(starts)}
-		for index := range outcomes {
+		for index := range outcomes[:len(outcomes)-1] {
 			state.Results[index] = &CandidateResult{Outcome: &outcomes[index]}
 		}
 		input, err := agent.EncodePayload("input")
