@@ -78,21 +78,35 @@ func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
 func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
 	starts, outcomes := competitionOutcomes(t, 6)
 	execution := competitionExecution(t, starts)
+	var transition agent.Transition
 	for _, batch := range [][]agent.ChildOutcome{
 		{outcomes[1], outcomes[3], outcomes[5]},
 		{outcomes[0], outcomes[2], outcomes[4]},
 	} {
 		execution.state.WaitID = new(competitionWaitID(t))
 		signal := competitionCompletion(t, execution.state, batch)
-		if _, err := execution.Step(t.Context(), []agent.Signal{signal}); err != nil {
+		var err error
+		if transition, err = execution.Step(t.Context(), []agent.Signal{signal}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !slices.EqualFunc(observedOutcomes(execution.state), outcomes, sameOutcome) {
+	output, completed := transition.Output()
+	if !completed {
+		t.Fatalf("competition did not complete: %v", transition)
+	}
+	report, err := output.Decode[FirstSuccessResult]()
+	if err != nil || !report.Valid() {
+		t.Fatalf("complete competition result is invalid: %v", err)
+	}
+	var merged []agent.ChildOutcome
+	for _, candidate := range report.Candidates {
+		merged = append(merged, *candidate.Outcome)
+	}
+	if !slices.EqualFunc(merged, outcomes, sameOutcome) {
 		t.Fatal("merged outcomes changed candidate order or contents")
 	}
-	if !execution.state.result().Valid() {
-		t.Fatal("complete competition result is invalid")
+	if !execution.state.Completed || len(execution.state.Results) != 0 {
+		t.Fatal("completed competition state repeats its Output")
 	}
 }
 
@@ -219,18 +233,6 @@ func startSlots(starts []agent.ChildStartResult) []*CandidateResult {
 		results[index] = &CandidateResult{Start: &starts[index]}
 	}
 	return results
-}
-
-// observedOutcomes lists the outcomes that replaced start receipts, in
-// candidate order.
-func observedOutcomes(state firstSuccessState) []agent.ChildOutcome {
-	var outcomes []agent.ChildOutcome
-	for _, result := range state.Results {
-		if result != nil && result.Outcome != nil {
-			outcomes = append(outcomes, *result.Outcome)
-		}
-	}
-	return outcomes
 }
 
 func TestCompetitionStartSlotsMatchCandidatesInOrder(t *testing.T) {

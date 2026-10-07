@@ -26,8 +26,9 @@ type firstSuccessState struct {
 	// awaits its start receipt. Before declaration there are no results.
 	Results []*CandidateResult `json:"results,omitempty"`
 	WaitID  *agent.WaitID      `json:"wait_id,omitzero"`
-	// Winner is the accepted candidate's index in request order.
-	Winner *uint32 `json:"winner,omitzero"`
+	// Completed marks a finished competition. The Engine owns its
+	// FirstSuccessResult, so the state keeps neither results nor a winner.
+	Completed bool `json:"completed,omitzero"`
 }
 
 // admitted counts the results whose start receipts arrived; receipts fill
@@ -53,12 +54,12 @@ func (f firstSuccessState) observed() int {
 
 func (f firstSuccessState) phase() competitionPhase {
 	switch {
+	case f.Completed:
+		return competitionCompleted
 	case len(f.Results) == 0:
 		return competitionReady
 	case f.admitted() < len(f.Candidates):
 		return competitionAwaitingStarts
-	case f.Winner != nil || len(f.remaining()) == 0:
-		return competitionCompleted
 	case f.WaitID != nil:
 		return competitionWaiting
 	default:
@@ -94,9 +95,6 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 	if err := f.batch().Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if f.phase() != competitionCompleted && f.Winner != nil {
-		return fmt.Errorf("%w: unfinished competition contains a winner", ErrInvalidExecutionState)
-	}
 	return f.validatePhase()
 }
 
@@ -110,12 +108,12 @@ func (f firstSuccessState) validatePhase() error {
 		if f.WaitID != nil && !f.WaitID.Valid() {
 			return fmt.Errorf("%w: competition WaitID is invalid", ErrInvalidExecutionState)
 		}
-	case competitionCompleted:
-		if f.WaitID != nil {
-			return fmt.Errorf("%w: completed competition retains a wait", ErrInvalidExecutionState)
+		if len(f.remaining()) == 0 {
+			return fmt.Errorf("%w: a competition without running candidates has completed", ErrInvalidExecutionState)
 		}
-		if !f.result().Valid() {
-			return fmt.Errorf("%w: completed competition has an invalid result", ErrInvalidExecutionState)
+	case competitionCompleted:
+		if len(f.Results) != 0 || f.WaitID != nil {
+			return fmt.Errorf("%w: completed competition repeats its Output", ErrInvalidExecutionState)
 		}
 	}
 	return nil
@@ -166,15 +164,13 @@ func (f *firstSuccessState) recordOutcomes(indices []int, outcomes []agent.Child
 	}
 }
 
-func (f firstSuccessState) result() FirstSuccessResult {
+func (f firstSuccessState) result(winner *uint32) FirstSuccessResult {
 	result := FirstSuccessResult{Candidates: make([]CandidateResult, len(f.Results))}
 	for index, candidate := range f.Results {
 		if candidate != nil {
 			result.Candidates[index] = *candidate
 		}
 	}
-	if f.Winner != nil {
-		result.Winner = new(*f.Winner)
-	}
+	result.Winner = winner
 	return result
 }

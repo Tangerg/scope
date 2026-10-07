@@ -171,7 +171,7 @@ func (f *firstSuccessExecution) acceptStarts(signals []agent.Signal) (agent.Tran
 	if f.state.admitted() != len(f.state.Candidates) {
 		return agent.Continue(consumed)
 	}
-	return f.continueCompetition(consumed)
+	return f.continueCompetition(consumed, nil)
 }
 
 func (f *firstSuccessExecution) acceptWaitOpen(signals []agent.Signal) (agent.Transition, error) {
@@ -208,6 +208,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 	}
 	outcomes := satisfied.Outcomes()
 	f.state.recordOutcomes(indices, outcomes)
+	var winner *uint32
 	for offset, outcome := range outcomes {
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
@@ -221,20 +222,21 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 			return agent.Transition{}, fmt.Errorf("coordination: evaluate candidate %s: %w", candidate, err)
 		}
 		if accepted {
-			f.state.Winner = new(uint32(indices[offset]))
+			winner = new(uint32(indices[offset]))
 			break
 		}
 	}
-	return f.continueCompetition(1)
+	return f.continueCompetition(1, winner)
 }
 
-func (f *firstSuccessExecution) continueCompetition(consumed uint32) (agent.Transition, error) {
+func (f *firstSuccessExecution) continueCompetition(consumed uint32, winner *uint32) (agent.Transition, error) {
 	f.state.WaitID = nil
-	if f.state.Winner != nil || len(f.state.remaining()) == 0 {
-		output, err := agent.EncodePayload(f.state.result())
+	if winner != nil || len(f.state.remaining()) == 0 {
+		output, err := agent.EncodePayload(f.state.result(winner))
 		if err != nil {
 			return agent.Transition{}, err
 		}
+		f.state = firstSuccessState{Candidates: f.state.Candidates, Completed: true}
 		return agent.Complete(consumed, output)
 	}
 	spec, err := f.state.waitSpec()
