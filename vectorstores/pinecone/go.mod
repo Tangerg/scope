@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/pinecone
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.43.0
+	github.com/Tangerg/scope/core v0.44.0
 	github.com/pinecone-io/go-pinecone/v4 v4.1.4
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.83.2

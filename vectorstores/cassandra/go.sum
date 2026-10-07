@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.43.0 h1:CiRwRwr8e7bgN2wc8A00uNkl3iRvTi/H+RAJXRWP75c=
-github.com/Tangerg/scope/core v0.43.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/core v0.44.0 h1:F2r8ASDSxx7/8o0+Bqko4EWRNX37+s+fkIMw2lMuI78=
+github.com/Tangerg/scope/core v0.44.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/apache/cassandra-gocql-driver/v2 v2.1.2 h1:lu/p0Db2av18enHJvWJQoChLssI0P+AR06STq4VdvCc=
 github.com/apache/cassandra-gocql-driver/v2 v2.1.2/go.mod h1:QH/asJjB3mHvY6Dot6ZKMMpTcOrWJ8i9GhsvG1g0PK4=
 github.com/golang/snappy v1.0.0 h1:Oy607GVXHs7RtbggtPBnr2RmDArIsAefDwvrdWvRhGs=
