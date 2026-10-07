@@ -93,10 +93,11 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	e.state.recordStart(indices[0], started)
+	// A refused turn ends the collaboration; the Engine owns that Failure.
 	if failure, failed := started.Failure(); failed {
 		return agent.Fail(1, failure)
 	}
+	e.state.recordStart(indices[0], started)
 	return e.openWait(1)
 }
 
@@ -155,6 +156,20 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	}
 	decided := e.state.Turn.Outcome != nil
 	for offset, outcome := range satisfied.Outcomes() {
+		if indices[offset] != len(e.state.Tasks) {
+			continue
+		}
+		// A failed turn ends the collaboration before any decision applies;
+		// the Engine owns that Failure.
+		failure, failed, err := turnFailure(outcome)
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		if failed {
+			return agent.Fail(1, failure)
+		}
+	}
+	for offset, outcome := range satisfied.Outcomes() {
 		e.state.recordOutcome(indices[offset], outcome)
 	}
 	e.state.WaitID = nil
@@ -168,22 +183,23 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 }
 
 func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Transition, error) {
-	if e.state.Turn.unresolved() {
-		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
-		if failureErr != nil {
-			return agent.Transition{}, failureErr
-		}
-		return agent.Fail(consumed, failure)
-	}
 	decision, err := e.state.decision()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	result := e.state.Turn.Outcome.Result()
-	if failure, failed := result.Termination().Failure(); failed {
-		return agent.Fail(consumed, failure)
-	}
 	return e.applyDecision(ctx, decision, consumed)
+}
+
+// turnFailure reports the Failure a finished coordinator turn ends the
+// collaboration with: a failed coordinator, or one whose subtree retains
+// unresolved Effects and so cannot authorize a Decision.
+func turnFailure(outcome agent.ChildOutcome) (agent.Failure, bool, error) {
+	if !outcome.SubtreeResolved() {
+		failure, err := stepfail.Failure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
+		return failure, true, err
+	}
+	failure, failed := outcome.Result().Termination().Failure()
+	return failure, failed, nil
 }
 
 func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, error) {

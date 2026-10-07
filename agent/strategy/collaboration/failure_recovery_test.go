@@ -70,8 +70,8 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.phase(require(decoded.decision())) != phaseFailed {
-				t.Fatalf("failed turn was not retained: phase %d", decoded.phase(require(decoded.decision())))
+			if decoded.Turn.Outcome != nil || mode == "start" && decoded.Turn.Start != nil {
+				t.Fatal("terminal state repeats the failed turn the Engine owns")
 			}
 			if _, err := definition.Restore(t.Context(), state); err != nil {
 				t.Fatal(err)
@@ -79,12 +79,6 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			mutations := map[string]func(*executionState){
 				"retained initial state": func(state *executionState) { state.InitialState = input("forged") },
 				"invalid turn state":     func(state *executionState) { state.Turn.State = require(agent.EncodePayload(42)) },
-			}
-			if mode != "start" {
-				// A finished turn keeps only its outcome, which names its child.
-				mutations["retained start"] = func(state *executionState) {
-					state.Turn.Start = new(require(agent.ParseChildStartResult(require(agent.NewSignal(require(agent.ParseSignalID("signal:engine:start")), agent.WaitID{}, []byte(`{"operation":"start_child","process_id":"process:coordinator"}`))))))
-				}
 			}
 			for name, mutate := range mutations {
 				t.Run(name, func(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -23,19 +24,18 @@ const (
 	phaseOpening
 	phaseWaiting
 	phaseCompleted
-	phaseFailed
 )
 
 // turnExecution records what only the turn owns: its number, the working
-// state it opened with, and which task outcomes arrived after it opened. The
+// state it opened with, and whether a task outcome arrived after it opened. The
 // coordinator's Turn input is assembled from these, the current tasks and
 // controls, and the configured workers when the turn starts.
 type turnExecution struct {
 	Number uint64        `json:"number"`
 	State  agent.Payload `json:"state"`
-	// UnseenOutcomes lists, in arrival order, the tasks whose outcomes arrived
-	// while this turn ran and so are new to the next coordinator turn.
-	UnseenOutcomes []uint32                `json:"unseen_outcomes,omitempty"`
+	// OutcomeArrived reports a task outcome that arrived while this turn ran
+	// and so is new to the next coordinator turn. The tasks own which ones.
+	OutcomeArrived bool                    `json:"outcome_arrived,omitempty"`
 	Start          *agent.ChildStartResult `json:"start,omitzero"`
 	Outcome        *agent.ChildOutcome     `json:"outcome,omitzero"`
 }
@@ -51,28 +51,10 @@ func (t turnExecution) processID() (agent.ProcessID, bool) {
 	return agent.ProcessID{}, false
 }
 
-func (t turnExecution) unresolved() bool {
-	return t.Outcome != nil && !t.Outcome.SubtreeResolved()
-}
-
-// ended reports a turn that failed to produce a usable decision.
-func (t turnExecution) ended() bool {
-	_, failed := t.failure()
-	return failed || t.unresolved()
-}
-
-func (t turnExecution) failure() (agent.Failure, bool) {
-	if t.Outcome != nil {
-		return t.Outcome.Result().Termination().Failure()
-	}
-	if t.Start != nil {
-		return t.Start.Failure()
-	}
-	return agent.Failure{}, false
-}
-
+// decision decodes the recorded turn outcome. A failed turn is never
+// recorded: it ends the collaboration when it arrives.
 func (t turnExecution) decision() (Decision, error) {
-	if t.Outcome == nil || t.ended() {
+	if t.Outcome == nil {
 		return Decision{}, nil
 	}
 	result := t.Outcome.Result()
@@ -198,9 +180,7 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// phase derives the next protocol step. A turn fails, before any decision
-// applies, when its start fails or its drained outcome failed or retains
-// unresolved Effects.
+// phase derives the next protocol step.
 func (e executionState) phase(decision Decision) phase {
 	switch {
 	case e.Turn == nil:
@@ -209,8 +189,6 @@ func (e executionState) phase(decision Decision) phase {
 		return phaseCompleted
 	case e.Turn.Start == nil && e.Turn.Outcome == nil:
 		return phaseStartingTurn
-	case !decision.decided() && e.Turn.ended():
-		return phaseFailed
 	case e.unapplied() != 0:
 		return phaseApplying
 	case e.WaitID != nil:
@@ -342,7 +320,7 @@ func (e *executionState) recordOutcome(index int, outcome agent.ChildOutcome) {
 		return
 	}
 	e.Tasks[index].Start, e.Tasks[index].Outcome = nil, &outcome
-	e.Turn.UnseenOutcomes = append(e.Turn.UnseenOutcomes, uint32(index))
+	e.Turn.OutcomeArrived = true
 }
 
 // validateOutcomes requires each drained child to keep only its outcome,
@@ -563,11 +541,11 @@ func (e executionState) validateTurn(ctx context.Context, d *Definition, current
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.validateTurnStart(d, current); err != nil {
+	if err := e.validateTurnStart(); err != nil {
 		return err
 	}
 	if !decision.decided() {
-		return e.validateUndecidedTurn(current)
+		return e.validateUndecidedTurn()
 	}
 	return e.validateAppliedDecision(ctx, d, decision)
 }
@@ -579,28 +557,24 @@ func (e executionState) validateTurnInput(d *Definition) error {
 	if err := d.descriptor.ValidateInput(e.Turn.State); err != nil {
 		return fmt.Errorf("%w: turn input state: %w", ErrInvalidExecutionState, err)
 	}
-	seen := make(map[uint32]struct{}, len(e.Turn.UnseenOutcomes))
-	for _, index := range e.Turn.UnseenOutcomes {
-		if _, repeated := seen[index]; repeated || uint64(index) >= uint64(len(e.Tasks)) || e.Tasks[index].Outcome == nil {
-			return fmt.Errorf("%w: unseen task outcome %d is not a recorded outcome", ErrInvalidExecutionState, index)
-		}
-		seen[index] = struct{}{}
+	if e.Turn.OutcomeArrived && !slices.ContainsFunc(e.Tasks, func(task Task) bool { return task.Outcome != nil }) {
+		return fmt.Errorf("%w: an arrived task outcome is not recorded", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateTurnStart(d *Definition, current phase) error {
+func (e executionState) validateTurnStart() error {
 	if e.Turn.Start == nil && e.Turn.Outcome == nil {
 		return nil
 	}
-	if _, present := e.Turn.processID(); !present && current != phaseFailed {
+	if _, present := e.Turn.processID(); !present {
 		return fmt.Errorf("%w: turn process is absent", ErrInvalidExecutionState)
 	}
 	return nil
 }
 
-func (e executionState) validateUndecidedTurn(current phase) error {
-	if e.Turn.Outcome != nil && current != phaseFailed {
+func (e executionState) validateUndecidedTurn() error {
+	if e.Turn.Outcome != nil {
 		return fmt.Errorf("%w: turn without a decision retains an outcome", ErrInvalidExecutionState)
 	}
 	return nil
@@ -683,7 +657,7 @@ func (e executionState) validateActions(ctx context.Context, definition *Definit
 }
 
 func (e executionState) hasUnseenOutcome() bool {
-	return e.Turn != nil && len(e.Turn.UnseenOutcomes) != 0
+	return e.Turn != nil && e.Turn.OutcomeArrived
 }
 
 const turnPrefix = "collaboration.turn."
