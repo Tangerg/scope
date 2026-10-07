@@ -97,20 +97,18 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 
 func TestRestoreKeepsCompletionWithoutItsOutput(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
+	context := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}}
 	for _, test := range []struct {
 		name  string
-		calls uint64
+		state executionState
 		valid bool
 	}{
-		{name: "completed", calls: 1, valid: true},
-		{name: "no model call"},
+		{name: "completion marker", state: executionState{Completed: true}, valid: true},
+		{name: "repeated model calls", state: executionState{ModelCallCount: 1, Completed: true}},
+		{name: "repeated context", state: executionState{WorkingContext: context, Completed: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state, err := (executionState{
-				ModelCallCount: test.calls,
-				WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
-				Completed:      true,
-			}).snapshot()
+			state, err := test.state.snapshot()
 			if err != nil {
 				t.Fatal(err)
 			}

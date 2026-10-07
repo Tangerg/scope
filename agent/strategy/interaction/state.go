@@ -36,7 +36,8 @@ type executionState struct {
 	PendingSteer        *steerBatch      `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord `json:"artifact_records,omitempty"`
 	// Completed marks the Step that returned the final Output. The Engine owns
-	// that Output; the state never repeats it.
+	// that Output, including its model call count, so a completed state keeps
+	// nothing else.
 	Completed bool `json:"completed,omitzero"`
 }
 
@@ -99,6 +100,9 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	}
 	if !definition.valid() {
 		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
+	}
+	if e.Completed {
+		return e.validateCompletedState()
 	}
 	if !definition.maxModelCalls.Allows(e.ModelCallCount) {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
@@ -263,14 +267,13 @@ func (e *executionState) applyPendingSteer() ([]agent.SignalID, error) {
 }
 
 func (e *executionState) complete() {
-	e.ToolRound = nil
-	e.PendingSteer = nil
-	e.Completed = true
+	*e = executionState{Completed: true}
 }
 
 func (e executionState) validateCompletedState() error {
-	if e.ToolRound != nil || e.PendingSteer != nil || e.ModelCallCount == 0 {
-		return fmt.Errorf("%w: completed state retains pending work or issued no model call", ErrInvalidExecutionState)
+	if e.WorkingContext != nil || e.ModelCallCount != 0 || len(e.AdvertisedToolNames) != 0 ||
+		e.ToolRound != nil || e.PendingSteer != nil || len(e.ArtifactRecords) != 0 {
+		return fmt.Errorf("%w: completed Interaction repeats its Output", ErrInvalidExecutionState)
 	}
 	return nil
 }

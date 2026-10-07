@@ -130,6 +130,9 @@ func pendingRound(process agent.ProcessSnapshot) (*executionState, []chat.ToolCa
 	if err != nil {
 		return nil, nil, err
 	}
+	if state.Completed {
+		return nil, nil, nil
+	}
 	if envelopeErr := state.validateEnvelope(); envelopeErr != nil {
 		return nil, nil, envelopeErr
 	}
