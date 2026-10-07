@@ -162,6 +162,13 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","payload":1,"extra":1}`), &decoded); err == nil {
 		t.Fatal("accepted unknown member")
 	}
+	settled := []byte(`{"id":"signal:request","status":"succeeded","payload":1}`)
+	if err := jsonv2.Unmarshal(settled, &decoded); err == nil {
+		t.Fatal("request accepted a settlement status")
+	}
+	if err := controlValue(SchemaFor[SignalRequest]()).Validate(settled); err == nil {
+		t.Fatal("request schema advertises a settlement status")
+	}
 	mailbox := newSignalMailbox()
 	signal := controlValue(NewSignal(wait.openingSignalID(), wait, waitOpenedPayload()))
 	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal); err != nil {

@@ -3,8 +3,13 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+
+	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidSignalRequest = errors.New("agent: invalid signal request")
@@ -50,22 +55,25 @@ func (s SignalRequest) signal() (Signal, error) {
 }
 
 func (s SignalRequest) MarshalJSON() ([]byte, error) {
-	signal, err := s.signal()
-	if err != nil {
-		return nil, err
+	if !s.Valid() {
+		return nil, ErrInvalidSignalRequest
 	}
-	return signal.MarshalJSON()
+	wire := signalRequestWire{ID: s.id, Payload: s.payload}
+	if s.waitID.Valid() {
+		wire.WaitID = &s.waitID
+	}
+	return jsonv2.Marshal(wire)
 }
 
 func (s *SignalRequest) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return ErrInvalidSignalRequest
 	}
-	var signal Signal
-	if err := signal.UnmarshalJSON(data); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidSignalRequest, err)
+	wire, err := jsonwire.Decode[signalRequestWire](data)
+	if err != nil {
+		return fmt.Errorf("%w: decode: %w", ErrInvalidSignalRequest, err)
 	}
-	request, err := NewSignalRequest(signal.id, signal.waitID, signal.payload)
+	request, err := NewSignalRequest(wire.ID, lo.FromPtr(wire.WaitID), wire.Payload)
 	if err != nil {
 		return err
 	}
@@ -73,4 +81,12 @@ func (s *SignalRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (SignalRequest) JSONSchemaAlias() any { return signalWire{} }
+// signalRequestWire has no settlement status: only the Engine mints a
+// settlement delivery.
+type signalRequestWire struct {
+	ID      SignalID        `json:"id"`
+	WaitID  *WaitID         `json:"wait_id,omitzero"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+func (SignalRequest) JSONSchemaAlias() any { return signalRequestWire{} }
