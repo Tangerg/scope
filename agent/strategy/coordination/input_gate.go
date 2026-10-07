@@ -127,9 +127,10 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 		}
 	case gateAwaitingOpen:
 	case gateCompleted:
-		// A completed gate's answer is the Engine-owned Output, never repeated here.
-		if i.WaitID == nil {
-			return fmt.Errorf("%w: opened gate requires a WaitID", ErrInvalidExecutionState)
+		// A completed gate's answer, including the wait it addressed, is the
+		// Engine-owned Output, never repeated here.
+		if i.WaitID != nil {
+			return fmt.Errorf("%w: completed gate repeats its Output", ErrInvalidExecutionState)
 		}
 	default:
 		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidExecutionState, i.Phase)
@@ -211,11 +212,11 @@ func (i *inputGateExecution) acceptAnswer(signals []agent.Signal) (agent.Transit
 	if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
 	}
-	i.state.Phase = gateCompleted
 	output, err := agent.EncodePayload(answer)
 	if err != nil {
 		return agent.Transition{}, err
 	}
+	i.state = inputGateState{Phase: gateCompleted, Request: i.state.Request}
 	return agent.Complete(1, output)
 }
 

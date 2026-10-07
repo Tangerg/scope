@@ -2,6 +2,7 @@ package coordination_test
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
@@ -299,6 +300,22 @@ func TestInputGateRestoreDerivesWaitingFromWaitIdentity(t *testing.T) {
 			if err != nil || transition.Kind() != agent.TransitionKindComplete {
 				t.Fatalf("restored gate did not consume answer: %v", err)
 			}
+		}
+	}
+}
+
+func TestCompletedInputGateLeavesItsAnswerToTheEngine(t *testing.T) {
+	gate := inputGate(t)
+	for payload, valid := range map[string]bool{
+		`{"phase":"completed","request":"request"}`:                         true,
+		`{"phase":"completed","request":"request","wait_id":"wait:answer"}`: false,
+	} {
+		state, err := agent.ParseExecutionState("coordination.input_gate", json.RawMessage(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := gate.Restore(t.Context(), state); (err == nil) != valid || !valid && !errors.Is(err, coordination.ErrInvalidExecutionState) {
+			t.Fatalf("Restore(%s) = %v, want valid=%t", payload, err, valid)
 		}
 	}
 }
