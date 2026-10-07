@@ -638,17 +638,11 @@ func (e *Engine) RestoreTree(
 	if err = restoration.prepare(ctx); err != nil {
 		return nil, err
 	}
-	writer := restoration.runtime.writer
-	wire := restoration.wire
-	wire.IncarnationID = writer.incarnation()
-	prospectiveSnapshot, err := newTreeSnapshot(wire)
+	prospectiveSnapshot, err := restoration.runtime.writer.activate(ctx, snapshot, restoration.wire)
 	if err != nil {
 		return nil, err
 	}
-	if err = writer.activate(ctx, snapshot, prospectiveSnapshot); err != nil {
-		return nil, err
-	}
-	restoration.wire = wire
+	restoration.wire = prospectiveSnapshot.state
 
 	e.publishRestoredTree(restoration)
 	published = true

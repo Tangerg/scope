@@ -321,7 +321,7 @@ func TestRestoreStopsBetweenTasks(t *testing.T) {
 	state := executionState{Tasks: []Task{{Request: request("work", "test.echo", "x")}, {}}}
 	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
 	defer cancel()
-	if _, _, err := state.validateTasks(ctx, definition); !errors.Is(err, context.Canceled) {
+	if _, err := state.validateTasks(ctx, definition); !errors.Is(err, context.Canceled) {
 		t.Fatalf("task validation = %v, want cancellation before malformed second task", err)
 	}
 }

@@ -117,7 +117,7 @@ func (m *MemoryTreeCommitter) CommitCheckpoint(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkpoint.Kind() == TreeCheckpointKindStart {
-		return m.createHead(key, content, prospective)
+		return m.createHead(key, content, checkpoint.Sequence(), prospective)
 	}
 	return m.advanceHead(
 		key, content, checkpoint.Sequence(), checkpoint.PreviousTreeDigest(), prospective,
@@ -127,12 +127,13 @@ func (m *MemoryTreeCommitter) CommitCheckpoint(
 func (m *MemoryTreeCommitter) createHead(
 	key string,
 	content Digest,
+	sequence uint64,
 	prospective TreeSnapshot,
 ) error {
 	rootID := prospective.RootID()
 	if previous, exists := m.facts[key]; exists {
 		head := m.heads[rootID]
-		if previous == content && head.sequence == 1 && head.snapshot.Digest() == prospective.Digest() {
+		if previous == content && head.sequence == sequence && head.snapshot.Digest() == prospective.Digest() {
 			return nil
 		}
 		return commitContentConflict()
@@ -141,7 +142,7 @@ func (m *MemoryTreeCommitter) createHead(
 		return treeIncarnationConflict()
 	}
 	m.facts[key] = content
-	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: 1}
+	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: sequence}
 	return nil
 }
 

@@ -331,6 +331,17 @@ func (s *signalMailbox) commit(consumedSignals uint32) error {
 
 func (s *signalMailbox) acceptedCount() uint64 { return uint64(len(s.records)) }
 
+// settlementCount counts the records Effects settled.
+func (s *signalMailbox) settlementCount() uint64 {
+	var count uint64
+	for _, record := range s.records {
+		if record.source() == signalSourceSettlement {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *signalMailbox) pendingCount() uint64 {
 	return s.acceptedCount() - s.signalCursor
 }
@@ -421,11 +432,11 @@ func (w waitOpeningWire) wait() (waitRecord, error) {
 	}
 }
 
+// kind is the kind of the wait this opening restores; validated captures
+// always restore one.
 func (w waitOpeningWire) kind() WaitKind {
-	if w.Spec != nil {
-		return WaitKindChildren
-	}
-	return WaitKindExternal
+	wait, _ := w.wait()
+	return wait.kind()
 }
 
 type mailboxWire struct {
@@ -561,6 +572,17 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 		return nil, fmt.Errorf("%w: child-wait answer: %w", errWaitState, err)
 	}
 	return signal.payload, nil
+}
+
+// settlementCount counts the records Effects settled.
+func (m mailboxWire) settlementCount() uint64 {
+	var count uint64
+	for _, signal := range m.Signals {
+		if (signalRecord{id: signal.ID, waitID: lo.FromPtr(signal.WaitID)}).source() == signalSourceSettlement {
+			count++
+		}
+	}
+	return count
 }
 
 func (m mailboxWire) receipts() []SignalReceipt {

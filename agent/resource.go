@@ -253,6 +253,15 @@ func (t TreeLimits) validate() error {
 // admitsDepth reports whether a Process at depth may exist in this tree.
 func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
+// admitsPendingSignals is the one MaxPendingSignals rule: the unconsumed
+// suffix, and the suffix after the prepared Step consumes its inputs and
+// appends reserved settlements, each fit with incoming more Signals. Runtime
+// admission passes prospective arrivals; snapshot validation passes none.
+func (t TreeLimits) admitsPendingSignals(pending, afterPrepared, reserved, incoming uint64) bool {
+	return resourceQuantitiesFit(t.MaxPendingSignals, pending, incoming) &&
+		resourceQuantitiesFit(t.MaxPendingSignals, afterPrepared, reserved, incoming)
+}
+
 // admitsChildren reports whether one Process may hold children lifetime
 // children, active of which are non-terminal. Runtime admission checks the
 // prospective counts; snapshot validation checks the captured ones.
@@ -265,32 +274,13 @@ func (t TreeLimits) admitsTreeSize(processes uint64) bool {
 	return t.MaxTreeProcesses.Allows(processes)
 }
 
-// Only counters without an authoritative lifecycle record are stored separately.
-// PreparedEffects counts identities independently of quota policy; overflow is an error.
-// DroppedDeltas is best-effort telemetry and saturates instead of stopping work.
-type processCounters struct {
-	PreparedEffects uint64 `json:"prepared_effects"`
-	DroppedDeltas   uint64 `json:"dropped_deltas"`
-}
-
-// usage combines the stored counters with the two counts whose lifecycle
-// records own them: committed Steps and admitted mailbox entries.
-func (p processCounters) usage(committedSteps, acceptedSignals uint64) Usage {
+// processUsage projects Usage from the lifecycle records that own each count.
+// Every adopted Effect left exactly one settlement record in the mailbox, and
+// every other prepared Effect is still in the prepared Step. Dropped deltas
+// leave no record, so they alone are stored.
+func processUsage(committedSteps, acceptedSignals, settledEffects uint64, prepared *preparedStep, droppedDeltas uint64) Usage {
 	return Usage{
 		CommittedSteps: committedSteps, AcceptedSignals: acceptedSignals,
-		PreparedEffects: p.PreparedEffects, DroppedDeltas: p.DroppedDeltas,
+		PreparedEffects: settledEffects + prepared.settlementSignalCount(), DroppedDeltas: droppedDeltas,
 	}
-}
-
-func (p *processCounters) UnmarshalJSON(data []byte) error {
-	if p == nil {
-		return errors.New("agent: nil process counters receiver")
-	}
-	type wire processCounters
-	value, err := jsonwire.Decode[wire](data, "prepared_effects", "dropped_deltas")
-	if err != nil {
-		return err
-	}
-	*p = processCounters(value)
-	return nil
 }

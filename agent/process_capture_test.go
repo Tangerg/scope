@@ -207,7 +207,7 @@ func TestPreparedCandidatesDoNotMutateTheirSource(t *testing.T) {
 	if failure != nil {
 		t.Fatal(failure.cause)
 	}
-	if process.prepared != nil || process.counters.PreparedEffects != 0 {
+	if process.prepared != nil || process.usage().PreparedEffects != 0 {
 		t.Fatal("unadopted Step changed execution state")
 	}
 	process.adoptCandidate(step)

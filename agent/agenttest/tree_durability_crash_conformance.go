@@ -31,6 +31,19 @@ const (
 	crashCommitCheckpointTerminal
 )
 
+// childControlCommitKind names the settled commit a child control produces;
+// any other settled Effect is an ordinary settlement.
+func childControlCommitKind(operation childControlOperation) crashCommitKind {
+	switch operation {
+	case childControlSignal:
+		return crashCommitChildSignal
+	case childControlCancel:
+		return crashCommitChildCancel
+	default:
+		return crashCommitEffectSettled
+	}
+}
+
 func effectCommitKind(boundary agent.EffectBoundary) crashCommitKind {
 	switch boundary.Kind() {
 	case agent.EffectBoundaryKindPending:
@@ -38,14 +51,7 @@ func effectCommitKind(boundary agent.EffectBoundary) crashCommitKind {
 	case agent.EffectBoundaryKindResolved:
 		return crashCommitEffectResolved
 	case agent.EffectBoundaryKindSettled:
-		switch childControlOperationFor(boundary.Request().Effect()) {
-		case childControlSignal:
-			return crashCommitChildSignal
-		case childControlCancel:
-			return crashCommitChildCancel
-		default:
-			return crashCommitEffectSettled
-		}
+		return childControlCommitKind(childControlOperationFor(boundary.Request().Effect()))
 	default:
 		return crashCommitInvalid
 	}

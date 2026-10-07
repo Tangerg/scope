@@ -81,10 +81,10 @@ func runSignalAdmission(t *testing.T, driver TreeCommitterConformanceDriver, sce
 		t.Fatal("unacknowledged input changed published resource usage")
 	}
 	assertCrashEventAbsent(t, recorder, agent.EventSignalAccepted)
-	wantHead := before.Digest()
-	if scenario.phase == crashCommitAfter {
-		wantHead = observation.prospective.Digest()
+	if observation.previousDigest != before.Digest() {
+		t.Fatal("signal admission commit did not start from the acknowledged head")
 	}
+	wantHead := observation.durableDigest()
 	assertCrashHead(t, driver, process.ID(), wantHead)
 
 	scenario.release(gate)

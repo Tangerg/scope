@@ -52,9 +52,7 @@ func (t *toolAdvertiser) advertise(names []string) error {
 		return fmt.Errorf("%w: at least one Tool name is required", ErrInvalidToolAdvertisement)
 	}
 	for _, name := range names {
-		if name == "" || strings.TrimSpace(name) != name {
-			return fmt.Errorf("%w: tool name %q is empty or has surrounding whitespace", ErrInvalidToolAdvertisement, name)
-		}
+		// Bound deferred names are valid Tool names, so membership covers shape.
 		if !t.manifest.deferred(name) {
 			return fmt.Errorf("%w: tool %q is not deferred", ErrInvalidToolAdvertisement, name)
 		}

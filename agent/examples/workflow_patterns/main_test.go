@@ -31,7 +31,7 @@ func TestRoutingStartsOnlySelectedExactChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Route != "standard" || evidence.ProcessCount != 10 {
+	if report.Route != "standard" || evidence.ProcessCount() != 10 {
 		t.Fatalf("report=%#v evidence=%#v", report, evidence)
 	}
 	if evidence.Deployments["example.workflow_patterns.route_standard"] != 1 ||

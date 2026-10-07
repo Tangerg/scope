@@ -65,9 +65,6 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		if err != nil {
 			return "", err
 		}
-		if validateInputErr := inputSchema.Validate(input.JSON()); validateInputErr != nil {
-			return "", validateInputErr
-		}
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return "", err

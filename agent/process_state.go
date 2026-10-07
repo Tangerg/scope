@@ -37,7 +37,8 @@ type processState struct {
 	snapshot                ProcessSnapshot
 	snapshotSealed          bool
 
-	counters processCounters
+	// droppedDeltas is best-effort telemetry and saturates instead of stopping work.
+	droppedDeltas uint64
 
 	// Restore bookkeeping is consumed by the owner goroutine before admitting
 	// new work, preventing recovered effects from racing fresh execution.
@@ -152,8 +153,7 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	// also fit the settlements appended when that candidate is adopted.
 	remainingPending -= p.prepared.consumedSignals()
 	allocated := childAllocation
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, p.mailbox.pendingCount(), count) ||
-		!resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, reserved, count) ||
+	if !limits.admitsPendingSignals(p.mailbox.pendingCount(), remainingPending, reserved, count) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
 		return nil, ErrResourceLimitExceeded
 	}
@@ -379,16 +379,13 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 		}
 	}
 	effectCount := uint64(len(effects))
-	if !p.handle.budget.Effects.Allows(p.counters.PreparedEffects, childAllocation.Effects, effectCount) {
+	if !p.handle.budget.Effects.Allows(p.usage().PreparedEffects, childAllocation.Effects, effectCount) {
 		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitEffects, cause: ErrResourceLimitExceeded,
 		}
 	}
-	if !resourceQuantitiesFit(math.MaxUint64, p.counters.PreparedEffects, effectCount) {
-		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineCounterExhausted, cause: ErrCounterExhausted}
-	}
 	remainingPending := p.mailbox.pendingCount() - uint64(transition.ConsumedSignals())
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, remainingPending, effectCount) ||
+	if !limits.admitsPendingSignals(p.mailbox.pendingCount(), remainingPending, effectCount, 0) ||
 		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, effectCount) {
 		return nil, &stepFailure{
 			kind: FailureKindExecution, code: failureCodeEngineLimitSignals, cause: ErrResourceLimitExceeded,
@@ -415,7 +412,6 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	candidate := p.candidate()
 	candidate.prepared = &prepared
 	candidate.preparedExecution = result.candidate
-	candidate.counters.PreparedEffects += effectCount
 	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
 		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
 	}
@@ -591,7 +587,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 }
 
 func (p *processState) usage() Usage {
-	return p.counters.usage(p.committedSteps, p.mailbox.acceptedCount())
+	return processUsage(p.committedSteps, p.mailbox.acceptedCount(), p.mailbox.settlementCount(), p.prepared, p.droppedDeltas)
 }
 
 // An unadopted candidate and the executable instance restored for it live
@@ -621,7 +617,7 @@ func (p *processState) snapshotWire() processSnapshotWire {
 		Relation:      p.handle.relation,
 		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
 		CommittedSteps: p.committedSteps,
-		Budget:         p.handle.budget, Capabilities: p.handle.capabilities, Counters: p.counters,
+		Budget:         p.handle.budget, Capabilities: p.handle.capabilities, DroppedDeltas: p.droppedDeltas,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),
 		PauseReason: p.pause.reason, PendingControl: p.pendingControl.wire(),
 	}

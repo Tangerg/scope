@@ -36,7 +36,6 @@ type fanoutOutputs struct {
 	stageName    string
 	stageID      string
 	memberName   string
-	memberSchema agent.Schema
 	resultSchema agent.Schema
 }
 
@@ -52,9 +51,6 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.
 		output, err := agent.ParsePayload(encoded)
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
-		}
-		if validateOutputErr := f.memberSchema.Validate(output.JSON()); validateOutputErr != nil {
-			return nil, fmt.Errorf("%s %q %s %d output contract: %w", f.stageName, f.stageID, f.memberName, index, validateOutputErr)
 		}
 		decoded, err := output.Decode[T]()
 		if err != nil {

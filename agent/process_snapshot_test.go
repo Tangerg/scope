@@ -256,24 +256,17 @@ func TestSnapshotRejectsPreparedStepSequenceOverflow(t *testing.T) {
 
 func TestSnapshotAccountsForPreparedEffectIdentities(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
-	wire, err := snapshot.wire()
-	if err != nil {
+	wire := controlValue(snapshot.wire())
+	settled := wire.Mailbox.settlementCount()
+	if got, want := snapshot.Usage().PreparedEffects, settled+uint64(len(wire.Prepared.Effects)); got != want || want == settled {
+		t.Fatalf("prepared Effect usage = %d, want %d settled plus every prepared identity", got, want)
+	}
+	var fields map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, count := range []uint64{0, 1, 2} {
-		wire.Counters.PreparedEffects = count
-		data, encodeErr := jsonv2.Marshal(wire)
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-		_, parseErr := parseTestProcessSnapshot(data)
-		if count == 0 {
-			if !errors.Is(parseErr, ErrInvalidSnapshot) {
-				t.Errorf("uncounted prepared Effect parse error = %v; want ErrInvalidSnapshot", parseErr)
-			}
-		} else if parseErr != nil {
-			t.Errorf("counted prepared Effect with usage %d rejected: %v", count, parseErr)
-		}
+	if _, stored := fields["prepared_effects"]; stored {
+		t.Fatal("prepared Effect usage is stored beside the records that own it")
 	}
 }
 
@@ -411,7 +404,6 @@ func TestSnapshotEnforcesSequentialEffectProgress(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire.Counters.PreparedEffects = uint64(len(effects))
 			data, err := jsonv2.Marshal(wire)
 			if err != nil {
 				t.Fatal(err)
@@ -560,7 +552,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 
 func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 	for _, snapshot := range []ProcessSnapshot{completedEngineTestSnapshot(t), preparedEngineTestSnapshot(t)} {
-		for _, name := range []string{"committed_steps", "capabilities", "counters", "mailbox", "pending_control"} {
+		for _, name := range []string{"committed_steps", "capabilities", "dropped_deltas", "mailbox", "pending_control"} {
 			var fields map[string]json.RawMessage
 			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
 				t.Fatal(err)
@@ -568,21 +560,6 @@ func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 			delete(fields, name)
 			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
 				t.Fatalf("missing %s accepted: %v", name, err)
-			}
-		}
-		for _, name := range []string{"prepared_effects", "dropped_deltas"} {
-			var fields map[string]json.RawMessage
-			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
-				t.Fatal(err)
-			}
-			var counters map[string]json.RawMessage
-			if err := jsonv2.Unmarshal(fields["counters"], &counters); err != nil {
-				t.Fatal(err)
-			}
-			delete(counters, name)
-			fields["counters"] = controlValue(jsonv2.Marshal(counters))
-			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
-				t.Fatalf("missing counters.%s accepted: %v", name, err)
 			}
 		}
 	}

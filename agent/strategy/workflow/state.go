@@ -64,6 +64,22 @@ func (f *fanoutChildState) recordStart(start agent.ChildStartResult) {
 	}
 }
 
+// fanoutBatch is the window's child batch at stage.
+func (e executionState) fanoutBatch(stage Stage) (childcall.Batch, error) {
+	batch := childcall.Batch{Children: make([]childcall.Child, len(e.ActiveFanoutWindow))}
+	if e.FanoutWaitID != nil {
+		batch.WaitID = *e.FanoutWaitID
+	}
+	for offset, progress := range e.ActiveFanoutWindow {
+		key, err := fanoutChildKey(stage, e.fanoutWindowStart()+uint32(offset))
+		if err != nil {
+			return childcall.Batch{}, err
+		}
+		batch.Children[offset] = progress.child(key)
+	}
+	return batch, nil
+}
+
 func (f fanoutChildState) child(key agent.ChildKey) childcall.Child {
 	child := childcall.Child{Key: key, Done: f.ChildProcessID == nil && f.Failure != nil}
 	if f.ChildProcessID != nil {
@@ -190,6 +206,14 @@ func (e executionState) validateFanout(ctx context.Context, definition *Definiti
 	if err := validateFanoutWindow(current, window); err != nil {
 		return err
 	}
+	// The child batch owns key and Process uniqueness across the window.
+	batch, batchErr := e.fanoutBatch(stage)
+	if batchErr == nil {
+		batchErr = batch.Validate()
+	}
+	if batchErr != nil {
+		return fmt.Errorf("%w: fan-out children: %w", ErrInvalidExecutionState, batchErr)
+	}
 	return ctx.Err()
 }
 
@@ -234,8 +258,7 @@ func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindo
 	}
 	var summary fanoutWindowSummary
 	settled := 0
-	started := make(map[agent.ProcessID]struct{}, len(e.ActiveFanoutWindow))
-	for index, child := range e.ActiveFanoutWindow {
+	for _, child := range e.ActiveFanoutWindow {
 		if err := ctx.Err(); err != nil {
 			return fanoutWindowSummary{}, err
 		}
@@ -245,10 +268,7 @@ func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindo
 		if child.ChildProcessID == nil {
 			continue
 		}
-		if _, duplicate := started[*child.ChildProcessID]; duplicate {
-			return fanoutWindowSummary{}, fmt.Errorf("%w: fan-out child %d reuses process %q", ErrInvalidExecutionState, index, *child.ChildProcessID)
-		}
-		started[*child.ChildProcessID] = struct{}{}
+		summary.started++
 		if child.Failure != nil {
 			summary.failedAfterStart++
 		}
@@ -256,7 +276,7 @@ func (e executionState) validateFanoutChildren(ctx context.Context) (fanoutWindo
 	if settled != 0 && settled != len(e.ActiveFanoutWindow) {
 		return fanoutWindowSummary{}, fmt.Errorf("%w: fan-out window retains partially applied starts", ErrInvalidExecutionState)
 	}
-	summary.settled, summary.started = settled != 0, len(started)
+	summary.settled = settled != 0
 	return summary, nil
 }
 

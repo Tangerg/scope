@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 )
 
@@ -10,16 +9,15 @@ import (
 // head, and the single commit in flight. The commit sequence advances only
 // when the committer acknowledges a prospective head, and every boundary it
 // builds names that head as its predecessor. Only the tree owner goroutine
-// calls its methods; committing is the one fact readable from other
-// goroutines.
+// calls its methods; inFlight is atomic because Engine.Close also reads it
+// without the owner.
 type headWriter struct {
 	committer    TreeCommitter
 	identity     TreeIncarnationID
 	acknowledged TreeSnapshot
 	sequence     uint64
-	inFlight     *treeCommit
+	inFlight     atomic.Pointer[treeCommit]
 	done         chan treeCommitCompletion
-	busy         atomic.Bool
 }
 
 type treeCommitCompletion struct {
@@ -35,7 +33,7 @@ func (h *headWriter) incarnation() TreeIncarnationID { return h.identity }
 
 func (h *headWriter) head() TreeSnapshot { return h.acknowledged }
 
-func (h *headWriter) committing() bool { return h.inFlight != nil }
+func (h *headWriter) committing() bool { return h.inFlight.Load() != nil }
 
 // commitStart durably creates the tree: the first head is the only one with no
 // predecessor, and it opens this incarnation's commit sequence.
@@ -52,26 +50,28 @@ func (h *headWriter) commitStart(ctx context.Context, snapshot TreeSnapshot) err
 	return nil
 }
 
-// activate fences the previous writer of snapshot's tree and adopts snapshot,
-// which must carry this writer's identity, as the head of a fresh sequence.
-func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, snapshot TreeSnapshot) error {
-	if snapshot.IncarnationID() != h.identity {
-		return errors.New("agent: activation snapshot does not belong to this writer")
+// activate fences the previous writer of the tree and adopts wire, stamped
+// with this writer's identity, as the head of a fresh sequence.
+func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, wire treeSnapshotWire) (TreeSnapshot, error) {
+	wire.IncarnationID = h.identity
+	snapshot, err := newTreeSnapshot(wire)
+	if err != nil {
+		return TreeSnapshot{}, err
 	}
 	activation, err := newTreeActivation(previous.IncarnationID(), previous.Digest(), snapshot)
 	if err != nil {
-		return err
+		return TreeSnapshot{}, err
 	}
 	if err := activateTree(ctx, h.committer, activation); err != nil {
-		return err
+		return TreeSnapshot{}, err
 	}
 	h.establish(snapshot)
-	return nil
+	return snapshot, nil
 }
 
 func (h *headWriter) establish(snapshot TreeSnapshot) {
-	if !snapshot.Valid() || snapshot.IncarnationID() != h.identity {
-		panic("agent: durable tree head does not belong to this writer")
+	if !snapshot.Valid() {
+		panic("agent: durable tree head is invalid")
 	}
 	h.acknowledged = snapshot
 }
@@ -102,11 +102,9 @@ func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, c
 }
 
 func (h *headWriter) launch(commit *treeCommit, call func() error) {
-	if commit == nil || h.inFlight != nil {
+	if commit == nil || !h.inFlight.CompareAndSwap(nil, commit) {
 		panic("agent: invalid concurrent tree commit")
 	}
-	h.inFlight = commit
-	h.busy.Store(true)
 	go func() {
 		h.done <- treeCommitCompletion{commit: commit, err: call()}
 	}()
@@ -116,12 +114,11 @@ func (h *headWriter) launch(commit *treeCommit, call func() error) {
 // answer makes its snapshot the acknowledged head. Answers for any other
 // commit are ignored.
 func (h *headWriter) settle(completion treeCommitCompletion) (*treeCommit, bool) {
-	commit := h.inFlight
+	commit := h.inFlight.Load()
 	if commit == nil || completion.commit != commit {
 		return nil, false
 	}
-	h.inFlight = nil
-	h.busy.Store(false)
+	h.inFlight.Store(nil)
 	if completion.err == nil {
 		h.acknowledged = commit.snapshot
 		h.sequence++

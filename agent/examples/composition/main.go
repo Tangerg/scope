@@ -28,6 +28,12 @@ const (
 
 var compositionChildKeys = [compositionChildCount]string{"local", "model"}
 
+// uppercaseStateKind names the Definition and its ExecutionState kind.
+const uppercaseStateKind = "example.uppercase"
+
+// compositionStateKind names the Definition and its ExecutionState kind.
+const compositionStateKind = "example.composition"
+
 func main() {
 	if err := run(context.Background(), os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -106,7 +112,7 @@ func newUppercaseDeployment() (agent.Deployment, error) {
 		return agent.Deployment{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "example.uppercase", Description: "Return input text in uppercase.",
+		Name: uppercaseStateKind, Description: "Return input text in uppercase.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
@@ -135,7 +141,7 @@ func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error
 }
 
 func (*uppercaseDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	execution, err := state.Decode[uppercaseExecution]("example.uppercase")
+	execution, err := state.Decode[uppercaseExecution](uppercaseStateKind)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +173,7 @@ func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("example.uppercase", payload)
+	return agent.ParseExecutionState(uppercaseStateKind, payload)
 }
 
 func newModelDeployment() (agent.Deployment, error) {
@@ -221,7 +227,7 @@ func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, 
 		return agent.Deployment{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "example.composition", Description: "Compose deterministic local and model child Processes.",
+		Name: compositionStateKind, Description: "Compose deterministic local and model child Processes.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
@@ -261,7 +267,7 @@ func (c *compositionDefinition) Restore(ctx context.Context, state agent.Executi
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	decoded, err := state.Decode[compositionState]("example.composition")
+	decoded, err := state.Decode[compositionState](compositionStateKind)
 	if err != nil {
 		return nil, err
 	}
@@ -324,20 +330,29 @@ func (c compositionState) validChildren() bool {
 		c.ChildIDs[0] != c.ChildIDs[1]
 }
 
-func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
-	if c.WaitID == nil || completed.WaitID() != *c.WaitID {
-		return nil, errors.New("composition received another wait's result")
+// compositionWaitSpec is the one wait the composition opens over children.
+func compositionWaitSpec(children []agent.ProcessID) (agent.ChildWaitSpec, error) {
+	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
+	if err != nil {
+		return agent.ChildWaitSpec{}, err
 	}
-	outcomes := completed.Outcomes()
-	if len(outcomes) != compositionChildCount {
+	return agent.ChildWaitSpec{
+		Boundary: agent.ChildWaitBoundaryDrained,
+		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
+	}, nil
+}
+
+// waitOutcomes lets ChildWaitSatisfied.Matches correlate the answer with the
+// wait this state opened.
+func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
+	spec, err := compositionWaitSpec(c.ChildIDs)
+	if err != nil {
+		return nil, err
+	}
+	if c.WaitID == nil || !completed.Matches(*c.WaitID, spec) {
 		return nil, agent.ErrInvalidChildWait
 	}
-	for index, outcome := range outcomes {
-		if outcome.Result().ProcessID() != c.ChildIDs[index] {
-			return nil, agent.ErrInvalidChildWait
-		}
-	}
-	return outcomes, nil
+	return completed.Outcomes(), nil
 }
 
 type compositionExecution struct {
@@ -441,14 +456,11 @@ func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Tr
 	if failure != nil {
 		return agent.Fail(compositionChildCount, *failure)
 	}
-	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
+	spec, err := compositionWaitSpec(children)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	waitEffect, err := agent.NewChildWaitEffect(agent.ChildWaitSpec{
-		Boundary: agent.ChildWaitBoundaryDrained,
-		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
-	})
+	waitEffect, err := agent.NewChildWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -522,7 +534,7 @@ func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("example.composition", payload)
+	return agent.ParseExecutionState(compositionStateKind, payload)
 }
 
 type compositionModel struct{}

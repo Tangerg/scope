@@ -195,8 +195,8 @@ func TestUnlimitedChildReservationRollbackPreservesExistingAllocation(t *testing
 	}
 }
 
-func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
-	runtime, process := newChildCompletionTestProcess(t)
+func TestUnlimitedStepSequenceStopsBeforeWrap(t *testing.T) {
+	_, process := newChildCompletionTestProcess(t)
 	process.handle.budget = Budget{}
 	process.committedSteps = ^uint64(0)
 	if failure := process.stepSchedulingFailure(resourceAmounts{}); failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) {
@@ -204,13 +204,6 @@ func TestUnlimitedExecutionCountersStopBeforeWrap(t *testing.T) {
 	}
 	if process.committedSteps != ^uint64(0) {
 		t.Fatal("step sequence wrapped")
-	}
-	process.committedSteps = 0
-	process.counters.PreparedEffects = ^uint64(0)
-	effect := controlValue(NewWaitEffect(controlValue(ParseWaitKey("counter"))))
-	failure := prepareTestStep(process, runtime.treeLimits, stepJobResult{transition: controlValue(Continue(0, effect)), candidate: process.execution, candidateState: process.committedExecutionState})
-	if failure == nil || !errors.Is(failure.cause, ErrCounterExhausted) || process.prepared != nil || process.counters.PreparedEffects != ^uint64(0) {
-		t.Fatalf("effect overflow mutated state: %+v", failure)
 	}
 }
 

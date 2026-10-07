@@ -16,11 +16,6 @@ func prepareRestoredProcess(
 	if err != nil {
 		return nil, err
 	}
-	if wire.DeploymentRef != deployment.DeploymentRef() {
-		return nil, fmt.Errorf(
-			"%w: exact Deployment does not match", ErrInvalidSnapshot,
-		)
-	}
 	if output := lo.FromPtr(wire.Finish).Output; output.Valid() {
 		if validateOutputErr := deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, fmt.Errorf(
@@ -65,7 +60,7 @@ func restoreProcessState(
 		handle: handle, execution: execution,
 		committedSteps:          wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
-		counters: wire.Counters,
+		droppedDeltas: wire.DroppedDeltas,
 	}
 	if wire.CurrentWaitID != nil {
 		process.currentWaitID = *wire.CurrentWaitID

@@ -101,15 +101,15 @@ func TestJoinReadinessSurvivesCommitAndFreeze(t *testing.T) {
 		t.Run(barrier, func(t *testing.T) {
 			runtime, completed := waitingOwnerFixture(t, 1)
 			if barrier == "commit" {
-				runtime.writer.inFlight = &treeCommit{}
+				runtime.writer.inFlight.Store(&treeCommit{})
 			} else {
-				runtime.freeze.active = &activeTreeFreeze{}
+				runtime.freeze.active.Store(&activeTreeFreeze{})
 			}
 			if runtime.publishJoins() || completed.handle.joinDone() {
 				t.Fatal("join crossed a publication barrier")
 			}
-			runtime.writer.inFlight = nil
-			runtime.freeze.active = nil
+			runtime.writer.inFlight.Store(nil)
+			runtime.freeze.active.Store(nil)
 			if !runtime.publishJoins() || !completed.handle.joinDone() || completed.handle.joinError() != nil {
 				t.Fatal("releasing the barrier lost a ready join")
 			}

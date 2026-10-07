@@ -17,7 +17,6 @@ const (
 	failureSuffixChildNotCompleted = "child_not_completed"
 	failureSuffixNotCompleted      = "not_completed"
 	failureSuffixOutputMissing     = "output_missing"
-	failureSuffixOutputInvalid     = "output_invalid"
 	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
 )
 
@@ -128,9 +127,7 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return nil, fmt.Errorf("transform %q input: %w", id, err)
 		}
-		if validateInputErr := inputSchema.Validate(input.JSON()); validateInputErr != nil {
-			return nil, fmt.Errorf("transform %q input contract: %w", id, validateInputErr)
-		}
+		// The value's producer and Restore already hold it to this Stage's input.
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return nil, fmt.Errorf("transform %q decode input: %w", id, err)
@@ -224,13 +221,6 @@ func (s Stage) fanoutOutcome(
 		)
 		return &failure, nil, err
 	}
-	if err := s.fanout.outputSchema.Validate(output.JSON()); err != nil {
-		failure, failureErr := stepfail.Failure(
-			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputInvalid),
-			s.fanoutFailureMessage(index, "violated its Output contract"),
-		)
-		return &failure, nil, failureErr
-	}
 	return nil, output.JSON(), nil
 }
 
@@ -282,7 +272,7 @@ func (s Stage) topology() StageTopology {
 	case StageKindLoop:
 		projected.MaxIterations = new(s.loop.maxIterations)
 		projected.Bindings = []BindingTopology{s.loop.binding.topology(
-			BindingRoleBody, "", s.loop.valueSchema, s.loop.valueSchema,
+			BindingRoleBody, "", s.inputSchema, s.inputSchema,
 		)}
 	}
 	return projected

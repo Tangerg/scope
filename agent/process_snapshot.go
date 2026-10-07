@@ -87,7 +87,7 @@ type processSnapshotDocument struct {
 // reset usage, authority, mailbox history, or pending control intent.
 var processSnapshotRequiredMembers = []string{
 	"process_id", "deployment_ref", "started_at", "committed_steps",
-	"budget", "capabilities", "counters",
+	"budget", "capabilities", "dropped_deltas",
 	"committed_execution_state", "mailbox", "pending_control",
 }
 
@@ -343,7 +343,7 @@ type processSnapshotWire struct {
 	CommittedSteps          uint64             `json:"committed_steps"`
 	Budget                  Budget             `json:"budget"`
 	Capabilities            CapabilitySet      `json:"capabilities"`
-	Counters                processCounters    `json:"counters"`
+	DroppedDeltas           uint64             `json:"dropped_deltas"`
 	CommittedExecutionState ExecutionState     `json:"committed_execution_state"`
 	Mailbox                 mailboxWire        `json:"mailbox"`
 	Prepared                *preparedStep      `json:"prepared,omitzero"`
@@ -389,7 +389,7 @@ func (p processSnapshotWire) admissionSize(limits TreeLimits) (uint64, error) {
 		// Current and pending control fields reserve independently, including
 		// a Step pause racing a Host pause.
 		p.PauseReason = reservation.reason(maxPauseReasonBytes)
-		p.Counters.DroppedDeltas = math.MaxUint64
+		p.DroppedDeltas = math.MaxUint64
 		p.PendingControl = pendingControlWire{
 			Failure: &failure, KillReason: reservation.reason(maxTerminationReasonBytes), PauseReason: reservation.reason(maxPauseReasonBytes),
 			Deadline:     &deadlineIntentWire{Owner: deadlineOwnerParent, Reason: reservation.reason(maxTerminationReasonBytes)},
@@ -530,8 +530,7 @@ func (p ProcessSnapshot) validateCapacity(limits TreeLimits) error {
 	}
 	pending := uint64(len(p.state.Mailbox.Signals)) - p.state.Mailbox.SignalCursor
 	remaining, reserved, _ := p.state.pendingSignals()
-	if !resourceQuantitiesFit(limits.MaxPendingSignals, pending) ||
-		!resourceQuantitiesFit(limits.MaxPendingSignals, remaining, reserved) {
+	if !limits.admitsPendingSignals(pending, remaining, reserved, 0) {
 		return fmt.Errorf("%w: pending Signals exceed MaxPendingSignals", ErrInvalidSnapshot)
 	}
 	if !limits.MaxProcessSnapshotBytes.Allows(uint64(len(p.data))) {
@@ -557,9 +556,6 @@ func (p processSnapshotWire) validatePrepared(mailbox signalMailbox) error {
 		if p.terminal() && record.phase() == effectPhasePending {
 			return fmt.Errorf("%w: terminal Process cannot retain pending Effects", ErrInvalidSnapshot)
 		}
-	}
-	if p.usage().PreparedEffects < p.Prepared.settlementSignalCount() {
-		return fmt.Errorf("%w: prepared Effect identities exceed recorded usage", ErrInvalidSnapshot)
 	}
 	return nil
 }
@@ -671,5 +667,5 @@ func (p processSnapshotWire) result() (Result, bool) {
 }
 
 func (p processSnapshotWire) usage() Usage {
-	return p.Counters.usage(p.CommittedSteps, uint64(len(p.Mailbox.Signals)))
+	return processUsage(p.CommittedSteps, uint64(len(p.Mailbox.Signals)), p.Mailbox.settlementCount(), p.Prepared, p.DroppedDeltas)
 }

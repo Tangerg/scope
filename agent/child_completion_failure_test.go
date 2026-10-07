@@ -158,7 +158,6 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent.prepared = &preparedStep{Effects: []preparedEffect{record}}
-	parent.counters.PreparedEffects = 1
 	runtime.advancePrepared(parent)
 	result := parent.result()
 	if result.Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {

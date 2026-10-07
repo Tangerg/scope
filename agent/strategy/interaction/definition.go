@@ -84,7 +84,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		return nil, err
 	}
 	delegates := slices.Clone(config.Delegates)
-	names, err := indexDelegates(delegates, config.Tools.manifest)
+	names, err := indexDelegates(delegates, config.Tools.manifest())
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		delegates:              delegates,
 		delegatesByName:        names,
 		completionValidator:    config.CompletionValidator,
-		tools:                  config.Tools.manifest,
+		tools:                  config.Tools.manifest(),
 		toolDeployment:         config.Tools.deployment,
 		toolBudget:             config.ToolBudget,
 		toolCapabilities:       config.ToolCapabilities,

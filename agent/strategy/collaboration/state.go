@@ -402,7 +402,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := e.validateOutcomes(ctx); err != nil {
 		return err
 	}
-	pending, ids, err := e.validateTasks(ctx, d)
+	pending, err := e.validateTasks(ctx, d)
 	if err != nil {
 		return err
 	}
@@ -414,7 +414,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if current == phaseReady {
 		return e.validateReady()
 	}
-	if err := e.validateTurn(ctx, d, ids, current, decision); err != nil {
+	if err := e.validateTurn(ctx, d, current, decision); err != nil {
 		return err
 	}
 	if err := e.validatePhaseEvidence(current, pending+pendingControls); err != nil {
@@ -422,6 +422,14 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	}
 	if err := e.validatePhaseProgress(d, current, decision.Mode); err != nil {
 		return err
+	}
+	// The child batch owns key and Process uniqueness across tasks and turn.
+	batch, batchErr := e.batch(d)
+	if batchErr == nil {
+		batchErr = batch.Validate()
+	}
+	if batchErr != nil {
+		return fmt.Errorf("%w: children: %w", ErrInvalidExecutionState, batchErr)
 	}
 	return ctx.Err()
 }
@@ -492,53 +500,41 @@ func (e executionState) validateWaitingTurn(d *Definition, mode Mode) error {
 	return nil
 }
 
-func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, map[agent.ProcessID]struct{}, error) {
+func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, nil, err
+		return 0, err
 	}
 	pending, active := 0, 0
-	ids := make(map[agent.ProcessID]struct{}, len(e.Tasks))
-	keys := make(map[agent.ChildKey]struct{}, len(e.Tasks))
 	for index, task := range e.Tasks {
 		if err := ctx.Err(); err != nil {
-			return 0, nil, err
+			return 0, err
 		}
 		if err := d.validateRequest(task.Request); err != nil {
-			return 0, nil, fmt.Errorf("%w: task %d request: %w", ErrInvalidExecutionState, index, err)
+			return 0, fmt.Errorf("%w: task %d request: %w", ErrInvalidExecutionState, index, err)
 		}
-		if _, duplicate := keys[task.Request.Key]; duplicate {
-			return 0, nil, fmt.Errorf("%w: task %d duplicates key %q", ErrInvalidExecutionState, index, task.Request.Key)
-		}
-		keys[task.Request.Key] = struct{}{}
 		worker, _ := d.worker(task.Request.Worker)
 		if task.Start == nil && task.Outcome == nil {
 			pending++
 		} else {
 			if pending > 0 {
-				return 0, nil, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidExecutionState, index)
+				return 0, fmt.Errorf("%w: task %d start follows a pending start", ErrInvalidExecutionState, index)
 			}
-			if id, present := task.processID(); present {
-				if _, duplicate := ids[id]; duplicate {
-					return 0, nil, fmt.Errorf("%w: task %d reuses process %q", ErrInvalidExecutionState, index, id)
-				}
-				ids[id] = struct{}{}
-				if task.Outcome == nil {
-					active++
-				}
+			if _, present := task.processID(); present && task.Outcome == nil {
+				active++
 			}
 		}
 		if task.Outcome != nil {
 			if output, completed := task.Outcome.Result().Output(); completed {
 				if err := worker.deployment.Descriptor().ValidateOutput(output); err != nil {
-					return 0, nil, fmt.Errorf("%w: task %d output: %w", ErrInvalidExecutionState, index, err)
+					return 0, fmt.Errorf("%w: task %d output: %w", ErrInvalidExecutionState, index, err)
 				}
 			}
 		}
 	}
 	if uint64(active+pending) > uint64(d.maxConcurrentTasks) {
-		return 0, nil, fmt.Errorf("%w: active and pending tasks exceed concurrency bound", ErrInvalidExecutionState)
+		return 0, fmt.Errorf("%w: active and pending tasks exceed concurrency bound", ErrInvalidExecutionState)
 	}
-	return pending, ids, nil
+	return pending, nil
 }
 
 func (e executionState) validateControls(ctx context.Context, pending int) (int, error) {
@@ -563,11 +559,11 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 	return pendingControls, nil
 }
 
-func (e executionState) validateTurn(ctx context.Context, d *Definition, ids map[agent.ProcessID]struct{}, current phase, decision Decision) error {
+func (e executionState) validateTurn(ctx context.Context, d *Definition, current phase, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.validateTurnStart(d, ids, current); err != nil {
+	if err := e.validateTurnStart(d, current); err != nil {
 		return err
 	}
 	if !decision.decided() {
@@ -593,14 +589,12 @@ func (e executionState) validateTurnInput(d *Definition) error {
 	return nil
 }
 
-func (e executionState) validateTurnStart(d *Definition, ids map[agent.ProcessID]struct{}, current phase) error {
+func (e executionState) validateTurnStart(d *Definition, current phase) error {
 	if e.Turn.Start == nil && e.Turn.Outcome == nil {
 		return nil
 	}
-	id, present := e.Turn.processID()
-	_, reused := ids[id]
-	if !present && current != phaseFailed || reused {
-		return fmt.Errorf("%w: turn process is absent or reused by a task", ErrInvalidExecutionState)
+	if _, present := e.Turn.processID(); !present && current != phaseFailed {
+		return fmt.Errorf("%w: turn process is absent", ErrInvalidExecutionState)
 	}
 	return nil
 }

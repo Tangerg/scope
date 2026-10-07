@@ -19,14 +19,13 @@ import (
 )
 
 const (
-	acceptanceThreshold       = 0.9
-	maximumOptimizationRounds = 3
-	workerBudgetSteps         = 8
-	workerBudgetEffects       = 4
-	workerBudgetSignals       = 8
-	iterationBudgetSteps      = 64
-	iterationBudgetEffects    = 32
-	iterationBudgetSignals    = 64
+	acceptanceThreshold    = 0.9
+	workerBudgetSteps      = 8
+	workerBudgetEffects    = 4
+	workerBudgetSignals    = 8
+	iterationBudgetSteps   = 64
+	iterationBudgetEffects = 32
+	iterationBudgetSignals = 64
 )
 
 func main() {
@@ -42,7 +41,6 @@ func run(ctx context.Context, output io.Writer) error {
 		optimizationRequest{Objective: "improve the release draft"},
 		[]float64{0.4, 0.7, 0.95},
 		acceptanceThreshold,
-		maximumOptimizationRounds,
 	)
 	if err != nil {
 		return err
@@ -55,7 +53,7 @@ func run(ctx context.Context, output io.Writer) error {
 		report.best().Assessment.Score,
 		len(report.History),
 		report.Accepted,
-		evidence.ProcessCount,
+		evidence.ProcessCount(),
 	)
 	return err
 }
@@ -158,8 +156,16 @@ func (o optimizationReport) best() attempt {
 }
 
 type executionEvidence struct {
-	ProcessCount int
-	Deployments  map[string]int
+	Deployments map[string]int
+}
+
+// ProcessCount totals the Processes the Deployment counts already record.
+func (e executionEvidence) ProcessCount() int {
+	count := 0
+	for _, processes := range e.Deployments {
+		count += processes
+	}
+	return count
 }
 
 func execute(
@@ -167,9 +173,8 @@ func execute(
 	request optimizationRequest,
 	scores []float64,
 	threshold float64,
-	maxIterations uint64,
 ) (_ optimizationReport, _ executionEvidence, err error) {
-	root, err := newEvaluatorOptimizer(scores, threshold, maxIterations)
+	root, err := newEvaluatorOptimizer(scores, threshold)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -203,8 +208,7 @@ func execute(
 	}
 	snapshots := tree.ProcessSnapshots()
 	evidence := executionEvidence{
-		ProcessCount: len(snapshots),
-		Deployments:  make(map[string]int),
+		Deployments: make(map[string]int),
 	}
 	for _, snapshot := range snapshots {
 		evidence.Deployments[snapshot.DeploymentRef().Name()]++
@@ -212,12 +216,10 @@ func execute(
 	return report, evidence, nil
 }
 
-func newEvaluatorOptimizer(
-	scores []float64,
-	threshold float64,
-	maxIterations uint64,
-) (agent.Deployment, error) {
-	frozenScores, err := validateScoreSchedule(scores, threshold, maxIterations)
+// newEvaluatorOptimizer runs one iteration per scheduled score: the schedule
+// owns the iteration bound.
+func newEvaluatorOptimizer(scores []float64, threshold float64) (agent.Deployment, error) {
+	frozenScores, err := validateScoreSchedule(scores, threshold)
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -233,25 +235,21 @@ func newEvaluatorOptimizer(
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	root, err := newOptimizationRoot(iteration, threshold, maxIterations)
+	root, err := newOptimizationRoot(iteration, threshold, uint64(len(frozenScores)))
 	if err != nil {
 		return agent.Deployment{}, err
 	}
 	return root, nil
 }
 
-func validateScoreSchedule(
-	scores []float64,
-	threshold float64,
-	maxIterations uint64,
-) ([]float64, error) {
-	if maxIterations == 0 || len(scores) != int(maxIterations) {
-		return nil, errors.New("score schedule must contain exactly one score per configured iteration")
+func validateScoreSchedule(scores []float64, threshold float64) ([]float64, error) {
+	if len(scores) == 0 {
+		return nil, errors.New("score schedule must contain at least one iteration")
 	}
 	if !validScore(threshold) || threshold == 0 {
 		return nil, errors.New("acceptance threshold must be within (0, 1]")
 	}
-	frozenScores := slices.Clone(scores[:maxIterations])
+	frozenScores := slices.Clone(scores)
 	for index, score := range frozenScores {
 		if !validScore(score) {
 			return nil, fmt.Errorf("score schedule entry %d must be within [0, 1]", index)

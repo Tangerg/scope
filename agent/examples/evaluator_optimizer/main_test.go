@@ -35,12 +35,11 @@ func TestExhaustionReturnsBestAttemptNotLatestAttempt(t *testing.T) {
 		optimizationRequest{Objective: "retain the best revision"},
 		[]float64{0.5, 0.9, 0.3},
 		0.95,
-		3,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Accepted || len(report.History) != 3 || evidence.ProcessCount != 10 {
+	if report.Accepted || len(report.History) != 3 || evidence.ProcessCount() != 10 {
 		t.Fatalf("report=%#v evidence=%#v", report, evidence)
 	}
 	if report.best() != report.History[1] || report.best().Assessment.Score != 0.9 {
@@ -64,7 +63,6 @@ func TestAcceptedAttemptStopsBeforeLimit(t *testing.T) {
 		optimizationRequest{Objective: "stop at the first accepted revision"},
 		[]float64{0.95, 0.2, 0.1},
 		0.9,
-		3,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +71,7 @@ func TestAcceptedAttemptStopsBeforeLimit(t *testing.T) {
 		t.Fatalf("report=%#v, want one accepted iteration", report)
 	}
 	wantDeployments := expectedDeployments(1)
-	if evidence.ProcessCount != 4 || !maps.Equal(evidence.Deployments, wantDeployments) {
+	if evidence.ProcessCount() != 4 || !maps.Equal(evidence.Deployments, wantDeployments) {
 		t.Fatalf("evidence=%#v, want exact root/body/optimizer/evaluator tree", evidence)
 	}
 }
@@ -93,7 +91,6 @@ func TestEqualScoresKeepEarliestAttempt(t *testing.T) {
 		optimizationRequest{Objective: "keep deterministic ties"},
 		[]float64{0.8, 0.8, 0.7},
 		0.95,
-		3,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -105,20 +102,18 @@ func TestEqualScoresKeepEarliestAttempt(t *testing.T) {
 
 func TestConfigurationIsExplicitAndFinite(t *testing.T) {
 	tests := []struct {
-		name          string
-		scores        []float64
-		threshold     float64
-		maxIterations uint32
+		name      string
+		scores    []float64
+		threshold float64
 	}{
-		{name: "zero iterations", scores: []float64{1}, threshold: 1},
-		{name: "short schedule", scores: []float64{0.5}, threshold: 0.9, maxIterations: 2},
-		{name: "zero threshold", scores: []float64{0.5}, maxIterations: 1},
-		{name: "nan threshold", scores: []float64{0.5}, threshold: math.NaN(), maxIterations: 1},
-		{name: "infinite score", scores: []float64{math.Inf(1)}, threshold: 0.9, maxIterations: 1},
+		{name: "empty schedule", threshold: 1},
+		{name: "zero threshold", scores: []float64{0.5}},
+		{name: "nan threshold", scores: []float64{0.5}, threshold: math.NaN()},
+		{name: "infinite score", scores: []float64{math.Inf(1)}, threshold: 0.9},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := newEvaluatorOptimizer(test.scores, test.threshold, uint64(test.maxIterations)); err == nil {
+			if _, err := newEvaluatorOptimizer(test.scores, test.threshold); err == nil {
 				t.Fatal("invalid evaluator-optimizer configuration was accepted")
 			}
 		})

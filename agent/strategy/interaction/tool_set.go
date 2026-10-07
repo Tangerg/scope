@@ -31,8 +31,16 @@ type ToolSetConfig struct {
 // binding. A zero ToolSet represents the absence of ordinary Tools.
 type ToolSet struct {
 	deployment agent.Deployment
-	manifest   toolManifest
 	dispatcher *toolDispatcher
+}
+
+// manifest is the scheduling policy the Tool dispatcher bound; a zero ToolSet
+// has none.
+func (t ToolSet) manifest() toolManifest {
+	if t.dispatcher == nil {
+		return toolManifest{}
+	}
+	return t.dispatcher.manifest
 }
 
 func NewToolSet(config ToolSetConfig) (ToolSet, error) {
@@ -64,7 +72,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if err != nil {
 		return ToolSet{}, fmt.Errorf("%w: %w", ErrInvalidToolSet, err)
 	}
-	return ToolSet{deployment: deployment, manifest: dispatcher.manifest, dispatcher: dispatcher}, nil
+	return ToolSet{deployment: deployment, dispatcher: dispatcher}, nil
 }
 
 // Deployment returns the exact child binding each Tool call runs under. An
@@ -94,7 +102,7 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolO
 	if prepared.rejection != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery call is not admitted by its binding", ErrInvalidProtocol)
 	}
-	if err := t.manifest.validateAdvertisements(advertisedToolNames); err != nil {
+	if err := t.manifest().validateAdvertisements(advertisedToolNames); err != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}
 	result := chat.ToolResult{ID: call.ID, Name: call.Name, Output: output, IsError: disposition != ResultSucceeded}

@@ -146,7 +146,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	reducer := config.Reduce
 	outputs := fanoutOutputs{
 		stageName: "Fork", stageID: config.ID, memberName: "branch",
-		memberSchema: branchSchema, resultSchema: outputSchema,
+		resultSchema: outputSchema,
 	}
 	reduce := func(ctx context.Context, rawInput json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
 		input, err := agent.ParsePayload(rawInput)

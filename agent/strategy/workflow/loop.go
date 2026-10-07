@@ -46,7 +46,6 @@ type LoopConfig[T any] struct {
 type loopStage struct {
 	binding       childBinding
 	maxIterations agent.Quota
-	valueSchema   agent.Schema
 	predicate     func(context.Context, json.RawMessage) (bool, error)
 	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
 }
@@ -75,21 +74,18 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 		id: config.ID, kind: StageKindLoop,
 		inputSchema: valueSchema, outputSchema: resultSchema,
 		loop: loopStage{
-			binding: binding, maxIterations: config.MaxIterations, valueSchema: valueSchema,
-			predicate: loopPredicate(config.ID, valueSchema, config.Predicate),
+			binding: binding, maxIterations: config.MaxIterations,
+			predicate: loopPredicate(config.ID, config.Predicate),
 			result:    loopResult[T](resultSchema),
 		},
 	}, nil
 }
 
-func loopPredicate[T any](stageID string, valueSchema agent.Schema, predicate LoopPredicate[T]) func(context.Context, json.RawMessage) (bool, error) {
+func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(context.Context, json.RawMessage) (bool, error) {
 	return func(ctx context.Context, raw json.RawMessage) (bool, error) {
 		output, err := agent.ParsePayload(raw)
 		if err != nil {
 			return false, err
-		}
-		if validateOutputErr := valueSchema.Validate(output.JSON()); validateOutputErr != nil {
-			return false, validateOutputErr
 		}
 		value, err := output.Decode[T]()
 		if err != nil {

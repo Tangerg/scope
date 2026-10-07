@@ -32,11 +32,12 @@ func sealCallbackError(err error) error {
 }
 
 func callbackPanic(operation string, value any) error {
-	message, _ := panicinfo.Capture(value)
+	captured, _ := panicinfo.Capture(value)
+	message := "agent: " + operation + " panicked: " + captured
 	cause := &CallbackPanicError{Operation: operation, Value: value}
 	return &callbackError{
-		cause: cause, message: "agent: " + operation + " panicked: " + message,
-		runtime:  newEngineFailure(FailureKindExternal, failureCodeEngineTreeCommitterFailed, errors.New("agent: "+operation+" panicked: "+message)),
+		cause: cause, message: message,
+		runtime:  newEngineFailure(FailureKindExternal, failureCodeEngineTreeCommitterFailed, errors.New(message)),
 		dispatch: dispatchPanicFailure(),
 	}
 }
