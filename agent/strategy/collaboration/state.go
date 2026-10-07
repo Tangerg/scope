@@ -364,7 +364,7 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	}
 	if e.Completed {
 		if e.InitialState.Valid() || len(e.Tasks) != 0 || len(e.Controls) != 0 || e.Turn != nil || e.WaitID != nil {
-			return fmt.Errorf("%w: completed collaboration repeats its Output", ErrInvalidExecutionState)
+			return fmt.Errorf("%w: completed collaboration retains state beyond its completion marker", ErrInvalidExecutionState)
 		}
 		return nil
 	}
@@ -465,7 +465,7 @@ func (e executionState) validatePhaseProgress(d *Definition, current phase, mode
 
 func (e executionState) validateStartingTurn() error {
 	if e.Turn.Outcome != nil {
-		return fmt.Errorf("%w: starting turn retains a start, outcome, or decision", ErrInvalidExecutionState)
+		return fmt.Errorf("%w: starting turn retains an outcome", ErrInvalidExecutionState)
 	}
 	return nil
 }

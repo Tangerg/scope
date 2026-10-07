@@ -6,8 +6,9 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-// Invalid-value sentinels reject construction, domain values, and Dispatcher
-// operations rather than Steps, so they carry no Failure classification.
+// These sentinels belong to construction, domain values, Dispatcher operations,
+// and Tool control flow rather than Steps, so they carry no Failure
+// classification.
 var (
 	ErrInvalidResult                = errors.New("interaction: invalid result")
 	ErrInvalidToolInputRequest      = errors.New("interaction: invalid tool input request")

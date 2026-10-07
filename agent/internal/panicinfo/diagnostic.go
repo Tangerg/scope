@@ -1,4 +1,5 @@
-// Package panicinfo bounds retained diagnostics for observational callbacks.
+// Package panicinfo bounds the diagnostics retained for a recovered Host
+// callback panic.
 package panicinfo
 
 import (

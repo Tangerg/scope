@@ -123,8 +123,8 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 }
 
 // Restore recreates a Planning Execution solely from its opaque state and this
-// exact Definition. A completed outcome must agree with the observed Goal
-// satisfaction.
+// exact Definition. A completed state is a bare marker: the Engine owns its
+// Output.
 func (d *Definition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

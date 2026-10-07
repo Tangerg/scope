@@ -21,7 +21,8 @@
 // A coordinator subtree with unresolved Effects cannot authorize a Decision.
 // Worker outcomes retain their complete subtree evidence for coordinator policy.
 // Coordinator admission and execution failures preserve the original Failure
-// kind, code, and diagnostic; the failed turn remains restorable evidence.
+// kind, code, and diagnostic; a failed turn ends the collaboration without
+// being recorded, because the Engine owns that Failure.
 // The current Turn owns its number, input state, and the task outcomes that
 // arrived after it opened; the coordinator's Turn input is assembled from these,
 // the current tasks and controls, and the configured workers, never retained as

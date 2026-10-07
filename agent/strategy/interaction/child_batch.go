@@ -214,8 +214,9 @@ func (c childCallBatch) childKey(modelCallSequence uint64, call chat.ToolCall) (
 	return ToolChildKey(modelCallSequence, call)
 }
 
-// validateBindings checks the batch against active, its own calls, and sizes a
-// Tool batch against remaining, every call from the round cursor on.
+// validateBindings checks that every one of calls, the batch's own, belongs to
+// the batch's Tool or Delegate ownership and is available, and sizes a Tool
+// batch against remaining, every call from the round cursor on.
 func (c childCallBatch) validateBindings(ctx context.Context, definition *Definition, calls, remaining []chat.ToolCall) error {
 	for _, call := range calls {
 		if err := ctx.Err(); err != nil {

@@ -165,9 +165,9 @@ func (b Batch) Complete(completed agent.ChildWaitSatisfied, key agent.WaitKey, b
 	return b.MatchOutcomes(completed.Outcomes())
 }
 
-// MatchOutcomes validates an ordered subset of unhandled child outcomes without
-// a live wait. Result validators use it to correlate outcomes with their
-// children; live callers use Complete to establish the wait boundary first.
+// MatchOutcomes validates an ordered subset of unhandled child outcomes and
+// returns the child each answers. Complete calls it after establishing the
+// wait boundary.
 func (b Batch) MatchOutcomes(outcomes []agent.ChildOutcome) ([]int, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err

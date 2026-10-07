@@ -48,9 +48,9 @@ func (p *preparedStepFinalization) openedChildWaits() ([]openedChildWait, error)
 }
 
 // preparedStepCommit holds only what finalization decides beyond the
-// prepared Intent: the termination it resolves and when it finished. The
-// Intent keeps owning the wait it enters, the pause it requests, and its
-// Output.
+// prepared Intent: the termination it resolves, which carries a completing
+// Output, and when it finished. The Intent keeps owning the wait it enters
+// and the pause it requests.
 type preparedStepCommit struct {
 	termination Termination
 	finishedAt  time.Time

@@ -13,10 +13,12 @@
 // admission delays selection even when an earlier child has already completed.
 // Completing the competition cancels its remaining descendants. Use the drained
 // child-wait boundary or Process.Join before reusing their exclusive resources.
-// Competition progress follows the retained candidate results, WaitID, and
-// Winner. No phase is persisted. Declaring the starts creates one result per
-// candidate; each start receipt fills its result in candidate order, and the
-// child's outcome later replaces that receipt.
+// Competition progress follows the retained candidate results and WaitID. No
+// phase is persisted. Declaring the starts creates one result per candidate;
+// each start receipt fills its result in candidate order, and the child's
+// outcome later replaces that receipt. The completing Step decides the winner
+// and reports it only in the Output the Engine owns; the completed state keeps
+// just its candidates and a completion marker.
 //
 // Gates and competitions consume finite child, Effect, and Signal allocations.
 // Gate replacement changes the recipient address. A delivery must remain bound
