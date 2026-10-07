@@ -75,7 +75,7 @@ func (r *recordedEvidence) settleModel(invocation interaction.ModelInvocation, s
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	call.Response, call.Unknown, call.Failure = settlement.Response.Clone(), settlement.Unknown, settlement.Failure
+	call.Response, call.Unknown, call.Failure = settlement.Response.Clone(), settlement.Unknown(), settlement.Failure
 	if call.Outcome() == ModelOutcomeUnobserved || call.Validate() != nil {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
@@ -109,7 +109,7 @@ func (r *recordedEvidence) settleTool(invocation interaction.ToolInvocation, set
 	if exists {
 		call = observation.call
 	}
-	call.Result, call.InputRequired, call.Unknown, call.Failure = settlement.Result, settlement.InputRequired, settlement.Unknown, settlement.Failure
+	call.Result, call.InputRequired, call.Unknown, call.Failure = settlement.Result, settlement.InputRequired, settlement.Unknown(), settlement.Failure
 	call.Evidence = settlement.Evidence
 	if call.Outcome() == ToolOutcomeUnobserved || call.Validate() != nil {
 		incrementGap(&r.gaps.DroppedCallObservations)

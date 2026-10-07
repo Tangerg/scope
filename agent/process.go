@@ -266,7 +266,6 @@ type Result struct {
 	processID   ProcessID
 	startedAt   time.Time
 	finishedAt  time.Time
-	output      Payload
 	termination Termination
 	usage       Usage
 }
@@ -286,19 +285,16 @@ func (r Result) Termination() Termination { return r.termination }
 func (r Result) Usage() Usage { return r.usage }
 
 // Output returns the final semantic result only for StatusCompleted.
-func (r Result) Output() (Payload, bool) { return r.output, r.output.Valid() }
+func (r Result) Output() (Payload, bool) { return r.termination.output, r.termination.output.Valid() }
 
 func (r Result) Valid() bool {
-	if !r.processID.Valid() || r.startedAt.IsZero() || r.finishedAt.IsZero() || !r.termination.Valid() {
-		return false
-	}
-	return (r.termination.Status() == StatusCompleted) == r.output.Valid()
+	return r.processID.Valid() && !r.startedAt.IsZero() && !r.finishedAt.IsZero() && r.termination.Valid()
 }
 
 func (r Result) wire() resultWire {
 	return resultWire{
 		ProcessID: r.processID, StartedAt: r.startedAt, FinishedAt: r.finishedAt,
-		Output: r.output, Termination: r.termination, Usage: r.usage,
+		Termination: r.termination, Usage: r.usage,
 	}
 }
 

@@ -124,21 +124,14 @@ func (c cancellationIntent) termination() Termination {
 	return Termination{cause: cause, reason: c.reason}
 }
 
-type stepOutcomeKind uint8
-
-const (
-	stepOutcomeNone stepOutcomeKind = iota
-	stepOutcomeCompleted
-)
-
 // A zero stepOutcome is allowed only when control facts independently terminate
-// a Process. Failure owns failed outcomes; kind records completion only.
+// a Process. Failure owns failed outcomes; Output owns completed ones.
 type stepOutcome struct {
-	kind    stepOutcomeKind
+	output  Payload
 	failure Failure
 }
 
-func completedOutcome() stepOutcome { return stepOutcome{kind: stepOutcomeCompleted} }
+func completedOutcome(output Payload) stepOutcome { return stepOutcome{output: output} }
 
 func failedOutcome(failure Failure) (stepOutcome, error) {
 	if !failure.Valid() {
@@ -149,9 +142,9 @@ func failedOutcome(failure Failure) (stepOutcome, error) {
 
 func (s stepOutcome) valid() bool {
 	if s.failure != (Failure{}) {
-		return s.kind == stepOutcomeNone && s.failure.Valid()
+		return !s.output.Valid() && s.failure.Valid()
 	}
-	return s.kind == stepOutcomeNone || s.kind == stepOutcomeCompleted
+	return true
 }
 
 // terminationInputs are the independently recorded facts used by the Engine's
@@ -182,8 +175,8 @@ func (t terminationInputs) resolve() (Termination, error) {
 	if t.outcome.failure.Valid() {
 		return t.outcome.failure.termination(), nil
 	}
-	if t.outcome.kind == stepOutcomeCompleted {
-		return Termination{cause: TerminationCauseCompletion}, nil
+	if t.outcome.output.Valid() {
+		return Termination{output: t.outcome.output}, nil
 	}
 	return Termination{}, fmt.Errorf("%w: no terminal fact was recorded", errInvalidTermination)
 }
@@ -247,12 +240,14 @@ func (t TerminationCause) status() Status {
 // Termination is the immutable result of applying the terminal priority matrix.
 // Only the Engine creates terminal facts from validated control intents and
 // Step outcomes; callers obtain this observation from Result or decode it.
-// Failure owns failed causes and diagnostics; other terminal causes own their
-// control reason. Status is always derived from the cause.
+// Failure owns failed causes and diagnostics, Output owns completion, and
+// the remaining control causes own their reason. Status is always derived
+// from the cause.
 type Termination struct {
 	cause               TerminationCause
 	reason              string
 	failure             Failure
+	output              Payload
 	unresolvedEffectIDs []EffectID
 }
 
@@ -266,10 +261,14 @@ func validateTerminationReason(reason string) error {
 func (t Termination) Status() Status { return t.Cause().status() }
 
 func (t Termination) Cause() TerminationCause {
-	if t.failure.Valid() {
+	switch {
+	case t.failure.Valid():
 		return t.failure.Kind().terminationCause()
+	case t.output.Valid():
+		return TerminationCauseCompletion
+	default:
+		return t.cause
 	}
-	return t.cause
 }
 
 // Reason returns a bounded diagnostic reason. Completion has an empty reason.
@@ -305,23 +304,21 @@ func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 }
 
 func (t Termination) Valid() bool {
-	status := t.Status()
-	if !status.Terminal() || !t.canonicalUnresolvedEffectIDs() {
+	if !t.Status().Terminal() || !t.canonicalUnresolvedEffectIDs() {
 		return false
 	}
-	if t.failure.Valid() {
-		return t.cause == TerminationCauseInvalid && t.reason == ""
-	}
-	if t.failure != (Failure{}) {
+	switch {
+	case t.failure.Valid():
+		return t.cause == TerminationCauseInvalid && t.reason == "" && !t.output.Valid()
+	case t.failure != (Failure{}):
 		return false
+	case t.output.Valid():
+		return t.cause == TerminationCauseInvalid && t.reason == "" && len(t.unresolvedEffectIDs) == 0
+	default:
+		// Completion and failure causes are owned by Output and Failure.
+		return t.cause != TerminationCauseCompletion && t.Status() != StatusFailed &&
+			validateTerminationReason(t.reason) == nil
 	}
-	if status == StatusCompleted {
-		return t.reason == "" && len(t.unresolvedEffectIDs) == 0
-	}
-	if validateTerminationReason(t.reason) != nil {
-		return false
-	}
-	return status != StatusFailed
 }
 
 func (t Termination) canonicalUnresolvedEffectIDs() bool {
@@ -341,6 +338,7 @@ func (t Termination) MarshalJSON() ([]byte, error) {
 	wire := terminationWire{
 		Cause:               t.cause,
 		Reason:              t.reason,
+		Output:              t.output,
 		UnresolvedEffectIDs: t.UnresolvedEffectIDs(),
 	}
 	if t.failure.Valid() {
@@ -358,7 +356,7 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", errInvalidTermination, err)
 	}
 	value := Termination{
-		cause: wire.Cause, reason: wire.Reason,
+		cause: wire.Cause, reason: wire.Reason, output: wire.Output,
 		unresolvedEffectIDs: slices.Clone(wire.UnresolvedEffectIDs),
 	}
 	if wire.Failure != nil {
@@ -375,6 +373,7 @@ type terminationWire struct {
 	Cause               TerminationCause `json:"cause,omitzero"`
 	Reason              string           `json:"reason,omitempty"`
 	Failure             *Failure         `json:"failure,omitzero"`
+	Output              Payload          `json:"output,omitzero"`
 	UnresolvedEffectIDs []EffectID       `json:"unresolved_effect_ids,omitempty"`
 }
 

@@ -54,12 +54,12 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	termination, err := (terminationInputs{outcome: completedOutcome()}).resolve()
+	termination, err := (terminationInputs{outcome: completedOutcome(output)}).resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
 	child := &processState{
-		handle: handle, finish: &processFinish{Termination: termination, FinishedAt: parent.handle.startedAt, Output: output},
+		handle: handle, finish: &processFinish{Termination: termination, FinishedAt: parent.handle.startedAt},
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())

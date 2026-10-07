@@ -141,7 +141,6 @@ func (t *toolDispatcher) callTool(
 			settlement.Result = &result
 		case err != nil:
 			settlement.Failure = agent.NormalizeDiagnostic(err.Error())
-			settlement.Unknown = true
 			if evidence, ok := errors.AsType[*tool.CallError](err); ok && evidence.Validate() == nil {
 				settlement.Evidence = new(evidence.Evidence())
 			}

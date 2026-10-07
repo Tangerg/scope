@@ -273,7 +273,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 func (p *processState) result() Result {
 	return Result{
 		processID: p.handle.processID(), startedAt: p.handle.startedAt,
-		finishedAt: lo.FromPtr(p.finish).FinishedAt, output: lo.FromPtr(p.finish).Output,
+		finishedAt:  lo.FromPtr(p.finish).FinishedAt,
 		termination: p.publishedTermination(), usage: p.usage(),
 	}
 }
@@ -435,11 +435,10 @@ func (p *processState) recordFailure(kind FailureKind, code string, err error) {
 }
 
 // processFinish is a terminal Process's committed ending: a Process has
-// finished exactly when it has one, and only a Completion carries Output.
+// finished exactly when it has one.
 type processFinish struct {
 	Termination Termination `json:"termination"`
 	FinishedAt  time.Time   `json:"finished_at"`
-	Output      Payload     `json:"output,omitzero"`
 }
 
 func (p *processFinish) UnmarshalJSON(data []byte) error {
@@ -452,7 +451,7 @@ func (p *processFinish) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (p *processState) installTermination(termination Termination, output Payload, finishedAt time.Time) {
+func (p *processState) installTermination(termination Termination, finishedAt time.Time) {
 	if p.status().Terminal() {
 		return
 	}
@@ -460,9 +459,6 @@ func (p *processState) installTermination(termination Termination, output Payloa
 	p.currentWaitID = WaitID{}
 	p.pause = pause{}
 	p.pendingControl = pendingControl{}
-	if p.status() == StatusCompleted {
-		p.finish.Output = output
-	}
 }
 
 func (p *processState) resolveStepTermination(outcome stepOutcome) Termination {
@@ -605,7 +601,7 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 	p.committedSteps = p.preparedStepSequence()
 	p.prepared = nil
 	if commit := finalization.commit; commit.termination.Valid() {
-		p.installTermination(commit.termination, finalization.finalOutput(), commit.finishedAt)
+		p.installTermination(commit.termination, commit.finishedAt)
 	} else {
 		p.currentWaitID, _ = finalization.prepared.Intent.WaitID()
 		p.pause = finalization.prepared.Intent.pause

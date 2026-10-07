@@ -65,7 +65,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 		wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(process))
 	}
 	child := wire.ProcessSnapshots[1].state
-	result := controlValue((resultWire{ProcessID: child.processID(), StartedAt: child.StartedAt, FinishedAt: child.Finish.FinishedAt, Output: child.Finish.Output, Termination: child.Finish.Termination, Usage: child.usage()}).value())
+	result := controlValue((resultWire{ProcessID: child.processID(), StartedAt: child.StartedAt, FinishedAt: child.Finish.FinishedAt, Termination: child.Finish.Termination, Usage: child.usage()}).value())
 	wait := wire.ProcessSnapshots[0].openChildWaits[0]
 	spec := wait.spec.clone()
 	spec.Children = []ProcessID{child.processID()}

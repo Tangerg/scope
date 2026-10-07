@@ -596,9 +596,6 @@ func (p processSnapshotWire) validateLifecycle(mailbox signalMailbox) error {
 		return err
 	}
 	status := p.status(mailbox.awaited(lo.FromPtr(p.CurrentWaitID)))
-	if (status == StatusCompleted) != lo.FromPtr(p.Finish).Output.Valid() {
-		return fmt.Errorf("%w: exactly a Completed Process contains Output", ErrInvalidSnapshot)
-	}
 	if _, err := parsePause(p.PauseReason); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
 	}
@@ -662,7 +659,7 @@ func (p processSnapshotWire) result() (Result, bool) {
 	}
 	return Result{
 		processID: p.processID(), startedAt: p.StartedAt, finishedAt: p.Finish.FinishedAt,
-		output: p.Finish.Output, termination: p.publishedTermination(), usage: p.usage(),
+		termination: p.publishedTermination(), usage: p.usage(),
 	}, true
 }
 

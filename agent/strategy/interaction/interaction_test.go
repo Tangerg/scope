@@ -270,7 +270,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 			}
 			select {
 			case settlement := <-observer.settlements:
-				if !settlement.Unknown || settlement.Failure == "" || settlement.Result != nil || settlement.InputRequired {
+				if !settlement.Unknown() || settlement.Failure == "" || settlement.Result != nil || settlement.InputRequired {
 					t.Fatalf("Tool observation=%+v, want an unknown outcome diagnostic", settlement)
 				}
 			case <-ctx.Done():

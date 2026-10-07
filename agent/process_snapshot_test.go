@@ -509,7 +509,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.Finish.Output, err = ParsePayload([]byte(`null`))
+	wire.Finish.Termination.output, err = ParsePayload([]byte(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 			t.Fatalf("child output = %s", output.JSON())
 		}
 	}
-	wire.Finish.Output = Payload{}
+	wire.Finish.Termination.output = Payload{}
 	if _, err := newProcessSnapshot(wire); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("missing output = %v", err)
 	}

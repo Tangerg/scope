@@ -44,8 +44,7 @@ func TestPreparedStepFinalizationCountsEveryImmediateChildSignal(t *testing.T) {
 		if child == parent {
 			continue
 		}
-		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome()}).resolve()),
-			controlValue(EncodePayload(childTestOutput{})), child.handle.startedAt)
+		child.installTermination(controlValue((terminationInputs{outcome: completedOutcome(controlValue(EncodePayload(childTestOutput{})))}).resolve()), child.handle.startedAt)
 		effects = append(effects, controlValue(NewChildWaitEffect(ChildWaitSpec{
 			Key:      controlValue(ParseWaitKey(fmt.Sprintf("result-%d", len(effects)))),
 			Boundary: ChildWaitBoundaryResult, Children: []ProcessID{child.handle.processID()}, Condition: AllChildren(),
@@ -96,7 +95,7 @@ func TestPreparedCompletionDoesNotRetainOutputWhenKillWins(t *testing.T) {
 	if finalization.commit.termination.Status() != StatusKilled {
 		t.Fatalf("resolved status=%s, want %s", finalization.commit.termination.Status(), StatusKilled)
 	}
-	if finalization.finalOutput().Valid() {
+	if finalization.commit.termination.output.Valid() {
 		t.Fatal("superseded completion output survived Kill priority")
 	}
 }

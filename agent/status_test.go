@@ -36,7 +36,7 @@ func TestResolveTerminationPriorityMatrix(t *testing.T) {
 		{name: "contract failure", facts: terminationInputs{outcome: contractFailed}, want: StatusFailed, cause: TerminationCauseContractFailure},
 		{name: "external failure", facts: terminationInputs{outcome: externalFailed}, want: StatusFailed, cause: TerminationCauseExternalFailure},
 		{name: "panic", facts: terminationInputs{outcome: panicFailed}, want: StatusFailed, cause: TerminationCausePanic},
-		{name: "completion", facts: terminationInputs{outcome: completedOutcome()}, want: StatusCompleted, cause: TerminationCauseCompletion},
+		{name: "completion", facts: terminationInputs{outcome: completedOutcome(controlValue(EncodePayload("done")))}, want: StatusCompleted, cause: TerminationCauseCompletion},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

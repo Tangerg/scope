@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
 	"testing"
@@ -175,5 +176,22 @@ func TestStaleCompletionPreservesCurrentOwnedWork(t *testing.T) {
 	})
 	if runtime.jobs.get(process.handle.processID()) != job || runtime.jobs.active.Load() != 1 {
 		t.Fatal("stale completion released the current attempt")
+	}
+}
+
+func TestTerminationOutputOwnsCompletion(t *testing.T) {
+	var completed Termination
+	if err := jsonv2.Unmarshal([]byte(`{"output":null}`), &completed); err != nil || completed.Cause() != TerminationCauseCompletion {
+		t.Fatalf("output-owned completion = %v, %v", completed.Cause(), err)
+	}
+	for _, data := range []string{
+		`{"cause":"completion"}`,
+		`{"cause":"completion","output":1}`,
+		`{"cause":"engine_kill","reason":"stopped","output":1}`,
+	} {
+		var termination Termination
+		if err := jsonv2.Unmarshal([]byte(data), &termination); !errors.Is(err, errInvalidTermination) {
+			t.Errorf("%s decoded: %v", data, err)
+		}
 	}
 }

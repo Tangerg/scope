@@ -108,7 +108,8 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 		return p.prepareWaitTransition(transition)
 	case TransitionKindPause:
 	case TransitionKindComplete:
-		p.prepareTermination(completedOutcome(), finishedAt)
+		output, _ := transition.Output()
+		p.prepareTermination(completedOutcome(output), finishedAt)
 	case TransitionKindFail:
 		failure, _ := transition.Failure()
 		outcome, err := failedOutcome(failure)
@@ -125,16 +126,6 @@ func (p *preparedStepFinalization) prepareTransition(finishedAt time.Time) error
 func (p *preparedStepFinalization) prepareWaitTransition(transition Transition) error {
 	waitID, _ := transition.WaitID()
 	return p.mailbox.enterWait(waitID)
-}
-
-// finalOutput is the Intent's Output only when the resolved termination still
-// completes; a higher-priority termination supersedes it.
-func (p *preparedStepFinalization) finalOutput() Payload {
-	if p.commit.termination.Status() != StatusCompleted {
-		return Payload{}
-	}
-	output, _ := p.prepared.Intent.Output()
-	return output
 }
 
 func (p *preparedStepFinalization) prepareTermination(outcome stepOutcome, finishedAt time.Time) {
