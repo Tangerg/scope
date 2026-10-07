@@ -14,7 +14,6 @@ const invalidEnumName = "invalid"
 const (
 	failureSuffixCaseUnknown       = "case_unknown"
 	failureSuffixUnresolvedEffects = "unresolved_effects"
-	failureSuffixChildNotCompleted = "child_not_completed"
 	failureSuffixNotCompleted      = "not_completed"
 	failureSuffixOutputMissing     = "output_missing"
 	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
@@ -195,38 +194,37 @@ func (s Stage) fanoutMemberNoun() string {
 	return "item"
 }
 
-func (s Stage) fanoutOutcome(
-	index uint32,
-	outcome agent.ChildOutcome,
-) (*agent.Failure, json.RawMessage, error) {
-	if !outcome.SubtreeResolved() {
-		failure, err := stepfail.Failure(agent.FailureKindExternal, s.fanoutFailureCode(failureSuffixUnresolvedEffects), s.fanoutFailureMessage(index, "has unresolved subtree Effects"))
-		return &failure, nil, err
-	}
-	result := outcome.Result()
-	if result.Status() != agent.StatusCompleted {
-		if failure, failed := result.Termination().Failure(); failed {
-			return &failure, nil, nil
-		}
-		code := s.fanoutFailureCode(failureSuffixNotCompleted)
-		message := s.fanoutFailureMessage(index, "terminated with status "+result.Status().String())
-		failure, err := stepfail.Failure(agent.FailureKindExternal, code, message)
-		return &failure, nil, err
-	}
-	output, present := result.Output()
-	if !present {
-		failure, err := stepfail.Failure(
-			agent.FailureKindContract, s.fanoutFailureCode(failureSuffixOutputMissing),
-			s.fanoutFailureMessage(index, "returned no Output"),
-		)
-		return &failure, nil, err
+func (s Stage) fanoutOutcome(index uint32, outcome agent.ChildOutcome) (*agent.Failure, json.RawMessage, error) {
+	subject := string(s.kind) + " Stage " + s.id + " " + s.fanoutMemberLabel(index)
+	failure, output, err := childOutcome(outcome, s.fanoutFailureCode, subject)
+	if failure != nil || err != nil {
+		return failure, nil, err
 	}
 	return nil, output.JSON(), nil
 }
 
-func (s Stage) fanoutFailureMessage(index uint32, diagnostic string) string {
-	return string(s.kind) + " Stage " + s.id + " " +
-		s.fanoutMemberLabel(index) + " " + diagnostic
+// childOutcome classifies a finished child that subject names: the Output it
+// completed with, or the Failure that ends the Workflow. Single-child and
+// fan-out bindings both decide with it and differ only in code and subject.
+func childOutcome(outcome agent.ChildOutcome, code func(suffix string) string, subject string) (*agent.Failure, agent.Payload, error) {
+	if !outcome.SubtreeResolved() {
+		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixUnresolvedEffects), subject+" has unresolved subtree Effects")
+		return &failure, agent.Payload{}, err
+	}
+	result := outcome.Result()
+	if result.Status() != agent.StatusCompleted {
+		if failure, failed := result.Termination().Failure(); failed {
+			return &failure, agent.Payload{}, nil
+		}
+		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Status().String())
+		return &failure, agent.Payload{}, err
+	}
+	output, present := result.Output()
+	if !present {
+		failure, err := stepfail.Failure(agent.FailureKindContract, code(failureSuffixOutputMissing), subject+" returned no Output")
+		return &failure, agent.Payload{}, err
+	}
+	return nil, output, nil
 }
 
 // childBindings returns every child binding of the Stage in topology order.

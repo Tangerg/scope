@@ -9,9 +9,12 @@ import (
 // callbackError seals the classifications consumed by the runtime while still
 // retaining the original error chain for explicit Host inspection. The runtime
 // must never traverse that chain after leaving the callback boundary.
+// panicked records that this boundary recovered a panic; the classifications
+// follow from it and the cause when the error is sealed.
 type callbackError struct {
 	cause    error
 	message  string
+	panicked bool
 	step     Failure
 	dispatch Failure
 	runtime  Failure
@@ -24,9 +27,15 @@ func sealCallbackError(err error) error {
 	if err == nil {
 		return nil
 	}
-	c := &callbackError{cause: err, message: err.Error()}
+	// An error carrying a contained panic is a panic for every consumer, so
+	// the boundary decides it once here.
+	_, panicked := errors.AsType[*CallbackPanicError](err)
+	c := &callbackError{cause: err, message: err.Error(), panicked: panicked}
 	c.step, _ = StepFailure(err)
 	c.dispatch = dispatchFailure(err)
+	if panicked {
+		c.dispatch = dispatchPanicFailure()
+	}
 	c.runtime = newTreeRuntimeFailure(err)
 	return c
 }
@@ -36,8 +45,8 @@ func callbackPanic(operation string, value any) error {
 	message := "agent: " + operation + " panicked: " + captured
 	cause := &CallbackPanicError{Operation: operation, Value: value}
 	return &callbackError{
-		cause: cause, message: message,
-		runtime:  newEngineFailure(FailureKindExternal, failureCodeEngineTreeCommitterFailed, errors.New(message)),
+		cause: cause, message: message, panicked: true,
+		runtime:  newTreeRuntimeFailure(errors.New(message)),
 		dispatch: dispatchPanicFailure(),
 	}
 }

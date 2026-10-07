@@ -495,25 +495,21 @@ func (p processSnapshotWire) validateCapacity(childAllocation resourceAmounts) e
 	if !p.Budget.contains(p.usage(), childAllocation) {
 		return fmt.Errorf("%w: usage and child allocations exceed the Process budget", ErrInvalidSnapshot)
 	}
-	_, reserved, preparedSteps := p.pendingSignals()
-	if !p.Budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, reserved) ||
-		!p.Budget.Steps.Allows(p.CommittedSteps, childAllocation.Steps, preparedSteps) {
+	reservation := p.reservedStep().reservation()
+	if !p.Budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, reservation.Signals) ||
+		!p.Budget.Steps.Allows(p.CommittedSteps, childAllocation.Steps, reservation.Steps) {
 		return fmt.Errorf("%w: execution capacity exceeds budget", ErrInvalidSnapshot)
 	}
 	return nil
 }
 
-// pendingSignals derives mailbox occupancy after the prepared Step, if any.
-// Callers validate the mailbox and prepared consumption first, so the prepared
-// consumption cannot exceed the pending suffix.
-func (p processSnapshotWire) pendingSignals() (remaining, reserved, preparedSteps uint64) {
-	remaining = uint64(len(p.Mailbox.Signals)) - p.Mailbox.SignalCursor
-	if p.Prepared != nil && !p.terminal() {
-		remaining -= p.Prepared.consumedSignals()
-		reserved = p.Prepared.settlementSignalCount()
-		preparedSteps = 1
+// reservedStep is the prepared Step that still holds a reservation: a
+// terminal Process retains its batch only as evidence.
+func (p processSnapshotWire) reservedStep() *preparedStep {
+	if p.terminal() {
+		return nil
 	}
-	return remaining, reserved, preparedSteps
+	return p.Prepared
 }
 
 // validateCapacity checks this validated capture against the tree policy that
@@ -523,8 +519,8 @@ func (p ProcessSnapshot) validateCapacity(limits TreeLimits) error {
 		return fmt.Errorf("%w: relation depth exceeds MaxDepth", ErrInvalidSnapshot)
 	}
 	pending := uint64(len(p.state.Mailbox.Signals)) - p.state.Mailbox.SignalCursor
-	remaining, reserved, _ := p.state.pendingSignals()
-	if !limits.admitsPendingSignals(pending, remaining, reserved, 0) {
+	step := p.state.reservedStep()
+	if !limits.admitsPendingSignals(pending, step.pendingAfter(pending), step.reservation().Signals, 0) {
 		return fmt.Errorf("%w: pending Signals exceed MaxPendingSignals", ErrInvalidSnapshot)
 	}
 	if !limits.MaxProcessSnapshotBytes.Allows(uint64(len(p.data))) {
@@ -635,11 +631,7 @@ func (p processSnapshotWire) validateTerminalEvidence() error {
 // publishedTermination attaches the prepared Effects left unknown, which own
 // the identities a captured termination leaves unresolved.
 func (p processSnapshotWire) publishedTermination() Termination {
-	termination := lo.FromPtr(p.Finish).Termination
-	if p.Finish == nil || p.Prepared == nil {
-		return termination
-	}
-	return termination.withUnresolvedEffectIDs(p.Prepared.Effects.unknownEffectIDs())
+	return p.Finish.publishedTermination(p.Prepared)
 }
 
 // result requires a validated capture, whose terminal status guarantees its
@@ -648,10 +640,7 @@ func (p processSnapshotWire) result() (Result, bool) {
 	if !p.terminal() {
 		return Result{}, false
 	}
-	return Result{
-		processID: p.processID(), startedAt: p.StartedAt, finishedAt: p.Finish.FinishedAt,
-		termination: p.publishedTermination(), usage: p.usage(),
-	}, true
+	return p.Finish.result(p.processID(), p.StartedAt, p.Prepared, p.usage()), true
 }
 
 func (p processSnapshotWire) usage() Usage {

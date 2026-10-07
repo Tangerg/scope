@@ -162,23 +162,12 @@ func (e *execution) acceptChildStart(signal agent.Signal, waitKey agent.WaitKey)
 }
 
 func (e *execution) acceptChildCompletion(ctx context.Context, outcome agent.ChildOutcome) (agent.Transition, error) {
-	if !outcome.SubtreeResolved() {
-		return stepfail.Transition(1, agent.FailureKindExternal, e.stage().failureCode(failureSuffixUnresolvedEffects), "Child subtree has unresolved Effects")
+	failure, output, err := childOutcome(outcome, e.stage().failureCode, "Child Process for Stage "+e.stageInvocationLabel())
+	if err != nil {
+		return agent.Transition{}, err
 	}
-	result := outcome.Result()
-	if result.Status() != agent.StatusCompleted {
-		if failure, failed := result.Termination().Failure(); failed {
-			return agent.Fail(1, failure)
-		}
-		return stepfail.Transition(
-			1, agent.FailureKindExternal,
-			e.stage().failureCode(failureSuffixChildNotCompleted),
-			"Child Process for Stage "+e.stageInvocationLabel()+" terminated with status "+result.Status().String(),
-		)
-	}
-	output, present := result.Output()
-	if !present {
-		return stepfail.Transition(1, agent.FailureKindContract, e.stage().failureCode(failureSuffixOutputMissing), "Completed child Process returned no Output")
+	if failure != nil {
+		return agent.Fail(1, *failure)
 	}
 	// The Engine admitted this Output against the child's own Descriptor,
 	// which the Stage contract equals.

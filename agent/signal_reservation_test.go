@@ -228,9 +228,10 @@ func TestTreeLimitsRejectUnfundedPendingSignalReservations(t *testing.T) {
 	}
 	wire.Mailbox = mailbox.wire()
 	pending := controlValue(processSnapshotFromWire(wire))
-	remaining, reserved, _ := wire.pendingSignals()
+	step := wire.reservedStep()
+	remaining := step.pendingAfter(uint64(len(wire.Mailbox.Signals)) - wire.Mailbox.SignalCursor)
 	limits := DefaultTreeLimits()
-	limits.MaxPendingSignals = remaining + reserved
+	limits.MaxPendingSignals = remaining + step.reservation().Signals
 	if err := pending.validateCapacity(limits); err != nil {
 		t.Fatalf("exactly funded reservation rejected: %v", err)
 	}

@@ -515,14 +515,23 @@ func (t *treeRuntime) prepareChildStart(
 // over when the child joins.
 func (t *treeRuntime) childDebits(process *processState) resourceAmounts {
 	allocated := t.members.childAllocation(process.handle.processID())
-	job := t.jobs.get(process.handle.processID())
-	if job == nil || job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
+	start := t.uninstalledStart(t.jobs.get(process.handle.processID()))
+	if start == nil {
 		return allocated
 	}
 	// Preparation admitted the start's grant beside these debits.
-	debit, _ := process.handle.budget.allocation(job.childStart.spec.Budget)
+	debit, _ := process.handle.budget.allocation(start.spec.Budget)
 	allocated, _ = allocated.add(debit)
 	return allocated
+}
+
+// uninstalledStart returns the child start job holds until its child joins
+// the tree; membership owns the child's resources from then on.
+func (t *treeRuntime) uninstalledStart(job *processJob) *childStartPlan {
+	if job == nil || job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
+		return nil
+	}
+	return job.childStart
 }
 
 // Membership and in-flight child jobs are the resource facts. A completed job
@@ -542,11 +551,12 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 		}
 	}
 	for _, job := range t.jobs.all() {
-		if job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
+		start := t.uninstalledStart(job)
+		if start == nil {
 			continue
 		}
 		treeCount++
-		if parentID, _ := job.childStart.relation.ParentID(); parentID == parent.handle.processID() {
+		if parentID, _ := start.relation.ParentID(); parentID == parent.handle.processID() {
 			childCount++
 			active++
 		}
@@ -1069,13 +1079,9 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, effectID Effect
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	policy, err := dispatcherEffectPolicy(process.deployment().dispatcher, record.Effect)
+	policy, err := process.authorizeDispatch(record.Effect)
 	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy.Replay != ReplayPolicySameIdentity {
 		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
-		return
-	}
-	if !process.handle.capabilities.Allows(policy.RequiredCapabilities) {
-		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, ErrInvalidCapability)})
 		return
 	}
 	// The committed Unknown already retains the exact uncertain operation.
@@ -1475,13 +1481,13 @@ func (t *treeRuntime) recoverPendingEffect(
 	}
 	replayPolicy := ReplayPolicyNever
 	if !process.pendingControl.hasTerminalIntent() {
-		policy, err := dispatcherEffectPolicy(process.deployment().dispatcher, record.Effect)
+		policy, err := process.authorizeDispatch(record.Effect)
 		if err != nil {
-			t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
-			return
-		}
-		if !process.handle.capabilities.Allows(policy.RequiredCapabilities) {
-			t.failProcessContract(process, failureCodeEngineCapabilityDenied, ErrInvalidCapability)
+			code := failureCodeEngineEffectRecoveryInvalid
+			if errors.Is(err, ErrInvalidCapability) {
+				code = failureCodeEngineCapabilityDenied
+			}
+			t.failProcessContract(process, code, err)
 			return
 		}
 		replayPolicy = policy.Replay
@@ -1841,7 +1847,11 @@ func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error 
 }
 
 func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
-	process.droppedDeltas = saturatingCountAdd(process.droppedDeltas, result.dropped)
+	// A terminal Process's usage is final once its Result is published; the
+	// late attempt's drops stay on its own EffectFinished fact.
+	if !process.status().Terminal() {
+		process.droppedDeltas = saturatingCountAdd(process.droppedDeltas, result.dropped)
+	}
 	t.events.dispatchFinished(process, job.effectID, job.effectAttempt, result)
 }
 

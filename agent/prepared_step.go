@@ -88,6 +88,30 @@ func (p *preparedStep) resolveUnknown(effectID EffectID, settlement Settlement) 
 	return 0, nil, ErrEffectNotPending
 }
 
+// reservation is what an unadopted prepared Step holds against its Process
+// budget: the Step it commits and one settlement Signal per Effect. Runtime
+// admission and snapshot validation both reserve exactly this; no Step holds
+// nothing.
+func (p *preparedStep) reservation() resourceAmounts {
+	if p == nil {
+		return resourceAmounts{}
+	}
+	return resourceAmounts{Steps: 1, Signals: p.settlementSignalCount()}
+}
+
+// pendingAfter is how many of pending Signals remain once the Step consumes
+// its own. Callers have validated that consumption fits the pending suffix.
+func (p *preparedStep) pendingAfter(pending uint64) uint64 {
+	return pending - p.consumedSignals()
+}
+
+func (p *preparedStep) unknownEffectIDs() []EffectID {
+	if p == nil {
+		return nil
+	}
+	return p.Effects.unknownEffectIDs()
+}
+
 func (p *preparedStep) settlementSignalCount() uint64 {
 	if p == nil {
 		return 0

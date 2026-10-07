@@ -36,9 +36,6 @@ func dispatchFailure(err error) Failure {
 	if sealed, ok := errors.AsType[*callbackError](err); ok && sealed != nil {
 		return sealed.dispatch
 	}
-	if _, panicked := errors.AsType[*CallbackPanicError](err); panicked {
-		return dispatchPanicFailure()
-	}
 	switch {
 	case errors.Is(err, ErrInvalidSettlement):
 		return newEngineFailure(FailureKindContract, failureCodeEngineDispatchSettlementInvalid, errors.New("Dispatcher returned an invalid settlement"))

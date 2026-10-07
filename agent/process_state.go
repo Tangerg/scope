@@ -148,14 +148,12 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 		return nil, nil
 	}
 	count := uint64(len(records))
-	reserved := p.prepared.settlementSignalCount()
-	remainingPending := p.mailbox.pendingCount()
 	// Step preparation bounds consumption by the pending suffix. Admission must
 	// also fit the settlements appended when that candidate is adopted.
-	remainingPending -= p.prepared.consumedSignals()
-	allocated := childAllocation
+	reserved := p.prepared.reservation().Signals
+	remainingPending := p.prepared.pendingAfter(p.mailbox.pendingCount())
 	if !limits.admitsPendingSignals(p.mailbox.pendingCount(), remainingPending, reserved, count) ||
-		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, allocated.Signals, reserved, count) {
+		!p.handle.budget.Signals.Allows(p.usage().AcceptedSignals, childAllocation.Signals, reserved, count) {
 		return nil, ErrResourceLimitExceeded
 	}
 	candidate := p.candidate()
@@ -230,23 +228,17 @@ func (p *processState) prepareResolution(effectID EffectID, settlement Settlemen
 // Effects left unknown own the identities it leaves unresolved, so the
 // installed termination never stores a copy.
 func (p *processState) publishedTermination() Termination {
-	if p.finish == nil {
-		return Termination{}
-	}
-	return p.finish.Termination.withUnresolvedEffectIDs(p.unknownEffectIDs())
+	return p.finish.publishedTermination(p.prepared)
 }
 
 func (p *processState) unknownEffectIDs() []EffectID {
-	if p.prepared == nil {
-		return nil
-	}
-	return p.prepared.Effects.unknownEffectIDs()
+	return p.prepared.unknownEffectIDs()
 }
 
 // canReserveChildBudget reports whether requested fits beside the child
 // debits already held against this Process's budget.
 func (p *processState) canReserveChildBudget(requested Budget, childAllocation resourceAmounts) bool {
-	reserved, ok := childAllocation.add(resourceAmounts{Steps: 1, Signals: p.prepared.settlementSignalCount()})
+	reserved, ok := childAllocation.add(p.prepared.reservation())
 	return ok && p.handle.budget.canAllocate(p.usage(), reserved, requested)
 }
 
@@ -272,11 +264,7 @@ func (p *processState) capture() (ProcessSnapshot, error) {
 }
 
 func (p *processState) result() Result {
-	return Result{
-		processID: p.handle.processID(), startedAt: p.handle.startedAt,
-		finishedAt:  lo.FromPtr(p.finish).FinishedAt,
-		termination: p.publishedTermination(), usage: p.usage(),
-	}
+	return p.finish.result(p.handle.processID(), p.handle.startedAt, p.prepared, p.usage())
 }
 
 func (p *processState) restorePreparedStep(ctx context.Context, stored *preparedStep) error {
@@ -307,33 +295,28 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		}
 		// Only a Process that can still dispatch asks its Dispatcher; a terminal
 		// or terminating Process retains its batch as evidence.
-		var effectPolicy EffectPolicy
 		if record.Effect.Target() == EffectTargetDispatcher && !p.status().Terminal() &&
 			!p.pendingControl.hasTerminalIntent() && record.phase() != effectPhaseSettled {
-			var err error
-			if effectPolicy, err = dispatcherEffectPolicy(p.deployment().dispatcher, record.Effect); err != nil {
+			if _, err := p.authorizeDispatch(record.Effect); err != nil {
 				return fmt.Errorf("%w: restore prepared Effect: %w", ErrInvalidSnapshot, err)
 			}
-			if !p.handle.capabilities.Allows(effectPolicy.RequiredCapabilities) {
-				return fmt.Errorf("%w: prepared Effect capability denied: %w", ErrInvalidSnapshot, ErrInvalidCapability)
+		}
+	}
+	// The batch frontier owns which Effect may be pending; only a pending
+	// Dispatcher Effect or child start owes recovery.
+	_, frontier, err := prepared.nextEffect()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, err)
+	}
+	if frontier != nil && frontier.phase() == effectPhasePending {
+		p.recoveryOwed = frontier.Effect.Target() == EffectTargetDispatcher
+		if !p.recoveryOwed {
+			operation, decodeErr := decodeFrameworkOperation(frontier.Effect.Payload())
+			if decodeErr != nil {
+				return fmt.Errorf("%w: restore pending framework Effect: %w", ErrInvalidSnapshot, decodeErr)
 			}
+			_, p.recoveryOwed = operation.(childStartOperation)
 		}
-		if record.phase() != effectPhasePending {
-			continue
-		}
-		if record.Effect.Target() == EffectTargetFramework {
-			operation, err := decodeFrameworkOperation(record.Effect.Payload())
-			if err != nil {
-				return fmt.Errorf("%w: restore pending framework Effect: %w", ErrInvalidSnapshot, err)
-			}
-			if _, starts := operation.(childStartOperation); !starts {
-				continue
-			}
-		}
-		if p.recoveryOwed {
-			return fmt.Errorf("%w: multiple pending Effects", ErrInvalidSnapshot)
-		}
-		p.recoveryOwed = true
 	}
 	p.preparedExecution = candidate
 	p.prepared = &prepared
@@ -369,14 +352,12 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 		if effect.Target() != EffectTargetDispatcher {
 			continue
 		}
-		policy, err := dispatcherEffectPolicy(p.deployment().dispatcher, effect)
-		if err != nil {
-			return nil, &stepFailure{kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err}
-		}
-		if !p.handle.capabilities.Allows(policy.RequiredCapabilities) {
-			return nil, &stepFailure{
-				kind: FailureKindContract, code: failureCodeEngineCapabilityDenied, cause: ErrInvalidCapability,
+		if _, err := p.authorizeDispatch(effect); err != nil {
+			code := failureCodeExecutionEffectInvalid
+			if errors.Is(err, ErrInvalidCapability) {
+				code = failureCodeEngineCapabilityDenied
 			}
+			return nil, &stepFailure{kind: FailureKindContract, code: code, cause: err}
 		}
 	}
 	effectCount := uint64(len(effects))
@@ -447,6 +428,24 @@ type processFinish struct {
 type processFinishWire struct {
 	Termination committedTerminationWire `json:"termination" jsonwire:"required"`
 	FinishedAt  time.Time                `json:"finished_at" jsonwire:"required"`
+}
+
+// publishedTermination is the Termination callers observe: the prepared
+// Effects left unknown own the identities it reports unresolved. Live state
+// and captured snapshots both publish through it.
+func (p *processFinish) publishedTermination(prepared *preparedStep) Termination {
+	if p == nil {
+		return Termination{}
+	}
+	return p.Termination.withUnresolvedEffectIDs(prepared.unknownEffectIDs())
+}
+
+// result is the Result of the Process this finish ended.
+func (p *processFinish) result(processID ProcessID, startedAt time.Time, prepared *preparedStep, usage Usage) Result {
+	return Result{
+		processID: processID, startedAt: startedAt, finishedAt: lo.FromPtr(p).FinishedAt,
+		termination: p.publishedTermination(prepared), usage: usage,
+	}
 }
 
 func (p processFinish) MarshalJSON() ([]byte, error) {
@@ -595,6 +594,20 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 		}
 	}
 	return nil
+}
+
+// authorizeDispatch returns the policy of a Dispatcher Effect this Process may
+// dispatch: its Dispatcher must declare a valid policy, and the Process must
+// hold every capability that policy requires.
+func (p *processState) authorizeDispatch(effect Effect) (EffectPolicy, error) {
+	policy, err := dispatcherEffectPolicy(p.deployment().dispatcher, effect)
+	if err != nil {
+		return EffectPolicy{}, err
+	}
+	if !p.handle.capabilities.Allows(policy.RequiredCapabilities) {
+		return EffectPolicy{}, ErrInvalidCapability
+	}
+	return policy, nil
 }
 
 func (p *processState) usage() Usage {
