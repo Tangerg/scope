@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -318,13 +319,17 @@ func (e *execution) acceptFanoutStarts(signals []agent.Signal) (agent.Transition
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	for index, offset := range indices {
-		e.state.ActiveFanoutWindow[offset].recordStart(starts[index])
-	}
 	consumed := uint32(count)
-	if !e.state.fanoutHasStartedChildren() {
-		return agent.Fail(consumed, e.state.firstFanoutFailure())
+	window := slices.Clone(e.state.ActiveFanoutWindow)
+	for index, offset := range indices {
+		window[offset].recordStart(starts[index])
 	}
+	// A window with no started child fails at once; the Engine owns that
+	// Failure, so the state does not record the refusals that caused it.
+	if !slices.ContainsFunc(window, fanoutChildState.started) {
+		return agent.Fail(consumed, firstFanoutFailure(window, nil))
+	}
+	e.state.ActiveFanoutWindow = window
 	batch, err = e.fanoutBatch()
 	if err != nil {
 		return agent.Transition{}, err
@@ -386,18 +391,18 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []agent.
 	}
 	outcomes := completed.Outcomes()
 	windowOutputs := make([]json.RawMessage, len(e.state.ActiveFanoutWindow))
+	outcomeFailures := make([]*agent.Failure, len(e.state.ActiveFanoutWindow))
 	for index, offset := range indices {
 		failure, output, err := e.stage().fanoutOutcome(e.state.fanoutWindowStart()+uint32(offset), outcomes[index])
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		if failure != nil {
-			e.state.ActiveFanoutWindow[offset].Failure = failure
-			continue
-		}
+		outcomeFailures[offset] = failure
 		windowOutputs[offset] = output
 	}
-	if failure := e.state.firstFanoutFailure(); failure.Valid() {
+	// The Engine owns the Failure that ends the Workflow, so the window keeps
+	// only the start refusals its draining siblings needed.
+	if failure := firstFanoutFailure(e.state.ActiveFanoutWindow, outcomeFailures); failure.Valid() {
 		return agent.Fail(1, failure)
 	}
 	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, windowOutputs...)

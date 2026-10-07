@@ -64,10 +64,7 @@ func TestDefinitionConformance(t *testing.T) {
 	output := managedOutput(t, result)
 	wantAttempts := []planning.Attempt{
 		{ActionName: "refused", Status: planning.AttemptFailed, Diagnostic: "route refused"},
-		{
-			ActionName: "unconfirmed", Status: planning.AttemptUnconfirmed,
-			Diagnostic: "Reobservation did not establish the Action's predicted effects",
-		},
+		{ActionName: "unconfirmed", Status: planning.AttemptUnconfirmed},
 		{ActionName: "successful", Status: planning.AttemptSucceeded},
 	}
 	if output.Outcome != planning.OutcomeAchieved || output.PlanningPasses() != 3 ||

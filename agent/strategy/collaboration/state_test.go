@@ -92,9 +92,9 @@ func TestRestoreIdentifiesInvalidTurnState(t *testing.T) {
 		{
 			name: "unseen outcome",
 			mutate: func(state *executionState) {
-				state.Turn.UnseenOutcomes = []uint32{0}
+				state.Turn.OutcomeArrived = true
 			},
-			context: "unseen task outcome 0 is not a recorded outcome",
+			context: "an arrived task outcome is not recorded",
 		},
 		{
 			name: "wait identity",

@@ -256,6 +256,16 @@ func TestRestoreIdentifiesContradictoryFanoutProgress(t *testing.T) {
 			payload: `{"stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[{}]}`,
 			context: "fan-out wait requires started children",
 		},
+		{
+			payload: `{"stage_index":0,"current_value":{"value":1},"active_fanout_window":[` +
+				`{"failure":{"kind":"external","code":"child.refused","message":"refused"}}]}`,
+			context: "fan-out wait requires started children",
+		},
+		{
+			payload: `{"stage_index":0,"current_value":{"value":1},"fanout_wait_id":"wait","active_fanout_window":[` +
+				`{"child_process_id":"process:child","failure":{"kind":"external","code":"child.failed","message":"failed"}}]}`,
+			context: "a started fan-out child repeats a Failure the Engine owns",
+		},
 	} {
 		state, err := agent.ParseExecutionState(executionStateKind, json.RawMessage(test.payload))
 		if err != nil {

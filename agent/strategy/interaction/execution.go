@@ -610,9 +610,6 @@ func (e *execution) acceptDelegateOutcome(index int, call chat.ToolCall, result 
 		return err
 	}
 	e.state.ToolRound.ChildBatch.Invocations[index].Result = new(newToolCallResult(converted))
-	if result.Status() != agent.StatusCompleted {
-		return nil
-	}
 	return nil
 }
 

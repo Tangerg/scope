@@ -212,7 +212,7 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 	done := mustCondition(t, "world.done", planning.TruthTrue)
 	succeeded := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptSucceeded}
 	failed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptFailed, Diagnostic: "refused"}
-	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed, Diagnostic: "not observed"}
+	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed}
 	for _, test := range []struct {
 		name     string
 		outcome  planning.Outcome
