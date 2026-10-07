@@ -73,7 +73,6 @@ const (
 	treeCommitEffectPending
 	treeCommitEffectSettled
 	treeCommitEffectResolved
-	treeCommitChildStart
 	treeCommitCheckpoint
 	treeCommitSignals
 )
@@ -85,7 +84,9 @@ type treeCommit struct {
 	snapshot  TreeSnapshot
 	reply     processReply
 	events    []eventDraft
-	child     *pendingChildStartPublication
+	// child is present exactly when the settled Effect started a child this
+	// commit publishes.
+	child *pendingChildStartPublication
 }
 
 // pendingChildStartPublication carries a finished child start to its
@@ -688,7 +689,7 @@ func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error)
 	if commit.kind == treeCommitEffectPending {
 		unresolvedEffectID = EffectID{}
 	}
-	if commit.kind == treeCommitChildStart {
+	if commit.child != nil {
 		t.discardChildStart(commit.child.plan)
 	}
 	t.failRuntime(commitErr, commit.processID, unresolvedEffectID)
@@ -703,16 +704,16 @@ func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
 	}
 	switch commit.kind {
 	case treeCommitEffectPending, treeCommitEffectSettled:
+		if commit.child != nil {
+			if err := t.publishChildStart(commit.child); err != nil {
+				t.discardChildStart(commit.child.plan)
+				t.failRuntime(err, commit.processID, commit.effectID)
+				return
+			}
+		}
 		t.enqueueProcess(commit.processID)
 	case treeCommitEffectResolved:
 		commit.reply.send(processResponse{})
-		t.enqueueProcess(commit.processID)
-	case treeCommitChildStart:
-		if err := t.publishChildStart(commit.child); err != nil {
-			t.discardChildStart(commit.child.plan)
-			t.failRuntime(err, commit.processID, commit.effectID)
-			return
-		}
 		t.enqueueProcess(commit.processID)
 	case treeCommitCheckpoint:
 	case treeCommitSignals:
@@ -1686,7 +1687,7 @@ func (t *treeRuntime) applyChildStartCompletion(
 			effectID: job.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
 		}
 		if pending.result.started() {
-			commit.kind, commit.child, commit.events = treeCommitChildStart, pending, nil
+			commit.child, commit.events = pending, nil
 		}
 		err = t.startCheckpoint(commit, checkpointCauseChildStart)
 	}
