@@ -35,40 +35,27 @@ type actionCall struct {
 	WorldState WorldState `json:"world_state"`
 }
 
-// signalEnvelope carries exactly one of a host rejection, a sensing result,
-// and an Action result; the member present names the operation it settles.
-type signalEnvelope struct {
-	HostError string            `json:"host_error,omitempty"`
-	Sensing   *senseResult      `json:"sensing,omitzero"`
-	Action    *actionResultWire `json:"action,omitzero"`
-}
-
-func (s signalEnvelope) operation() operation {
-	if s.Action != nil {
-		return operationAction
-	}
-	return operationSense
-}
-
+// The settlement status owns whether an operation succeeded. A successful
+// sensing settlement carries the observed world state and a successful Action
+// settlement carries nothing; a failed settlement carries settlementFailure.
 type senseResult struct {
-	WorldState *WorldState `json:"world_state,omitzero"`
-	Error      string      `json:"error,omitempty"`
+	WorldState WorldState `json:"world_state"`
 }
 
-func (s senseResult) valid() bool {
-	if s.Error != "" {
-		return s.WorldState == nil && agent.ValidDiagnostic(s.Error)
-	}
-	return s.WorldState != nil
-}
+type actionCompleted struct{}
 
-// actionResultWire reports a failure exactly by its diagnostic.
-type actionResultWire struct {
+// settlementFailure explains a failed settlement: either the host rejected
+// the operation, or the operation itself definitely failed.
+type settlementFailure struct {
+	HostError  string `json:"host_error,omitempty"`
 	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
-func (a actionResultWire) result() ActionResult {
-	return ActionResult{succeeded: a.Diagnostic == "", diagnostic: a.Diagnostic}
+func (s settlementFailure) valid() bool {
+	if s.HostError != "" {
+		return s.Diagnostic == "" && agent.ValidDiagnostic(s.HostError)
+	}
+	return agent.ValidDiagnostic(s.Diagnostic)
 }
 
 func newSenseEffect(input agent.Payload) (agent.Effect, error) {
@@ -117,65 +104,48 @@ func (e effectEnvelope) valid() bool {
 	return e.Action == nil || agent.ValidQualifiedName(e.Action.Name)
 }
 
-func senseSignal(state WorldState, cause error) (json.RawMessage, error) {
-	result := &senseResult{}
+func senseSettlement(state WorldState, cause error) (agent.Settlement, error) {
 	if cause != nil {
-		result.Error = agent.NormalizeDiagnostic(cause.Error())
-	} else {
-		cloned := state
-		result.WorldState = &cloned
+		return failedSettlement(settlementFailure{Diagnostic: agent.NormalizeDiagnostic(cause.Error())})
 	}
-	return jsonv2.Marshal(signalEnvelope{Sensing: result}, jsonv2.Deterministic(true))
-}
-
-func actionSignal(result ActionResult) (json.RawMessage, error) {
-	if !result.Valid() {
-		return nil, ErrInvalidProtocol
-	}
-	return jsonv2.Marshal(signalEnvelope{
-		Action: &actionResultWire{Diagnostic: result.Diagnostic()},
-	}, jsonv2.Deterministic(true))
-}
-
-func decodeSignal(payload json.RawMessage) (signalEnvelope, error) {
-	envelope, err := jsonwire.Decode[signalEnvelope](payload)
+	payload, err := jsonv2.Marshal(senseResult{WorldState: state}, jsonv2.Deterministic(true))
 	if err != nil {
-		return signalEnvelope{}, fmt.Errorf("%w: decode Signal: %w", ErrInvalidProtocol, err)
+		return agent.Settlement{}, err
 	}
-	if !envelope.valid() {
-		return signalEnvelope{}, ErrInvalidProtocol
-	}
-	return envelope, nil
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
-func (s signalEnvelope) valid() bool {
-	switch {
-	case s.HostError != "":
-		return agent.ValidDiagnostic(s.HostError) && s.Sensing == nil && s.Action == nil
-	case s.Sensing != nil:
-		return s.Action == nil && s.Sensing.valid()
-	case s.Action != nil:
-		return s.Action.result().Valid()
-	default:
-		return false
+func failedSettlement(failure settlementFailure) (agent.Settlement, error) {
+	payload, err := jsonv2.Marshal(failure, jsonv2.Deterministic(true))
+	if err != nil {
+		return agent.Settlement{}, err
 	}
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
 }
 
-// decodeSettlement accepts the single dispatcher settlement for expected, or
-// a host_error rejection of that operation.
-func decodeSettlement(signals []agent.Signal, expected operation) (signalEnvelope, error) {
+// decodeSettlement reads the single Dispatcher settlement of the awaited
+// operation. A failed settlement returns its explanation instead of a result.
+func decodeSettlement[T any](signals []agent.Signal, members ...string) (T, *settlementFailure, error) {
+	var result T
 	signal, err := oneSignal(signals)
 	if err != nil {
-		return signalEnvelope{}, err
+		return result, nil, err
 	}
-	envelope, err := decodeSignal(signal.Payload())
+	settlement, err := agent.ParseSettlement(signal)
 	if err != nil {
-		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal: %w", ErrInvalidProtocol, expected, err)
+		return result, nil, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	if envelope.HostError == "" && envelope.operation() != expected {
-		return signalEnvelope{}, fmt.Errorf("%w: expected %s Signal", ErrInvalidProtocol, expected)
+	if settlement.Status() == agent.SettlementStatusFailed {
+		failure, decodeErr := jsonwire.Decode[settlementFailure](settlement.Payload())
+		if decodeErr != nil || !failure.valid() {
+			return result, nil, fmt.Errorf("%w: invalid settlement failure", ErrInvalidProtocol)
+		}
+		return result, &failure, nil
 	}
-	return envelope, nil
+	if result, err = jsonwire.Decode[T](settlement.Payload(), members...); err != nil {
+		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
+	}
+	return result, nil, nil
 }
 
 func oneSignal(signals []agent.Signal) (agent.Signal, error) {

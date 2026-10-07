@@ -21,6 +21,9 @@ type Signal struct {
 	id      SignalID
 	waitID  WaitID
 	payload json.RawMessage
+	// status is present exactly on a Dispatcher settlement, whose status owns
+	// whether its Effect succeeded; the payload owns only the result data.
+	status SettlementStatus
 }
 
 // NewSignal builds one delivery envelope with a canonical payload for
@@ -36,6 +39,21 @@ func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 		return Signal{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignal, err)
 	}
 	return Signal{id: id, waitID: waitID, payload: normalized}, nil
+}
+
+// NewSettlementSignal builds the delivery of a definite Dispatcher settlement
+// for Definition tests and conformance cases. At runtime only the Engine mints
+// it, under the settlement identity of the Effect it settles.
+func NewSettlementSignal(id SignalID, settlement Settlement) (Signal, error) {
+	if !id.engineOwned() || !settlement.definite() {
+		return Signal{}, fmt.Errorf("%w: settlement delivery requires an Engine identity and a definite settlement", ErrInvalidSignal)
+	}
+	signal, err := NewSignal(id, WaitID{}, settlement.payload)
+	if err != nil {
+		return Signal{}, err
+	}
+	signal.status = settlement.status
+	return signal, nil
 }
 
 // ID returns the stable delivery and deduplication identity.
@@ -72,6 +90,7 @@ func (s Signal) MarshalJSON() ([]byte, error) {
 	wire := signalWire{
 		ID:      s.id,
 		Payload: s.payload,
+		Status:  s.status,
 	}
 	if s.waitID.Valid() {
 		wire.WaitID = &s.waitID
@@ -95,14 +114,27 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if wire.Status != SettlementStatusInvalid {
+		if waitID.Valid() {
+			return fmt.Errorf("%w: a settlement cannot address a wait", ErrInvalidSignal)
+		}
+		settlement, settlementErr := NewSettlement(wire.Status, wire.Payload)
+		if settlementErr != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidSignal, settlementErr)
+		}
+		if value, err = NewSettlementSignal(wire.ID, settlement); err != nil {
+			return err
+		}
+	}
 	*s = value
 	return nil
 }
 
 type signalWire struct {
-	ID      SignalID        `json:"id"`
-	WaitID  *WaitID         `json:"wait_id,omitzero"`
-	Payload json.RawMessage `json:"payload"`
+	ID      SignalID         `json:"id"`
+	WaitID  *WaitID          `json:"wait_id,omitzero"`
+	Payload json.RawMessage  `json:"payload"`
+	Status  SettlementStatus `json:"status,omitzero"`
 }
 
 func (Signal) JSONSchemaAlias() any { return signalWire{} }

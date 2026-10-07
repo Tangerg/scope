@@ -2,6 +2,7 @@ package planning
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -94,13 +95,12 @@ func NewActionSettlement(result ActionResult) (agent.Settlement, error) {
 	if !result.Valid() {
 		return agent.Settlement{}, ErrInvalidProtocol
 	}
-	payload, err := actionSignal(result)
+	if !result.Succeeded() {
+		return failedSettlement(settlementFailure{Diagnostic: result.Diagnostic()})
+	}
+	payload, err := jsonv2.Marshal(actionCompleted{})
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	status := agent.SettlementStatusSucceeded
-	if !result.Succeeded() {
-		status = agent.SettlementStatusFailed
-	}
-	return agent.NewSettlement(status, payload)
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -104,27 +105,17 @@ type signalEnvelope struct {
 	Steer         *steerInput         `json:"steer,omitzero"`
 }
 
+// modelCallResult is a successful model call's settlement payload. The
+// settlement status owns whether the call succeeded; a failed call settles
+// with its diagnostic instead.
 type modelCallResult struct {
-	Response            *chat.Response `json:"response,omitzero"`
+	Response            *chat.Response `json:"response"`
 	ReplacementMessages []chat.Message `json:"replacement_messages,omitempty"`
-	HostError           string         `json:"host_error,omitempty"`
 }
 
 func (m modelCallResult) validate() error {
-	modes := 0
-	for _, present := range []bool{m.Response != nil, m.HostError != ""} {
-		if present {
-			modes++
-		}
-	}
-	if modes != 1 {
-		return fmt.Errorf("%w: model_result requires exactly one response or host error", ErrInvalidProtocol)
-	}
 	if m.Response == nil {
-		if m.ReplacementMessages != nil {
-			return fmt.Errorf("%w: failed model_result cannot carry replacement messages", ErrInvalidProtocol)
-		}
-		return nil
+		return fmt.Errorf("%w: model_result requires a response", ErrInvalidProtocol)
 	}
 	if err := m.Response.Validate(); err != nil {
 		return fmt.Errorf("%w: model_result response: %w", ErrInvalidProtocol, err)
@@ -418,6 +409,34 @@ func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
+}
+
+// failedSettlement settles a Dispatcher Effect as definitely failed with
+// cause as its diagnostic payload.
+func failedSettlement(cause error) (agent.Settlement, error) {
+	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return agent.Settlement{}, err
+	}
+	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
+}
+
+// decodeSettlement reads a Dispatcher settlement Signal. A failed settlement
+// returns its diagnostic instead of a result envelope.
+func decodeSettlement(signal agent.Signal) (signalEnvelope, string, error) {
+	settlement, err := agent.ParseSettlement(signal)
+	if err != nil {
+		return signalEnvelope{}, "", fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	}
+	if settlement.Status() == agent.SettlementStatusFailed {
+		diagnostic, decodeErr := jsonwire.Decode[string](settlement.Payload())
+		if decodeErr != nil || !agent.ValidDiagnostic(diagnostic) {
+			return signalEnvelope{}, "", fmt.Errorf("%w: failed settlement requires a diagnostic", ErrInvalidProtocol)
+		}
+		return signalEnvelope{}, diagnostic, nil
+	}
+	envelope, err := decodeSignal(settlement.Payload())
+	return envelope, "", err
 }
 
 func decodeSignal(data json.RawMessage) (signalEnvelope, error) {

@@ -64,17 +64,17 @@ func (e *execution) requestSense(consumedSignals uint32) (agent.Transition, erro
 }
 
 func (e *execution) acceptSense(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	envelope, err := decodeSettlement(signals, operationSense)
+	sensed, failure, err := decodeSettlement[senseResult](signals, "world_state")
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if envelope.HostError != "" {
-		return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
+	if failure != nil {
+		if failure.HostError != "" {
+			return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, failure.HostError)
+		}
+		return stepfail.Transition(1, agent.FailureKindExternal, failureCodePlanningSensingFailed, failure.Diagnostic)
 	}
-	if envelope.Sensing.Error != "" {
-		return stepfail.Transition(1, agent.FailureKindExternal, failureCodePlanningSensingFailed, envelope.Sensing.Error)
-	}
-	e.state.WorldState = *envelope.Sensing.WorldState
+	e.state.WorldState = sensed.WorldState
 	if e.state.awaitingConfirmation() {
 		binding, found := e.definition.binding(e.state.CurrentActionName)
 		if !found {
@@ -167,15 +167,15 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 }
 
 func (e *execution) acceptAction(signals []agent.Signal) (agent.Transition, error) {
-	envelope, err := decodeSettlement(signals, operationAction)
+	_, failure, err := decodeSettlement[actionCompleted](signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if envelope.HostError != "" {
-		return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, envelope.HostError)
-	}
-	if envelope.Action.Diagnostic != "" {
-		e.state.recordFailedAction(envelope.Action.Diagnostic)
+	if failure != nil {
+		if failure.HostError != "" {
+			return stepfail.Transition(1, agent.FailureKindContract, failureCodePlanningDispatchRejected, failure.HostError)
+		}
+		e.state.recordFailedAction(failure.Diagnostic)
 	}
 	return e.requestSense(1)
 }

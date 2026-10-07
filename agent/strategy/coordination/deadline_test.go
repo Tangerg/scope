@@ -205,3 +205,33 @@ func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
 		closeEngine(t, engine)
 	}
 }
+
+func TestDeadlineSettlementStatusOwnsWhetherItWasReached(t *testing.T) {
+	for _, test := range []struct {
+		status  agent.SettlementStatus
+		payload string
+		want    agent.Status
+	}{
+		{agent.SettlementStatusSucceeded, `{}`, agent.StatusCompleted},
+		{agent.SettlementStatusFailed, `"timer returned before its deadline"`, agent.StatusFailed},
+	} {
+		dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{{SettlementStatus: test.status, SettlementPayload: []byte(test.payload)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := engine.Start(t.Context(), deadlineBinding(t, dispatcher), encodedInput(t, time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		final := result(t, process)
+		failure, _ := final.Termination().Failure()
+		if final.Status() != test.want || test.want == agent.StatusFailed && failure.Code() != "coordination.deadline.interrupted" {
+			t.Fatalf("%s settlement ended %s with %+v", test.status, final.Status(), failure)
+		}
+		closeEngine(t, engine)
+	}
+}

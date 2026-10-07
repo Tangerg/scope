@@ -72,20 +72,14 @@ func TestResultWithoutDispositionCannotEnterProtocol(t *testing.T) {
 	}
 }
 
-func TestModelHostFailureSignalModesAreExclusive(t *testing.T) {
-	modelHost := signalEnvelope{
-		ModelResult: &modelCallResult{HostError: "journal unavailable"},
+func TestModelResultRequiresResponse(t *testing.T) {
+	// A failed call settles Failed with its diagnostic; a model result is only
+	// ever a successful response.
+	if err := (signalEnvelope{ModelResult: &modelCallResult{}}).validate(); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatalf("model result without a response = %v", err)
 	}
-	if err := modelHost.validate(); err != nil {
-		t.Fatalf("model host failure: %v", err)
-	}
-	response := chat.Response{}
-	modelHost.ModelResult.Response = &response
-	modelHost.ModelResult.ReplacementMessages = []chat.Message{
-		chat.NewUserMessage(chat.NewTextPart("must not accompany host failure")),
-	}
-	if err := modelHost.validate(); err == nil {
-		t.Fatal("model result combined a host failure with a response")
+	if _, err := decodeSignal(json.RawMessage(`{"model_result":{"response":null,"host_error":"journal unavailable"}}`)); !errors.Is(err, jsonv2.ErrUnknownName) {
+		t.Fatalf("model result accepted a host failure member: %v", err)
 	}
 }
 

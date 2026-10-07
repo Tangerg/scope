@@ -56,12 +56,12 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 				}
 				mailbox = restoredMailbox(t, mailbox)
 				receipts := mailbox.wire().receipts()
-				if test.wait && receipts[0].Matches(SignalRequest(opening)) {
+				if test.wait && receipts[0].Matches(SignalRequest{id: opening.id, waitID: opening.waitID, payload: opening.payload}) {
 					t.Errorf("consumed=%t: opening receipt proved an external admission", consumed)
 				}
 				receipt := receipts[len(receipts)-1]
-				if receipt.Consumed() != consumed || receipt.Matches(SignalRequest(answer)) != test.external {
-					t.Errorf("consumed=%t: answer receipt = %+v, matches=%t", consumed, receipt, receipt.Matches(SignalRequest(answer)))
+				if receipt.Consumed() != consumed || receipt.Matches(SignalRequest{id: answer.id, waitID: answer.waitID, payload: answer.payload}) != test.external {
+					t.Errorf("consumed=%t: answer receipt = %+v, matches=%t", consumed, receipt, receipt.Matches(SignalRequest{id: answer.id, waitID: answer.waitID, payload: answer.payload}))
 				}
 				if _, present := receipt.PendingSignal(); present == consumed {
 					t.Errorf("consumed=%t: pending signal presence=%t", consumed, present)

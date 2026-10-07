@@ -2,7 +2,6 @@ package planning
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -133,15 +132,11 @@ func (d *Dispatcher) sense(
 ) (agent.Settlement, error) {
 	request := SenseRequest{EffectID: effectID, Input: input}
 	state, senseErr := d.sensor.Sense(ctx, request)
-	payload, err := senseSignal(state, senseErr)
+	settlement, err := senseSettlement(state, senseErr)
 	if err != nil {
 		return planningFailureSettlement(err)
 	}
-	status := agent.SettlementStatusSucceeded
-	if senseErr != nil {
-		status = agent.SettlementStatusFailed
-	}
-	return agent.NewSettlement(status, payload)
+	return settlement, nil
 }
 
 func (d *Dispatcher) execute(
@@ -171,9 +166,5 @@ func (d *Dispatcher) execute(
 var _ agent.Dispatcher = (*Dispatcher)(nil)
 
 func planningFailureSettlement(cause error) (agent.Settlement, error) {
-	payload, err := jsonv2.Marshal(signalEnvelope{HostError: agent.NormalizeDiagnostic(cause.Error())})
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
+	return failedSettlement(settlementFailure{HostError: agent.NormalizeDiagnostic(cause.Error())})
 }

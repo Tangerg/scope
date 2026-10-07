@@ -19,17 +19,18 @@ func TestExternalSignalsCannotAdvanceSensingOrActions(t *testing.T) {
 	for _, current := range []phase{phaseReadySense, phaseAwaitingSense, phaseAwaitingAction} {
 		t.Run(string(current), func(t *testing.T) {
 			state := executionState{Phase: current, Input: json.RawMessage(`{}`)}
-			payload, err := senseSignal(WorldState{}, nil)
+			settlement, err := senseSettlement(WorldState{}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if current == phaseAwaitingAction {
 				state.CurrentActionName = "action.finish"
-				payload, err = actionSignal(ActionSucceeded())
+				settlement, err = NewActionSettlement(ActionSucceeded())
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
+			payload := settlement.Payload()
 			before, err := state.snapshot()
 			if err != nil {
 				t.Fatal(err)

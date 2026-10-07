@@ -31,10 +31,11 @@ type signalRecord struct {
 	waitID         WaitID
 	payload        json.RawMessage
 	consumedDigest Digest
+	status         SettlementStatus
 }
 
 func newSignalRecord(signal Signal) signalRecord {
-	return signalRecord{id: signal.id, waitID: signal.waitID, payload: signal.payload}
+	return signalRecord{id: signal.id, waitID: signal.waitID, payload: signal.payload, status: signal.status}
 }
 
 // opensWait follows from identity: only the Engine's acknowledgement of a
@@ -75,13 +76,13 @@ func (s signalRecord) source() signalSource {
 }
 
 func (s signalRecord) sameContent(other signalRecord) bool {
-	return s.id == other.id && s.waitID == other.waitID &&
+	return s.id == other.id && s.waitID == other.waitID && s.status == other.status &&
 		s.payloadDigest() == other.payloadDigest()
 }
 
 // wire keeps a pending payload or a consumed digest, never both.
 func (s signalRecord) wire() signalRecordWire {
-	wire := signalRecordWire{ID: s.id, Payload: bytes.Clone(s.payload)}
+	wire := signalRecordWire{ID: s.id, Payload: bytes.Clone(s.payload), Status: s.status}
 	if s.payload == nil {
 		wire.PayloadDigest = new(s.consumedDigest)
 	}
@@ -309,7 +310,7 @@ func (s *signalMailbox) pending() []Signal {
 	for index := range pending {
 		record := pending[index]
 		// Admission already normalized these immutable, mailbox-owned bytes.
-		signals[index] = Signal{id: record.id, waitID: record.waitID, payload: record.payload}
+		signals[index] = Signal{id: record.id, waitID: record.waitID, payload: record.payload, status: record.status}
 	}
 	return signals
 }
@@ -360,6 +361,7 @@ type signalRecordWire struct {
 	PayloadDigest *Digest          `json:"payload_digest,omitzero"`
 	Payload       json.RawMessage  `json:"payload,omitzero"`
 	Opens         *waitOpeningWire `json:"opens,omitzero"`
+	Status        SettlementStatus `json:"status,omitzero"`
 }
 
 // content derives the payload a pending record still carries and the digest
@@ -592,7 +594,7 @@ func (m mailboxWire) receipts() []SignalReceipt {
 		consumed := arrivalSequence <= m.SignalCursor
 		// A validated capture always derives its content.
 		payload, digest, _ := record.content(consumed)
-		receipt := SignalReceipt{id: record.ID, waitID: lo.FromPtr(record.WaitID), arrivalSequence: arrivalSequence}
+		receipt := SignalReceipt{id: record.ID, waitID: lo.FromPtr(record.WaitID), arrivalSequence: arrivalSequence, status: record.Status}
 		if consumed {
 			receipt.consumedDigest = digest
 		} else {
@@ -758,7 +760,11 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 	if err != nil {
 		return signalRecord{}, err
 	}
-	record := signalRecord{id: s.ID, waitID: lo.FromPtr(s.WaitID), payload: payload}
+	record := signalRecord{id: s.ID, waitID: lo.FromPtr(s.WaitID), payload: payload, status: s.Status}
+	if s.Status != SettlementStatusInvalid && (s.Status == SettlementStatusUnknown || !s.Status.Valid() ||
+		!s.ID.engineOwned() || s.WaitID != nil || s.Opens != nil) {
+		return signalRecord{}, fmt.Errorf("%w: only a delivered Dispatcher settlement has a status", errMailboxCursor)
+	}
 	if record.opensWait() != (s.Opens != nil) {
 		return signalRecord{}, fmt.Errorf("%w: only a wait's acknowledgement opens it", errWaitState)
 	}

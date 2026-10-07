@@ -3,7 +3,6 @@ package interaction
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -323,13 +322,7 @@ func (d *Dispatcher) callModel(
 }
 
 func modelHostFailureSettlement(cause error) (agent.Settlement, error) {
-	payload, err := jsonv2.Marshal(signalEnvelope{
-		ModelResult: &modelCallResult{HostError: agent.NormalizeDiagnostic(cause.Error())},
-	}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agent.Settlement{}, err
-	}
-	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
+	return failedSettlement(cause)
 }
 
 func cloneDefinitions(definitions []chat.ToolDefinition) []chat.ToolDefinition {

@@ -382,8 +382,13 @@ func (p *preparedEffect) settleLocally(operation frameworkOperation) error {
 	return p.settleOperation(operation, Failure{})
 }
 
-// settlementSignal delivers the settled outcome to the Execution.
+// settlementSignal delivers the settled outcome to the Execution. A
+// Dispatcher settlement carries its status; a Framework operation's payload
+// already owns its outcome.
 func (p *preparedEffect) settlementSignal() (Signal, error) {
+	if p.Effect.Target() == EffectTargetDispatcher {
+		return NewSettlementSignal(p.ID.settlementSignalID(), *p.settlement())
+	}
 	return NewSignal(p.ID.settlementSignalID(), WaitID{}, p.settlement().Payload())
 }
 

@@ -140,20 +140,23 @@ func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transitio
 	if _, addressed := signals[0].WaitID(); addressed {
 		return agent.Transition{}, fmt.Errorf("%w: timer settlement cannot address a wait", ErrInvalidProtocol)
 	}
-	payload, err := agent.ParsePayload(signals[0].Payload())
+	settlement, err := agent.ParseSettlement(signals[0])
 	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
+		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	result, err := payload.Decode[timerResult]()
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
-	}
-	if !result.Reached {
+	if settlement.Status() != agent.SettlementStatusSucceeded {
 		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
 		return agent.Fail(1, failure)
+	}
+	payload, err := agent.ParsePayload(settlement.Payload())
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
+	}
+	if _, err = payload.Decode[timerReached](); err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
 	d.state.Phase = deadlineCompleted
 	output, err := agent.EncodePayload(d.state.Deadline)

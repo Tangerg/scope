@@ -292,21 +292,24 @@ func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapsho
 	return nil, nil
 }
 
-// definiteDispatcherPayloads returns the definite dispatcher outcomes a Tool
+// definiteDispatcherPayloads returns the successful dispatcher outcomes a Tool
 // child retains: its prepared dispatcher settlements and the settlement
 // Signals it has not consumed. Wait openings belong to the Engine.
 func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) []json.RawMessage {
 	var payloads []json.RawMessage
 	for effectID, settlement := range process.Settlements() {
 		request, found := snapshot.EffectRequest(process.ProcessID(), effectID)
-		if found && request.Effect().Target() == agent.EffectTargetDispatcher && settlement.Status() != agent.SettlementStatusUnknown {
+		if found && request.Effect().Target() == agent.EffectTargetDispatcher && settlement.Status() == agent.SettlementStatusSucceeded {
 			payloads = append(payloads, settlement.Payload())
 		}
 	}
 	for _, receipt := range process.SignalReceipts() {
 		signal, pending := receipt.PendingSignal()
-		if _, addressed := signal.WaitID(); pending && signal.EngineOwned() && !addressed {
-			payloads = append(payloads, signal.Payload())
+		if !pending {
+			continue
+		}
+		if settlement, err := agent.ParseSettlement(signal); err == nil && settlement.Status() == agent.SettlementStatusSucceeded {
+			payloads = append(payloads, settlement.Payload())
 		}
 	}
 	return payloads

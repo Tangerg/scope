@@ -8,6 +8,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
 const toolExecutionStateKind = "interaction.tool_call"
@@ -142,14 +143,21 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 	if t.state.phase() == toolAwaitingWaitOpen {
 		return t.acceptWaitOpened(signal)
 	}
-	envelope, err := decodeSignal(signal.Payload())
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	switch t.state.phase() {
 	case toolAwaitingResult:
+		envelope, hostFailure, err := decodeSettlement(signal)
+		if err != nil {
+			return agent.Transition{}, err
+		}
+		if hostFailure != "" {
+			return stepfail.Transition(1, agent.FailureKindExternal, failureCodeInteractionHostFailed, hostFailure)
+		}
 		return t.acceptResult(signal, envelope)
 	case toolWaitingInput:
+		envelope, err := decodeSignal(signal.Payload())
+		if err != nil {
+			return agent.Transition{}, err
+		}
 		return t.acceptInputResponse(signal, envelope)
 	default:
 		return agent.Transition{}, ErrInvalidExecutionState

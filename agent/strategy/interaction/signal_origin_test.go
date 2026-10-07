@@ -91,8 +91,9 @@ func TestModelResultRequiresEngineAuthority(t *testing.T) {
 	for _, id := range []string{"signal:external", "signal:engine:model"} {
 		wire, err := jsonv2.Marshal(struct {
 			ID      string `json:"id"`
+			Status  string `json:"status,omitempty"`
 			Payload any    `json:"payload"`
-		}{ID: id, Payload: payload})
+		}{ID: id, Status: map[bool]string{true: "succeeded"}[id != "signal:external"], Payload: payload})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +101,7 @@ func TestModelResultRequiresEngineAuthority(t *testing.T) {
 		if decodeErr := jsonv2.Unmarshal(wire, &signal); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		_, _, _, err = collectModelResult([]agent.Signal{signal})
+		_, _, _, _, err = collectModelResult([]agent.Signal{signal})
 		if id == "signal:external" && !errors.Is(err, ErrInvalidExecutionState) || id != "signal:external" && err != nil {
 			t.Fatalf("source %s: %v", id, err)
 		}

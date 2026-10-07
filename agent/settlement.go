@@ -41,9 +41,11 @@ func (s SettlementStatus) String() string {
 
 // Settlement is the immutable final fact for one Effect. The Effect it answers
 // owns the EffectID, so a Settlement is addressed by where it is returned or
-// recorded rather than by a copy of that identity. Payload is owned by the
-// Effect target and becomes opaque Signal data for the next Step. The Engine
-// uses Status only to preserve definite versus unknown execution facts.
+// recorded rather than by a copy of that identity. Status owns whether the
+// Effect definitely succeeded, definitely failed, or remains unknown; a
+// Dispatcher payload carries only the result or diagnostic, never a second
+// success flag. The Engine delivers a definite Dispatcher settlement to the
+// next Step, where ParseSettlement reads both.
 type Settlement struct {
 	status  SettlementStatus
 	payload json.RawMessage
@@ -72,6 +74,22 @@ func (s Settlement) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
 func (s Settlement) Valid() bool {
 	return s.status.Valid() && len(s.payload) > 0
+}
+
+// definite reports a settlement the Engine delivers to the Execution: only an
+// unknown outcome stays with the Host until it is resolved.
+func (s Settlement) definite() bool {
+	return s.Valid() && s.status != SettlementStatusUnknown
+}
+
+// ParseSettlement reads a Dispatcher settlement delivered to an Execution.
+// Its Status owns whether the Effect succeeded; its Payload carries the
+// Dispatcher's result or diagnostic.
+func ParseSettlement(signal Signal) (Settlement, error) {
+	if signal.status == SettlementStatusInvalid {
+		return Settlement{}, fmt.Errorf("%w: Signal does not deliver a Dispatcher settlement", ErrInvalidSettlement)
+	}
+	return Settlement{status: signal.status, payload: bytes.Clone(signal.payload)}, nil
 }
 
 func (s Settlement) MarshalJSON() ([]byte, error) {

@@ -16,6 +16,7 @@ type SignalReceipt struct {
 	// A pending receipt keeps the payload; consumption leaves only its digest.
 	pendingPayload json.RawMessage
 	consumedDigest Digest
+	status         SettlementStatus
 }
 
 func (s SignalReceipt) ID() SignalID { return s.id }
@@ -39,7 +40,7 @@ func (s SignalReceipt) PendingSignal() (Signal, bool) {
 	if s.pendingPayload == nil {
 		return Signal{}, false
 	}
-	return Signal{id: s.id, waitID: s.waitID, payload: bytes.Clone(s.pendingPayload)}, true
+	return Signal{id: s.id, waitID: s.waitID, payload: bytes.Clone(s.pendingPayload), status: s.status}, true
 }
 
 // Matches reports whether this receipt proves admission of the external request.

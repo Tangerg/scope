@@ -245,17 +245,13 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := payload.Decode[struct {
-		ModelResult struct {
-			HostError string `json:"host_error"`
-		} `json:"model_result"`
-	}]()
+	diagnostic, err := payload.Decode[string]()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "interaction: reduce model context: " + strings.Repeat("<", agent.MaxDiagnosticBytes-len("interaction: reduce model context: "))
-	if wire.ModelResult.HostError != want || len(wire.ModelResult.HostError) != agent.MaxDiagnosticBytes {
-		t.Fatalf("diagnostic was not bounded at its owner: bytes=%d", len(wire.ModelResult.HostError))
+	if diagnostic != want || len(diagnostic) != agent.MaxDiagnosticBytes {
+		t.Fatalf("diagnostic was not bounded at its owner: bytes=%d", len(diagnostic))
 	}
 }
 

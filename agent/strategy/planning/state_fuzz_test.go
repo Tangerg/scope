@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 func FuzzExecutionStateRestore(f *testing.F) {
@@ -98,8 +99,8 @@ func FuzzExecutionStateRestore(f *testing.F) {
 func FuzzPlanningProtocol(f *testing.F) {
 	f.Add([]byte(`{"input":{}}`))
 	f.Add([]byte(`{"input":{},"action":{"name":"action.finish","world_state":{"conditions":[]}}}`))
-	f.Add([]byte(`{"sensing":{"world_state":{"conditions":[]}}}`))
-	f.Add([]byte(`{"action":{}}`))
+	f.Add([]byte(`{"world_state":{"conditions":[]}}`))
+	f.Add([]byte(`{"diagnostic":"sensor failed"}`))
 	f.Add([]byte(`{"host_error":"action binding rejected"}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		if effect, err := decodeEffect(payload); err == nil {
@@ -111,30 +112,30 @@ func FuzzPlanningProtocol(f *testing.F) {
 				t.Fatalf("accepted Effect did not round trip: %v", err)
 			}
 		}
-		if signal, err := decodeSignal(payload); err == nil {
-			encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
+		if failure, err := jsonwire.Decode[settlementFailure](payload); err == nil && failure.valid() {
+			encoded, err := jsonv2.Marshal(failure, jsonv2.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := decodeSignal(encoded); err != nil {
-				t.Fatalf("accepted Signal did not round trip: %v", err)
+			if decoded, err := jsonwire.Decode[settlementFailure](encoded); err != nil || decoded != failure {
+				t.Fatalf("accepted settlement failure did not round trip: %v", err)
 			}
 		}
 	})
 }
 
-func TestPlanningHostFailureSignalIsExclusive(t *testing.T) {
-	if _, err := decodeSignal([]byte(`{"host_error":"action binding rejected"}`)); err != nil {
-		t.Fatal(err)
-	}
-	for _, payload := range []string{
-		`{"host_error":""}`,
-		`{"host_error":"invalid","sensing":{"world_state":{"conditions":[]}}}`,
-		`{"host_error":"invalid","sensing":{"error":"sensor failed"}}`,
-		`{"host_error":"invalid","action":{}}`,
+func TestPlanningSettlementFailureIsExclusive(t *testing.T) {
+	for payload, valid := range map[string]bool{
+		`{"host_error":"action binding rejected"}`: true,
+		`{"diagnostic":"sensor failed"}`:           true,
+		`{"host_error":""}`:                        false,
+		`{}`:                                       false,
+		`{"host_error":"invalid","diagnostic":"sensor failed"}`:    false,
+		`{"host_error":"invalid","world_state":{"conditions":[]}}`: false,
 	} {
-		if _, err := decodeSignal([]byte(payload)); err == nil {
-			t.Fatalf("accepted invalid host failure: %s", payload)
+		failure, err := jsonwire.Decode[settlementFailure]([]byte(payload))
+		if (err == nil && failure.valid()) != valid {
+			t.Fatalf("settlement failure %s valid=%t, want %t", payload, err == nil && failure.valid(), valid)
 		}
 	}
 }

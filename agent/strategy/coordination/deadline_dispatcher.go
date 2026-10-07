@@ -3,6 +3,7 @@ package coordination
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 // DeadlineDispatcher is the stateless Dispatcher for Deadline. Its call owns and stops its
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
-// Malformed timer payloads settle Failed with a JSON diagnostic string. Valid
-// timer operations settle with whether the requested deadline was reached;
+// A reached deadline settles Succeeded with an empty object. Malformed timer
+// payloads and cancellation settle Failed with a JSON diagnostic string, so
 // cancellation never leaves an unknown external outcome.
 type DeadlineDispatcher struct{}
 
@@ -21,11 +22,9 @@ type timerRequest struct {
 	Deadline time.Time `json:"deadline"`
 }
 
-// timerResult reports only whether the requested deadline was reached; the
-// request owns the deadline.
-type timerResult struct {
-	Reached bool `json:"reached"`
-}
+// timerReached is the empty result of a reached deadline: the settlement
+// status owns whether it was reached, and the request owns the deadline.
+type timerReached struct{}
 
 func newTimerEffect(deadline time.Time) (agent.Effect, error) {
 	payload, err := jsonv2.Marshal(timerRequest{Deadline: deadline})
@@ -70,19 +69,14 @@ func (DeadlineDispatcher) Dispatch(ctx context.Context, request agent.EffectRequ
 	if err != nil {
 		return timerFailureSettlement(err)
 	}
-	var result timerResult
-	if ctx.Err() == nil {
-		result.Reached = waitUntil(ctx, operation.Deadline)
+	if ctx.Err() != nil || !waitUntil(ctx, operation.Deadline) {
+		return timerFailureSettlement(errors.New("timer returned before its deadline"))
 	}
-	status := agent.SettlementStatusFailed
-	if result.Reached {
-		status = agent.SettlementStatusSucceeded
-	}
-	payload, err := jsonv2.Marshal(result)
+	payload, err := jsonv2.Marshal(timerReached{})
 	if err != nil {
-		return timerFailureSettlement(err)
+		return agent.Settlement{}, err
 	}
-	return agent.NewSettlement(status, payload)
+	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
 }
 
 func waitUntil(ctx context.Context, deadline time.Time) bool {

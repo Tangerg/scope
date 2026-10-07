@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"testing"
@@ -96,21 +95,7 @@ func TestPlannerCancellationRemainsAnError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload, err := senseSignal(WorldState{}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			raw, err := jsonv2.Marshal(struct {
-				ID      string          `json:"id"`
-				Payload json.RawMessage `json:"payload"`
-			}{ID: "signal:engine:sense", Payload: payload})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var signal agent.Signal
-			if err = jsonv2.Unmarshal(raw, &signal); err != nil {
-				t.Fatal(err)
-			}
+			signal := senseSettlementSignal(t)
 			transition, err := execution.Step(t.Context(), []agent.Signal{signal})
 			if !errors.Is(err, cause) || transition.Valid() {
 				t.Fatalf("planner cancellation became a domain outcome: %+v, %v", transition, err)
@@ -172,14 +157,7 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				payload, err := senseSignal(WorldState{}, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var signal agent.Signal
-				if err = jsonv2.Unmarshal([]byte(`{"id":"signal:engine:sense","payload":`+string(payload)+`}`), &signal); err != nil {
-					t.Fatal(err)
-				}
+				signal := senseSettlementSignal(t)
 				transition, err := execution.Step(ctx, []agent.Signal{signal})
 				if test.cause != nil {
 					if !errors.Is(err, test.cause) || transition.Valid() || calls != 1 {
@@ -207,4 +185,21 @@ func TestManagedPlanValidationCancellation(t *testing.T) {
 			})
 		})
 	}
+}
+
+func senseSettlementSignal(t *testing.T) agent.Signal {
+	t.Helper()
+	settlement, err := senseSettlement(WorldState{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := agent.ParseSignalID("signal:engine:sense")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal, err := agent.NewSettlementSignal(id, settlement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signal
 }

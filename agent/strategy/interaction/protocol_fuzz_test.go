@@ -79,7 +79,6 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		{ModelResult: &modelCallResult{
 			Response: response, ReplacementMessages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("summary"))},
 		}},
-		{ModelResult: &modelCallResult{HostError: "request preparation failed"}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: result.Output, AdvertisedToolNames: []string{"ask"}}}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
 		{ToolResult: &toolDispatchResult{InputRequest: &checkpoint.InputRequest}},

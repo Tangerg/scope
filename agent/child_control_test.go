@@ -331,7 +331,7 @@ func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
 	childID := newProcessID()
 	waitID := childID.effectID(1, 0).waitID()
 	internal := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
-	if _, err := NewChildSignalEffect(childID, SignalRequest(internal)); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildSignalEffect(childID, SignalRequest{id: internal.id, waitID: internal.waitID, payload: internal.payload}); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatalf("child control accepted Engine identity: %v", err)
 	}
 }

@@ -120,17 +120,12 @@ func (e *execution) requestModel(
 }
 
 func (e *execution) acceptModel(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
-	envelope, steer, consumedSignals, err := collectModelResult(signals)
+	envelope, hostFailure, steer, consumedSignals, err := collectModelResult(signals)
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	if envelope.ModelResult.HostError != "" {
-		return stepfail.Transition(
-			consumedSignals,
-			agent.FailureKindExternal,
-			failureCodeInteractionHostFailed,
-			envelope.ModelResult.HostError,
-		)
+	if hostFailure != "" {
+		return stepfail.Transition(consumedSignals, agent.FailureKindExternal, failureCodeInteractionHostFailed, hostFailure)
 	}
 	if replacement := envelope.ModelResult.ReplacementMessages; replacement != nil {
 		if replaceErr := e.state.replaceModelContext(replacement); replaceErr != nil {
@@ -343,34 +338,43 @@ func collectSteerSignals(signals []agent.Signal) (steerBatch, uint32, error) {
 	return batch, uint32(len(signals)), nil
 }
 
-func collectModelResult(signals []agent.Signal) (signalEnvelope, steerBatch, uint32, error) {
+// collectModelResult separates the model call's settlement from steering
+// input. A failed settlement returns its host diagnostic instead of a result.
+func collectModelResult(signals []agent.Signal) (signalEnvelope, string, steerBatch, uint32, error) {
 	var result signalEnvelope
+	var hostFailure string
 	var found bool
 	var steer steerBatch
 	for _, signal := range signals {
+		if _, settles := agent.ParseSettlement(signal); settles == nil {
+			if err := acceptModelResultSignal(signal, found); err != nil {
+				return signalEnvelope{}, "", steerBatch{}, 0, err
+			}
+			envelope, diagnostic, err := decodeSettlement(signal)
+			if err != nil {
+				return signalEnvelope{}, "", steerBatch{}, 0, err
+			}
+			if diagnostic == "" && envelope.operation() != operationModelCall {
+				return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), operationModelCall)
+			}
+			found, result, hostFailure = true, envelope, diagnostic
+			continue
+		}
 		envelope, err := decodeSignal(signal.Payload())
 		if err != nil {
-			return signalEnvelope{}, steerBatch{}, 0, err
+			return signalEnvelope{}, "", steerBatch{}, 0, err
 		}
-		switch envelope.operation() {
-		case operationSteer:
-			if err := steer.appendSignal(signal, envelope.Steer.Messages); err != nil {
-				return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-			}
-		case operationModelCall:
-			if err := acceptModelResultSignal(signal, found); err != nil {
-				return signalEnvelope{}, steerBatch{}, 0, err
-			}
-			found = true
-			result = envelope
-		default:
-			return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), operationModelCall)
+		if envelope.operation() != operationSteer {
+			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), operationModelCall)
+		}
+		if err := steer.appendSignal(signal, envelope.Steer.Messages); err != nil {
+			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 	}
 	if !found {
-		return signalEnvelope{}, steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, operationModelCall)
+		return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: %q settlement Signal is missing", ErrInvalidExecutionState, operationModelCall)
 	}
-	return result, steer, uint32(len(signals)), nil
+	return result, hostFailure, steer, uint32(len(signals)), nil
 }
 
 func acceptModelResultSignal(signal agent.Signal, duplicate bool) error {
