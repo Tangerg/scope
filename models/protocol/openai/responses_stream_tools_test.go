@@ -27,6 +27,10 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 	start := responsesToolAdded(0, startItem)
 	arguments := responsesToolArguments(0, "fc_1", "{}")
 	done := responsesToolDone(doneItem)
+	startWithoutItemID := responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":""}`)
+	initialArgumentsWithoutItemID := responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)
+	otherItem := `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"lookup","arguments":"{}","status":"completed"}`
+	otherDone := modeltest.AnthropicEvent{Event: "response.output_item.done", Data: fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, otherItem)}
 	for _, test := range []struct {
 		name         string
 		events       []modeltest.AnthropicEvent
@@ -38,6 +42,12 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		{name: "initial arguments", events: []modeltest.AnthropicEvent{responsesToolAdded(0, doneItem), done}, valid: true},
 		{name: "optional native item ID", events: []modeltest.AnthropicEvent{responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`), responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, valid: true},
 		{name: "optional native item ID omitted on completion", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, terminalItem: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`, valid: true},
+		{name: "native item ID first reported by arguments", events: []modeltest.AnthropicEvent{startWithoutItemID, arguments, done}, valid: true},
+		{name: "native item ID first reported by completion", events: []modeltest.AnthropicEvent{initialArgumentsWithoutItemID, done}, valid: true},
+		{name: "native item ID changed after first completion report", events: []modeltest.AnthropicEvent{initialArgumentsWithoutItemID, done}, terminalItem: `{"type":"function_call","id":"fc_2","call_id":"call_1","name":"lookup","arguments":"{}"}`},
+		{name: "native item ID changed after first arguments report", events: []modeltest.AnthropicEvent{startWithoutItemID, arguments, responsesToolArguments(0, "fc_2", ""), done}},
+		{name: "native item ID reused by first arguments report", events: []modeltest.AnthropicEvent{startWithoutItemID, responsesToolAdded(1, otherItem), otherDone, arguments, done}, terminalItem: doneItem + "," + otherItem},
+		{name: "native item ID reused by first completion report", events: []modeltest.AnthropicEvent{initialArgumentsWithoutItemID, responsesToolAdded(1, otherItem), otherDone, done}, terminalItem: doneItem + "," + otherItem},
 		{name: "partial tool truncation", events: []modeltest.AnthropicEvent{start, responsesToolArguments(0, "fc_1", "{")}, valid: true, incomplete: true},
 		{name: "changed terminal identity", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":"{}"}`},
 		{name: "changed terminal native item ID", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_2","call_id":"call_1","name":"lookup","arguments":"{}"}`},

@@ -51,13 +51,17 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			return nil, false, fmt.Errorf("openai responses: %w: tool item %d added twice", corechat.ErrInvalidResponse, typed.OutputIndex)
 		}
 		for _, other := range r.tools {
-			if other.callID == call.CallID || call.ID != "" && other.itemID == call.ID {
+			if other.callID == call.CallID {
 				return nil, false, fmt.Errorf("openai responses: %w: tool identity reused at output index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
 			}
 		}
+		tool, err := r.bindToolItemID(typed.OutputIndex, responsesStreamTool{callID: call.CallID, name: call.Name, open: true}, call.ID)
+		if err != nil {
+			return nil, false, err
+		}
 		response, include, err := r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: call.CallID, Name: call.Name, Arguments: call.Arguments}))
 		if err == nil {
-			r.tools[typed.OutputIndex] = responsesStreamTool{itemID: call.ID, callID: call.CallID, name: call.Name, open: true}
+			r.tools[typed.OutputIndex] = tool
 		}
 		return response, include, err
 	case responses.ResponseTextDeltaEvent:
@@ -78,13 +82,22 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		return r.deltaResponse(corechat.NewRefusalDelta(typed.Delta))
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
 		tool, exists := r.tools[typed.OutputIndex]
-		if !exists || !tool.open || typed.ItemID == "" || tool.itemID != typed.ItemID {
-			return nil, false, fmt.Errorf("openai responses: %w: arguments delta for closed, unknown, or mismatched tool item %q at index %d", corechat.ErrInvalidResponse, typed.ItemID, typed.OutputIndex)
+		if !exists || !tool.open || typed.ItemID == "" {
+			return nil, false, fmt.Errorf("openai responses: %w: arguments delta for closed, unknown, or unidentified tool item %q at index %d", corechat.ErrInvalidResponse, typed.ItemID, typed.OutputIndex)
+		}
+		tool, err := r.bindToolItemID(typed.OutputIndex, tool, typed.ItemID)
+		if err != nil {
+			return nil, false, err
 		}
 		if typed.Delta == "" {
+			r.tools[typed.OutputIndex] = tool
 			return nil, false, nil
 		}
-		return r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: tool.callID, Name: tool.name, Arguments: typed.Delta}))
+		response, include, err := r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: tool.callID, Name: tool.name, Arguments: typed.Delta}))
+		if err == nil {
+			r.tools[typed.OutputIndex] = tool
+		}
+		return response, include, err
 	case responses.ResponseReasoningTextDeltaEvent:
 		return r.reasoningDelta(typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
@@ -108,8 +121,12 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		if typed.Item.Type == responsesItemTypeFunctionCall {
 			call := typed.Item.AsFunctionCall()
 			tool, exists := r.tools[typed.OutputIndex]
-			if !exists || !tool.open || !tool.matches(call) {
+			if !exists || !tool.open || !tool.matchesCall(call) {
 				return nil, false, fmt.Errorf("openai responses: %w: completion of closed, unknown, or changed tool item at index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
+			}
+			tool, err := r.bindToolItemID(typed.OutputIndex, tool, call.ID)
+			if err != nil {
+				return nil, false, err
 			}
 			tool.open = false
 			r.tools[typed.OutputIndex] = tool
@@ -161,8 +178,24 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	}
 }
 
-func (r responsesStreamTool) matches(call responses.ResponseFunctionToolCall) bool {
-	return r.callID == call.CallID && r.name == call.Name && (r.itemID == "" || call.ID == "" || r.itemID == call.ID)
+func (r responsesStreamTool) matchesCall(call responses.ResponseFunctionToolCall) bool {
+	return r.callID == call.CallID && r.name == call.Name
+}
+
+func (r *responsesStreamState) bindToolItemID(index int64, tool responsesStreamTool, itemID string) (responsesStreamTool, error) {
+	if itemID == "" || tool.itemID == itemID {
+		return tool, nil
+	}
+	if tool.itemID != "" {
+		return responsesStreamTool{}, fmt.Errorf("openai responses: %w: tool item %d changed native identity from %q to %q", corechat.ErrInvalidResponse, index, tool.itemID, itemID)
+	}
+	for otherIndex, other := range r.tools {
+		if otherIndex != index && other.itemID == itemID {
+			return responsesStreamTool{}, fmt.Errorf("openai responses: %w: native tool identity %q reused at output index %d", corechat.ErrInvalidResponse, itemID, index)
+		}
+	}
+	tool.itemID = itemID
+	return tool, nil
 }
 
 func (r *responsesStreamState) validateTerminalTools(response responses.Response) error {
@@ -170,9 +203,18 @@ func (r *responsesStreamState) validateTerminalTools(response responses.Response
 		if response.Status == responses.ResponseStatusCompleted && tool.open {
 			return fmt.Errorf("openai responses: %w: tool item %d is still open at response.completed", corechat.ErrInvalidResponse, index)
 		}
-		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeFunctionCall || !tool.matches(response.Output[index].AsFunctionCall()) {
-			return fmt.Errorf("openai responses: %w: terminal response changed tool identity at index %d", corechat.ErrInvalidResponse, index)
+		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeFunctionCall {
+			return fmt.Errorf("openai responses: %w: terminal response omitted tool item at index %d", corechat.ErrInvalidResponse, index)
 		}
+		call := response.Output[index].AsFunctionCall()
+		if !tool.matchesCall(call) {
+			return fmt.Errorf("openai responses: %w: terminal response changed tool call identity at index %d", corechat.ErrInvalidResponse, index)
+		}
+		identified, err := r.bindToolItemID(index, tool, call.ID)
+		if err != nil {
+			return err
+		}
+		r.tools[index] = identified
 	}
 	return nil
 }
