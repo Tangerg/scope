@@ -45,16 +45,22 @@ type Distribution struct {
 }
 
 // MetricSummary contains one top-level observation per successful case and
-// assessment. Supporting Report.Details never become additional samples.
+// assessment. Supporting Report.Details never become additional samples; their
+// Metrics, with Metric, identify which observations the summary groups.
 type MetricSummary struct {
 	AssessmentID AssessmentID
 	Metric       Metric
+	Details      []DetailMetric
 	Evaluated    int
 	Passed       int
 	Failed       int
 	Unjudged     int
 	Scores       Distribution
 	Measurements Distribution
+}
+
+func (m MetricSummary) identity() (string, error) {
+	return observationIdentity(m.Metric, m.Details)
 }
 
 // AssessmentSummary preserves declared membership even if no evaluation
@@ -230,7 +236,8 @@ func (s *summaryBuilder) assessment(id AssessmentID) *AssessmentSummary {
 }
 
 func (s *summaryBuilder) observe(id AssessmentID, report Report) error {
-	identity, err := report.Metric.identity()
+	details := detailMetricsOf(report.Details)
+	identity, err := observationIdentity(report.Metric, details)
 	if err != nil {
 		return err
 	}
@@ -239,7 +246,7 @@ func (s *summaryBuilder) observe(id AssessmentID, report Report) error {
 	if samples == nil {
 		samples = &metricSamples{index: len(s.summary.Metrics)}
 		s.metrics[key] = samples
-		s.summary.Metrics = append(s.summary.Metrics, MetricSummary{AssessmentID: id, Metric: report.Metric})
+		s.summary.Metrics = append(s.summary.Metrics, MetricSummary{AssessmentID: id, Metric: report.Metric, Details: details})
 	}
 	metric := &s.summary.Metrics[samples.index]
 	metric.Evaluated++

@@ -4,9 +4,10 @@
 // Decision independently identifies the policy behind a categorical verdict.
 // Score, Measurement, Decision, and qualitative feedback are optional outcomes.
 // Changing a threshold changes Decision identity without changing the measured
-// quantity. Decision identity also covers the Metrics and rules of the
-// Report's Details, because a summary verdict follows from them; a summary
-// Decision names only its own rule. ProjectionEvaluator adapts aggregate subjects to narrow evaluators.
+// quantity. A summary Report is defined by its Details: observations are
+// grouped and paired by the Metric together with every Detail's Metric, and
+// Decision identity also covers every Detail's rule. A summary Metric and
+// Decision name only the summary's own calculation and rule. ProjectionEvaluator adapts aggregate subjects to narrow evaluators.
 //
 // # Independent assessments
 //

@@ -96,15 +96,49 @@ func (r Report) decisionIdentity() (string, error) {
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
-	encoded, err := jsonv2.Marshal(r.decisionRule())
+	return canonicalIdentity(r.decisionRule())
+}
+
+// DetailMetric is the Metric of one Report Detail with those of its own
+// Details. A summary's Details define what it observed, so its Metric and its
+// DetailMetrics together identify the observation; the summary Metric does not
+// restate them.
+type DetailMetric struct {
+	Metric  Metric         `json:"metric"`
+	Details []DetailMetric `json:"details,omitempty"`
+}
+
+func detailMetricsOf(details []Report) []DetailMetric {
+	if len(details) == 0 {
+		return nil
+	}
+	metrics := make([]DetailMetric, len(details))
+	for index, detail := range details {
+		metrics[index] = DetailMetric{Metric: detail.Metric, Details: detailMetricsOf(detail.Details)}
+	}
+	return metrics
+}
+
+// observationIdentity groups and pairs observations of the same Metric over
+// the same Detail Metrics.
+func observationIdentity(metric Metric, details []DetailMetric) (string, error) {
+	identity, err := canonicalIdentity(DetailMetric{Metric: metric, Details: details})
+	if err != nil {
+		return "", fmt.Errorf("%w: encode identity: %w", ErrInvalidMetric, err)
+	}
+	return identity, nil
+}
+
+func canonicalIdentity(value any) (string, error) {
+	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
 		return "", err
 	}
-	value := jsontext.Value(encoded)
-	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
+	canonical := jsontext.Value(encoded)
+	if err := canonical.Format(jsontext.ReorderRawObjects(true)); err != nil {
 		return "", err
 	}
-	return string(value), nil
+	return string(canonical), nil
 }
 
 func (r Report) Validate() error {

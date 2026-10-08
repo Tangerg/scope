@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -106,17 +107,11 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 	if result.Metric.Name() != eval.MetricNameComposite || len(result.Details) != 2 {
 		t.Fatalf("composite identity/details = %#v", result)
 	}
-	type componentIdentity struct {
-		Metric eval.Metric `json:"metric"`
-		Weight float64     `json:"weight"`
-	}
-	type compositeIdentity struct {
-		Components []componentIdentity `json:"components"`
-	}
-	identity, found, err := result.Metric.Parameters().Decode[compositeIdentity]("configuration")
-	if err != nil || !found || len(identity.Components) != 2 || identity.Components[0].Metric.Name() != "quality" ||
-		identity.Components[0].Weight != 3 {
-		t.Fatalf("component identity = (%#v, %v, %v)", identity, found, err)
+	identity, found, err := result.Metric.Parameters().Decode[struct {
+		Weights []float64 `json:"weights"`
+	}]("configuration")
+	if err != nil || !found || !slices.Equal(identity.Weights, []float64{3, 1}) || result.Details[0].Metric.Name() != "quality" {
+		t.Fatalf("composite calculation = (%#v, %v, %v)", identity, found, err)
 	}
 	rule, found, err := result.Decision.Parameters.Decode[struct {
 		Components []struct {

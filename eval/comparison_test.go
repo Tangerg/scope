@@ -373,7 +373,6 @@ func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
 	}{
 		{"same rule", summary(maximum("steps", 0, eval.VerdictFail)), eval.DecisionDelta{Matched: 1}},
 		{"changed threshold", summary(maximum("steps", 1, eval.VerdictPass)), eval.DecisionDelta{Incompatible: 1}},
-		{"changed metric", summary(maximum("effects", 0, eval.VerdictPass)), eval.DecisionDelta{Incompatible: 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			comparison, err := baseline.Compare(test.candidate)
@@ -381,5 +380,12 @@ func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
 				t.Fatalf("comparison = %+v, %v; want %+v", comparison, err, test.want)
 			}
 		})
+	}
+	// Another Detail Metric is another observation, never a paired change.
+	comparison, err := baseline.Compare(summary(maximum("effects", 0, eval.VerdictPass)))
+	if err != nil || len(comparison.Metrics) != 2 ||
+		comparison.Metrics[0].DecisionDelta != (eval.DecisionDelta{BaselineOnly: 1}) ||
+		comparison.Metrics[1].DecisionDelta != (eval.DecisionDelta{CandidateOnly: 1}) {
+		t.Fatalf("changed detail metric comparison = %+v, %v", comparison, err)
 	}
 }

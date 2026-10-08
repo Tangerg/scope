@@ -150,14 +150,6 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (m Metric) identity() (string, error) {
-	encoded, err := jsonv2.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("%w: encode identity: %w", ErrInvalidMetric, err)
-	}
-	return string(encoded), nil
-}
-
 func validateMetricPart(label, value string, optional bool) error {
 	if !utf8.ValidString(value) {
 		return fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidMetric, label)

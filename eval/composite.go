@@ -158,7 +158,7 @@ func (c *CompositeEvaluator[T]) Evaluate(ctx context.Context, subject T) (Report
 }
 
 func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
-	metric, err := c.metricFor(reports)
+	metric, err := c.metricFor()
 	if err != nil {
 		return Report{}, err
 	}
@@ -207,27 +207,18 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 	return combined, nil
 }
 
-type componentIdentity struct {
-	Metric Metric  `json:"metric"`
-	Weight float64 `json:"weight"`
-}
-
-type compositeMetricIdentity struct {
-	Components []componentIdentity `json:"components"`
-}
-
-func (c *CompositeEvaluator[T]) metricFor(reports []Report) (Metric, error) {
-	components := make([]componentIdentity, len(reports))
-	for index, report := range reports {
-		components[index] = componentIdentity{
-			Metric: report.Metric, Weight: c.components[index].Weight,
-		}
+// metricFor names only the composite's own calculation, its weights. Each
+// component's Metric belongs to its Detail, which observation identity
+// already includes.
+func (c *CompositeEvaluator[T]) metricFor() (Metric, error) {
+	weights := make([]float64, len(c.components))
+	for index, component := range c.components {
+		weights[index] = component.Weight
 	}
 	parameters := metadata.Map{}
-	identity := compositeMetricIdentity{
-		Components: components,
-	}
-	if err := parameters.Set(metricConfigurationKey, identity); err != nil {
+	if err := parameters.Set(metricConfigurationKey, struct {
+		Weights []float64 `json:"weights"`
+	}{Weights: weights}); err != nil {
 		return Metric{}, fmt.Errorf("eval: composite metric identity: %w", err)
 	}
 	metric, err := NewMetric(MetricConfig{Name: MetricNameComposite, Parameters: parameters})

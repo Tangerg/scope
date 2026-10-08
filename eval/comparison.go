@@ -31,6 +31,7 @@ type DecisionDelta struct {
 type MetricComparison struct {
 	AssessmentID     AssessmentID
 	Metric           Metric
+	Details          []DetailMetric
 	Baseline         *MetricSummary
 	Candidate        *MetricSummary
 	EvaluatedDelta   int
@@ -73,7 +74,7 @@ type metricPair struct {
 func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error) {
 	candidateByIdentity := make(map[observationKey]*MetricSummary, len(candidate))
 	for index := range candidate {
-		identity, err := candidate[index].Metric.identity()
+		identity, err := candidate[index].identity()
 		if err != nil {
 			return nil, fmt.Errorf("%w: candidate metric %d: %w", ErrInvalidComparison, index, err)
 		}
@@ -82,7 +83,7 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 	}
 	pairs := make([]metricPair, 0, len(baseline)+len(candidate))
 	for index := range baseline {
-		identity, err := baseline[index].Metric.identity()
+		identity, err := baseline[index].identity()
 		if err != nil {
 			return nil, fmt.Errorf("%w: baseline metric %d: %w", ErrInvalidComparison, index, err)
 		}
@@ -91,7 +92,7 @@ func comparableMetrics(baseline, candidate []MetricSummary) ([]metricPair, error
 		delete(candidateByIdentity, key)
 	}
 	for index := range candidate {
-		identity, err := candidate[index].Metric.identity()
+		identity, err := candidate[index].identity()
 		if err != nil {
 			return nil, err
 		}
@@ -108,15 +109,15 @@ func (m metricPair) compare(baselineCases, candidateCases []CaseResult) (MetricC
 	comparison := MetricComparison{}
 	if m.baseline != nil {
 		baseline = *m.baseline
-		comparison.Metric, comparison.AssessmentID = baseline.Metric, baseline.AssessmentID
+		comparison.Metric, comparison.Details, comparison.AssessmentID = baseline.Metric, baseline.Details, baseline.AssessmentID
 		comparison.Baseline = &baseline
 	}
 	if m.candidate != nil {
 		candidate = *m.candidate
-		comparison.Metric, comparison.AssessmentID = candidate.Metric, candidate.AssessmentID
+		comparison.Metric, comparison.Details, comparison.AssessmentID = candidate.Metric, candidate.Details, candidate.AssessmentID
 		comparison.Candidate = &candidate
 	}
-	identity, err := comparison.Metric.identity()
+	identity, err := observationIdentity(comparison.Metric, comparison.Details)
 	if err != nil {
 		return MetricComparison{}, err
 	}
@@ -152,7 +153,7 @@ func caseObservations(cases []CaseResult, key observationKey) (map[CaseID]*Repor
 			if assessment.ID != key.assessment || assessment.Status() != AssessmentCompleted {
 				continue
 			}
-			identity, err := assessment.Report.Metric.identity()
+			identity, err := observationIdentity(assessment.Report.Metric, detailMetricsOf(assessment.Report.Details))
 			if err != nil {
 				return nil, err
 			}
