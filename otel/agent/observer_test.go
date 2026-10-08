@@ -316,7 +316,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-paused
-	snapshot, err := source.CaptureTree(context.Background(), original.ID())
+	snapshot, err := source.CaptureTree(context.Background(), original.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

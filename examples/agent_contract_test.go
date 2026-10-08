@@ -123,11 +123,11 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			var gateProcess *agent.Process
 			var waitID agent.WaitID
 			for !waitID.Valid() && ctx.Err() == nil {
-				tree := contractValue(engine.CaptureTree(ctx, process.ID()))
+				tree := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
 				for _, child := range tree.ProcessSnapshots() {
 					if child.DeploymentRef() == gate.DeploymentRef() {
 						waitID, _ = child.WaitID()
-						gateProcess, _ = engine.Process(child.ProcessID())
+						gateProcess, _ = engine.Process(child.Relation().ProcessID())
 					}
 				}
 				runtime.Gosched()
@@ -152,7 +152,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			if !failed || failure.Code() != wantCode || rootCalls.Load() != 1 || !strings.Contains(failure.Message(), effectID.String()) || !strings.Contains(failure.Message(), unknownEvent.Relation().ProcessID().String()) {
 				t.Fatalf("termination=%+v root calls=%d", result.Termination(), rootCalls.Load())
 			}
-			snapshot := contractValue(engine.CaptureTree(ctx, process.ID()))
+			snapshot := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
 			var failedDelegates, completedCompetitions, unresolvedEffects int
 			for _, child := range snapshot.ProcessSnapshots() {
 				unresolvedEffects += len(child.UnknownEffectIDs())
@@ -160,7 +160,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 					completedCompetitions++
 				}
 				if child.DeploymentRef() == delegate.DeploymentRef() {
-					delegateProcess, found := engine.Process(child.ProcessID())
+					delegateProcess, found := engine.Process(child.Relation().ProcessID())
 					if !found {
 						t.Fatal("direct delegate Process is missing")
 					}

@@ -31,7 +31,7 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 		var started agent.Event
 		var sequence uint64
 		for _, event := range config.Events {
-			if event.ProcessID() != first.ProcessID {
+			if event.Relation().ProcessID() != first.ProcessID {
 				events = append(events, event)
 				continue
 			}

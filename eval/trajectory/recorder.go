@@ -122,7 +122,7 @@ func (r *recordedEvidence) settleTool(invocation interaction.ToolInvocation, set
 func (r *recordedEvidence) calls() ([]ModelCall, []ToolCall) {
 	observed := make(map[agent.ProcessID]bool)
 	for _, event := range r.events {
-		observed[event.ProcessID()] = true
+		observed[event.Relation().ProcessID()] = true
 	}
 	var models []ModelCall
 	for _, call := range r.models {
@@ -299,14 +299,14 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 	if err != nil {
 		return Trajectory{}, err
 	}
-	entry := r.detach(process.ID())
+	entry := r.detach(process.Relation().ProcessID())
 	if entry == nil {
 		return Trajectory{}, fmt.Errorf("%w: root recording is absent or already consumed", ErrIncompleteRecording)
 	}
 	evidence := entry.seal()
 	models, tools := evidence.calls()
 	config := Config{
-		RootProcessID: process.ID(), Elapsed: evidence.elapsed(), Coverage: coverage, Gaps: evidence.gaps,
+		RootProcessID: process.Relation().ProcessID(), Elapsed: evidence.elapsed(), Coverage: coverage, Gaps: evidence.gaps,
 		Events: evidence.events, ModelCalls: models, ToolCalls: tools,
 	}
 	if committed {

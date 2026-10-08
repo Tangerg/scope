@@ -222,7 +222,7 @@ func (t Trajectory) eventHistory() (eventHistory, error) {
 		if !event.Valid() || event.Relation().RootID() != t.rootProcessID {
 			return eventHistory{}, fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
 		}
-		activation := activationProcess{event.ProcessID(), eventIncarnation(event)}
+		activation := activationProcess{event.Relation().ProcessID(), eventIncarnation(event)}
 		previous := sequences[activation]
 		if event.ProcessSequence() <= previous {
 			return eventHistory{}, fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
@@ -243,13 +243,13 @@ func (t Trajectory) eventHistory() (eventHistory, error) {
 func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) error {
 	switch event.Name() {
 	case agent.EventRuntimeStopped:
-		history.stopped[event.ProcessID()] = true
+		history.stopped[event.Relation().ProcessID()] = true
 	case agent.EventProcessFinished:
-		if history.finished[event.ProcessID()] {
+		if history.finished[event.Relation().ProcessID()] {
 			return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
 		}
-		history.finished[event.ProcessID()] = true
-		if event.ProcessID() != t.rootProcessID {
+		history.finished[event.Relation().ProcessID()] = true
+		if event.Relation().ProcessID() != t.rootProcessID {
 			return nil
 		}
 		fact, present := event.ProcessFinished()
@@ -443,11 +443,11 @@ func (t Trajectory) behaviorEvents(paths map[agent.ProcessID]string) []behaviorE
 		if event.Name() == agent.EventDeltaDropped || event.Name() == agent.EventSignalAccepted {
 			continue
 		}
-		stream := behaviorEventStream{processID: event.ProcessID(), phase: event.Phase()}
+		stream := behaviorEventStream{processID: event.Relation().ProcessID(), phase: event.Phase()}
 		sequences[stream]++
 		step, _ := event.StepSequence()
 		fact := behaviorEvent{
-			ProcessPath: paths[event.ProcessID()], Sequence: sequences[stream],
+			ProcessPath: paths[event.Relation().ProcessID()], Sequence: sequences[stream],
 			StepSequence: step, Name: event.Name(), Phase: event.Phase(),
 		}
 		fact.apply(event)
@@ -493,7 +493,7 @@ func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projecti
 }
 
 func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int {
-	if result := strings.Compare(paths[left.ProcessID()], paths[right.ProcessID()]); result != 0 {
+	if result := strings.Compare(paths[left.Relation().ProcessID()], paths[right.Relation().ProcessID()]); result != 0 {
 		return result
 	}
 	if order := strings.Compare(eventIncarnation(left).String(), eventIncarnation(right).String()); order != 0 {
@@ -550,10 +550,10 @@ func processRelationsOf(root agent.ProcessID, events []agent.Event) (processRela
 		if !event.Valid() || event.Relation().RootID() != root {
 			return nil, fmt.Errorf("%w: event process relation is invalid", ErrInvalidTrajectory)
 		}
-		if previous, present := relations[event.ProcessID()]; present && previous != event.Relation() {
+		if previous, present := relations[event.Relation().ProcessID()]; present && previous != event.Relation() {
 			return nil, fmt.Errorf("%w: process relation changed within one trajectory", ErrInvalidTrajectory)
 		}
-		relations[event.ProcessID()] = event.Relation()
+		relations[event.Relation().ProcessID()] = event.Relation()
 	}
 	if relation, present := relations[root]; !present || !relation.IsRoot() {
 		return nil, fmt.Errorf("%w: root process relation is missing", ErrInvalidTrajectory)

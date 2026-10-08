@@ -108,7 +108,7 @@ func TestLostMCPResponsePreservesUnknownInteractionEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, err := engine.CaptureTree(ctx, process.ID())
+	tree, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

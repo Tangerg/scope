@@ -172,7 +172,7 @@ func startRecordedInteractionModel(t *testing.T, recorder *trajectory.Recorder, 
 		if killErr := process.Kill(ctx, "release recorded test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
 			t.Error(killErr)
 		}
-		if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+		if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
 			t.Error(releaseErr)
 		}
 		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -633,7 +633,7 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, event := range recorded.Events() {
-			if event.ProcessID() == recorded.ToolCalls()[0].ProcessID && event.Name() == agent.EventProcessStarted {
+			if event.Relation().ProcessID() == recorded.ToolCalls()[0].ProcessID && event.Name() == agent.EventProcessStarted {
 				key, _ := event.Relation().ChildKey()
 				rawFirstKeys = append(rawFirstKeys, key)
 			}

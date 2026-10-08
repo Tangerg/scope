@@ -27,7 +27,7 @@ func interactionCoverage(events []agent.Event) *trajectory.Coverage {
 		}
 		id, _ := event.EffectID()
 		incarnation, _ := event.TreeIncarnationID()
-		reference := trajectory.EffectReference{ProcessID: event.ProcessID(), TreeIncarnationID: incarnation, EffectID: id}
+		reference := trajectory.EffectReference{ProcessID: event.Relation().ProcessID(), TreeIncarnationID: incarnation, EffectID: id}
 		if seen[reference] {
 			continue
 		}
@@ -193,7 +193,7 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 					t.Fatal("Engine request has no active writer incarnation")
 				}
 				reference := trajectory.EffectReference{
-					ProcessID: process.ID(), TreeIncarnationID: incarnation, EffectID: original.ID(),
+					ProcessID: process.Relation().ProcessID(), TreeIncarnationID: incarnation, EffectID: original.ID(),
 				}
 				for attempt := uint32(1); attempt <= unknownAttempts; attempt++ {
 					replayErr := process.ReplayUnknownEffect(t.Context(), original.ID())
@@ -225,7 +225,7 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 					}
 					id, _ := event.EffectID()
 					writer, _ := event.TreeIncarnationID()
-					if id != reference.EffectID || event.ProcessID() != reference.ProcessID || writer != reference.TreeIncarnationID || attempts[fact.AttemptID()] {
+					if id != reference.EffectID || event.Relation().ProcessID() != reference.ProcessID || writer != reference.TreeIncarnationID || attempts[fact.AttemptID()] {
 						t.Fatal("attempts must retain the logical reference and have distinct attempt identities")
 					}
 					attempts[fact.AttemptID()] = true

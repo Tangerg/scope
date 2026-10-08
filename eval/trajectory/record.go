@@ -266,7 +266,7 @@ func dispatcherAttempt(event agent.Event) (attemptIdentity, bool) {
 		return attemptIdentity{}, false
 	}
 	effect, _ := event.EffectID()
-	return attemptIdentity{event.ProcessID(), eventIncarnation(event), effect, fact.AttemptID()}, true
+	return attemptIdentity{event.Relation().ProcessID(), eventIncarnation(event), effect, fact.AttemptID()}, true
 }
 
 func (a attemptIdentity) valid() bool {

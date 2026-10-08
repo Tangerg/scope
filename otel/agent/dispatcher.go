@@ -16,7 +16,7 @@ type observedDispatcher struct {
 func (o *observedDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
 	incarnationID, _ := request.TreeIncarnationID()
 	key := effectKey{
-		process:  processKey{processID: request.ProcessID(), incarnationID: incarnationID},
+		process:  processKey{processID: request.Relation().ProcessID(), incarnationID: incarnationID},
 		effectID: request.ID(),
 	}
 	o.observer.stateMu.Lock()

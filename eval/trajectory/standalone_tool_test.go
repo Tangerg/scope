@@ -47,7 +47,7 @@ func TestStandaloneToolSetRecordsAValidCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := recorded.ToolCalls()
-	if len(calls) != 1 || calls[0].ProcessID != process.ID() || calls[0].Outcome() != trajectory.ToolOutcomeSucceeded {
+	if len(calls) != 1 || calls[0].ProcessID != process.Relation().ProcessID() || calls[0].Outcome() != trajectory.ToolOutcomeSucceeded {
 		t.Fatalf("standalone Tool calls = %+v", calls)
 	}
 	if _, err := trajectory.New(trajectoryConfig(recorded)); err != nil {

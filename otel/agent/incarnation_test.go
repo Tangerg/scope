@@ -98,7 +98,7 @@ func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 			t.Fatal(err)
 		}
 		first := <-next.entered
-		head, found, err := store.LoadTree(t.Context(), original.ID())
+		head, found, err := store.LoadTree(t.Context(), original.Relation().ProcessID())
 		if err != nil || !found {
 			t.Fatalf("durable head found=%t error=%v", found, err)
 		}
@@ -136,7 +136,7 @@ func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 			t.Fatalf("restored result=%s error=%v", result.Termination().Status(), err)
 		}
 		for _, engine := range []*agent.Engine{source, restoredEngine} {
-			if err := engine.ReleaseTree(t.Context(), original.ID()); err != nil {
+			if err := engine.ReleaseTree(t.Context(), original.Relation().ProcessID()); err != nil {
 				t.Fatal(err)
 			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

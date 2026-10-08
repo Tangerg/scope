@@ -127,7 +127,7 @@ type effectKey struct {
 
 func processKeyFor(event agent.Event) processKey {
 	incarnationID, _ := event.TreeIncarnationID()
-	return processKey{processID: event.ProcessID(), incarnationID: incarnationID}
+	return processKey{processID: event.Relation().ProcessID(), incarnationID: incarnationID}
 }
 
 type observerInstruments struct {
@@ -808,7 +808,7 @@ func processAttributes(event agent.Event) []attribute.KeyValue {
 	reference := event.DeploymentRef()
 	relation := event.Relation()
 	values := []attribute.KeyValue{
-		processIDAttribute.String(event.ProcessID().String()),
+		processIDAttribute.String(event.Relation().ProcessID().String()),
 		processRootIDAttribute.String(relation.RootID().String()),
 		processDepthAttribute.Int64(int64(relation.Depth())),
 		deploymentNameAttribute.String(reference.Name()),

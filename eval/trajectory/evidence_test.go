@@ -54,11 +54,11 @@ func coveredInteraction(t *testing.T) trajectory.Trajectory {
 	defer ticker.Stop()
 	// Complete after wait registration so this fixture always exercises signal arrival.
 	for {
-		inspection, err := engine.InspectTree(ctx, process.ID())
+		inspection, err := engine.InspectTree(ctx, process.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, found := inspection.Process(process.ID())
+		root, found := inspection.Process(process.Relation().ProcessID())
 		if !found || root.Snapshot.Status().Terminal() {
 			t.Fatal("fixture ended before waiting for its Tool child")
 		}

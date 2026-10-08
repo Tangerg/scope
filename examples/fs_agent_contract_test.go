@@ -99,7 +99,7 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			if result.Termination().Status() != wantStatus || calls.Load() != wantCalls {
 				t.Fatalf("status=%s calls=%d", result.Termination().Status(), calls.Load())
 			}
-			snapshot := contractValue(engine.CaptureTree(ctx, process.ID()))
+			snapshot := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
 			count := 0
 			for _, child := range snapshot.ProcessSnapshots() {
 				count += len(child.UnknownEffectIDs())

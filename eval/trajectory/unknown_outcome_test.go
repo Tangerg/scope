@@ -31,13 +31,13 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	var unknown []agent.EffectID
 	var owner *agent.Process
 	for len(unknown) == 0 {
-		inspection, captureErr := engine.InspectTree(ctx, process.ID())
+		inspection, captureErr := engine.InspectTree(ctx, process.Relation().ProcessID())
 		if captureErr != nil {
 			t.Fatal(captureErr)
 		}
 		for _, report := range inspection.Processes {
 			captured := report.Snapshot
-			candidate, found := engine.Process(captured.ProcessID())
+			candidate, found := engine.Process(captured.Relation().ProcessID())
 			if !found {
 				t.Fatal("captured Process is missing")
 			}
@@ -47,7 +47,7 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 				break
 			}
 		}
-		rootReport, found := inspection.Process(process.ID())
+		rootReport, found := inspection.Process(process.Relation().ProcessID())
 		if !found || rootReport.Snapshot.Status().Terminal() {
 			t.Fatalf("host failure lost the unresolved Tool Effect: %s", rootReport.Snapshot.Status())
 		}
@@ -67,7 +67,7 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 	if err != nil || result.Termination().Status() != agent.StatusKilled {
 		t.Fatalf("terminated Process status=%s error=%v", result.Termination().Status(), err)
 	}
-	if owner == nil || owner.ID() == process.ID() || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+	if owner == nil || owner.Relation().ProcessID() == process.Relation().ProcessID() || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 		t.Fatal("unknown Effect must remain owned by its Tool child")
 	}
 	toolResult, err := owner.Await(ctx)

@@ -271,17 +271,17 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		})
 		process, engine, dispatcher := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, agent.NewMemoryTreeCommitter(), false)
 		synctest.Wait()
-		snapshot, err := engine.CaptureTree(t.Context(), process.ID())
+		snapshot, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
 		var effect agent.EffectID
 		for _, state := range snapshot.ProcessSnapshots() {
-			if state.ProcessID() == process.ID() {
+			if state.Relation().ProcessID() == process.Relation().ProcessID() {
 				effect = state.UnknownEffectIDs()[0]
 			}
 		}
-		request, ok := snapshot.EffectRequest(process.ID(), effect)
+		request, ok := snapshot.EffectRequest(process.Relation().ProcessID(), effect)
 		if !ok {
 			t.Fatal("investigation has no retained logical request")
 		}
@@ -308,7 +308,7 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		for _, event := range recorded.Events() {
 			if fact, ok := event.EffectResolved(); ok {
 				id, _ := event.EffectID()
-				resolved = event.ProcessID() == process.ID() && id == effect && fact.SettlementStatus() == agent.SettlementStatusSucceeded
+				resolved = event.Relation().ProcessID() == process.Relation().ProcessID() && id == effect && fact.SettlementStatus() == agent.SettlementStatusSucceeded
 			}
 		}
 		if !resolved || recorded.Termination().Status() != agent.StatusCompleted {
