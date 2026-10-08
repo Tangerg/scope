@@ -84,15 +84,13 @@ func ModelInvocationFromContext(ctx context.Context) (ModelInvocation, bool) {
 // ToolInvocation is the immutable execution attribution of one actual Tool
 // call. ToolCall is the exact model request being executed.
 type ToolInvocation struct {
-	incarnationID     agent.TreeIncarnationID
-	relation          agent.ProcessRelation
-	deploymentRef     agent.DeploymentRef
-	effectID          agent.EffectID
-	attemptID         agent.EffectAttemptID
-	stepSequence      uint64
-	modelCallSequence uint64
-	toolCallIndex     uint32
-	toolCall          chat.ToolCall
+	incarnationID agent.TreeIncarnationID
+	relation      agent.ProcessRelation
+	deploymentRef agent.DeploymentRef
+	effectID      agent.EffectID
+	attemptID     agent.EffectAttemptID
+	stepSequence  uint64
+	toolCall      chat.ToolCall
 }
 
 // TreeIncarnationID identifies the durable writer activation, when present.
@@ -116,31 +114,24 @@ func (t ToolInvocation) AttemptID() (agent.EffectAttemptID, bool) {
 // StepSequence returns the one-based Tool child Step that declared this attempt.
 func (t ToolInvocation) StepSequence() uint64 { return t.stepSequence }
 
-// ModelCallSequence returns the one-based model call that requested the Tool.
-func (t ToolInvocation) ModelCallSequence() uint64 {
-	return t.modelCallSequence
-}
-
-// ToolCallIndex returns the zero-based ToolCall position in the model response.
-func (t ToolInvocation) ToolCallIndex() uint32 { return t.toolCallIndex }
-
 func (t ToolInvocation) ToolCall() chat.ToolCall { return t.toolCall }
 
 // Reference correlates this attempt with its requesting Interaction's results.
-// A ToolSet invoked as a root has no requesting Interaction and returns false;
-// its physical invocation attribution remains available through this value.
+// It comes from the ChildKey an Interaction gives the Tool child, which the
+// Engine keeps unique under the parent. A ToolSet run as a root, or started
+// under any other ChildKey, has no reference; its physical invocation
+// attribution remains available through this value.
 func (t ToolInvocation) Reference() (ToolCallRef, bool) {
-	parent, child := t.relation.ParentID()
-	if !t.Valid() || !child {
+	if !t.Valid() {
 		return ToolCallRef{}, false
 	}
-	return ToolCallRef{processID: parent, modelCallSequence: t.modelCallSequence, toolCallIndex: t.toolCallIndex}, true
+	return toolCallRef(t.relation)
 }
 
 func (t ToolInvocation) Valid() bool {
 	return t.relation.Valid() && t.deploymentRef.Valid() &&
 		t.effectID.Valid() && t.stepSequence > 0 &&
-		t.modelCallSequence > 0 && t.toolCall.Validate() == nil
+		t.toolCall.Validate() == nil
 }
 
 // ToolInvocationFromContext returns the attribution installed only for the
@@ -169,7 +160,7 @@ func ToolInvocationFromRequest(request agent.EffectRequest) (ToolInvocation, err
 		return ToolInvocation{}, fmt.Errorf("%w: Tool attribution requires a tool_call", ErrInvalidProtocol)
 	}
 	call := envelope.ToolCall.Invocation
-	return toolInvocationFromRequest(request, call.ModelCallSequence, call.ToolCallIndex, call.Call), nil
+	return toolInvocationFromRequest(request, call.Call), nil
 }
 
 func modelInvocationFromRequest(
@@ -189,12 +180,7 @@ func modelInvocationFromRequest(
 	}
 }
 
-func toolInvocationFromRequest(
-	request agent.EffectRequest,
-	modelCallSequence uint64,
-	toolCallIndex uint32,
-	toolCall chat.ToolCall,
-) ToolInvocation {
+func toolInvocationFromRequest(request agent.EffectRequest, toolCall chat.ToolCall) ToolInvocation {
 	incarnation, _ := request.TreeIncarnationID()
 	attempt, _ := request.AttemptID()
 	return ToolInvocation{
@@ -202,7 +188,6 @@ func toolInvocationFromRequest(
 		attemptID:     attempt,
 		relation:      request.Relation(), deploymentRef: request.DeploymentRef(),
 		effectID: request.ID(), stepSequence: request.StepSequence(),
-		modelCallSequence: modelCallSequence, toolCallIndex: toolCallIndex,
 		toolCall: toolCall,
 	}
 }

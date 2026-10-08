@@ -35,7 +35,8 @@ func TestLogicalReferenceAcrossAttemptsRoundsObserversAndParents(t *testing.T) {
 				return "", errors.New("Tool invocation is missing")
 			}
 			invoked <- invocation
-			if _, resumed := interaction.ToolInputContinuationFromContext(ctx); invocation.ModelCallSequence() == 1 && !resumed {
+			reference, _ := invocation.Reference()
+			if _, resumed := interaction.ToolInputContinuationFromContext(ctx); reference.ModelCallSequence() == 1 && !resumed {
 				return "", interaction.RequireToolInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"const":true}`), json.RawMessage(`null`))
 			}
 			return "confirmed", nil

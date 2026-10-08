@@ -357,10 +357,11 @@ func recordedInvocation(invocation interaction.ToolInvocation) (attemptIdentity,
 	incarnation, _ := invocation.TreeIncarnationID()
 	attempt, _ := invocation.AttemptID()
 	identity := attemptIdentity{invocation.Relation().ProcessID(), incarnation, invocation.EffectID(), attempt}
+	reference, _ := invocation.Reference()
 	call := ToolCall{
 		ProcessID: identity.processID, TreeIncarnationID: incarnation, EffectID: identity.effectID, AttemptID: attempt,
-		StepSequence: invocation.StepSequence(), ModelCall: invocation.ModelCallSequence(),
-		Index: invocation.ToolCallIndex(), Call: invocation.ToolCall(),
+		StepSequence: invocation.StepSequence(), ModelCall: reference.ModelCallSequence(),
+		Index: reference.ToolCallIndex(), Call: invocation.ToolCall(),
 	}
 	return identity, call
 }

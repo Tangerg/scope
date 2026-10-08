@@ -25,12 +25,11 @@ func TestUnlimitedModelCallSequencePreservesIdentityAcrossNumericBoundaries(t *t
 	if err != nil || len(transition.Effects()) != 1 || execution.state.ModelCallCount != uint64(math.MaxUint32)+1 {
 		t.Fatalf("32-bit boundary: count=%d error=%v", execution.state.ModelCallCount, err)
 	}
-	call := chat.ToolCall{ID: "call", Name: "tick", Arguments: `{}`}
-	before, err := ToolChildKey(math.MaxUint32, call)
+	before, err := ToolChildKey(math.MaxUint32, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := ToolChildKey(execution.state.ModelCallCount, call)
+	after, err := ToolChildKey(execution.state.ModelCallCount, 0)
 	if err != nil || before == after {
 		t.Fatalf("child identity reused: %v", err)
 	}

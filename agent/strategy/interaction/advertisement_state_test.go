@@ -125,7 +125,7 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 				t.Fatal(err)
 			}
 			prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`})
-			_, names, required, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, 1, 0, prepared)
+			_, names, required, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
 			if saved == nil {
 				t.Fatal("Tool was not called")
 			}

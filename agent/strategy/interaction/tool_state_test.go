@@ -12,24 +12,24 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func TestToolCallRequiresExplicitPosition(t *testing.T) {
-	definition, err := newToolDefinition("interaction.position.tools", "Preserve Tool call attribution.")
+// The model call that requested a Tool belongs to the child's ChildKey; an
+// input, retained state, or dispatch request that restates it is rejected.
+func TestToolCallCarriesNoRequestPosition(t *testing.T) {
+	definition, err := newToolDefinition("interaction.position.tools", "Keep Tool call attribution in its ChildKey.")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name     string
-		member   string
-		position uint32
-		valid    bool
+		name   string
+		member string
+		valid  bool
 	}{
-		{name: "missing"},
-		{name: "null", member: `"tool_call_index":null,`},
-		{name: "zero", member: `"tool_call_index":0,`, valid: true},
-		{name: "later", member: `"tool_call_index":7,`, position: 7, valid: true},
+		{name: "call only", valid: true},
+		{name: "model call sequence", member: `"model_call_sequence":1,`},
+		{name: "tool call index", member: `"tool_call_index":0,`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			call := `{"model_call_sequence":1,` + test.member + `"call":{"id":"call","name":"inspect","arguments":"{}"}}`
+			call := `{` + test.member + `"call":{"id":"call","name":"inspect","arguments":"{}"}}`
 			input, err := agent.ParsePayload([]byte(call))
 			if err != nil {
 				t.Fatal(err)
@@ -39,24 +39,16 @@ func TestToolCallRequiresExplicitPosition(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, restoreErr := definition.Restore(t.Context(), state)
+			_, restoreErr := definition.Restore(t.Context(), state)
 			_, dispatchErr := decodeEffect(json.RawMessage(`{"tool_call":{"invocation":` + call + `}}`))
 			if !test.valid {
 				if !errors.Is(startErr, ErrInvalidInput) || !errors.Is(restoreErr, ErrInvalidExecutionState) || !errors.Is(dispatchErr, ErrInvalidProtocol) {
-					t.Fatalf("lost position accepted: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
+					t.Fatalf("restated position accepted: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
 				}
 				return
 			}
 			if startErr != nil || restoreErr != nil || dispatchErr != nil {
-				t.Fatalf("explicit position rejected: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
-			}
-			captured, err := restored.Snapshot()
-			if err != nil {
-				t.Fatal(err)
-			}
-			decoded, err := captured.Decode[toolExecutionState](toolExecutionStateKind)
-			if err != nil || decoded.Call.ToolCallIndex != test.position {
-				t.Fatalf("restored position = %d, error = %v", decoded.Call.ToolCallIndex, err)
+				t.Fatalf("plain call rejected: start=%v restore=%v dispatch=%v", startErr, restoreErr, dispatchErr)
 			}
 		})
 	}
@@ -67,7 +59,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
 	waitID, err := agent.ParseWaitID("wait:tool-input")
 	if err != nil {
 		f.Fatal(err)
@@ -126,7 +118,7 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:unsolicited","payload":"x"}`), &unsolicited); err != nil {
 		t.Fatal(err)
 	}
-	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
 	for _, sample := range []struct {
 		name      string
 		execution agent.Execution
@@ -148,7 +140,7 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 }
 
 func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
-	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
 	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +177,7 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 }
 
 func TestToolExecutionOwnsItsInputPauseCount(t *testing.T) {
-	call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
 	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)

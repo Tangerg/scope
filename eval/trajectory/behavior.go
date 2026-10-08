@@ -199,10 +199,14 @@ func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []M
 
 var interactionChildRoles = [...]struct {
 	name string
-	key  func(uint64, chat.ToolCall) (agent.ChildKey, error)
+	key  func(modelCall uint64, index uint32, call chat.ToolCall) (agent.ChildKey, error)
 }{
-	{"tool", interaction.ToolChildKey},
-	{"delegate", interaction.DelegateChildKey},
+	{"tool", func(modelCall uint64, index uint32, _ chat.ToolCall) (agent.ChildKey, error) {
+		return interaction.ToolChildKey(modelCall, index)
+	}},
+	{"delegate", func(modelCall uint64, _ uint32, call chat.ToolCall) (agent.ChildKey, error) {
+		return interaction.DelegateChildKey(modelCall, call)
+	}},
 }
 
 func interactionSegments(models []ModelCall) (map[behaviorChild]string, error) {
@@ -210,7 +214,7 @@ func interactionSegments(models []ModelCall) (map[behaviorChild]string, error) {
 	for _, model := range models {
 		for index, decision := range model.toolDecisions() {
 			for _, role := range interactionChildRoles {
-				key, err := role.key(model.CallSequence, decision)
+				key, err := role.key(model.CallSequence, uint32(index), decision)
 				if err != nil {
 					return nil, err
 				}

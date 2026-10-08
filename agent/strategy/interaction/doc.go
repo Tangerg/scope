@@ -62,7 +62,9 @@
 // it has no storage or acknowledgment role. [ToolCallRef] correlates one
 // logical call across [ToolInvocation.Reference], [RoundResults.Reference],
 // and [ActiveDelegateChild.Reference]; its ProcessID is the requesting
-// Interaction, not the Tool child.
+// Interaction, not the Tool child. A Tool child's reference comes only from the
+// [ToolChildKey] its parent gave it, so a ToolSet run as a root or under any
+// other ChildKey has none.
 //
 // Descriptor.SignalSchema admits only steering envelopes as unaddressed input.
 // [NewSteerSignal] steering accepted during model or child work applies before

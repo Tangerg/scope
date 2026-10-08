@@ -26,10 +26,10 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 				AdvertisedToolNames: []string{"ask"}, AppliedSteerSignalIDs: []agent.SignalID{signalID},
 			},
 		},
-		{ToolCall: &toolDispatchRequest{Invocation: toolCall{ModelCallSequence: 1, Call: call}}},
+		{ToolCall: &toolDispatchRequest{Invocation: toolCall{Call: call}}},
 		{
 			ToolCall: &toolDispatchRequest{
-				Invocation: toolCall{ModelCallSequence: 1, ToolCallIndex: 2, Call: call},
+				Invocation: toolCall{Call: call},
 				Resume:     &toolResume{InputRequest: fuzzToolCheckpoint(f).InputRequest, InputResponse: json.RawMessage(`"Ada"`)},
 			},
 		},
@@ -44,7 +44,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		f.Add([]byte(encoded))
 	}
 	f.Add([]byte(`null`))
-	f.Add([]byte(`{"tool_call":{"model_call_sequence":1,"call":{"id":"call","name":"ask"},"input_response":"Ada"}}`))
+	f.Add([]byte(`{"tool_call":{"call":{"id":"call","name":"ask"},"input_response":"Ada"}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		effect, err := decodeEffect(payload)
 		if err != nil {

@@ -36,7 +36,7 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := toolCall{ModelCallSequence: 1, Call: chat.ToolCall{ID: "call", Name: "read", Arguments: `{}`}}
+			call := toolCall{Call: chat.ToolCall{ID: "call", Name: "read", Arguments: `{}`}}
 			input, err := agent.EncodePayload(call)
 			if err != nil {
 				t.Fatal(err)

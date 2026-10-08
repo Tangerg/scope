@@ -390,7 +390,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 		return agent.Transition{}, err
 	}
 	batch := e.state.ToolRound.ChildBatch
-	keys, err := batch.childKeys(e.state.ModelCallCount, calls)
+	keys, err := batch.childKeys(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), calls)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -426,7 +426,7 @@ func (e *execution) activeChildKeys(ctx context.Context) ([]agent.ChildKey, erro
 	if err != nil {
 		return nil, err
 	}
-	return e.state.ToolRound.ChildBatch.childKeys(e.state.ModelCallCount, calls)
+	return e.state.ToolRound.ChildBatch.childKeys(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), calls)
 }
 
 func (e *execution) waitForChildren(ctx context.Context, consumed uint32) (agent.Transition, error) {
@@ -476,7 +476,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 		return agent.Transition{}, err
 	}
 	batch := e.state.ToolRound.ChildBatch
-	keys, err := batch.childKeys(e.state.ModelCallCount, calls)
+	keys, err := batch.childKeys(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), calls)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -625,14 +625,11 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
-		call := calls[index]
-		key, keyErr := ToolChildKey(e.state.ModelCallCount, call)
+		key, keyErr := ToolChildKey(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex()+uint32(index))
 		if keyErr != nil {
 			return agent.Transition{}, keyErr
 		}
-		input, inputErr := agent.EncodePayload(toolCall{
-			ModelCallSequence: e.state.ModelCallCount, ToolCallIndex: e.state.ToolRound.nextCallIndex() + uint32(index), Call: call,
-		})
+		input, inputErr := agent.EncodePayload(toolCall{Call: calls[index]})
 		if inputErr != nil {
 			return agent.Transition{}, inputErr
 		}

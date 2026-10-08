@@ -82,8 +82,7 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 		if invocation.DeploymentRef() != deployment.tools.DeploymentRef() {
 			t.Fatal("Tool invocation references a different deployment")
 		}
-		if invocation.ModelCallSequence() != uint64(index+1) || invocation.ToolCallIndex() != 0 ||
-			invocation.StepSequence() != 1 || invocation.ToolCall().Name != wantToolNames[index] {
+		if invocation.StepSequence() != 1 || invocation.ToolCall().Name != wantToolNames[index] {
 			t.Fatalf("tool invocation %d = %#v", index, invocation)
 		}
 		reference, present := invocation.Reference()
@@ -368,11 +367,10 @@ func TestParallelAdvertisementsCommitInModelToolCallOrder(t *testing.T) {
 		firstInvocation.ToolCall().Name:  firstInvocation,
 		secondInvocation.ToolCall().Name: secondInvocation,
 	}
-	if byName["first"].ToolCallIndex() != 0 || byName["second"].ToolCallIndex() != 1 {
-		t.Fatalf(
-			"first/second ToolCall indices = %d/%d, want 0/1",
-			byName["first"].ToolCallIndex(), byName["second"].ToolCallIndex(),
-		)
+	firstRef, _ := byName["first"].Reference()
+	secondRef, _ := byName["second"].Reference()
+	if firstRef.ToolCallIndex() != 0 || secondRef.ToolCallIndex() != 1 {
+		t.Fatalf("first/second ToolCall indices = %d/%d, want 0/1", firstRef.ToolCallIndex(), secondRef.ToolCallIndex())
 	}
 	if byName["first"].EffectID() == byName["second"].EffectID() {
 		t.Fatalf(

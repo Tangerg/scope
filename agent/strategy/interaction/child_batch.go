@@ -112,11 +112,11 @@ func (c childCallBatch) phase() phase {
 	return phaseAwaitingChildWaitOpen
 }
 
-func (c childCallBatch) validate(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64) error {
+func (c childCallBatch) validate(ctx context.Context, calls []chat.ToolCall, modelCallSequence uint64, firstCallIndex uint32) error {
 	if err := c.validateShape(calls); err != nil {
 		return err
 	}
-	keys, err := c.childKeys(modelCallSequence, calls)
+	keys, err := c.childKeys(modelCallSequence, firstCallIndex, calls)
 	if err != nil {
 		return err
 	}
@@ -188,8 +188,9 @@ func (c childCallBatch) activeChildren(ctx context.Context, calls []chat.ToolCal
 }
 
 // childKeys derives each requested invocation's ChildKey from the call it
-// serves; unrequested invocations have none.
-func (c childCallBatch) childKeys(modelCallSequence uint64, calls []chat.ToolCall) ([]agent.ChildKey, error) {
+// serves, the batch's calls starting at firstCallIndex in the model response;
+// unrequested invocations have none.
+func (c childCallBatch) childKeys(modelCallSequence uint64, firstCallIndex uint32, calls []chat.ToolCall) ([]agent.ChildKey, error) {
 	if len(calls) != len(c.Invocations) {
 		return nil, fmt.Errorf("%w: child batch does not match its calls", ErrInvalidExecutionState)
 	}
@@ -198,7 +199,7 @@ func (c childCallBatch) childKeys(modelCallSequence uint64, calls []chat.ToolCal
 		if invocation == nil {
 			continue
 		}
-		key, err := c.childKey(modelCallSequence, calls[index])
+		key, err := c.childKey(modelCallSequence, firstCallIndex+uint32(index), calls[index])
 		if err != nil {
 			return nil, fmt.Errorf("%w: requested call has no child key: %w", ErrInvalidExecutionState, err)
 		}
@@ -207,11 +208,11 @@ func (c childCallBatch) childKeys(modelCallSequence uint64, calls []chat.ToolCal
 	return keys, nil
 }
 
-func (c childCallBatch) childKey(modelCallSequence uint64, call chat.ToolCall) (agent.ChildKey, error) {
+func (c childCallBatch) childKey(modelCallSequence uint64, callIndex uint32, call chat.ToolCall) (agent.ChildKey, error) {
 	if c.Kind == childCallsDelegate {
 		return DelegateChildKey(modelCallSequence, call)
 	}
-	return ToolChildKey(modelCallSequence, call)
+	return ToolChildKey(modelCallSequence, callIndex)
 }
 
 // validateBindings checks that every one of calls, the batch's own, belongs to

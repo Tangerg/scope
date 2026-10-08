@@ -48,26 +48,13 @@ type modelCall struct {
 	AppliedSteerSignalIDs []agent.SignalID `json:"applied_steer_signal_ids,omitempty"`
 }
 
+// toolCall is a Tool child's input. Which model call requested it belongs to
+// the child's ChildKey, never to a copy here that any parent could write.
 type toolCall struct {
-	ModelCallSequence uint64        `json:"model_call_sequence"`
-	ToolCallIndex     uint32        `json:"tool_call_index" jsonwire:"required"`
-	Call              chat.ToolCall `json:"call"`
-}
-
-func (t *toolCall) UnmarshalJSON(data []byte) error {
-	type wire toolCall
-	decoded, err := jsonwire.Decode[wire](data)
-	if err != nil {
-		return err
-	}
-	*t = toolCall(decoded)
-	return nil
+	Call chat.ToolCall `json:"call"`
 }
 
 func (t toolCall) validate() error {
-	if t.ModelCallSequence == 0 {
-		return fmt.Errorf("%w: Tool call sequence is required", ErrInvalidProtocol)
-	}
 	if err := t.Call.Validate(); err != nil {
 		return fmt.Errorf("%w: tool_call: %w", ErrInvalidProtocol, err)
 	}
@@ -76,8 +63,6 @@ func (t toolCall) validate() error {
 
 func (t toolCall) checkpointWaitKey(pauseCount uint64) (agent.WaitKey, error) {
 	hash := sha256.New()
-	hash.Write([]byte(strconv.FormatUint(uint64(t.ModelCallSequence), 10)))
-	hash.Write([]byte{0})
 	hash.Write([]byte(t.Call.ID))
 	hash.Write([]byte{0})
 	hash.Write([]byte(strconv.FormatUint(uint64(pauseCount), 10)))

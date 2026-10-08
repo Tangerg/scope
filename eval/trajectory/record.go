@@ -138,12 +138,14 @@ type ToolCall struct {
 	AttemptID         agent.EffectAttemptID   `json:"attempt_id"`
 	ProcessID         agent.ProcessID         `json:"process_id"`
 	StepSequence      uint64                  `json:"step_sequence"`
-	ModelCall         uint64                  `json:"model_call"`
-	Index             uint32                  `json:"index"`
-	Call              chat.ToolCall           `json:"call"`
-	Result            *chat.ToolResult        `json:"result,omitzero"`
-	InputRequired     bool                    `json:"input_required,omitzero"`
-	Unknown           bool                    `json:"unknown,omitzero"`
+	// ModelCall and Index project the requesting Interaction's ToolCallRef. A
+	// Tool child without one, such as a ToolSet run as a root, has both zero.
+	ModelCall     uint64           `json:"model_call,omitzero"`
+	Index         uint32           `json:"index,omitzero"`
+	Call          chat.ToolCall    `json:"call"`
+	Result        *chat.ToolResult `json:"result,omitzero"`
+	InputRequired bool             `json:"input_required,omitzero"`
+	Unknown       bool             `json:"unknown,omitzero"`
 	// Evidence is non-final output for Unknown. It is never a ToolResult.
 	Evidence *chat.ToolOutput `json:"evidence,omitzero"`
 	// Failure describes a failed call or diagnoses an unknown outcome without
@@ -193,7 +195,7 @@ func (t ToolCall) Clone() ToolCall {
 }
 
 func (t ToolCall) Validate() error {
-	if !t.attempt().valid() || t.StepSequence == 0 || t.ModelCall == 0 {
+	if !t.attempt().valid() || t.StepSequence == 0 || (t.ModelCall == 0 && t.Index != 0) {
 		return fmt.Errorf("%w: tool call attribution is incomplete", ErrInvalidTrajectory)
 	}
 	if err := t.Call.Validate(); err != nil {

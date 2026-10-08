@@ -237,8 +237,9 @@ func TestToolBatchRestoreRefillsUnscheduledSuffix(t *testing.T) {
 			t.Fatal(err)
 		}
 		call, decodeErr := start.Spec.Input.Decode[toolCall]()
-		if decodeErr != nil || call.ModelCallSequence != 1 || call.ToolCallIndex != 4 || call.Call.ID != "call_4" {
-			t.Fatalf("refilled call = %+v, error = %v", call, decodeErr)
+		key, keyErr := ToolChildKey(1, 4)
+		if decodeErr != nil || keyErr != nil || start.Spec.Key != key || call.Call.ID != "call_4" {
+			t.Fatalf("refilled call = %+v under %v, error = %v", call, start.Spec.Key, errors.Join(decodeErr, keyErr))
 		}
 	}
 	after, err := restored.Snapshot()

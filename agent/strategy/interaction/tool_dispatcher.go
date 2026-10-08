@@ -64,7 +64,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		})
 	}
 	prepared := t.prepareToolCall(call.Call)
-	result, advertised, required, rejected, err := t.callTool(ctx, request, call.ModelCallSequence, call.ToolCallIndex, prepared)
+	result, advertised, required, rejected, err := t.callTool(ctx, request, prepared)
 	if err != nil {
 		return agent.Settlement{}, err
 	}
@@ -109,8 +109,6 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 func (t *toolDispatcher) callTool(
 	ctx context.Context,
 	request agent.EffectRequest,
-	modelCallSequence uint64,
-	toolCallIndex uint32,
 	prepared preparedToolCall,
 ) (
 	result chat.ToolResult,
@@ -123,9 +121,7 @@ func (t *toolDispatcher) callTool(
 	if prepared.rejection != nil {
 		return prepared.rejection.Clone(), nil, nil, true, nil
 	}
-	invocation := toolInvocationFromRequest(
-		request, modelCallSequence, toolCallIndex, call,
-	)
+	invocation := toolInvocationFromRequest(request, call)
 	t.observeToolStarted(ctx, invocation)
 	defer func() {
 		settlement := ToolSettlement{}

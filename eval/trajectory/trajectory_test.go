@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -597,8 +598,9 @@ func TestRealProviderToolCallIDsDoNotChangeBehaviorDigest(t *testing.T) {
 		}
 		digests = append(digests, digest)
 	}
-	if len(keys) != 3 || keys[0] == keys[1] {
-		t.Fatal("fixture did not exercise different real Tool child identities")
+	// A Tool child's identity is its call position, so provider IDs never reach it.
+	if len(keys) != 3 || keys[0] != keys[1] || keys[1] != keys[2] {
+		t.Fatalf("provider call IDs reached Tool child identities: %v", keys)
 	}
 	if digests[0] != digests[1] {
 		t.Fatal("provider call IDs caused a false behavior difference")
@@ -638,7 +640,7 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 			t.Fatalf("provider IDs reordered semantic Tool expectation: report=%+v error=%v", report, err)
 		}
 	}
-	if rawFirstIndexes[0] == rawFirstIndexes[1] {
-		t.Fatal("fixture did not invert raw child ordering")
+	if !slices.Equal(rawFirstIndexes, []uint32{0, 0}) {
+		t.Fatalf("provider call IDs reordered recorded Tool children: first indexes %v", rawFirstIndexes)
 	}
 }

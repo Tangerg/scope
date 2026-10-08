@@ -229,7 +229,7 @@ func (c childIndex) settledProcessResults(snapshot agent.TreeSnapshot, process a
 }
 
 func (c childIndex) settledChildResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, refusals map[agent.ChildKey]agent.Failure, sequence uint64, index uint32, call chat.ToolCall) (*toolCallResult, error) {
-	toolKey, err := ToolChildKey(sequence, call)
+	toolKey, err := ToolChildKey(sequence, index)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +349,7 @@ func delegateStartRefusals(snapshot agent.TreeSnapshot, process agent.ProcessSna
 	if err != nil {
 		return nil, err
 	}
-	keys, err := batch.childKeys(state.ModelCallCount, calls)
+	keys, err := batch.childKeys(state.ModelCallCount, state.ToolRound.nextCallIndex(), calls)
 	if err != nil {
 		return nil, err
 	}
