@@ -14,6 +14,8 @@ var (
 	ErrInvalidRequestTimeout = errors.New("httpreq: timeout_ms must be between 1 and 120000 when set")
 	ErrHostNotAllowed        = errors.New("httpreq: host is not allowed by client policy")
 	ErrHostHeaderOverride    = errors.New("httpreq: model-supplied Host header overrides are prohibited")
+	ErrBodyNotAllowed        = errors.New("httpreq: method does not carry a request body")
+	ErrDuplicateHeader       = errors.New("httpreq: header names one field more than once")
 	ErrMethodNotAllowed      = errors.New("httpreq: method is not allowed by client policy")
 	ErrRedirectLimitReached  = errors.New("httpreq: redirect limit reached")
 )

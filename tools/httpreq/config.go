@@ -91,6 +91,9 @@ func (c ClientConfig) compilePolicy() (clientPolicy, error) {
 	if c.MaxResponseBytes < 0 || c.MaxResponseBytes > maxSupportedResponseBytes {
 		return clientPolicy{}, fmt.Errorf("%w: maximum response bytes must be between 0 and %d", ErrInvalidClientConfig, maxSupportedResponseBytes)
 	}
+	if err := validateHeaderFields(c.DefaultHeaders); err != nil {
+		return clientPolicy{}, fmt.Errorf("%w: default headers: %w", ErrInvalidClientConfig, err)
+	}
 	allowedHosts, err := NewAllowlist(c.AllowedHosts)
 	if err != nil {
 		return clientPolicy{}, fmt.Errorf("%w: allowed hosts: %w", ErrInvalidClientConfig, err)

@@ -35,3 +35,10 @@ func (m Method) Validate() error {
 	_, err := m.Normalize()
 	return err
 }
+
+// carriesBody reports whether a request body is sent for m. The transport
+// drops a GET or HEAD body, so admission must refuse one rather than send a
+// request other than the one asked for.
+func (m Method) carriesBody() bool {
+	return m != MethodGET && m != MethodHEAD
+}
