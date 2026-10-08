@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -21,6 +22,18 @@ func (c CaseID) Validate() error {
 	}
 	if value == "" || value != strings.TrimSpace(value) {
 		return fmt.Errorf("%w: id must be non-empty without surrounding whitespace", ErrInvalidCase)
+	}
+	return nil
+}
+
+// validateFixtureID is the admission rule for the fixture identity a Dataset
+// and an ExperimentReport share.
+func validateFixtureID(fixtureID string) error {
+	if !utf8.ValidString(fixtureID) {
+		return errors.New("fixture identity must be valid UTF-8")
+	}
+	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
+		return errors.New("fixture identity must be non-empty without surrounding whitespace")
 	}
 	return nil
 }
@@ -60,8 +73,8 @@ type Dataset[T any] struct {
 // NewDataset snapshots cases and metadata, copying Subject by assignment, and
 // rejects duplicate IDs that would make result correlation ambiguous.
 func NewDataset[T any](fixtureID string, cases ...Case[T]) (Dataset[T], error) {
-	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
-		return Dataset[T]{}, fmt.Errorf("%w: fixture identity is required", ErrInvalidDataset)
+	if err := validateFixtureID(fixtureID); err != nil {
+		return Dataset[T]{}, fmt.Errorf("%w: %w", ErrInvalidDataset, err)
 	}
 	owned := slices.Clone(cases)
 	seen := make(map[CaseID]struct{}, len(owned))

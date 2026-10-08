@@ -307,3 +307,14 @@ func TestComparisonSeparatesDecisionPolicyFromNumericMeasurement(t *testing.T) {
 		t.Fatalf("threshold comparison = %+v", compared)
 	}
 }
+
+func TestFixtureIdentityAdmission(t *testing.T) {
+	for _, fixtureID := range []string{"", " padded", "\xff"} {
+		if _, err := eval.NewDataset(fixtureID, eval.Case[int]{ID: "case", Subject: 1}); !errors.Is(err, eval.ErrInvalidDataset) {
+			t.Errorf("NewDataset(%q) error = %v, want ErrInvalidDataset", fixtureID, err)
+		}
+		if _, err := eval.NewExperimentReport(fixtureID, nil); !errors.Is(err, eval.ErrInvalidExperiment) {
+			t.Errorf("NewExperimentReport(%q) error = %v, want ErrInvalidExperiment", fixtureID, err)
+		}
+	}
+}

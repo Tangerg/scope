@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -92,8 +91,8 @@ type ExperimentReport struct {
 }
 
 func NewExperimentReport(fixtureID string, results []CaseResult) (ExperimentReport, error) {
-	if fixtureID == "" || strings.TrimSpace(fixtureID) != fixtureID {
-		return ExperimentReport{}, fmt.Errorf("%w: fixture identity is required", ErrInvalidExperiment)
+	if err := validateFixtureID(fixtureID); err != nil {
+		return ExperimentReport{}, fmt.Errorf("%w: %w", ErrInvalidExperiment, err)
 	}
 	owned := make([]CaseResult, len(results))
 	seen := make(map[CaseID]struct{}, len(results))
