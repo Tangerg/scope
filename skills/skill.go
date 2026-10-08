@@ -9,7 +9,6 @@ import (
 
 	documentfrontmatter "github.com/adrg/frontmatter"
 	"go.yaml.in/yaml/v4"
-	"golang.org/x/text/unicode/norm"
 )
 
 const frontmatterFence = "---"
@@ -72,11 +71,10 @@ func (s *Skill) Validate() error {
 	return s.Frontmatter.Validate()
 }
 
-func (s *Skill) bindDirectoryName(name string) error {
-	if norm.NFKC.String(s.Name) != norm.NFKC.String(name) {
+func (s *Skill) matchDirectoryName(name string) error {
+	if s.Name != name {
 		return fmt.Errorf("%w: frontmatter %q vs directory %q", ErrNameMismatch, s.Name, name)
 	}
-	s.Name = name
 	return nil
 }
 

@@ -178,7 +178,7 @@ func (r *Repository) Load(ctx context.Context, name string) (*Skill, error) {
 	if err != nil {
 		return nil, invalidSkill(name, err)
 	}
-	if err := skill.bindDirectoryName(name); err != nil {
+	if err := skill.matchDirectoryName(name); err != nil {
 		return nil, invalidSkill(name, err)
 	}
 	return skill, nil
@@ -216,7 +216,7 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err != nil {
 		return Summary{}, invalidSkill(name, err)
 	}
-	if err := skill.bindDirectoryName(name); err != nil {
+	if err := skill.matchDirectoryName(name); err != nil {
 		return Summary{}, invalidSkill(name, err)
 	}
 	return skill.Summary(), nil

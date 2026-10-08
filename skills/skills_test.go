@@ -189,8 +189,8 @@ func TestParsePreservesMarkdownBody(t *testing.T) {
 	}
 }
 
-func TestUnicodeNamesAndNormalizedDirectoryMatch(t *testing.T) {
-	for _, name := range []string{"数据分析", "café", "cafe\u0301", "ａｂｃ", "分析-٢", strings.Repeat("界", 64)} {
+func TestUnicodeNamesHaveOneSpelling(t *testing.T) {
+	for _, name := range []string{"数据分析", "café", "分析-٢", strings.Repeat("界", 64)} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateName(name); err != nil {
 				t.Fatal(err)
@@ -208,7 +208,8 @@ func TestUnicodeNamesAndNormalizedDirectoryMatch(t *testing.T) {
 			}
 		})
 	}
-	for _, name := range []string{"Café", "Ａｂｃ", "../分析", "数据/分析", "a--b", "a\u0300\u0301", string([]byte{0xff})} {
+	// A spelling outside NFKC form would be a second name for an NFKC one.
+	for _, name := range []string{"Café", "Ａｂｃ", "ａｂｃ", "cafe\u0301", "../分析", "数据/分析", "a--b", "a\u0300\u0301", string([]byte{0xff})} {
 		if err := ValidateName(name); !errors.Is(err, ErrNameInvalid) {
 			t.Fatalf("ValidateName(%q) = %v, want ErrNameInvalid", name, err)
 		}
@@ -216,16 +217,13 @@ func TestUnicodeNamesAndNormalizedDirectoryMatch(t *testing.T) {
 	if err := ValidateName(strings.Repeat("界", 65)); !errors.Is(err, ErrNameTooLong) {
 		t.Fatalf("65 character name = %v", err)
 	}
-	for _, test := range []struct{ directory, name string }{{"cafe\u0301", "café"}, {"ａｂｃ", "abc"}} {
-		repository := mustNewFS(fstest.MapFS{test.directory + "/SKILL.md": skillFile(test.name, "Equivalent Unicode name", "body")})
-		summaries, err := repository.List(t.Context())
-		if err != nil || len(summaries) != 1 || summaries[0].Name != test.directory {
-			t.Fatalf("normalized List = %#v, %v", summaries, err)
-		}
-		skill, err := repository.Load(t.Context(), summaries[0].Name)
-		if err != nil || skill.Name != test.directory {
-			t.Fatalf("normalized Load = %#v, %v", skill, err)
-		}
+	repository := mustNewFS(fstest.MapFS{
+		"abc/SKILL.md": skillFile("abc", "ASCII spelling", "body"),
+		"ａｂｃ/SKILL.md": skillFile("abc", "Fullwidth spelling", "body"),
+	})
+	summaries, err := repository.List(t.Context())
+	if err != nil || len(summaries) != 1 || summaries[0].Name != "abc" || summaries[0].Description != "ASCII spelling" {
+		t.Fatalf("equivalent spellings listed = %#v, %v", summaries, err)
 	}
 }
 

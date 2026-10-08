@@ -18,9 +18,8 @@ const (
 
 // Frontmatter is the YAML metadata block of a SKILL.md document.
 type Frontmatter struct {
-	// Name is the unique skill identifier; it must match the skill's parent
-	// directory name after Unicode NFKC normalization. Repository results use
-	// the directory's exact spelling so the identifier can reopen its files.
+	// Name is the unique skill identifier in Unicode NFKC form; it must equal
+	// the skill's parent directory name.
 	Name          string            `yaml:"name"`
 	Description   string            `yaml:"description"`
 	License       string            `yaml:"license,omitempty"`
@@ -73,22 +72,23 @@ func (f Frontmatter) Validate() error {
 	return errors.Join(errs...)
 }
 
-// ValidateName compares Unicode NFKC characters without changing path spelling.
+// ValidateName admits only names in Unicode NFKC form. Equivalent spellings
+// of one name would otherwise identify one skill through several directories
+// and frontmatter values, so the name's spelling is its identity.
 func ValidateName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return ErrNameEmpty
 	}
-	if !utf8.ValidString(name) || strings.TrimSpace(name) != name {
+	if !utf8.ValidString(name) || strings.TrimSpace(name) != name || !norm.NFKC.IsNormalString(name) {
 		return fmt.Errorf("%w: %q", ErrNameInvalid, name)
 	}
-	normalized := norm.NFKC.String(name)
 	switch {
-	case utf8.RuneCountInString(normalized) > maxNameLen:
-		return fmt.Errorf("%w: %d characters", ErrNameTooLong, utf8.RuneCountInString(normalized))
-	case normalized != strings.ToLower(normalized), strings.HasPrefix(normalized, "-"), strings.HasSuffix(normalized, "-"), strings.Contains(normalized, "--"):
+	case utf8.RuneCountInString(name) > maxNameLen:
+		return fmt.Errorf("%w: %d characters", ErrNameTooLong, utf8.RuneCountInString(name))
+	case name != strings.ToLower(name), strings.HasPrefix(name, "-"), strings.HasSuffix(name, "-"), strings.Contains(name, "--"):
 		return fmt.Errorf("%w: %q", ErrNameInvalid, name)
 	}
-	for _, character := range normalized {
+	for _, character := range name {
 		if character != '-' && !unicode.IsLetter(character) && !unicode.IsNumber(character) {
 			return fmt.Errorf("%w: %q", ErrNameInvalid, name)
 		}
