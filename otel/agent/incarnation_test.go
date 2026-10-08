@@ -132,8 +132,8 @@ func TestObserverIsolatesOverlappingDurableIncarnations(t *testing.T) {
 			t.Fatal("runtime stop did not close only its own outstanding Effect")
 		}
 		close(second.release)
-		if result, err := restored.Await(t.Context()); err != nil || result.Status() != agent.StatusCompleted {
-			t.Fatalf("restored result=%s error=%v", result.Status(), err)
+		if result, err := restored.Await(t.Context()); err != nil || result.Termination().Status() != agent.StatusCompleted {
+			t.Fatalf("restored result=%s error=%v", result.Termination().Status(), err)
 		}
 		for _, engine := range []*agent.Engine{source, restoredEngine} {
 			if err := engine.ReleaseTree(t.Context(), original.ID()); err != nil {

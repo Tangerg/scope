@@ -64,15 +64,15 @@ func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
 		t.Fatal(killErr)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Status() != agent.StatusKilled {
-		t.Fatalf("terminated Process status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusKilled {
+		t.Fatalf("terminated Process status=%s error=%v", result.Termination().Status(), err)
 	}
 	if owner == nil || owner.ID() == process.ID() || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 		t.Fatal("unknown Effect must remain owned by its Tool child")
 	}
 	toolResult, err := owner.Await(ctx)
-	if err != nil || toolResult.Status() != agent.StatusCanceled {
-		t.Fatalf("Tool status=%s error=%v", toolResult.Status(), err)
+	if err != nil || toolResult.Termination().Status() != agent.StatusCanceled {
+		t.Fatalf("Tool status=%s error=%v", toolResult.Termination().Status(), err)
 	}
 	unresolved := toolResult.Termination().UnresolvedEffectIDs()
 	if len(unresolved) != 1 || len(unknown) != 1 || unresolved[0] != unknown[0] {

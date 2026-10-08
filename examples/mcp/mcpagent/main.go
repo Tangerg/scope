@@ -192,7 +192,7 @@ func runBriefing(
 	}
 	encodedOutput, ok := result.Termination().Output()
 	if !ok {
-		return briefOutput{}, fmt.Errorf("MCP briefing produced no output with status %q", result.Status())
+		return briefOutput{}, fmt.Errorf("MCP briefing produced no output with status %q", result.Termination().Status())
 	}
 	output, err := encodedOutput.Decode[interaction.Output]()
 	if err != nil {

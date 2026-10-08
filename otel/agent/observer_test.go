@@ -87,8 +87,8 @@ func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result
 		t.Fatal(err)
 	}
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result status = %s, error = %v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result status = %s, error = %v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
@@ -209,8 +209,8 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Status() != agent.StatusFailed {
-		t.Fatalf("result = %s, error = %v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusFailed {
+		t.Fatalf("result = %s, error = %v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
@@ -280,8 +280,8 @@ func TestObserverRecordsStepAndEffectErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := engine.Run(t.Context(), testDeployment(t), input)
-			if err != nil || result.Status() != test.wantStatus {
-				t.Fatalf("result = %s, error = %v", result.Status(), err)
+			if err != nil || result.Termination().Status() != test.wantStatus {
+				t.Fatalf("result = %s, error = %v", result.Termination().Status(), err)
 			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
@@ -352,8 +352,8 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err := restored.Resume(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored result = %s termination=%+v, error = %v", result.Status(), result.Termination(), awaitErr)
+	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored result = %s termination=%+v, error = %v", result.Termination().Status(), result.Termination(), awaitErr)
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)

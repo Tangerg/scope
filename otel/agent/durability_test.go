@@ -50,8 +50,8 @@ func TestObservedTreeCommitterRecordsAcknowledgedBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
@@ -192,8 +192,8 @@ func observedCheckpoint(t testing.TB, value string) agent.TreeCheckpoint {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("checkpoint fixture status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("checkpoint fixture status=%s error=%v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)

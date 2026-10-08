@@ -96,8 +96,8 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			if unknown {
 				wantStatus, wantCalls, wantUnknown = agent.StatusCanceled, 1, 1
 			}
-			if result.Status() != wantStatus || calls.Load() != wantCalls {
-				t.Fatalf("status=%s calls=%d", result.Status(), calls.Load())
+			if result.Termination().Status() != wantStatus || calls.Load() != wantCalls {
+				t.Fatalf("status=%s calls=%d", result.Termination().Status(), calls.Load())
 			}
 			snapshot := contractValue(engine.CaptureTree(ctx, process.ID()))
 			count := 0
