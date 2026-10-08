@@ -130,7 +130,7 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			})
 			<-dispatcher.started
 			before := inspectProcessSnapshot(t, root).Usage()
-			ids := directChildIDs(t, engine, root.ID())
+			ids := directChildIDs(t, engine, root.Relation().ProcessID())
 			if len(ids) != 1 {
 				t.Fatalf("children=%v", ids)
 			}

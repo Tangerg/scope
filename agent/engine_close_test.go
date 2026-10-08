@@ -182,7 +182,7 @@ func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 		if err := engine.Close(context.WithoutCancel(t.Context())); !errors.Is(err, ErrEngineHasActiveProcesses) {
 			t.Errorf("Close during terminal publication = %v, want ErrEngineHasActiveProcesses", err)
 		}
-		if registered, found := engine.Process(process.ID()); !found || registered.ID() != process.ID() {
+		if registered, found := engine.Process(process.Relation().ProcessID()); !found || registered.Relation().ProcessID() != process.Relation().ProcessID() {
 			t.Error("terminal Process disappeared during Close")
 		}
 		close(release)
@@ -269,7 +269,7 @@ func TestBlockedEventKeepsTreeOwnedUntilListenerReturns(t *testing.T) {
 		if result := awaitResult(t, root); result.Termination().Status() != StatusCompleted {
 			t.Fatal("released listener lost completion")
 		}
-		if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil {
+		if err := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); err != nil {
 			t.Fatal(err)
 		}
 		mustCloseEngine(t, engine)

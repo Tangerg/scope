@@ -145,8 +145,6 @@ func (e eventDraft) publish(sequence uint64) Event {
 // publication progress is observation state and is not part of a TreeSnapshot.
 func (e Event) ProcessSequence() uint64 { return e.processSequence }
 
-func (e Event) ProcessID() ProcessID { return e.processID() }
-
 func (e Event) DeploymentRef() DeploymentRef { return e.deploymentRef }
 
 func (e Event) Relation() ProcessRelation { return e.relation }

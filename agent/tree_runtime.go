@@ -835,7 +835,7 @@ func (t *treeRuntime) stageCommittedEvent(event eventDraft) {
 // writer instead.
 func (t *treeRuntime) publishAcknowledgedChanges() {
 	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
-		processID := snapshot.ProcessID()
+		processID := snapshot.Relation().ProcessID()
 		publication, pending := t.publications.take(processID)
 		if !pending {
 			continue
@@ -877,7 +877,7 @@ func (t *treeRuntime) failRuntime(
 	t.runQueue.clear()
 	acknowledged := make(map[ProcessID]struct{}, len(t.writer.head().state.ProcessSnapshots))
 	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
-		acknowledged[snapshot.ProcessID()] = struct{}{}
+		acknowledged[snapshot.Relation().ProcessID()] = struct{}{}
 	}
 	for _, process := range t.members.ordered() {
 		memberID := process.handle.processID()
@@ -1317,7 +1317,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 	}
 	snapshots := t.writer.head().ProcessSnapshots()
 	for _, snapshot := range snapshots {
-		processID := snapshot.ProcessID()
+		processID := snapshot.Relation().ProcessID()
 		process := t.members.get(processID)
 		if process == nil {
 			continue

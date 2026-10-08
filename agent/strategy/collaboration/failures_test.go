@@ -91,7 +91,7 @@ func TestCompletionCancelsOutstandingTask(t *testing.T) {
 	}, gate())
 	engine, process := run(t, definition, agent.NewMemoryTreeCommitter())
 	completed(t, process)
-	tree := require(engine.InspectTree(t.Context(), process.ID()))
+	tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 	for _, fact := range tree.Processes {
 		if fact.Snapshot.DeploymentRef().Name() == "test.gate" && fact.Snapshot.Status() != agent.StatusCanceled {
 			t.Fatal("completion left a running descendant")

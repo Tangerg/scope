@@ -46,11 +46,11 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		tree, err := engine.InspectTree(t.Context(), previous.ID())
+		tree, err := engine.InspectTree(t.Context(), previous.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
-		fact, present := tree.Process(previous.ID())
+		fact, present := tree.Process(previous.Relation().ProcessID())
 		if !present {
 			t.Fatal("previous episode is missing")
 		}
@@ -72,7 +72,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if accepted, deliveryErr := previous.DeliverSignals(t.Context(), answer); deliveryErr != nil || !accepted {
 			t.Fatalf("answer admission=%t %v", accepted, deliveryErr)
 		}
-		if ackErr := store.acknowledgeInput(previous.ID(), answer.ID()); ackErr != nil {
+		if ackErr := store.acknowledgeInput(previous.Relation().ProcessID(), answer.ID()); ackErr != nil {
 			t.Fatal(ackErr)
 		}
 		<-barrier.entered
@@ -129,7 +129,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		treeLimits := agent.DefaultTreeLimits()
 		treeLimits.MaxPendingSignals = 8
 		request := successorRequest{
-			Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
+			Predecessor: previous.Relation().ProcessID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
 			Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}, TreeLimits: treeLimits,
 		}
 		host := &episodeHost{store: store}
@@ -138,13 +138,13 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertEpisodeResult(t, next, request, 2)
-		if record := store.inputs[lateID]; record.recipient != previous.ID() || record.disposition != episodeInputNotAdmitted || record.acknowledged {
+		if record := store.inputs[lateID]; record.recipient != previous.Relation().ProcessID() || record.disposition != episodeInputNotAdmitted || record.acknowledged {
 			t.Fatal("rejected input changed its original recipient or disposition")
 		}
 		if bindErr := store.bindInput(next, late); !errors.Is(bindErr, agent.ErrSignalConflict) {
 			t.Fatalf("same identity retarget=%v", bindErr)
 		}
-		if ackErr := store.acknowledgeInput(next.ID(), lateID); !errors.Is(ackErr, agent.ErrSignalConflict) {
+		if ackErr := store.acknowledgeInput(next.Relation().ProcessID(), lateID); !errors.Is(ackErr, agent.ErrSignalConflict) {
 			t.Fatalf("foreign late acknowledgment=%v", ackErr)
 		}
 		freshID, err := agent.ParseSignalID("signal:after-ingress-seal")
@@ -161,7 +161,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if result.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 			t.Fatalf("old budget changed=%+v", result.Usage())
 		}
-		head, present, loadErr := store.trees.LoadTree(t.Context(), previous.ID())
+		head, present, loadErr := store.trees.LoadTree(t.Context(), previous.Relation().ProcessID())
 		if loadErr != nil || !present {
 			t.Fatalf("old retained tree=%t %v", present, loadErr)
 		}
@@ -176,7 +176,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if _, sealErr := store.sealEpisode(t.Context(), restored); sealErr != nil {
 			t.Fatal(sealErr)
 		}
-		retained := store.sealed[previous.ID()].ProcessSnapshots()[0].SignalReceipts()
+		retained := store.sealed[previous.Relation().ProcessID()].ProcessSnapshots()[0].SignalReceipts()
 		if len(retained) != 2 || !retained[1].Matches(answer) || !retained[1].Consumed() {
 			t.Fatal("retention erased the old admitted input")
 		}

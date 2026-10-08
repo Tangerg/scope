@@ -134,10 +134,10 @@ func runChildControl(t *testing.T, driver TreeCommitterConformanceDriver, scenar
 		if !observation.found || !observation.head.Valid() || observation.head.Digest() != boundary.TreeSnapshot().Digest() {
 			t.Fatalf("framework control acknowledged head digest=%s exists=%t, want %s", observation.head.Digest(), observation.found, boundary.TreeSnapshot().Digest())
 		}
-		assertChildControlCut(t, observation.head, boundary, before, child.ID(), scenario)
+		assertChildControlCut(t, observation.head, boundary, before, child.Relation().ProcessID(), scenario)
 	}
 	waitForConformanceStatus(t, engine, root, agent.StatusPaused)
-	assertChildControlContinuation(t, driver, engine, root, child.ID(), before, scenario)
+	assertChildControlContinuation(t, driver, engine, root, child.Relation().ProcessID(), before, scenario)
 	select {
 	case extra := <-probe.observed:
 		t.Fatalf("unexpected framework control boundary: %s", extra.boundary.Kind())
@@ -221,17 +221,17 @@ func runChildControlCrash(
 		childControlOperationFor(observation.boundary.Request().Effect()) != operation {
 		t.Fatal("crash gate missed the exact framework control")
 	}
-	assertChildControlCut(t, observation.prospective, observation.boundary, before, child.ID(), scenario)
-	assertChildControlUnpublished(t, engine, root.ID(), child.ID(), before, observation)
-	head := assertCrashHead(t, driver, root.ID(), observation.durableDigest())
+	assertChildControlCut(t, observation.prospective, observation.boundary, before, child.Relation().ProcessID(), scenario)
+	assertChildControlUnpublished(t, engine, root.Relation().ProcessID(), child.Relation().ProcessID(), before, observation)
+	head := assertCrashHead(t, driver, root.Relation().ProcessID(), observation.durableDigest())
 	if point.phase == crashCommitBefore {
-		storedChild := conformanceSnapshotByID(head.ProcessSnapshots(), child.ID())
-		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ID())
+		storedChild := conformanceSnapshotByID(head.ProcessSnapshots(), child.Relation().ProcessID())
+		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.Relation().ProcessID())
 		if !bytes.Equal(storedChild.JSON(), priorChild.JSON()) {
 			t.Fatal("uncommitted framework control changed the recipient head")
 		}
 	} else {
-		assertChildControlCut(t, head, observation.boundary, before, child.ID(), scenario)
+		assertChildControlCut(t, head, observation.boundary, before, child.Relation().ProcessID(), scenario)
 	}
 	gate.abort()
 	awaitCrashRuntimeError(t, root, errSimulatedHostCrash)
@@ -248,7 +248,7 @@ func runChildControlCrash(
 	restoredRoot := restoreCrashTree(t, restoredEngine, restoredDeployment, head)
 	t.Cleanup(func() { closeConformanceProcess(t, restoredEngine, restoredRoot) })
 	waitForConformanceStatus(t, restoredEngine, restoredRoot, agent.StatusPaused)
-	assertChildControlContinuation(t, driver, restoredEngine, restoredRoot, child.ID(), before, scenario)
+	assertChildControlContinuation(t, driver, restoredEngine, restoredRoot, child.Relation().ProcessID(), before, scenario)
 	if err := driver.CommitEffect(t.Context(), observation.boundary); !errors.Is(err, agent.ErrCommitConflict) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Fatalf("old control writer was not fenced: %v", err)
 	}
@@ -352,8 +352,8 @@ func assertChildControlCancelIntent(t *testing.T, child, priorChild agent.Proces
 func assertChildControlAllocation(t *testing.T, parent, child agent.ProcessSnapshot, before agent.TreeSnapshot) {
 	t.Helper()
 	// The parent's child debit is derived from the retained child grant.
-	oldParent := conformanceSnapshotByID(before.ProcessSnapshots(), parent.ProcessID())
-	oldChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.ProcessID())
+	oldParent := conformanceSnapshotByID(before.ProcessSnapshots(), parent.Relation().ProcessID())
+	oldChild := conformanceSnapshotByID(before.ProcessSnapshots(), child.Relation().ProcessID())
 	if parent.Budget() != oldParent.Budget() || child.Budget() != oldChild.Budget() {
 		t.Fatalf("framework control released or changed child allocation: parent=%+v child=%+v", parent.Budget(), child.Budget())
 	}
@@ -386,8 +386,8 @@ func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanc
 			t.Fatalf("control recovery lost parent cancellation: status=%s termination=%+v", result.Termination().Status(), result.Termination())
 		}
 	}
-	head := waitForConformanceHeadStatus(t, driver, root.ID(), agent.StatusPaused)
-	parent := conformanceSnapshotByID(head.ProcessSnapshots(), root.ID())
+	head := waitForConformanceHeadStatus(t, driver, root.Relation().ProcessID(), agent.StatusPaused)
+	parent := conformanceSnapshotByID(head.ProcessSnapshots(), root.Relation().ProcessID())
 	child := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
 	state, err := parent.CommittedExecutionState().Decode[childControlState](childControlDeploymentName)
 	if err != nil || state.phase() != childControlParked {
@@ -403,7 +403,7 @@ func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanc
 	if delivered && scenario.operation == childControlSignal {
 		priorChild := conformanceSnapshotByID(before.ProcessSnapshots(), childID)
 		assertChildControlSignal(t, child, childControlSignalRequest(t), priorChild.Usage().AcceptedSignals+1)
-		assertChildControlSignalConsumed(t, driver, engine, root.ID(), child)
+		assertChildControlSignalConsumed(t, driver, engine, root.Relation().ProcessID(), child)
 	}
 }
 
@@ -415,7 +415,7 @@ func assertChildControlSignalConsumed(
 	admitted agent.ProcessSnapshot,
 ) {
 	t.Helper()
-	process := childControlProcess(t, engine, admitted.ProcessID(), "controlled child disappeared before consumption")
+	process := childControlProcess(t, engine, admitted.Relation().ProcessID(), "controlled child disappeared before consumption")
 	if err := process.Resume(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +423,7 @@ func assertChildControlSignalConsumed(
 		t.Fatalf("control signal consumption status=%s", result.Termination().Status())
 	}
 	head := waitForConformanceHeadStatus(t, driver, rootID, agent.StatusPaused)
-	consumed := conformanceSnapshotByID(head.ProcessSnapshots(), admitted.ProcessID())
+	consumed := conformanceSnapshotByID(head.ProcessSnapshots(), admitted.Relation().ProcessID())
 	if consumed.Usage().AcceptedSignals != admitted.Usage().AcceptedSignals || consumed.Usage().CommittedSteps != admitted.Usage().CommittedSteps+1 {
 		t.Fatal("control recovery repeated signal admission or consumption")
 	}
@@ -712,7 +712,7 @@ func startChildControlTree(t *testing.T, committer agent.TreeCommitter, reader T
 	if scenario.fullMailbox {
 		fillChildControlMailbox(t, child)
 	}
-	before, found, err := reader.LoadTree(t.Context(), root.ID())
+	before, found, err := reader.LoadTree(t.Context(), root.Relation().ProcessID())
 	if err != nil || !found || !before.Valid() {
 		t.Fatalf("controlled child head exists=%t error=%v", found, err)
 	}
@@ -744,15 +744,15 @@ func waitForChildControlChild(t *testing.T, engine *agent.Engine, root *agent.Pr
 	ticker := time.NewTicker(conformancePollInterval)
 	defer ticker.Stop()
 	for {
-		inspection, err := engine.InspectTree(ctx, root.ID())
+		inspection, err := engine.InspectTree(ctx, root.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, process := range inspection.Processes {
-			if process.Snapshot.ProcessID() == root.ID() {
+			if process.Snapshot.Relation().ProcessID() == root.Relation().ProcessID() {
 				continue
 			}
-			if child, found := engine.Process(process.Snapshot.ProcessID()); found {
+			if child, found := engine.Process(process.Snapshot.Relation().ProcessID()); found {
 				return child
 			}
 		}

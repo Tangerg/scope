@@ -345,8 +345,6 @@ func (t TreeActivation) PreviousIncarnationID() TreeIncarnationID {
 
 func (t TreeActivation) PreviousTreeDigest() Digest { return t.previousTreeDigest }
 
-func (t TreeActivation) IncarnationID() TreeIncarnationID { return t.treeSnapshot.IncarnationID() }
-
 func (t TreeActivation) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
 // Identity is the opaque storage key for this root and proposed writer.
@@ -356,7 +354,7 @@ func (t TreeActivation) Identity() string {
 		return ""
 	}
 	return deriveIdentity(treeCommitIdentityPrefix, "tree-activation",
-		t.treeSnapshot.RootID().String(), t.IncarnationID().String()).String()
+		t.treeSnapshot.RootID().String(), t.TreeSnapshot().IncarnationID().String()).String()
 }
 
 // ContentDigest includes both the expected previous writer and head as well as
@@ -379,7 +377,7 @@ func (t TreeActivation) ContentDigest() (Digest, error) {
 
 func (t TreeActivation) Valid() bool {
 	return t.previousIncarnationID.Valid() && t.previousTreeDigest.Valid() &&
-		t.treeSnapshot.Valid() && t.previousIncarnationID != t.IncarnationID()
+		t.treeSnapshot.Valid() && t.previousIncarnationID != t.TreeSnapshot().IncarnationID()
 }
 
 // TreeCommitter keeps all recoverable state on one authoritative head so a

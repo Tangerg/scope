@@ -164,15 +164,15 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 	case <-b.Context().Done():
 		b.Fatal(b.Context().Err())
 	}
-	inspection, err := engine.InspectTree(b.Context(), root.ID())
+	inspection, err := engine.InspectTree(b.Context(), root.Relation().ProcessID())
 	if err != nil {
 		b.Fatal(err)
 	}
 	for _, inspected := range inspection.Processes {
-		if inspected.Snapshot.ProcessID() == root.ID() {
+		if inspected.Snapshot.Relation().ProcessID() == root.Relation().ProcessID() {
 			continue
 		}
-		child, found := engine.Process(inspected.Snapshot.ProcessID())
+		child, found := engine.Process(inspected.Snapshot.Relation().ProcessID())
 		if !found {
 			b.Fatal("benchmark child is missing")
 		}

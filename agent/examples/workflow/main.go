@@ -62,7 +62,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	tree, err := engine.CaptureTree(ctx, process.ID())
+	tree, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 	if err != nil {
 		return err
 	}

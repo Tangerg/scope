@@ -648,7 +648,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 	if !present || diagnostic.Code() != "engine.dispatch.failed" {
 		t.Fatalf("diagnostic without listener = %+v, %t", diagnostic, present)
 	}
-	tree, err := engine.CaptureTree(context.Background(), process.ID())
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 		wire.Prepared.Effects[1].settlement().Status() != SettlementStatusUnknown {
 		t.Fatalf("prepared batch=%+v", wire.Prepared.Effects)
 	}
-	tree, err := engine.CaptureTree(context.Background(), process.ID())
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +758,7 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 	}
 	close(release)
 	waitForStatus(t, process, StatusPaused)
-	tree, err := engine.CaptureTree(context.Background(), process.ID())
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -795,7 +795,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 	}
 	waitForStatus(t, process, StatusWaiting)
 	waitID, _ := inspectProcessSnapshot(t, process).WaitID()
-	tree, err := engine.CaptureTree(context.Background(), process.ID())
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1278,7 +1278,7 @@ func assertEventSequence(t *testing.T, events []Event, wantNames []string) {
 func assertEventEnvelopes(t *testing.T, events []Event, result Result, deployment Deployment) {
 	t.Helper()
 	for index, event := range events {
-		if event.ProcessSequence() != uint64(index+1) || event.ProcessID() != result.ProcessID() ||
+		if event.ProcessSequence() != uint64(index+1) || event.Relation().ProcessID() != result.ProcessID() ||
 			event.DeploymentRef() != deployment.DeploymentRef() ||
 			event.Relation().ProcessID() != result.ProcessID() || !event.Relation().IsRoot() {
 			t.Fatalf("event[%d] envelope = %+v", index, event)
@@ -1343,7 +1343,7 @@ func TestFrameworkEffectPublishesTheSameLifecycleContract(t *testing.T) {
 	}
 	var started, finished bool
 	for _, event := range listener.snapshot() {
-		if event.ProcessID() != root.ID() ||
+		if event.Relation().ProcessID() != root.Relation().ProcessID() ||
 			(event.Name() != EventEffectStarted && event.Name() != EventEffectFinished) {
 			continue
 		}

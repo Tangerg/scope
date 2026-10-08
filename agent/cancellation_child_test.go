@@ -58,7 +58,7 @@ func TestCancellationReachesChildrenBeforeAncestorDispatchReturns(t *testing.T) 
 			}
 		}
 		releaseChild()
-		childIDs := directChildIDs(t, engine, root.ID())
+		childIDs := directChildIDs(t, engine, root.Relation().ProcessID())
 		if len(childIDs) != 1 {
 			t.Fatalf("children = %v", childIDs)
 		}
@@ -145,7 +145,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				if result := mustAwait(t, root); result.Termination().Status() != StatusKilled {
 					t.Fatalf("parent termination = %+v", result.Termination())
 				}
-				children := directChildIDs(t, engine, root.ID())
+				children := directChildIDs(t, engine, root.Relation().ProcessID())
 				wire, err := inspectProcessSnapshot(t, root).wire()
 				if err != nil {
 					t.Fatal(err)
@@ -199,7 +199,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				start, err := decodeChildStartResult(settlement.Payload())
 				failure, failed := start.Failure()
 				if err != nil || !failed || failure.Code() != failureCodeEngineChildStartInterrupted ||
-					len(directChildIDs(t, recoveredEngine, recovered.ID())) != 0 ||
+					len(directChildIDs(t, recoveredEngine, recovered.Relation().ProcessID())) != 0 ||
 					len(outcomes) != priorOutcomes {
 					t.Errorf("recovery repeated or lost unpublished initialization: result=%+v error=%v outcomes=%d", start, err, len(outcomes))
 				}

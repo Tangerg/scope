@@ -108,7 +108,7 @@ func (o *observationBus) publishEvent(ctx context.Context, event Event) {
 
 func (o *observationBus) callEventListener(ctx context.Context, index int, listener EventListener, event Event) *ListenerPanic {
 	key := activeEventListenerKey{bus: o, rootID: event.relation.RootID()}
-	return callListener(ctx, key, index, listener, event.ProcessID(), func(ctx context.Context) { listener.OnEvent(ctx, event) })
+	return callListener(ctx, key, index, listener, event.Relation().ProcessID(), func(ctx context.Context) { listener.OnEvent(ctx, event) })
 }
 
 // callListener marks ctx as inside this listener for reentrancy checks and

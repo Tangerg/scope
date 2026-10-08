@@ -74,18 +74,18 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped || failed.Valid() {
 				t.Fatalf("lost acknowledgment status=%s error=%v", failed.Termination().Status(), err)
 			}
-			head, found, err := store.LoadTree(ctx, root.ID())
+			head, found, err := store.LoadTree(ctx, root.Relation().ProcessID())
 			if err != nil || !found {
 				t.Fatalf("load committed cut=%t error=%v", found, err)
 			}
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 0 || len(head.ProcessSnapshots()) != 3 {
 				t.Fatalf("calls before recovery=%d/%d/%d processes=%d", first.calls.Load(), uncertain.calls.Load(), last.calls.Load(), len(head.ProcessSnapshots()))
 			}
-			if !gate.firstRequest.Valid() || !gate.unknownRequest.Valid() || gate.firstRequest.ID() == gate.unknownRequest.ID() || gate.firstRequest.ProcessID() == gate.unknownRequest.ProcessID() {
+			if !gate.firstRequest.Valid() || !gate.unknownRequest.Valid() || gate.firstRequest.ID() == gate.unknownRequest.ID() || gate.firstRequest.Relation().ProcessID() == gate.unknownRequest.Relation().ProcessID() {
 				t.Fatal("Tool attempts did not retain independent Effect and Process identities")
 			}
 			for _, snapshot := range head.ProcessSnapshots() {
-				process, exists := engine.Process(snapshot.ProcessID())
+				process, exists := engine.Process(snapshot.Relation().ProcessID())
 				if !exists {
 					t.Fatal("old Process is missing")
 				}
@@ -95,7 +95,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 					}
 				}
 			}
-			if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
+			if releaseErr := engine.ReleaseTree(ctx, root.Relation().ProcessID()); releaseErr != nil {
 				t.Fatal(releaseErr)
 			}
 			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -109,7 +109,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner, exists := restoredEngine.Process(gate.unknownRequest.ProcessID())
+			owner, exists := restoredEngine.Process(gate.unknownRequest.Relation().ProcessID())
 			if !exists {
 				t.Fatal("unknown Tool owner was not restored")
 			}
@@ -268,7 +268,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, ok := engine.Process(request.ProcessID())
+	owner, ok := engine.Process(request.Relation().ProcessID())
 	if !ok {
 		t.Fatal("missing Tool process")
 	}
@@ -361,12 +361,12 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					if awaitErr != nil {
 						t.Fatal(awaitErr)
 					}
-					snapshot, captureErr := engine.CaptureTree(t.Context(), root.ID())
+					snapshot, captureErr := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 					if captureErr != nil {
 						t.Fatal(captureErr)
 					}
 					id, _ := event.EffectID()
-					request, found := snapshot.EffectRequest(event.ProcessID(), id)
+					request, found := snapshot.EffectRequest(event.Relation().ProcessID(), id)
 					if !found {
 						t.Fatal("missing retained request")
 					}
@@ -380,7 +380,7 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					if settlementErr != nil {
 						t.Fatal(settlementErr)
 					}
-					owner, ok := engine.Process(request.ProcessID())
+					owner, ok := engine.Process(request.Relation().ProcessID())
 					if !ok {
 						t.Fatal("missing owner")
 					}

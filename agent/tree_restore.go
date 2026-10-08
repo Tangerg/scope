@@ -38,7 +38,7 @@ func (t *treeRestoration) prepareProcesses(ctx context.Context) ([]*processState
 		if err != nil {
 			return nil, fmt.Errorf(
 				"%w: restore Process %s: %w", ErrInvalidTreeSnapshot,
-				processSnapshot.ProcessID(), err,
+				processSnapshot.Relation().ProcessID(), err,
 			)
 		}
 		processes = append(processes, process)

@@ -39,8 +39,8 @@ func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	}
 	receiveTreeRuntimeProbe(t, probe.fastStepStarted)
 
-	blockedID := root.ID().effectID(1, 0).childProcessID()
-	fastID := root.ID().effectID(1, 1).childProcessID()
+	blockedID := root.Relation().ProcessID().effectID(1, 0).childProcessID()
+	fastID := root.Relation().ProcessID().effectID(1, 1).childProcessID()
 	blocked, exists := engine.Process(blockedID)
 	if !exists {
 		t.Fatal("blocked child was not published")

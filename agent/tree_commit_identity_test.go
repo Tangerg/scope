@@ -103,7 +103,7 @@ func treeCommitIdentityFixture(t *testing.T) (EffectBoundary, TreeCheckpoint, Tr
 	}
 	previous := controlValue(ParseDigest("sha256:a8fda0511f82a72f80c26b5833804253ffc8e7e731c1c19db86732c42f5f6810"))
 	previousWriter := controlValue(parseTreeIncarnationID("incarnation:22222222222222222222222222222222"))
-	return controlValue(newEffectBoundary(2, false, request.ProcessID(), request.ID(), previous, snapshot)),
+	return controlValue(newEffectBoundary(2, false, request.Relation().ProcessID(), request.ID(), previous, snapshot)),
 		controlValue(newTreeCheckpoint(2, checkpointCauseCut, previous, snapshot)),
 		controlValue(newTreeActivation(previousWriter, previous, snapshot))
 }

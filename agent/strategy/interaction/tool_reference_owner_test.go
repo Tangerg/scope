@@ -118,7 +118,7 @@ func TestToolCallRefBelongsToTheToolChildKey(t *testing.T) {
 		if observed.present != want {
 			t.Fatalf("call %s reference present = %t, want %t", observed.call, observed.present, want)
 		}
-		if want && (observed.reference.ProcessID() != root.ID() || observed.reference.ModelCallSequence() != 1 || observed.reference.ToolCallIndex() != 0) {
+		if want && (observed.reference.ProcessID() != root.Relation().ProcessID() || observed.reference.ModelCallSequence() != 1 || observed.reference.ToolCallIndex() != 0) {
 			t.Fatalf("keyed reference = %v", observed.reference)
 		}
 	}

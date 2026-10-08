@@ -40,7 +40,7 @@ func TestDeadlineRestoresTheSameAbsoluteTimerAndEffectIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		pending, found, loadErr := store.LoadTree(t.Context(), process.ID())
+		pending, found, loadErr := store.LoadTree(t.Context(), process.Relation().ProcessID())
 		if loadErr != nil || !found || len(dispatcher.identities()) != 1 {
 			t.Fatalf("pending timer exists=%t calls=%d error=%v", found, len(dispatcher.identities()), loadErr)
 		}

@@ -233,14 +233,14 @@ func (c childIndex) settledChildResult(snapshot agent.TreeSnapshot, process agen
 	if err != nil {
 		return nil, err
 	}
-	if child, found := c[process.ProcessID()][toolKey]; found {
+	if child, found := c[process.Relation().ProcessID()][toolKey]; found {
 		return settledToolResult(snapshot, child)
 	}
 	delegateKey, err := DelegateChildKey(sequence, call)
 	if err != nil {
 		return nil, err
 	}
-	child, found := c[process.ProcessID()][delegateKey]
+	child, found := c[process.Relation().ProcessID()][delegateKey]
 	if !found {
 		if failure, refused := refusals[delegateKey]; refused {
 			return rejectedDelegateStartResult(call, failure), nil
@@ -262,7 +262,7 @@ func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {
 	if !process.Status().Terminal() || len(process.UnknownEffectIDs()) != 0 {
 		return false
 	}
-	for _, child := range c[process.ProcessID()] {
+	for _, child := range c[process.Relation().ProcessID()] {
 		if !c.subtreeSettled(child) {
 			return false
 		}
@@ -301,7 +301,7 @@ func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapsho
 func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) []json.RawMessage {
 	var payloads []json.RawMessage
 	for effectID, settlement := range process.Settlements() {
-		request, found := snapshot.EffectRequest(process.ProcessID(), effectID)
+		request, found := snapshot.EffectRequest(process.Relation().ProcessID(), effectID)
 		if found && request.Effect().Target() == agent.EffectTargetDispatcher && settlement.Status() == agent.SettlementStatusSucceeded {
 			payloads = append(payloads, settlement.Payload())
 		}
@@ -325,7 +325,7 @@ func definiteDispatcherPayloads(snapshot agent.TreeSnapshot, process agent.Proce
 func delegateStartRefusals(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot, state *executionState) (map[agent.ChildKey]agent.Failure, error) {
 	refusals := make(map[agent.ChildKey]agent.Failure)
 	for effectID, settlement := range process.Settlements() {
-		request, found := snapshot.EffectRequest(process.ProcessID(), effectID)
+		request, found := snapshot.EffectRequest(process.Relation().ProcessID(), effectID)
 		if !found || settlement.Status() != agent.SettlementStatusFailed {
 			continue
 		}

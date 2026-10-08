@@ -92,7 +92,7 @@ func TestLogicalReferenceAcrossAttemptsRoundsObserversAndParents(t *testing.T) {
 			startedReference, startedPresent := started.Reference()
 			settledReference, settledPresent := settled.Reference()
 			if !present || !startedPresent || !settledPresent || reference != startedReference || reference != settledReference ||
-				reference.ProcessID() != root.ID() || reference.ModelCallSequence() != sequence || reference.ToolCallIndex() != 0 || invocation.ToolCall().ID != "provider-reused" {
+				reference.ProcessID() != root.Relation().ProcessID() || reference.ModelCallSequence() != sequence || reference.ToolCallIndex() != 0 || invocation.ToolCall().ID != "provider-reused" {
 				t.Fatalf("attempt %d reference=%v, started=%v, settled=%v", index, reference, startedReference, settledReference)
 			}
 			attempt, dispatched := invocation.AttemptID()
@@ -117,7 +117,7 @@ func TestLogicalReferenceAcrossAttemptsRoundsObserversAndParents(t *testing.T) {
 			t.Fatalf("stored logical results=%d, want 2", len(restored.database.Results))
 		}
 		for _, result := range restored.database.Results {
-			if _, found := references[result.Reference]; !found || result.Reference.ProcessID() != root.ID() {
+			if _, found := references[result.Reference]; !found || result.Reference.ProcessID() != root.Relation().ProcessID() {
 				t.Fatalf("restored result has a different reference: %v", result.Reference)
 			}
 		}

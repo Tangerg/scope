@@ -45,7 +45,7 @@ func TestPauseReasonSurvivesControlAndRestoration(t *testing.T) {
 				t.Fatal(err)
 			}
 			waitForStatus(t, process, StatusPaused)
-			tree := controlValue(ParseTreeSnapshot(controlValue(engine.CaptureTree(t.Context(), process.ID())).JSON()))
+			tree := controlValue(ParseTreeSnapshot(controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID())).JSON()))
 			paused := controlValue(parseTestProcessSnapshot(tree.ProcessSnapshots()[0].JSON()))
 			if wire := controlValue(paused.wire()); wire.PauseReason != test.reason || controlValue(newProcessSnapshot(wire)).Status() != StatusPaused {
 				t.Fatal("capture changed the pause reason or status")
@@ -96,11 +96,11 @@ func TestPauseReasonRejectsInvalidInputWithoutMutation(t *testing.T) {
 			if transition, err := Pause(0, test.reason); transition.Valid() || !errors.Is(err, ErrInvalidTransition) {
 				t.Fatalf("invalid Pause transition: %v, %v", transition, err)
 			}
-			before := controlValue(engine.CaptureTree(t.Context(), process.ID()))
+			before := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 			if err := process.Pause(t.Context(), test.reason); !errors.Is(err, ErrInvalidProcessControl) {
 				t.Fatalf("invalid Host Pause: %v", err)
 			}
-			after := controlValue(engine.CaptureTree(t.Context(), process.ID()))
+			after := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 			if before.Digest() != after.Digest() {
 				t.Fatal("invalid Host Pause changed tree state or resource usage")
 			}

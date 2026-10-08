@@ -140,14 +140,14 @@ func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	synctest.Wait()
-	inspection, err := engine.InspectTree(ctx, root.ID())
+	inspection, err := engine.InspectTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report, found := inspection.Process(root.ID()); !found || report.Snapshot.Status() != agent.StatusWaiting {
+	if report, found := inspection.Process(root.Relation().ProcessID()); !found || report.Snapshot.Status() != agent.StatusWaiting {
 		t.Fatal("composition is not waiting on its unknown child")
 	}
-	tree, err := engine.CaptureTree(ctx, root.ID())
+	tree, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +181,8 @@ func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if err != nil || output != (compositionOutput{Local: "RECOVERED", Model: "model: recovered"}) {
 		t.Fatalf("output=%+v error=%v", output, err)
 	}
-	assertRecoveredTreeCompleted(ctx, t, restoredEngine, restored.ID(), tree, dispatcher)
-	if releaseErr := restoredEngine.ReleaseTree(ctx, restored.ID()); releaseErr != nil {
+	assertRecoveredTreeCompleted(ctx, t, restoredEngine, restored.Relation().ProcessID(), tree, dispatcher)
+	if releaseErr := restoredEngine.ReleaseTree(ctx, restored.Relation().ProcessID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
 }
@@ -210,16 +210,16 @@ func assertRestoredUnknownChild(
 	dispatcher *lostResponseDispatcher,
 ) *agent.Process {
 	t.Helper()
-	child, found := engine.Process(unknownEvent.ProcessID())
+	child, found := engine.Process(unknownEvent.Relation().ProcessID())
 	if !found {
 		t.Fatal("restoration lost the model child identity")
 	}
-	inspection, err := engine.InspectTree(ctx, restored.ID())
+	inspection, err := engine.InspectTree(ctx, restored.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	childReport, childFound := inspection.Process(child.ID())
-	rootReport, rootFound := inspection.Process(restored.ID())
+	childReport, childFound := inspection.Process(child.Relation().ProcessID())
+	rootReport, rootFound := inspection.Process(restored.Relation().ProcessID())
 	unknown := childReport.Snapshot.UnknownEffectIDs()
 	effectID, present := unknownEvent.EffectID()
 	if !childFound || !present || len(unknown) != 1 || unknown[0] != effectID {
@@ -252,9 +252,9 @@ func assertRecoveredTreeCompleted(
 		t.Fatal(err)
 	}
 	for _, process := range original.ProcessSnapshots() {
-		report, found := inspection.Process(process.ProcessID())
+		report, found := inspection.Process(process.Relation().ProcessID())
 		if !found || report.Snapshot.Status() != agent.StatusCompleted {
-			t.Fatalf("original Process %s was lost or did not complete", process.ProcessID())
+			t.Fatalf("original Process %s was lost or did not complete", process.Relation().ProcessID())
 		}
 	}
 }

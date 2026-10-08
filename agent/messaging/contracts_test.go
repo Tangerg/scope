@@ -101,7 +101,7 @@ func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, receiver).WaitID()
 		port := &recipientPort{engine: engine, recipient: receiver, firstAdmission: make(chan struct{}), release: make(chan struct{})}
-		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "review admitted")}))
+		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), WaitID: &waitID, Payload: input(t, "review admitted")}))
 		<-port.firstAdmission
 		if cancelErr := sender.RequestCancellation(t.Context(), "cancel while confirmation is pending"); cancelErr != nil {
 			t.Fatal(cancelErr)

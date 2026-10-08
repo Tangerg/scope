@@ -221,7 +221,7 @@ func TestReplayUnknownEffectRequiresDeclaredCapabilities(t *testing.T) {
 		_ = process.Join(context.WithoutCancel(t.Context()))
 	}()
 	effectID := waitForUnknownSettlement(t, process).UnknownEffectIDs()[0]
-	tree := controlValue(engine.InspectTree(t.Context(), process.ID()))
+	tree := controlValue(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 	wire := controlValue(tree.Processes[0].Snapshot.wire())
 	wire.Capabilities = CapabilitySet{}
 	snapshot := controlValue(newTreeSnapshot(treeSnapshotWire{

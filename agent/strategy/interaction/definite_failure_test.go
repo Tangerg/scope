@@ -121,7 +121,7 @@ func TestProcessCancellationRetainsDefiniteToolSettlement(t *testing.T) {
 	if joinErr := process.Join(ctx); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	snapshot, err := engine.CaptureTree(ctx, process.ID())
+	snapshot, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

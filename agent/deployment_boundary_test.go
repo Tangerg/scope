@@ -41,7 +41,7 @@ func TestDeploymentValidityUsesFrozenContract(t *testing.T) {
 				_ = mustAwait(t, process)
 			})
 			waitForStatus(t, process, StatusWaiting)
-			snapshot, err := engine.CaptureTree(t.Context(), process.ID())
+			snapshot, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}

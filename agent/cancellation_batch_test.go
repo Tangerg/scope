@@ -75,7 +75,7 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 				t.Errorf("unstarted tail[%d] = %+v", index, effect)
 			}
 		}
-		if len(directChildIDs(t, engine, process.ID())) != 0 || waitOpenings(wire.Mailbox) != 0 {
+		if len(directChildIDs(t, engine, process.Relation().ProcessID())) != 0 || waitOpenings(wire.Mailbox) != 0 {
 			t.Errorf("unstarted structural effects acquired resources: mailbox=%+v", wire.Mailbox)
 		}
 		if len(dispatcher.entered) != 0 {
@@ -145,7 +145,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		if after.Prepared == nil || !after.Prepared.Effects[0].definitelySettled() {
 			t.Errorf("settlement evidence = %+v", after.Prepared)
 		}
-		awaitChildren(t, engine, directChildIDs(t, engine, process.ID()))
+		awaitChildren(t, engine, directChildIDs(t, engine, process.Relation().ProcessID()))
 		mustCloseEngine(t, engine)
 	})
 }

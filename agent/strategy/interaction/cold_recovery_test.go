@@ -43,8 +43,8 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 						t.Fatal("more than one unknown Effect")
 					}
 					var found bool
-					request, found = snapshot.EffectRequest(process.ProcessID(), id)
-					if !found || !request.Valid() || request.ID() != id || request.ProcessID() != process.ProcessID() ||
+					request, found = snapshot.EffectRequest(process.Relation().ProcessID(), id)
+					if !found || !request.Valid() || request.ID() != id || request.Relation().ProcessID() != process.Relation().ProcessID() ||
 						request.DeploymentRef() != process.DeploymentRef() || request.Relation() != process.Relation() ||
 						request.StepSequence() == 0 || request.BatchIndex() != 0 {
 						t.Fatal("snapshot lost the frozen request identity")
@@ -62,15 +62,15 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 				process  agent.ProcessID
 				effect   agent.EffectID
 			}{
-				{agent.TreeSnapshot{}, request.ProcessID(), request.ID()},
+				{agent.TreeSnapshot{}, request.Relation().ProcessID(), request.ID()},
 				{snapshot, agent.ProcessID{}, request.ID()},
-				{snapshot, request.ProcessID(), agent.EffectID{}},
+				{snapshot, request.Relation().ProcessID(), agent.EffectID{}},
 			} {
 				if got, found := missing.snapshot.EffectRequest(missing.process, missing.effect); found || got.Valid() {
 					t.Fatal("returned a request absent from the snapshot")
 				}
 			}
-			current, err := engine.CaptureTree(ctx, root.ID())
+			current, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 				}
 				var attributed bool
 				reference, attributed = invocation.Reference()
-				if !attributed || reference.ProcessID() != root.ID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
+				if !attributed || reference.ProcessID() != root.Relation().ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
 					t.Fatalf("recovered logical reference=%v, present=%v", reference, attributed)
 				}
 				if _, dispatched := invocation.AttemptID(); dispatched {
@@ -103,7 +103,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner, found := engine.Process(request.ProcessID())
+			owner, found := engine.Process(request.Relation().ProcessID())
 			if !found {
 				t.Fatal("unknown owner was not restored")
 			}

@@ -64,11 +64,11 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		}
 		<-probe.blockedStepStarted
 		<-probe.fastStepReady
-		blocked, ok := engine.Process(root.ID().effectID(1, 0).childProcessID())
+		blocked, ok := engine.Process(root.Relation().ProcessID().effectID(1, 0).childProcessID())
 		if !ok {
 			t.Fatal("blocked child was not published")
 		}
-		fast, ok := engine.Process(root.ID().effectID(1, 1).childProcessID())
+		fast, ok := engine.Process(root.Relation().ProcessID().effectID(1, 1).childProcessID())
 		if !ok {
 			t.Fatal("fast child was not published")
 		}
@@ -83,7 +83,7 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		}
 		inspected := make(chan inspectionResult, 1)
 		go func() {
-			inspection, inspectionErr := engine.InspectTree(t.Context(), root.ID())
+			inspection, inspectionErr := engine.InspectTree(t.Context(), root.Relation().ProcessID())
 			inspected <- inspectionResult{inspection: inspection, err: inspectionErr}
 		}()
 		releaseFast()
@@ -101,7 +101,7 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 			if response.err != nil {
 				t.Fatal(response.err)
 			}
-			report, found := response.inspection.Process(blocked.ID())
+			report, found := response.inspection.Process(blocked.Relation().ProcessID())
 			if !found || report.Work != ProcessWorkRestore {
 				t.Errorf("restoring child inspection = %+v", report)
 			}
@@ -118,7 +118,7 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		}
 		captured := make(chan treeFreezeAcquisitionResult, 1)
 		go func() {
-			snapshot, captureErr := engine.CaptureTree(t.Context(), root.ID())
+			snapshot, captureErr := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 			captured <- treeFreezeAcquisitionResult{snapshot: snapshot, err: captureErr}
 		}()
 		synctest.Wait()

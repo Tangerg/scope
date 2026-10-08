@@ -111,7 +111,7 @@ func TestRestoredPlanningActionRequiresBindingCapabilities(t *testing.T) {
 			if output := managedOutput(t, result); output.Outcome != planning.OutcomeAchieved {
 				t.Fatalf("granted Action outcome = %s", output.Outcome)
 			}
-			if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+			if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
 				t.Error(releaseErr)
 			}
 		})

@@ -27,13 +27,13 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		defer release()
 		deployment := bind(t, newSender(t), newDispatcher(t, port))
 		senderEngine := newEngine(t, store)
-		sender := start(t, senderEngine, deployment, input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "approved")}))
+		sender := start(t, senderEngine, deployment, input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), WaitID: &waitID, Payload: input(t, "approved")}))
 		<-port.firstAdmission
 		received := finish(t, receiver)
 		if received.Termination().Status() != agent.StatusCompleted || received.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 			t.Fatalf("receiver=%+v", received)
 		}
-		checkpoint, present, loadErr := store.LoadTree(t.Context(), sender.ID())
+		checkpoint, present, loadErr := store.LoadTree(t.Context(), sender.Relation().ProcessID())
 		if loadErr != nil || !present {
 			t.Fatalf("sender checkpoint=%t %v", present, loadErr)
 		}
@@ -48,7 +48,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		}
 		original := assertReplayKeptDelivery(t, port.recordedCalls(), waitID)
 		assertConsumedReceipt(t, inspect(t, receiverEngine, receiver).SignalReceipts(), original)
-		assertPortKeepsOriginalAddress(t, port, receiverEngine, restored.ID(), original)
+		assertPortKeepsOriginalAddress(t, port, receiverEngine, restored.Relation().ProcessID(), original)
 		release()
 		if _, staleErr := sender.Await(t.Context()); !errors.Is(staleErr, agent.ErrTreeIncarnationConflict) {
 			t.Fatalf("retired writer=%v", staleErr)
@@ -102,11 +102,11 @@ func assertPortKeepsOriginalAddress(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deliveryErr := port.Deliver(t.Context(), sender, port.recipient.ID(), conflict); !errors.Is(deliveryErr, agent.ErrSignalConflict) {
+	if deliveryErr := port.Deliver(t.Context(), sender, port.recipient.Relation().ProcessID(), conflict); !errors.Is(deliveryErr, agent.ErrSignalConflict) {
 		t.Fatalf("conflict=%v", deliveryErr)
 	}
 	replacement := start(t, engine, bind(t, newGate(t), nil), input(t, "next review"))
-	if deliveryErr := port.Deliver(t.Context(), sender, replacement.ID(), original); !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+	if deliveryErr := port.Deliver(t.Context(), sender, replacement.Relation().ProcessID(), original); !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 		t.Fatalf("retarget=%v", deliveryErr)
 	}
 	if cancelErr := replacement.RequestCancellation(t.Context(), "test complete"); cancelErr != nil {
@@ -122,7 +122,7 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, receiver).WaitID()
 		port := &recipientPort{engine: engine, recipient: receiver, lostAcknowledgment: true}
-		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "revise")}))
+		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), WaitID: &waitID, Payload: input(t, "revise")}))
 		finish(t, receiver)
 		synctest.Wait()
 		unknown := inspect(t, engine, sender).UnknownEffectIDs()
@@ -158,7 +158,7 @@ func TestTerminalRecipientWithoutAdmissionEvidenceRemainsUnknown(t *testing.T) {
 		}
 		finish(t, receiver)
 		port := &recipientPort{engine: engine, recipient: receiver, checkReceipts: true}
-		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.ID(), Payload: input(t, "late review")}))
+		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), Payload: input(t, "late review")}))
 		synctest.Wait()
 		if unknown := inspect(t, engine, sender).UnknownEffectIDs(); len(unknown) != 1 {
 			t.Fatalf("terminal delivery=%v", unknown)

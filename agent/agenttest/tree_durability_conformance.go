@@ -185,7 +185,7 @@ func runConcurrentRestoreConformance(
 	originalEngine := newConformanceEngine(t, probe)
 	original := startConformanceProcess(t, originalEngine, deployment, "paused")
 	waitForConformanceStatus(t, originalEngine, original, agent.StatusPaused)
-	head := waitForConformanceHeadStatus(t, driver, original.ID(), agent.StatusPaused)
+	head := waitForConformanceHeadStatus(t, driver, original.Relation().ProcessID(), agent.StatusPaused)
 	probe.assertCheckpoints(t, agent.TreeCheckpointKindStart, agent.TreeCheckpointKindParked)
 
 	results := make(chan conformanceRestoreResult, 2)
@@ -257,7 +257,7 @@ func runDelayedCommitConformance(
 	originalEngine := newConformanceEngine(t, blocking)
 	original := startConformanceProcess(t, originalEngine, deployment, "fenced")
 	blocking.await(t)
-	base, exists, err := driver.LoadTree(t.Context(), original.ID())
+	base, exists, err := driver.LoadTree(t.Context(), original.Relation().ProcessID())
 	if err != nil || !exists || !base.Valid() {
 		t.Fatalf("authoritative base head exists=%t error=%v", exists, err)
 	}
@@ -268,15 +268,15 @@ func runDelayedCommitConformance(
 		result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("restored result status=%s error=%v", result.Termination().Status(), awaitErr)
 	}
-	winningHead, exists, err := driver.LoadTree(t.Context(), original.ID())
+	winningHead, exists, err := driver.LoadTree(t.Context(), original.Relation().ProcessID())
 	if err != nil || !exists || !winningHead.Valid() ||
-		conformanceSnapshotByID(winningHead.ProcessSnapshots(), original.ID()).Status() != agent.StatusCompleted {
+		conformanceSnapshotByID(winningHead.ProcessSnapshots(), original.Relation().ProcessID()).Status() != agent.StatusCompleted {
 		t.Fatalf("winner did not publish a durable terminal head: exists=%t error=%v", exists, err)
 	}
 	blocking.continueCommit()
 	stale, err := original.Await(t.Context())
 	assertCrashRuntimeError(t, original, crashAwaitResult{result: stale, err: err}, agent.ErrTreeIncarnationConflict)
-	assertCrashHead(t, driver, original.ID(), winningHead.Digest())
+	assertCrashHead(t, driver, original.Relation().ProcessID(), winningHead.Digest())
 	closeCrashEngine(t, restoredEngine)
 	closeCrashEngine(t, originalEngine)
 }
@@ -778,7 +778,7 @@ func conformanceSnapshotByID(
 	processID agent.ProcessID,
 ) agent.ProcessSnapshot {
 	for _, snapshot := range snapshots {
-		if snapshot.ProcessID() == processID {
+		if snapshot.Relation().ProcessID() == processID {
 			return snapshot
 		}
 	}
@@ -820,7 +820,7 @@ func inspectConformanceProcess(t *testing.T, engine *agent.Engine, process *agen
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, found := inspection.Process(process.ID())
+	report, found := inspection.Process(process.Relation().ProcessID())
 	if !found {
 		t.Fatal("Process is missing from its runtime inspection")
 	}

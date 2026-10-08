@@ -71,10 +71,10 @@ func TestRestoreAcceptsChildrenWithEarlierWallTimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, childSnapshot := range snapshot.ProcessSnapshots() {
-		if childSnapshot.ProcessID() == root.ID() {
+		if childSnapshot.Relation().ProcessID() == root.Relation().ProcessID() {
 			continue
 		}
-		child, exists := engine.Process(childSnapshot.ProcessID())
+		child, exists := engine.Process(childSnapshot.Relation().ProcessID())
 		if !exists || !child.StartedAt().Before(root.StartedAt()) {
 			t.Fatal("restoration lost the recorded child start time")
 		}
@@ -136,7 +136,7 @@ func clockSkewedTree(t *testing.T, recording, children bool) (Deployment, TreeSn
 		mustCloseEngine(t, engine)
 	})
 	waitForStatus(t, root, status)
-	for _, encoded := range directChildIDs(t, engine, root.ID()) {
+	for _, encoded := range directChildIDs(t, engine, root.Relation().ProcessID()) {
 		id, parseErr := ParseProcessID(encoded)
 		if parseErr != nil {
 			t.Fatal(parseErr)
@@ -150,7 +150,7 @@ func clockSkewedTree(t *testing.T, recording, children bool) (Deployment, TreeSn
 		t.Fatal(err)
 	}
 	for index, process := range wire.ProcessSnapshots {
-		if process.ProcessID() != root.ID() {
+		if process.Relation().ProcessID() != root.Relation().ProcessID() {
 			continue
 		}
 		processWire, wireErr := process.wire()
@@ -181,7 +181,7 @@ func wallTimeSnapshot(t *testing.T, engine *Engine, root *Process, config Engine
 		}
 		return checkpoints[len(checkpoints)-1].TreeSnapshot()
 	}
-	snapshot, err := engine.CaptureTree(t.Context(), root.ID())
+	snapshot, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

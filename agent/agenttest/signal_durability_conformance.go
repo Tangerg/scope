@@ -60,7 +60,7 @@ func runSignalAdmission(t *testing.T, driver TreeCommitterConformanceDriver, sce
 		gate.abort()
 		closeConformanceProcess(t, engine, process)
 	})
-	before := waitForConformanceHeadStatus(t, driver, process.ID(), agent.StatusPaused)
+	before := waitForConformanceHeadStatus(t, driver, process.Relation().ProcessID(), agent.StatusPaused)
 	// A reader can see the stored pause before its acknowledgment has
 	// returned to the Engine. Establish both sides before taking usage.
 	waitForConformanceStatus(t, engine, process, agent.StatusPaused)
@@ -85,7 +85,7 @@ func runSignalAdmission(t *testing.T, driver TreeCommitterConformanceDriver, sce
 		t.Fatal("signal admission commit did not start from the acknowledged head")
 	}
 	wantHead := observation.durableDigest()
-	assertCrashHead(t, driver, process.ID(), wantHead)
+	assertCrashHead(t, driver, process.Relation().ProcessID(), wantHead)
 
 	scenario.release(gate)
 	response := awaitConformanceValue(t, delivered, "signal delivery did not return")
@@ -101,7 +101,7 @@ func runSignalAdmission(t *testing.T, driver TreeCommitterConformanceDriver, sce
 		}
 		wantHead = observation.prospective.Digest()
 	}
-	head := assertCrashHead(t, driver, process.ID(), wantHead)
+	head := assertCrashHead(t, driver, process.Relation().ProcessID(), wantHead)
 	assertDurableSignal(t, head, request, scenario.durable())
 	assertSignalRetryAfterRecovery(t, driver, deployment, head, request, usage, scenario.durable())
 }

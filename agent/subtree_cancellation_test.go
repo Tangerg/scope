@@ -39,7 +39,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, root, StatusWaiting)
-	children := processesByChildKey(t, engine, root.ID())
+	children := processesByChildKey(t, engine, root.Relation().ProcessID())
 	target, sibling := children["target"], children["sibling"]
 	if target == nil || sibling == nil {
 		t.Fatal("waiting tree is missing target or sibling")
@@ -52,7 +52,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if result := mustAwait(t, target); result.Termination().Status() != StatusCanceled {
 		t.Fatalf("target status=%s", result.Termination().Status())
 	}
-	tree, err := engine.CaptureTree(t.Context(), root.ID())
+	tree, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredSibling, found := restoredEngine.Process(sibling.ID())
+	restoredSibling, found := restoredEngine.Process(sibling.Relation().ProcessID())
 	if !found || inspectProcessSnapshot(t, restoredRoot).Status() != StatusWaiting || inspectProcessSnapshot(t, restoredSibling).Status() != StatusPaused {
 		t.Fatal("restoration changed the surviving wait")
 	}
@@ -106,7 +106,7 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		<-committer.entered
 		for _, process := range []*Process{root, target, descendant} {
 			if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
-				t.Fatalf("Process %s published %s before acknowledgment", process.ID(), inspectProcessSnapshot(t, process).Status())
+				t.Fatalf("Process %s published %s before acknowledgment", process.Relation().ProcessID(), inspectProcessSnapshot(t, process).Status())
 			}
 		}
 		release()
@@ -122,7 +122,7 @@ func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testin
 		}
 		for _, snapshot := range last.TreeSnapshot().ProcessSnapshots() {
 			if !snapshot.Status().Terminal() {
-				t.Fatalf("terminal checkpoint retained Process %s as %s", snapshot.ProcessID(), snapshot.Status())
+				t.Fatalf("terminal checkpoint retained Process %s as %s", snapshot.Relation().ProcessID(), snapshot.Status())
 			}
 		}
 		mustCloseEngine(t, engine)
@@ -164,7 +164,7 @@ func assertCanceledSubtree(t *testing.T, target, descendant *Process) {
 	} {
 		result := mustAwait(t, expected.process)
 		if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != expected.cause {
-			t.Fatalf("Process %s termination=%+v", expected.process.ID(), result.Termination())
+			t.Fatalf("Process %s termination=%+v", expected.process.Relation().ProcessID(), result.Termination())
 		}
 	}
 }
@@ -181,14 +181,14 @@ func startWaitingSubtreeInEngine(
 		t.Fatal(err)
 	}
 	waitForStatus(t, root, StatusWaiting)
-	targets := directChildIDs(t, engine, root.ID())
+	targets := directChildIDs(t, engine, root.Relation().ProcessID())
 	if len(targets) != 1 {
 		t.Fatalf("target count = %d, want 1", len(targets))
 	}
 	targetID, _ := ParseProcessID(targets[0])
 	target, _ := engine.Process(targetID)
 	waitForStatus(t, target, StatusWaiting)
-	descendants := directChildIDs(t, engine, target.ID())
+	descendants := directChildIDs(t, engine, target.Relation().ProcessID())
 	if len(descendants) != 1 {
 		t.Fatalf("descendant count = %d, want 1", len(descendants))
 	}

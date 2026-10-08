@@ -63,7 +63,7 @@ func captureWaitingForkTree(
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot := awaitPausedWindow(t, engine, root.ID(), 3)
+	snapshot := awaitPausedWindow(t, engine, root.Relation().ProcessID(), 3)
 	initialChildren := childSnapshotIDs(snapshot)
 	if len(initialChildren) != 2 {
 		t.Fatalf("initial child count = %d", len(initialChildren))
@@ -93,7 +93,7 @@ func completeRestoredForkTree(
 		t.Fatal(err)
 	}
 	resumePausedChildren(t, restoredEngine, initialChildren)
-	secondWindow := awaitPausedWindow(t, restoredEngine, restoredRoot.ID(), 4)
+	secondWindow := awaitPausedWindow(t, restoredEngine, restoredRoot.Relation().ProcessID(), 4)
 	thirdChild := newPausedChildID(secondWindow, initialChildren)
 	if !thirdChild.Valid() {
 		t.Fatal("restored Workflow did not create exactly one second-window child")
@@ -129,9 +129,9 @@ func resumePausedChildren(
 
 func newPausedChildID(tree agent.TreeSnapshot, existing []agent.ProcessID) agent.ProcessID {
 	for _, process := range tree.ProcessSnapshots() {
-		if process.Relation().Depth() == 1 && !slices.Contains(existing, process.ProcessID()) &&
+		if process.Relation().Depth() == 1 && !slices.Contains(existing, process.Relation().ProcessID()) &&
 			process.Status() == agent.StatusPaused {
-			return process.ProcessID()
+			return process.Relation().ProcessID()
 		}
 	}
 	var none agent.ProcessID
@@ -159,7 +159,7 @@ func assertRestoredForkResult(t *testing.T, engine *agent.Engine, root *agent.Pr
 	if strings.Join(output.Branches, ",") != "first,second,third" || output.Total != 21 {
 		t.Fatalf("restored Fork output = %#v", output)
 	}
-	finalTree, err := engine.CaptureTree(context.Background(), root.ID())
+	finalTree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = awaitPausedWindow(t, engine, root.ID(), 2)
+	_ = awaitPausedWindow(t, engine, root.Relation().ProcessID(), 2)
 	if requestCancellationErr := root.RequestCancellation(context.Background(), "cancel Workflow consumer request"); requestCancellationErr != nil {
 		t.Fatal(requestCancellationErr)
 	}
@@ -195,15 +195,15 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 		result.Termination().Cause() != agent.TerminationCauseHostCancellation {
 		t.Fatalf("root cancellation = %#v, %v", result.Termination(), err)
 	}
-	tree, err := engine.CaptureTree(context.Background(), root.ID())
+	tree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, process := range tree.ProcessSnapshots() {
 		if process.Relation().Depth() == 1 {
-			child, found := engine.Process(process.ProcessID())
+			child, found := engine.Process(process.Relation().ProcessID())
 			if !found {
-				t.Fatalf("child %s was not registered", process.ProcessID())
+				t.Fatalf("child %s was not registered", process.Relation().ProcessID())
 			}
 			childResult, err := child.Await(context.Background())
 			if err != nil || childResult.Termination().Status() != agent.StatusCanceled ||
@@ -320,7 +320,7 @@ func childSnapshotIDs(snapshot agent.TreeSnapshot) []agent.ProcessID {
 	var children []agent.ProcessID
 	for _, process := range snapshot.ProcessSnapshots() {
 		if process.Relation().Depth() == 1 {
-			children = append(children, process.ProcessID())
+			children = append(children, process.Relation().ProcessID())
 		}
 	}
 	return children

@@ -65,7 +65,7 @@ func TestInputGateRejectsUnaddressedInputAfterFinalSignalWindow(t *testing.T) {
 		if joinErr := process.Join(t.Context()); joinErr != nil {
 			t.Fatal(joinErr)
 		}
-		head, present, loadErr := store.LoadTree(t.Context(), process.ID())
+		head, present, loadErr := store.LoadTree(t.Context(), process.Relation().ProcessID())
 		if loadErr != nil || !present {
 			t.Fatalf("terminal head=%t %v", present, loadErr)
 		}

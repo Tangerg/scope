@@ -103,7 +103,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					engine, process := run(t, definition, committer)
 					<-entered
 					synctest.Wait()
-					tree := require(engine.InspectTree(t.Context(), process.ID()))
+					tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 					for _, fact := range tree.Processes {
 						key, _ := fact.Snapshot.Relation().ChildKey()
 						if fact.Snapshot.DeploymentRef().Name() != "test.gate" || key.String() != "input" {
@@ -113,7 +113,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						if !present {
 							t.Fatal("gate has not opened")
 						}
-						child, _ := engine.Process(fact.Snapshot.ProcessID())
+						child, _ := engine.Process(fact.Snapshot.Relation().ProcessID())
 						signal := require(agent.NewSignalRequest(require(agent.ParseSignalID("signal:during-decision")), wait, []byte(`"answer"`)))
 						if accepted, err := child.DeliverSignals(t.Context(), signal); err != nil || !accepted {
 							t.Fatalf("input=%t %v", accepted, err)
@@ -121,8 +121,8 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					}
 					synctest.Wait()
 					if mode == "restored" {
-						inspection := require(engine.InspectTree(t.Context(), process.ID()))
-						root, _ := inspection.Process(process.ID())
+						inspection := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+						root, _ := inspection.Process(process.Relation().ProcessID())
 						var state executionState
 						if err := jsonv2.Unmarshal(root.Snapshot.CommittedExecutionState().Payload(), &state); err != nil {
 							t.Fatal(err)
@@ -136,7 +136,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 						if result, err := process.Await(t.Context()); result.Valid() || err == nil {
 							t.Fatalf("crash result=%v err=%v", result.Termination().Status(), err)
 						}
-						head, found, err := store.LoadTree(t.Context(), process.ID())
+						head, found, err := store.LoadTree(t.Context(), process.Relation().ProcessID())
 						if err != nil || !found {
 							t.Fatalf("head=%t err=%v", found, err)
 						}
@@ -252,7 +252,7 @@ func (c *coordinatorSettlementCrash) CommitEffect(ctx context.Context, boundary 
 	parent, _ := boundary.Request().Relation().ParentID()
 	for _, snapshot := range boundary.TreeSnapshot().ProcessSnapshots() {
 		key, _ := snapshot.Relation().ChildKey()
-		if snapshot.ProcessID() == parent && key.String() == "collaboration.turn.2" {
+		if snapshot.Relation().ProcessID() == parent && key.String() == "collaboration.turn.2" {
 			return errors.New("crash after coordinator settlement")
 		}
 	}

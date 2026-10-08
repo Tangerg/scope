@@ -281,8 +281,8 @@ func TestCompletedStateLeavesOutputToTheEngine(t *testing.T) {
 	}, echo())
 	engine, process := run(t, definition, agent.NewMemoryTreeCommitter())
 	completed(t, process)
-	tree := require(engine.InspectTree(t.Context(), process.ID()))
-	root, _ := tree.Process(process.ID())
+	tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+	root, _ := tree.Process(process.Relation().ProcessID())
 	state := root.Snapshot.CommittedExecutionState()
 	if string(state.Payload()) != `{"completed":true}` {
 		t.Fatalf("completed state = %s, want only the completion marker", state.Payload())

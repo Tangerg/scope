@@ -20,7 +20,7 @@ func BenchmarkEffectBoundaryCommit(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
 					runtime.writer.establish(previous)
-					commit := &treeCommit{kind: treeCommitEffectPending, processID: request.ProcessID(), effectID: request.ID(), snapshot: snapshot}
+					commit := &treeCommit{kind: treeCommitEffectPending, processID: request.Relation().ProcessID(), effectID: request.ID(), snapshot: snapshot}
 					if err := runtime.writer.commitEffect(b.Context(), commit); err != nil {
 						b.Fatal(err)
 					}
@@ -67,7 +67,7 @@ func effectBoundaryFixture(t testing.TB, count, size int) (*treeRuntime, EffectR
 func TestEffectBoundaryDerivesItsEffectFromTheProspectiveTree(t *testing.T) {
 	_, request, snapshot := effectBoundaryFixture(t, 3, 64)
 	previous := ComputeDigest([]byte("previous tree"))
-	boundary, err := newEffectBoundary(1, false, request.ProcessID(), request.ID(), previous, snapshot)
+	boundary, err := newEffectBoundary(1, false, request.Relation().ProcessID(), request.ID(), previous, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestEffectBoundaryDerivesItsEffectFromTheProspectiveTree(t *testing.T) {
 	if _, settled := boundary.Settlement(); settled {
 		t.Fatal("pending boundary reported a settlement")
 	}
-	if _, err := newEffectBoundary(1, false, request.ProcessID(), request.ProcessID().effectID(9, 0), previous, snapshot); err == nil {
+	if _, err := newEffectBoundary(1, false, request.Relation().ProcessID(), request.Relation().ProcessID().effectID(9, 0), previous, snapshot); err == nil {
 		t.Fatal("boundary for an uncaptured Effect was admitted")
 	}
-	if _, err := newEffectBoundary(1, true, request.ProcessID(), request.ID(), previous, snapshot); err == nil {
+	if _, err := newEffectBoundary(1, true, request.Relation().ProcessID(), request.ID(), previous, snapshot); err == nil {
 		t.Fatal("pending Effect was admitted as a resolution")
 	}
 	if (EffectBoundary{}).Valid() {

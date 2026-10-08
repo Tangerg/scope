@@ -77,8 +77,8 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 				}
 				byProcess[outcome.Admission().Relation().ProcessID()] = outcome
 			}
-			rootOutcome, rootFound := byProcess[parent.ID()]
-			childOutcome, childFound := byProcess[child.ID()]
+			rootOutcome, rootFound := byProcess[parent.Relation().ProcessID()]
+			childOutcome, childFound := byProcess[child.Relation().ProcessID()]
 			rootStartedAt, rootStarted := rootOutcome.StartedAt()
 			if !rootFound || !rootOutcome.Admission().Relation().IsRoot() ||
 				!rootStarted || rootStartedAt != parent.StartedAt() {
@@ -86,7 +86,7 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			}
 			parentID, hasParent := childOutcome.Admission().Relation().ParentID()
 			childStartedAt, childStarted := childOutcome.StartedAt()
-			if !childFound || !hasParent || parentID != parent.ID() ||
+			if !childFound || !hasParent || parentID != parent.Relation().ProcessID() ||
 				!childStarted || childStartedAt != child.StartedAt() {
 				t.Fatalf("child outcome = %#v", childOutcome)
 			}
@@ -189,7 +189,7 @@ func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testin
 	}
 	parentID, child := got[1].Admission().Relation().ParentID()
 	failure, failed := got[1].Failure()
-	if !child || parentID != parent.ID() || !failed || failure.Code() != "engine.process.start.failed" {
+	if !child || parentID != parent.Relation().ProcessID() || !failed || failure.Code() != "engine.process.start.failed" {
 		t.Fatalf("child outcome = %#v", got[1])
 	}
 	if _, published := engine.Process(got[1].Admission().Relation().ProcessID()); published {
@@ -305,7 +305,7 @@ func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) 
 				t.Fatal(err)
 			}
 			members := &parent.handle.treeRuntime().members
-			if reserved := parent.handle.treeRuntime().childDebits(members.get(parent.ID())); reserved != (resourceAmounts{}) {
+			if reserved := parent.handle.treeRuntime().childDebits(members.get(parent.Relation().ProcessID())); reserved != (resourceAmounts{}) {
 				t.Fatalf("unacknowledged child retained budget: %+v", reserved)
 			}
 			assertNoPendingProcessStarts(t, engine)

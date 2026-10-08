@@ -32,14 +32,14 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 		mustCloseEngine(t, engine)
 	})
 	waitForStatus(t, root, StatusWaiting)
-	children := directChildIDs(t, engine, root.ID())
+	children := directChildIDs(t, engine, root.Relation().ProcessID())
 	childID, err := ParseProcessID(children[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	child, _ := engine.Process(childID)
 	waitForStatus(t, child, StatusPaused)
-	before, err := engine.CaptureTree(t.Context(), root.ID())
+	before, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,18 +49,18 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 	if joinErr := child.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	completed, err := engine.CaptureTree(t.Context(), root.ID())
+	completed, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	stable, err := engine.CaptureTree(t.Context(), root.ID())
+	stable, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	beforeChild := capturedProcess(t, before, childID)
 	completedChild := capturedProcess(t, completed, childID)
 	if beforeChild.Status() != StatusPaused || completedChild.Status() != StatusCompleted ||
-		capturedProcess(t, completed, root.ID()).Status() != StatusWaiting ||
+		capturedProcess(t, completed, root.Relation().ProcessID()).Status() != StatusWaiting ||
 		!bytes.Equal(completedChild.JSON(), capturedProcess(t, stable, childID).JSON()) {
 		t.Fatal("capture confused active and drained Process state")
 	}
@@ -70,15 +70,15 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 	if joinErr := root.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	terminated, err := engine.CaptureTree(t.Context(), root.ID())
+	terminated, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capturedProcess(t, terminated, root.ID()).Status() != StatusKilled ||
+	if capturedProcess(t, terminated, root.Relation().ProcessID()).Status() != StatusKilled ||
 		!bytes.Equal(completedChild.JSON(), capturedProcess(t, terminated, childID).JSON()) {
 		t.Fatal("terminal capture froze its active parent or rewrote a drained child")
 	}
-	runtime, err := engine.runtimeForTree(root.ID())
+	runtime, err := engine.runtimeForTree(root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 	if joinErr := restored.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	restoredRuntime, err := restoredEngine.runtimeForTree(restored.ID())
+	restoredRuntime, err := restoredEngine.runtimeForTree(restored.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestCapturesKeepDrainedChildrenStableWhileParentChanges(t *testing.T) {
 func capturedProcess(t *testing.T, snapshot TreeSnapshot, id ProcessID) ProcessSnapshot {
 	t.Helper()
 	for _, process := range snapshot.ProcessSnapshots() {
-		if process.ProcessID() == id {
+		if process.Relation().ProcessID() == id {
 			return process
 		}
 	}

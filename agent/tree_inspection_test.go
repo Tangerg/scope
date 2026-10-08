@@ -127,12 +127,12 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			effects := len(committer.effectBoundaries())
 			var first ProcessSnapshot
 			for range 64 {
-				inspection := requireTreeInspection(t, engine, root.ID())
+				inspection := requireTreeInspection(t, engine, root.Relation().ProcessID())
 				if !inspection.CommitPending || inspection.Stopped || inspection.Freeze != TreeFreezePhaseNone ||
 					inspection.HeadDigest != commit.previous || !inspection.IncarnationID.Valid() {
 					t.Fatalf("commit inspection=%+v", inspection)
 				}
-				if len(inspection.Processes) != 1 || inspection.Processes[0].Snapshot.ProcessID() != root.ID() {
+				if len(inspection.Processes) != 1 || inspection.Processes[0].Snapshot.Relation().ProcessID() != root.Relation().ProcessID() {
 					t.Fatal("inspection published a prospective child")
 				}
 				snapshot := inspection.Processes[0].Snapshot
@@ -167,20 +167,20 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				{name: "stopped control", err: root.Pause(t.Context(), "inspect stopped runtime")},
 			} {
 				failure, ok := errors.AsType[*RuntimeError](source.err)
-				if !ok || failure.ProcessID() != root.ID() || failure.HeadDigest() != commit.previous ||
+				if !ok || failure.ProcessID() != root.Relation().ProcessID() || failure.HeadDigest() != commit.previous ||
 					!errors.Is(failure, committer.failure) {
 					t.Fatalf("%s runtime failure=%v", source.name, source.err)
 				}
 				*failure = RuntimeError{}
 				_, nextErr := root.Await(t.Context())
 				retained, ok := errors.AsType[*RuntimeError](nextErr)
-				if !ok || retained.ProcessID() != root.ID() || retained.HeadDigest() != commit.previous ||
+				if !ok || retained.ProcessID() != root.Relation().ProcessID() || retained.HeadDigest() != commit.previous ||
 					!errors.Is(retained, committer.failure) {
 					t.Fatalf("mutating %s error changed retained runtime failure: %v", source.name, nextErr)
 				}
 			}
 			_, awaitErr = root.Await(t.Context())
-			stopped := requireTreeInspection(t, engine, root.ID())
+			stopped := requireTreeInspection(t, engine, root.Relation().ProcessID())
 			if !stopped.Stopped || stopped.CommitPending || stopped.HeadDigest != commit.previous || len(stopped.Processes) != 1 {
 				t.Fatalf("stopped inspection=%+v", stopped)
 			}
@@ -190,7 +190,7 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 				}
 				assertNoPendingProcessStarts(t, engine)
 				runtime := root.handle.treeRuntime()
-				parent := runtime.members.get(root.ID())
+				parent := runtime.members.get(root.Relation().ProcessID())
 				if runtime.childDebits(parent) != (resourceAmounts{}) || runtime.members.len() != 1 {
 					t.Fatal("rejected child checkpoint retained child budget or prospective Process")
 				}
@@ -206,14 +206,14 @@ func TestInspectTreeDuringEveryRuntimeCommit(t *testing.T) {
 			if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
 			}
-			afterClose := requireTreeInspection(t, engine, root.ID())
+			afterClose := requireTreeInspection(t, engine, root.Relation().ProcessID())
 			if !errors.Is(afterClose.Processes[0].RuntimeError, committer.failure) {
 				t.Fatal("mutating a report changed a later inspection")
 			}
-			if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+			if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 				t.Fatal(releaseErr)
 			}
-			if _, inspectErr := engine.InspectTree(t.Context(), root.ID()); !errors.Is(inspectErr, ErrTreeNotFound) {
+			if _, inspectErr := engine.InspectTree(t.Context(), root.Relation().ProcessID()); !errors.Is(inspectErr, ErrTreeNotFound) {
 				t.Fatalf("released inspection error=%v", inspectErr)
 			}
 		})

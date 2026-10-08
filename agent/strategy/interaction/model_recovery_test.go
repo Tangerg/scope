@@ -83,7 +83,7 @@ func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
 	if err != nil || result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
-	tree, err := engine.CaptureTree(ctx, root.ID())
+	tree, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, snapshot := range parsed.ProcessSnapshots() {
-		if snapshot.ProcessID() != root.ID() {
+		if snapshot.Relation().ProcessID() != root.Relation().ProcessID() {
 			continue
 		}
 		if _, restoreErr := definition.Restore(ctx, snapshot.CommittedExecutionState()); restoreErr != nil {

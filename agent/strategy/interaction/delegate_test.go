@@ -269,7 +269,7 @@ func captureWaitingDelegateTree(
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, childID := awaitWaitingDelegateTree(t, engine, root.ID())
+	tree, childID := awaitWaitingDelegateTree(t, engine, root.Relation().ProcessID())
 	pending, err := interaction.PendingToolInputs(tree)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("Delegate tree exposes Tool input: %v %v", pending, err)
@@ -297,7 +297,7 @@ func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot,
 	}
 	activeChild := activeChildren[0]
 	reference, attributed := activeChild.Reference()
-	if !attributed || reference.ProcessID() != rootSnapshot.ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
+	if !attributed || reference.ProcessID() != rootSnapshot.Relation().ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
 		t.Fatalf("active Delegate reference=%v, present=%v", reference, attributed)
 	}
 	if !activeChild.Valid() || activeChild.ModelCallSequence() != 1 ||
@@ -333,7 +333,7 @@ func completeRestoredDelegateTree(
 	if err != nil || result.Termination().Status() != agent.StatusCompleted || fixture.model.Calls() != 2 {
 		t.Fatalf("restored result = %#v, error = %v, model calls = %d", result.Termination(), err, fixture.model.Calls())
 	}
-	finalTree, err := restoredEngine.CaptureTree(context.Background(), restoredRoot.ID())
+	finalTree, err := restoredEngine.CaptureTree(context.Background(), restoredRoot.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +618,7 @@ func awaitWaitingDelegateTree(
 				rootWaiting = snapshot.Status() == agent.StatusWaiting
 			case 1:
 				if snapshot.Status() == agent.StatusPaused {
-					childID = snapshot.ProcessID()
+					childID = snapshot.Relation().ProcessID()
 				}
 			}
 		}

@@ -32,7 +32,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 		awaitResult(t, process)
 	})
 	waitForStatus(t, process, StatusWaiting)
-	waiting, err := engine.CaptureTree(t.Context(), process.ID())
+	waiting, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
 	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result = %s", result.Termination().Status())
 	}
-	completed, err := engine.CaptureTree(t.Context(), process.ID())
+	completed, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

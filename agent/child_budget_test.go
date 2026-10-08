@@ -52,7 +52,7 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				ids := directChildIDs(t, engine, root.ID())
+				ids := directChildIDs(t, engine, root.Relation().ProcessID())
 				awaitChildren(t, engine, ids)
 				snapshot := inspectProcessSnapshot(t, root)
 				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {

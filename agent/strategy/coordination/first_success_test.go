@@ -51,7 +51,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 		if inspect(t, engine, root).Snapshot.Status() != agent.StatusWaiting || result(t, child(t, engine, root, "rejected")).Termination().Status() != agent.StatusCompleted {
 			t.Fatal("a rejected business result did not leave the competition waiting")
 		}
-		checkpoint, found, loadErr := store.LoadTree(t.Context(), root.ID())
+		checkpoint, found, loadErr := store.LoadTree(t.Context(), root.Relation().ProcessID())
 		if loadErr != nil || !found {
 			t.Fatalf("competition checkpoint exists=%t error=%v", found, loadErr)
 		}
@@ -268,7 +268,7 @@ func TestFirstSuccessBoundsAndDefinitionConformance(t *testing.T) {
 
 func child(t testing.TB, engine *agent.Engine, root *agent.Process, key string) *agent.Process {
 	t.Helper()
-	tree, err := engine.InspectTree(context.Background(), root.ID())
+	tree, err := engine.InspectTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func child(t testing.TB, engine *agent.Engine, root *agent.Process, key string) 
 		if !present || childKey.String() != key {
 			continue
 		}
-		found, present := engine.Process(process.Snapshot.ProcessID())
+		found, present := engine.Process(process.Snapshot.Relation().ProcessID())
 		if !present {
 			t.Fatal("published child has no handle")
 		}

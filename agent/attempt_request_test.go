@@ -50,8 +50,8 @@ func TestDispatchRequestCorrelatesPhysicalAttemptsWithoutPersistingThem(t *testi
 		if !present || clonedAttempt != firstAttempt {
 			t.Fatal("request cloning changed physical identity")
 		}
-		snapshot := controlValue(engine.CaptureTree(t.Context(), process.ID()))
-		retained, present := snapshot.EffectRequest(process.ID(), first.ID())
+		snapshot := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
+		retained, present := snapshot.EffectRequest(process.Relation().ProcessID(), first.ID())
 		if !present || !retained.Valid() {
 			t.Fatal("unknown logical request was not retained")
 		}

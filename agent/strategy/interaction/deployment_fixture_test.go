@@ -15,7 +15,7 @@ func captureToolInput(t *testing.T, engine *agent.Engine, root *agent.Process) (
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for ctx.Err() == nil {
-		snapshot, err := engine.CaptureTree(ctx, root.ID())
+		snapshot, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func inspectProcessSnapshot(t *testing.T, engine *agent.Engine, process *agent.P
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, found := inspection.Process(process.ID())
+	report, found := inspection.Process(process.Relation().ProcessID())
 	if !found {
 		t.Fatal("Process is missing from the inspected tree")
 	}

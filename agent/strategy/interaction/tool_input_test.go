@@ -81,7 +81,7 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 		t.Fatal(pauseErr)
 	}
 	waitForStatus(t, engine, child, agent.StatusPaused)
-	tree, err := engine.CaptureTree(ctx, root.ID())
+	tree, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 	if err != nil || len(inputs) != 1 {
 		t.Fatalf("paused Tool inputs=%v error=%v", inputs, err)
 	}
-	if inputs[0].ProcessID() != child.ID() || inputs[0].WaitID() != pending.WaitID() ||
+	if inputs[0].ProcessID() != child.Relation().ProcessID() || inputs[0].WaitID() != pending.WaitID() ||
 		string(inputs[0].Prompt()) != string(pending.Prompt()) || string(inputs[0].ResponseSchema()) != string(pending.ResponseSchema()) {
 		t.Fatal("pause changed the pending Tool input")
 	}
@@ -108,7 +108,7 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 	if accepted, deliveryErr := child.DeliverSignals(ctx, answer); deliveryErr != nil || !accepted {
 		t.Fatalf("paused Tool answer=%t error=%v", accepted, deliveryErr)
 	}
-	tree, err = engine.CaptureTree(ctx, root.ID())
+	tree, err = engine.CaptureTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -94,7 +94,7 @@ func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	if joinErr := root.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	snapshot, err := engine.CaptureTree(t.Context(), root.ID())
+	snapshot, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

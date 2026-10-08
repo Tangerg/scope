@@ -88,7 +88,7 @@ func TestInputGatePreservesIdentityAcrossRecoveryAndEarlyAnswer(t *testing.T) {
 				completed := process
 				var restoredEngine *agent.Engine
 				if restore {
-					checkpoint, found, loadErr := store.LoadTree(t.Context(), process.ID())
+					checkpoint, found, loadErr := store.LoadTree(t.Context(), process.Relation().ProcessID())
 					if loadErr != nil || !found {
 						t.Fatalf("input checkpoint exists=%t error=%v", found, loadErr)
 					}

@@ -60,7 +60,7 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 	if joinErr := root.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	head, found, err := store.LoadTree(t.Context(), root.ID())
+	head, found, err := store.LoadTree(t.Context(), root.Relation().ProcessID())
 	if err != nil || !found {
 		t.Fatalf("load head: found=%v error=%v", found, err)
 	}
@@ -70,7 +70,7 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 	}
 	round := rounds[0]
 	entries := round.Entries()
-	if round.Relation().ProcessID() != root.ID() || round.ModelCallSequence() != 1 || round.CallCount() != 3 || round.Complete() ||
+	if round.Relation().ProcessID() != root.Relation().ProcessID() || round.ModelCallSequence() != 1 || round.CallCount() != 3 || round.Complete() ||
 		len(entries) != 1 || entries[0].ToolCallIndex != 0 || entries[0].Call.ID != "first" ||
 		entries[0].Result.ID != "first" || entries[0].Disposition != interaction.ResultSucceeded || publicationText(entries[0]) != "confirmed" {
 		t.Fatalf("incorrect sparse results: round=%+v entries=%+v", round, entries)
@@ -78,7 +78,7 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 	encoded := round.JSON()
 	for index := range uint32(3) {
 		reference, present := round.Reference(index)
-		if !present || reference.ProcessID() != root.ID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != index {
+		if !present || reference.ProcessID() != root.Relation().ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != index {
 			t.Fatalf("sparse reference %d = %v, present=%v", index, reference, present)
 		}
 	}
@@ -93,7 +93,7 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 		round.Digest() != again[0].Digest() || !bytes.Equal(round.JSON(), again[0].JSON()) {
 		t.Fatalf("read projection is mutable or nondeterministic: %v", err)
 	}
-	stored, found, err := store.LoadTree(t.Context(), root.ID())
+	stored, found, err := store.LoadTree(t.Context(), root.Relation().ProcessID())
 	if err != nil || !found || stored.Digest() != head.Digest() || modelCalls.Load() != 1 || unscheduledCalls.Load() != 0 {
 		t.Fatalf("projection changed execution or stored head: found=%v error=%v model calls=%d unscheduled calls=%d", found, err, modelCalls.Load(), unscheduledCalls.Load())
 	}

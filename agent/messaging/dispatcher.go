@@ -85,7 +85,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 	if err != nil {
 		return messageFailureSettlement(err)
 	}
-	if deliveryErr := d.port.Deliver(ctx, request.ProcessID(), message.Recipient, signal); deliveryErr != nil {
+	if deliveryErr := d.port.Deliver(ctx, request.Relation().ProcessID(), message.Recipient, signal); deliveryErr != nil {
 		return agent.Settlement{}, deliveryErr
 	}
 	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID()})

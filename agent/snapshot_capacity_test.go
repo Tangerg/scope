@@ -121,12 +121,12 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 			if accepted, err := process.DeliverSignals(t.Context(), requests...); err != nil || !accepted {
 				t.Fatalf("padding admission = %t, %v", accepted, err)
 			}
-			before := controlValue(engine.InspectTree(t.Context(), process.ID()))
+			before := controlValue(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 			oversize := controlValue(NewSettlement(SettlementStatusSucceeded, json.RawMessage(`"`+strings.Repeat("x", 50<<14)+`"`)))
 			if err := process.ResolveUnknownEffect(t.Context(), unknown, oversize); !errors.Is(err, ErrResourceLimitExceeded) {
 				t.Fatalf("oversize resolution = %v", err)
 			}
-			after := controlValue(engine.InspectTree(t.Context(), process.ID()))
+			after := controlValue(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 			if before.HeadDigest != after.HeadDigest || !bytes.Equal(before.Processes[0].Snapshot.data, after.Processes[0].Snapshot.data) {
 				t.Fatal("rejected resolution changed tree head")
 			}

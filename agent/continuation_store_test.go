@@ -78,7 +78,7 @@ func (e *episodeStore) claim(request successorRequest) (*episodeAttempt, agent.P
 // Binding precedes submission. A sealed route rejects new bindings; an existing
 // delivery retains its original Process and WaitID even after successor creation.
 func (e *episodeStore) bindInput(process *agent.Process, request agent.SignalRequest) error {
-	if !process.ID().Valid() || !request.Valid() {
+	if !process.Relation().ProcessID().Valid() || !request.Valid() {
 		return agent.ErrInvalidSignalRequest
 	}
 	e.mu.Lock()
@@ -86,7 +86,7 @@ func (e *episodeStore) bindInput(process *agent.Process, request agent.SignalReq
 	if previous, present := e.inputs[request.ID()]; present {
 		previousWait, _ := previous.request.WaitID()
 		requestedWait, _ := request.WaitID()
-		if previous.recipient != process.ID() || previousWait != requestedWait || agent.ComputeDigest(previous.request.Payload()) != agent.ComputeDigest(request.Payload()) {
+		if previous.recipient != process.Relation().ProcessID() || previousWait != requestedWait || agent.ComputeDigest(previous.request.Payload()) != agent.ComputeDigest(request.Payload()) {
 			return agent.ErrSignalConflict
 		}
 		return nil
@@ -94,7 +94,7 @@ func (e *episodeStore) bindInput(process *agent.Process, request agent.SignalReq
 	if e.sealed[process.Relation().RootID()].Valid() {
 		return errUnsafeEpisodeBoundary
 	}
-	e.inputs[request.ID()] = episodeInput{root: process.Relation().RootID(), recipient: process.ID(), request: request, disposition: episodeInputPending}
+	e.inputs[request.ID()] = episodeInput{root: process.Relation().RootID(), recipient: process.Relation().ProcessID(), request: request, disposition: episodeInputPending}
 	return nil
 }
 
@@ -127,34 +127,34 @@ func (e *episodeStore) sealEpisode(ctx context.Context, process *agent.Process) 
 	if joinErr := process.Join(ctx); joinErr != nil {
 		return agent.Result{}, joinErr
 	}
-	head, present, err := e.trees.LoadTree(ctx, process.ID())
+	head, present, err := e.trees.LoadTree(ctx, process.Relation().ProcessID())
 	if err != nil {
 		return agent.Result{}, err
 	}
-	if !present || head.RootID() != process.ID() {
+	if !present || head.RootID() != process.Relation().ProcessID() {
 		return agent.Result{}, errUnsafeEpisodeBoundary
 	}
 	for _, snapshot := range head.ProcessSnapshots() {
 		if !snapshot.Status().Terminal() || len(snapshot.UnknownEffectIDs()) != 0 {
 			return agent.Result{}, errUnsafeEpisodeBoundary
 		}
-		if snapshot.ProcessID() == process.ID() && snapshot.Status() != agent.StatusCompleted {
+		if snapshot.Relation().ProcessID() == process.Relation().ProcessID() && snapshot.Status() != agent.StatusCompleted {
 			return agent.Result{}, errUnsafeEpisodeBoundary
 		}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.sealed[process.ID()].Valid() {
+	if e.sealed[process.Relation().ProcessID()].Valid() {
 		return result, nil
 	}
 	resolved := make(map[agent.SignalID]episodeInput)
 	for id, record := range e.inputs {
-		if record.root != process.ID() {
+		if record.root != process.Relation().ProcessID() {
 			continue
 		}
 		record.disposition = episodeInputNotAdmitted
 		for _, snapshot := range head.ProcessSnapshots() {
-			if snapshot.ProcessID() != record.recipient {
+			if snapshot.Relation().ProcessID() != record.recipient {
 				continue
 			}
 			for _, receipt := range snapshot.SignalReceipts() {
@@ -178,7 +178,7 @@ func (e *episodeStore) sealEpisode(ctx context.Context, process *agent.Process) 
 	for id, record := range resolved {
 		e.inputs[id] = record
 	}
-	e.sealed[process.ID()] = head
+	e.sealed[process.Relation().ProcessID()] = head
 	return result, nil
 }
 

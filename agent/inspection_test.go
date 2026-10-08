@@ -23,7 +23,7 @@ func inspectProcessSnapshotContext(ctx context.Context, t testing.TB, process *P
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, found := inspection.Process(process.ID())
+	report, found := inspection.Process(process.Relation().ProcessID())
 	if !found {
 		t.Fatal("Process was not published in the inspected tree")
 	}

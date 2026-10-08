@@ -77,7 +77,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 					t.Fatal(err)
 				}
 				<-definition.entered
-				opening, err := engine.CaptureTree(t.Context(), process.ID())
+				opening, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -103,7 +103,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 					t.Fatal(pauseErr)
 				}
 				synctest.Wait()
-				capture, err := engine.CaptureTree(t.Context(), process.ID())
+				capture, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 				if err != nil || capture.ProcessSnapshots()[0].Status() != agent.StatusPaused {
 					t.Fatalf("Tool did not pause at the committed boundary: %v", err)
 				}
@@ -145,7 +145,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if result.Usage() != (agent.Usage{CommittedSteps: 5, PreparedEffects: 3, AcceptedSignals: 4}) {
 					t.Fatalf("Tool continuation changed resource usage: %+v", result.Usage())
 				}
-				inspection, err := engine.InspectTree(t.Context(), process.ID())
+				inspection, err := engine.InspectTree(t.Context(), process.Relation().ProcessID())
 				if err != nil {
 					t.Fatal(err)
 				}

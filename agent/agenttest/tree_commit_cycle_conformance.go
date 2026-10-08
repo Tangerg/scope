@@ -43,7 +43,7 @@ func runCheckpointCycleConformance(t *testing.T, factory func() TreeCommitterCon
 		if err := driver.CommitCheckpoint(t.Context(), paused); !errors.Is(err, agent.ErrCommitConflict) {
 			t.Fatalf("historical pause rewound waiting head: %v", err)
 		}
-		assertCrashHead(t, driver, process.ID(), waiting.TreeSnapshot().Digest())
+		assertCrashHead(t, driver, process.Relation().ProcessID(), waiting.TreeSnapshot().Digest())
 	}
 }
 

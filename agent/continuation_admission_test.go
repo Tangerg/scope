@@ -39,7 +39,7 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	treeLimits := agent.DefaultTreeLimits()
 	treeLimits.MaxPendingSignals = 8
 	return engine, previous, deployment, successorRequest{
-		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: output,
+		Predecessor: previous.Relation().ProcessID(), DeploymentRef: deployment.DeploymentRef(), Input: output,
 		Budget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)}, TreeLimits: treeLimits,
 	}
 }
@@ -78,7 +78,7 @@ func TestSuccessorAdmissionSurvivesLostStartAcknowledgment(t *testing.T) {
 	if process != nil || !errors.Is(err, errStartAcknowledgmentLost) {
 		t.Fatalf("ambiguous start=%v %v", process, err)
 	}
-	record := store.successors[previous.ID()]
+	record := store.successors[previous.Relation().ProcessID()]
 	if !record.successor.Valid() || store.allocations != 1 || store.starts != 1 {
 		t.Fatalf("admission after lost response=%+v", record)
 	}
@@ -99,7 +99,7 @@ func TestSuccessorAdmissionSurvivesLostStartAcknowledgment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered.ID() != record.successor || duplicate.ID() != record.successor || store.allocations != 1 || store.starts != 1 {
+	if recovered.Relation().ProcessID() != record.successor || duplicate.Relation().ProcessID() != record.successor || store.allocations != 1 || store.starts != 1 {
 		t.Fatal("reconciliation created or charged another successor")
 	}
 	if result, awaitErr := previous.Await(t.Context()); awaitErr != nil || result.Usage() != (agent.Usage{CommittedSteps: 1}) {

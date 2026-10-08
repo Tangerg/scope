@@ -78,7 +78,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, root, StatusWaiting)
-	ids := directChildIDs(t, engine, root.ID())
+	ids := directChildIDs(t, engine, root.Relation().ProcessID())
 	if len(ids) != 1 {
 		t.Fatalf("children=%v", ids)
 	}
@@ -100,7 +100,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	tree, err := engine.CaptureTree(ctx, root.ID())
+	tree, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

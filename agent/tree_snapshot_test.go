@@ -24,7 +24,7 @@ func TestCaptureTreeRejectsAlreadyCanceledContext(t *testing.T) {
 	<-root.handle.treeRuntime().done
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if snapshot, err := engine.CaptureTree(ctx, root.ID()); !errors.Is(err, context.Canceled) || snapshot.Valid() {
+	if snapshot, err := engine.CaptureTree(ctx, root.Relation().ProcessID()); !errors.Is(err, context.Canceled) || snapshot.Valid() {
 		t.Errorf("CaptureTree returned valid=%v, error=%v for canceled context", snapshot.Valid(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -206,7 +206,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, root, StatusWaiting)
-	childIDs := directChildIDs(t, engine, root.ID())
+	childIDs := directChildIDs(t, engine, root.Relation().ProcessID())
 	if len(childIDs) != 3 {
 		t.Fatalf("child count = %d, want 3", len(childIDs))
 	}
@@ -215,11 +215,11 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		child, _ := engine.Process(id)
 		waitForStatus(t, child, StatusPaused)
 	}
-	tree, err := engine.CaptureTree(context.Background(), root.ID())
+	tree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tree.RootID() != root.ID() || len(tree.ProcessSnapshots()) != 4 {
+	if tree.RootID() != root.Relation().ProcessID() || len(tree.ProcessSnapshots()) != 4 {
 		t.Fatalf("tree root = %s, Process count = %d", tree.RootID(), len(tree.ProcessSnapshots()))
 	}
 	parsed, err := ParseTreeSnapshot(tree.JSON())
@@ -252,7 +252,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	})
 	for _, boundary := range []ChildWaitBoundary{"", "unknown"} {
 		t.Run("child wait rejects changed boundary "+string(boundary), func(t *testing.T) {
-			encoded := treeJSONWithProcess(t, tree, root.ID(), func(wire *processSnapshotWire) {
+			encoded := treeJSONWithProcess(t, tree, root.Relation().ProcessID(), func(wire *processSnapshotWire) {
 				for _, record := range wire.Mailbox.Signals {
 					if record.Opens != nil && record.Opens.Spec != nil {
 						record.Opens.Spec.Boundary = boundary
@@ -269,13 +269,13 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		rootWaits := candidate.processSnapshot(root.ID()).openChildWaits
+		rootWaits := candidate.processSnapshot(root.Relation().ProcessID()).openChildWaits
 		if len(rootWaits) == 0 {
 			t.Fatal("fixture root has no open child wait")
 		}
 		foreignID := controlValue(ParseWaitID("wait:foreign"))
 		for index, snapshot := range candidate.ProcessSnapshots {
-			if snapshot.ProcessID() == root.ID() {
+			if snapshot.Relation().ProcessID() == root.Relation().ProcessID() {
 				continue
 			}
 			child, childErr := snapshot.wire()
@@ -312,7 +312,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	slices.Reverse(wire.ProcessSnapshots)
 	inputOrder := make([]ProcessID, len(wire.ProcessSnapshots))
 	for index, snapshot := range wire.ProcessSnapshots {
-		inputOrder[index] = snapshot.ProcessID()
+		inputOrder[index] = snapshot.Relation().ProcessID()
 	}
 	rebuilt, err := newTreeSnapshot(wire)
 	if err != nil {
@@ -322,7 +322,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 		t.Fatal("private tree construction and strict parsing produced different canonical snapshots")
 	}
 	for index, snapshot := range wire.ProcessSnapshots {
-		if snapshot.ProcessID() != inputOrder[index] {
+		if snapshot.Relation().ProcessID() != inputOrder[index] {
 			t.Fatal("private tree construction mutated the caller-owned Process order")
 		}
 	}
@@ -350,7 +350,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 	if len(restoredOutput.CompletedKeys) != 3 {
 		t.Fatalf("restored output = %#v", restoredOutput)
 	}
-	if len(directChildIDs(t, restoredEngine, restoredRoot.ID())) != 3 {
+	if len(directChildIDs(t, restoredEngine, restoredRoot.Relation().ProcessID())) != 3 {
 		t.Fatal("tree restore duplicated or lost a child")
 	}
 	assertNoChildWaitRegistrations(t, restoredEngine)
@@ -390,7 +390,7 @@ func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 	if result := mustAwait(t, root); result.Termination().Status() != StatusKilled {
 		t.Fatalf("root status = %s", result.Termination().Status())
 	}
-	tree, err := engine.CaptureTree(context.Background(), root.ID())
+	tree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	}
 	captured := make(chan captureResult, 1)
 	go func() {
-		snapshot, captureTreeErr := engine.CaptureTree(context.Background(), root.ID())
+		snapshot, captureTreeErr := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 		captured <- captureResult{snapshot: snapshot, err: captureTreeErr}
 	}()
 	synctest.Wait()
@@ -452,7 +452,7 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 		if wire.Prepared != nil {
 			for _, effect := range wire.Prepared.Effects {
 				if effect.settlement() == nil || effect.settlement().Status() == SettlementStatusUnknown {
-					t.Fatalf("Process %s captured an unsettled Effect", snapshot.ProcessID())
+					t.Fatalf("Process %s captured an unsettled Effect", snapshot.Relation().ProcessID())
 				}
 			}
 		}
@@ -487,7 +487,7 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 	result := mustAwait(t, root)
 	output := childTestResult(t, result)
 	awaitChildren(t, engine, output.ChildIDs)
-	tree, err := engine.CaptureTree(context.Background(), root.ID())
+	tree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestDurableChildOutcomeCommitsWholeProspectiveTree(t *testing.T) {
 	if len(tree.ProcessSnapshots()) != 2 || !tree.state.processSnapshot(wantChildID).Valid() {
 		t.Fatalf("child outcome tree does not contain both Processes: %#v", tree.ProcessSnapshots())
 	}
-	parentWire, err := tree.state.processSnapshot(root.ID()).wire()
+	parentWire, err := tree.state.processSnapshot(root.Relation().ProcessID()).wire()
 	if err != nil || parentWire.Prepared == nil ||
 		!parentWire.Prepared.Effects[0].definitelySettled() {
 		t.Fatalf("parent child-start settlement is not atomic with child: %v", err)
@@ -643,7 +643,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("root result = %#v, error = %v", result, awaitErr)
 	}
-	tree, err := engine.CaptureTree(context.Background(), root.ID())
+	tree, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,17 +661,17 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		restoration.wire.ProcessSnapshots = append(restoration.wire.ProcessSnapshots, controlValue(process.capture()))
 	}
 	conflict := restoration.wire.ProcessSnapshots[1]
-	if err := engine.reserveProcessStart(rootProcessRelation(conflict.ProcessID())); err != nil {
+	if err := engine.reserveProcessStart(rootProcessRelation(conflict.Relation().ProcessID())); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.reserveRestoredTree(restoration); !errors.Is(err, ErrProcessAlreadyExists) {
 		t.Fatalf("conflicting reservation = %v", err)
 	}
-	engine.discardProcessStart(rootProcessRelation(conflict.ProcessID()))
+	engine.discardProcessStart(rootProcessRelation(conflict.Relation().ProcessID()))
 	checkStarts := func(want error) {
 		t.Helper()
 		for _, process := range restoration.wire.ProcessSnapshots {
-			id := process.ProcessID()
+			id := process.Relation().ProcessID()
 			err := engine.reserveProcessStart(rootProcessRelation(id))
 			if !errors.Is(err, want) {
 				t.Fatalf("admission for %s = %v, want %v", id, err, want)
@@ -749,7 +749,7 @@ func TestTreeSnapshotEffectRequestPreservesFrozenEvidence(t *testing.T) {
 	}
 	request, found := parsed.EffectRequest(parsed.RootID(), id)
 	if !found || !request.Valid() || request.ID() != id ||
-		request.ProcessID() != parsed.RootID() || request.DeploymentRef() != deployment.DeploymentRef() ||
+		request.Relation().ProcessID() != parsed.RootID() || request.DeploymentRef() != deployment.DeploymentRef() ||
 		request.StepSequence() != 1 || request.BatchIndex() != 0 ||
 		request.Relation() != parsed.ProcessSnapshots()[0].Relation() {
 		t.Fatalf("frozen request identity changed: %+v", request)
@@ -811,7 +811,7 @@ func treeJSONWithProcess(t testing.TB, tree TreeSnapshot, processID ProcessID, m
 		t.Fatal(err)
 	}
 	for index, snapshot := range tree.ProcessSnapshots() {
-		if snapshot.ProcessID() != processID {
+		if snapshot.Relation().ProcessID() != processID {
 			continue
 		}
 		wire := controlValue(snapshot.wire())
@@ -835,7 +835,7 @@ func treeJSONWithDocument(t testing.TB, tree TreeSnapshot, processID ProcessID, 
 		t.Fatal(err)
 	}
 	for index, snapshot := range tree.ProcessSnapshots() {
-		if snapshot.ProcessID() != processID {
+		if snapshot.Relation().ProcessID() != processID {
 			continue
 		}
 		document := controlValue(decodeProcessSnapshotDocument(processes[index]))

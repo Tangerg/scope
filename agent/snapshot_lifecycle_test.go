@@ -78,7 +78,7 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 							checkpoints := store.treeCheckpoints()
 							return checkpoints[len(checkpoints)-1].TreeSnapshot()
 						}
-						return controlValue(engine.CaptureTree(t.Context(), process.ID()))
+						return controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 					}
 					payload := controlValue(jsonv2.Marshal(strings.Repeat("x", 16<<10)))
 					acceptedCount := 0
@@ -395,7 +395,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				} else {
 					var found bool
 					var err error
-					tree, found, err = config.TreeCommitter.(*MemoryTreeCommitter).LoadTree(t.Context(), process.ID())
+					tree, found, err = config.TreeCommitter.(*MemoryTreeCommitter).LoadTree(t.Context(), process.Relation().ProcessID())
 					if err != nil || !found || runtimeErr.HeadDigest() != tree.Digest() || !runtimeErr.IncarnationID().Valid() {
 						t.Fatalf("fault head: %v", err)
 					}

@@ -38,11 +38,11 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 				defer cancelCapture()
 				captured := make(chan treeFreezeAcquisitionResult, 1)
 				go func() {
-					snapshot, captureErr := engine.CaptureTree(captureContext, process.ID())
+					snapshot, captureErr := engine.CaptureTree(captureContext, process.Relation().ProcessID())
 					captured <- treeFreezeAcquisitionResult{snapshot: snapshot, err: captureErr}
 				}()
 				synctest.Wait()
-				inspection := requireTreeInspection(t, engine, process.ID())
+				inspection := requireTreeInspection(t, engine, process.Relation().ProcessID())
 				if inspection.Freeze != TreeFreezePhaseAcquiring {
 					t.Fatalf("capture did not wait for the active Effect: %+v", inspection)
 				}

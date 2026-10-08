@@ -177,7 +177,7 @@ func assertSafetyTree(t *testing.T, tree agent.TreeSnapshot, rootID agent.Proces
 	processes := tree.ProcessSnapshots()
 	competitions, winners, losers := 0, 0, 0
 	for _, process := range processes {
-		if process.ProcessID() == rootID {
+		if process.Relation().ProcessID() == rootID {
 			state = process.CommittedExecutionState()
 		}
 		if process.DeploymentRef().Name() == "safety.competition" && process.Status() == agent.StatusCompleted {

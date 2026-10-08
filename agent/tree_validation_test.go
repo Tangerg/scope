@@ -31,7 +31,7 @@ func TestDrainedTreeSnapshotRendersAnswersFromTheirChildren(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			encoded := treeJSONWithDocument(t, snapshot, root.ProcessID(), func(document *processSnapshotDocument) {
+			encoded := treeJSONWithDocument(t, snapshot, root.Relation().ProcessID(), func(document *processSnapshotDocument) {
 				test.change(document.Mailbox.Signals)
 			})
 			if _, err := ParseTreeSnapshot(encoded); !errors.Is(err, ErrInvalidTreeSnapshot) {
@@ -59,7 +59,7 @@ func deepDrainedSnapshotFixture(t testing.TB) TreeSnapshot {
 		process.Budget = Budget{}
 		if index > 0 {
 			key, _ := snapshot.Relation().ChildKey()
-			parent = childProcessRelation(snapshot.ProcessID(), parent, key)
+			parent = childProcessRelation(snapshot.Relation().ProcessID(), parent, key)
 			process.Relation = parent
 		}
 		wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(process))
@@ -140,7 +140,7 @@ func TestTreeSnapshotRendersEachAnswerFromItsOwnWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := snapshot.state.ProcessSnapshots[0]
-	encoded := treeJSONWithProcess(t, snapshot, root.ProcessID(), func(wire *processSnapshotWire) {
+	encoded := treeJSONWithProcess(t, snapshot, root.Relation().ProcessID(), func(wire *processSnapshotWire) {
 		for index, record := range wire.Mailbox.Signals {
 			if record.Opens != nil && record.Opens.Spec != nil && record.Opens.Spec.Key.String() == "retained-1" {
 				spec := controlValue(record.Opens.Spec.value())

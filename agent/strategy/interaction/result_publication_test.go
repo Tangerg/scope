@@ -162,14 +162,14 @@ func TestCancellationPreservesDefiniteResults(t *testing.T) {
 							t.Fatalf("unexpected unresolved effect %s", id)
 						}
 					}
-					if process.ProcessID() == root.ID() {
+					if process.Relation().ProcessID() == root.Relation().ProcessID() {
 						result, present := process.Result()
 						if !present || !reflect.DeepEqual(result, terminal) {
 							t.Fatal("reopened root terminal changed")
 						}
 					}
 					if !process.Status().Terminal() {
-						t.Fatalf("undrained process: %s", process.ProcessID())
+						t.Fatalf("undrained process: %s", process.Relation().ProcessID())
 					}
 				}
 				expectedUnknown := 1
@@ -360,7 +360,7 @@ func TestPublicationFailureBlocksContinuationAndReleaseDrains(t *testing.T) {
 			if joinErr := root.Join(t.Context()); !errors.Is(joinErr, failure) {
 				t.Fatalf("join=%v", joinErr)
 			}
-			if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil && !errors.Is(err, failure) {
+			if err := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); err != nil && !errors.Is(err, failure) {
 				t.Fatal(err)
 			}
 		})

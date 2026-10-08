@@ -49,7 +49,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 	}
 	copyOfEffect := request.Effect()
 	copyOfEffect.payload[0] = '['
-	if request.ProcessID() != processID || request.ID() != processID.effectID(1, 0) || request.DeploymentRef() != deployment.DeploymentRef() ||
+	if request.Relation().ProcessID() != processID || request.ID() != processID.effectID(1, 0) || request.DeploymentRef() != deployment.DeploymentRef() ||
 		request.Relation() != relation || string(request.Effect().Payload()) != `{"operation":"test"}` {
 		t.Fatalf("EffectRequest did not freeze Effect: %+v", request)
 	}
@@ -94,7 +94,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 		t.Fatal(err)
 	}
 	waitForStatus(t, process, StatusWaiting)
-	tree, err := engine.CaptureTree(t.Context(), process.ID())
+	tree, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestDeploymentWithoutDispatcherRejectsRestoredExternalEffect(t *testing.T) 
 		t.Fatal(err)
 	}
 	_ = waitForUnknownSettlement(t, process)
-	tree, err := engine.CaptureTree(t.Context(), process.ID())
+	tree, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

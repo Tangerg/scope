@@ -529,7 +529,7 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeCommitterConformanceD
 	deployment, _ := newCrashDeployment(t, conformanceModePause, agent.ReplayPolicyNever)
 	sourceEngine := newCrashEngine(t, store, nil)
 	source := startConformanceProcess(t, sourceEngine, deployment, crashInputValue)
-	head := waitForConformanceHeadStatus(t, store, source.ID(), agent.StatusPaused)
+	head := waitForConformanceHeadStatus(t, store, source.Relation().ProcessID(), agent.StatusPaused)
 
 	gate := newTreeCommitterCommitGate(t, store, crashCommitPoint{
 		kind: crashCommitActivation, phase: crashCommitAfter,
@@ -538,7 +538,7 @@ func runCrashAfterActivationCommit(t *testing.T, store TreeCommitterConformanceD
 	firstRestore := restoreCrashTreeAsync(t.Context(), firstEngine, deployment, head)
 	observation := gate.await(t)
 	newHead := assertCrashHead(t, store, observation.rootID(), observation.durableDigest())
-	if _, found := firstEngine.Process(source.ID()); found {
+	if _, found := firstEngine.Process(source.Relation().ProcessID()); found {
 		t.Fatal("restored Process published before activation callback returned")
 	}
 
@@ -752,7 +752,7 @@ func finishCrashProcess(t *testing.T, process *agent.Process) {
 		return
 	}
 	if err := process.Kill(t.Context(), crashCleanupReason); err != nil && !errors.Is(err, agent.ErrProcessFinished) {
-		t.Fatalf("kill Process %s: %v", process.ID(), err)
+		t.Fatalf("kill Process %s: %v", process.Relation().ProcessID(), err)
 	}
 	awaitCrashProcess(t, process)
 }
@@ -794,7 +794,7 @@ func assertCrashRuntimeError(t *testing.T, process *agent.Process, value crashAw
 	if !ok || !errors.Is(value.err, cause) || value.result.Valid() || value.result.Termination().Status() != agent.StatusInvalid || value.result.ProcessID().Valid() {
 		t.Fatalf("runtime stopped result=%+v error=%v, want cause %v", value.result, value.err, cause)
 	}
-	if runtimeErr.ProcessID() != process.ID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
+	if runtimeErr.ProcessID() != process.Relation().ProcessID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
 		t.Fatalf("runtime stopped identity=%+v", runtimeErr)
 	}
 }

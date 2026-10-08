@@ -186,10 +186,6 @@ func (p ProcessSnapshot) SignalReceipts() []SignalReceipt {
 	return p.state.Mailbox.receipts()
 }
 
-func (p ProcessSnapshot) ProcessID() ProcessID {
-	return p.state.processID()
-}
-
 func (p ProcessSnapshot) DeploymentRef() DeploymentRef {
 	return p.state.DeploymentRef
 }

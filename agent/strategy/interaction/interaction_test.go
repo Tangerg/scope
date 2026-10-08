@@ -248,7 +248,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				if killErr := process.Kill(ctx, "release test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
 					t.Error(killErr)
 				}
-				if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+				if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
 					t.Error(releaseErr)
 				}
 				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -281,13 +281,13 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				t.Fatal("unknown Tool Process is missing")
 			}
 			// Attempt completion precedes acknowledgment; capture waits for the durable cut.
-			captured, err := engine.CaptureTree(ctx, process.ID())
+			captured, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}
 			var unknown []agent.EffectID
 			for _, snapshot := range captured.ProcessSnapshots() {
-				if snapshot.ProcessID() == toolProcess.ID() {
+				if snapshot.Relation().ProcessID() == toolProcess.Relation().ProcessID() {
 					unknown = snapshot.UnknownEffectIDs()
 				}
 			}

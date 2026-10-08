@@ -33,7 +33,7 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 			waitForStatus(t, root, test.status)
 			waitID, _ := inspectProcessSnapshot(t, root).WaitID()
 			dispatcher.ReleaseAll()
-			awaitChildren(t, engine, directChildIDs(t, engine, root.ID()))
+			awaitChildren(t, engine, directChildIDs(t, engine, root.Relation().ProcessID()))
 			if inspectProcessSnapshot(t, root).Status().Terminal() {
 				t.Fatalf("child completion terminated parent: %+v", mustAwait(t, root).Termination())
 			}
@@ -44,7 +44,7 @@ func TestChildCompletionPreservesParentSchedulingAcrossRestore(t *testing.T) {
 			if got, _ := snapshot.WaitID(); got != waitID {
 				t.Fatalf("child completion changed current wait to %s, want %s", got, waitID)
 			}
-			tree, err := engine.CaptureTree(t.Context(), root.ID())
+			tree, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -64,7 +64,7 @@ func TestHostStorageDeadlineAndShutdownReachTransaction(t *testing.T) {
 					if err != nil || confirmed != (phase == "after") {
 						t.Fatalf("reconciliation confirmed=%t error=%v", confirmed, err)
 					}
-					head, exists, err := store.LoadTree(reconcileContext, process.ID())
+					head, exists, err := store.LoadTree(reconcileContext, process.Relation().ProcessID())
 					wantHead := write.previous
 					if phase == "after" {
 						wantHead = write.snapshot.Digest()

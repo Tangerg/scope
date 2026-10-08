@@ -205,7 +205,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 				t.Fatalf("failed admission tree = %d Processes, %v", len(tree.ProcessSnapshots()), err)
 			}
 			for _, snapshot := range tree.ProcessSnapshots() {
-				if snapshot.ProcessID() != result.ProcessID() && snapshot.Status() != agent.StatusCompleted {
+				if snapshot.Relation().ProcessID() != result.ProcessID() && snapshot.Status() != agent.StatusCompleted {
 					t.Fatalf("sibling did not finish before failure propagation: %s", snapshot.Status())
 				}
 			}

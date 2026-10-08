@@ -60,10 +60,10 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 			}
 			loadSnapshot := func() (agent.TreeSnapshot, error) {
 				if store != nil {
-					snapshot, _, loadErr := store.LoadTree(t.Context(), root.ID())
+					snapshot, _, loadErr := store.LoadTree(t.Context(), root.Relation().ProcessID())
 					return snapshot, loadErr
 				}
-				return engine.CaptureTree(t.Context(), root.ID())
+				return engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 			}
 			var pending interaction.PendingToolInput
 			for !pending.Valid() {
@@ -133,7 +133,7 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				t.Fatal(killErr)
 			}
 			for _, captured := range snapshot.ProcessSnapshots() {
-				process, exists := engine.Process(captured.ProcessID())
+				process, exists := engine.Process(captured.Relation().ProcessID())
 				if !exists {
 					t.Fatal("old Process is missing")
 				}

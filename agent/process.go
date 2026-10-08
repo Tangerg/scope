@@ -39,17 +39,13 @@ type Process struct {
 	handle *processHandle
 }
 
-// ID returns the stable Process identity.
-func (p *Process) ID() ProcessID {
-	return p.handle.processID()
-}
-
 func (p *Process) DeploymentRef() DeploymentRef {
 	return p.handle.deploymentRef()
 }
 
-// Relation returns the immutable parent/root/depth location assigned by the
-// Engine. It is a root relation for Processes created through Engine.Start.
+// Relation returns the Process identity with its immutable parent/root/depth
+// location assigned by the Engine. It is a root relation for Processes created
+// through Engine.Start.
 func (p *Process) Relation() ProcessRelation {
 	return p.handle.relation
 }

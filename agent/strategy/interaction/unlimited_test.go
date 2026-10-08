@@ -75,7 +75,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 	if err != nil || value.ModelCalls != rounds+1 {
 		t.Fatalf("model calls=%d error=%v", value.ModelCalls, err)
 	}
-	tree, err := engine.CaptureTree(t.Context(), process.ID())
+	tree, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

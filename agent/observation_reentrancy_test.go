@@ -15,15 +15,15 @@ func TestListenerCallingItsOwnTreeIsRefused(t *testing.T) {
 		call func(context.Context, *Engine, *Process) error
 	}{
 		{"InspectTree", func(ctx context.Context, engine *Engine, process *Process) error {
-			_, err := engine.InspectTree(ctx, process.ID())
+			_, err := engine.InspectTree(ctx, process.Relation().ProcessID())
 			return err
 		}},
 		{"CaptureTree", func(ctx context.Context, engine *Engine, process *Process) error {
-			_, err := engine.CaptureTree(ctx, process.ID())
+			_, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 			return err
 		}},
 		{"ReleaseTree", func(ctx context.Context, engine *Engine, process *Process) error {
-			return engine.ReleaseTree(ctx, process.ID())
+			return engine.ReleaseTree(ctx, process.Relation().ProcessID())
 		}},
 		{"Pause", func(ctx context.Context, _ *Engine, process *Process) error { return process.Pause(ctx, "listener") }},
 		{"Resume", func(ctx context.Context, _ *Engine, process *Process) error { return process.Resume(ctx) }},
@@ -64,13 +64,13 @@ func TestListenerCaptureIsRefusedBeforeWaitingForTreeOperation(t *testing.T) {
 			<-proceed
 			ctx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
-			_, err := engine.CaptureTree(ctx, process.ID())
+			_, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 			result <- err
 		})
 		<-entered
 		outer := make(chan error, 1)
 		go func() {
-			_, err := engine.CaptureTree(t.Context(), process.ID())
+			_, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 			outer <- err
 		}()
 		synctest.Wait()
@@ -96,7 +96,7 @@ func TestListenerContextIsUsableAfterCallbackReturns(t *testing.T) {
 			})
 			ctx := <-contexts
 			mustAwait(t, process)
-			if _, err := engine.InspectTree(ctx, process.ID()); err != nil {
+			if _, err := engine.InspectTree(ctx, process.Relation().ProcessID()); err != nil {
 				t.Fatalf("InspectTree after callback returned = %v", err)
 			}
 			wantPanics := uint64(0)
@@ -116,10 +116,10 @@ func TestListenerMayInspectAnotherTree(t *testing.T) {
 	var engine *Engine
 	listener := EventListenerFunc(func(ctx context.Context, event Event) {
 		target := other.Load()
-		if event.Name() != EventProcessStarted || target == nil || event.ProcessID() == target.ID() {
+		if event.Name() != EventProcessStarted || target == nil || event.Relation().ProcessID() == target.Relation().ProcessID() {
 			return
 		}
-		_, err := engine.InspectTree(ctx, target.ID())
+		_, err := engine.InspectTree(ctx, target.Relation().ProcessID())
 		result <- err
 	})
 	var err error
@@ -213,7 +213,7 @@ func TestNestedListenerRetainsTheActiveOuterTree(t *testing.T) {
 		outer, err = NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), EventListeners: []EventListener{
 			EventListenerFunc(func(ctx context.Context, event Event) {
 				if event.Name() == EventProcessStarted {
-					rootID = event.ProcessID()
+					rootID = event.Relation().ProcessID()
 					if _, runErr := inner.Run(ctx, deployment, input); runErr != nil {
 						t.Error(runErr)
 					}
@@ -240,7 +240,7 @@ func startListenerProcess(t *testing.T, callback func(context.Context, *Engine, 
 		if event.Name() != EventProcessStarted {
 			return
 		}
-		process, found := engine.Process(event.ProcessID())
+		process, found := engine.Process(event.Relation().ProcessID())
 		if !found {
 			t.Error("published Process is absent")
 			return

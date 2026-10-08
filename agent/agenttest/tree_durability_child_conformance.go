@@ -27,12 +27,12 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 	engine := newCrashEngine(t, gate, recorder)
 	original := startCrashTree(t, engine, deployment)
 	observation := gate.await(t)
-	childID := crashTreeChildID(t, observation.prospective, original.ID())
+	childID := crashTreeChildID(t, observation.prospective, original.Relation().ProcessID())
 	if _, found := engine.Process(childID); found {
 		t.Fatal("child was published before its checkpoint acknowledgment")
 	}
 	for _, event := range recorder.Events() {
-		if event.ProcessID() == childID {
+		if event.Relation().ProcessID() == childID {
 			t.Fatal("unacknowledged child published an observation")
 		}
 	}
@@ -40,7 +40,7 @@ func runCrashChildCommit(t *testing.T, store TreeCommitterConformanceDriver, pha
 	if phase == crashCommitAfter {
 		wantProcesses = 2
 	}
-	head := assertCrashHead(t, store, original.ID(), observation.durableDigest())
+	head := assertCrashHead(t, store, original.Relation().ProcessID(), observation.durableDigest())
 	if len(head.ProcessSnapshots()) != wantProcesses {
 		t.Fatalf("child boundary processes=%d want=%d", len(head.ProcessSnapshots()), wantProcesses)
 	}
@@ -69,11 +69,11 @@ func assertCrashTreeAllocation(
 	childID agent.ProcessID,
 ) {
 	t.Helper()
-	head, found, err := store.LoadTree(t.Context(), original.ID())
+	head, found, err := store.LoadTree(t.Context(), original.Relation().ProcessID())
 	if err != nil || !found || len(head.ProcessSnapshots()) != 2 {
 		t.Fatalf("restored child tree exists=%t processes=%d error=%v", found, len(head.ProcessSnapshots()), err)
 	}
-	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), original.ID())
+	rootSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), original.Relation().ProcessID())
 	childSnapshot := conformanceSnapshotByID(head.ProcessSnapshots(), childID)
 	// The parent's child debit is derived from the retained child grant.
 	if rootSnapshot.Budget() != original.Budget() || childSnapshot.Budget() != crashTreeChildBudget() {
@@ -131,11 +131,11 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitte
 	engine := newCrashEngine(t, gate, nil)
 	root := startCrashTree(t, engine, deployment)
 	waitForConformanceStatus(t, engine, root, agent.StatusWaiting)
-	head, found, err := store.LoadTree(t.Context(), root.ID())
+	head, found, err := store.LoadTree(t.Context(), root.Relation().ProcessID())
 	if err != nil || !found {
 		t.Fatalf("waiting tree head exists=%t error=%v", found, err)
 	}
-	childID := crashTreeChildID(t, head, root.ID())
+	childID := crashTreeChildID(t, head, root.Relation().ProcessID())
 	child, found := engine.Process(childID)
 	if !found {
 		t.Fatal("waiting child was not published")
@@ -145,7 +145,7 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitte
 		t.Fatal(err)
 	}
 	observation := gate.await(t)
-	head = assertCrashHead(t, store, root.ID(), observation.durableDigest())
+	head = assertCrashHead(t, store, root.Relation().ProcessID(), observation.durableDigest())
 	if inspectConformanceProcess(t, engine, root).Status() != agent.StatusWaiting || inspectConformanceProcess(t, engine, child).Status() != agent.StatusWaiting {
 		t.Fatal("cancellation was published before checkpoint acknowledgment")
 	}
@@ -154,7 +154,7 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitte
 	if result := awaitCrashProcess(t, restoredRoot); result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("restored parent status=%s", result.Termination().Status())
 	}
-	restoredChild, found := restoredEngine.Process(child.ID())
+	restoredChild, found := restoredEngine.Process(child.Relation().ProcessID())
 	if !found {
 		t.Fatal("restored tree lost canceled child")
 	}
@@ -533,9 +533,9 @@ func crashTreeChildID(
 ) agent.ProcessID {
 	t.Helper()
 	for _, process := range snapshot.ProcessSnapshots() {
-		if process.ProcessID() != rootID &&
+		if process.Relation().ProcessID() != rootID &&
 			process.Relation().Depth() == crashTreeDirectChildDepth {
-			return process.ProcessID()
+			return process.Relation().ProcessID()
 		}
 	}
 	t.Fatal("parked tree has no direct child")

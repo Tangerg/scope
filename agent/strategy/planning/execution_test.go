@@ -307,11 +307,11 @@ func TestManagedPlanningUnknownActionRequiresExplicitResolution(t *testing.T) {
 	queryContext, cancelQuery := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelQuery()
 	for {
-		inspection, queryErr := engine.InspectTree(queryContext, process.ID())
+		inspection, queryErr := engine.InspectTree(queryContext, process.Relation().ProcessID())
 		if queryErr != nil {
 			t.Fatalf("inspect unknown Action Effect: %v", queryErr)
 		}
-		report, found := inspection.Process(process.ID())
+		report, found := inspection.Process(process.Relation().ProcessID())
 		if !found {
 			t.Fatal("Action Process is missing from the inspection")
 		}

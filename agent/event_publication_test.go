@@ -81,7 +81,7 @@ func TestCommittedEventsWaitForDurabilityAcknowledgment(t *testing.T) {
 				if !errors.Is(err, committer.failure) {
 					t.Fatalf("Await error=%v, want %v", err, committer.failure)
 				}
-				if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+				if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 					t.Fatal(releaseErr)
 				}
 				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -152,9 +152,9 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 		sequences := make(map[ProcessID]uint64)
 		var acceptedSignals int
 		listener := EventListenerFunc(func(_ context.Context, event Event) {
-			sequences[event.ProcessID()]++
-			if event.ProcessSequence() != sequences[event.ProcessID()] {
-				t.Errorf("%s publication sequence=%d, want %d", event.Name(), event.ProcessSequence(), sequences[event.ProcessID()])
+			sequences[event.Relation().ProcessID()]++
+			if event.ProcessSequence() != sequences[event.Relation().ProcessID()] {
+				t.Errorf("%s publication sequence=%d, want %d", event.Name(), event.ProcessSequence(), sequences[event.Relation().ProcessID()])
 			}
 			if event.Phase() != EventPhaseCommitted {
 				return
@@ -162,7 +162,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 			committer.mu.Lock()
 			head := committer.head
 			committer.mu.Unlock()
-			snapshot := head.state.processSnapshot(event.ProcessID())
+			snapshot := head.state.processSnapshot(event.Relation().ProcessID())
 			if !snapshot.Valid() {
 				t.Errorf("%s published before Process admission", event.Name())
 				return
@@ -202,7 +202,7 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 		if result.Termination().Status() != StatusCompleted {
 			t.Errorf("root status=%s", result.Termination().Status())
 		}
-		if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+		if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 			t.Fatal(releaseErr)
 		}
 		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -224,14 +224,14 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, root, StatusPaused)
-	snapshot, err := engine.CaptureTree(t.Context(), root.ID())
+	snapshot, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if killErr := root.Kill(t.Context(), "release original activation"); killErr != nil {
 		t.Fatal(killErr)
 	}
-	if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+	if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
 	previousEvents := len(listener.snapshot())
@@ -245,7 +245,7 @@ func TestRestoredProcessStartsANewPublicationSequence(t *testing.T) {
 		t.Fatal(resumeErr)
 	}
 	_ = awaitResult(t, root)
-	if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+	if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -308,7 +308,7 @@ func TestEquivalentPausedStatePublishesWithoutAnotherCommit(t *testing.T) {
 		if killErr := root.Kill(t.Context(), "test complete"); killErr != nil {
 			t.Fatal(killErr)
 		}
-		if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
+		if releaseErr := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); releaseErr != nil {
 			t.Fatal(releaseErr)
 		}
 		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

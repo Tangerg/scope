@@ -251,7 +251,7 @@ func BenchmarkRestoreDrainedTreeSnapshot(b *testing.B) {
 				if err := process.Join(b.Context()); err != nil {
 					b.Fatal(err)
 				}
-				if err := engine.ReleaseTree(b.Context(), process.ID()); err != nil {
+				if err := engine.ReleaseTree(b.Context(), process.Relation().ProcessID()); err != nil {
 					b.Fatal(err)
 				}
 				if err := engine.Close(b.Context()); err != nil {

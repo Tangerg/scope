@@ -31,7 +31,7 @@ func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) 
 		t.Fatal("resolved child is missing")
 	}
 	if child.DeploymentRef() != childDeployment.DeploymentRef() ||
-		child.Relation().RootID() != parent.ID() || child.Relation().Depth() != 1 {
+		child.Relation().RootID() != parent.Relation().ProcessID() || child.Relation().Depth() != 1 {
 		t.Fatalf("resolved child binding = %#v, relation = %#v", child.DeploymentRef(), child.Relation())
 	}
 	_ = mustAwait(t, child)
@@ -60,7 +60,7 @@ func TestEngineStartsAndRestoresBoundChildrenWithoutResolver(t *testing.T) {
 	if joinErr := parent.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	tree, err := engine.CaptureTree(t.Context(), parent.ID())
+	tree, err := engine.CaptureTree(t.Context(), parent.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

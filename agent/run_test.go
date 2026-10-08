@@ -91,7 +91,7 @@ func TestRunWaitsForDescendantAcknowledgmentAndReportsItsFailure(t *testing.T) {
 		release()
 		result := <-returned
 		runtimeErr, ok := errors.AsType[*RuntimeError](result.err)
-		if !ok || !errors.Is(result.err, failure) || runtimeErr.ProcessID() != root.ID() || result.result.Valid() {
+		if !ok || !errors.Is(result.err, failure) || runtimeErr.ProcessID() != root.Relation().ProcessID() || result.result.Valid() {
 			t.Fatalf("Run discarded descendant failure or reported a result: %+v", result)
 		}
 		if retained := mustAwait(t, root); retained.Termination().Status() != acknowledged.Termination().Status() || retained.FinishedAt() != acknowledged.FinishedAt() {
@@ -116,7 +116,7 @@ func startRunScope(
 	started := make(chan ProcessID, 1)
 	config.EventListeners = append(config.EventListeners, EventListenerFunc(func(_ context.Context, event Event) {
 		if _, hasParent := event.Relation().ParentID(); !hasParent && event.Name() == EventProcessStarted {
-			started <- event.ProcessID()
+			started <- event.Relation().ProcessID()
 		}
 	}))
 	engine, err := NewEngine(config)

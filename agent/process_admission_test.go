@@ -60,7 +60,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 	}
 	rootAdmission, childAdmission := got[0], got[1]
 	if !rootAdmission.Valid() || !rootAdmission.Relation().IsRoot() ||
-		rootAdmission.Relation().ProcessID() != parent.ID() ||
+		rootAdmission.Relation().ProcessID() != parent.Relation().ProcessID() ||
 		rootAdmission.DeploymentRef() != parentDeployment.DeploymentRef() ||
 		rootAdmission.Descriptor().Digest() != parentDeployment.Descriptor().Digest() ||
 		rootAdmission.Budget() != (Budget{}) ||
@@ -68,7 +68,7 @@ func TestProcessAdmitterReceivesRootAndChildResourceContracts(t *testing.T) {
 		t.Fatalf("root admission = %#v", rootAdmission)
 	}
 	parentID, hasParent := childAdmission.Relation().ParentID()
-	if !childAdmission.Valid() || !hasParent || parentID != parent.ID() ||
+	if !childAdmission.Valid() || !hasParent || parentID != parent.Relation().ProcessID() ||
 		childAdmission.Relation().Depth() != 1 ||
 		childAdmission.DeploymentRef() != childDeployment.DeploymentRef() ||
 		childAdmission.Budget() != (Budget{Steps: NewQuota(20), Effects: NewQuota(20), Signals: NewQuota(40)}) ||
@@ -232,7 +232,7 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = mustAwait(t, process)
-	snapshot, err := first.CaptureTree(context.Background(), process.ID())
+	snapshot, err := first.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}

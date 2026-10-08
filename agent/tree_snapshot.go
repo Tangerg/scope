@@ -155,9 +155,9 @@ func newDecodedProcesses(capacity int) *decodedProcesses {
 
 func (d *decodedProcesses) add(snapshot ProcessSnapshot) {
 	d.ordered = append(d.ordered, snapshot)
-	d.byID[snapshot.ProcessID()] = snapshot
+	d.byID[snapshot.Relation().ProcessID()] = snapshot
 	if parentID, child := snapshot.Relation().ParentID(); child {
-		d.children[parentID] = append(d.children[parentID], snapshot.ProcessID())
+		d.children[parentID] = append(d.children[parentID], snapshot.Relation().ProcessID())
 	}
 }
 
@@ -368,7 +368,7 @@ func (t treeSnapshotWire) clone() treeSnapshotWire {
 
 func (t treeSnapshotWire) processSnapshot(id ProcessID) ProcessSnapshot {
 	for _, snapshot := range t.ProcessSnapshots {
-		if snapshot.ProcessID() == id {
+		if snapshot.Relation().ProcessID() == id {
 			return snapshot
 		}
 	}
@@ -472,7 +472,7 @@ func (t *treeSnapshotValidation) recordChild(relation ProcessRelation, child pro
 
 func (t *treeSnapshotValidation) validateChildAccounting() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
-		id, processWire := snapshot.ProcessID(), snapshot.state
+		id, processWire := snapshot.Relation().ProcessID(), snapshot.state
 		if !t.wire.TreeLimits.admitsChildren(t.childCounts[id], t.activeChildCounts[id]) {
 			return fmt.Errorf("%w: child limits exceeded", ErrInvalidTreeSnapshot)
 		}
@@ -488,7 +488,7 @@ func (t *treeSnapshotValidation) validateChildAccounting() error {
 func (t *treeSnapshotValidation) validateChildWaits() error {
 	for _, snapshot := range t.wire.ProcessSnapshots {
 		for _, opened := range snapshot.openChildWaits {
-			if err := opened.spec.validateRelations(snapshot.ProcessID(), t.processRelation); err != nil {
+			if err := opened.spec.validateRelations(snapshot.Relation().ProcessID(), t.processRelation); err != nil {
 				return fmt.Errorf("%w: child wait: %w", ErrInvalidTreeSnapshot, err)
 			}
 		}

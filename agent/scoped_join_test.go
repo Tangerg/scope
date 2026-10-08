@@ -207,7 +207,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						}
 					} else {
 						cleanupResult := mustAwait(t, cleanup)
-						want := []UnresolvedEffect{{ProcessID: cleanup.ID(), EffectID: cleanupResult.Termination().UnresolvedEffectIDs()[0]}}
+						want := []UnresolvedEffect{{ProcessID: cleanup.Relation().ProcessID(), EffectID: cleanupResult.Termination().UnresolvedEffectIDs()[0]}}
 						if !known || !slices.Equal(unresolved, want) || len(state.Outcome.Result().Termination().UnresolvedEffectIDs()) != 0 {
 							t.Fatalf("subtree projection=%v known=%v local result=%+v", unresolved, known, state.Outcome.Result())
 						}
@@ -215,7 +215,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						for _, snapshot := range parsed.state.ProcessSnapshots {
 							decoded.add(snapshot)
 						}
-						derived := controlValue(decoded.childOutcome(recoveredRoot.ID(), recoveredScope.ID(), boundary))
+						derived := controlValue(decoded.childOutcome(recoveredRoot.Relation().ProcessID(), recoveredScope.Relation().ProcessID(), boundary))
 						if !bytes.Equal(controlValue(jsonv2.Marshal(derived)), controlValue(jsonv2.Marshal(*state.Outcome))) {
 							t.Fatal("retained subtree projection differs from the captured tree")
 						}
@@ -243,7 +243,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 
 func directChildWithKey(t *testing.T, engine *Engine, parent *Process, key string) *Process {
 	t.Helper()
-	for _, encoded := range directChildIDs(t, engine, parent.ID()) {
+	for _, encoded := range directChildIDs(t, engine, parent.Relation().ProcessID()) {
 		id, _ := ParseProcessID(encoded)
 		child, _ := engine.Process(id)
 		if candidate, _ := child.Relation().ChildKey(); candidate.String() == key {
@@ -294,7 +294,7 @@ func TestJoinRetainsParentResultAndWaitsForFailedDescendantCleanup(t *testing.T)
 		dispatcher.Release("cleanup")
 		joinErr := <-joined
 		runtimeErr, ok := errors.AsType[*RuntimeError](joinErr)
-		if !ok || !errors.Is(joinErr, failure) || runtimeErr.ProcessID() != scope.ID() ||
+		if !ok || !errors.Is(joinErr, failure) || runtimeErr.ProcessID() != scope.Relation().ProcessID() ||
 			len(runtimeErr.UnresolvedEffectIDs()) != 1 || runtimeErr.UnresolvedEffectIDs()[0] != cleanupFailure.UnresolvedEffectIDs()[0] {
 			t.Fatalf("scope join failure = %v", joinErr)
 		}
@@ -329,7 +329,7 @@ func TestDurableChildResultDoesNotWaitForUnrelatedDispatch(t *testing.T) {
 			<-dispatcher.started
 		}
 		var first *Process
-		for _, encoded := range directChildIDs(t, engine, root.ID()) {
+		for _, encoded := range directChildIDs(t, engine, root.Relation().ProcessID()) {
 			id, _ := ParseProcessID(encoded)
 			child, _ := engine.Process(id)
 			if key, _ := child.Relation().ChildKey(); key.String() == "first" {

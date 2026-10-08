@@ -90,7 +90,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	finished, err := observations.AwaitEvent(waitContext, func(event agent.Event) bool {
 		return event.Name() == agent.EventProcessFinished
 	})
-	if err != nil || finished.ProcessID() != result.ProcessID() {
+	if err != nil || finished.Relation().ProcessID() != result.ProcessID() {
 		t.Fatalf("finished event=%+v error=%v", finished, err)
 	}
 	t.Run("decoration preserves same-identity replay", func(t *testing.T) {

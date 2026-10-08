@@ -95,7 +95,7 @@ type TreeInspection struct {
 
 func (t TreeInspection) Process(processID ProcessID) (ProcessInspection, bool) {
 	for _, process := range t.Processes {
-		if process.Snapshot.ProcessID() == processID {
+		if process.Snapshot.Relation().ProcessID() == processID {
 			return process, true
 		}
 	}

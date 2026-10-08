@@ -732,7 +732,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 		return ErrProcessAlreadyExists
 	}
 	for _, process := range restoration.wire.ProcessSnapshots {
-		if e.processIdentityTaken(process.ProcessID()) {
+		if e.processIdentityTaken(process.Relation().ProcessID()) {
 			return ErrProcessAlreadyExists
 		}
 		if identity, child := process.Relation().childIdentity(); child && e.childIdentityTaken(identity) {
@@ -741,7 +741,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 	}
 	e.treeRestoreReservations[rootID] = restoration
 	for _, process := range restoration.wire.ProcessSnapshots {
-		e.restoredProcesses[process.ProcessID()] = restoration
+		e.restoredProcesses[process.Relation().ProcessID()] = restoration
 		if identity, child := process.Relation().childIdentity(); child {
 			e.restoredChildren[identity] = restoration
 		}
@@ -752,7 +752,7 @@ func (e *Engine) reserveRestoredTree(restoration *treeRestoration) error {
 // releaseRestoredTree requires mu and retires one reservation with both indexes.
 func (e *Engine) releaseRestoredTree(restoration *treeRestoration) {
 	for _, process := range restoration.wire.ProcessSnapshots {
-		delete(e.restoredProcesses, process.ProcessID())
+		delete(e.restoredProcesses, process.Relation().ProcessID())
 		if identity, child := process.Relation().childIdentity(); child {
 			delete(e.restoredChildren, identity)
 		}

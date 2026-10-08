@@ -83,11 +83,11 @@ func assertUnsupportedSignalRejected(t *testing.T, engine *agent.Engine, process
 	if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
 		t.Fatalf("unsupported Signal admission=%t %v", accepted, deliveryErr)
 	}
-	after, err := engine.InspectTree(t.Context(), process.ID())
+	after, err := engine.InspectTree(t.Context(), process.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, found := after.Process(process.ID())
+	current, found := after.Process(process.Relation().ProcessID())
 	if !found {
 		t.Fatal("rejected input removed the Process")
 	}

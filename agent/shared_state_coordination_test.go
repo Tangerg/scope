@@ -231,7 +231,7 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 	if observed := revisionResult(t, later); !observed.Updated || observed.Revision != 2 || observed.Value != "later value" {
 		t.Fatalf("later external state=%+v", observed)
 	}
-	head, present, loadErr := store.LoadTree(t.Context(), failed.ID())
+	head, present, loadErr := store.LoadTree(t.Context(), failed.Relation().ProcessID())
 	if loadErr != nil || !present {
 		t.Fatalf("lost-response head=%t %v", present, loadErr)
 	}

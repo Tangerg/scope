@@ -53,13 +53,13 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			if !failed || failure.Kind() != kind || failure.Code() != code || failure.Message() != message {
 				t.Fatalf("coordinator failure changed: kind=%s code=%s message bytes=%d", failure.Kind(), failure.Code(), len(failure.Message()))
 			}
-			head, present, err := store.LoadTree(t.Context(), process.ID())
+			head, present, err := store.LoadTree(t.Context(), process.Relation().ProcessID())
 			if err != nil || !present {
 				t.Fatalf("durable tree missing: %v", err)
 			}
 			var state agent.ExecutionState
 			for _, snapshot := range head.ProcessSnapshots() {
-				if snapshot.ProcessID() == process.ID() {
+				if snapshot.Relation().ProcessID() == process.Relation().ProcessID() {
 					state = snapshot.CommittedExecutionState()
 				}
 				if snapshot.DeploymentRef().Name() == "test.gate" && snapshot.Status() != agent.StatusCanceled {

@@ -58,11 +58,11 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	childRelation := child.Relation()
 	parentID, hasParent := childRelation.ParentID()
 	childKey, hasKey := childRelation.ChildKey()
-	if !rootRelation.IsRoot() || rootRelation.RootID() != root.ID() || rootRelation.Depth() != 0 {
+	if !rootRelation.IsRoot() || rootRelation.RootID() != root.Relation().ProcessID() || rootRelation.Depth() != 0 {
 		t.Fatalf("root relation = %#v", rootRelation)
 	}
-	if !hasParent || parentID != root.ID() || !hasKey || childKey.String() != "worker" ||
-		childRelation.RootID() != root.ID() || childRelation.Depth() != 1 {
+	if !hasParent || parentID != root.Relation().ProcessID() || !hasKey || childKey.String() != "worker" ||
+		childRelation.RootID() != root.Relation().ProcessID() || childRelation.Depth() != 1 {
 		t.Fatalf("child relation = %#v", childRelation)
 	}
 	if childSnapshot.Relation() != childRelation {
@@ -216,7 +216,7 @@ func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID := process.ID()
+	rootID := process.Relation().ProcessID()
 	for depth := range uint32(3) {
 		result, err := process.Await(context.Background())
 		if err != nil {
@@ -363,7 +363,7 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	processCount := 0
 	var deepest uint32
 	for _, handle := range engine.processes {
-		if handle.relation.RootID() == root.ID() {
+		if handle.relation.RootID() == root.Relation().ProcessID() {
 			processCount++
 			deepest = max(deepest, handle.relation.Depth())
 		}
@@ -502,7 +502,7 @@ func terminatedChildIDs(t *testing.T, engine *Engine, parent *Process, result Re
 	if result.Termination().Status() == StatusCompleted {
 		return childTestResult(t, result).ChildIDs
 	}
-	return directChildIDs(t, engine, parent.ID())
+	return directChildIDs(t, engine, parent.Relation().ProcessID())
 }
 
 func assertTerminatedChildren(t *testing.T, engine *Engine, childIDs []string, wantStatus Status, wantCause TerminationCause) {
@@ -547,7 +547,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 		if parentResult.Termination().Status() != StatusTimedOut || parentResult.Termination().Cause() != TerminationCauseHostDeadline {
 			t.Fatalf("parent termination = %#v", parentResult.Termination())
 		}
-		childIDs := directChildIDs(t, engine, parent.ID())
+		childIDs := directChildIDs(t, engine, parent.Relation().ProcessID())
 		dispatcher.ReleaseAll()
 		for _, encoded := range childIDs {
 			childID, _ := ParseProcessID(encoded)
@@ -605,7 +605,7 @@ func TestEngineRejectsWaitingOnDescendantThatIsNotDirectChild(t *testing.T) {
 	waitID, _ := ParseWaitID("wait:ancestor-rejected")
 	waitKey, _ := ParseWaitKey("descendant")
 	owner := root.handle.treeRuntime()
-	_, err = owner.childWaitAnswers(root.ID(), []openedChildWait{{waitID: waitID, spec: ChildWaitSpec{
+	_, err = owner.childWaitAnswers(root.Relation().ProcessID(), []openedChildWait{{waitID: waitID, spec: ChildWaitSpec{
 		Boundary: ChildWaitBoundaryResult,
 		Key:      waitKey, Children: []ProcessID{grandchildID}, Condition: AllChildren(),
 	}}})

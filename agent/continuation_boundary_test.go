@@ -82,7 +82,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		tree, err := engine.InspectTree(t.Context(), root.ID())
+		tree, err := engine.InspectTree(t.Context(), root.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 				uncertain = len(fact.Snapshot.UnknownEffectIDs()) == 1
 			}
 			if fact.Snapshot.DeploymentRef() == gateBinding.DeploymentRef() {
-				winner, _ = engine.Process(fact.Snapshot.ProcessID())
+				winner, _ = engine.Process(fact.Snapshot.Relation().ProcessID())
 				waitID, _ = fact.Snapshot.WaitID()
 			}
 		}
@@ -125,7 +125,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		if _, sealErr := store.sealEpisode(t.Context(), root); !errors.Is(sealErr, errUnsafeEpisodeBoundary) {
 			t.Fatalf("unresolved descendant crossed episode boundary: %v", sealErr)
 		}
-		if store.sealed[root.ID()].Valid() || store.allocations != 0 || store.starts != 0 {
+		if store.sealed[root.Relation().ProcessID()].Valid() || store.allocations != 0 || store.starts != 0 {
 			t.Fatal("unsafe boundary gained successor admission authority")
 		}
 		if closeErr := engine.Close(t.Context()); closeErr != nil {

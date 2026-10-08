@@ -58,7 +58,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 						t.Fatal(err)
 					}
 					<-definition.entered
-					childID := root.ID().effectID(1, 0).childProcessID()
+					childID := root.Relation().ProcessID().effectID(1, 0).childProcessID()
 					child, found := engine.Process(childID)
 					if !found {
 						t.Fatal("child was not published")

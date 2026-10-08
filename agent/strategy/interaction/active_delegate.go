@@ -89,7 +89,7 @@ func ActiveDelegateChildren(
 			toolCallIndex:     state.ToolRound.nextCallIndex() + uint32(index),
 			toolCall:          activeCalls[index],
 			processID:         *invocation.ProcessID,
-			parentProcessID:   snapshot.ProcessID(),
+			parentProcessID:   snapshot.Relation().ProcessID(),
 		}
 		children = append(children, child)
 	}

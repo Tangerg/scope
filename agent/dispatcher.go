@@ -70,8 +70,6 @@ func newEffectRequest(
 	}
 }
 
-func (e EffectRequest) ProcessID() ProcessID { return e.relation.ProcessID() }
-
 // TreeIncarnationID identifies the active durable writer for observation and
 // correlation. It is not part of the Effect's idempotency identity, which
 // remains ID across restoration.

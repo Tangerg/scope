@@ -41,7 +41,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 	} {
 		b.Run(sample.name, func(b *testing.B) {
 			engine, deployment, process := benchmarkRecoverableProcess(b, sample)
-			snapshot, err := engine.CaptureTree(b.Context(), process.ID())
+			snapshot, err := engine.CaptureTree(b.Context(), process.Relation().ProcessID())
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -55,7 +55,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 				run  func() error
 			}{
 				{name: "capture", run: func() error {
-					benchmarkTreeSnapshotSink, err = engine.CaptureTree(b.Context(), process.ID())
+					benchmarkTreeSnapshotSink, err = engine.CaptureTree(b.Context(), process.Relation().ProcessID())
 					return err
 				}},
 				{name: "validate", run: func() error {
@@ -104,7 +104,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 					b.StartTimer()
 					restored, err := restoredEngine.RestoreTree(b.Context(), deployment, snapshot)
 					b.StopTimer()
-					if err != nil || restored.ID() != process.ID() {
+					if err != nil || restored.Relation().ProcessID() != process.Relation().ProcessID() {
 						b.Fatalf("RestoreTree error=%v", err)
 					}
 					stopRecoveryBenchmarkProcess(b, restored)

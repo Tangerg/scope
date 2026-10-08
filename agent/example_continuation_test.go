@@ -111,7 +111,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	treeLimits := agent.DefaultTreeLimits()
 	treeLimits.MaxPendingSignals = 8
 	request := successorRequest{
-		Predecessor: previous.ID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
+		Predecessor: previous.Relation().ProcessID(), DeploymentRef: deployment.DeploymentRef(), Input: transfer,
 		Budget:     agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
 		TreeLimits: treeLimits,
 	}
@@ -145,7 +145,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 		panic(err)
 	}
 	fmt.Println("revision:", state.Revision, "->", nextState.Revision)
-	fmt.Println("same successor:", next.ID() == duplicate.ID())
+	fmt.Println("same successor:", next.Relation().ProcessID() == duplicate.Relation().ProcessID())
 	fmt.Println("new allocations:", store.allocations)
 	// Output:
 	// revision: 1 -> 2

@@ -32,7 +32,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 			if err := process.Pause(t.Context(), "again"); !errors.Is(err, ErrInvalidProcessControl) {
 				t.Fatalf("Pause Paused: %v", err)
 			}
-			tree := controlValue(engine.CaptureTree(t.Context(), process.ID()))
+			tree := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 			paused := tree.ProcessSnapshots()[0]
 			if got, ok := paused.WaitID(); !ok || got != waitID {
 				t.Fatal("pause lost the unanswered wait")
@@ -193,7 +193,7 @@ func TestWaitingCycleRecoversLostAcknowledgmentFromAuthoritativeHead(t *testing.
 	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.wait", "wait"), nil)
 	process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(engineTestInput{Value: "cycle"}))))
 	waitForStatus(t, process, StatusWaiting)
-	initial := controlValue(engine.CaptureTree(t.Context(), process.ID()))
+	initial := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 	if err := process.Pause(t.Context(), "review"); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestWaitingCycleRecoversLostAcknowledgmentFromAuthoritativeHead(t *testing.
 	if snapshot := inspectProcessSnapshot(t, process); snapshot.Status() != StatusPaused {
 		t.Fatalf("unacknowledged state published: %s", snapshot.Status())
 	}
-	head, exists, err := committer.LoadTree(t.Context(), process.ID())
+	head, exists, err := committer.LoadTree(t.Context(), process.Relation().ProcessID())
 	if err != nil || !exists || head.Digest() != initial.Digest() {
 		t.Fatalf("stored waiting cut differs: %v", err)
 	}

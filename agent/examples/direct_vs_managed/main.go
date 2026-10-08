@@ -56,7 +56,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if releaseErr := engine.ReleaseTree(ctx, process.ID()); releaseErr != nil {
+	if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
 		return releaseErr
 	}
 	erased, ok := result.Termination().Output()

@@ -70,7 +70,7 @@ func inspect(t testing.TB, engine *agent.Engine, process *agent.Process) agent.P
 	if err != nil {
 		t.Fatal(err)
 	}
-	fact, present := tree.Process(process.ID())
+	fact, present := tree.Process(process.Relation().ProcessID())
 	if !present {
 		t.Fatal("process is absent")
 	}
@@ -196,7 +196,7 @@ type recipientPort struct {
 }
 
 func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error {
-	if !sender.Valid() || recipient != r.recipient.ID() {
+	if !sender.Valid() || recipient != r.recipient.Relation().ProcessID() {
 		return agent.ErrSignalRejected
 	}
 	payload, err := agent.ParsePayload(signal.Payload())
@@ -260,7 +260,7 @@ func (r *recipientPort) reconcile(ctx context.Context, signal agent.SignalReques
 	if err != nil {
 		return false, err
 	}
-	fact, present := tree.Process(r.recipient.ID())
+	fact, present := tree.Process(r.recipient.Relation().ProcessID())
 	if !present {
 		return false, errors.New("recipient missing from tree inspection")
 	}

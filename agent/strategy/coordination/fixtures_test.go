@@ -87,7 +87,7 @@ func inspect(t testing.TB, engine *agent.Engine, process *agent.Process) agent.P
 	if err != nil {
 		t.Fatal(err)
 	}
-	fact, present := tree.Process(process.ID())
+	fact, present := tree.Process(process.Relation().ProcessID())
 	if !present {
 		t.Fatal("process is missing from its tree")
 	}

@@ -181,12 +181,12 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 		store := agent.NewMemoryTreeCommitter()
 		engine, process := run(t, definition, store)
 		synctest.Wait()
-		tree := require(engine.InspectTree(t.Context(), process.ID()))
+		tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 		var recipient agent.ProcessID
 		var wait agent.WaitID
 		for _, fact := range tree.Processes {
 			if fact.Snapshot.DeploymentRef().Name() == "test.gate" {
-				recipient = fact.Snapshot.ProcessID()
+				recipient = fact.Snapshot.Relation().ProcessID()
 				wait, _ = fact.Snapshot.WaitID()
 			}
 		}
@@ -239,7 +239,7 @@ func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	if result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("termination = %+v", result.Termination())
 	}
-	tree := require(engine.CaptureTree(t.Context(), process.ID()))
+	tree := require(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 	parsed := require(agent.ParseTreeSnapshot(tree.JSON()))
 	if err := engine.Close(t.Context()); err != nil {
 		t.Fatal(err)

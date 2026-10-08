@@ -27,12 +27,12 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	receiveTreeRuntimeProbe(t, dispatcher.started)
 	ctx, cancel := context.WithTimeout(t.Context(), treeRuntimeProgressTimeout)
 	defer cancel()
-	operation, err := engine.acquireTreeOperation(ctx, root.ID())
+	operation, err := engine.acquireTreeOperation(ctx, root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer operation.release()
-	owner, err := engine.runtimeForTree(root.ID())
+	owner, err := engine.runtimeForTree(root.Relation().ProcessID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 		frozen <- treeFreezeAcquisitionResult{freeze: freeze, snapshot: snapshot, err: freezeErr}
 	}()
 	for {
-		inspection, inspectErr := engine.InspectTree(ctx, root.ID())
+		inspection, inspectErr := engine.InspectTree(ctx, root.Relation().ProcessID())
 		if inspectErr != nil {
 			t.Fatal(inspectErr)
 		}
@@ -59,7 +59,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	if acquired.err != nil {
 		t.Fatal(acquired.err)
 	}
-	held := requireTreeInspection(t, engine, root.ID())
+	held := requireTreeInspection(t, engine, root.Relation().ProcessID())
 	if held.Freeze != TreeFreezePhaseHeld || held.CommitPending || held.Processes[0].Work != ProcessWorkQueued {
 		t.Fatalf("held freeze inspection=%+v", held)
 	}
@@ -70,7 +70,7 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("unfrozen result=%s error=%v", result.Termination().Status(), awaitErr)
 	}
-	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
+	if releaseErr := engine.ReleaseTree(ctx, root.Relation().ProcessID()); releaseErr != nil {
 		t.Fatal(releaseErr)
 	}
 	mustCloseEngine(t, engine)
@@ -121,7 +121,7 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 			// Bounded callers exercise API races; owner-turn tests keep lanes full
 			// without depending on Go's scheduling of an unlimited query loop.
 			for index := range inspectionsPerReader {
-				inspection, inspectErr := engine.InspectTree(ctx, root.ID())
+				inspection, inspectErr := engine.InspectTree(ctx, root.Relation().ProcessID())
 				if errors.Is(inspectErr, ErrTreeNotFound) {
 					finished <- nil
 					return
@@ -130,8 +130,8 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 					finished <- inspectErr
 					return
 				}
-				if inspection.RootID != root.ID() || len(inspection.Processes) != 1 ||
-					inspection.Processes[0].Snapshot.ProcessID() != root.ID() {
+				if inspection.RootID != root.Relation().ProcessID() || len(inspection.Processes) != 1 ||
+					inspection.Processes[0].Snapshot.Relation().ProcessID() != root.Relation().ProcessID() {
 					finished <- errors.New("inspection lost the published root")
 					return
 				}
@@ -157,10 +157,10 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("queries delayed completion: status=%s error=%v", result.Termination().Status(), awaitErr)
 	}
-	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
+	if releaseErr := engine.ReleaseTree(ctx, root.Relation().ProcessID()); releaseErr != nil {
 		t.Fatalf("queries delayed release: %v", releaseErr)
 	}
-	if _, inspectErr := engine.InspectTree(ctx, root.ID()); !errors.Is(inspectErr, ErrTreeNotFound) {
+	if _, inspectErr := engine.InspectTree(ctx, root.Relation().ProcessID()); !errors.Is(inspectErr, ErrTreeNotFound) {
 		t.Fatalf("released tree inspection error=%v", inspectErr)
 	}
 	for range readers {
@@ -221,8 +221,8 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 			ctx, cancel := context.WithTimeout(t.Context(), treeRuntimeProgressTimeout)
 			defer cancel()
 			for {
-				inspection := requireTreeInspection(t, engine, root.ID())
-				report, found := inspection.Process(root.ID())
+				inspection := requireTreeInspection(t, engine, root.Relation().ProcessID())
+				report, found := inspection.Process(root.Relation().ProcessID())
 				kind, waiting := report.Snapshot.WaitKind()
 				allIdle := true
 				for _, process := range inspection.Processes {
@@ -236,19 +236,19 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 				}
 				runtime.Gosched()
 			}
-			before, err := engine.CaptureTree(t.Context(), root.ID())
+			before, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}
 			for range 32 {
-				inspection := requireTreeInspection(t, engine, root.ID())
-				report, found := inspection.Process(root.ID())
+				inspection := requireTreeInspection(t, engine, root.Relation().ProcessID())
+				report, found := inspection.Process(root.Relation().ProcessID())
 				kind, waiting := report.Snapshot.WaitKind()
 				if !found || !waiting || kind != scenario.kind || !inspection.HeadDigest.Valid() || !inspection.IncarnationID.Valid() {
 					t.Fatalf("acknowledged wait inspection=%+v kind=%s waiting=%t", inspection, kind, waiting)
 				}
 			}
-			after, err := engine.CaptureTree(t.Context(), root.ID())
+			after, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
 			if err != nil || after.Digest() != before.Digest() {
 				t.Fatalf("pure inspection changed execution facts: %v", err)
 			}
@@ -275,7 +275,7 @@ func TestInspectionWaitAuthoritySurvivesRestoreWithoutChangingFacts(t *testing.T
 				if kind, waiting := inspectProcessSnapshot(t, instance.root).WaitKind(); waiting || kind != "" {
 					t.Fatalf("terminal Process retained a wait: %s, %t", kind, waiting)
 				}
-				if releaseErr := instance.engine.ReleaseTree(t.Context(), instance.root.ID()); releaseErr != nil {
+				if releaseErr := instance.engine.ReleaseTree(t.Context(), instance.root.Relation().ProcessID()); releaseErr != nil {
 					t.Fatal(releaseErr)
 				}
 				mustCloseEngine(t, instance.engine)

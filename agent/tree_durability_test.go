@@ -182,7 +182,7 @@ func TestRestoreTreeRejectsLocalRegistrationBeforeActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, original, StatusWaiting)
-	parked := waitForDurableCheckpoint(t, committer, original.ID(), TreeCheckpointKindParked)
+	parked := waitForDurableCheckpoint(t, committer, original.Relation().ProcessID(), TreeCheckpointKindParked)
 
 	destination, err := NewEngine(EngineConfig{TreeCommitter: committer})
 	if err != nil {
@@ -351,7 +351,7 @@ func TestDurableEffectCommitFailuresStopTheTreeAtTheCorrectBoundary(t *testing.T
 			if err := process.Pause(t.Context(), "stopped instance"); !errors.Is(err, test.cause) {
 				t.Fatalf("stopped control request lost runtime cause: %v", err)
 			}
-			if err := engine.ReleaseTree(t.Context(), process.ID()); err != nil {
+			if err := engine.ReleaseTree(t.Context(), process.Relation().ProcessID()); err != nil {
 				t.Fatal(err)
 			}
 			awaitRuntimeError(t, process, test.cause)
@@ -405,7 +405,7 @@ func TestTreeCommitterFaultPreservesEveryConcurrentEffectForReconciliation(t *te
 	dispatcher.Release(started[0])
 	awaitRuntimeError(t, root, committer.err)
 
-	childIDs := directChildIDs(t, engine, root.ID())
+	childIDs := directChildIDs(t, engine, root.Relation().ProcessID())
 	if len(childIDs) != len(started) {
 		t.Fatalf("child count=%d, want %d", len(childIDs), len(started))
 	}
@@ -499,7 +499,7 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	if string(before.JSON()) != string(after.JSON()) {
 		t.Fatal("late child admission changed the acknowledged head after a fault")
 	}
-	parent := stopped.members.get(root.ID())
+	parent := stopped.members.get(root.Relation().ProcessID())
 	_, record := parent.prepared.pendingEffect(runtimeErr.UnresolvedEffectIDs()[0])
 	if record == nil || record.settlement() != nil {
 		t.Fatal("late child admission replaced pending evidence after a fault")
@@ -515,7 +515,7 @@ func awaitRuntimeError(t *testing.T, process *Process, cause error) *RuntimeErro
 		t.Fatalf("runtime failure result=%+v error=%v, want cause %v", result, err, cause)
 	}
 	runtimeErr, ok := errors.AsType[*RuntimeError](err)
-	if !ok || runtimeErr.ProcessID() != process.ID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
+	if !ok || runtimeErr.ProcessID() != process.Relation().ProcessID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
 		t.Fatalf("runtime failure identity=%+v", runtimeErr)
 	}
 	return runtimeErr
@@ -768,11 +768,11 @@ func TestCaptureReturnsAcknowledgedHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, process, StatusWaiting)
-	snapshot, err := engine.CaptureTree(context.Background(), process.ID())
+	snapshot, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
 	if err != nil || !snapshot.Valid() {
 		t.Fatalf("CaptureTree valid=%v error=%v", snapshot.Valid(), err)
 	}
-	head, exists, loadErr := committer.LoadTree(t.Context(), process.ID())
+	head, exists, loadErr := committer.LoadTree(t.Context(), process.Relation().ProcessID())
 	if loadErr != nil || !exists || head.Digest() != snapshot.Digest() {
 		t.Fatalf("capture differs from acknowledged head: exists=%t error=%v", exists, loadErr)
 	}

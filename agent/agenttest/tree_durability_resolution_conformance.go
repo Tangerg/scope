@@ -35,7 +35,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 		t.Fatalf("resolution returned before its durable acknowledgment: %v", err)
 	default:
 	}
-	head := assertCrashHead(t, store, original.ID(), observation.durableDigest())
+	head := assertCrashHead(t, store, original.Relation().ProcessID(), observation.durableDigest())
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	if phase == crashCommitBefore {

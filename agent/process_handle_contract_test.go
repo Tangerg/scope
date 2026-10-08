@@ -19,7 +19,7 @@ func TestProcessRequiresEngineIssuedHandle(t *testing.T) {
 		name string
 		call func(*agent.Process)
 	}{
-		{"ID", func(process *agent.Process) { _ = process.ID() }},
+		{"ID", func(process *agent.Process) { _ = process.Relation().ProcessID() }},
 		{"DeploymentRef", func(process *agent.Process) { _ = process.DeploymentRef() }},
 		{"Relation", func(process *agent.Process) { _ = process.Relation() }},
 		{"StartedAt", func(process *agent.Process) { _ = process.StartedAt() }},

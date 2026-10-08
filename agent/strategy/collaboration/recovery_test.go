@@ -120,7 +120,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				if boundary.Kind() != agent.EffectBoundaryKindSettled {
 					t.Fatal("control used an external pending permission")
 				}
-				inspection := require(engine.InspectTree(t.Context(), process.ID()))
+				inspection := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
 				if !inspection.CommitPending || inspection.HeadDigest != boundary.PreviousTreeDigest() {
 					t.Fatal("prospective control published before acknowledgment")
 				}
@@ -133,7 +133,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				if !receiver.Valid() || receiver.Usage().AcceptedSignals != 1 || len(receiver.SignalReceipts()) != 1 || receiver.SignalReceipts()[0].Consumed() {
 					t.Fatal("prospective admission lost identity or consumed early")
 				}
-				head, present, err := store.LoadTree(t.Context(), process.ID())
+				head, present, err := store.LoadTree(t.Context(), process.Relation().ProcessID())
 				if err != nil || !present || head.Digest() != boundary.TreeSnapshot().Digest() {
 					t.Fatalf("head: %t %v", present, err)
 				}
@@ -148,7 +148,7 @@ func TestControlAdmissionAndReceiptRecoverAsOneTreeCut(t *testing.T) {
 				if got := completed(t, restored); got != "recovered once" {
 					t.Fatal(got)
 				}
-				final := require(restoredEngine.InspectTree(t.Context(), process.ID()))
+				final := require(restoredEngine.InspectTree(t.Context(), process.Relation().ProcessID()))
 				for _, fact := range final.Processes {
 					if fact.Snapshot.DeploymentRef().Name() == "test.paused" && fact.Snapshot.Usage().AcceptedSignals != 1 {
 						t.Fatal("restoration delivered twice")

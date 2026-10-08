@@ -202,7 +202,7 @@ func execute(
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	tree, err := engine.CaptureTree(ctx, process.ID())
+	tree, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}

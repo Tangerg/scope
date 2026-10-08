@@ -31,7 +31,7 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		}
 		handles = append(handles, child)
 	}
-	if releaseErr := engine.ReleaseTree(t.Context(), handles[1].ID()); !errors.Is(releaseErr, ErrTreeNotFound) {
+	if releaseErr := engine.ReleaseTree(t.Context(), handles[1].Relation().ProcessID()); !errors.Is(releaseErr, ErrTreeNotFound) {
 		t.Fatalf("release child error = %v", releaseErr)
 	}
 	otherInput, _ := EncodePayload(childTestInput{Mode: "leaf"})
@@ -40,12 +40,12 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustAwait(t, other)
-	if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil {
+	if err := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); err != nil {
 		t.Fatal(err)
 	}
 	for _, handle := range handles {
-		if _, found := engine.Process(handle.ID()); found || handle.handle.treeRuntime() != nil {
-			t.Fatalf("released Process %s retains its tree", handle.ID())
+		if _, found := engine.Process(handle.Relation().ProcessID()); found || handle.handle.treeRuntime() != nil {
+			t.Fatalf("released Process %s retains its tree", handle.Relation().ProcessID())
 		}
 		if result := mustAwait(t, handle); result.Termination().Status() != StatusCompleted {
 			t.Fatalf("released handle status = %s", result.Termination().Status())
@@ -55,10 +55,10 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 			t.Fatalf("released handle Kill error = %v", err)
 		}
 	}
-	if _, err := engine.InspectTree(t.Context(), root.ID()); !errors.Is(err, ErrTreeNotFound) {
+	if _, err := engine.InspectTree(t.Context(), root.Relation().ProcessID()); !errors.Is(err, ErrTreeNotFound) {
 		t.Fatalf("released tree inspection error = %v", err)
 	}
-	if _, err := engine.CaptureTree(t.Context(), root.ID()); !errors.Is(err, ErrTreeNotFound) {
+	if _, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID()); !errors.Is(err, ErrTreeNotFound) {
 		t.Fatalf("released tree capture error = %v", err)
 	}
 	engine.mu.RLock()
@@ -73,14 +73,14 @@ func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	if remainingProcesses != 1 || remainingTrees != 1 || remainingChildren != 0 {
 		t.Fatalf("registry sizes = %d, %d, %d; want only the independent root", remainingProcesses, remainingTrees, remainingChildren)
 	}
-	if err := engine.ReleaseTree(t.Context(), other.ID()); err != nil {
+	if err := engine.ReleaseTree(t.Context(), other.Relation().ProcessID()); err != nil {
 		t.Fatal(err)
 	}
 	if closeErr := engine.Close(t.Context()); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	head, exists, loadErr := store.LoadTree(t.Context(), root.ID())
-	if loadErr != nil || !exists || !head.Valid() || head.state.processSnapshot(root.ID()).Status() != StatusCompleted {
+	head, exists, loadErr := store.LoadTree(t.Context(), root.Relation().ProcessID())
+	if loadErr != nil || !exists || !head.Valid() || head.state.processSnapshot(root.Relation().ProcessID()).Status() != StatusCompleted {
 		t.Fatalf("Engine release or close removed stored recovery facts: exists=%t error=%v", exists, loadErr)
 	}
 }
@@ -99,19 +99,19 @@ func TestReleaseTreeCancellationLeavesWaitingTreeUsable(t *testing.T) {
 	waitForStatus(t, root, StatusWaiting)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
-	if err := engine.ReleaseTree(ctx, root.ID()); !errors.Is(err, context.DeadlineExceeded) {
+	if err := engine.ReleaseTree(ctx, root.Relation().ProcessID()); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("release active tree error = %v", err)
 	}
-	if _, found := engine.Process(root.ID()); !found {
+	if _, found := engine.Process(root.Relation().ProcessID()); !found {
 		t.Fatal("canceled release removed active root")
 	}
-	if snapshot, err := engine.CaptureTree(t.Context(), root.ID()); err != nil || !snapshot.Valid() {
+	if snapshot, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID()); err != nil || !snapshot.Valid() {
 		t.Fatalf("waiting tree capture = %v, error = %v", snapshot.Valid(), err)
 	}
 	if err := root.Kill(t.Context(), "settle tree"); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil {
+	if err := engine.ReleaseTree(t.Context(), root.Relation().ProcessID()); err != nil {
 		t.Fatal(err)
 	}
 }

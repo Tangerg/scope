@@ -46,8 +46,8 @@ func TestTurnAndDecisionOwnProgressThroughRecovery(t *testing.T) {
 	if got := completed(t, process); got != "done" {
 		t.Fatal(got)
 	}
-	tree := require(engine.InspectTree(t.Context(), process.ID()))
-	root, _ := tree.Process(process.ID())
+	tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+	root, _ := tree.Process(process.Relation().ProcessID())
 	state := root.Snapshot.CommittedExecutionState()
 	fields = nil
 	if err := jsonv2.Unmarshal(state.Payload(), &fields); err != nil {
