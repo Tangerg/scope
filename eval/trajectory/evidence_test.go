@@ -14,8 +14,33 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
+// recordedOutput is the completed output the recorded root Termination owns.
+func recordedOutput(t *testing.T, recorded trajectory.Trajectory) agent.Payload {
+	t.Helper()
+	output, completed := recorded.Termination().Output()
+	if !completed {
+		t.Fatal("recorded root did not complete")
+	}
+	return output
+}
+
+// completedTermination decodes the Termination an Engine would commit for
+// output; only the Engine creates one, so tests reach it through its wire form.
+func completedTermination(t *testing.T, output agent.Payload) agent.Termination {
+	t.Helper()
+	encoded, err := jsonv2.Marshal(map[string]json.RawMessage{"output": output.JSON()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var termination agent.Termination
+	if err := jsonv2.Unmarshal(encoded, &termination); err != nil {
+		t.Fatal(err)
+	}
+	return termination
+}
+
 func trajectoryConfig(recorded trajectory.Trajectory) trajectory.Config {
-	return trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), Output: recorded.Output(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: recorded.Coverage(), Gaps: recorded.Gaps(), Events: recorded.Events(), ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls()}
+	return trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: recorded.Coverage(), Gaps: recorded.Gaps(), Events: recorded.Events(), ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls()}
 }
 
 func coveredInteraction(t *testing.T) trajectory.Trajectory {
@@ -146,7 +171,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 		return jsonv2.Marshal(value.ModelResponse.Text())
 	}
 	config := trajectoryConfig(base)
-	value, err := config.Output.Decode[interaction.Output]()
+	value, err := recordedOutput(t, base).Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +180,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Output = output
+	config.Termination = completedTermination(t, output)
 	candidate, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +198,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Output = output
+	config.Termination = completedTermination(t, output)
 	changed, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)

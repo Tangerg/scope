@@ -32,7 +32,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	for i := range calls {
 		calls[i].Response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
 	}
-	recorded, err = trajectory.New(trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), Output: recorded.Output(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: coverage, Events: recorded.Events(), ModelCalls: calls, ToolCalls: recorded.ToolCalls()})
+	recorded, err = trajectory.New(trajectory.Config{RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), RootUsage: recorded.RootUsage(), Elapsed: recorded.Elapsed(), Coverage: coverage, Events: recorded.Events(), ModelCalls: calls, ToolCalls: recorded.ToolCalls()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 		Actual: recorded,
 		Expected: trajectory.Expectation{
 			Status: agent.StatusCompleted,
-			Output: recorded.Output(),
+			Output: recordedOutput(t, recorded),
 			Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{
 				Name: "weather", Arguments: &paris,
 				Outcome: trajectory.ToolOutcomeSucceeded,
@@ -205,7 +205,6 @@ func TestBehaviorDigestExcludesTimingAndProviderAccounting(t *testing.T) {
 		Coverage:      candidate.Coverage(),
 		RootProcessID: candidate.RootProcessID(),
 		Termination:   candidate.Termination(),
-		Output:        candidate.Output(),
 		RootUsage:     candidate.RootUsage(),
 		Elapsed:       candidate.Elapsed(),
 		Events:        candidate.Events(),

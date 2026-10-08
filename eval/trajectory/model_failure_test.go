@@ -170,7 +170,7 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 		if err != nil {
 			t.Fatalf("runtime stopped evidence was not exportable: %v", err)
 		}
-		if recorded.Termination().Valid() || !recorded.Output().IsZero() || recorded.HistoryComplete() {
+		if recorded.Termination().Valid() || recorded.HistoryComplete() {
 			t.Fatal("runtime failure invented a committed root result")
 		}
 		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {

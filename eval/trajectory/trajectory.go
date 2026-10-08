@@ -33,7 +33,6 @@ const (
 type Trajectory struct {
 	rootProcessID agent.ProcessID
 	termination   agent.Termination
-	output        agent.Payload
 	rootUsage     agent.Usage
 	coverage      *Coverage
 	gaps          EvidenceGaps
@@ -51,7 +50,6 @@ func New(config Config) (Trajectory, error) {
 	trajectory := Trajectory{
 		rootProcessID: config.RootProcessID,
 		termination:   config.Termination,
-		output:        config.Output,
 		rootUsage:     config.RootUsage,
 		coverage:      config.Coverage.clone(),
 		gaps:          config.Gaps,
@@ -72,7 +70,6 @@ func New(config Config) (Trajectory, error) {
 type Config struct {
 	RootProcessID agent.ProcessID
 	Termination   agent.Termination
-	Output        agent.Payload
 	RootUsage     agent.Usage
 	Coverage      *Coverage
 	Gaps          EvidenceGaps
@@ -94,9 +91,6 @@ func (t Trajectory) Termination() agent.Termination { return t.termination }
 
 func (t Trajectory) Gaps() EvidenceGaps { return t.gaps }
 
-// Output is a zero Payload when absent; JSON null is a present output.
-func (t Trajectory) Output() agent.Payload { return t.output }
-
 func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
 
 func (t Trajectory) Coverage() *Coverage { return t.coverage.clone() }
@@ -114,7 +108,7 @@ func (t Trajectory) ToolCalls() []ToolCall { return cloneToolCalls(t.toolCalls) 
 func (t Trajectory) config() Config {
 	return Config{
 		RootProcessID: t.rootProcessID, Termination: t.termination,
-		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: t.elapsed,
+		RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: t.elapsed,
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	}
 }
@@ -122,7 +116,6 @@ func (t Trajectory) config() Config {
 type trajectoryWire struct {
 	RootProcessID agent.ProcessID    `json:"root_process_id"`
 	Termination   *agent.Termination `json:"termination,omitzero"`
-	Output        agent.Payload      `json:"output,omitzero"`
 	RootUsage     agent.Usage        `json:"root_usage"`
 	Coverage      *Coverage          `json:"coverage,omitzero"`
 	Gaps          EvidenceGaps       `json:"gaps,omitzero"`
@@ -142,7 +135,7 @@ func (t Trajectory) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(trajectoryWire{
 		RootProcessID: t.rootProcessID, Termination: termination,
-		Output: t.output, RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: (*int64)(t.elapsed),
+		RootUsage: t.rootUsage, Coverage: t.coverage, Gaps: t.gaps, Elapsed: (*int64)(t.elapsed),
 		Events: t.events, ModelCalls: t.modelCalls, ToolCalls: t.toolCalls,
 	})
 }
@@ -156,7 +149,7 @@ func (t *Trajectory) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidTrajectory, err)
 	}
 	config := Config{
-		RootProcessID: decoded.RootProcessID, Output: decoded.Output, RootUsage: decoded.RootUsage,
+		RootProcessID: decoded.RootProcessID, RootUsage: decoded.RootUsage,
 		Coverage: decoded.Coverage, Gaps: decoded.Gaps, Elapsed: (*time.Duration)(decoded.Elapsed),
 		Events: decoded.Events, ModelCalls: decoded.ModelCalls, ToolCalls: decoded.ToolCalls,
 	}
@@ -211,13 +204,6 @@ func (t Trajectory) Validate() error {
 func (t Trajectory) validateRootOutcome() error {
 	if !t.rootProcessID.Valid() || (t.elapsed != nil && *t.elapsed < 0) {
 		return fmt.Errorf("%w: root outcome is incomplete", ErrInvalidTrajectory)
-	}
-	completed := t.termination.Status() == agent.StatusCompleted
-	if completed && !t.output.Valid() {
-		return fmt.Errorf("%w: completed trajectory requires output", ErrInvalidTrajectory)
-	}
-	if !completed && !t.output.IsZero() {
-		return fmt.Errorf("%w: non-completed trajectory cannot carry output", ErrInvalidTrajectory)
 	}
 	return nil
 }
@@ -418,8 +404,8 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 	projection := behaviorProjection{
 		Termination: behaviorTerminationOf(t.termination),
 	}
-	if !t.output.IsZero() {
-		projection.Output, err = project(t.output)
+	if output, completed := t.termination.Output(); completed {
+		projection.Output, err = project(output)
 		if err != nil {
 			return behaviorProjection{}, fmt.Errorf("project output: %w", err)
 		}

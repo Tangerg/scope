@@ -1,9 +1,9 @@
-github.com/Tangerg/scope/agent v0.44.1-0.20261008060547-397b56ce3fdb h1:MSHe2Vrys/F3GOEZOevCIjJJj6DFnXgot3LbG+8atP8=
-github.com/Tangerg/scope/agent v0.44.1-0.20261008060547-397b56ce3fdb/go.mod h1:v1qME8S+O6J1rGMCpB5zUfLlxGh1MhbY+HVHPZtPbCA=
+github.com/Tangerg/scope/agent v0.44.1-0.20261008082213-3dd923a1074c h1:US5sxUuLf5hdpTCvR98r/N4kqluRCBbgiEoQHHHD/xE=
+github.com/Tangerg/scope/agent v0.44.1-0.20261008082213-3dd923a1074c/go.mod h1:v1qME8S+O6J1rGMCpB5zUfLlxGh1MhbY+HVHPZtPbCA=
 github.com/Tangerg/scope/core v0.44.0 h1:F2r8ASDSxx7/8o0+Bqko4EWRNX37+s+fkIMw2lMuI78=
 github.com/Tangerg/scope/core v0.44.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/eval v0.44.1-0.20261008071037-b04c7440bf17 h1:fhngjl4CupiSckxB5emW8C03Lllo/4dPRFTZPnD/v6w=
-github.com/Tangerg/scope/eval v0.44.1-0.20261008071037-b04c7440bf17/go.mod h1:gafugRyq7mcTl/Mtj1bW7hpyT+kJGef6vY7eyjf0iR8=
+github.com/Tangerg/scope/eval v0.44.1-0.20261008082213-2c3b4c04e684 h1:APhuw13Rbl9cZBQYGLWz6SowpLQRADGjnxIqrLhe0fo=
+github.com/Tangerg/scope/eval v0.44.1-0.20261008082213-2c3b4c04e684/go.mod h1:gafugRyq7mcTl/Mtj1bW7hpyT+kJGef6vY7eyjf0iR8=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

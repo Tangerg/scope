@@ -310,7 +310,6 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 		Events: evidence.events, ModelCalls: models, ToolCalls: tools,
 	}
 	if committed {
-		config.Output, _ = result.Output()
 		config.Termination, config.RootUsage = result.Termination(), result.Usage()
 	}
 	return New(config)

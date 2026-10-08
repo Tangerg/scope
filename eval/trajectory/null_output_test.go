@@ -6,7 +6,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
@@ -24,7 +23,7 @@ func TestRecordedNullOutputSurvivesJSON(t *testing.T) {
 	if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	if decoded.Output().IsZero() || string(decoded.Output().JSON()) != "null" {
+	if output, completed := decoded.Termination().Output(); !completed || string(output.JSON()) != "null" {
 		t.Fatal("null output was lost")
 	}
 	before, err := recorded.BehaviorDigest(rawOutputProjection)
@@ -35,10 +34,10 @@ func TestRecordedNullOutputSurvivesJSON(t *testing.T) {
 	if err != nil || before != after {
 		t.Fatalf("behavior changed: %s != %s: %v", before, after, err)
 	}
-	config := trajectoryConfig(decoded)
-	config.Output = agent.Payload{}
-	if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-		t.Fatalf("completed trajectory accepted missing output: %v", err)
+	// The root Termination owns the output; a second top-level copy is rejected.
+	restated := append([]byte(`{"output":"invented",`), bytes.TrimPrefix(encoded, []byte("{"))...)
+	if err := jsonv2.Unmarshal(restated, &decoded); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
+		t.Fatalf("trajectory accepted an output beside its Termination: %v", err)
 	}
 }
 
