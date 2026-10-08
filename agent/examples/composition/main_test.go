@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -108,7 +109,13 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 	}
 }
 
+// The capture must hold the whole tree at rest: a sibling that finishes after
+// it would advance the authoritative head and fence the restoration.
 func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
+	synctest.Test(t, testUnknownChildSettlementSurvivesCompositionRecovery)
+}
+
+func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	store := agent.NewMemoryTreeCommitter()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -132,7 +139,14 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForRootStatus(ctx, t, engine, root.ID(), agent.StatusWaiting)
+	synctest.Wait()
+	inspection, err := engine.InspectTree(ctx, root.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report, found := inspection.Process(root.ID()); !found || report.Snapshot.Status() != agent.StatusWaiting {
+		t.Fatal("composition is not waiting on its unknown child")
+	}
 	tree, err := engine.CaptureTree(ctx, root.ID())
 	if err != nil {
 		t.Fatal(err)
@@ -184,26 +198,6 @@ func retireWriter(t *testing.T, root *agent.Process) {
 	}
 	if err := root.Join(ctx); err != nil && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
 		t.Error(err)
-	}
-}
-
-func waitForRootStatus(ctx context.Context, t *testing.T, engine *agent.Engine, rootID agent.ProcessID, want agent.Status) {
-	t.Helper()
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-	for {
-		inspection, err := engine.InspectTree(ctx, rootID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if report, found := inspection.Process(rootID); found && report.Snapshot.Status() == want {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("composition did not reach %s: %v", want, ctx.Err())
-		case <-ticker.C:
-		}
 	}
 }
 
