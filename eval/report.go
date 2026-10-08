@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
@@ -61,6 +62,49 @@ func (r Report) cloneValid() Report {
 		r.Details[index] = r.Details[index].cloneValid()
 	}
 	return r
+}
+
+// decisionRule identifies the rule behind a Report's verdict. A verdict that
+// summarizes Details depends on their Metrics and rules, so they are part of
+// its identity here; restating them in the summary's Parameters would give one
+// rule two owners that a stored Report could make disagree.
+type decisionRule struct {
+	Metric     *Metric        `json:"metric,omitzero"`
+	Policy     string         `json:"policy,omitempty"`
+	Parameters metadata.Map   `json:"parameters,omitzero"`
+	Details    []decisionRule `json:"details,omitempty"`
+}
+
+func (r Report) decisionRule() decisionRule {
+	var rule decisionRule
+	if r.Decision != nil {
+		rule.Policy, rule.Parameters = r.Decision.Policy, r.Decision.Parameters
+	}
+	for _, detail := range r.Details {
+		child := detail.decisionRule()
+		child.Metric = &detail.Metric
+		rule.Details = append(rule.Details, child)
+	}
+	return rule
+}
+
+// decisionIdentity is the canonical identity of the rule behind r's Decision.
+func (r Report) decisionIdentity() (string, error) {
+	if r.Decision == nil {
+		return "", fmt.Errorf("%w: report has no decision", ErrInvalidReport)
+	}
+	if err := r.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := jsonv2.Marshal(r.decisionRule())
+	if err != nil {
+		return "", err
+	}
+	value := jsontext.Value(encoded)
+	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
+		return "", err
+	}
+	return string(value), nil
 }
 
 func (r Report) Validate() error {

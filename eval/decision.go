@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
@@ -38,24 +37,6 @@ func (d Decision) Validate() error {
 func (d Decision) clone() Decision {
 	d.Parameters = d.Parameters.Clone()
 	return d
-}
-
-func (d Decision) identity() (string, error) {
-	if err := d.Validate(); err != nil {
-		return "", err
-	}
-	encoded, err := jsonv2.Marshal(struct {
-		Policy     string       `json:"policy"`
-		Parameters metadata.Map `json:"parameters,omitzero"`
-	}{Policy: d.Policy, Parameters: d.Parameters})
-	if err != nil {
-		return "", err
-	}
-	value := jsontext.Value(encoded)
-	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
-		return "", err
-	}
-	return string(value), nil
 }
 
 func (d Decision) MarshalJSON() ([]byte, error) {

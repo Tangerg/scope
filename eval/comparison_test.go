@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -316,5 +317,69 @@ func TestFixtureIdentityAdmission(t *testing.T) {
 		if _, err := eval.NewExperimentReport(fixtureID, nil); !errors.Is(err, eval.ErrInvalidExperiment) {
 			t.Errorf("NewExperimentReport(%q) error = %v, want ErrInvalidExperiment", fixtureID, err)
 		}
+	}
+}
+
+func reportExperiment(t *testing.T, report eval.Report) eval.ExperimentReport {
+	t.Helper()
+	dataset, err := eval.NewDataset("test-fixture", eval.Case[int]{ID: "same", Subject: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
+		Dataset: dataset,
+		Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+			return report.Clone()
+		})),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := experiment.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// A summary Decision's verdict follows from its Details, so their Metrics and
+// rules decide whether two summaries are the same rule.
+func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
+	maximum := func(name eval.MetricName, limit int, verdict eval.Verdict) eval.Report {
+		t.Helper()
+		metric, err := eval.NewMetric(eval.MetricConfig{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return eval.Report{Metric: metric, Decision: &eval.Decision{
+			Policy: "maximum", Parameters: metadata.Map{"maximum": json.RawMessage(strconv.Itoa(limit))}, Verdict: verdict,
+		}}
+	}
+	summary := func(detail eval.Report) eval.ExperimentReport {
+		t.Helper()
+		metric, err := eval.NewMetric(eval.MetricConfig{Name: "all"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reportExperiment(t, eval.Report{
+			Metric: metric, Decision: &eval.Decision{Policy: "all", Verdict: detail.Verdict()}, Details: []eval.Report{detail},
+		})
+	}
+	baseline := summary(maximum("steps", 0, eval.VerdictFail))
+	for _, test := range []struct {
+		name      string
+		candidate eval.ExperimentReport
+		want      eval.DecisionDelta
+	}{
+		{"same rule", summary(maximum("steps", 0, eval.VerdictFail)), eval.DecisionDelta{Matched: 1}},
+		{"changed threshold", summary(maximum("steps", 1, eval.VerdictPass)), eval.DecisionDelta{Incompatible: 1}},
+		{"changed metric", summary(maximum("effects", 0, eval.VerdictPass)), eval.DecisionDelta{Incompatible: 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			comparison, err := baseline.Compare(test.candidate)
+			if err != nil || len(comparison.Metrics) != 1 || comparison.Metrics[0].DecisionDelta != test.want {
+				t.Fatalf("comparison = %+v, %v; want %+v", comparison, err, test.want)
+			}
+		})
 	}
 }

@@ -192,7 +192,7 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 		verdict = VerdictFail
 	}
 	if c.passPolicy != PassNone {
-		decision, err := c.decisionFor(reports, verdict)
+		decision, err := c.decisionFor(verdict)
 		if err != nil {
 			return Report{}, err
 		}
@@ -237,18 +237,15 @@ func (c *CompositeEvaluator[T]) metricFor(reports []Report) (Metric, error) {
 	return metric, nil
 }
 
-func (c *CompositeEvaluator[T]) decisionFor(reports []Report, verdict Verdict) (Decision, error) {
+// decisionFor names only the composite's own pass rule. Each component's rule
+// belongs to its Detail, which the Decision identity already includes.
+func (c *CompositeEvaluator[T]) decisionFor(verdict Verdict) (Decision, error) {
 	type componentRule struct {
-		Policy     string       `json:"policy"`
-		Parameters metadata.Map `json:"parameters,omitzero"`
-		Required   bool         `json:"required,omitzero"`
+		Required bool `json:"required,omitzero"`
 	}
-	rules := make([]componentRule, len(reports))
-	for index, report := range reports {
-		rules[index] = componentRule{
-			Policy: report.Decision.Policy, Parameters: report.Decision.Parameters,
-			Required: c.components[index].Required,
-		}
+	rules := make([]componentRule, len(c.components))
+	for index, component := range c.components {
+		rules[index] = componentRule{Required: component.Required}
 	}
 	parameters := metadata.Map{}
 	if err := parameters.Set(metricConfigurationKey, struct {

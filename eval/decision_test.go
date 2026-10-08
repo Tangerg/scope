@@ -98,8 +98,8 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 		}
 		if threshold == 0.5 {
 			baseline = decided
-		} else if baseline.Verdict() != eval.VerdictPass || decided.Verdict() != eval.VerdictFail || reflect.DeepEqual(baseline.Decision.Parameters, decided.Decision.Parameters) {
-			t.Fatalf("threshold policy identity missing: %#v, %#v", baseline, decided)
+		} else if baseline.Verdict() != eval.VerdictPass || decided.Verdict() != eval.VerdictFail || !reflect.DeepEqual(baseline.Decision.Parameters, decided.Decision.Parameters) {
+			t.Fatalf("component thresholds leaked into the composite's own rule: %#v, %#v", baseline, decided)
 		}
 	}
 	explicit, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}, PassPolicy: eval.PassAll})

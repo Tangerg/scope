@@ -214,7 +214,7 @@ func (n numericSignal) compare(cases []CaseResult, baseline, candidate map[CaseI
 func compareDecisions(cases []CaseResult, baseline, candidate map[CaseID]*Report) (DecisionDelta, error) {
 	result := DecisionDelta{}
 	for _, caseValue := range cases {
-		left, right := reportDecision(baseline[caseValue.ID]), reportDecision(candidate[caseValue.ID])
+		left, right := decidedReport(baseline[caseValue.ID]), decidedReport(candidate[caseValue.ID])
 		switch {
 		case left != nil && right != nil:
 			if err := result.pair(*left, *right); err != nil {
@@ -229,21 +229,21 @@ func compareDecisions(cases []CaseResult, baseline, candidate map[CaseID]*Report
 	return result, nil
 }
 
-func reportDecision(report *Report) *Decision {
-	if report == nil {
+func decidedReport(report *Report) *Report {
+	if report == nil || report.Decision == nil {
 		return nil
 	}
-	return report.Decision
+	return report
 }
 
 // pair relies on a Decision verdict being exactly pass or fail, so one pass
 // verdict moving between runs shifts both counts.
-func (d *DecisionDelta) pair(baseline, candidate Decision) error {
-	baselineIdentity, err := baseline.identity()
+func (d *DecisionDelta) pair(baseline, candidate Report) error {
+	baselineIdentity, err := baseline.decisionIdentity()
 	if err != nil {
 		return err
 	}
-	candidateIdentity, err := candidate.identity()
+	candidateIdentity, err := candidate.decisionIdentity()
 	if err != nil {
 		return err
 	}
@@ -252,11 +252,11 @@ func (d *DecisionDelta) pair(baseline, candidate Decision) error {
 		return nil
 	}
 	d.Matched++
-	if baseline.Verdict == VerdictPass {
+	if baseline.Verdict() == VerdictPass {
 		d.PassedDelta--
 		d.FailedDelta++
 	}
-	if candidate.Verdict == VerdictPass {
+	if candidate.Verdict() == VerdictPass {
 		d.PassedDelta++
 		d.FailedDelta--
 	}
