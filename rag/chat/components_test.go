@@ -182,8 +182,7 @@ func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 		t.Fatalf("over-budget evidence was included: %q", augmentation.Text())
 	}
 	citations := augmentation.Citations()
-	if len(citations) != 2 || citations[0].Marker() != "[1]" || citations[1].Marker() != "[2]" ||
-		citations[0].Candidate.Document.ID != first.ID || citations[1].Candidate.Document.ID != second.ID {
+	if len(citations) != 2 || citations[0].Document.ID != first.ID || citations[1].Document.ID != second.ID {
 		t.Fatalf("citations = %#v", citations)
 	}
 }
@@ -222,10 +221,10 @@ func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
 			t.Fatal(err)
 		}
 		citations := augmentation.Citations()
-		if len(citations) != len(contents)-1 || citations[0].Number != 1 || citations[0].Candidate.Document.Text != "tiny" {
+		if len(citations) != len(contents)-1 || citations[0].Document.Text != "tiny" {
 			t.Fatalf("citations = %#v", citations)
 		}
-		if len(citations) == 2 && (citations[1].Number != 2 || citations[1].Candidate.Document.Text != "small") {
+		if len(citations) == 2 && citations[1].Document.Text != "small" {
 			t.Fatalf("later candidate order or citation number changed: %#v", citations)
 		}
 		if strings.Contains(augmentation.Text(), "oversized") {

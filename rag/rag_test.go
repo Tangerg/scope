@@ -29,47 +29,34 @@ func TestNewQuery_RequiresText(t *testing.T) {
 	}
 }
 
-func TestAugmentationOwnsValidatedCitationOrder(t *testing.T) {
+func TestAugmentationOwnsCitationOrder(t *testing.T) {
 	doc, _ := document.NewDocument("evidence", nil)
-	citation, err := rag.NewCitation(1, candidate(doc))
-	if err != nil {
-		t.Fatal(err)
-	}
 	augmentation, err := rag.NewAugmentation("answer with [1]")
 	if err != nil {
 		t.Fatal(err)
 	}
-	augmentation, err = augmentation.WithCitations(rag.Citations{citation})
+	augmentation, err = augmentation.WithCitations(rag.Citations{candidate(doc)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	copied := augmentation
 	citations := copied.Citations()
-	citations[0].Number = 2
-	citations[0].Candidate.Document.Text = "mutated"
-	if augmentation.Citations()[0].Number != 1 {
-		t.Fatal("citation slice aliases caller mutation")
-	}
-	if augmentation.Citations()[0].Candidate.Document.Text != "evidence" || doc.Text != "evidence" {
+	citations[0].Document.Text = "mutated"
+	if augmentation.Citations()[0].Document.Text != "evidence" || doc.Text != "evidence" {
 		t.Fatal("citation document aliases caller mutation")
 	}
-	replacement, err := rag.NewCitation(1, candidate(identifiedDocument(t, "replacement", "other evidence")))
+	copied, err = copied.WithCitations(rag.Citations{candidate(identifiedDocument(t, "replacement", "other evidence"))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	copied, err = copied.WithCitations(rag.Citations{replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if copied.Citations()[0].Candidate.Document.Text != "other evidence" || augmentation.Citations()[0].Candidate.Document.Text != "evidence" {
+	if copied.Citations()[0].Document.Text != "other evidence" || augmentation.Citations()[0].Document.Text != "evidence" {
 		t.Fatal("replacing citations changed another augmentation")
 	}
-	if _, err := rag.NewCitation(0, candidate(doc)); !errors.Is(err, rag.ErrInvalidAugmentation) {
-		t.Fatalf("invalid citation number error = %v", err)
+	if rag.CitationMarker(0) != "[1]" || rag.CitationMarker(1) != "[2]" {
+		t.Fatalf("markers = %s, %s", rag.CitationMarker(0), rag.CitationMarker(1))
 	}
-	citation.Number = 2
-	if _, err := augmentation.WithCitations(rag.Citations{citation}); !errors.Is(err, rag.ErrInvalidAugmentation) {
-		t.Fatalf("non-consecutive citation error = %v", err)
+	if _, err := augmentation.WithCitations(rag.Citations{{Score: 1}}); !errors.Is(err, rag.ErrInvalidAugmentation) {
+		t.Fatalf("invalid citation error = %v", err)
 	}
 }
 

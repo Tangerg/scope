@@ -59,7 +59,6 @@ func ExampleContextualAugmenter() {
 	if err != nil {
 		panic(err)
 	}
-	citation := result.Citations()[0]
-	fmt.Println(citation.Marker(), citation.Candidate.Document.ID)
+	fmt.Println(rag.CitationMarker(0), result.Citations()[0].Document.ID)
 	// Output: [1] scope
 }

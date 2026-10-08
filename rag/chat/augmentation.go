@@ -203,8 +203,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 		if err := ctx.Err(); err != nil {
 			return "", nil, err
 		}
-		citation := rag.Citation{Number: len(citations) + 1, Candidate: candidate}
-		entry, err := c.evidence(index, citation)
+		entry, err := c.evidence(index, len(citations), candidate)
 		if err != nil {
 			return "", nil, err
 		}
@@ -220,7 +219,7 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 			}
 			encoded = admitted
 		}
-		citations = append(citations, citation)
+		citations = append(citations, candidate)
 	}
 
 	if len(evidence) == 0 {
@@ -236,8 +235,9 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 	return string(encoded), citations, nil
 }
 
-func (c *ContextualAugmenter) evidence(index int, citation rag.Citation) (contextualEvidence, error) {
-	content, err := c.formatter.Format(citation.Candidate.Document)
+// evidence formats the candidate at index for the citation at position.
+func (c *ContextualAugmenter) evidence(index, position int, candidate rag.Candidate) (contextualEvidence, error) {
+	content, err := c.formatter.Format(candidate.Document)
 	if err != nil {
 		return contextualEvidence{}, fmt.Errorf("rag: format context candidate %d: %w", index, err)
 	}
@@ -245,8 +245,8 @@ func (c *ContextualAugmenter) evidence(index int, citation rag.Citation) (contex
 		return contextualEvidence{}, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidAugmentation, index)
 	}
 	return contextualEvidence{
-		Citation: citation.Marker(),
-		ID:       citation.Candidate.Document.ID,
+		Citation: rag.CitationMarker(position),
+		ID:       candidate.Document.ID,
 		Content:  content,
 	}, nil
 }
