@@ -88,7 +88,7 @@ func (t *toolMiddleware) call(
 	results, err := batch.execute(ctx)
 	if err != nil {
 		return nil, &ToolBatchError{
-			completed: results, failed: calls[len(results)], request: current,
+			completed: results, request: current,
 			proposal: response.Clone(), cause: err,
 		}
 	}

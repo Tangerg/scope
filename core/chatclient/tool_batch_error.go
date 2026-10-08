@@ -12,14 +12,13 @@ import (
 // a tool.Failure with acknowledged partial effects. It assigns no retry policy.
 type ToolBatchError struct {
 	completed []chat.ToolResult
-	failed    chat.ToolCall
 	request   *chat.Request
 	proposal  *chat.Response
 	cause     error
 }
 
 func (t *ToolBatchError) Error() string {
-	return fmt.Sprintf("chatclient: tool batch failed at call[%d] %q: %v", len(t.completed), t.failed.Name, t.cause)
+	return fmt.Sprintf("chatclient: tool batch failed at call[%d] %q: %v", len(t.completed), t.FailedCall().Name, t.cause)
 }
 
 func (t *ToolBatchError) Unwrap() error { return t.cause }
@@ -34,8 +33,12 @@ func (t *ToolBatchError) Completed() []chat.ToolResult {
 }
 
 // FailedCall returns the original model proposal that failed during execution
-// or returned an invalid output. Its position is len(Completed()).
-func (t *ToolBatchError) FailedCall() chat.ToolCall { return t.failed }
+// or returned an invalid output. The proposal owns it, at len(Completed())
+// among its tool calls.
+func (t *ToolBatchError) FailedCall() chat.ToolCall {
+	calls, _ := toolCalls(t.proposal)
+	return calls[len(t.completed)]
+}
 
 // Request returns the frozen input to the model that proposed the batch.
 func (t *ToolBatchError) Request() *chat.Request { return t.request.Clone() }
