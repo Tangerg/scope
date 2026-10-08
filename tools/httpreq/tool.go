@@ -2,6 +2,7 @@ package httpreq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -54,6 +55,9 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (ch
 
 func (t *Tool) request(ctx context.Context, request Request) (*Response, error) {
 	response, err := t.client.Do(ctx, &request)
+	if admission, ok := errors.AsType[*admissionError](err); ok {
+		return nil, admission.failure()
+	}
 	if err != nil && response != nil {
 		return nil, toolresult.WithEvidence("httpreq: request", response, err)
 	}

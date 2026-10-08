@@ -9,6 +9,9 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
+
 	"github.com/Tangerg/scope/tools/content"
 )
 
@@ -84,21 +87,49 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	return result, nil
 }
 
+// admissionError marks a request Do refused before sending anything. Redirect
+// checks share the policy sentinels after the first request was already sent,
+// so only this type, not the sentinel, proves the request never left.
+type admissionError struct {
+	policy bool
+	err    error
+}
+
+func (a *admissionError) Error() string { return a.err.Error() }
+func (a *admissionError) Unwrap() error { return a.err }
+
+// failure is the definite Tool outcome: a policy refusal is a rejection and an
+// invalid request a failure, and in both cases nothing reached the network.
+func (a *admissionError) failure() error {
+	kind := toolcontract.FailureKindFailed
+	if a.policy {
+		kind = toolcontract.FailureKindRejected
+	}
+	cause := fmt.Errorf("httpreq: request: %w", a)
+	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind: kind, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
+	})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
+}
+
 func (c *Client) admit(request *Request) (*Request, string, error) {
 	prepared, err := request.prepare()
 	if err != nil {
-		return nil, "", err
+		return nil, "", &admissionError{err: err}
 	}
 	if !c.policy.allowsMethod(prepared.Method) {
-		return nil, "", fmt.Errorf("%w: %s", ErrMethodNotAllowed, prepared.Method)
+		return nil, "", &admissionError{policy: true, err: fmt.Errorf("%w: %s", ErrMethodNotAllowed, prepared.Method)}
 	}
 	parsedURL, err := url.Parse(prepared.URL)
 	if err != nil {
-		return nil, "", fmt.Errorf("httpreq: parse validated request URL: %w", err)
+		return nil, "", &admissionError{err: fmt.Errorf("httpreq: parse validated request URL: %w", err)}
 	}
 	host := parsedURL.Hostname()
 	if !c.policy.allowedHosts.Allows(host) {
-		return nil, "", fmt.Errorf("%w: %s", ErrHostNotAllowed, host)
+		return nil, "", &admissionError{policy: true, err: fmt.Errorf("%w: %s", ErrHostNotAllowed, host)}
 	}
 	return prepared, host, nil
 }
