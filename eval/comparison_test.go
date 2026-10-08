@@ -389,3 +389,33 @@ func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
 		t.Fatalf("changed detail metric comparison = %+v, %v", comparison, err)
 	}
 }
+
+// A Summary is a projection of the cases; writing through one must not change
+// the report's grouping or any later comparison.
+func TestSummaryDoesNotAliasTheReport(t *testing.T) {
+	metric := func(name eval.MetricName) eval.Metric {
+		t.Helper()
+		value, err := eval.NewMetric(eval.MetricConfig{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	score := eval.Score(1)
+	nested := eval.Report{Metric: metric("inner"), Score: &score}
+	report := reportExperiment(t, eval.Report{
+		Metric: metric("outer"), Score: &score,
+		Details: []eval.Report{{Metric: metric("middle"), Score: &score, Details: []eval.Report{nested}}},
+	})
+	projection := report.Summary()
+	projection.Metrics[0].Details[0].Metric = metric("changed_middle")
+	projection.Metrics[0].Details[0].Details[0].Metric = metric("changed_inner")
+	details := report.Summary().Metrics[0].Details
+	if details[0].Metric.Name() != "middle" || details[0].Details[0].Metric.Name() != "inner" {
+		t.Fatalf("summary details changed through a projection: %+v", details)
+	}
+	comparison, err := report.Compare(report)
+	if err != nil || len(comparison.Metrics) != 1 || comparison.Metrics[0].ScoreDelta.Matched != 1 {
+		t.Fatalf("self comparison = %+v, %v", comparison, err)
+	}
+}

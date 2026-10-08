@@ -133,6 +133,9 @@ func (e ExperimentReport) Summary() ExperimentSummary {
 	summary := e.summary
 	summary.Assessments = slices.Clone(summary.Assessments)
 	summary.Metrics = slices.Clone(summary.Metrics)
+	for index := range summary.Metrics {
+		summary.Metrics[index].Details = cloneDetailMetrics(summary.Metrics[index].Details)
+	}
 	return summary
 }
 

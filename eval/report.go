@@ -108,6 +108,17 @@ type DetailMetric struct {
 	Details []DetailMetric `json:"details,omitempty"`
 }
 
+func cloneDetailMetrics(details []DetailMetric) []DetailMetric {
+	if details == nil {
+		return nil
+	}
+	cloned := make([]DetailMetric, len(details))
+	for index, detail := range details {
+		cloned[index] = DetailMetric{Metric: detail.Metric, Details: cloneDetailMetrics(detail.Details)}
+	}
+	return cloned
+}
+
 func detailMetricsOf(details []Report) []DetailMetric {
 	if len(details) == 0 {
 		return nil
