@@ -10,8 +10,8 @@ import (
 )
 
 // Every resource limit uses one policy with only a maximum, so the constrained
-// Metric decides whether two trajectory decisions are the same rule.
-func TestChangedLimitMetricIsIncomparable(t *testing.T) {
+// Metric decides whether two trajectory decisions observe the same thing.
+func TestChangedLimitMetricIsAnotherObservation(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	process, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 2)
 	recorded, err := recorder.Take(t.Context(), process, nil)
@@ -47,19 +47,14 @@ func TestChangedLimitMetricIsIncomparable(t *testing.T) {
 		return report
 	}
 	steps := run(trajectory.Limits{CommittedSteps: &zero})
-	for _, test := range []struct {
-		name   string
-		limits trajectory.Limits
-		want   eval.DecisionDelta
-	}{
-		{"same limit", trajectory.Limits{CommittedSteps: &zero}, eval.DecisionDelta{Matched: 1}},
-		{"another metric", trajectory.Limits{PreparedEffects: &zero}, eval.DecisionDelta{Incompatible: 1}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			comparison, compareErr := steps.Compare(run(test.limits))
-			if compareErr != nil || len(comparison.Metrics) != 1 || comparison.Metrics[0].DecisionDelta != test.want {
-				t.Fatalf("comparison = %+v, %v; want %+v", comparison, compareErr, test.want)
-			}
-		})
+	same, err := steps.Compare(run(trajectory.Limits{CommittedSteps: &zero}))
+	if err != nil || len(same.Metrics) != 1 || same.Metrics[0].DecisionDelta != (eval.DecisionDelta{Matched: 1}) {
+		t.Fatalf("same limit comparison = %+v, %v", same, err)
+	}
+	other, err := steps.Compare(run(trajectory.Limits{PreparedEffects: &zero}))
+	if err != nil || len(other.Metrics) != 2 ||
+		other.Metrics[0].DecisionDelta != (eval.DecisionDelta{BaselineOnly: 1}) ||
+		other.Metrics[1].DecisionDelta != (eval.DecisionDelta{CandidateOnly: 1}) {
+		t.Fatalf("another limit metric comparison = %+v, %v", other, err)
 	}
 }

@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/Tangerg/scope/agent v0.44.1-0.20261008060547-397b56ce3fdb
 	github.com/Tangerg/scope/core v0.44.0
-	github.com/Tangerg/scope/eval v0.44.1-0.20261008064159-949799708845
+	github.com/Tangerg/scope/eval v0.44.1-0.20261008071037-b04c7440bf17
 )
 
 require (
