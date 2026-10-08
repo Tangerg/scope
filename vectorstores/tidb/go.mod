@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/tidb
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.44.0
+	github.com/Tangerg/scope/core v0.45.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/samber/lo v1.53.0
 )

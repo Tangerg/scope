@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.44.0 h1:F2r8ASDSxx7/8o0+Bqko4EWRNX37+s+fkIMw2lMuI78=
-github.com/Tangerg/scope/core v0.44.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/core v0.45.0 h1:jXIw172K5rQrcAfy3LalH7baKQ1xjhj73x3ZuCIFk08=
+github.com/Tangerg/scope/core v0.45.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
