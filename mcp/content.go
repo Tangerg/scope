@@ -102,10 +102,17 @@ type coreContentEnvelope struct {
 	// Name carries Core Media.Name for every MCP content except a resource
 	// link, the only MCP content with a name field of its own.
 	Name string `json:"name,omitempty"`
+	// MediaID and MediaMetadata carry the Core Media fields no MCP content has.
+	MediaID       string       `json:"media_id,omitempty"`
+	MediaMetadata metadata.Map `json:"media_metadata,omitempty"`
 }
 
 func (c coreContentEnvelope) isZero() bool {
-	return len(c.Metadata) == 0 && len(c.Citations) == 0 && c.Name == ""
+	return len(c.Metadata) == 0 && len(c.Citations) == 0 && c.Name == "" && c.MediaID == "" && len(c.MediaMetadata) == 0
+}
+
+func (c coreContentEnvelope) describesMedia() bool {
+	return c.Name != "" || c.MediaID != "" || len(c.MediaMetadata) != 0
 }
 
 func mapRemoteContent(content sdkmcp.Content) (chat.ToolContent, bool, error) {
@@ -206,14 +213,20 @@ func (c contentEnvelope) attach(part *chat.ToolContent, nativeMeta sdkmcp.Meta) 
 		if _, collision := portable.Metadata[ContentMetadataKey]; collision {
 			return errors.New("mcp: Core content metadata contains a nested MCP envelope")
 		}
+		if portable.describesMedia() && part.Kind != chat.PartMedia {
+			return errors.New("mcp: Core content metadata describes media on non-media content")
+		}
 		if portable.Name != "" {
-			if part.Kind != chat.PartMedia {
-				return errors.New("mcp: Core content metadata names non-media content")
-			}
 			if c.Kind == contentLink {
 				return errors.New("mcp: Core content metadata duplicates the resource link name")
 			}
 			part.Media.Name = portable.Name
+		}
+		if part.Kind == chat.PartMedia {
+			part.Media.ID = portable.MediaID
+			if len(portable.MediaMetadata) != 0 {
+				part.Media.Metadata = portable.MediaMetadata
+			}
 		}
 		part.Metadata, part.Citations = portable.Metadata, portable.Citations
 		delete(c.Meta, coreContentMetadataKey)
@@ -299,6 +312,9 @@ func remoteURIMedia(mimeType, uri string) (chat.ToolContent, error) {
 }
 
 func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
+	if part.Kind == chat.PartMedia && part.Media.Source.Kind == media.SourceReference {
+		return nil, ErrMediaReference
+	}
 	portable := coreContentEnvelope{Metadata: part.Metadata.Clone(), Citations: slices.Clone(part.Citations)}
 	var envelope contentEnvelope
 	if raw, present := portable.Metadata[ContentMetadataKey]; present {
@@ -313,8 +329,11 @@ func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
 	if _, collision := envelope.Meta[coreContentMetadataKey]; collision {
 		return nil, errors.New("mcp: content metadata uses the reserved Core metadata key")
 	}
-	if part.Kind == chat.PartMedia && !envelope.linksMedia(part.Media) {
-		portable.Name = part.Media.Name
+	if part.Kind == chat.PartMedia {
+		if !envelope.linksMedia(part.Media) {
+			portable.Name = part.Media.Name
+		}
+		portable.MediaID, portable.MediaMetadata = part.Media.ID, part.Media.Metadata.Clone()
 	}
 	if !portable.isZero() {
 		encoded, err := jsonv2.Marshal(portable)
@@ -436,12 +455,6 @@ func mapServerMedia(value *media.Media, meta sdkmcp.Meta) (sdkmcp.Content, error
 			return nil, err
 		}
 		return &sdkmcp.ResourceLink{URI: uri, Name: value.Name, MIMEType: value.MIME, Meta: meta}, nil
-	case media.SourceReference:
-		reference, err := value.Reference()
-		if err != nil {
-			return nil, err
-		}
-		return &sdkmcp.ResourceLink{URI: reference, Name: value.Name, MIMEType: value.MIME, Meta: meta}, nil
 	default:
 		return nil, media.ErrInvalidSource
 	}

@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -277,27 +278,22 @@ func TestMapServerMediaRejectsAnUnusableSource(t *testing.T) {
 	}
 }
 
-func TestMapServerMediaCarriesReferences(t *testing.T) {
+func TestMapServerContentRejectsMediaReferences(t *testing.T) {
 	reference, err := media.NewReference(pngMIME, "store://bucket/key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, err := mapServerMedia(reference, nil)
-	if err != nil {
-		t.Fatal(err)
+	if content, err := mapServerContent(corechat.ToolContent{Kind: corechat.PartMedia, Media: reference}); !errors.Is(err, ErrMediaReference) || content != nil {
+		t.Fatalf("reference media = %#v, %v; want ErrMediaReference", content, err)
 	}
-	link, ok := content.(*sdkmcp.ResourceLink)
-	if !ok {
-		if embedded, embeddedOK := content.(*sdkmcp.EmbeddedResource); embeddedOK {
-			if embedded.Resource.URI != "store://bucket/key" {
-				t.Fatalf("embedded reference URI = %q", embedded.Resource.URI)
-			}
-			return
+}
+
+func TestRemoteContentRejectsMediaFieldsOnText(t *testing.T) {
+	for _, encoded := range []string{`{"name":"x"}`, `{"media_id":"x"}`, `{"media_metadata":{"k":1}}`} {
+		text := &sdkmcp.TextContent{Text: "hello", Meta: sdkmcp.Meta{coreContentMetadataKey: encoded}}
+		if part, _, err := mapRemoteContent(text); err == nil {
+			t.Fatalf("text with %s = %#v, want an error", encoded, part)
 		}
-		t.Fatalf("content = %T", content)
-	}
-	if link.URI != "store://bucket/key" {
-		t.Fatalf("resource link URI = %q", link.URI)
 	}
 }
 

@@ -21,13 +21,16 @@
 //
 // Tool results and prompts share one content codec. [ContentMetadataKey]
 // carries MCP annotations, resource provenance, and presentation metadata
-// that Core has no field for, and Core metadata, citations, and media names
-// that MCP has no field for travel through MCP _meta as JSON text so their
-// numbers survive. When a server declares no media type, the client infers
-// one from the URI extension with a fixed table independent of the host,
-// falls back to application/octet-stream, and marks the envelope so that
-// serving the content again omits the guess. Empty text without
-// metadata is omitted; malformed or unsupported content is rejected. The SDK
-// decodes outputSchema and native _meta numbers as float64, so precision
-// beyond that is lost before Scope receives it.
+// that Core has no field for, and Core metadata, citations, and media names,
+// IDs, and metadata that MCP has no field for travel through MCP _meta as JSON
+// text so their numbers survive. A Core media reference is an opaque handle
+// valid only with the provider that issued it, so serving one fails with
+// [ErrMediaReference]; a received resource link is always a URI. When a
+// server declares no media type, the client infers one from the URI extension
+// with a fixed table independent of the host, falls back to
+// application/octet-stream, and marks the envelope so that serving the content
+// again omits the guess. Empty text without metadata is omitted; malformed or
+// unsupported content is rejected. The SDK decodes outputSchema and native
+// _meta numbers as float64, so precision beyond that is lost before Scope
+// receives it.
 package mcp

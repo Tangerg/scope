@@ -198,12 +198,93 @@ func TestCoreMediaNamesRoundTrip(t *testing.T) {
 	}
 }
 
-type contentOutputTool struct{ output chat.ToolOutput }
+func TestCoreMediaIdentityAndMetadataRoundTrip(t *testing.T) {
+	var values metadata.Map
+	require.NoError(t, values.Set("source/page", json.RawMessage(`9007199254740993`)))
+	image, err := media.NewBytes("image/png", []byte{1})
+	require.NoError(t, err)
+	image.ID, image.Metadata = "image-1", values.Clone()
+	document, err := media.NewBytes("application/pdf", []byte{3})
+	require.NoError(t, err)
+	document.ID, document.Name = "document-1", "report.pdf"
+	linked, err := media.NewURI("image/png", "https://example.com/a.png")
+	require.NoError(t, err)
+	linked.ID, linked.Name, linked.Metadata = "link-1", "site", values.Clone()
+	parts := []*media.Media{image, document, linked}
+	output := chat.ToolOutput{}
+	for _, value := range parts {
+		output.Content = append(output.Content, chat.ToolContent{Kind: chat.PartMedia, Media: value})
+	}
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("failed"), Output: output})
+	require.NoError(t, err)
+
+	for name, local := range map[string]tool.Tool{
+		"success": contentOutputTool{output: output},
+		"failure": contentOutputTool{err: failure},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "identified-media"}, nil)
+			require.NoError(t, scopemcp.Register(server, local))
+			session := connectContentServer(t, server)
+			tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+			require.NoError(t, err)
+			got, err := invokeTestTool(t.Context(), tools[0], `{}`)
+			if name == "failure" {
+				remote, found := errors.AsType[*tool.Failure](err)
+				require.True(t, found, "error = %v", err)
+				got, err = remote.Output(), nil
+			}
+			require.NoError(t, err)
+			require.Len(t, got.Content, len(parts))
+			for index, value := range parts {
+				require.Equal(t, value, got.Content[index].Media)
+			}
+
+			if name != "success" {
+				return
+			}
+			result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "content", Arguments: json.RawMessage(`{}`)})
+			require.NoError(t, err)
+			messages := make([]*sdkmcp.PromptMessage, len(result.Content))
+			for index, content := range result.Content {
+				messages[index] = &sdkmcp.PromptMessage{Role: "user", Content: content}
+			}
+			prompt, err := scopemcp.PromptMessagesToChat(messages)
+			require.NoError(t, err)
+			require.Len(t, prompt, len(parts))
+			for index, value := range parts {
+				require.Equal(t, value, prompt[index].Parts[0].Media)
+			}
+		})
+	}
+}
+
+func TestMediaReferencesDoNotCrossMCP(t *testing.T) {
+	reference, err := media.NewReference("image/png", "file-opaque-1")
+	require.NoError(t, err)
+	output := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: reference}}}
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "reference-media"}, nil)
+	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
+	session := connectContentServer(t, server)
+	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+	require.NoError(t, err)
+	got, err := invokeTestTool(t.Context(), tools[0], `{}`)
+	require.Error(t, err)
+	require.Empty(t, got.Content)
+}
+
+type contentOutputTool struct {
+	output chat.ToolOutput
+	err    error
+}
 
 func (c contentOutputTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{Name: "content", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
 func (c contentOutputTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+	if c.err != nil {
+		return chat.ToolOutput{}, c.err
+	}
 	return c.output.Clone(), nil
 }
