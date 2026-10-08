@@ -288,7 +288,7 @@ func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
 				t.Fatalf("ToolArguments.Validate = %v, want ErrInvalidSample", validateErr)
 			}
 			call := trajectory.ToolCall{
-				EffectID: effectID, ProcessID: processID, StepSequence: 1, ModelCall: 1,
+				EffectID: effectID, ProcessID: processID, StepSequence: 1,
 				Call:    chat.ToolCall{ID: "call-1", Name: "weather", Arguments: raw},
 				Unknown: true,
 			}
@@ -612,7 +612,11 @@ func TestRealProviderToolCallIDsDoNotChangeBehaviorDigest(t *testing.T) {
 
 func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 	paris, berlin := trajectory.ToolArguments(`{"city":"Paris"}`), trajectory.ToolArguments(`{"city":"Berlin"}`)
-	var rawFirstIndexes []uint32
+	firstKey, err := interaction.ToolChildKey(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rawFirstKeys []agent.ChildKey
 	for _, model := range []*fixtureInteractionClient{
 		{callID: "call-a", secondCallID: "call-b"},
 		{callID: "call-b", secondCallID: "call-a"},
@@ -629,7 +633,12 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rawFirstIndexes = append(rawFirstIndexes, recorded.ToolCalls()[0].Index)
+		for _, event := range recorded.Events() {
+			if event.ProcessID() == recorded.ToolCalls()[0].ProcessID && event.Name() == agent.EventProcessStarted {
+				key, _ := event.Relation().ChildKey()
+				rawFirstKeys = append(rawFirstKeys, key)
+			}
+		}
 		report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{
 			Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
 				{Name: "weather", Arguments: &paris, Outcome: trajectory.ToolOutcomeSucceeded},
@@ -640,7 +649,7 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 			t.Fatalf("provider IDs reordered semantic Tool expectation: report=%+v error=%v", report, err)
 		}
 	}
-	if !slices.Equal(rawFirstIndexes, []uint32{0, 0}) {
-		t.Fatalf("provider call IDs reordered recorded Tool children: first indexes %v", rawFirstIndexes)
+	if !slices.Equal(rawFirstKeys, []agent.ChildKey{firstKey, firstKey}) {
+		t.Fatalf("provider call IDs reordered recorded Tool children: first keys %v", rawFirstKeys)
 	}
 }

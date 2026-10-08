@@ -87,8 +87,6 @@ func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
 type behaviorTool struct {
 	ProcessPath string              `json:"process_path"`
 	Step        uint64              `json:"step"`
-	ModelCall   uint64              `json:"model_call"`
-	Index       uint32              `json:"index"`
 	Name        string              `json:"name"`
 	Arguments   json.RawMessage     `json:"arguments,omitzero"`
 	Outcome     ToolOutcome         `json:"outcome"`
@@ -108,7 +106,7 @@ func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
 	}
 	tool := behaviorTool{
 		ProcessPath: path, Step: call.StepSequence,
-		ModelCall: call.ModelCall, Index: call.Index, Name: call.Call.Name,
+		Name:      call.Call.Name,
 		Arguments: arguments, Outcome: call.Outcome(),
 	}
 	if call.Result != nil {

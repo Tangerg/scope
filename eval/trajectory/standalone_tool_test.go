@@ -11,9 +11,9 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-// A ToolSet run as a root has no requesting Interaction, so its recorded call
-// carries no model call or position rather than an invented one.
-func TestStandaloneToolSetRecordsNoRequestingModelCall(t *testing.T) {
+// A ToolSet run as a root has no requesting Interaction; its call is still a
+// complete, valid record.
+func TestStandaloneToolSetRecordsAValidCall(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
 		Name: "test.trajectory.standalone", Description: "Run one Tool call directly.", Tools: []tool.Tool{fixtureWeatherTool{}}, Observer: recorder,
@@ -47,7 +47,7 @@ func TestStandaloneToolSetRecordsNoRequestingModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := recorded.ToolCalls()
-	if len(calls) != 1 || calls[0].ModelCall != 0 || calls[0].Index != 0 || calls[0].Outcome() != trajectory.ToolOutcomeSucceeded {
+	if len(calls) != 1 || calls[0].ProcessID != process.ID() || calls[0].Outcome() != trajectory.ToolOutcomeSucceeded {
 		t.Fatalf("standalone Tool calls = %+v", calls)
 	}
 	if _, err := trajectory.New(trajectoryConfig(recorded)); err != nil {

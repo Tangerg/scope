@@ -101,9 +101,7 @@ func TestCoveragePreservesExactlyOneSemanticObservationPerEffect(t *testing.T) {
 			c.ModelCalls = append(c.ModelCalls, duplicate)
 		}},
 		{"duplicate tool call", func(c *trajectory.Config) {
-			duplicate := c.ToolCalls[0].Clone()
-			duplicate.Index++
-			c.ToolCalls = append(c.ToolCalls, duplicate)
+			c.ToolCalls = append(c.ToolCalls, c.ToolCalls[0].Clone())
 		}},
 		{"model classified as other", func(c *trajectory.Config) {
 			c.Coverage.Other = append(c.Coverage.Other, c.Coverage.Models...)

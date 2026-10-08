@@ -37,14 +37,6 @@ type Evaluator struct {
 	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
 }
 
-// decisionRule names the Metric a rule constrains. Measurement rules share one
-// policy, so without it a changed constraint would compare as the same rule.
-type decisionRule struct {
-	Metric     eval.Metric  `json:"metric"`
-	Policy     string       `json:"policy"`
-	Parameters metadata.Map `json:"parameters,omitzero"`
-}
-
 func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {
 	if err := ctx.Err(); err != nil {
 		return eval.Report{}, err
@@ -68,15 +60,9 @@ func allExpectationsReport(details []eval.Report) (eval.Report, error) {
 	if slices.ContainsFunc(details, func(detail eval.Report) bool { return detail.Verdict() == eval.VerdictFail }) {
 		verdict = eval.VerdictFail
 	}
-	parameters := metadata.Map{}
-	rules := make([]decisionRule, len(details))
-	for index, detail := range details {
-		rules[index] = decisionRule{Metric: detail.Metric, Policy: detail.Decision.Policy, Parameters: detail.Decision.Parameters.Clone()}
-	}
-	if err := parameters.Set("rules", rules); err != nil {
-		return eval.Report{}, err
-	}
-	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.all_expectations", Parameters: parameters, Verdict: verdict}, Details: details}
+	// Each expectation's rule belongs to its Detail, which eval includes in the
+	// Decision identity.
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.all_expectations", Verdict: verdict}, Details: details}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}

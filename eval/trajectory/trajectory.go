@@ -542,12 +542,6 @@ func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int
 	if left.StepSequence != right.StepSequence {
 		return cmp.Compare(left.StepSequence, right.StepSequence)
 	}
-	if left.ModelCall != right.ModelCall {
-		return cmp.Compare(left.ModelCall, right.ModelCall)
-	}
-	if left.Index != right.Index {
-		return cmp.Compare(left.Index, right.Index)
-	}
 	return strings.Compare(left.AttemptID.String(), right.AttemptID.String())
 }
 
