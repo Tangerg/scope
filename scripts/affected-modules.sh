@@ -26,7 +26,9 @@ while IFS= read -r module; do
 done < "$work/modules"
 sort -rn "$work/modules-by-depth" -o "$work/modules-by-depth"
 
-git -C "$root" diff --name-only --diff-filter=ACDMRTUXB "$base...$head" > "$work/changed-files"
+# A rename changes both of its paths; --name-only alone would list only the
+# destination and leave the source module and its consumers unchecked.
+git -C "$root" diff --name-only --no-renames --diff-filter=ACDMTUXB "$base...$head" > "$work/changed-files"
 
 select_all=0
 while IFS= read -r changed; do

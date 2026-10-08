@@ -24,6 +24,32 @@ exit 23
 	}
 }
 
+func TestAffectedModulesSelectsBothSidesOfARename(t *testing.T) {
+	t.Parallel()
+	fixture := newScriptFailureFixture(t, "affected-modules.sh")
+	fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' agent consumer core\n")
+	fixture.write(t, "agent/go.mod", "module github.com/Tangerg/scope/agent\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
+	fixture.write(t, "consumer/go.mod", "module github.com/Tangerg/scope/consumer\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
+	fixture.write(t, "core/value/value.go", "package value\n\nconst Answer = 42\n")
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		command.Dir = fixture.root
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+	git("mv", "core/value", "agent/value")
+	git("commit", "-q", "-m", "move")
+	output, err := fixture.run(t, "affected-modules.sh", "HEAD~1", "HEAD")
+	if err != nil || output != "agent\nconsumer\ncore\n" {
+		t.Fatalf("affected modules = %q, %v; want the destination, the source, and the source's consumers", output, err)
+	}
+}
+
 func TestVulnerabilityCheckRejectsIncompletePackageList(t *testing.T) {
 	t.Parallel()
 	fixture := newScriptFailureFixture(t, "check-vulnerabilities.sh")
