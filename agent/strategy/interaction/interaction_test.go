@@ -46,8 +46,8 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, want completed; termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, want completed; termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, ok := result.Termination().Output()
 	if !ok {
@@ -99,8 +99,8 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -305,12 +305,12 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 				t.Fatal(killErr)
 			}
 			result, err := process.Await(ctx)
-			if err != nil || result.Status() != agent.StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+			if err != nil || result.Termination().Status() != agent.StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 				t.Fatalf("root termination=%+v error=%v", result.Termination(), err)
 			}
 			toolResult, err := toolProcess.Await(ctx)
 			unresolved := toolResult.Termination().UnresolvedEffectIDs()
-			if err != nil || toolResult.Status() != agent.StatusCanceled || toolResult.Termination().Cause() != agent.TerminationCauseParentCancellation || len(unresolved) != 1 || unresolved[0] != effectID {
+			if err != nil || toolResult.Termination().Status() != agent.StatusCanceled || toolResult.Termination().Cause() != agent.TerminationCauseParentCancellation || len(unresolved) != 1 || unresolved[0] != effectID {
 				t.Fatalf("Tool termination=%+v error=%v", toolResult.Termination(), err)
 			}
 		})
@@ -349,9 +349,9 @@ func runInteraction(t *testing.T, deployment interactionDeployment, prompt strin
 func assertInteractionHostFailure(t *testing.T, result agent.Result) {
 	t.Helper()
 	failure, ok := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !ok ||
+	if result.Termination().Status() != agent.StatusFailed || !ok ||
 		failure.Kind() != agent.FailureKindExternal || failure.Code() != "interaction.host.failed" {
-		t.Fatalf("result = status:%s termination:%#v", result.Status(), result.Termination())
+		t.Fatalf("result = status:%s termination:%#v", result.Termination().Status(), result.Termination())
 	}
 }
 
@@ -433,8 +433,8 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 1 {
-		t.Fatalf("status = %s, model calls = %d", result.Status(), model.Calls())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 1 {
+		t.Fatalf("status = %s, model calls = %d", result.Termination().Status(), model.Calls())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -473,8 +473,8 @@ func TestModelCallLimitProducesStableFailure(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusFailed || model.Calls() != 1 {
-		t.Fatalf("status = %s, model calls = %d", result.Status(), model.Calls())
+	if result.Termination().Status() != agent.StatusFailed || model.Calls() != 1 {
+		t.Fatalf("status = %s, model calls = %d", result.Termination().Status(), model.Calls())
 	}
 	failure, ok := result.Termination().Failure()
 	if !ok || failure.Code() != "interaction.limit.model_calls" || failure.Kind() != agent.FailureKindExecution {

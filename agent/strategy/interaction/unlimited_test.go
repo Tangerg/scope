@@ -67,8 +67,8 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s error=%v termination=%+v", result.Status(), err, result.Termination())
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v termination=%+v", result.Termination().Status(), err, result.Termination())
 	}
 	output, _ := result.Termination().Output()
 	value, err := output.Decode[interaction.Output]()
@@ -145,7 +145,7 @@ func TestUnlimitedInteractionHonorsHostCancellation(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCanceled || result.Usage().PreparedEffects != 1 {
-		t.Fatalf("cancellation=%s usage=%+v error=%v", result.Status(), result.Usage(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCanceled || result.Usage().PreparedEffects != 1 {
+		t.Fatalf("cancellation=%s usage=%+v error=%v", result.Termination().Status(), result.Usage(), err)
 	}
 }

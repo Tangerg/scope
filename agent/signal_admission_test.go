@@ -94,8 +94,8 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 	if killErr := process.Kill(t.Context(), "inspection complete"); killErr != nil {
 		t.Fatal(killErr)
 	}
-	if result, awaitErr := process.Await(t.Context()); awaitErr != nil || result.Status() != StatusKilled {
-		t.Fatalf("kill result=%s error=%v", result.Status(), awaitErr)
+	if result, awaitErr := process.Await(t.Context()); awaitErr != nil || result.Termination().Status() != StatusKilled {
+		t.Fatalf("kill result=%s error=%v", result.Termination().Status(), awaitErr)
 	}
 }
 

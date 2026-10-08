@@ -106,8 +106,8 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	}
 	close(definition.release)
 	original, err := root.Await(ctx)
-	if err != nil || original.Status() != StatusCompleted {
-		t.Fatalf("original=%s err=%v", original.Status(), err)
+	if err != nil || original.Termination().Status() != StatusCompleted {
+		t.Fatalf("original=%s err=%v", original.Termination().Status(), err)
 	}
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
@@ -127,7 +127,7 @@ func TestRestoreDoesNotChargeExistingChildCompletion(t *testing.T) {
 	if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if result.Status() != StatusCompleted {
-		t.Fatalf("same snapshot resumed as %s, termination=%+v; original completed", result.Status(), result.Termination())
+	if result.Termination().Status() != StatusCompleted {
+		t.Fatalf("same snapshot resumed as %s, termination=%+v; original completed", result.Termination().Status(), result.Termination())
 	}
 }

@@ -64,8 +64,8 @@ func assertResolvedContinuation(t *testing.T, result agent.Result) {
 	t.Helper()
 	output, present := result.Termination().Output()
 	decoded, err := output.Decode[conformanceOutput]()
-	if result.Status() != agent.StatusCompleted || !present || err != nil || decoded.Value != crashInputValue {
-		t.Fatalf("resolved continuation status=%s output=%+v error=%v", result.Status(), decoded, err)
+	if result.Termination().Status() != agent.StatusCompleted || !present || err != nil || decoded.Value != crashInputValue {
+		t.Fatalf("resolved continuation status=%s output=%+v error=%v", result.Termination().Status(), decoded, err)
 	}
 	wantUsage := agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}
 	if result.Usage() != wantUsage {

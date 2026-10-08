@@ -78,7 +78,7 @@ func TestToolResultCannotBeReplacedByExternalSignal(t *testing.T) {
 			}
 			output, present := result.Termination().Output()
 			decoded, err := output.Decode[toolCallResult]()
-			if !present || err != nil || decoded.Disposition != ResultSucceeded || result.Status() != agent.StatusCompleted {
+			if !present || err != nil || decoded.Disposition != ResultSucceeded || result.Termination().Status() != agent.StatusCompleted {
 				t.Fatalf("real result lost: %+v, %v", decoded, err)
 			}
 		})

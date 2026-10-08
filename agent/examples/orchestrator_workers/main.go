@@ -291,8 +291,8 @@ func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, er
 
 func decodeCompleted[T any](result agent.Result) (T, error) {
 	var zero T
-	if result.Status() != agent.StatusCompleted {
-		return zero, fmt.Errorf("process ended with %s: %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
 	}
 	output, present := result.Termination().Output()
 	if !present {

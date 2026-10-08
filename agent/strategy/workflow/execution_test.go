@@ -43,8 +43,8 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("Workflow status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("Workflow status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, present := result.Termination().Output()
 	if !present {
@@ -84,8 +84,8 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusFailed {
-		t.Fatalf("Workflow status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusFailed {
+		t.Fatalf("Workflow status = %s", result.Termination().Status())
 	}
 	failure, present := result.Termination().Failure()
 	if !present || failure.Kind() != agent.FailureKindExecution || failure.Code() != "execution.step.failed" ||

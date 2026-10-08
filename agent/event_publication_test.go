@@ -199,8 +199,8 @@ func TestChildEventsDescribeAcknowledgedTreeState(t *testing.T) {
 		synctest.Wait()
 		dispatcher.ReleaseAll()
 		result := awaitResult(t, root)
-		if result.Status() != StatusCompleted {
-			t.Errorf("root status=%s", result.Status())
+		if result.Termination().Status() != StatusCompleted {
+			t.Errorf("root status=%s", result.Termination().Status())
 		}
 		if releaseErr := engine.ReleaseTree(t.Context(), root.ID()); releaseErr != nil {
 			t.Fatal(releaseErr)

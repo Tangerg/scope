@@ -130,8 +130,8 @@ func TestOversizedChildCompletionFailsParentAtSafeBoundary(t *testing.T) {
 	}
 	result := parent.result()
 	failure, present := result.Termination().Failure()
-	if result.Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
-		t.Fatalf("parent result = %s, failure = %+v", result.Status(), failure)
+	if result.Termination().Status() != StatusFailed || !present || failure.Code() != "engine.child.wait.satisfaction.encoding_failed" {
+		t.Fatalf("parent result = %s, failure = %+v", result.Termination().Status(), failure)
 	}
 	if snapshot, err := runtime.members.get(handle.processID()).capture(); err != nil || !snapshot.Valid() {
 		t.Fatalf("terminal snapshot = %v, error = %v", snapshot.Valid(), err)
@@ -160,7 +160,7 @@ func TestPendingFailureRetainsUnknownExternalEffect(t *testing.T) {
 	parent.prepared = &preparedStep{Effects: []preparedEffect{record}}
 	runtime.advancePrepared(parent)
 	result := parent.result()
-	if result.Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {
+	if result.Termination().Status() != StatusFailed || !slices.Equal(result.Termination().UnresolvedEffectIDs(), []EffectID{id}) {
 		t.Fatalf("failure lost unresolved effect: %+v", result.Termination())
 	}
 }

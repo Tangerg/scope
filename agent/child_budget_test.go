@@ -58,8 +58,8 @@ func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
 				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Fatal(closeErr)
 				}
-				if result.Status() != StatusCompleted || len(ids) != test.wantChildren || !snapshot.Valid() {
-					t.Fatalf("parent=%s children=%v snapshot valid=%t", result.Status(), ids, snapshot.Valid())
+				if result.Termination().Status() != StatusCompleted || len(ids) != test.wantChildren || !snapshot.Valid() {
+					t.Fatalf("parent=%s children=%v snapshot valid=%t", result.Termination().Status(), ids, snapshot.Valid())
 				}
 				output := childTestResult(t, result)
 				if test.wantChildren == 0 {

@@ -115,8 +115,8 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 						t.Fatalf("admitted control could not drain: %v", err)
 					}
 					result := controlValue(process.Await(t.Context()))
-					if result.Status() != want || result.Termination().Reason() != reason {
-						t.Fatalf("termination = %s, reason bytes = %d", result.Status(), len(result.Termination().Reason()))
+					if result.Termination().Status() != want || result.Termination().Reason() != reason {
+						t.Fatalf("termination = %s, reason bytes = %d", result.Termination().Status(), len(result.Termination().Reason()))
 					}
 					tree := capture()
 					tree = controlValue(ParseTreeSnapshot(tree.JSON()))
@@ -129,7 +129,7 @@ func TestSnapshotAdmissionPreservesTerminationAtCapacity(t *testing.T) {
 					if err := restored.Join(t.Context()); err != nil {
 						t.Fatal(err)
 					}
-					if restoredResult := controlValue(restored.Await(t.Context())); restoredResult.Termination().Reason() != reason || restoredResult.Status() != want {
+					if restoredResult := controlValue(restored.Await(t.Context())); restoredResult.Termination().Reason() != reason || restoredResult.Termination().Status() != want {
 						t.Fatal("restoration changed the acknowledged termination")
 					}
 				})
@@ -274,8 +274,8 @@ func TestTerminalTreeRestoresBelowLiveSnapshotReservation(t *testing.T) {
 			if err := restored.Join(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if result := controlValue(restored.Await(t.Context())); result.Status() != StatusCompleted {
-				t.Fatalf("terminal restoration = %s", result.Status())
+			if result := controlValue(restored.Await(t.Context())); result.Termination().Status() != StatusCompleted {
+				t.Fatalf("terminal restoration = %s", result.Termination().Status())
 			}
 			if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), tree.ProcessSnapshots()[0].JSON()) {
 				t.Fatal("terminal restoration changed captured Process facts")
@@ -333,7 +333,7 @@ func TestSnapshotAdmissionPreservesFailureAndUnresolvedEvidence(t *testing.T) {
 			}
 			snapshot := controlValue(ParseTreeSnapshot(tree.JSON())).ProcessSnapshots()[0]
 			result, terminal := snapshot.Result()
-			if !terminal || result.Status() != StatusFailed || result.Termination().Reason() != message {
+			if !terminal || result.Termination().Status() != StatusFailed || result.Termination().Reason() != message {
 				t.Fatal("failure reason was lost or rewritten")
 			}
 			ids := result.Termination().UnresolvedEffectIDs()
@@ -376,7 +376,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				result, awaitErr := process.Await(t.Context())
 				runtimeErr, stopped := errors.AsType[*RuntimeError](awaitErr)
 				if !stopped || result.Valid() || !errors.Is(joinErr, ErrResourceLimitExceeded) || !errors.Is(awaitErr, ErrResourceLimitExceeded) {
-					t.Fatalf("oversized settlement: result=%s Await=%v Join=%v", result.Status(), awaitErr, joinErr)
+					t.Fatalf("oversized settlement: result=%s Await=%v Join=%v", result.Termination().Status(), awaitErr, joinErr)
 				}
 				ids := runtimeErr.UnresolvedEffectIDs()
 				if len(ids) != 1 || calls.Load() != 1 {
@@ -423,7 +423,7 @@ func TestOversizedSettlementPreservesRecoverableAdmissionBoundary(t *testing.T) 
 				if err := restored.Join(t.Context()); err != nil {
 					t.Fatal(err)
 				}
-				if final := controlValue(restored.Await(t.Context())); final.Status() != StatusCompleted || calls.Load() != 1 {
+				if final := controlValue(restored.Await(t.Context())); final.Termination().Status() != StatusCompleted || calls.Load() != 1 {
 					t.Fatal("explicit reconciliation did not complete without replay")
 				}
 			})

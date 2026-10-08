@@ -66,15 +66,15 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 					if joinErr := child.Join(t.Context()); joinErr != nil {
 						t.Fatal(joinErr)
 					}
-					if result := mustAwait(t, child); result.Status() != StatusCompleted {
-						t.Fatalf("child did not complete before wait registration: %s", result.Status())
+					if result := mustAwait(t, child); result.Termination().Status() != StatusCompleted {
+						t.Fatalf("child did not complete before wait registration: %s", result.Termination().Status())
 					}
 					release()
 					result := mustAwait(t, root)
 					failure, failed := result.Termination().Failure()
-					if result.Status() != StatusFailed || !failed || failure.Kind() != FailureKindExecution ||
+					if result.Termination().Status() != StatusFailed || !failed || failure.Kind() != FailureKindExecution ||
 						failure.Code() != "engine.limit.child_wait_signal" || failure.Message() != ErrResourceLimitExceeded.Error() {
-						t.Fatalf("child completion budget became a contract error: status=%s failure=%+v", result.Status(), failure)
+						t.Fatalf("child completion budget became a contract error: status=%s failure=%+v", result.Termination().Status(), failure)
 					}
 					if result.Usage() != (Usage{CommittedSteps: 1, PreparedEffects: 2, AcceptedSignals: 1}) {
 						t.Fatalf("rejected completion changed committed usage: %+v", result.Usage())
@@ -178,8 +178,8 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			}
 			result := mustAwait(t, process)
 			failure, failed := result.Termination().Failure()
-			if result.Status() != StatusFailed || !failed || failure.Code() != "execution.effect.invalid" {
-				t.Fatalf("finalization result=%s failure=%+v", result.Status(), failure)
+			if result.Termination().Status() != StatusFailed || !failed || failure.Code() != "execution.effect.invalid" {
+				t.Fatalf("finalization result=%s failure=%+v", result.Termination().Status(), failure)
 			}
 			snapshot := inspectProcessSnapshot(t, process)
 			wire, err := snapshot.wire()
@@ -204,7 +204,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := mustAwait(t, restored); got.Status() != result.Status() || got.Usage() != result.Usage() {
+			if got := mustAwait(t, restored); got.Termination().Status() != result.Termination().Status() || got.Usage() != result.Usage() {
 				t.Fatalf("restored failure changed: %+v", got)
 			}
 			if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.JSON()) || dispatcher.calls.Load() != 0 {
@@ -229,8 +229,8 @@ func TestInvalidChildWaitRejectsWholeBatchBeforeDispatch(t *testing.T) {
 			dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
 			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, dispatcher), controlValue(EncodePayload(engineTestInput{Value: "retained"}))))
 			result := mustAwait(t, process)
-			if result.Status() != StatusFailed || dispatcher.calls.Load() != 0 {
-				t.Fatalf("status=%s dispatches=%d", result.Status(), dispatcher.calls.Load())
+			if result.Termination().Status() != StatusFailed || dispatcher.calls.Load() != 0 {
+				t.Fatalf("status=%s dispatches=%d", result.Termination().Status(), dispatcher.calls.Load())
 			}
 			wire := inspectProcessSnapshot(t, process).state
 			if wire.Prepared != nil || wire.Mailbox.SignalCursor != 0 || waitOpenings(wire.Mailbox) != 0 || wire.usage() != (Usage{}) {

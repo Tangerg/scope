@@ -55,8 +55,8 @@ func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fast sibling was starved by blocked Step: %v", err)
 	}
-	if fastResult.Status() != StatusCompleted {
-		t.Fatalf("fast sibling status = %s, want %s", fastResult.Status(), StatusCompleted)
+	if fastResult.Termination().Status() != StatusCompleted {
+		t.Fatalf("fast sibling status = %s, want %s", fastResult.Termination().Status(), StatusCompleted)
 	}
 
 	if killErr := blocked.Kill(context.Background(), "cancel blocked Step"); killErr != nil {
@@ -67,8 +67,8 @@ func TestTreeRuntimeDoesNotLetSlowStepStarveSibling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blockedResult.Status() != StatusKilled {
-		t.Fatalf("blocked child status = %s, want %s", blockedResult.Status(), StatusKilled)
+	if blockedResult.Termination().Status() != StatusKilled {
+		t.Fatalf("blocked child status = %s, want %s", blockedResult.Termination().Status(), StatusKilled)
 	}
 	if err := root.Kill(context.Background(), "test cleanup"); err != nil {
 		t.Fatal(err)

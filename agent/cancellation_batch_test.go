@@ -56,7 +56,7 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 		<-dispatcher.canceled
 		release()
 		result := mustAwait(t, process)
-		if result.Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
+		if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
 			t.Fatalf("termination = %+v", result.Termination())
 		}
 		wire, err := inspectProcessSnapshot(t, process).wire()
@@ -129,7 +129,7 @@ func TestCancellationPreservesPreparedInputInAFullMailbox(t *testing.T) {
 		<-dispatcher.canceled
 		release()
 		result := mustAwait(t, process)
-		if result.Status() != StatusKilled {
+		if result.Termination().Status() != StatusKilled {
 			t.Fatalf("termination = %+v", result.Termination())
 		}
 		after, err := inspectProcessSnapshot(t, process).wire()

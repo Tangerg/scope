@@ -64,7 +64,7 @@ func TestCancellationPreservesSettlementAcknowledgment(t *testing.T) {
 						!bytes.Equal(inspectProcessSnapshot(t, process).JSON(), before.JSON()) {
 						t.Errorf("failed acknowledgment changed authoritative facts: %+v", runtimeErr)
 					}
-				} else if result := mustAwait(t, process); result.Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+				} else if result := mustAwait(t, process); result.Termination().Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 					t.Errorf("acknowledged termination = %+v", result.Termination())
 				}
 				mustCloseEngine(t, engine)

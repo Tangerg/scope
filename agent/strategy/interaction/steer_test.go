@@ -49,8 +49,8 @@ func TestSteerDuringModelCallIsVisibleOnlyToNextModelCall(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
-		t.Fatalf("status = %s, model calls = %d", result.Status(), model.Calls())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 2 {
+		t.Fatalf("status = %s, model calls = %d", result.Termination().Status(), model.Calls())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -102,8 +102,8 @@ func TestSteerDuringToolBatchWaitsForWholeBatchSettlement(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 2 || blocking.calls.Load() != 1 {
-		t.Fatalf("status = %s, model calls = %d, Tool calls = %d", result.Status(), model.Calls(), blocking.calls.Load())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 2 || blocking.calls.Load() != 1 {
+		t.Fatalf("status = %s, model calls = %d, Tool calls = %d", result.Termination().Status(), model.Calls(), blocking.calls.Load())
 	}
 }
 
@@ -158,7 +158,7 @@ func TestSteerDoesNotMaskRejectedModelToolCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal ||
+	if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal ||
 		failure.Code() != "interaction.model.tool_calls_not_completed" {
 		t.Fatalf("termination = %#v", result.Termination())
 	}

@@ -102,8 +102,8 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 		}
 	})
 	result, err := engine.Run(t.Context(), deployment, interactionInput(t, "start"))
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("interaction result=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("interaction result=%s error=%v", result.Termination().Status(), err)
 	}
 	snapshot, err := engine.CaptureTree(t.Context(), result.ProcessID())
 	if err != nil {

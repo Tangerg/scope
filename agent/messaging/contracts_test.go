@@ -107,10 +107,10 @@ func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 			t.Fatal(cancelErr)
 		}
 		result := finish(t, sender)
-		if result.Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 || result.Usage().CommittedSteps != 0 {
+		if result.Termination().Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 || result.Usage().CommittedSteps != 0 {
 			t.Fatalf("canceled send=%+v", result)
 		}
-		if result := finish(t, receiver); result.Status() != agent.StatusCompleted || result.Usage().AcceptedSignals != 2 {
+		if result := finish(t, receiver); result.Termination().Status() != agent.StatusCompleted || result.Usage().AcceptedSignals != 2 {
 			t.Fatalf("receiver=%+v", result)
 		}
 		closeEngine(t, engine)

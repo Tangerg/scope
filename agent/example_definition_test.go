@@ -227,7 +227,7 @@ func ExampleDefinition() {
 	if err := engine.ReleaseTree(context.Background(), result.ProcessID()); err != nil {
 		panic(err)
 	}
-	fmt.Println(result.Status(), value.Value, dispatcher.attempts.Load())
+	fmt.Println(result.Termination().Status(), value.Value, dispatcher.attempts.Load())
 	fmt.Println("inspected:", report.Snapshot.Status(), report.Snapshot.Usage().PreparedEffects)
 	// Output:
 	// completed hello 1

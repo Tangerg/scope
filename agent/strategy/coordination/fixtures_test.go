@@ -107,8 +107,8 @@ func completedOutput[T any](t testing.TB, process *agent.Process) T {
 	t.Helper()
 	value := result(t, process)
 	output, present := value.Termination().Output()
-	if value.Status() != agent.StatusCompleted || !present {
-		t.Fatalf("process ended with %s: %+v", value.Status(), value.Termination())
+	if value.Termination().Status() != agent.StatusCompleted || !present {
+		t.Fatalf("process ended with %s: %+v", value.Termination().Status(), value.Termination())
 	}
 	decoded, err := output.Decode[T]()
 	if err != nil {

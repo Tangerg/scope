@@ -72,7 +72,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			}
 			failed, err := root.Await(ctx)
 			if _, stopped := errors.AsType[*agent.RuntimeError](err); !stopped || failed.Valid() {
-				t.Fatalf("lost acknowledgment status=%s error=%v", failed.Status(), err)
+				t.Fatalf("lost acknowledgment status=%s error=%v", failed.Termination().Status(), err)
 			}
 			head, found, err := store.LoadTree(ctx, root.ID())
 			if err != nil || !found {
@@ -139,8 +139,8 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				t.Fatal(resolveErr)
 			}
 			result, err := restored.Await(ctx)
-			if err != nil || result.Status() != agent.StatusCompleted {
-				t.Fatalf("restored result=%s termination=%v error=%v", result.Status(), result.Termination(), err)
+			if err != nil || result.Termination().Status() != agent.StatusCompleted {
+				t.Fatalf("restored result=%s termination=%v error=%v", result.Termination().Status(), result.Termination(), err)
 			}
 			if first.calls.Load() != 1 || uncertain.calls.Load() != 1 || last.calls.Load() != 1 || modelCalls.Load() != 2 {
 				t.Fatalf("final tool/model calls=%d/%d/%d/%d", first.calls.Load(), uncertain.calls.Load(), last.calls.Load(), modelCalls.Load())
@@ -276,8 +276,8 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 		t.Fatal(resolveErr)
 	}
 	final, err := root.Await(ctx)
-	if err != nil || final.Status() != agent.StatusCompleted {
-		t.Fatalf("recovered result: %s %v", final.Status(), err)
+	if err != nil || final.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("recovered result: %s %v", final.Termination().Status(), err)
 	}
 	payload, ok := final.Termination().Output()
 	if !ok {
@@ -389,8 +389,8 @@ func TestReconciledToolDispositionMatchesLiveOutcome(t *testing.T) {
 					}
 				}
 				final, err := root.Await(t.Context())
-				if err != nil || final.Status() != agent.StatusCompleted {
-					t.Fatalf("status=%s error=%v", final.Status(), err)
+				if err != nil || final.Termination().Status() != agent.StatusCompleted {
+					t.Fatalf("status=%s error=%v", final.Termination().Status(), err)
 				}
 				if err := root.Join(t.Context()); err != nil {
 					t.Fatal(err)

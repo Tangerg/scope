@@ -54,8 +54,8 @@ func Run(
 		t.Fatal(joinErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Status(), result.Termination(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Termination().Status(), result.Termination(), err)
 	}
 	cases := recorder.recordedCases()
 	if len(cases) < 2 {

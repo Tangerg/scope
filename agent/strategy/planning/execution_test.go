@@ -154,9 +154,9 @@ func TestManagedPlanningUsesSemanticCompletionOutcomes(t *testing.T) {
 		})
 		result := runManaged(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, deployment)
 		output := managedOutput(t, result)
-		if result.Status() != agent.StatusCompleted || output.Outcome != planning.OutcomeStuck ||
+		if result.Termination().Status() != agent.StatusCompleted || output.Outcome != planning.OutcomeStuck ||
 			len(output.Attempts) != 1 || output.Attempts[0].Status != planning.AttemptFailed {
-			t.Fatalf("result status = %s, output = %#v", result.Status(), output)
+			t.Fatalf("result status = %s, output = %#v", result.Termination().Status(), output)
 		}
 	})
 
@@ -636,8 +636,8 @@ func runManaged(t testing.TB, config agent.EngineConfig, deployment agent.Deploy
 
 func managedOutput(t testing.TB, result agent.Result) planning.Output {
 	t.Helper()
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, ok := result.Termination().Output()
 	if !ok {
@@ -655,8 +655,8 @@ func managedOutput(t testing.TB, result agent.Result) planning.Output {
 
 func assertFailure(t testing.TB, result agent.Result, kind agent.FailureKind, code string) {
 	t.Helper()
-	if result.Status() != agent.StatusFailed {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusFailed {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	failure, ok := result.Termination().Failure()
 	if !ok || failure.Kind() != kind || failure.Code() != code {

@@ -61,7 +61,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					}
 					release()
 					result := mustAwait(t, process)
-					if result.Status() != StatusKilled {
+					if result.Termination().Status() != StatusKilled {
 						t.Fatalf("termination = %+v", result.Termination())
 					}
 					select {
@@ -113,7 +113,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if got := mustAwait(t, restored); got.Status() != result.Status() || got.Usage() != result.Usage() {
+					if got := mustAwait(t, restored); got.Termination().Status() != result.Termination().Status() || got.Usage() != result.Usage() {
 						t.Fatalf("restored result = %+v, want %+v", got, result)
 					}
 					resolution, _ := NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
@@ -175,7 +175,7 @@ func TestHostTerminationCancelsActiveDispatch(t *testing.T) {
 				if deadline {
 					wantStatus, wantCause = StatusTimedOut, TerminationCauseHostDeadline
 				}
-				if result.Status() != wantStatus || result.Termination().Cause() != wantCause {
+				if result.Termination().Status() != wantStatus || result.Termination().Cause() != wantCause {
 					t.Errorf("host termination = %+v", result.Termination())
 				}
 				mustCloseEngine(t, engine)

@@ -156,8 +156,8 @@ func validCheckpointAnswer(
 
 func assertCheckpointResult(t *testing.T, result agent.Result, fixture checkpointFixture) {
 	t.Helper()
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	if fixture.prefixCalls.Load() != 1 {
 		t.Fatalf("settled prefix calls = %d, want 1", fixture.prefixCalls.Load())

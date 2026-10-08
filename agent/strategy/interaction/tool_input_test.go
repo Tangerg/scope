@@ -123,8 +123,8 @@ func TestPendingToolInputsTracksPausedWaitUntilAnswered(t *testing.T) {
 		t.Fatal(resumeErr)
 	}
 	result, err := root.Await(ctx)
-	if err != nil || result.Status() != agent.StatusCompleted || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
-		t.Fatalf("result=%s error=%v Tool calls=%d/%d", result.Status(), err, waiting.initialCalls.Load(), waiting.continuationCalls.Load())
+	if err != nil || result.Termination().Status() != agent.StatusCompleted || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
+		t.Fatalf("result=%s error=%v Tool calls=%d/%d", result.Termination().Status(), err, waiting.initialCalls.Load(), waiting.continuationCalls.Load())
 	}
 }
 
@@ -233,8 +233,8 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if response != value {
 		wantStatus = agent.StatusFailed
 	}
-	if err != nil || result.Status() != wantStatus {
-		t.Fatalf("result status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != wantStatus {
+		t.Fatalf("result status=%s error=%v", result.Termination().Status(), err)
 	}
 	select {
 	case continuation := <-resumed:

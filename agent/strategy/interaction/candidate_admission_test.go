@@ -44,7 +44,7 @@ func TestEngineRejectsInvalidInteractionCandidateBeforeModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, failed := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !failed || failure.Code() != "execution.snapshot.unrestorable" || calls.Load() != 0 {
+	if result.Termination().Status() != agent.StatusFailed || !failed || failure.Code() != "execution.snapshot.unrestorable" || calls.Load() != 0 {
 		t.Fatalf("invalid candidate crossed admission: failure = %+v, calls = %d", failure, calls.Load())
 	}
 }

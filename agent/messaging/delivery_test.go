@@ -30,7 +30,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		sender := start(t, senderEngine, deployment, input(t, messaging.Message{Recipient: receiver.ID(), WaitID: &waitID, Payload: input(t, "approved")}))
 		<-port.firstAdmission
 		received := finish(t, receiver)
-		if received.Status() != agent.StatusCompleted || received.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
+		if received.Termination().Status() != agent.StatusCompleted || received.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 			t.Fatalf("receiver=%+v", received)
 		}
 		checkpoint, present, loadErr := store.LoadTree(t.Context(), sender.ID())
@@ -43,7 +43,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 			t.Fatal(err)
 		}
 		replayed := finish(t, restored)
-		if replayed.Status() != agent.StatusCompleted || replayed.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
+		if replayed.Termination().Status() != agent.StatusCompleted || replayed.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
 			t.Fatalf("sender replay=%+v", replayed)
 		}
 		original := assertReplayKeptDelivery(t, port.recordedCalls(), waitID)
@@ -142,8 +142,8 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 		if resolveErr := sender.ResolveUnknownEffect(t.Context(), unknown[0], settlement); resolveErr != nil {
 			t.Fatal(resolveErr)
 		}
-		if result := finish(t, sender); result.Status() != agent.StatusCompleted {
-			t.Fatalf("resolved=%s", result.Status())
+		if result := finish(t, sender); result.Termination().Status() != agent.StatusCompleted {
+			t.Fatalf("resolved=%s", result.Termination().Status())
 		}
 		closeEngine(t, engine)
 	})
@@ -166,7 +166,7 @@ func TestTerminalRecipientWithoutAdmissionEvidenceRemainsUnknown(t *testing.T) {
 		if cancelErr := sender.RequestCancellation(context.Background(), "retain unresolved delivery"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
-		if result := finish(t, sender); result.Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
+		if result := finish(t, sender); result.Termination().Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
 			t.Fatalf("terminated=%+v", result)
 		}
 		closeEngine(t, engine)

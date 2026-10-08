@@ -123,8 +123,8 @@ func TestSteerQueuedDuringChildWaitSurvivesRestore(t *testing.T) {
 				t.Fatalf("answer=%t error=%v", accepted, deliverErr)
 			}
 			result, err := restored.Await(t.Context())
-			if err != nil || result.Status() != agent.StatusCompleted || modelCalls.Load() != 2 || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
-				t.Fatalf("restored status=%s error=%v model/tool calls=%d/%d/%d", result.Status(), err, modelCalls.Load(), waiting.initialCalls.Load(), waiting.continuationCalls.Load())
+			if err != nil || result.Termination().Status() != agent.StatusCompleted || modelCalls.Load() != 2 || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
+				t.Fatalf("restored status=%s error=%v model/tool calls=%d/%d/%d", result.Termination().Status(), err, modelCalls.Load(), waiting.initialCalls.Load(), waiting.continuationCalls.Load())
 			}
 			if closeErr := restoredEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 				t.Fatal(closeErr)
@@ -231,8 +231,8 @@ func TestSteerAdmittedDuringWaitStepSurvivesToolInput(t *testing.T) {
 		t.Fatalf("DeliverSignals = %t, %v", accepted, deliverErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result = %s, %#v, %v", result.Status(), result.Termination(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result = %s, %#v, %v", result.Termination().Status(), result.Termination(), err)
 	}
 	if modelCalls.Load() != 2 || waiting.initialCalls.Load() != 1 || waiting.continuationCalls.Load() != 1 {
 		t.Fatalf("model calls = %d, Tool initial/continuation = %d/%d", modelCalls.Load(), waiting.initialCalls.Load(), waiting.continuationCalls.Load())

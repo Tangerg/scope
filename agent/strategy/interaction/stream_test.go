@@ -53,8 +53,8 @@ func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
 		!strings.Contains(eventPanic.Stack, "panickingEventListener.OnEvent") || !strings.Contains(deltaPanic.Stack, "panickingDeltaListener.OnDelta") {
 		t.Fatalf("listener diagnostics = %#v, %#v", eventPanic, deltaPanic)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -101,8 +101,8 @@ func TestStreamingUsesBoundedBestEffortDeltaQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 	if result.Usage().DroppedDeltas == 0 {
 		t.Fatal("DroppedDeltas = 0, want an observable bounded-queue drop")

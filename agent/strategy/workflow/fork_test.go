@@ -130,7 +130,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
+	if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
 		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": first failed` {
 		t.Fatalf("Fork failure = %#v", failure)
 	}
@@ -196,7 +196,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, failed := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" ||
+			if result.Termination().Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" ||
 				failure.Message() != "agent: process admission rejected: branch refused" {
 				t.Fatalf("failed admission lost its cause: %#v", failure)
 			}

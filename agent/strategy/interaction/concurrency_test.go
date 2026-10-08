@@ -64,8 +64,8 @@ func TestConcurrentToolsRespectLimitAndCommitInModelOrder(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 	if maximum.Load() != 2 {
 		t.Fatalf("maximum concurrent calls = %d, want 2", maximum.Load())
@@ -131,8 +131,8 @@ func TestConcurrentToolsWithSameKeyDoNotOverlap(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 }
 
@@ -180,8 +180,8 @@ func TestZeroToolConcurrencyLimitKeepsDeclaredToolsSerial(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 }
 
@@ -248,8 +248,8 @@ func TestUndeclaredToolIsAnExclusiveBatchBarrier(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 }
 
@@ -294,8 +294,8 @@ func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 		t.Fatalf("answer=%t %v", accepted, deliverErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
 	if requestingCalls.Load() != 2 || siblingCalls.Load() != 1 {
 		t.Fatalf("requesting/sibling calls=%d/%d", requestingCalls.Load(), siblingCalls.Load())

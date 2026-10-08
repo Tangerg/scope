@@ -118,8 +118,8 @@ func runDeltaListenerProcess(t *testing.T, callback func(context.Context, *Engin
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
-		t.Fatalf("Run = %s, %v", result.Status(), err)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("Run = %s, %v", result.Termination().Status(), err)
 	}
 	return engine
 }

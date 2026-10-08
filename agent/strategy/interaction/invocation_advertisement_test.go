@@ -54,8 +54,8 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 
 	models, tools := capture.values()
@@ -165,8 +165,8 @@ func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	for index, err := range <-errorsSeen {
 		if !errors.Is(err, interaction.ErrInvalidToolAdvertisement) {
@@ -205,8 +205,8 @@ func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 }
 
@@ -285,8 +285,8 @@ func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 }
 
@@ -358,8 +358,8 @@ func TestParallelAdvertisementsCommitInModelToolCallOrder(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	firstInvocation := <-invocations
 	secondInvocation := <-invocations

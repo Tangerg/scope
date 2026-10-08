@@ -95,8 +95,8 @@ func runWith(t *testing.T, definition *Definition, config agent.EngineConfig) (*
 func completed(t *testing.T, process *agent.Process) string {
 	t.Helper()
 	result := require(process.Await(t.Context()))
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status=%s termination=%+v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status=%s termination=%+v", result.Termination().Status(), result.Termination())
 	}
 	if err := process.Join(t.Context()); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestBackgroundContinueControlAndDrain(t *testing.T) {
 				}}, nil
 			case 3:
 				if len(turn.Controls) != 2 || turn.Controls[0].Result == nil || turn.Controls[1].Result == nil ||
-					turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusCanceled {
+					turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Termination().Status() != agent.StatusCanceled {
 					return Decision{}, errors.New("control receipts or drained cancellation missing")
 				}
 				if _, failed := turn.Controls[1].Result.Failure(); failed {
@@ -236,7 +236,7 @@ func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	store := agent.NewMemoryTreeCommitter()
 	engine, process := run(t, definition, store)
 	result := require(process.Await(t.Context()))
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("termination = %+v", result.Termination())
 	}
 	tree := require(engine.CaptureTree(t.Context(), process.ID()))

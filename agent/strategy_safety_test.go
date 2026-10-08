@@ -137,8 +137,8 @@ func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyRes
 	assertFailure := func(result agent.Result) {
 		t.Helper()
 		failure, ok := result.Termination().Failure()
-		if result.Status() != agent.StatusFailed || !ok || failure.Kind() != agent.FailureKindExternal || failure.Code() != code {
-			t.Fatalf("result=%s failure=%+v; want failed / external / %s", result.Status(), failure, code)
+		if result.Termination().Status() != agent.StatusFailed || !ok || failure.Kind() != agent.FailureKindExternal || failure.Code() != code {
+			t.Fatalf("result=%s failure=%+v; want failed / external / %s", result.Termination().Status(), failure, code)
 		}
 		if output, present := result.Termination().Output(); present {
 			t.Fatalf("unsafe child produced parent output: %s", output.JSON())

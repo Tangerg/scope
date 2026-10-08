@@ -29,8 +29,8 @@ func TestModelContextReductionReplacesLiveAndRecoverableWorkingContext(t *testin
 	reducer := &secondCallContextReducer{}
 	model := &contextReductionModel{}
 	result := runContextReductionInteraction(t, model, reducer, []tool.Tool{echo})
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	if model.Calls() != 3 || reducer.Calls() != 3 {
 		t.Fatalf("calls = model:%d reducer:%d, want 3 each", model.Calls(), reducer.Calls())
@@ -228,8 +228,8 @@ func TestModelContextReductionClonesTheReducedSequence(t *testing.T) {
 		interaction.ToolSetConfig{},
 	)
 	result := runInteraction(t, deployment, "original context")
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	if text, _ := seen.Load().(string); text != "reduced" {
 		t.Fatalf("model saw %q; the Dispatcher shared the reducer's sequence", text)

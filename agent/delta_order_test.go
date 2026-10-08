@@ -67,7 +67,7 @@ func TestConcurrentDeltaEmitterDeliversIncreasingSequences(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted || result.Usage().DroppedDeltas != 0 {
+	if err != nil || result.Termination().Status() != StatusCompleted || result.Usage().DroppedDeltas != 0 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if err := engine.FlushDeltas(t.Context()); err != nil {
@@ -133,7 +133,7 @@ func TestEngineOnlySuppliesEmitterWithListeners(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := engine.Run(t.Context(), deployment, input)
-		if err != nil || result.Status() != StatusCompleted || result.Usage().DroppedDeltas != 0 {
+		if err != nil || result.Termination().Status() != StatusCompleted || result.Usage().DroppedDeltas != 0 {
 			t.Fatalf("observed=%v result=%+v err=%v", observed, result, err)
 		}
 		if err := engine.FlushDeltas(t.Context()); err != nil {

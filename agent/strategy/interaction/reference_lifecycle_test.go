@@ -77,8 +77,8 @@ func TestLogicalReferenceAcrossAttemptsRoundsObserversAndParents(t *testing.T) {
 		if accepted, err := child.DeliverSignals(t.Context(), answer); err != nil || !accepted {
 			t.Fatalf("input answer accepted=%v, error=%v", accepted, err)
 		}
-		if result, err := root.Await(t.Context()); err != nil || result.Status() != agent.StatusCompleted {
-			t.Fatalf("completion=%s, error=%v", result.Status(), err)
+		if result, err := root.Await(t.Context()); err != nil || result.Termination().Status() != agent.StatusCompleted {
+			t.Fatalf("completion=%s, error=%v", result.Termination().Status(), err)
 		}
 		if err := root.Join(t.Context()); err != nil {
 			t.Fatal(err)

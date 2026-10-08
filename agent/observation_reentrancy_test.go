@@ -47,8 +47,8 @@ func TestListenerCallingItsOwnTreeIsRefused(t *testing.T) {
 				if err := <-result; !errors.Is(err, ErrListenerReentrancy) {
 					t.Errorf("%s = %v, want ErrListenerReentrancy", test.name, err)
 				}
-				if outcome := mustAwait(t, process); outcome.Status() != StatusCompleted {
-					t.Errorf("refused call changed the Process outcome: %s", outcome.Status())
+				if outcome := mustAwait(t, process); outcome.Termination().Status() != StatusCompleted {
+					t.Errorf("refused call changed the Process outcome: %s", outcome.Termination().Status())
 				}
 			})
 		})

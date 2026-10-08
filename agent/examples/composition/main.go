@@ -485,7 +485,7 @@ func (c *compositionExecution) complete(
 	var payloads [compositionChildCount]agent.Payload
 	for index, outcome := range outcomes {
 		result := outcome.Result()
-		if result.Status() != agent.StatusCompleted {
+		if result.Termination().Status() != agent.StatusCompleted {
 			failure, failureErr := agent.NewFailure(
 				agent.FailureKindExecution, "example.child.failed", "a composition child did not complete",
 			)
@@ -553,7 +553,7 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 	var zero T
 	erased, ok := result.Termination().Output()
 	if !ok {
-		return zero, fmt.Errorf("process ended with %s", result.Status())
+		return zero, fmt.Errorf("process ended with %s", result.Termination().Status())
 	}
 	return erased.Decode[T]()
 }

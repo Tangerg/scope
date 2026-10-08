@@ -149,16 +149,16 @@ func TestChildCompletionPreservesSettlementCapacity(t *testing.T) {
 			if accepted, deliveryErr := child.DeliverSignals(t.Context(), request); deliveryErr != nil || !accepted {
 				t.Fatalf("child delivery=%t error=%v", accepted, deliveryErr)
 			}
-			if result, awaitErr := child.Await(t.Context()); awaitErr != nil || result.Status() != StatusCompleted {
-				t.Fatalf("child status=%s error=%v", result.Status(), awaitErr)
+			if result, awaitErr := child.Await(t.Context()); awaitErr != nil || result.Termination().Status() != StatusCompleted {
+				t.Fatalf("child status=%s error=%v", result.Termination().Status(), awaitErr)
 			}
 			if accepted := inspectProcessSnapshot(t, root).Usage().AcceptedSignals - before.AcceptedSignals; accepted != test.wantAccepted {
 				t.Fatalf("accepted child signals=%d, want %d", accepted, test.wantAccepted)
 			}
 			releaseEffect()
 			result, err := root.Await(t.Context())
-			if err != nil || result.Status() != test.wantStatus {
-				t.Fatalf("root status=%s, want %s, error=%v", result.Status(), test.wantStatus, err)
+			if err != nil || result.Termination().Status() != test.wantStatus {
+				t.Fatalf("root status=%s, want %s, error=%v", result.Termination().Status(), test.wantStatus, err)
 			}
 			if test.wantStatus == StatusFailed {
 				failure, present := result.Termination().Failure()

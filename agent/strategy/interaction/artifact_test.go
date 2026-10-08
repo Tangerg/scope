@@ -41,8 +41,8 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 3 {
-		t.Fatalf("status=%s model calls=%d", result.Status(), model.Calls())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 3 {
+		t.Fatalf("status=%s model calls=%d", result.Termination().Status(), model.Calls())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -157,7 +157,7 @@ func TestCompletionValidatorRetryHonorsModelCallLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present ||
+	if result.Termination().Status() != agent.StatusFailed || !present ||
 		failure.Code() != "interaction.limit.model_calls" || failure.Kind() != agent.FailureKindExecution {
 		t.Fatalf("termination=%#v", result.Termination())
 	}
@@ -222,8 +222,8 @@ func TestCompletionValidatorCanRejectDirectToolResult(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
-		t.Fatalf("status=%s calls=%d", result.Status(), model.Calls())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 2 {
+		t.Fatalf("status=%s calls=%d", result.Termination().Status(), model.Calls())
 	}
 }
 
@@ -247,7 +247,7 @@ func TestCompletionValidatorRejectsInvalidDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || result.Termination().Cause() != agent.TerminationCauseContractFailure ||
+	if result.Termination().Status() != agent.StatusFailed || result.Termination().Cause() != agent.TerminationCauseContractFailure ||
 		!present || failure.Kind() != agent.FailureKindContract ||
 		failure.Code() != "interaction.completion.decision_invalid" {
 		t.Fatalf("termination=%#v", result.Termination())
@@ -410,8 +410,8 @@ func TestCompletionValidatorObservesStepCancellation(t *testing.T) {
 	}
 	<-canceled
 	result, err := process.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusKilled {
-		t.Fatalf("status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusKilled {
+		t.Fatalf("status=%s error=%v", result.Termination().Status(), err)
 	}
 	if joinErr := process.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)

@@ -32,7 +32,7 @@ func TestRestoreCompletesWithEarlierWallTime(t *testing.T) {
 					t.Fatal(err)
 				}
 				result := awaitResult(t, root)
-				if !result.Valid() || result.Status() != want || !result.FinishedAt().Before(result.StartedAt()) {
+				if !result.Valid() || result.Termination().Status() != want || !result.FinishedAt().Before(result.StartedAt()) {
 					t.Fatalf("result = %#v, want valid %s with earlier finish time", result, want)
 				}
 				captured := wallTimeSnapshot(t, engine, root, config)
@@ -82,7 +82,7 @@ func TestRestoreAcceptsChildrenWithEarlierWallTimes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if result := awaitResult(t, root); !result.Valid() || result.Status() != StatusCompleted {
+	if result := awaitResult(t, root); !result.Valid() || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("restored tree result = %#v", result)
 	}
 	if err := root.Join(t.Context()); err != nil {

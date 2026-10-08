@@ -62,8 +62,8 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
-		t.Fatalf("result status = %s, termination = %#v, model calls = %d", result.Status(), result.Termination(), model.Calls())
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 2 {
+		t.Fatalf("result status = %s, termination = %#v, model calls = %d", result.Termination().Status(), result.Termination(), model.Calls())
 	}
 	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
@@ -215,7 +215,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
+	if result.Termination().Status() != agent.StatusCompleted || model.Calls() != 2 {
 		t.Fatalf("result = %#v, model calls = %d", result.Termination(), model.Calls())
 	}
 	tree, err := engine.CaptureTree(context.Background(), result.ProcessID())
@@ -330,7 +330,7 @@ func completeRestoredDelegateTree(
 		t.Fatal(resumeErr)
 	}
 	result, err := restoredRoot.Await(context.Background())
-	if err != nil || result.Status() != agent.StatusCompleted || fixture.model.Calls() != 2 {
+	if err != nil || result.Termination().Status() != agent.StatusCompleted || fixture.model.Calls() != 2 {
 		t.Fatalf("restored result = %#v, error = %v, model calls = %d", result.Termination(), err, fixture.model.Calls())
 	}
 	finalTree, err := restoredEngine.CaptureTree(context.Background(), restoredRoot.ID())

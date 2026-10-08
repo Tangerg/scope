@@ -77,8 +77,8 @@ func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
 			call()
 		})
 	}
-	if result := awaitResult(t, process); result.Status() != StatusCompleted {
-		t.Fatalf("invalid context changed Process outcome to %s", result.Status())
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("invalid context changed Process outcome to %s", result.Termination().Status())
 	}
 }
 
@@ -110,8 +110,8 @@ func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
 		t.Errorf("rejected Resume changed status to %s", status)
 	}
 	release()
-	if result := awaitResult(t, process); result.Status() != StatusCompleted {
-		t.Fatalf("execution after rejected Resume status=%s", result.Status())
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("execution after rejected Resume status=%s", result.Termination().Status())
 	}
 }
 
@@ -157,8 +157,8 @@ func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
 					t.Fatalf("invalid consumption failure = %+v", failure)
 				}
 			}
-			if result.Status() != wantStatus {
-				t.Fatalf("status = %s, want %s", result.Status(), wantStatus)
+			if result.Termination().Status() != wantStatus {
+				t.Fatalf("status = %s, want %s", result.Termination().Status(), wantStatus)
 			}
 			snapshot := inspectProcessSnapshot(t, process)
 			wire, err := snapshot.wire()
@@ -549,7 +549,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Valid() || result.Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
+	if !result.Valid() || result.Termination().Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
 		t.Fatalf("result=%+v calls=%d", result, dispatcher.calls.Load())
 	}
 	output, ok := result.Termination().Output()
@@ -615,7 +615,7 @@ func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
 	}
 	input, _ := EncodePayload(engineTestInput{Value: "durable"})
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
+	if err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	boundaries := committer.effectBoundaries()
@@ -774,8 +774,8 @@ func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := awaitResult(t, restored)
-	if result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	if result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
 	}
 	_ = process.Kill(context.Background(), "test cleanup")
 	_ = awaitResult(t, process)
@@ -830,9 +830,9 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 		result := awaitResult(t, continued)
 		wantUsage := Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
 		output, present := result.Termination().Output()
-		if result.Status() != StatusCompleted || result.Usage() != wantUsage ||
+		if result.Termination().Status() != StatusCompleted || result.Usage() != wantUsage ||
 			!present || string(output.JSON()) != `{"value":"restored"}` {
-			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Status(), result.Usage(), output.JSON())
+			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Termination().Status(), result.Usage(), output.JSON())
 		}
 		if _, waiting := inspectProcessSnapshot(t, continued).WaitID(); waiting {
 			t.Fatal("completed Process retained its current wait")
@@ -871,8 +871,8 @@ func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := awaitResult(t, restored); result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	if result := awaitResult(t, restored); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
 	}
 	if dispatcher.calls.Load() != 2 {
 		t.Fatalf("same-identity dispatcher calls=%d, want 2", dispatcher.calls.Load())
@@ -897,8 +897,8 @@ func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result := awaitResult(t, restored); result.Status() != StatusCompleted {
-			t.Fatalf("result status = %s", result.Status())
+		if result := awaitResult(t, restored); result.Termination().Status() != StatusCompleted {
+			t.Fatalf("result status = %s", result.Termination().Status())
 		}
 		if calls := dispatcher.calls.Load(); calls != 1 {
 			t.Fatalf("planned Effect dispatch calls = %d, want 1", calls)
@@ -963,7 +963,7 @@ func TestStartContextCancellationMapsToHostCancellation(t *testing.T) {
 	waitForStatus(t, process, StatusWaiting)
 	cancel()
 	result := awaitResult(t, process)
-	if result.Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
+	if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
 		t.Fatalf("termination=%+v", result.Termination())
 	}
 }
@@ -996,7 +996,7 @@ func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation
 
 	close(release)
 	result := awaitResult(t, process)
-	if result.Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
+	if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
 		t.Fatalf("termination=%+v", result.Termination())
 	}
 }
@@ -1051,7 +1051,7 @@ func TestKillWaitsForInflightEffectSettlement(t *testing.T) {
 	}
 	close(release)
 	result := awaitResult(t, process)
-	if result.Status() != StatusKilled || result.Termination().Cause() != TerminationCauseEngineKill {
+	if result.Termination().Status() != StatusKilled || result.Termination().Cause() != TerminationCauseEngineKill {
 		t.Fatalf("termination=%+v", result.Termination())
 	}
 }
@@ -1067,7 +1067,7 @@ func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := awaitResult(t, process)
-	if result.Status() != StatusFailed || result.Termination().Cause() != TerminationCauseExecutionFailure {
+	if result.Termination().Status() != StatusFailed || result.Termination().Cause() != TerminationCauseExecutionFailure {
 		t.Fatalf("termination=%+v", result.Termination())
 	}
 	snapshot := inspectProcessSnapshot(t, process)
@@ -1107,8 +1107,8 @@ func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != StatusFailed {
-		t.Fatalf("status=%s", result.Status())
+	if result.Termination().Status() != StatusFailed {
+		t.Fatalf("status=%s", result.Termination().Status())
 	}
 	failure, ok := result.Termination().Failure()
 	if !ok || failure.Code() != "engine.limit.steps" {
@@ -1178,7 +1178,7 @@ func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
 	}
 	input, _ := EncodePayload(engineTestInput{Value: "stream"})
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
+	if err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	var dropped DeltaDropped
@@ -1210,7 +1210,7 @@ func TestFlushDeltasWaitsForAcceptedListenerDelivery(t *testing.T) {
 	}
 	input, _ := EncodePayload(engineTestInput{Value: "stream"})
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
+	if err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	<-deltas.entered
@@ -1244,7 +1244,7 @@ func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
 	}
 	input, _ := EncodePayload(engineTestInput{Value: "events"})
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
+	if err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -1463,8 +1463,8 @@ func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
 	}
 	close(release)
 	result := awaitResult(t, process)
-	if result.Status() != StatusCompleted {
-		t.Errorf("already canceled control changed result to %s", result.Status())
+	if result.Termination().Status() != StatusCompleted {
+		t.Errorf("already canceled control changed result to %s", result.Termination().Status())
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)

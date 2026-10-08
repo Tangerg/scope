@@ -68,12 +68,12 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 				t.Fatal(err)
 			}
 			if matched {
-				if result.Status() != agent.StatusCompleted || calls != 1 {
-					t.Fatalf("status = %s, calls = %d", result.Status(), calls)
+				if result.Termination().Status() != agent.StatusCompleted || calls != 1 {
+					t.Fatalf("status = %s, calls = %d", result.Termination().Status(), calls)
 				}
 			} else {
 				failure, present := result.Termination().Failure()
-				if result.Status() != agent.StatusFailed || !present || failure.Code() != "interaction.host.failed" || calls != 0 {
+				if result.Termination().Status() != agent.StatusFailed || !present || failure.Code() != "interaction.host.failed" || calls != 0 {
 					t.Fatalf("local rejection lost known outcome: termination = %+v, failure = %+v, calls = %d", result.Termination(), failure, calls)
 				}
 			}

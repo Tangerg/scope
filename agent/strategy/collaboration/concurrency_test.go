@@ -134,7 +134,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					unblock()
 					if mode == "restored" {
 						if result, err := process.Await(t.Context()); result.Valid() || err == nil {
-							t.Fatalf("crash result=%v err=%v", result.Status(), err)
+							t.Fatalf("crash result=%v err=%v", result.Termination().Status(), err)
 						}
 						head, found, err := store.LoadTree(t.Context(), process.ID())
 						if err != nil || !found {

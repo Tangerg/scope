@@ -214,7 +214,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	}
 	result := outcome.Result()
 	e.state.Child = childcall.Single{}
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		e.state.recordFailedAction(result.Termination().Reason())
 	}
 	return e.requestSense(1)

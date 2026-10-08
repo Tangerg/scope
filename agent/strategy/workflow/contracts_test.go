@@ -191,7 +191,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 		t.Fatal(requestCancellationErr)
 	}
 	result, err := root.Await(context.Background())
-	if err != nil || result.Status() != agent.StatusCanceled ||
+	if err != nil || result.Termination().Status() != agent.StatusCanceled ||
 		result.Termination().Cause() != agent.TerminationCauseHostCancellation {
 		t.Fatalf("root cancellation = %#v, %v", result.Termination(), err)
 	}
@@ -206,7 +206,7 @@ func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 				t.Fatalf("child %s was not registered", process.ProcessID())
 			}
 			childResult, err := child.Await(context.Background())
-			if err != nil || childResult.Status() != agent.StatusCanceled ||
+			if err != nil || childResult.Termination().Status() != agent.StatusCanceled ||
 				childResult.Termination().Cause() != agent.TerminationCauseParentCancellation {
 				t.Fatalf("child cancellation = %#v, %v", childResult.Termination(), err)
 			}
@@ -268,7 +268,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, present := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !present || failure.Kind() != test.wantKind || failure.Code() != test.wantCause {
+			if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != test.wantKind || failure.Code() != test.wantCause {
 				t.Fatalf("guard failure = %#v", failure)
 			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

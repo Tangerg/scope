@@ -382,8 +382,8 @@ func assertChildControlContinuation(t *testing.T, driver TreeCommitterConformanc
 	delivered := !scenario.rejected()
 	if delivered && scenario.operation == childControlCancel {
 		result := awaitCrashProcess(t, childControlProcess(t, engine, childID, "control recovery lost the child"))
-		if result.Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseParentCancellation {
-			t.Fatalf("control recovery lost parent cancellation: status=%s termination=%+v", result.Status(), result.Termination())
+		if result.Termination().Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseParentCancellation {
+			t.Fatalf("control recovery lost parent cancellation: status=%s termination=%+v", result.Termination().Status(), result.Termination())
 		}
 	}
 	head := waitForConformanceHeadStatus(t, driver, root.ID(), agent.StatusPaused)
@@ -419,8 +419,8 @@ func assertChildControlSignalConsumed(
 	if err := process.Resume(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if result := awaitCrashProcess(t, process); result.Status() != agent.StatusCompleted {
-		t.Fatalf("control signal consumption status=%s", result.Status())
+	if result := awaitCrashProcess(t, process); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("control signal consumption status=%s", result.Termination().Status())
 	}
 	head := waitForConformanceHeadStatus(t, driver, rootID, agent.StatusPaused)
 	consumed := conformanceSnapshotByID(head.ProcessSnapshots(), admitted.ProcessID())

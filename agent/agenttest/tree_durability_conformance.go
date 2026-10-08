@@ -265,8 +265,8 @@ func runDelayedCommitConformance(
 	restoredEngine := newConformanceEngine(t, blocking)
 	restored := restoreCrashTree(t, restoredEngine, deployment, base)
 	if result, awaitErr := restored.Await(t.Context()); awaitErr != nil ||
-		result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored result status=%s error=%v", result.Status(), awaitErr)
+		result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored result status=%s error=%v", result.Termination().Status(), awaitErr)
 	}
 	winningHead, exists, err := driver.LoadTree(t.Context(), original.ID())
 	if err != nil || !exists || !winningHead.Valid() ||

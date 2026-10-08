@@ -270,8 +270,8 @@ func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t 
 func revisionResult(t testing.TB, result agent.Result) revisionObservation {
 	t.Helper()
 	output, present := result.Termination().Output()
-	if !present || result.Status() != agent.StatusCompleted || result.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
-		t.Fatalf("revision execution=%s usage=%+v", result.Status(), result.Usage())
+	if !present || result.Termination().Status() != agent.StatusCompleted || result.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
+		t.Fatalf("revision execution=%s usage=%+v", result.Termination().Status(), result.Usage())
 	}
 	observation, err := output.Decode[revisionObservation]()
 	if err != nil {

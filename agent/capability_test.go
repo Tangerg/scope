@@ -45,8 +45,8 @@ func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if denied.Status() != StatusFailed || dispatcher.calls.Load() != 0 {
-		t.Fatalf("denied status = %s, dispatcher calls = %d", denied.Status(), dispatcher.calls.Load())
+	if denied.Termination().Status() != StatusFailed || dispatcher.calls.Load() != 0 {
+		t.Fatalf("denied status = %s, dispatcher calls = %d", denied.Termination().Status(), dispatcher.calls.Load())
 	}
 	if failure, ok := denied.Termination().Failure(); !ok || failure.Code() != "engine.capability.denied" {
 		t.Fatalf("denied failure = %#v", failure)
@@ -64,8 +64,8 @@ func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if allowed.Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
-		t.Fatalf("allowed status = %s, dispatcher calls = %d", allowed.Status(), dispatcher.calls.Load())
+	if allowed.Termination().Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
+		t.Fatalf("allowed status = %s, dispatcher calls = %d", allowed.Termination().Status(), dispatcher.calls.Load())
 	}
 	if err := allowedEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)

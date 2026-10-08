@@ -95,7 +95,7 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.map.max_items_exceeded" {
+	if result.Termination().Status() != agent.StatusFailed || !present || failure.Code() != "workflow.map.max_items_exceeded" {
 		t.Fatalf("Map termination = %#v", result.Termination())
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

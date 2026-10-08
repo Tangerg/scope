@@ -64,7 +64,7 @@ func TestCancellationReachesChildrenBeforeAncestorDispatchReturns(t *testing.T) 
 		}
 		childID, _ := ParseProcessID(childIDs[0])
 		child, _ := engine.Process(childID)
-		if result := mustAwait(t, child); result.Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseParentCancellation {
+		if result := mustAwait(t, child); result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseParentCancellation {
 			t.Errorf("child termination = %+v", result.Termination())
 		}
 		if inspectProcessSnapshot(t, root).Status().Terminal() {
@@ -142,7 +142,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				checkpoints := config.TreeCommitter.(*recordingTreeCommitter).treeCheckpoints()
 				interrupted := checkpoints[len(checkpoints)-1].TreeSnapshot()
 				unblock()
-				if result := mustAwait(t, root); result.Status() != StatusKilled {
+				if result := mustAwait(t, root); result.Termination().Status() != StatusKilled {
 					t.Fatalf("parent termination = %+v", result.Termination())
 				}
 				children := directChildIDs(t, engine, root.ID())
@@ -170,7 +170,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 					childID, _ := ParseProcessID(children[0])
 					child, _ := engine.Process(childID)
 					result := mustAwait(t, child)
-					if result.Status() != StatusCanceled || result.Usage().CommittedSteps != 0 {
+					if result.Termination().Status() != StatusCanceled || result.Usage().CommittedSteps != 0 {
 						t.Errorf("late child ran after cancellation: %+v", result)
 					}
 				}
@@ -185,7 +185,7 @@ func TestCancellationCollectsInFlightChildInitialization(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if result := mustAwait(t, recovered); result.Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+				if result := mustAwait(t, recovered); result.Termination().Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 					t.Fatalf("restored child publication termination = %+v", result.Termination())
 				}
 				recoveredWire, err := inspectProcessSnapshot(t, recovered).wire()

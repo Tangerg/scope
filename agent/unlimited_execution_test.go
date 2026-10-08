@@ -59,8 +59,8 @@ func TestUnlimitedExecutionExceedsFormerDefaultSteps(t *testing.T) {
 	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 	defer mustCloseEngine(t, engine)
 	result, err := engine.Run(t.Context(), deployment, controlValue(EncodePayload(uint64(10001))))
-	if err != nil || result.Status() != StatusCompleted || result.Usage().CommittedSteps != 10002 {
-		t.Fatalf("result=%s steps=%d error=%v", result.Status(), result.Usage().CommittedSteps, err)
+	if err != nil || result.Termination().Status() != StatusCompleted || result.Usage().CommittedSteps != 10002 {
+		t.Fatalf("result=%s steps=%d error=%v", result.Termination().Status(), result.Usage().CommittedSteps, err)
 	}
 }
 

@@ -118,8 +118,8 @@ func TestCancellationPreservesDefiniteResults(t *testing.T) {
 				}
 				cancel()
 				terminal, err := root.Await(t.Context())
-				if err != nil || terminal.Status() != agent.StatusCanceled {
-					t.Fatalf("terminal=%v err=%v", terminal.Status(), err)
+				if err != nil || terminal.Termination().Status() != agent.StatusCanceled {
+					t.Fatalf("terminal=%v err=%v", terminal.Termination().Status(), err)
 				}
 				releaseOnce.Do(func() { close(release) })
 				if joinErr := root.Join(t.Context()); joinErr != nil {
@@ -233,8 +233,8 @@ func TestPublicationLostAcknowledgmentRecoversWithoutToolReplay(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	result, err := restored.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%v err=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%v err=%v", result.Termination().Status(), err)
 	}
 	if executions.Load() != 1 || modelCalls.Load() != 2 || len(store.entries()) != 1 || publicationText(store.entries()[0]) != "exact output" {
 		t.Fatal("recovery replayed or changed execution")
@@ -274,8 +274,8 @@ func TestRejectionsAreDurableBeforeModelContinuation(t *testing.T) {
 	})}, interaction.ToolSetConfig{})
 	engine := publicationEngine(t, deployment, store)
 	result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "work"))
-	if err != nil || result.Status() != agent.StatusCompleted || modelCalls != 2 {
-		t.Fatalf("result=%s err=%v calls=%d", result.Status(), err, modelCalls)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted || modelCalls != 2 {
+		t.Fatalf("result=%s err=%v calls=%d", result.Termination().Status(), err, modelCalls)
 	}
 }
 
@@ -284,7 +284,7 @@ func TestPublicationConflictAndStaleWriterAreRejected(t *testing.T) {
 	deployment := configuredInteraction(t, interaction.DefinitionConfig{Description: "Persist known results.", Name: "publication.fence"}, interaction.DispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return textResponse("done"), nil })}, interaction.ToolSetConfig{})
 	engine := publicationEngine(t, deployment, store)
 	result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "work"))
-	if err != nil || result.Status() != agent.StatusCompleted {
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
 		t.Fatal(err)
 	}
 	old := store.tree()
@@ -377,8 +377,8 @@ func TestDirectCompletionPersistsExactResult(t *testing.T) {
 	})}, interaction.ToolSetConfig{Tools: []tool.Tool{executable}})
 	engine := publicationEngine(t, deployment, store)
 	result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "work"))
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s err=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s err=%v", result.Termination().Status(), err)
 	}
 	if modelCalls.Load() != 1 || len(store.entries()) != 1 || publicationText(store.entries()[0]) != "direct output" {
 		t.Fatal("direct completion did not preserve result")

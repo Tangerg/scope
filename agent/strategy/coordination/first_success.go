@@ -213,7 +213,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 		if err := ctx.Err(); err != nil {
 			return agent.Transition{}, err
 		}
-		if outcome.Result().Status() != agent.StatusCompleted {
+		if outcome.Result().Termination().Status() != agent.StatusCompleted {
 			continue
 		}
 		candidate := f.state.Candidates[indices[offset]].Key

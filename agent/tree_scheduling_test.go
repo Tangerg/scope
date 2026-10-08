@@ -64,8 +64,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	select {
 	case <-process.handle.outcomePublished:
 		result, err := process.handle.outcome()
-		if err != nil || result.Status() != StatusCompleted {
-			t.Fatalf("completed work result=%s error=%v", result.Status(), err)
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			t.Fatalf("completed work result=%s error=%v", result.Termination().Status(), err)
 		}
 	default:
 		t.Fatal("continuous queries starved a completed Step")
@@ -101,8 +101,8 @@ func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
 				t.Fatal("ready work overtook the control request")
 			}
 			result, err := process.handle.outcome()
-			if err != nil || result.Status() != StatusKilled {
-				t.Fatalf("controlled result=%s error=%v", result.Status(), err)
+			if err != nil || result.Termination().Status() != StatusKilled {
+				t.Fatalf("controlled result=%s error=%v", result.Termination().Status(), err)
 			}
 			return
 		default:

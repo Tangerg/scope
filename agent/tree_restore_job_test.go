@@ -110,8 +110,8 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		}
 		select {
 		case result := <-completed:
-			if result.Status() != StatusCompleted {
-				t.Errorf("sibling status = %s", result.Status())
+			if result.Termination().Status() != StatusCompleted {
+				t.Errorf("sibling status = %s", result.Termination().Status())
 			}
 		default:
 			t.Error("stale Step restoration blocked sibling completion")
@@ -144,8 +144,8 @@ func TestStaleStepRestoreDoesNotBlockTreeOwner(t *testing.T) {
 		if err := blocked.Join(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if result := mustAwait(t, blocked); result.Status() != StatusKilled {
-			t.Fatalf("restored stale result escaped cancellation: %s", result.Status())
+		if result := mustAwait(t, blocked); result.Termination().Status() != StatusKilled {
+			t.Fatalf("restored stale result escaped cancellation: %s", result.Termination().Status())
 		}
 		if err := root.Kill(t.Context(), "test cleanup"); err != nil {
 			t.Fatal(err)

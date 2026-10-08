@@ -85,8 +85,8 @@ func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) Tree
 		b.Fatal(err)
 	}
 	result, err := root.Await(context.Background())
-	if err != nil || result.Status() != StatusCompleted {
-		b.Fatalf("tree result status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		b.Fatalf("tree result status=%s error=%v", result.Termination().Status(), err)
 	}
 	snapshot, err := engine.CaptureTree(context.Background(), root.ID())
 	if err != nil {
@@ -241,8 +241,8 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		close(probe.fastStepRelease)
 		result, err := fast.Await(context.Background())
 		b.StopTimer()
-		if err != nil || result.Status() != StatusCompleted {
-			b.Fatalf("fast sibling status=%s error=%v", result.Status(), err)
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			b.Fatalf("fast sibling status=%s error=%v", result.Termination().Status(), err)
 		}
 
 		blockedID := root.ID().effectID(1, 0).childProcessID()

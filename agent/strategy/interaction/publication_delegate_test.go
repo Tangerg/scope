@@ -131,8 +131,8 @@ func TestRoundResultsCoversMixedToolAndDelegatePaths(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := engine.Run(ctx, deployment.Deployment, interactionInput(t, "work"))
-	if err != nil || result.Status() != agent.StatusCompleted || modelCalls != 2 {
-		t.Fatalf("mixed publication result=%s err=%v model=%d", result.Status(), err, modelCalls)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted || modelCalls != 2 {
+		t.Fatalf("mixed publication result=%s err=%v model=%d", result.Termination().Status(), err, modelCalls)
 	}
 }
 
@@ -191,8 +191,8 @@ func TestDelegatePublicationSurvivesUnresolvedSibling(t *testing.T) {
 	<-known
 	cancel()
 	terminal, err := root.Await(t.Context())
-	if err != nil || terminal.Status() != agent.StatusCanceled {
-		t.Fatalf("terminal=%s err=%v", terminal.Status(), err)
+	if err != nil || terminal.Termination().Status() != agent.StatusCanceled {
+		t.Fatalf("terminal=%s err=%v", terminal.Termination().Status(), err)
 	}
 	releaseOnce.Do(func() { close(release) })
 	if err := root.Join(t.Context()); err != nil {

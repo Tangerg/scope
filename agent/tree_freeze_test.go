@@ -28,7 +28,7 @@ func TestCanceledCaptureReleasesQueuedFreezeResult(t *testing.T) {
 		}
 	}
 	result, err := process.handle.outcome()
-	if err != nil || result.Status() != StatusCompleted {
-		t.Fatalf("resumed tree status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("resumed tree status=%s error=%v", result.Termination().Status(), err)
 	}
 }

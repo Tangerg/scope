@@ -212,11 +212,11 @@ func childOutcome(outcome agent.ChildOutcome, code func(suffix string) string, s
 		return &failure, agent.Payload{}, err
 	}
 	result := outcome.Result()
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		if failure, failed := result.Termination().Failure(); failed {
 			return &failure, agent.Payload{}, nil
 		}
-		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Status().String())
+		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Termination().Status().String())
 		return &failure, agent.Payload{}, err
 	}
 	output, present := result.Termination().Output()

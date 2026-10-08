@@ -51,7 +51,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 		t.Fatalf("local rejection settlement = %+v, error = %v; want definite failed settlement", outcome.settlement, outcome.err)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Status() != agent.StatusCompleted || len(result.Termination().UnresolvedEffectIDs()) != 0 || result.Usage().PreparedEffects != 1 {
+	if err != nil || result.Termination().Status() != agent.StatusCompleted || len(result.Termination().UnresolvedEffectIDs()) != 0 || result.Usage().PreparedEffects != 1 {
 		t.Fatalf("rejection consumption = %+v, error = %v", result, err)
 	}
 }

@@ -230,8 +230,8 @@ func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 		return
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Status() != StatusKilled {
-		b.Errorf("benchmark cleanup status=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != StatusKilled {
+		b.Errorf("benchmark cleanup status=%s error=%v", result.Termination().Status(), err)
 	}
 }
 

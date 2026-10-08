@@ -76,7 +76,7 @@ func ExampleDefinition() {
 	if err := process.Join(ctx); err != nil {
 		panic(err)
 	}
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		panic(result.Termination().Reason())
 	}
 	output, _ := result.Termination().Output()
@@ -125,7 +125,7 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 		reason := "No replacement instruction is needed."
 		decision.Controls = []collaboration.Control{{Task: turn.Tasks[0].Request.Key, CancelReason: &reason}}
 	case 3:
-		if turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusCanceled {
+		if turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Termination().Status() != agent.StatusCanceled {
 			return decision, errors.New("input cancellation did not drain")
 		}
 		decision.Mode = collaboration.ModeWait

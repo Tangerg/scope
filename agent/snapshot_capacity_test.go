@@ -138,8 +138,8 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 				t.Fatalf("small resolution after rejection: %v", err)
 			}
 			result, err := process.Await(t.Context())
-			if err != nil || result.Status() != StatusCompleted {
-				t.Fatalf("resolved result=%s, %v", result.Status(), err)
+			if err != nil || result.Termination().Status() != StatusCompleted {
+				t.Fatalf("resolved result=%s, %v", result.Termination().Status(), err)
 			}
 			output, _ := result.Termination().Output()
 			if value := controlValue(output.Decode[engineTestOutput]()); value.Value != "resolved" || dispatcher.calls.Load() != 1 {

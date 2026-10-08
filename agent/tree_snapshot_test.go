@@ -387,8 +387,8 @@ func TestTerminalTreeSnapshotClosesUnconsumedChildWait(t *testing.T) {
 	if killErr := root.Kill(context.Background(), "capture terminal tree"); killErr != nil {
 		t.Fatal(killErr)
 	}
-	if result := mustAwait(t, root); result.Status() != StatusKilled {
-		t.Fatalf("root status = %s", result.Status())
+	if result := mustAwait(t, root); result.Termination().Status() != StatusKilled {
+		t.Fatalf("root status = %s", result.Termination().Status())
 	}
 	tree, err := engine.CaptureTree(context.Background(), root.ID())
 	if err != nil {
@@ -462,8 +462,8 @@ func testTreeCaptureWaitsForInflightChildEffectsToSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restoredResult := mustAwait(t, restored); restoredResult.Status() != StatusCompleted {
-		t.Fatalf("restored status = %s", restoredResult.Status())
+	if restoredResult := mustAwait(t, restored); restoredResult.Termination().Status() != StatusCompleted {
+		t.Fatalf("restored status = %s", restoredResult.Termination().Status())
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
@@ -504,8 +504,8 @@ func TestTreeRestoreResolvesEveryExactDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restoredResult := mustAwait(t, restored); restoredResult.Status() != StatusCompleted {
-		t.Fatalf("restored root status = %s", restoredResult.Status())
+	if restoredResult := mustAwait(t, restored); restoredResult.Termination().Status() != StatusCompleted {
+		t.Fatalf("restored root status = %s", restoredResult.Termination().Status())
 	}
 	childID, _ := ParseProcessID(output.ChildIDs[0])
 	restoredChild, found := restoredEngine.Process(childID)
@@ -640,7 +640,7 @@ func completedTreeSnapshot(t testing.TB) TreeSnapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Status() != StatusCompleted {
+	if result, awaitErr := root.Await(context.Background()); awaitErr != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("root result = %#v, error = %v", result, awaitErr)
 	}
 	tree, err := engine.CaptureTree(context.Background(), root.ID())

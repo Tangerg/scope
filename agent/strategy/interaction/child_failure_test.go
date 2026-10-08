@@ -75,7 +75,7 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, failed := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !failed || failure.Code() != wantCode || failure.Kind() != wantKind || failure.Message() != wantMessage || calls.Load() != wantCalls {
+			if result.Termination().Status() != agent.StatusFailed || !failed || failure.Code() != wantCode || failure.Kind() != wantKind || failure.Message() != wantMessage || calls.Load() != wantCalls {
 				t.Fatalf("parent failure = %+v, calls = %d, want %s after %d calls", failure, calls.Load(), wantCode, wantCalls)
 			}
 			root, found := engine.Process(result.ProcessID())
@@ -146,8 +146,8 @@ func TestChildAdmissionFailurePolicyDistinguishesToolsAndDelegates(t *testing.T)
 				t.Fatal(err)
 			}
 			if delegated {
-				if result.Status() != agent.StatusCompleted || calls != 2 {
-					t.Fatalf("delegate status=%s calls=%d", result.Status(), calls)
+				if result.Termination().Status() != agent.StatusCompleted || calls != 2 {
+					t.Fatalf("delegate status=%s calls=%d", result.Termination().Status(), calls)
 				}
 			} else {
 				failure, failed := result.Termination().Failure()

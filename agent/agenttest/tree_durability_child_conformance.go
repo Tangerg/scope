@@ -112,8 +112,8 @@ func assertCrashTreeCompleted(t *testing.T, root, child *agent.Process) {
 	for _, result := range []agent.Result{rootResult, childResult} {
 		output, present := result.Termination().Output()
 		decoded, err := output.Decode[crashTreeOutput]()
-		if result.Status() != agent.StatusCompleted || !present || err != nil || !decoded.Completed {
-			t.Fatalf("tree continuation status=%s output=%+v error=%v", result.Status(), decoded, err)
+		if result.Termination().Status() != agent.StatusCompleted || !present || err != nil || !decoded.Completed {
+			t.Fatalf("tree continuation status=%s output=%+v error=%v", result.Termination().Status(), decoded, err)
 		}
 	}
 	wantRootUsage := agent.Usage{CommittedSteps: 4, PreparedEffects: 2, AcceptedSignals: 3}
@@ -151,15 +151,15 @@ func runCrashAfterSubtreeCancellationCheckpoint(t *testing.T, store TreeCommitte
 	}
 	restoredEngine := newCrashEngine(t, store, nil)
 	restoredRoot := restoreCrashTree(t, restoredEngine, deployment, head)
-	if result := awaitCrashProcess(t, restoredRoot); result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored parent status=%s", result.Status())
+	if result := awaitCrashProcess(t, restoredRoot); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored parent status=%s", result.Termination().Status())
 	}
 	restoredChild, found := restoredEngine.Process(child.ID())
 	if !found {
 		t.Fatal("restored tree lost canceled child")
 	}
 	result := awaitCrashProcess(t, restoredChild)
-	if result.Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseHostCancellation {
+	if result.Termination().Status() != agent.StatusCanceled || result.Termination().Cause() != agent.TerminationCauseHostCancellation {
 		t.Fatalf("restored child termination=%+v", result.Termination())
 	}
 	gate.abort()

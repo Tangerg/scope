@@ -128,7 +128,7 @@ func runScriptedEffect(t *testing.T, dispatcher *agenttest.ScriptedDispatcher, e
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Status() != agent.StatusCompleted {
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("Run result=%+v error=%v", result, err)
 	}
 	awaitCtx, cancel := context.WithTimeout(t.Context(), time.Second)

@@ -90,8 +90,8 @@ func TestPublicationAcrossWaitingCheckpointAndStorageReopen(t *testing.T) {
 		t.Fatal(joinErr)
 	}
 	result, err := restored.Await(t.Context())
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s err=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s err=%v", result.Termination().Status(), err)
 	}
 	entries := store.entries()
 	if len(entries) != 1 || publicationText(entries[0]) != "confirmed after input" || executions.Load() != 1 || models.Load() != 2 {

@@ -329,8 +329,8 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result=%s error=%v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
 	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
 		Definition: base.Definition(), Input: input, RestoredCases: definition.samples,
@@ -475,8 +475,8 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := engine.Run(t.Context(), fixture.composition, input)
-			if err != nil || result.Status() != agent.StatusFailed {
-				t.Fatalf("status=%s error=%v", result.Status(), err)
+			if err != nil || result.Termination().Status() != agent.StatusFailed {
+				t.Fatalf("status=%s error=%v", result.Termination().Status(), err)
 			}
 			if failure, found := result.Termination().Failure(); !found || failure.Code() != test.wantCode {
 				t.Fatalf("failure=%s, want %s", failure.Code(), test.wantCode)

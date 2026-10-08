@@ -51,9 +51,9 @@ func TestPauseReportsCommittedStateRestorationFailure(t *testing.T) {
 					t.Fatalf("restoration failure left the Process paused without an Execution: %v", err)
 				}
 				failure, failed := result.Termination().Failure()
-				if result.Status() != StatusFailed || !failed || failure.Kind() != FailureKindExecution ||
+				if result.Termination().Status() != StatusFailed || !failed || failure.Kind() != FailureKindExecution ||
 					failure.Code() != "execution.snapshot.unrestorable" || failure.Message() != cause.Error() {
-					t.Fatalf("restoration failure was lost: result=%s failure=%+v", result.Status(), failure)
+					t.Fatalf("restoration failure was lost: result=%s failure=%+v", result.Termination().Status(), failure)
 				}
 				if result.Usage() != (Usage{}) {
 					t.Fatalf("discarded Step changed usage: %+v", result.Usage())

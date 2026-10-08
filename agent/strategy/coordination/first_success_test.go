@@ -48,7 +48,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 		}
 		time.Sleep(time.Second)
 		synctest.Wait()
-		if inspect(t, engine, root).Snapshot.Status() != agent.StatusWaiting || result(t, child(t, engine, root, "rejected")).Status() != agent.StatusCompleted {
+		if inspect(t, engine, root).Snapshot.Status() != agent.StatusWaiting || result(t, child(t, engine, root, "rejected")).Termination().Status() != agent.StatusCompleted {
 			t.Fatal("a rejected business result did not leave the competition waiting")
 		}
 		checkpoint, found, loadErr := store.LoadTree(t.Context(), root.ID())
@@ -99,7 +99,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 			t.Fatal(joinErr)
 		}
 		loser := result(t, child(t, restoredEngine, restored, "deadline"))
-		if loser.Status() != agent.StatusCanceled || loser.Termination().Cause() != agent.TerminationCauseParentCancellation ||
+		if loser.Termination().Status() != agent.StatusCanceled || loser.Termination().Cause() != agent.TerminationCauseParentCancellation ||
 			len(loser.Termination().UnresolvedEffectIDs()) != 0 || !time.Now().Equal(started.Add(time.Second)) {
 			t.Fatalf("competition did not cancel and join its deadline: %+v at %v", loser, time.Now())
 		}
@@ -135,7 +135,7 @@ func TestFirstSuccessUsesRequestOrderWhenSeveralResultsAreAlreadyVisible(t *test
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
 		for _, key := range []string{"declared-first", "finished-first"} {
-			if result(t, child(t, engine, root, key)).Status() != agent.StatusCompleted {
+			if result(t, child(t, engine, root, key)).Termination().Status() != agent.StatusCompleted {
 				t.Fatal("candidate did not finish before wait registration")
 			}
 		}
@@ -188,7 +188,7 @@ func TestFirstSuccessWaitsForAllAdmissionsBeforeAcceptingCompletedChild(t *testi
 			t.Fatal(err)
 		}
 		<-entered
-		if result(t, child(t, engine, root, "completed-first")).Status() != agent.StatusCompleted {
+		if result(t, child(t, engine, root, "completed-first")).Termination().Status() != agent.StatusCompleted {
 			t.Fatal("first child did not complete")
 		}
 		synctest.Wait()

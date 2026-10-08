@@ -33,14 +33,14 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 			}
 			continue
 		}
-		if result.Status() == agent.StatusCompleted {
+		if result.Termination().Status() == agent.StatusCompleted {
 			continue
 		}
 		termination := result.Termination()
 		if failure, failed := termination.Failure(); failed {
 			return failure, true, nil
 		}
-		diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Status(), termination.Cause(), termination.Reason())
+		diagnostic := fmt.Sprintf("Tool child %s ended with %s (%s): %s", result.ProcessID(), result.Termination().Status(), termination.Cause(), termination.Reason())
 		failure, err := stepfail.Failure(agent.FailureKindExecution, failureCodeInteractionToolProcessFailed, diagnostic)
 		return failure, true, err
 	}

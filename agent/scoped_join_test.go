@@ -123,7 +123,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					if operationErr := scope.Resume(t.Context()); operationErr != nil {
 						t.Fatal(operationErr)
 					}
-					if result := mustAwait(t, scope); result.Status() != StatusCompleted {
+					if result := mustAwait(t, scope); result.Termination().Status() != StatusCompleted {
 						t.Fatalf("scope result = %+v", result)
 					}
 					joined := make(chan error, 1)
@@ -160,7 +160,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 					if operationErr := root.Resume(t.Context()); operationErr != nil {
 						t.Fatal(operationErr)
 					}
-					if result := mustAwait(t, root); result.Status() != StatusCompleted {
+					if result := mustAwait(t, root); result.Termination().Status() != StatusCompleted {
 						t.Fatalf("root result = %+v", result)
 					}
 					dispatcher.ReleaseAll()
@@ -185,7 +185,7 @@ func TestScopedJoinSeparatesResultsFromDescendantCleanup(t *testing.T) {
 						t.Fatal(operationErr)
 					}
 					cleanup := directChildWithKey(t, recoveredEngine, recoveredScope, "cleanup")
-					if result := mustAwait(t, cleanup); result.Status() != StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
+					if result := mustAwait(t, cleanup); result.Termination().Status() != StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
 						t.Errorf("restored cleanup discarded remote uncertainty: %+v", result)
 					}
 					waitForStatus(t, recoveredRoot, StatusPaused)
@@ -298,7 +298,7 @@ func TestJoinRetainsParentResultAndWaitsForFailedDescendantCleanup(t *testing.T)
 			len(runtimeErr.UnresolvedEffectIDs()) != 1 || runtimeErr.UnresolvedEffectIDs()[0] != cleanupFailure.UnresolvedEffectIDs()[0] {
 			t.Fatalf("scope join failure = %v", joinErr)
 		}
-		if after := mustAwait(t, scope); after.Status() != result.Status() || after.FinishedAt() != result.FinishedAt() {
+		if after := mustAwait(t, scope); after.Termination().Status() != result.Termination().Status() || after.FinishedAt() != result.FinishedAt() {
 			t.Error("descendant runtime failure changed the acknowledged parent result")
 		}
 		*runtimeErr = RuntimeError{}
@@ -354,8 +354,8 @@ func TestDurableChildResultDoesNotWaitForUnrelatedDispatch(t *testing.T) {
 		synctest.Wait()
 		select {
 		case result := <-resultReady:
-			if result.Status() != StatusKilled {
-				t.Errorf("child status = %s", result.Status())
+			if result.Termination().Status() != StatusKilled {
+				t.Errorf("child status = %s", result.Termination().Status())
 			}
 		default:
 			t.Error("child result acknowledgment waited for unrelated sibling Dispatch jobs")

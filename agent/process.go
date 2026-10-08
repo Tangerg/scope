@@ -278,8 +278,6 @@ func (r Result) StartedAt() time.Time { return r.startedAt }
 // adjustments and restoration on another writer can make it earlier than StartedAt.
 func (r Result) FinishedAt() time.Time { return r.finishedAt }
 
-func (r Result) Status() Status { return r.termination.Status() }
-
 func (r Result) Termination() Termination { return r.termination }
 
 func (r Result) Usage() Usage { return r.usage }

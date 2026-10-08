@@ -54,8 +54,8 @@ func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 	<-entered
 	cancel()
 	terminal, err := root.Await(t.Context())
-	if err != nil || terminal.Status() != agent.StatusCanceled {
-		t.Fatalf("terminal=%s error=%v", terminal.Status(), err)
+	if err != nil || terminal.Termination().Status() != agent.StatusCanceled {
+		t.Fatalf("terminal=%s error=%v", terminal.Termination().Status(), err)
 	}
 	if joinErr := root.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)

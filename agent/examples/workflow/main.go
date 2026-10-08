@@ -56,7 +56,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}
 	erased, present := result.Termination().Output()
 	if !present {
-		return fmt.Errorf("workflow Process ended with %s", result.Status())
+		return fmt.Errorf("workflow Process ended with %s", result.Termination().Status())
 	}
 	report, err := root.Descriptor().DecodeOutput[reviewReport](erased)
 	if err != nil {

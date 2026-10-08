@@ -67,8 +67,8 @@ func TestInspectTreeRemainsAvailableWhileFreezeOperationIsHeld(t *testing.T) {
 		t.Fatal(releaseErr)
 	}
 	operation.release()
-	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Status() != StatusCompleted {
-		t.Fatalf("unfrozen result=%s error=%v", result.Status(), awaitErr)
+	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("unfrozen result=%s error=%v", result.Termination().Status(), awaitErr)
 	}
 	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 		t.Fatal(releaseErr)
@@ -154,8 +154,8 @@ func TestConcurrentInspectionsPreserveCompletionAndRelease(t *testing.T) {
 	}
 	close(continueInspections)
 	unblock()
-	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Status() != StatusCompleted {
-		t.Fatalf("queries delayed completion: status=%s error=%v", result.Status(), awaitErr)
+	if result, awaitErr := root.Await(ctx); awaitErr != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("queries delayed completion: status=%s error=%v", result.Termination().Status(), awaitErr)
 	}
 	if releaseErr := engine.ReleaseTree(ctx, root.ID()); releaseErr != nil {
 		t.Fatalf("queries delayed release: %v", releaseErr)

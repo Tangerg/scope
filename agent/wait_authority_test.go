@@ -131,8 +131,8 @@ func TestSignalBatchRejectsNonCurrentWaitAnswers(t *testing.T) {
 				result := awaitResult(t, process)
 				output, _ := result.Termination().Output()
 				value, err := output.Decode[engineTestOutput]()
-				if result.Status() != StatusCompleted || err != nil || value.Value != "approved" || inspectProcessSnapshot(t, process).Usage().AcceptedSignals != 3 {
-					t.Fatalf("result = %s, %+v, %v; usage = %+v", result.Status(), value, err, inspectProcessSnapshot(t, process).Usage())
+				if result.Termination().Status() != StatusCompleted || err != nil || value.Value != "approved" || inspectProcessSnapshot(t, process).Usage().AcceptedSignals != 3 {
+					t.Fatalf("result = %s, %+v, %v; usage = %+v", result.Termination().Status(), value, err, inspectProcessSnapshot(t, process).Usage())
 				}
 			})
 		}

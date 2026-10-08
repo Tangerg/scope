@@ -42,8 +42,8 @@ func TestToolEmptyJSONSurvivesExecution(t *testing.T) {
 				}
 				defer engine.Close(context.WithoutCancel(t.Context()))
 				result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "run"))
-				if err != nil || result.Status() != agent.StatusCompleted {
-					t.Fatalf("result = %s, %v, %+v", result.Status(), err, result.Termination())
+				if err != nil || result.Termination().Status() != agent.StatusCompleted {
+					t.Fatalf("result = %s, %v, %+v", result.Termination().Status(), err, result.Termination())
 				}
 				payload, _ := result.Termination().Output()
 				output, err := payload.Decode[interaction.Output]()
@@ -119,8 +119,8 @@ func TestEmptyToolAnswersSurviveWaitingRecovery(t *testing.T) {
 				t.Fatalf("delivery = %t, %v", accepted, deliveryErr)
 			}
 			result, err := restored.Await(t.Context())
-			if err != nil || result.Status() != agent.StatusCompleted {
-				t.Fatalf("result = %s, %v", result.Status(), err)
+			if err != nil || result.Termination().Status() != agent.StatusCompleted {
+				t.Fatalf("result = %s, %v", result.Termination().Status(), err)
 			}
 			if got := <-executable.received; got != raw {
 				t.Fatalf("answer = %s, want %s", got, raw)
@@ -156,8 +156,8 @@ func TestDelegateEmptyJSONPreservesArtifact(t *testing.T) {
 			}
 			defer engine.Close(context.WithoutCancel(t.Context()))
 			result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "run"))
-			if err != nil || result.Status() != agent.StatusCompleted {
-				t.Fatalf("result = %s, %v, %+v", result.Status(), err, result.Termination())
+			if err != nil || result.Termination().Status() != agent.StatusCompleted {
+				t.Fatalf("result = %s, %v, %+v", result.Termination().Status(), err, result.Termination())
 			}
 			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
 			if err != nil {
@@ -192,7 +192,7 @@ func TestEmptyOutputSchemaReachesModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := engine.Run(t.Context(), deployment.Deployment, input)
-	if err != nil || result.Status() != agent.StatusCompleted {
-		t.Fatalf("result = %s, %v", result.Status(), err)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result = %s, %v", result.Termination().Status(), err)
 	}
 }

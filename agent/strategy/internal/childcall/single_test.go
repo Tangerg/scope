@@ -41,7 +41,7 @@ func TestSingleHandshakeRestoresAtEveryBoundary(t *testing.T) {
 	}
 	roundTrip(t, &progress, childcall.PhaseAwaitingCompletion)
 	result, err := progress.Complete(completionSignal(t, "wait", true, "child"), waitKey, agent.ChildWaitBoundaryDrained)
-	if err != nil || result.Result().ProcessID() != progress.ProcessID() || result.Result().Status() != agent.StatusCompleted {
+	if err != nil || result.Result().ProcessID() != progress.ProcessID() || result.Result().Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("completion=%+v error=%v", result, err)
 	}
 }

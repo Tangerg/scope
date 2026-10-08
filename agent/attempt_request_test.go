@@ -68,8 +68,8 @@ func TestDispatchRequestCorrelatesPhysicalAttemptsWithoutPersistingThem(t *testi
 		if err := process.Join(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if result.Status() != StatusCompleted {
-			t.Fatalf("status = %s", result.Status())
+		if result.Termination().Status() != StatusCompleted {
+			t.Fatalf("status = %s", result.Termination().Status())
 		}
 		mu.Lock()
 		captured := append([]EffectRequest(nil), requests...)

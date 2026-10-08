@@ -195,8 +195,8 @@ func TestInputGateDoesNotCommitAnInvalidOrCanceledAnswer(t *testing.T) {
 					t.Fatal(joinErr)
 				}
 				final := result(t, process)
-				if final.Status() != want || final.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 2}) {
-					t.Fatalf("uncommitted answer changed gate progress: status=%s usage=%+v", final.Status(), final.Usage())
+				if final.Termination().Status() != want || final.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 2}) {
+					t.Fatalf("uncommitted answer changed gate progress: status=%s usage=%+v", final.Termination().Status(), final.Usage())
 				}
 				if _, present := final.Termination().Output(); present {
 					t.Fatal("an uncommitted answer escaped through Output")

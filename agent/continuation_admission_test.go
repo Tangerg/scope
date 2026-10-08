@@ -54,8 +54,8 @@ func assertEpisodeResult(t testing.TB, process *agent.Process, request successor
 		t.Fatal(joinErr)
 	}
 	output, present := result.Termination().Output()
-	if !present || result.Status() != agent.StatusCompleted {
-		t.Fatalf("successor result=%s", result.Status())
+	if !present || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("successor result=%s", result.Termination().Status())
 	}
 	state, err := output.Decode[episodeState]()
 	if err != nil {

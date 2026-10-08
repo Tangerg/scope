@@ -49,8 +49,8 @@ func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
 	if cancelErr := target.RequestCancellation(t.Context(), "discard one branch"); cancelErr != nil {
 		t.Fatal(cancelErr)
 	}
-	if result := mustAwait(t, target); result.Status() != StatusCanceled {
-		t.Fatalf("target status=%s", result.Status())
+	if result := mustAwait(t, target); result.Termination().Status() != StatusCanceled {
+		t.Fatalf("target status=%s", result.Termination().Status())
 	}
 	tree, err := engine.CaptureTree(t.Context(), root.ID())
 	if err != nil {
@@ -163,7 +163,7 @@ func assertCanceledSubtree(t *testing.T, target, descendant *Process) {
 		{process: descendant, cause: TerminationCauseParentCancellation},
 	} {
 		result := mustAwait(t, expected.process)
-		if result.Status() != StatusCanceled || result.Termination().Cause() != expected.cause {
+		if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != expected.cause {
 			t.Fatalf("Process %s termination=%+v", expected.process.ID(), result.Termination())
 		}
 	}

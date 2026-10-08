@@ -86,8 +86,8 @@ func TestHostStorageDeadlineAndShutdownReachTransaction(t *testing.T) {
 							t.Fatal(err)
 						}
 						result, err := restored.Await(t.Context())
-						if err != nil || result.Status() != agent.StatusCompleted {
-							t.Fatalf("reconciled recovery: status=%s error=%v", result.Status(), err)
+						if err != nil || result.Termination().Status() != agent.StatusCompleted {
+							t.Fatalf("reconciled recovery: status=%s error=%v", result.Termination().Status(), err)
 						}
 						if err := restoredEngine.Close(t.Context()); err != nil {
 							t.Fatal(err)
@@ -135,8 +135,8 @@ func TestHostSlowAcknowledgmentSurvivesCallerLeaving(t *testing.T) {
 		}
 		close(acknowledge)
 		result, err := process.Await(t.Context())
-		if err != nil || result.Status() != agent.StatusCompleted || dispatcher.attempts.Load() != 1 {
-			t.Fatalf("slow acknowledgment changed execution: status=%s attempts=%d error=%v", result.Status(), dispatcher.attempts.Load(), err)
+		if err != nil || result.Termination().Status() != agent.StatusCompleted || dispatcher.attempts.Load() != 1 {
+			t.Fatalf("slow acknowledgment changed execution: status=%s attempts=%d error=%v", result.Termination().Status(), dispatcher.attempts.Load(), err)
 		}
 		if err := engine.Close(t.Context()); err != nil {
 			t.Fatal(err)

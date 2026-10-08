@@ -228,7 +228,7 @@ func ExampleTreeCommitter() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(result.Status(), exists && head.Valid())
+	fmt.Println(result.Termination().Status(), exists && head.Valid())
 	if err := engine.Close(ctx); err != nil {
 		panic(err)
 	}

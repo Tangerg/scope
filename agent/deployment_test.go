@@ -120,8 +120,8 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 		result := awaitResult(t, candidate)
 		output, ok := result.Termination().Output()
 		value, err := output.Decode[engineTestOutput]()
-		if result.Status() != StatusCompleted || !ok || err != nil || value.Value != "approved" {
-			t.Fatalf("framework completion status=%s, output=%+v, error=%v", result.Status(), value, err)
+		if result.Termination().Status() != StatusCompleted || !ok || err != nil || value.Value != "approved" {
+			t.Fatalf("framework completion status=%s, output=%+v, error=%v", result.Termination().Status(), value, err)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func TestDeploymentWithoutDispatcherRejectsWholeExternalEffectBatch(t *testing.T
 		t.Fatal(err)
 	}
 	failure, ok := result.Termination().Failure()
-	if result.Status() != StatusFailed || !ok || failure.Kind() != FailureKindContract ||
+	if result.Termination().Status() != StatusFailed || !ok || failure.Kind() != FailureKindContract ||
 		failure.Code() != "execution.effect.invalid" || result.Usage().PreparedEffects != 0 {
 		t.Fatalf("unbound Effect result=%+v, failure=%+v", result, failure)
 	}

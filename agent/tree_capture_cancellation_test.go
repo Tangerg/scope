@@ -92,7 +92,7 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 				case "kill":
 					wantStatus, wantCause = StatusKilled, TerminationCauseEngineKill
 				}
-				if result.Status() != wantStatus || result.Termination().Cause() != wantCause {
+				if result.Termination().Status() != wantStatus || result.Termination().Cause() != wantCause {
 					t.Errorf("termination changed: %+v", result.Termination())
 				}
 				if joinErr := process.Join(t.Context()); joinErr != nil {
@@ -119,7 +119,7 @@ func TestCaptureTreeAllowsTerminationWhileEffectsDrain(t *testing.T) {
 					t.Fatal(err)
 				}
 				restoredResult := mustAwait(t, restored)
-				if restoredResult.Status() != wantStatus || restoredResult.Termination().Cause() != wantCause ||
+				if restoredResult.Termination().Status() != wantStatus || restoredResult.Termination().Cause() != wantCause ||
 					restoredResult.Usage() != result.Usage() || len(dispatcher.entered) != 0 {
 					t.Fatal("restoration lost termination intent, changed usage, or repeated the Effect")
 				}

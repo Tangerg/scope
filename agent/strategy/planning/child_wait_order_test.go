@@ -91,8 +91,8 @@ func TestPlanningAlreadyCompletedChild(t *testing.T) {
 			once.Do(func() { close(gate) })
 		}
 	})}}, root)
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		f, _ := result.Termination().Failure()
-		t.Fatalf("status=%s failure=%s message=%s", result.Status(), f.Code(), f.Message())
+		t.Fatalf("status=%s failure=%s message=%s", result.Termination().Status(), f.Code(), f.Message())
 	}
 }

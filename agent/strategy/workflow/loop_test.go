@@ -94,7 +94,7 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
+	if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExecution ||
 		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": deliberate Loop body failure` {
 		t.Fatalf("Loop termination = %#v", result.Termination())
 	}

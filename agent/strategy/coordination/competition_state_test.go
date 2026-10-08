@@ -212,7 +212,7 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []age
 
 func sameOutcome(left, right agent.ChildOutcome) bool {
 	return left.Result().ProcessID() == right.Result().ProcessID() &&
-		left.Result().Status() == right.Result().Status()
+		left.Result().Termination().Status() == right.Result().Termination().Status()
 }
 
 func TestRestoreStopsBetweenCandidates(t *testing.T) {

@@ -73,9 +73,9 @@ func (d Delegate) validateInput(input agent.Payload) error {
 }
 
 func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResult, error) {
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		termination := result.Termination()
-		diagnostic := "child ended with " + result.Status().String() + " (" + termination.Cause().String() + ")"
+		diagnostic := "child ended with " + result.Termination().Status().String() + " (" + termination.Cause().String() + ")"
 		if termination.Reason() != "" {
 			diagnostic += ": " + termination.Reason()
 		}

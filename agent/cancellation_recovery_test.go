@@ -38,7 +38,7 @@ func TestCancellationRevokesAcknowledgedButUnusedDispatchPermission(t *testing.T
 			t.Fatal(killErr)
 		}
 		result := mustAwait(t, process)
-		if result.Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
+		if result.Termination().Status() != StatusKilled || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 			t.Fatalf("unused permission became uncertain: %+v", result.Termination())
 		}
 		if calls := dispatcher.calls.Load(); calls != 0 {
@@ -114,7 +114,7 @@ func TestRestoredCancellationNeverReplaysAnUncertainDispatch(t *testing.T) {
 			}
 			result := mustAwait(t, recovered)
 			unresolved := result.Termination().UnresolvedEffectIDs()
-			if result.Status() != StatusKilled || len(unresolved) != 1 || unresolved[0] != request.ID() {
+			if result.Termination().Status() != StatusKilled || len(unresolved) != 1 || unresolved[0] != request.ID() {
 				t.Fatalf("recovered termination = %+v", result.Termination())
 			}
 			if recoveredDispatcher.calls.Load() != 0 || recoveredDispatcher.queries.Load() != 0 {

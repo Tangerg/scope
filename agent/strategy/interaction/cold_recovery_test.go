@@ -111,8 +111,8 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 				t.Fatal(resolveErr)
 			}
 			result, err := root.Await(ctx)
-			if err != nil || result.Status() != agent.StatusCompleted {
-				t.Fatalf("status=%s error=%v", result.Status(), err)
+			if err != nil || result.Termination().Status() != agent.StatusCompleted {
+				t.Fatalf("status=%s error=%v", result.Termination().Status(), err)
 			}
 			if joinErr := root.Join(ctx); joinErr != nil {
 				t.Fatal(joinErr)

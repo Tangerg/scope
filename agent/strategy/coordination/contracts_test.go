@@ -212,7 +212,7 @@ func TestFirstSuccessSurfacesPolicyFailureAndFailedStarts(t *testing.T) {
 				}
 			} else {
 				failure, failed := final.Termination().Failure()
-				if final.Status() != agent.StatusFailed || !failed || failure.Code() != "execution.step.failed" {
+				if final.Termination().Status() != agent.StatusFailed || !failed || failure.Code() != "execution.step.failed" {
 					t.Fatalf("policy error became a business result: %+v", final)
 				}
 			}
@@ -234,7 +234,7 @@ func TestDeadlineReportsDefiniteInterruptionWithoutProcessCancellation(t *testin
 		}
 		final := result(t, process)
 		failure, failed := final.Termination().Failure()
-		if final.Status() != agent.StatusFailed || !failed || failure.Code() != "coordination.deadline.interrupted" ||
+		if final.Termination().Status() != agent.StatusFailed || !failed || failure.Code() != "coordination.deadline.interrupted" ||
 			len(final.Termination().UnresolvedEffectIDs()) != 0 {
 			t.Fatalf("definite timer interruption = %+v", final)
 		}

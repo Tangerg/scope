@@ -121,7 +121,7 @@ func (e *episodeStore) sealEpisode(ctx context.Context, process *agent.Process) 
 	if err != nil {
 		return agent.Result{}, err
 	}
-	if result.Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agent.StatusCompleted {
 		return agent.Result{}, errUnsafeEpisodeBoundary
 	}
 	if joinErr := process.Join(ctx); joinErr != nil {

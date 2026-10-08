@@ -199,7 +199,7 @@ func TestDeadlineClassifiesInvalidSettlementThroughEngine(t *testing.T) {
 		}
 		final := result(t, process)
 		failure, failed := final.Termination().Failure()
-		if final.Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
+		if final.Termination().Status() != agent.StatusFailed || !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
 			t.Fatalf("protocol failure = %+v, termination = %+v", failure, final.Termination())
 		}
 		closeEngine(t, engine)
@@ -229,8 +229,8 @@ func TestDeadlineSettlementStatusOwnsWhetherItWasReached(t *testing.T) {
 		}
 		final := result(t, process)
 		failure, _ := final.Termination().Failure()
-		if final.Status() != test.want || test.want == agent.StatusFailed && failure.Code() != "coordination.deadline.interrupted" {
-			t.Fatalf("%s settlement ended %s with %+v", test.status, final.Status(), failure)
+		if final.Termination().Status() != test.want || test.want == agent.StatusFailed && failure.Code() != "coordination.deadline.interrupted" {
+			t.Fatalf("%s settlement ended %s with %+v", test.status, final.Termination().Status(), failure)
 		}
 		closeEngine(t, engine)
 	}

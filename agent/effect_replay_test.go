@@ -124,12 +124,12 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 						t.Fatal(joinErr)
 					}
 					if canceled {
-						if result.Status() != StatusKilled {
-							t.Fatalf("status=%s", result.Status())
+						if result.Termination().Status() != StatusKilled {
+							t.Fatalf("status=%s", result.Termination().Status())
 						}
 					} else {
-						if result.Status() != StatusCompleted {
-							t.Fatalf("status=%s", result.Status())
+						if result.Termination().Status() != StatusCompleted {
+							t.Fatalf("status=%s", result.Termination().Status())
 						}
 						output, _ := result.Termination().Output()
 						decoded, _ := output.Decode[engineTestOutput]()

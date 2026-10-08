@@ -38,8 +38,8 @@ func TestRunWaitsForDescendantCleanup(t *testing.T) {
 					} else if err := root.Resume(t.Context()); err != nil {
 						t.Fatal(err)
 					}
-					if result := mustAwait(t, root); result.Status() != want {
-						t.Fatalf("root status = %s, want %s", result.Status(), want)
+					if result := mustAwait(t, root); result.Termination().Status() != want {
+						t.Fatalf("root status = %s, want %s", result.Termination().Status(), want)
 					}
 					synctest.Wait()
 					select {
@@ -49,7 +49,7 @@ func TestRunWaitsForDescendantCleanup(t *testing.T) {
 					}
 					dispatcher.ReleaseAll()
 					result := <-returned
-					if result.err != nil || result.result.Status() != want {
+					if result.err != nil || result.result.Termination().Status() != want {
 						t.Fatalf("Run = %+v, want status %s", result, want)
 					}
 					mustCloseEngine(t, engine)
@@ -77,8 +77,8 @@ func TestRunWaitsForDescendantAcknowledgmentAndReportsItsFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 		acknowledged := mustAwait(t, root)
-		if acknowledged.Status() != StatusCompleted {
-			t.Fatalf("root status = %s", acknowledged.Status())
+		if acknowledged.Termination().Status() != StatusCompleted {
+			t.Fatalf("root status = %s", acknowledged.Termination().Status())
 		}
 		dispatcher.ReleaseAll()
 		<-committer.entered
@@ -94,7 +94,7 @@ func TestRunWaitsForDescendantAcknowledgmentAndReportsItsFailure(t *testing.T) {
 		if !ok || !errors.Is(result.err, failure) || runtimeErr.ProcessID() != root.ID() || result.result.Valid() {
 			t.Fatalf("Run discarded descendant failure or reported a result: %+v", result)
 		}
-		if retained := mustAwait(t, root); retained.Status() != acknowledged.Status() || retained.FinishedAt() != acknowledged.FinishedAt() {
+		if retained := mustAwait(t, root); retained.Termination().Status() != acknowledged.Termination().Status() || retained.FinishedAt() != acknowledged.FinishedAt() {
 			t.Fatal("Run failure changed the acknowledged root result")
 		}
 		mustCloseEngine(t, engine)

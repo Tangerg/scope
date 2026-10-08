@@ -59,8 +59,8 @@ func TestToolBatchValidatesEveryProposalBeforeCapabilitiesAndExecution(t *testin
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 	// Pure scheduling declarations may be checked again during state admission.
 	if validCapabilities.Load() == 0 || validCalls.Load() != 1 {
@@ -108,8 +108,8 @@ func TestLengthTruncatedToolCallsNeverReachCapabilitiesOrExecution(t *testing.T)
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s", result.Status())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("status = %s", result.Termination().Status())
 	}
 	if capabilities.Load() != 0 || calls.Load() != 0 {
 		t.Fatalf("capability/calls = %d/%d, want 0/0", capabilities.Load(), calls.Load())
@@ -138,8 +138,8 @@ func TestNonToolCompletionNeverReachesCapabilitiesOrExecution(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, present := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal || failure.Code() != "interaction.model.tool_calls_not_completed" {
-				t.Fatalf("status=%s failure=%v", result.Status(), failure)
+			if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != agent.FailureKindExternal || failure.Code() != "interaction.model.tool_calls_not_completed" {
+				t.Fatalf("status=%s failure=%v", result.Termination().Status(), failure)
 			}
 			if calls.Load() != 0 || capabilities.Load() != 0 || modelCalls.Load() != 1 {
 				t.Fatalf("tool calls=%d capabilities=%d model calls=%d", calls.Load(), capabilities.Load(), modelCalls.Load())
@@ -196,10 +196,10 @@ func TestAuthorizationUsesManagedInvocationAndRefusesExecution(t *testing.T) {
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != agent.StatusCompleted || authorizations.Load() != 1 || calls.Load() != 0 {
+	if result.Termination().Status() != agent.StatusCompleted || authorizations.Load() != 1 || calls.Load() != 0 {
 		t.Fatalf(
 			"status = %s, authorizations = %d, tool calls = %d",
-			result.Status(), authorizations.Load(), calls.Load(),
+			result.Termination().Status(), authorizations.Load(), calls.Load(),
 		)
 	}
 }

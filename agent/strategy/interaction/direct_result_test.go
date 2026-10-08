@@ -55,8 +55,8 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 				return textResponse("handled failure"), nil
 			})
 			result := runInteraction(t, newDeployment(t, model, []tool.Tool{directTool{Tool: executable}}, 2), "run batch")
-			if result.Status() != agent.StatusCompleted || modelCalls != 2 || calls != 2 {
-				t.Fatalf("status = %s, model calls = %d, tool calls = %d", result.Status(), modelCalls, calls)
+			if result.Termination().Status() != agent.StatusCompleted || modelCalls != 2 || calls != 2 {
+				t.Fatalf("status = %s, model calls = %d, tool calls = %d", result.Termination().Status(), modelCalls, calls)
 			}
 			erased, _ := result.Termination().Output()
 			output, err := erased.Decode[interaction.Output]()
@@ -129,7 +129,7 @@ func TestDirectResultCompletionFailurePreservesItsCause(t *testing.T) {
 			deployment := delegateInteractionWithValidator(t, model, []tool.Tool{directTool{Tool: executable}}, nil, validator, 1)
 			result := runInteraction(t, deployment, "validate direct result")
 			failure, present := result.Termination().Failure()
-			if result.Status() != agent.StatusFailed || !present || failure.Kind() != test.kind || failure.Code() != test.code {
+			if result.Termination().Status() != agent.StatusFailed || !present || failure.Kind() != test.kind || failure.Code() != test.code {
 				t.Fatalf("termination = %#v, want %s/%s", result.Termination(), test.kind, test.code)
 			}
 			if modelCalls != 1 || toolCalls != 1 || validations != 1 {

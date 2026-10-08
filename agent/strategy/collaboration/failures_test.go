@@ -24,7 +24,7 @@ func TestWorkerFailuresRemainCoordinatorFacts(t *testing.T) {
 					if _, failed := turn.Tasks[0].Start.Failure(); !failed || turn.Tasks[0].Outcome != nil {
 						return Decision{}, errors.New("failed admission fabricated a child")
 					}
-				} else if turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Status() != agent.StatusFailed {
+				} else if turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Termination().Status() != agent.StatusFailed {
 					return Decision{}, errors.New("failed execution lost its outcome")
 				}
 				return finish(turn, "failure handled"), nil
@@ -70,8 +70,8 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 			}
 			_, process := runWith(t, definition, engineConfig)
 			result := require(process.Await(t.Context()))
-			if result.Status() != agent.StatusFailed {
-				t.Fatal(result.Status())
+			if result.Termination().Status() != agent.StatusFailed {
+				t.Fatal(result.Termination().Status())
 			}
 			reason := result.Termination().Reason()
 			want := map[string]string{"start": "refused", "execution": "coordinator failure", "turn limit": "turn limit reached", "task limit": "bound exceeded", "reused key": "reused task key"}[mode]

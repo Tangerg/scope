@@ -177,8 +177,8 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 			b.Fatal("benchmark child is missing")
 		}
 		result, err := child.Await(b.Context())
-		if err != nil || result.Status() != StatusCompleted {
-			b.Fatalf("benchmark child status=%s error=%v", result.Status(), err)
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			b.Fatalf("benchmark child status=%s error=%v", result.Termination().Status(), err)
 		}
 	}
 	checkpoints := committer.treeCheckpoints()

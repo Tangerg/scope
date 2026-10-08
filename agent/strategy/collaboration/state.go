@@ -59,8 +59,8 @@ func (t turnExecution) decision() (Decision, error) {
 	}
 	result := t.Outcome.Result()
 	output, present := result.Termination().Output()
-	if !present || result.Status() != agent.StatusCompleted {
-		return Decision{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Status(), result.Termination().Reason())
+	if !present || result.Termination().Status() != agent.StatusCompleted {
+		return Decision{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Termination().Status(), result.Termination().Reason())
 	}
 	decision, err := output.Decode[Decision]()
 	if err != nil {

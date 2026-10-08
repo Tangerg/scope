@@ -269,8 +269,8 @@ func TestRestoreDoesNotReadmitPreviouslyAdmittedProcess(t *testing.T) {
 	if got := outcomeCalls.Load(); got != 0 {
 		t.Fatalf("restore outcome calls = %d, want 0", got)
 	}
-	if result := mustAwait(t, restored); result.Status() != StatusCompleted {
-		t.Fatalf("restored status = %s", result.Status())
+	if result := mustAwait(t, restored); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("restored status = %s", result.Termination().Status())
 	}
 	if !restored.Capabilities().Contains(write) || restored.Budget() != process.Budget() {
 		t.Fatal("restoration rewrote captured authority or budget using current start defaults")

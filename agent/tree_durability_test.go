@@ -511,7 +511,7 @@ func awaitRuntimeError(t *testing.T, process *Process, cause error) *RuntimeErro
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	result, err := process.Await(ctx)
-	if !errors.Is(err, cause) || result.Valid() || result.ProcessID().Valid() || result.Status() != StatusInvalid {
+	if !errors.Is(err, cause) || result.Valid() || result.ProcessID().Valid() || result.Termination().Status() != StatusInvalid {
 		t.Fatalf("runtime failure result=%+v error=%v, want cause %v", result, err, cause)
 	}
 	runtimeErr, ok := errors.AsType[*RuntimeError](err)
@@ -563,8 +563,8 @@ func TestDurableUnknownResolutionCommitsAResolvedBoundary(t *testing.T) {
 	if err := process.ResolveUnknownEffect(context.Background(), effectID, settlement); err != nil {
 		t.Fatal(err)
 	}
-	if result := awaitResult(t, process); result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
 	}
 	boundaries := committer.effectBoundaries()
 	if len(boundaries) != 3 || boundaries[0].Kind() != EffectBoundaryKindPending ||
@@ -648,8 +648,8 @@ func runPendingEffectRecoveryCase(
 func assertRecoveredProcess(t *testing.T, process *Process, effectID EffectID, want SettlementStatus) {
 	t.Helper()
 	if want != SettlementStatusUnknown {
-		if result := awaitResult(t, process); result.Status() != StatusCompleted {
-			t.Fatalf("restored result status=%s", result.Status())
+		if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+			t.Fatalf("restored result status=%s", result.Termination().Status())
 		}
 		return
 	}
@@ -811,8 +811,8 @@ func TestEngineCloseRejectsUnpublishedTerminalCheckpoint(t *testing.T) {
 		t.Fatalf("Close during terminal checkpoint error=%v", err)
 	}
 	close(committer.release)
-	if result := awaitResult(t, process); result.Status() != StatusCompleted {
-		t.Fatalf("result status=%s", result.Status())
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
@@ -841,7 +841,7 @@ func TestDurableObservationsCarryCurrentIncarnation(t *testing.T) {
 	}
 	input, _ := EncodePayload(engineTestInput{Value: "observation"})
 	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Status() != StatusCompleted {
+	if err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("result=%+v error=%v", result, err)
 	}
 	if err := engine.FlushDeltas(context.Background()); err != nil {

@@ -50,7 +50,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 			}
 			defer engine.Close(context.WithoutCancel(ctx))
 			result, err := engine.Run(ctx, deployment.Deployment, interactionInput(t, "run"))
-			if err != nil || result.Status() != agent.StatusCompleted || modelCalls.Load() != 2 {
+			if err != nil || result.Termination().Status() != agent.StatusCompleted || modelCalls.Load() != 2 {
 				t.Fatalf("result=%+v error=%v model calls=%d", result, err, modelCalls.Load())
 			}
 			snapshot, err := engine.CaptureTree(ctx, result.ProcessID())
@@ -72,7 +72,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 				t.Fatal(err)
 			}
 			restoredResult, err := restored.Await(ctx)
-			if err != nil || restoredResult.Status() != agent.StatusCompleted || toolCalls.Load() != 1 || modelCalls.Load() != 2 {
+			if err != nil || restoredResult.Termination().Status() != agent.StatusCompleted || toolCalls.Load() != 1 || modelCalls.Load() != 2 {
 				t.Fatalf("restored=%+v error=%v tool calls=%d model calls=%d", restoredResult, err, toolCalls.Load(), modelCalls.Load())
 			}
 		})
@@ -115,7 +115,7 @@ func TestProcessCancellationRetainsDefiniteToolSettlement(t *testing.T) {
 		t.Fatal(cancelErr)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Status() != agent.StatusCanceled {
+	if err != nil || result.Termination().Status() != agent.StatusCanceled {
 		t.Fatalf("result=%+v error=%v", result, err)
 	}
 	if joinErr := process.Join(ctx); joinErr != nil {

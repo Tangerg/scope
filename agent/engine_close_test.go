@@ -51,8 +51,8 @@ func TestEngineCloseCancellationLeavesOwnedShutdownJoinable(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := engine.Run(t.Context(), deployment, input)
-		if err != nil || result.Status() != StatusCompleted {
-			t.Fatalf("Run = %s, %v", result.Status(), err)
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			t.Fatalf("Run = %s, %v", result.Termination().Status(), err)
 		}
 		<-entered
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
@@ -132,8 +132,8 @@ func TestConcurrentEngineCloseWaitsForObserverCompletion(t *testing.T) {
 			t.Fatal(err)
 		}
 		result, err := engine.Run(t.Context(), deployment, input)
-		if err != nil || result.Status() != StatusCompleted {
-			t.Fatalf("Run = %s, %v", result.Status(), err)
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			t.Fatalf("Run = %s, %v", result.Termination().Status(), err)
 		}
 		<-listener.entered
 		closed := make(chan error, 2)
@@ -186,8 +186,8 @@ func TestEngineCloseRejectsIncompleteTerminalPublication(t *testing.T) {
 			t.Error("terminal Process disappeared during Close")
 		}
 		close(release)
-		if result, awaitErr := process.Await(t.Context()); awaitErr != nil || result.Status() != StatusCompleted {
-			t.Fatalf("Await = %s, %v", result.Status(), awaitErr)
+		if result, awaitErr := process.Await(t.Context()); awaitErr != nil || result.Termination().Status() != StatusCompleted {
+			t.Fatalf("Await = %s, %v", result.Termination().Status(), awaitErr)
 		}
 		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Fatal(err)
@@ -256,7 +256,7 @@ func TestBlockedEventKeepsTreeOwnedUntilListenerReturns(t *testing.T) {
 			t.Fatalf("Close abandoned listener: %v", err)
 		}
 		independent := controlValue(engine.Run(t.Context(), deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf"}))))
-		if independent.Status() != StatusCompleted {
+		if independent.Termination().Status() != StatusCompleted {
 			t.Fatal("blocked listener stopped another tree")
 		}
 		unblock()
@@ -266,7 +266,7 @@ func TestBlockedEventKeepsTreeOwnedUntilListenerReturns(t *testing.T) {
 		if err := root.Join(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if result := awaitResult(t, root); result.Status() != StatusCompleted {
+		if result := awaitResult(t, root); result.Termination().Status() != StatusCompleted {
 			t.Fatal("released listener lost completion")
 		}
 		if err := engine.ReleaseTree(t.Context(), root.ID()); err != nil {

@@ -61,7 +61,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}
 	erased, ok := result.Termination().Output()
 	if !ok {
-		return fmt.Errorf("managed Process ended with %s", result.Status())
+		return fmt.Errorf("managed Process ended with %s", result.Termination().Status())
 	}
 	managed, err := deployment.Descriptor().DecodeOutput[interaction.Output](erased)
 	if err != nil {

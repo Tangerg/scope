@@ -31,7 +31,7 @@ func (f FirstSuccessResult) Valid() bool {
 		return false
 	}
 	winner := f.Candidates[*f.Winner].Outcome
-	return winner != nil && winner.Result().Status() == agent.StatusCompleted
+	return winner != nil && winner.Result().Termination().Status() == agent.StatusCompleted
 }
 
 // CandidateResult holds one candidate's kernel facts: its start receipt after

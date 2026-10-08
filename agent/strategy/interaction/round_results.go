@@ -275,7 +275,7 @@ func (c childIndex) subtreeSettled(process agent.ProcessSnapshot) bool {
 // against the parent's response.
 func settledToolResult(snapshot agent.TreeSnapshot, process agent.ProcessSnapshot) (*toolCallResult, error) {
 	// A completed Tool child's Output is its result; its state never repeats it.
-	if result, terminal := process.Result(); terminal && result.Status() == agent.StatusCompleted {
+	if result, terminal := process.Result(); terminal && result.Termination().Status() == agent.StatusCompleted {
 		output, _ := result.Termination().Output()
 		completion, err := output.Decode[toolCallResult]()
 		if err != nil {

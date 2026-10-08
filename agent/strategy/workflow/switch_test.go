@@ -103,7 +103,7 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, present := result.Termination().Failure()
-	if result.Status() != agent.StatusFailed || !present || failure.Code() != "workflow.switch.case_unknown" {
+	if result.Termination().Status() != agent.StatusFailed || !present || failure.Code() != "workflow.switch.case_unknown" {
 		t.Fatalf("Switch termination = %#v", result.Termination())
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -143,8 +143,8 @@ func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 
 func decodeCompleted[O any](t *testing.T, result agent.Result) O {
 	t.Helper()
-	if result.Status() != agent.StatusCompleted {
-		t.Fatalf("Process status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("Process status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	output, present := result.Termination().Output()
 	if !present {

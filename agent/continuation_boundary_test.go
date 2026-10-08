@@ -116,8 +116,8 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 			t.Fatalf("winner=%t %v", accepted, deliveryErr)
 		}
 		result, err := root.Await(t.Context())
-		if err != nil || result.Status() != agent.StatusCompleted {
-			t.Fatalf("root=%s %v", result.Status(), err)
+		if err != nil || result.Termination().Status() != agent.StatusCompleted {
+			t.Fatalf("root=%s %v", result.Termination().Status(), err)
 		}
 		if joinErr := root.Join(t.Context()); joinErr != nil {
 			t.Fatal(joinErr)

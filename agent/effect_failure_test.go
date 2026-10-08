@@ -197,7 +197,7 @@ func TestPreparedContractFailureRetainsRestorableSettlementEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := mustAwait(t, restored); result.Status() != StatusFailed || result.Usage() != wire.usage() {
+	if result := mustAwait(t, restored); result.Termination().Status() != StatusFailed || result.Usage() != wire.usage() {
 		t.Fatalf("restoration changed contract failure: %+v", result)
 	}
 	if !bytes.Equal(inspectProcessSnapshot(t, restored).JSON(), snapshot.ProcessSnapshots()[0].JSON()) {

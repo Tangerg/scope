@@ -94,8 +94,8 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Status() != agent.StatusCompleted || executions.Load() != 0 || modelCalls != 2 {
-				t.Fatalf("status=%s executions=%d model calls=%d", result.Status(), executions.Load(), modelCalls)
+			if result.Termination().Status() != agent.StatusCompleted || executions.Load() != 0 || modelCalls != 2 {
+				t.Fatalf("status=%s executions=%d model calls=%d", result.Termination().Status(), executions.Load(), modelCalls)
 			}
 		})
 	}

@@ -46,9 +46,9 @@ func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed := childResult.Status() == StatusCompleted &&
+	completed := childResult.Termination().Status() == StatusCompleted &&
 		childResult.Termination().Cause() == TerminationCauseCompletion
-	parentCanceled := childResult.Status() == StatusCanceled &&
+	parentCanceled := childResult.Termination().Status() == StatusCanceled &&
 		childResult.Termination().Cause() == TerminationCauseParentCancellation
 	if !completed && !parentCanceled {
 		t.Fatalf("child termination = %#v", childResult.Termination())
@@ -236,7 +236,7 @@ func TestEngineSupportsBoundedSameDefinitionRecursion(t *testing.T) {
 		}
 		process = child
 	}
-	if result, err := process.Await(context.Background()); err != nil || result.Status() != StatusCompleted {
+	if result, err := process.Await(context.Background()); err != nil || result.Termination().Status() != StatusCompleted {
 		t.Fatalf("recursive leaf result = %#v, error = %v", result, err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -356,8 +356,8 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := mustAwait(t, root); result.Status() != StatusCompleted {
-		t.Fatalf("root status = %s", result.Status())
+	if result := mustAwait(t, root); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("root status = %s", result.Termination().Status())
 	}
 	engine.mu.RLock()
 	processCount := 0
@@ -488,8 +488,8 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 		test.terminate(t, parent)
 	}
 	parentResult := mustAwait(t, parent)
-	if parentResult.Status() != test.wantParent {
-		t.Fatalf("parent status = %s, want %s", parentResult.Status(), test.wantParent)
+	if parentResult.Termination().Status() != test.wantParent {
+		t.Fatalf("parent status = %s, want %s", parentResult.Termination().Status(), test.wantParent)
 	}
 	childIDs := terminatedChildIDs(t, engine, parent, parentResult)
 	dispatcher.ReleaseAll()
@@ -499,7 +499,7 @@ func runParentTerminationTest(t *testing.T, test parentTerminationTestCase) {
 
 func terminatedChildIDs(t *testing.T, engine *Engine, parent *Process, result Result) []string {
 	t.Helper()
-	if result.Status() == StatusCompleted {
+	if result.Termination().Status() == StatusCompleted {
 		return childTestResult(t, result).ChildIDs
 	}
 	return directChildIDs(t, engine, parent.ID())
@@ -511,8 +511,8 @@ func assertTerminatedChildren(t *testing.T, engine *Engine, childIDs []string, w
 		childID, _ := ParseProcessID(encoded)
 		child, _ := engine.Process(childID)
 		result := mustAwait(t, child)
-		if result.Status() != wantStatus || result.Termination().Cause() != wantCause {
-			t.Fatalf("child result = status %s cause %s", result.Status(), result.Termination().Cause())
+		if result.Termination().Status() != wantStatus || result.Termination().Cause() != wantCause {
+			t.Fatalf("child result = status %s cause %s", result.Termination().Status(), result.Termination().Cause())
 		}
 	}
 }
@@ -544,7 +544,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 			<-dispatcher.started
 		}
 		parentResult := mustAwait(t, parent)
-		if parentResult.Status() != StatusTimedOut || parentResult.Termination().Cause() != TerminationCauseHostDeadline {
+		if parentResult.Termination().Status() != StatusTimedOut || parentResult.Termination().Cause() != TerminationCauseHostDeadline {
 			t.Fatalf("parent termination = %#v", parentResult.Termination())
 		}
 		childIDs := directChildIDs(t, engine, parent.ID())
@@ -553,7 +553,7 @@ func TestParentDeadlinePropagatesAsParentDeadline(t *testing.T) {
 			childID, _ := ParseProcessID(encoded)
 			child, _ := engine.Process(childID)
 			result := mustAwait(t, child)
-			if result.Status() != StatusTimedOut || result.Termination().Cause() != TerminationCauseParentDeadline {
+			if result.Termination().Status() != StatusTimedOut || result.Termination().Cause() != TerminationCauseParentDeadline {
 				t.Fatalf("child termination = %#v", result.Termination())
 			}
 		}
@@ -574,8 +574,8 @@ func TestChildFailureRemainsExplicitStrategyInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status() != StatusFailed {
-		t.Fatalf("parent status = %s", result.Status())
+	if result.Termination().Status() != StatusFailed {
+		t.Fatalf("parent status = %s", result.Termination().Status())
 	}
 	failure, ok := result.Termination().Failure()
 	if !ok || failure.Code() != "test.child.failed" {
@@ -1099,7 +1099,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 	}
 	output := childTestOutput{ChildIDs: slices.Clone(c.state.ChildIDs)}
 	for _, outcome := range completed.Outcomes() {
-		if outcome.Result().Status() == StatusFailed {
+		if outcome.Result().Termination().Status() == StatusFailed {
 			c.state.Phase = "done"
 			failure, _ := NewFailure(FailureKindExecution, "test.child.failed", "a child Process failed")
 			return Fail(consumedSignals, failure)
@@ -1218,8 +1218,8 @@ type childTestRelease struct {
 
 func childTestResult(t *testing.T, result Result) childTestOutput {
 	t.Helper()
-	if result.Status() != StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
+	if result.Termination().Status() != StatusCompleted {
+		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
 	}
 	erased, ok := result.Termination().Output()
 	if !ok {

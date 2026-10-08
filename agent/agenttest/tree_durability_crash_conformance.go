@@ -368,8 +368,8 @@ func runCrashBeforePendingCommit(t *testing.T, store TreeCommitterConformanceDri
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	result := awaitCrashProcess(t, restored)
-	if result.Status() != agent.StatusCompleted || len(dispatcher.Requests()) != 1 {
-		t.Fatalf("recomputed result=%s dispatches=%d", result.Status(), len(dispatcher.Requests()))
+	if result.Termination().Status() != agent.StatusCompleted || len(dispatcher.Requests()) != 1 {
+		t.Fatalf("recomputed result=%s dispatches=%d", result.Termination().Status(), len(dispatcher.Requests()))
 	}
 	gate.abort()
 	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
@@ -395,8 +395,8 @@ func runCrashAfterPendingCommit(t *testing.T, store TreeCommitterConformanceDriv
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	resolveConformanceUnknown(t, restoredEngine, restored, crashInputValue)
-	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
-		t.Fatalf("resolved result=%s", result.Status())
+	if result := awaitCrashProcess(t, restored); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("resolved result=%s", result.Termination().Status())
 	}
 	if len(dispatcher.Requests()) != 0 {
 		t.Fatalf("never-replay pending Effect dispatches=%d", len(dispatcher.Requests()))
@@ -426,8 +426,8 @@ func runCrashBeforeSettledCommit(t *testing.T, store TreeCommitterConformanceDri
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	resolveConformanceUnknown(t, restoredEngine, restored, crashInputValue)
-	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
-		t.Fatalf("resolved result=%s", result.Status())
+	if result := awaitCrashProcess(t, restored); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("resolved result=%s", result.Termination().Status())
 	}
 	if len(dispatcher.Requests()) != 1 {
 		t.Fatalf("never-replay redispatched; calls=%d", len(dispatcher.Requests()))
@@ -456,8 +456,8 @@ func runCrashAfterSettledCommit(t *testing.T, store TreeCommitterConformanceDriv
 
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored settled result=%s", result.Status())
+	if result := awaitCrashProcess(t, restored); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored settled result=%s", result.Termination().Status())
 	}
 	if len(dispatcher.Requests()) != 1 {
 		t.Fatalf("settled Effect redispatched; calls=%d", len(dispatcher.Requests()))
@@ -515,8 +515,8 @@ func runCrashAfterTerminalCommit(t *testing.T, store TreeCommitterConformanceDri
 
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
-	if result := awaitCrashProcess(t, restored); result.Status() != agent.StatusCompleted {
-		t.Fatalf("restored terminal result=%s", result.Status())
+	if result := awaitCrashProcess(t, restored); result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored terminal result=%s", result.Termination().Status())
 	}
 	gate.abort()
 	assertCrashRuntimeError(t, original, awaitConformanceValue(t, awaited, "Process did not settle"), errSimulatedHostCrash)
@@ -587,8 +587,8 @@ func runCrashProgressCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 	restoredEngine := newCrashEngine(t, store, nil)
 	restored := restoreCrashTree(t, restoredEngine, deployment, head)
 	result := awaitCrashProcess(t, restored)
-	if result.Status() != agent.StatusCompleted || result.Usage().CommittedSteps != 2 {
-		t.Fatalf("progress recovery result=%s usage=%+v", result.Status(), result.Usage())
+	if result.Termination().Status() != agent.StatusCompleted || result.Usage().CommittedSteps != 2 {
+		t.Fatalf("progress recovery result=%s usage=%+v", result.Termination().Status(), result.Usage())
 	}
 	gate.abort()
 	awaitCrashRuntimeError(t, original, errSimulatedHostCrash)
@@ -791,7 +791,7 @@ func awaitCrashRuntimeError(t *testing.T, process *agent.Process, cause error) {
 func assertCrashRuntimeError(t *testing.T, process *agent.Process, value crashAwaitResult, cause error) {
 	t.Helper()
 	runtimeErr, ok := errors.AsType[*agent.RuntimeError](value.err)
-	if !ok || !errors.Is(value.err, cause) || value.result.Valid() || value.result.Status() != agent.StatusInvalid || value.result.ProcessID().Valid() {
+	if !ok || !errors.Is(value.err, cause) || value.result.Valid() || value.result.Termination().Status() != agent.StatusInvalid || value.result.ProcessID().Valid() {
 		t.Fatalf("runtime stopped result=%+v error=%v, want cause %v", value.result, value.err, cause)
 	}
 	if runtimeErr.ProcessID() != process.ID() || !runtimeErr.IncarnationID().Valid() || !runtimeErr.HeadDigest().Valid() {
