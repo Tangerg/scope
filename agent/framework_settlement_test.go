@@ -122,7 +122,7 @@ func TestWaitSettlementFollowsDeclaredRequest(t *testing.T) {
 	}
 }
 
-func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
+func TestChildStartSettlementDeterminesCapturedChild(t *testing.T) {
 	wire := controlValue(preparedEngineTestSnapshot(t).wire())
 	deployment := newChildTestDeployment(t)
 	spec := ChildSpec{Key: controlValue(ParseChildKey("child")), DeploymentRef: deployment.DeploymentRef(), Input: controlValue(EncodePayload(childTestInput{Mode: "leaf_pause"})), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, Capabilities: CapabilitySet{}}
@@ -191,6 +191,22 @@ func TestSuccessfulChildStartRequiresCapturedChild(t *testing.T) {
 		tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), childSnapshot}}
 		if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) || !strings.Contains(err.Error(), "before its start settled") {
 			t.Fatalf("child published before its start settled was accepted: %v", err)
+		}
+	})
+	t.Run("child beside a failed start", func(t *testing.T) {
+		failed := preparedEffect{ID: record.ID, Effect: effect, progress: &effectProgress{}}
+		if err := settleTestFramework(&failed, controlValue(NewFailure(FailureKindContract, "test.rejected", "not admitted"))); err != nil {
+			t.Fatal(err)
+		}
+		parentWire := wire.clone()
+		parentWire.Prepared.Effects = preparedEffects{failed}
+		tree := treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{controlValue(newProcessSnapshot(parentWire)), childSnapshot}}
+		if _, err := newTreeSnapshot(tree); !errors.Is(err, ErrInvalidTreeSnapshot) || !strings.Contains(err.Error(), "start failed") {
+			t.Fatalf("child beside its failed start was accepted: %v", err)
+		}
+		tree.ProcessSnapshots = tree.ProcessSnapshots[:1]
+		if _, err := newTreeSnapshot(tree); err != nil {
+			t.Fatalf("failed start without its child rejected: %v", err)
 		}
 	})
 }

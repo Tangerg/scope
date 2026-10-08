@@ -146,9 +146,10 @@ func (c childStartOperation) apply(finalization *preparedStepFinalization, recor
 }
 
 // A started child's request decodes from the child's own record, so a
-// successful start needs only that the child is captured; an unsettled start
-// never has its child in the tree, because the child publishes atomically with
-// its start settlement.
+// successful start needs only that the child is captured. An unsettled or
+// failed start never has its child in the tree, because the child publishes
+// atomically with a successful start settlement. The child ProcessID derives
+// from the EffectID, so an earlier child that made this start fail is not it.
 func (c childStartOperation) validateTree(t *treeSnapshotValidation, _ ProcessID, record preparedEffect) error {
 	_, exists := t.processes[record.ID.childProcessID()]
 	if !record.definitelySettled() {
@@ -161,8 +162,12 @@ func (c childStartOperation) validateTree(t *treeSnapshotValidation, _ ProcessID
 	if err != nil {
 		return err
 	}
-	if _, started := result.ProcessID(); started && !exists {
+	_, started := result.ProcessID()
+	switch {
+	case started && !exists:
 		return fmt.Errorf("%w: started child is missing", ErrInvalidChildStart)
+	case !started && exists:
+		return fmt.Errorf("%w: child exists although its start failed", ErrInvalidChildStart)
 	}
 	return nil
 }
