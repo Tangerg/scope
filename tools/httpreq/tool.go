@@ -68,7 +68,7 @@ func (t *Tool) request(ctx context.Context, request Request) (*Response, error) 
 // a policy refusal is a rejection and an invalid request a failure.
 func admissionFailure(admission *admissionError) error {
 	kind := toolcontract.FailureKindFailed
-	if admission.policy {
+	if errors.Is(admission, ErrHostNotAllowed) || errors.Is(admission, ErrMethodNotAllowed) {
 		kind = toolcontract.FailureKindRejected
 	}
 	cause := fmt.Errorf("httpreq: request: %w", admission)

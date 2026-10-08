@@ -87,10 +87,7 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 // admissionError marks a request Do refused before sending anything. Redirect
 // checks share the policy sentinels after the first request was already sent,
 // so only this type, not the sentinel, proves the request never left.
-type admissionError struct {
-	policy bool
-	err    error
-}
+type admissionError struct{ err error }
 
 func (a *admissionError) Error() string { return a.err.Error() }
 func (a *admissionError) Unwrap() error { return a.err }
@@ -98,18 +95,18 @@ func (a *admissionError) Unwrap() error { return a.err }
 func (c *Client) admit(request *Request) (*Request, string, error) {
 	prepared, err := request.prepare()
 	if err != nil {
-		return nil, "", &admissionError{err: err}
+		return nil, "", &admissionError{err}
 	}
 	if !c.policy.allowsMethod(prepared.Method) {
-		return nil, "", &admissionError{policy: true, err: fmt.Errorf("%w: %s", ErrMethodNotAllowed, prepared.Method)}
+		return nil, "", &admissionError{fmt.Errorf("%w: %s", ErrMethodNotAllowed, prepared.Method)}
 	}
 	parsedURL, err := url.Parse(prepared.URL)
 	if err != nil {
-		return nil, "", &admissionError{err: fmt.Errorf("httpreq: parse validated request URL: %w", err)}
+		return nil, "", &admissionError{fmt.Errorf("httpreq: parse validated request URL: %w", err)}
 	}
 	host := parsedURL.Hostname()
 	if !c.policy.allowedHosts.Allows(host) {
-		return nil, "", &admissionError{policy: true, err: fmt.Errorf("%w: %s", ErrHostNotAllowed, host)}
+		return nil, "", &admissionError{fmt.Errorf("%w: %s", ErrHostNotAllowed, host)}
 	}
 	return prepared, host, nil
 }
