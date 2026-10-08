@@ -49,7 +49,8 @@ func (c childCallKind) terminalFailure(outcomes []agent.ChildOutcome) (agent.Fai
 
 // A nil invocation has not been requested. Declaring its start creates the
 // record that then retains admission and settlement; no separate marker can
-// disagree with those facts. ChildKey follows from the call and model sequence.
+// disagree with those facts. ChildKey follows from the model sequence and the
+// call (a Delegate) or its position (a Tool).
 type childInvocationState struct {
 	ProcessID *agent.ProcessID `json:"process_id,omitzero"`
 	Result    *toolCallResult  `json:"result,omitzero"`

@@ -56,10 +56,27 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (ch
 func (t *Tool) request(ctx context.Context, request Request) (*Response, error) {
 	response, err := t.client.Do(ctx, &request)
 	if admission, ok := errors.AsType[*admissionError](err); ok {
-		return nil, admission.failure()
+		return nil, admissionFailure(admission)
 	}
 	if err != nil && response != nil {
 		return nil, toolresult.WithEvidence("httpreq: request", response, err)
 	}
 	return response, err
+}
+
+// admissionFailure is the definite outcome of a request the client never sent:
+// a policy refusal is a rejection and an invalid request a failure.
+func admissionFailure(admission *admissionError) error {
+	kind := toolcontract.FailureKindFailed
+	if admission.policy {
+		kind = toolcontract.FailureKindRejected
+	}
+	cause := fmt.Errorf("httpreq: request: %w", admission)
+	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind: kind, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
+	})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
 }

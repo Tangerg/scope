@@ -9,9 +9,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
-	"github.com/Tangerg/scope/core/chat"
-	toolcontract "github.com/Tangerg/scope/core/tool"
-
 	"github.com/Tangerg/scope/tools/content"
 )
 
@@ -97,23 +94,6 @@ type admissionError struct {
 
 func (a *admissionError) Error() string { return a.err.Error() }
 func (a *admissionError) Unwrap() error { return a.err }
-
-// failure is the definite Tool outcome: a policy refusal is a rejection and an
-// invalid request a failure, and in both cases nothing reached the network.
-func (a *admissionError) failure() error {
-	kind := toolcontract.FailureKindFailed
-	if a.policy {
-		kind = toolcontract.FailureKindRejected
-	}
-	cause := fmt.Errorf("httpreq: request: %w", a)
-	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind: kind, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
-}
 
 func (c *Client) admit(request *Request) (*Request, string, error) {
 	prepared, err := request.prepare()
