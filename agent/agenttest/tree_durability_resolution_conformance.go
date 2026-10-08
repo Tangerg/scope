@@ -62,7 +62,7 @@ func runCrashResolvedCommit(t *testing.T, store TreeCommitterConformanceDriver, 
 
 func assertResolvedContinuation(t *testing.T, result agent.Result) {
 	t.Helper()
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	decoded, err := output.Decode[conformanceOutput]()
 	if result.Status() != agent.StatusCompleted || !present || err != nil || decoded.Value != crashInputValue {
 		t.Fatalf("resolved continuation status=%s output=%+v error=%v", result.Status(), decoded, err)

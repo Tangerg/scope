@@ -118,7 +118,7 @@ func TestDeploymentWithoutDispatcherRunsAndRestoresFrameworkEffects(t *testing.T
 			t.Fatalf("answer accepted=%t, error=%v", accepted, err)
 		}
 		result := awaitResult(t, candidate)
-		output, ok := result.Output()
+		output, ok := result.Termination().Output()
 		value, err := output.Decode[engineTestOutput]()
 		if result.Status() != StatusCompleted || !ok || err != nil || value.Value != "approved" {
 			t.Fatalf("framework completion status=%s, output=%+v, error=%v", result.Status(), value, err)

@@ -101,7 +101,7 @@ func completed(t *testing.T, process *agent.Process) string {
 	if err := process.Join(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	return require(output.Decode[string]())
 }
 
@@ -150,10 +150,10 @@ func TestCompletedTaskFollowUp(t *testing.T) {
 			if turn.Tasks[0].Outcome == nil {
 				return Decision{}, errors.New("missing draft")
 			}
-			output, _ := turn.Tasks[0].Outcome.Result().Output()
+			output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
 			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("revision", "test.echo", require(output.Decode[string]())+" revised")}}, nil
 		case 3:
-			output, _ := turn.Tasks[1].Outcome.Result().Output()
+			output, _ := turn.Tasks[1].Outcome.Result().Termination().Output()
 			return finish(turn, require(output.Decode[string]())), nil
 		default:
 			return Decision{}, errors.New("unexpected turn")
@@ -174,7 +174,7 @@ func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
 			if turn.Number != 2 || turn.Tasks[0].Outcome == nil {
 				return Decision{}, errors.New("missing input outcome")
 			}
-			output, _ := turn.Tasks[0].Outcome.Result().Output()
+			output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
 			signal := require(output.Decode[agent.Signal]())
 			return finish(turn, signal.ID().String()+":"+string(signal.Payload())), nil
 		}, gate())
@@ -251,7 +251,7 @@ func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 		}
 	}()
 	restored := require(restoredEngine.RestoreTree(t.Context(), binding(definition), parsed))
-	output, present := require(restored.Await(t.Context())).Output()
+	output, present := require(restored.Await(t.Context())).Termination().Output()
 	if !present || string(output.JSON()) != `null` {
 		t.Fatalf("output = %s", output.JSON())
 	}

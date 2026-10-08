@@ -85,7 +85,7 @@ func ExampleFirstSuccess() {
 	if joinErr := process.Join(ctx); joinErr != nil {
 		panic(joinErr)
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		panic("competition ended without an output")
 	}
@@ -95,7 +95,7 @@ func ExampleFirstSuccess() {
 	}
 	// Winner indexes the request, and Candidates answers it in the same order.
 	fmt.Println("winner:", requests[*report.Winner].Key)
-	value, _ := report.Candidates[*report.Winner].Outcome.Result().Output()
+	value, _ := report.Candidates[*report.Winner].Outcome.Result().Termination().Output()
 	answer, decodeErr := value.Decode[string]()
 	if decodeErr != nil {
 		panic(decodeErr)

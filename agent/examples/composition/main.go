@@ -494,7 +494,7 @@ func (c *compositionExecution) complete(
 			}
 			return agent.Fail(1, failure)
 		}
-		erased, present := result.Output()
+		erased, present := result.Termination().Output()
 		if !present {
 			return agent.Transition{}, agent.ErrInvalidChildWait
 		}
@@ -551,7 +551,7 @@ func (compositionModel) Call(_ context.Context, request *chat.Request) (*chat.Re
 
 func decodeCompleted[T any](result agent.Result) (T, error) {
 	var zero T
-	erased, ok := result.Output()
+	erased, ok := result.Termination().Output()
 	if !ok {
 		return zero, fmt.Errorf("process ended with %s", result.Status())
 	}

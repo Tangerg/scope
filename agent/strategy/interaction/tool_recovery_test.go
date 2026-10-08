@@ -279,7 +279,7 @@ func TestToolRecoveryDerivesDirectPolicyFromExactBinding(t *testing.T) {
 	if err != nil || final.Status() != agent.StatusCompleted {
 		t.Fatalf("recovered result: %s %v", final.Status(), err)
 	}
-	payload, ok := final.Output()
+	payload, ok := final.Termination().Output()
 	if !ok {
 		t.Fatal("missing direct output")
 	}

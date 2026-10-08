@@ -208,7 +208,7 @@ func ExampleDefinition() {
 	if joinErr := process.Join(ctx); joinErr != nil {
 		panic(joinErr)
 	}
-	output, ok := result.Output()
+	output, ok := result.Termination().Output()
 	if !ok {
 		panic("completed Result has no Output")
 	}

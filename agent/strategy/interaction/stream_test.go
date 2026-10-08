@@ -56,7 +56,7 @@ func TestStreamingOutputDoesNotDependOnDeltaListeners(t *testing.T) {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestStreamingUsesBoundedBestEffortDeltaQueue(t *testing.T) {
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +166,8 @@ func TestRestoringCompletedInteractionDoesNotReplayDeltas(t *testing.T) {
 	if len(collector.Responses()) != 0 {
 		t.Fatal("restoration replayed historical model Deltas")
 	}
-	firstOutput, _ := first.Output()
-	secondOutput, _ := second.Output()
+	firstOutput, _ := first.Termination().Output()
+	secondOutput, _ := second.Termination().Output()
 	if string(firstOutput.JSON()) != string(secondOutput.JSON()) {
 		t.Fatal("restored final Output differs")
 	}

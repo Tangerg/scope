@@ -522,7 +522,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, present := restored.Result()
-	output, hasOutput := result.Output()
+	output, hasOutput := result.Termination().Output()
 	if !present || !hasOutput || string(output.JSON()) != `null` {
 		t.Fatalf("lost null output: %s", output.JSON())
 	}
@@ -539,7 +539,7 @@ func TestSnapshotAndChildResultPreserveNullOutput(t *testing.T) {
 		if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 			t.Fatal(err)
 		}
-		output, present := decoded.Result().Output()
+		output, present := decoded.Result().Termination().Output()
 		if !present || string(output.JSON()) != `null` {
 			t.Fatalf("child output = %s", output.JSON())
 		}

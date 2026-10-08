@@ -58,7 +58,7 @@ func (t turnExecution) decision() (Decision, error) {
 		return Decision{}, nil
 	}
 	result := t.Outcome.Result()
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present || result.Status() != agent.StatusCompleted {
 		return Decision{}, fmt.Errorf("%w: coordinator ended with %s: %s", ErrInvalidDecision, result.Status(), result.Termination().Reason())
 	}
@@ -511,7 +511,7 @@ func (e executionState) validateTasks(ctx context.Context, d *Definition) (int, 
 			}
 		}
 		if task.Outcome != nil {
-			if output, completed := task.Outcome.Result().Output(); completed {
+			if output, completed := task.Outcome.Result().Termination().Output(); completed {
 				if err := worker.deployment.Descriptor().ValidateOutput(output); err != nil {
 					return 0, fmt.Errorf("%w: task %d output: %w", ErrInvalidExecutionState, index, err)
 				}
@@ -593,7 +593,7 @@ func (e executionState) validateAppliedDecision(ctx context.Context, d *Definiti
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	output, _ := e.Turn.Outcome.Result().Output()
+	output, _ := e.Turn.Outcome.Result().Termination().Output()
 	if err := d.coordinator.deployment.Descriptor().ValidateOutput(output); err != nil {
 		return fmt.Errorf("%w: coordinator output: %w", ErrInvalidExecutionState, err)
 	}

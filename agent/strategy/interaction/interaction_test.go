@@ -49,7 +49,7 @@ func TestManagedInteractionCompletesFromModelResponse(t *testing.T) {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s, want completed; termination = %#v", result.Status(), result.Termination())
 	}
-	erased, ok := result.Output()
+	erased, ok := result.Termination().Output()
 	if !ok {
 		t.Fatal("completed Interaction has no output")
 	}
@@ -102,7 +102,7 @@ func TestManagedInteractionExecutesToolLoopInModelOrder(t *testing.T) {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +436,7 @@ func TestDirectResultToolCompletesWithoutAnotherModelCall(t *testing.T) {
 	if result.Status() != agent.StatusCompleted || model.Calls() != 1 {
 		t.Fatalf("status = %s, model calls = %d", result.Status(), model.Calls())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)

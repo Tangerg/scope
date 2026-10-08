@@ -46,7 +46,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("Workflow status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	erased, present := result.Output()
+	erased, present := result.Termination().Output()
 	if !present {
 		t.Fatal("Workflow completed without Output")
 	}

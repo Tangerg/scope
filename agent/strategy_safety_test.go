@@ -140,7 +140,7 @@ func assertSafetyFailure(t *testing.T, root agent.Deployment, resolver safetyRes
 		if result.Status() != agent.StatusFailed || !ok || failure.Kind() != agent.FailureKindExternal || failure.Code() != code {
 			t.Fatalf("result=%s failure=%+v; want failed / external / %s", result.Status(), failure, code)
 		}
-		if output, present := result.Output(); present {
+		if output, present := result.Termination().Output(); present {
 			t.Fatalf("unsafe child produced parent output: %s", output.JSON())
 		}
 	}

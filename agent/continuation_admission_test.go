@@ -32,7 +32,7 @@ func prepareEpisode(t testing.TB, store *episodeStore) (*agent.Engine, *agent.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		t.Fatal("previous episode has no output")
 	}
@@ -53,7 +53,7 @@ func assertEpisodeResult(t testing.TB, process *agent.Process, request successor
 	if joinErr := process.Join(context.Background()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present || result.Status() != agent.StatusCompleted {
 		t.Fatalf("successor result=%s", result.Status())
 	}

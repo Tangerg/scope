@@ -52,7 +52,7 @@ func TestSteerDuringModelCallIsVisibleOnlyToNextModelCall(t *testing.T) {
 	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
 		t.Fatalf("status = %s, model calls = %d", result.Status(), model.Calls())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)

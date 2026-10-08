@@ -146,7 +146,7 @@ func decodeCompleted[O any](t *testing.T, result agent.Result) O {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("Process status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		t.Fatal("completed Process has no Output")
 	}

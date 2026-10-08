@@ -65,7 +65,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	if result.Status() != agent.StatusCompleted || model.Calls() != 2 {
 		t.Fatalf("result status = %s, termination = %#v, model calls = %d", result.Status(), result.Termination(), model.Calls())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil || output.ModelResponse == nil || output.ModelResponse.Text() != "mixed batch settled" {
 		t.Fatalf("output = %#v, error = %v", output, err)

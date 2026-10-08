@@ -110,7 +110,7 @@ func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 		if store.inputs[answerID].disposition != episodeInputConsumed || store.inputs[lateID].disposition != episodeInputNotAdmitted || store.inputs[lateID].acknowledged || store.inputs[outsideID].disposition != episodeInputNotAdmitted {
 			t.Fatal("input cutover lost an input owner or consumption boundary")
 		}
-		output, present := result.Output()
+		output, present := result.Termination().Output()
 		if !present {
 			t.Fatal("old episode has no output")
 		}

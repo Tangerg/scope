@@ -54,7 +54,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	erased, present := result.Output()
+	erased, present := result.Termination().Output()
 	if !present {
 		return fmt.Errorf("workflow Process ended with %s", result.Status())
 	}

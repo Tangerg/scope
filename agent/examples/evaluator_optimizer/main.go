@@ -476,7 +476,7 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 	if result.Status() != agent.StatusCompleted {
 		return zero, fmt.Errorf("process ended with %s: %#v", result.Status(), result.Termination())
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		return zero, errors.New("completed Process has no Output")
 	}

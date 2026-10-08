@@ -281,6 +281,10 @@ func (t Termination) Reason() string {
 	return t.reason
 }
 
+// Output returns the final semantic result only for StatusCompleted. A
+// present JSON null is a completed output.
+func (t Termination) Output() (Payload, bool) { return t.output, t.output.Valid() }
+
 // Failure returns the classified failure for StatusFailed.
 func (t Termination) Failure() (Failure, bool) {
 	return t.failure, t.Status() == StatusFailed

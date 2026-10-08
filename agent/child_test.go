@@ -1221,7 +1221,7 @@ func childTestResult(t *testing.T, result Result) childTestOutput {
 	if result.Status() != StatusCompleted {
 		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	erased, ok := result.Output()
+	erased, ok := result.Termination().Output()
 	if !ok {
 		t.Fatal("completed result has no Output")
 	}

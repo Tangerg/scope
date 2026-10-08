@@ -30,7 +30,7 @@ func TestDefinitionConformance(t *testing.T) {
 		ImplementationDigest: agent.ComputeDigest([]byte("workflow-conformance")),
 		ConfigurationDigest:  agent.ComputeDigest([]byte("child-call")),
 	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input)
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present || string(output.JSON()) != `{"value":8}` || result.Usage().PreparedEffects != 2 {
 		t.Fatalf("child-call output=%s usage=%+v", output.JSON(), result.Usage())
 	}

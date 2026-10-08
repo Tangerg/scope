@@ -58,7 +58,7 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 			if result.Status() != agent.StatusCompleted || modelCalls != 2 || calls != 2 {
 				t.Fatalf("status = %s, model calls = %d, tool calls = %d", result.Status(), modelCalls, calls)
 			}
-			erased, _ := result.Output()
+			erased, _ := result.Termination().Output()
 			output, err := erased.Decode[interaction.Output]()
 			if err != nil {
 				t.Fatal(err)

@@ -81,7 +81,7 @@ func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResul
 		}
 		return delegateErrorResult(call, diagnostic), nil
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		return chat.ToolResult{}, ErrInvalidExecutionState
 	}

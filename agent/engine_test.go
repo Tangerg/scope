@@ -552,7 +552,7 @@ func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
 	if !result.Valid() || result.Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
 		t.Fatalf("result=%+v calls=%d", result, dispatcher.calls.Load())
 	}
-	output, ok := result.Output()
+	output, ok := result.Termination().Output()
 	if !ok {
 		t.Fatal("completed result has no Output")
 	}
@@ -591,7 +591,7 @@ func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
 		t.Fatalf("answer accepted=%t err=%v", accepted, err)
 	}
 	result := awaitResult(t, process)
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	value, _ := output.Decode[engineTestOutput]()
 	if value.Value != "approved" {
 		t.Fatalf("output=%q", value.Value)
@@ -676,7 +676,7 @@ func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testin
 		t.Fatal(err)
 	}
 	result := awaitResult(t, restored)
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	value, _ := output.Decode[engineTestOutput]()
 	if value.Value != "resolved" {
 		t.Fatalf("resolved output=%q", value.Value)
@@ -725,7 +725,7 @@ func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T)
 		t.Fatal(err)
 	}
 	result := awaitResult(t, restored)
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	value, _ := output.Decode[engineTestOutput]()
 	if value.Value != "first+second" {
 		t.Fatalf("ordered batch output=%q", value.Value)
@@ -829,7 +829,7 @@ func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
 		}
 		result := awaitResult(t, continued)
 		wantUsage := Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
-		output, present := result.Output()
+		output, present := result.Termination().Output()
 		if result.Status() != StatusCompleted || result.Usage() != wantUsage ||
 			!present || string(output.JSON()) != `{"value":"restored"}` {
 			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Status(), result.Usage(), output.JSON())

@@ -141,7 +141,7 @@ func TestOversizedUnknownResolutionPreservesHeadAndAllowsSmallerResult(t *testin
 			if err != nil || result.Status() != StatusCompleted {
 				t.Fatalf("resolved result=%s, %v", result.Status(), err)
 			}
-			output, _ := result.Output()
+			output, _ := result.Termination().Output()
 			if value := controlValue(output.Decode[engineTestOutput]()); value.Value != "resolved" || dispatcher.calls.Load() != 1 {
 				t.Fatalf("result=%+v, calls=%d", value, dispatcher.calls.Load())
 			}

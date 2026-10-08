@@ -117,7 +117,7 @@ func TestTypedRecoveryFromPersistedUnknownWithoutOldHost(t *testing.T) {
 			if joinErr := root.Join(ctx); joinErr != nil {
 				t.Fatal(joinErr)
 			}
-			payload, _ := result.Output()
+			payload, _ := result.Termination().Output()
 			output, err := payload.Decode[interaction.Output]()
 			if err != nil {
 				t.Fatal(err)

@@ -168,7 +168,7 @@ func assertCheckpointResult(t *testing.T, result agent.Result, fixture checkpoin
 	if fixture.model.Calls() != 2 {
 		t.Fatalf("model calls = %d, want 2", fixture.model.Calls())
 	}
-	erased, _ := result.Output()
+	erased, _ := result.Termination().Output()
 	output, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)

@@ -518,7 +518,7 @@ func (e *execution) acceptChildOutcome(kind childCallKind, index int, call chat.
 	if kind == childCallsDelegate {
 		return e.acceptDelegateOutcome(index, call, result)
 	}
-	encoded, present := result.Output()
+	encoded, present := result.Termination().Output()
 	if !present {
 		return ErrInvalidExecutionState
 	}

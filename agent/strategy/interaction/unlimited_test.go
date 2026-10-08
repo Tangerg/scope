@@ -70,7 +70,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 	if err != nil || result.Status() != agent.StatusCompleted {
 		t.Fatalf("result=%s error=%v termination=%+v", result.Status(), err, result.Termination())
 	}
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	value, err := output.Decode[interaction.Output]()
 	if err != nil || value.ModelCalls != rounds+1 {
 		t.Fatalf("model calls=%d error=%v", value.ModelCalls, err)

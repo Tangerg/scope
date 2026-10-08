@@ -168,7 +168,7 @@ func TestRestorePreparedOutputUsesDeploymentSchema(t *testing.T) {
 					t.Fatal(err)
 				}
 				result := awaitResult(t, process)
-				restoredOutput, hasOutput := result.Output()
+				restoredOutput, hasOutput := result.Termination().Output()
 				if result.Status() != StatusCompleted || !hasOutput || string(restoredOutput.JSON()) != test.payload {
 					t.Fatalf("restored output = %s, %s", result.Status(), restoredOutput.JSON())
 				}

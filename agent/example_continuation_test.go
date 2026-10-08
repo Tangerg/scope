@@ -96,7 +96,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	if err != nil {
 		panic(err)
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		panic("completed episode has no output")
 	}
@@ -136,7 +136,7 @@ func ExampleEngine_Start_successiveEpisodes() {
 	if joinErr := next.Join(ctx); joinErr != nil {
 		panic(joinErr)
 	}
-	finalOutput, present := final.Output()
+	finalOutput, present := final.Termination().Output()
 	if !present {
 		panic("successor has no output")
 	}

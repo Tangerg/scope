@@ -284,9 +284,6 @@ func (r Result) Termination() Termination { return r.termination }
 
 func (r Result) Usage() Usage { return r.usage }
 
-// Output returns the final semantic result only for StatusCompleted.
-func (r Result) Output() (Payload, bool) { return r.termination.output, r.termination.output.Valid() }
-
 func (r Result) Valid() bool {
 	return r.processID.Valid() && !r.startedAt.IsZero() && !r.finishedAt.IsZero() && r.termination.Valid()
 }

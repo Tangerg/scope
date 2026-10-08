@@ -82,7 +82,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	erased, ok := result.Output()
+	erased, ok := result.Termination().Output()
 	if !ok {
 		return fmt.Errorf("autonomous Process ended with %s", result.Status())
 	}

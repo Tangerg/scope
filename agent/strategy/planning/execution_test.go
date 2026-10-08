@@ -639,7 +639,7 @@ func managedOutput(t testing.TB, result agent.Result) planning.Output {
 	if result.Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s, termination = %#v", result.Status(), result.Termination())
 	}
-	erased, ok := result.Output()
+	erased, ok := result.Termination().Output()
 	if !ok {
 		t.Fatal("completed Planning Process has no output")
 	}

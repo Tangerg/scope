@@ -219,7 +219,7 @@ func childOutcome(outcome agent.ChildOutcome, code func(suffix string) string, s
 		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Status().String())
 		return &failure, agent.Payload{}, err
 	}
-	output, present := result.Output()
+	output, present := result.Termination().Output()
 	if !present {
 		failure, err := stepfail.Failure(agent.FailureKindContract, code(failureSuffixOutputMissing), subject+" returned no Output")
 		return &failure, agent.Payload{}, err

@@ -79,7 +79,7 @@ func ExampleDefinition() {
 	if result.Status() != agent.StatusCompleted {
 		panic(result.Termination().Reason())
 	}
-	output, _ := result.Output()
+	output, _ := result.Termination().Output()
 	fmt.Println(exampleValue(output.Decode[string]()))
 	// Output:
 	// coordinator continued while input was pending; reviewed: inspect deployment
@@ -134,7 +134,7 @@ func (d decisionModel) decide(turn collaboration.Turn) (collaboration.Decision, 
 		if len(turn.Tasks) != 2 || turn.Tasks[1].Outcome == nil {
 			return decision, errors.New("review outcome is missing")
 		}
-		output, present := turn.Tasks[1].Outcome.Result().Output()
+		output, present := turn.Tasks[1].Outcome.Result().Termination().Output()
 		if !present {
 			return decision, errors.New("review produced no output")
 		}

@@ -65,7 +65,7 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, ok := result.Output()
+	output, ok := result.Termination().Output()
 	if !ok {
 		t.Fatal("completed Result has no Output")
 	}

@@ -131,7 +131,7 @@ func TestReplayUnknownEffectRetainsEvidenceAndSerializesResolution(t *testing.T)
 						if result.Status() != StatusCompleted {
 							t.Fatalf("status=%s", result.Status())
 						}
-						output, _ := result.Output()
+						output, _ := result.Termination().Output()
 						decoded, _ := output.Decode[engineTestOutput]()
 						if decoded.Value != "confirmed" {
 							t.Fatalf("output=%+v", decoded)

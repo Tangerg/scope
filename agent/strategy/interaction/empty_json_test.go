@@ -45,7 +45,7 @@ func TestToolEmptyJSONSurvivesExecution(t *testing.T) {
 				if err != nil || result.Status() != agent.StatusCompleted {
 					t.Fatalf("result = %s, %v, %+v", result.Status(), err, result.Termination())
 				}
-				payload, _ := result.Output()
+				payload, _ := result.Termination().Output()
 				output, err := payload.Decode[interaction.Output]()
 				if err != nil {
 					t.Fatal(err)

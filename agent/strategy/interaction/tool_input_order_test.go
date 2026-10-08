@@ -133,7 +133,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if err != nil || result.Status() != agent.StatusCompleted {
 					t.Fatalf("queued opening and answer failed: status=%s termination=%+v error=%v", result.Status(), result.Termination(), err)
 				}
-				output, present := result.Output()
+				output, present := result.Termination().Output()
 				decoded, err := output.Decode[toolCallResult]()
 				if err != nil || !present {
 					t.Fatalf("Tool output is missing: %v", err)

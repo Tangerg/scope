@@ -90,7 +90,7 @@ func TestFirstSuccessRestoresRejectedResultAndAcceptsInputWithoutWaitingForDeadl
 			!slices.Equal(outcomeKeys(report, candidates), []string{"rejected", "input"}) {
 			t.Fatalf("competition report = %+v", report)
 		}
-		inputOutput, _ := report.Candidates[1].Outcome.Result().Output()
+		inputOutput, _ := report.Candidates[1].Outcome.Result().Termination().Output()
 		original, decodeErr := inputOutput.Decode[agent.Signal]()
 		if decodeErr != nil || original.ID() != signalID || string(original.Payload()) != `"replace"` {
 			t.Fatalf("selected input lost its identity: %+v error=%v", original, decodeErr)

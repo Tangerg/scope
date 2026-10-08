@@ -200,7 +200,7 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 				if turn.Number != 3 || turn.Controls[0].Result == nil || turn.Tasks[0].Outcome == nil {
 					return Decision{}, errors.New("missing steer outcome")
 				}
-				output, _ := turn.Tasks[0].Outcome.Result().Output()
+				output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
 				response := require(output.Decode[interaction.Output]())
 				if response.ModelCalls != 2 || response.ModelResponse == nil {
 					return Decision{}, errors.New("invalid model continuation")

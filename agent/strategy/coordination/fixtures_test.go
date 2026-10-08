@@ -106,7 +106,7 @@ func result(t testing.TB, process *agent.Process) agent.Result {
 func completedOutput[T any](t testing.TB, process *agent.Process) T {
 	t.Helper()
 	value := result(t, process)
-	output, present := value.Output()
+	output, present := value.Termination().Output()
 	if value.Status() != agent.StatusCompleted || !present {
 		t.Fatalf("process ended with %s: %+v", value.Status(), value.Termination())
 	}

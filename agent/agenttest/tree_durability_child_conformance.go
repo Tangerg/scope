@@ -110,7 +110,7 @@ func assertCrashTreeCompleted(t *testing.T, root, child *agent.Process) {
 	rootResult := awaitCrashProcess(t, root)
 	childResult := awaitCrashProcess(t, child)
 	for _, result := range []agent.Result{rootResult, childResult} {
-		output, present := result.Output()
+		output, present := result.Termination().Output()
 		decoded, err := output.Decode[crashTreeOutput]()
 		if result.Status() != agent.StatusCompleted || !present || err != nil || !decoded.Completed {
 			t.Fatalf("tree continuation status=%s output=%+v error=%v", result.Status(), decoded, err)

@@ -83,7 +83,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 			if err := process.Join(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			output, _ := result.Output()
+			output, _ := result.Termination().Output()
 			if result.Status() != StatusCompleted || controlValue(output.Decode[engineTestOutput]()).Value != "approved" {
 				t.Fatalf("resumed outcome: %+v", result)
 			}

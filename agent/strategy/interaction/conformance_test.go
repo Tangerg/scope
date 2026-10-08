@@ -69,7 +69,7 @@ func TestDefinitionConformance(t *testing.T) {
 			if result.Usage().PreparedEffects != test.effects || model.Calls() != test.modelCalls {
 				t.Fatalf("tool-loop usage=%+v model calls=%d, want effects=%d calls=%d", result.Usage(), model.Calls(), test.effects, test.modelCalls)
 			}
-			erased, present := result.Output()
+			erased, present := result.Termination().Output()
 			output, err := erased.Decode[interaction.Output]()
 			if !present || err != nil || (len(output.DirectToolResults) != 0) != test.direct {
 				t.Fatalf("output=%+v present=%t error=%v, want direct=%t", output, present, err, test.direct)
