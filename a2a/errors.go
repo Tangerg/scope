@@ -26,9 +26,11 @@ var (
 
 var errNilAgentSequence = errors.New("a2a: agent returned a nil output sequence")
 
-// RemoteAgentError reports that a reached remote A2A task failed, was canceled
-// or rejected, or requires unsupported continuation, as distinct from
-// transport or protocol failures.
+// RemoteAgentError reports that a reached remote A2A task did not complete, as
+// distinct from transport or protocol failures. A task that failed, was
+// canceled, or was rejected carries it as the Cause of a definite
+// core/tool.Failure; a task that requires unsupported continuation returns it
+// as an ordinary error, because the remote task may still advance.
 type RemoteAgentError struct {
 	State sdka2a.TaskState
 

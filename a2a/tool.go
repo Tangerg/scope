@@ -97,7 +97,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	text, err := projection.result(result)
 	if err != nil {
-		return corechat.ToolOutput{}, fmt.Errorf("a2a: decode result from agent %q: %w", r.definition.Name, err)
+		return corechat.ToolOutput{}, fmt.Errorf("a2a: result from agent %q: %w", r.definition.Name, err)
 	}
 	return corechat.NewTextToolOutput(text), nil
 }

@@ -23,7 +23,9 @@ type failingTraceAgent struct{}
 
 func (f failingTraceAgent) Run(context.Context, string) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		yield("", errors.New("private-agent-error-marker"))
+		if yield("partial answer", nil) {
+			yield("", errors.New("private-agent-error-marker"))
+		}
 	}
 }
 
@@ -75,7 +77,14 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = binding.Call(t.Context(), invocation)
-	remote, ok := errors.AsType[*RemoteAgentError](err)
+	failure, ok := errors.AsType[*tool.Failure](err)
+	if !ok {
+		t.Fatalf("caller error = %v, want a definite failure", err)
+	}
+	if text, _ := failure.Output().Text(); !strings.HasSuffix(text, "\npartial answer") {
+		t.Fatalf("failure output = %q, want the partial artifact", text)
+	}
+	remote, ok := errors.AsType[*RemoteAgentError](failure.Cause())
 	if !ok || remote.Detail != "private-agent-error-marker" {
 		t.Fatalf("caller error = %v, want original remote detail", err)
 	}
@@ -86,7 +95,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	for _, span := range spans {
 		want := "*errors.errorString"
 		if span.Name() == "a2a.agent.call failing_agent" {
-			want = "*a2a.RemoteAgentError"
+			want = "*tool.Failure"
 		}
 		assertSpanErrorClassification(t, span, want)
 
