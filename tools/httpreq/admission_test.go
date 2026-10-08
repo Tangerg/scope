@@ -61,6 +61,7 @@ func TestToolReportsUnsentRequestsAsDefiniteFailures(t *testing.T) {
 		{"blocked method", `{"url":"https://allowed.example/","method":"POST","body":"payload"}`, tool.FailureKindRejected, httpreq.ErrMethodNotAllowed},
 		{"invalid url", `{"url":"ftp://allowed.example/"}`, tool.FailureKindFailed, httpreq.ErrInvalidURL},
 		{"header named twice", `{"url":"https://allowed.example/","headers":{"Authorization":"first","authorization":"second"}}`, tool.FailureKindFailed, httpreq.ErrDuplicateHeader},
+		{"query parameter named twice", `{"url":"https://allowed.example/?page=1","query":{"page":"2"}}`, tool.FailureKindFailed, httpreq.ErrDuplicateQueryParameter},
 		{"GET body", `{"url":"https://allowed.example/_search","body":"{\"query\":\"requested\"}"}`, tool.FailureKindFailed, httpreq.ErrBodyNotAllowed},
 		{"HEAD body", `{"url":"https://allowed.example/","method":"HEAD","body":"payload"}`, tool.FailureKindFailed, httpreq.ErrBodyNotAllowed},
 	} {
