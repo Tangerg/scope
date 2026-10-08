@@ -170,7 +170,7 @@ func (s Submission) Collect(artifacts fs.FS) (Collection, error) {
 }
 
 func (s Submission) collectCase(artifacts fs.FS, task Task) (CaseResult, error) {
-	result := CaseResult{task: task, selectionDigest: s.selection.digest, runID: s.runID, status: StatusMissingPrediction}
+	result := CaseResult{task: task, selectionDigest: s.selection.digest, runID: s.runID}
 	index, found := slices.BinarySearchFunc(s.predictions, task.InstanceID, func(prediction Prediction, id string) int {
 		return strings.Compare(prediction.InstanceID, id)
 	})
@@ -180,10 +180,9 @@ func (s Submission) collectCase(artifacts fs.FS, task Task) (CaseResult, error) 
 	prediction := s.predictions[index]
 	result.candidateDigest = prediction.Digest()
 	if prediction.Patch == "" {
-		result.status = StatusEmptyPatch
+		result.emptyPatch = true
 		return result, nil
 	}
-	result.status = StatusError
 	directory := path.Join("logs", "evaluation", s.runID, strings.ReplaceAll(s.model, "/", "__"), task.InstanceID)
 	reportData, reportErr := fs.ReadFile(artifacts, path.Join(directory, "report.json"))
 	result.completed = reportErr == nil
@@ -214,9 +213,5 @@ func (s Submission) collectCase(artifacts fs.FS, task Task) (CaseResult, error) 
 		return result, nil
 	}
 	result.official = &report
-	result.status = StatusUnresolved
-	if report.Resolved {
-		result.status = StatusResolved
-	}
 	return result, nil
 }

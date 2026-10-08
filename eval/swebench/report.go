@@ -121,15 +121,31 @@ type CaseResult struct {
 	runID           string
 	candidateDigest string
 	reportDigest    string
-	status          Status
+	emptyPatch      bool
 	completed       bool
 	official        *OfficialReport
 	failure         Failure
 	err             error
 }
 
-func (c CaseResult) Task() Task              { return c.task }
-func (c CaseResult) Status() Status          { return c.status }
+func (c CaseResult) Task() Task { return c.task }
+
+// Status follows from the evidence: the imported official report owns
+// resolution, and the prediction owns whether a candidate exists at all.
+func (c CaseResult) Status() Status {
+	switch {
+	case c.official != nil && c.official.Resolved:
+		return StatusResolved
+	case c.official != nil:
+		return StatusUnresolved
+	case c.candidateDigest == "":
+		return StatusMissingPrediction
+	case c.emptyPatch:
+		return StatusEmptyPatch
+	default:
+		return StatusError
+	}
+}
 func (c CaseResult) Completed() bool         { return c.completed }
 func (c CaseResult) CandidateDigest() string { return c.candidateDigest }
 func (c CaseResult) ReportDigest() string    { return c.reportDigest }
@@ -164,7 +180,7 @@ func (c CaseResult) Report() (eval.Report, error) {
 		if c.err != nil {
 			return eval.Report{}, fmt.Errorf("%w: %q: %w", ErrNoGrade, c.task.InstanceID, c.err)
 		}
-		return eval.Report{}, fmt.Errorf("%w: %q has status %q", ErrNoGrade, c.task.InstanceID, c.status)
+		return eval.Report{}, fmt.Errorf("%w: %q has status %q", ErrNoGrade, c.task.InstanceID, c.Status())
 	}
 	parameters := metadata.Map{}
 	if err := parameters.Set("harness_revision", HarnessRevision); err != nil {

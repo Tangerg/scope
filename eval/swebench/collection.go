@@ -100,13 +100,13 @@ func groupCases(results []CaseResult) caseGroups {
 	var groups caseGroups
 	for _, result := range results {
 		id := result.task.InstanceID
-		if result.status != StatusMissingPrediction {
+		if result.Status() != StatusMissingPrediction {
 			groups.submitted = append(groups.submitted, id)
 		}
 		if result.completed {
 			groups.completed = append(groups.completed, id)
 		}
-		switch result.status {
+		switch result.Status() {
 		case StatusMissingPrediction:
 			groups.missing = append(groups.missing, id)
 		case StatusEmptyPatch:
@@ -163,7 +163,7 @@ func (o officialSummaryWire) classifyFailures(results []CaseResult) error {
 				return strings.Compare(result.task.InstanceID, instanceID)
 			})
 			_, duplicate := classified[id]
-			if !found || duplicate || !results[index].status.classifiable() || !nonempty(o.FailureReasons[id]) {
+			if !found || duplicate || !results[index].Status().classifiable() || !nonempty(o.FailureReasons[id]) {
 				return fmt.Errorf("%w: official failure classification does not belong to an unresolved or error instance %q", ErrInvalidArtifacts, id)
 			}
 			classified[id] = struct{}{}
