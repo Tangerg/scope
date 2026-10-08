@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"slices"
@@ -49,11 +50,17 @@ type filePatch struct {
 	newPath string
 }
 
-func newFilePatch(parsed *gitdiff.File) filePatch {
+// gitdiff already drops the a/ and b/ prefixes from Git headers, but returns
+// traditional header names verbatim, so only traditional names lose them here.
+func newFilePatch(parsed *gitdiff.File, gitHeader bool) filePatch {
+	clean := cleanTraditionalPatchPath
+	if gitHeader {
+		clean = cleanPatchPath
+	}
 	file := filePatch{
 		parsed:  parsed,
-		oldPath: cleanPatchPath(parsed.OldName),
-		newPath: cleanPatchPath(parsed.NewName),
+		oldPath: clean(parsed.OldName),
+		newPath: clean(parsed.NewName),
 	}
 	if parsed.IsNew || parsed.OldName == nullPatchPath {
 		file.oldPath = ""
@@ -105,9 +112,9 @@ func (f filePatch) validate() error {
 	if f.oldPath == "" && f.newPath == "" {
 		return errors.New("fs.ApplyPatch: file patch is missing source and destination paths")
 	}
-	// A pure rename is the one patch with nothing to apply. Every other shape
-	// without a hunk says nothing at all and is rejected.
-	if f.hunks() == 0 && !f.moved() {
+	// Creating or deleting an empty file and a pure rename are the patches with
+	// nothing to apply. Every other shape without a hunk says nothing at all.
+	if f.hunks() == 0 && !f.created() && !f.deleted() && !f.moved() {
 		return errors.New("fs.ApplyPatch: file patch has no hunks")
 	}
 	if slices.ContainsFunc(f.parsed.TextFragments, func(fragment *gitdiff.TextFragment) bool {
@@ -245,34 +252,80 @@ func parseUnifiedPatch(patch string) (unifiedPatch, error) {
 		return unifiedPatch{}, errors.New("fs.ApplyPatch: patch must not be empty")
 	}
 	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
-	files, _, err := gitdiff.Parse(strings.NewReader(normalized))
-	if err != nil {
-		return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: parse unified diff: %w. "+
-			"In each @@ -oldStart,oldCount +newStart,newCount @@ header, oldCount must count context and removed lines, "+
-			"and newCount must count context and added lines. Recount every hunk", err)
+	var parsed unifiedPatch
+	for section := range gitHeaderSections(normalized) {
+		files, _, err := gitdiff.Parse(strings.NewReader(section.text))
+		if err != nil {
+			return unifiedPatch{}, fmt.Errorf("fs.ApplyPatch: parse unified diff section starting at line %d: %w. "+
+				"In each @@ -oldStart,oldCount +newStart,newCount @@ header, oldCount must count context and removed lines, "+
+				"and newCount must count context and added lines. Recount every hunk", section.line, err)
+		}
+		for index, file := range files {
+			next := newFilePatch(file, index == 0 && section.git)
+			if err := next.validate(); err != nil {
+				return unifiedPatch{}, err
+			}
+			parsed.files = append(parsed.files, next)
+		}
 	}
-	if len(files) == 0 {
+	if len(parsed.files) == 0 {
 		return unifiedPatch{}, errors.New("fs.ApplyPatch: no file patches found")
 	}
-	parsed := unifiedPatch{files: make([]filePatch, len(files))}
-	for index, file := range files {
-		next := newFilePatch(file)
-		if err := next.validate(); err != nil {
-			return unifiedPatch{}, err
-		}
-		parsed.files[index] = next
-	}
 	return parsed, nil
+}
+
+const gitHeaderPrefix = "diff --git "
+
+type patchSection struct {
+	text string
+	line int
+	git  bool
+}
+
+// gitHeaderSections splits a patch before every Git file header, because
+// gitdiff.File does not record which header kind named it. gitdiff tries a Git
+// header first at every line and no hunk line can start with one, so each
+// section's Git header names exactly its first file and every later file in
+// it has a traditional header.
+func gitHeaderSections(patch string) iter.Seq[patchSection] {
+	return func(yield func(patchSection) bool) {
+		section := patchSection{line: 1}
+		var text strings.Builder
+		line := 0
+		for current := range strings.Lines(patch) {
+			line++
+			if strings.HasPrefix(current, gitHeaderPrefix) && text.Len() > 0 {
+				section.text = text.String()
+				if !yield(section) {
+					return
+				}
+				text.Reset()
+				section = patchSection{line: line}
+			}
+			if text.Len() == 0 {
+				section.git = strings.HasPrefix(current, gitHeaderPrefix)
+			}
+			text.WriteString(current)
+		}
+		if text.Len() > 0 {
+			section.text = text.String()
+			yield(section)
+		}
+	}
 }
 
 func cleanPatchPath(path string) string {
 	if path == "" {
 		return ""
 	}
+	return filepath.Clean(path)
+}
+
+func cleanTraditionalPatchPath(path string) string {
 	if rest, ok := strings.CutPrefix(path, "a/"); ok {
 		path = rest
 	} else if rest, ok := strings.CutPrefix(path, "b/"); ok {
 		path = rest
 	}
-	return filepath.Clean(path)
+	return cleanPatchPath(path)
 }

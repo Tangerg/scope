@@ -112,8 +112,10 @@ func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invoc
 
 // MutationPaths returns the sorted, unique file endpoints named by an invocation,
 // without I/O. A rename includes both endpoints; /dev/null is never a target.
-// Paths are lexically cleaned with Git's a/ and b/ prefixes removed; relative
-// paths stay relative to the backend root and absolute paths stay absolute.
+// Paths are lexically cleaned. Git headers follow Git's own prefix rules, so a
+// real a/ or b/ directory survives; a traditional ---/+++ header drops one
+// leading a/ or b/. Relative paths stay relative to the backend root and
+// absolute paths stay absolute.
 //
 // It shares LocalExecutor's parser and operation validation, so invalid or
 // unsupported patches return no paths. A result does not establish authority,

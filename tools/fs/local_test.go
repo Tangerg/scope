@@ -370,6 +370,57 @@ diff --git a/gone.txt b/gone.txt
 	}
 }
 
+func TestLocalExecutorApplyPatchGitHeadersNameRealPrefixDirectories(t *testing.T) {
+	dir := t.TempDir()
+	writeTemp(t, dir, "a/victim.txt", "old\n")
+	writeTemp(t, dir, "victim.txt", "old\n")
+	writeTemp(t, dir, "b/before.txt", "moved\n")
+	writeTemp(t, dir, "a/empty", "")
+	patch := "diff --git a/a/victim.txt b/a/victim.txt\n--- a/a/victim.txt\n+++ b/a/victim.txt\n@@ -1 +1 @@\n-old\n+new\n" +
+		"diff --git a/a/created.txt b/a/created.txt\nnew file mode 100644\n--- /dev/null\n+++ b/a/created.txt\n@@ -0,0 +1 @@\n+created\n" +
+		movePatch("b/before.txt", "b/after.txt", "") +
+		"diff --git a/b/new-empty b/b/new-empty\nnew file mode 100644\nindex 0000000..e69de29\n" +
+		"diff --git a/a/empty b/a/empty\ndeleted file mode 100644\nindex e69de29..0000000\n"
+	out, err := mustLocalExecutor(t, dir).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: patch})
+	if err != nil {
+		t.Fatalf("ApplyPatch: %v", err)
+	}
+	want := []PatchFileResponse{
+		{Path: filepath.FromSlash("a/victim.txt"), Hunks: 1},
+		{Path: filepath.FromSlash("a/created.txt"), Hunks: 1, Created: true},
+		{Path: filepath.FromSlash("b/after.txt"), MovedFrom: filepath.FromSlash("b/before.txt")},
+		{Path: filepath.FromSlash("b/new-empty"), Created: true},
+		{Path: filepath.FromSlash("a/empty"), Deleted: true},
+	}
+	if !slices.Equal(out.Files, want) {
+		t.Fatalf("ApplyPatch files = %+v, want %+v", out.Files, want)
+	}
+	for name, content := range map[string]string{
+		"a/victim.txt": "new\n", "victim.txt": "old\n", "a/created.txt": "created\n", "b/after.txt": "moved\n", "b/new-empty": "",
+	} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != content {
+			t.Fatalf("%s = %q, %v; want %q", name, got, err, content)
+		}
+	}
+	for _, name := range []string{"created.txt", "b/before.txt", "a/empty"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s exists: %v", name, err)
+		}
+	}
+}
+
+func TestLocalExecutorApplyPatchRejectsNonEmptyDeleteWithoutHunks(t *testing.T) {
+	dir := t.TempDir()
+	writeTemp(t, dir, "kept", "content\n")
+	patch := "diff --git a/kept b/kept\ndeleted file mode 100644\nindex e69de29..0000000\n"
+	if _, err := mustLocalExecutor(t, dir).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: patch}); err == nil {
+		t.Fatal("ApplyPatch deleted a non-empty file without hunks")
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "kept")); err != nil || string(got) != "content\n" {
+		t.Fatalf("kept = %q, %v", got, err)
+	}
+}
+
 func TestLocalExecutor_ApplyPatch_MismatchLeavesFileUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTemp(t, dir, "a.txt", "one\ntwo\n")

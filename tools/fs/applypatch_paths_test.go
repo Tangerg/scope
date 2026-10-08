@@ -77,6 +77,11 @@ func TestApplyPatchMutationPathsNeedNoFilesystem(t *testing.T) {
 		{"rename with hunks", movePatch("before", "after", "@@ -1 +1 @@\n-old\n+new\n"), []string{"after", "before"}},
 		{"quoted path", "--- /dev/null\n+++ \"b/space name\"\n@@ -0,0 +1 @@\n+new\n", []string{"space name"}},
 		{"absolute path", "--- /dev/null\n+++ /outside/file\n@@ -0,0 +1 @@\n+new\n", []string{filepath.FromSlash("/outside/file")}},
+		{"git header keeps a real a/ directory", "diff --git a/a/file b/a/file\n--- a/a/file\n+++ b/a/file\n@@ -1 +1 @@\n-old\n+new\n", []string{filepath.FromSlash("a/file")}},
+		{"git rename keeps real b/ directories", movePatch("b/before", "b/after", ""), []string{filepath.FromSlash("b/after"), filepath.FromSlash("b/before")}},
+		{"traditional after git header", "diff --git a/a/file b/a/file\n--- a/a/file\n+++ b/a/file\n@@ -1 +1 @@\n-old\n+new\n--- a/other\n+++ b/other\n@@ -1 +1 @@\n-old\n+new\n", []string{filepath.FromSlash("a/file"), "other"}},
+		{"empty create", "diff --git a/a/empty b/a/empty\nnew file mode 100644\nindex 0000000..e69de29\n", []string{filepath.FromSlash("a/empty")}},
+		{"empty delete", "diff --git a/empty b/empty\ndeleted file mode 100644\nindex e69de29..0000000\n", []string{"empty"}},
 		{"repeated endpoint", "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-new\n+next\n", []string{"file"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
