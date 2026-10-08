@@ -37,7 +37,10 @@ type Evaluator struct {
 	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
 }
 
+// decisionRule names the Metric a rule constrains. Measurement rules share one
+// policy, so without it a changed constraint would compare as the same rule.
 type decisionRule struct {
+	Metric     eval.Metric  `json:"metric"`
 	Policy     string       `json:"policy"`
 	Parameters metadata.Map `json:"parameters,omitzero"`
 }
@@ -68,7 +71,7 @@ func allExpectationsReport(details []eval.Report) (eval.Report, error) {
 	parameters := metadata.Map{}
 	rules := make([]decisionRule, len(details))
 	for index, detail := range details {
-		rules[index] = decisionRule{Policy: detail.Decision.Policy, Parameters: detail.Decision.Parameters.Clone()}
+		rules[index] = decisionRule{Metric: detail.Metric, Policy: detail.Decision.Policy, Parameters: detail.Decision.Parameters.Clone()}
 	}
 	if err := parameters.Set("rules", rules); err != nil {
 		return eval.Report{}, err
