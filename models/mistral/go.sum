@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.44.0 h1:F2r8ASDSxx7/8o0+Bqko4EWRNX37+s+fkIMw2lMuI78=
-github.com/Tangerg/scope/core v0.44.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/models/protocol/openai v0.44.0 h1:NJ1hjw9pEECiDbNMUtmFb9P8X8uBM8Gh6bH4cignaqo=
-github.com/Tangerg/scope/models/protocol/openai v0.44.0/go.mod h1:+2sjuclzQJzYe+FgV2+iJaiAFb4fv8Q52yA+FW5LUek=
+github.com/Tangerg/scope/core v0.45.0 h1:jXIw172K5rQrcAfy3LalH7baKQ1xjhj73x3ZuCIFk08=
+github.com/Tangerg/scope/core v0.45.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/models/protocol/openai v0.45.0 h1:6+IbGAl63jvaua9UnLtIlyXzchg8ngypgLyDQDggTjU=
+github.com/Tangerg/scope/models/protocol/openai v0.45.0/go.mod h1:5F2PedIDq9wl0xjvPYoYkbcWoLmiwXKUP0Lgb69fw3U=
 github.com/Tangerg/sse v0.0.6 h1:8/Sf/fI6uNQzFms7VKYt02fs9p/cmOJKJl1lYdljC6I=
 github.com/Tangerg/sse v0.0.6/go.mod h1:+GPL/425WlIYRig6frpXeEk7GFYgcHaadIufk6pwe0I=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
