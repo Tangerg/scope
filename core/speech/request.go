@@ -4,9 +4,9 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math"
-	"strings"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/internal/modelid"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -33,11 +33,8 @@ func (o Options) Validate() error {
 	if !utf8.ValidString(o.Voice) || !utf8.ValidString(o.OutputFormat) {
 		return fmt.Errorf("%w: voice and output format must be valid UTF-8", ErrInvalidOptions)
 	}
-	if !utf8.ValidString(o.Model) {
-		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
-	}
-	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
-		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
+	if err := modelid.Validate(o.Model); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidOptions, err)
 	}
 	if math.IsNaN(o.Speed) || math.IsInf(o.Speed, 0) || o.Speed < 0 {
 		return fmt.Errorf("%w: speed must be finite and non-negative", ErrInvalidOptions)

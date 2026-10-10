@@ -4,9 +4,9 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
-	"strings"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/internal/modelid"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -20,11 +20,8 @@ type Options struct {
 }
 
 func (o Options) Validate() error {
-	if !utf8.ValidString(o.Model) {
-		return fmt.Errorf("%w: model must be valid UTF-8", ErrInvalidOptions)
-	}
-	if o.Model != "" && strings.TrimSpace(o.Model) != o.Model {
-		return fmt.Errorf("%w: model id must not have surrounding whitespace", ErrInvalidOptions)
+	if err := modelid.Validate(o.Model); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidOptions, err)
 	}
 	if err := o.Extensions.Validate(); err != nil {
 		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)

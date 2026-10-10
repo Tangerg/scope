@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/internal/modelid"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/timestamp"
 )
@@ -28,8 +29,8 @@ func (r *ResponseMetadata) validate() error {
 	if r == nil {
 		return nil
 	}
-	if !utf8.ValidString(r.Model) {
-		return fmt.Errorf("%w: response metadata model must be valid UTF-8", ErrInvalidResponse)
+	if err := modelid.Validate(r.Model); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
 	}
 	if !utf8.ValidString(r.ID) {
 		return fmt.Errorf("%w: response metadata ID must be valid UTF-8", ErrInvalidResponse)
@@ -39,9 +40,6 @@ func (r *ResponseMetadata) validate() error {
 	}
 	if r.ID != "" && strings.TrimSpace(r.ID) != r.ID {
 		return fmt.Errorf("%w: response metadata ID must not have surrounding whitespace", ErrInvalidResponse)
-	}
-	if r.Model != "" && strings.TrimSpace(r.Model) != r.Model {
-		return fmt.Errorf("%w: response metadata model must not have surrounding whitespace", ErrInvalidResponse)
 	}
 	if r.Usage != nil {
 		if err := r.Usage.Validate(); err != nil {
