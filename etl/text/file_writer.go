@@ -1,11 +1,9 @@
 package text
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -112,13 +110,11 @@ func (f *FileWriter) render(ctx context.Context, docs []*document.Document) (str
 	return payload.String(), nil
 }
 
+// The payload is fully rendered in memory and written once, so buffering adds
+// nothing; a single WriteString followed by Sync commits it durably.
 func (*FileWriter) write(payload string, file *os.File) error {
-	buffered := bufio.NewWriter(file)
-	if _, err := io.WriteString(buffered, payload); err != nil {
+	if _, err := file.WriteString(payload); err != nil {
 		return err
-	}
-	if err := buffered.Flush(); err != nil {
-		return fmt.Errorf("flush buffered output: %w", err)
 	}
 	return file.Sync()
 }
