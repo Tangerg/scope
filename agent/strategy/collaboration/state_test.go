@@ -68,7 +68,7 @@ func TestUnlimitedTurnCounterStopsBeforeWrap(t *testing.T) {
 	execution := require(definition.Start(input("initial"))).(*execution)
 	require(execution.Step(t.Context(), nil))
 	execution.state.Turn.Number = ^uint64(0)
-	if _, err := execution.startTurn(0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.number() != ^uint64(0) {
+	if _, err := execution.startTurn(Decision{}, 0); !errors.Is(err, agent.ErrCounterExhausted) || execution.state.number() != ^uint64(0) {
 		t.Fatalf("turn identity wrapped: %v", err)
 	}
 }

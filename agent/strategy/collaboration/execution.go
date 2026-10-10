@@ -23,7 +23,8 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidProtocol
 		}
-		return e.startTurn(0)
+		// The first turn has no prior decision; working state is the initial state.
+		return e.startTurn(Decision{}, 0)
 	case phaseStartingTurn:
 		return e.acceptTurnStart(signals)
 	case phaseApplying:
@@ -37,17 +38,16 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	}
 }
 
-func (e *execution) startTurn(consumed uint32) (agent.Transition, error) {
+// startTurn opens the next coordinator turn. decision is the current turn's
+// already-decoded Decision (the zero Decision for the first turn), so a single
+// Step decodes the coordinator output once and threads it here.
+func (e *execution) startTurn(decision Decision, consumed uint32) (agent.Transition, error) {
 	number := e.state.number()
 	if !e.definition.maxTurns.Allows(number, 1) {
 		return agent.Transition{}, ErrTurnLimit
 	}
 	if number == math.MaxUint64 {
 		return agent.Transition{}, agent.ErrCounterExhausted
-	}
-	decision, err := e.state.decision()
-	if err != nil {
-		return agent.Transition{}, err
 	}
 	turn := Turn{Number: number + 1, State: e.state.workingState(decision),
 		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...),
@@ -172,18 +172,16 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if e.state.Turn.Outcome == nil {
 		return e.openWait(1)
 	}
-	if decided {
-		return e.startTurn(1)
-	}
-	return e.adoptTurn(ctx, 1)
-}
-
-func (e *execution) adoptTurn(ctx context.Context, consumed uint32) (agent.Transition, error) {
 	decision, err := e.state.decision()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	return e.applyDecision(ctx, decision, consumed)
+	// A turn decided in an earlier Step starts the next turn; one decided by this
+	// outcome applies first. Both reuse the one decoded Decision.
+	if decided {
+		return e.startTurn(decision, 1)
+	}
+	return e.applyDecision(ctx, decision, 1)
 }
 
 // turnFailure reports the Failure a finished coordinator turn ends the
@@ -215,7 +213,11 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 	if !settled {
 		return agent.Continue(consumed)
 	}
-	return e.afterActions(consumed)
+	decision, err := e.state.decision()
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	return e.afterActions(decision, consumed)
 }
 
 func (e *execution) acceptTaskStarts(signals []agent.Signal) (consumed uint32, settled bool, err error) {
@@ -264,15 +266,11 @@ func (e *execution) acceptControlResults(signals []agent.Signal, consumed uint32
 	return consumed, true, nil
 }
 
-func (e *execution) afterActions(consumed uint32) (agent.Transition, error) {
-	decision, err := e.state.decision()
-	if err != nil {
-		return agent.Transition{}, err
-	}
+func (e *execution) afterActions(decision Decision, consumed uint32) (agent.Transition, error) {
 	if e.state.awaitsTasks(decision.Mode) {
 		return e.openWait(consumed)
 	}
-	return e.startTurn(consumed)
+	return e.startTurn(decision, consumed)
 }
 
 func (e *execution) applyDecision(ctx context.Context, decision Decision, consumed uint32) (agent.Transition, error) {
@@ -308,7 +306,7 @@ func (e *execution) applyDecision(ctx context.Context, decision Decision, consum
 		return agent.Complete(consumed, decision.Output)
 	}
 	if len(effects) == 0 {
-		return e.afterActions(consumed)
+		return e.afterActions(decision, consumed)
 	}
 	return agent.Continue(consumed, effects...)
 }
