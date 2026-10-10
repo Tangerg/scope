@@ -54,18 +54,25 @@ type SearchRequest struct {
 }
 
 // Prepare returns an independently owned, normalized request after validating
-// it. The receiver is never mutated.
+// it. The receiver is never mutated. It normalizes each domain list once, keeping
+// the result Validate would otherwise compute and discard.
 func (s *SearchRequest) Prepare() (*SearchRequest, error) {
 	if s == nil {
 		return nil, ErrMissingSearchRequest
 	}
 	prepared := *s
 	prepared.Query = strings.TrimSpace(s.Query)
-	if err := prepared.Validate(); err != nil {
+	if err := prepared.validateQuery(); err != nil {
 		return nil, err
 	}
-	prepared.AllowedDomains, _ = normalizeDomains(s.AllowedDomains)
-	prepared.BlockedDomains, _ = normalizeDomains(s.BlockedDomains)
+	allowed, blocked, err := prepared.normalizeFilters()
+	if err != nil {
+		return nil, err
+	}
+	prepared.AllowedDomains, prepared.BlockedDomains = allowed, blocked
+	if err := prepared.Recency.Validate(); err != nil {
+		return nil, err
+	}
 	return &prepared, nil
 }
 
@@ -73,6 +80,17 @@ func (s *SearchRequest) Validate() error {
 	if s == nil {
 		return ErrMissingSearchRequest
 	}
+	if err := s.validateQuery(); err != nil {
+		return err
+	}
+	if _, _, err := s.normalizeFilters(); err != nil {
+		return err
+	}
+	return s.Recency.Validate()
+}
+
+// validateQuery checks the non-domain scalar fields.
+func (s *SearchRequest) validateQuery() error {
 	if !utf8.ValidString(s.Query) {
 		return ErrInvalidQuery
 	}
@@ -82,19 +100,28 @@ func (s *SearchRequest) Validate() error {
 	if s.MaxResults < 0 || s.MaxResults > maxSearchResults {
 		return ErrInvalidMaxResults
 	}
+	return nil
+}
+
+// normalizeFilters checks the domain lists' mutual exclusion and count and
+// returns both normalized exactly once; Validate discards the result and Prepare
+// keeps it.
+func (s *SearchRequest) normalizeFilters() (allowed, blocked []string, err error) {
 	if len(s.AllowedDomains) > 0 && len(s.BlockedDomains) > 0 {
-		return ErrDomainsBothSides
+		return nil, nil, ErrDomainsBothSides
 	}
 	if len(s.AllowedDomains) > maxDomainFilters || len(s.BlockedDomains) > maxDomainFilters {
-		return ErrTooManyDomains
+		return nil, nil, ErrTooManyDomains
 	}
-	if _, err := normalizeDomains(s.AllowedDomains); err != nil {
-		return err
+	allowed, err = normalizeDomains(s.AllowedDomains)
+	if err != nil {
+		return nil, nil, err
 	}
-	if _, err := normalizeDomains(s.BlockedDomains); err != nil {
-		return err
+	blocked, err = normalizeDomains(s.BlockedDomains)
+	if err != nil {
+		return nil, nil, err
 	}
-	return s.Recency.Validate()
+	return allowed, blocked, nil
 }
 
 func normalizeDomains(domains []string) ([]string, error) {
