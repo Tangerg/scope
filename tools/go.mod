@@ -9,7 +9,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.2
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/samber/lo v1.53.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 )
 
 require (
