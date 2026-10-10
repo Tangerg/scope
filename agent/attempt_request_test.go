@@ -46,10 +46,6 @@ func TestDispatchRequestCorrelatesPhysicalAttemptsWithoutPersistingThem(t *testi
 		if !present || !firstAttempt.Valid() {
 			t.Fatal("actual dispatch has no physical identity")
 		}
-		clonedAttempt, present := first.clone().AttemptID()
-		if !present || clonedAttempt != firstAttempt {
-			t.Fatal("request cloning changed physical identity")
-		}
 		snapshot := controlValue(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
 		retained, present := snapshot.EffectRequest(process.Relation().ProcessID(), first.ID())
 		if !present || !retained.Valid() {

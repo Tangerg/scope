@@ -45,11 +45,6 @@ type EffectRequest struct {
 	effect        Effect
 }
 
-func (e EffectRequest) clone() EffectRequest {
-	e.effect = e.effect.clone()
-	return e
-}
-
 func (e EffectRequest) Valid() bool {
 	return e.deploymentRef.Valid() && e.relation.Valid() && e.stepSequence > 0 &&
 		e.effect.Valid()
