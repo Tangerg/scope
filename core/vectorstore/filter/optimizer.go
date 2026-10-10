@@ -55,8 +55,8 @@ func (o optimizer) rewriteBinary(binary *BinaryExpr) Predicate {
 	for _, operand := range rewritten {
 		terms = o.appendLogicalTerms(terms, binary.operator, operand)
 	}
-	unique, deduplicated := o.uniquePredicates(terms)
-	if deduplicated {
+	unique := o.uniquePredicates(terms)
+	if len(unique) != len(terms) {
 		return o.joinLogical(binary.operator, unique)
 	}
 
@@ -77,18 +77,15 @@ func (o optimizer) appendLogicalTerms(terms []Predicate, operator Operator, pred
 	if !ok || binary.operator != operator {
 		return append(terms, predicate)
 	}
-	left, leftOK := binary.left.(Predicate)
-	right, rightOK := binary.right.(Predicate)
-	if !leftOK || !rightOK {
-		return append(terms, predicate)
-	}
-	terms = o.appendLogicalTerms(terms, operator, left)
-	return o.appendLogicalTerms(terms, operator, right)
+	// A validated logical binary has Predicate operands (validateLogical), so the
+	// assertions cannot fail for a tree the only caller, Parse, already validated.
+	terms = o.appendLogicalTerms(terms, operator, binary.left.(Predicate))
+	return o.appendLogicalTerms(terms, operator, binary.right.(Predicate))
 }
 
 // stripDoubleNegations removes paired NOT operators, which cancel, returning the
-// first predicate that is not a double negation. An odd negation keeps its
-// outermost NOT.
+// first predicate that is not a double negation. An odd number of NOTs leaves the
+// innermost remaining NOT in place.
 func stripDoubleNegations(predicate Predicate) Predicate {
 	for {
 		outer, ok := predicate.(*UnaryExpr)
@@ -124,28 +121,23 @@ func (o optimizer) rebuildGroup(binary *BinaryExpr, operands []Predicate, index 
 
 func (o optimizer) rebuildSide(side Predicate, operator Operator, operands []Predicate, index *int) Predicate {
 	if inner, ok := stripDoubleNegations(side).(*BinaryExpr); ok && inner.operator == operator {
-		_, leftOK := inner.left.(Predicate)
-		_, rightOK := inner.right.(Predicate)
-		if leftOK && rightOK {
-			return o.rebuildGroup(inner, operands, index)
-		}
+		return o.rebuildGroup(inner, operands, index)
 	}
 	operand := operands[*index]
 	*index++
 	return operand
 }
 
-func (o optimizer) uniquePredicates(predicates []Predicate) ([]Predicate, bool) {
+// uniquePredicates drops later predicates equal to an earlier one. The caller
+// detects deduplication from the returned length, so no separate flag is kept.
+func (o optimizer) uniquePredicates(predicates []Predicate) []Predicate {
 	unique := make([]Predicate, 0, len(predicates))
-	changed := false
 	for _, candidate := range predicates {
-		if o.containsPredicate(unique, candidate) {
-			changed = true
-			continue
+		if !o.containsPredicate(unique, candidate) {
+			unique = append(unique, candidate)
 		}
-		unique = append(unique, candidate)
 	}
-	return unique, changed
+	return unique
 }
 
 func (optimizer) containsPredicate(predicates []Predicate, candidate Predicate) bool {
