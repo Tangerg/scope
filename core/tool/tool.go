@@ -33,10 +33,16 @@ type Tool interface {
 	Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error)
 }
 
+// contractState is the frozen trust boundary. The compiled input Schema owns the
+// input-schema fact: it already carries the canonical JSON the Definition
+// projects, so storing a separate chat.ToolDefinition would keep a second,
+// possibly key-reordered, copy of the same schema. Only the name and description,
+// which the Schema does not hold, are kept alongside it.
 type contractState struct {
-	definition chat.ToolDefinition
-	input      corejsonschema.Schema
-	validate   func([]byte) error
+	name        string
+	description string
+	input       corejsonschema.Schema
+	validate    func([]byte) error
 }
 
 // Contract is the immutable trust boundary from an untrusted chat.ToolCall to
@@ -72,7 +78,7 @@ func Bind(executable Tool) (Binding, error) {
 		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
 	}
 	return Binding{
-		contract:   Contract{state: &contractState{definition: definition.Clone(), input: input, validate: validator}},
+		contract:   Contract{state: &contractState{name: definition.Name, description: definition.Description, input: input, validate: validator}},
 		executable: executable,
 	}, nil
 }
@@ -81,12 +87,18 @@ func Bind(executable Tool) (Binding, error) {
 // invocations. Retaining it does not retain the executable Tool.
 func (b Binding) Contract() Contract { return b.contract }
 
-// Definition returns an independent snapshot of the frozen definition.
+// Definition projects an independent snapshot of the frozen definition from its
+// single schema owner. InputSchema is the compiled Schema's canonical JSON, so
+// the exposed definition and the enforced contract never disagree on bytes.
 func (c Contract) Definition() chat.ToolDefinition {
 	if c.state == nil {
 		return chat.ToolDefinition{}
 	}
-	return c.state.definition.Clone()
+	return chat.ToolDefinition{
+		Name:        c.state.name,
+		Description: c.state.description,
+		InputSchema: c.state.input.JSON(),
+	}
 }
 
 // Invocation is a complete JSON object admitted by one exact frozen Tool
@@ -107,10 +119,10 @@ func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	if err := call.Validate(); err != nil {
 		return Invocation{}, fmt.Errorf("%w: %w", ErrInvalidInvocation, err)
 	}
-	if call.Name != c.state.definition.Name {
+	if call.Name != c.state.name {
 		return Invocation{}, fmt.Errorf(
 			"%w: call name %q does not match bound tool %q",
-			ErrInvalidInvocation, call.Name, c.state.definition.Name,
+			ErrInvalidInvocation, call.Name, c.state.name,
 		)
 	}
 	arguments := []byte(call.Arguments)
