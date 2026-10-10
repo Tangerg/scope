@@ -247,16 +247,17 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	if requestProcessAdmissionErr := requestProcessAdmission(ctx, e.admitter, admission); requestProcessAdmissionErr != nil {
 		return nil, requestProcessAdmissionErr
 	}
-	startedAt := canonicalTime(time.Now())
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, failedProcessInitializationOutcome(admission, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
-	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission, startedAt)); acknowledgeErr != nil {
+	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission)); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
-	handle := newProcessHandle(relation, deployment, e.budget, e.capabilities, startedAt)
+	// The start time is stamped with the handle and persisted in the root's first
+	// checkpoint, matching how a child's start time is stamped at publication.
+	handle := newProcessHandle(relation, deployment, e.budget, e.capabilities, canonicalTime(time.Now()))
 	process := newProcessState(handle, execution, state)
 	runtime := newTreeRuntime(e, relation.RootID(), e.treeLimits, ctx, process)
 

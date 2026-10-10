@@ -214,7 +214,7 @@ func (p *processState) prepareResolution(effectID EffectID, settlement Settlemen
 		return nil, 0, ErrEffectNotPending
 	}
 	candidate := p.candidate()
-	index, _, err := candidate.prepared.resolveUnknown(effectID, settlement)
+	index, err := candidate.prepared.resolveUnknown(effectID, settlement)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -1,7 +1,6 @@
 package planning
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -85,7 +84,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if err := e.validateCurrentAction(definition); err != nil {
 		return err
 	}
-	if err := e.validateProgress(definition); err != nil {
+	if err := e.validateProgress(); err != nil {
 		return err
 	}
 	return e.validatePhase()
@@ -135,7 +134,7 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	return nil
 }
 
-func (e executionState) validateProgress(definition *Definition) error {
+func (e executionState) validateProgress() error {
 	if e.Phase == phaseCompleted {
 		if len(e.Attempts) != 0 || len(e.WorldState.conditions) != 0 {
 			return fmt.Errorf("%w: completed planning repeats its Output", ErrInvalidExecutionState)
@@ -220,7 +219,9 @@ func (e executionState) output(definition *Definition) Output {
 }
 
 func (e executionState) input() (agent.Payload, error) {
-	return agent.ParsePayload(bytes.Clone(e.Input))
+	// ParsePayload normalizes into an independently owned copy, so the raw Input
+	// needs no separate clone here.
+	return agent.ParsePayload(e.Input)
 }
 
 func (e executionState) snapshot() (agent.ExecutionState, error) {

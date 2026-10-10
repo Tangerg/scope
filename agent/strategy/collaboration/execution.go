@@ -18,11 +18,7 @@ func (e *execution) Step(ctx context.Context, signals []agent.Signal) (agent.Tra
 	if err := ctx.Err(); err != nil {
 		return agent.Transition{}, err
 	}
-	decision, err := e.state.decision()
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	switch e.state.phase(decision) {
+	switch e.state.phase() {
 	case phaseReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, ErrInvalidProtocol
@@ -85,7 +81,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	batch, err := e.state.batch(e.definition)
+	batch, err := e.state.batch()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -103,7 +99,7 @@ func (e *execution) acceptTurnStart(signals []agent.Signal) (agent.Transition, e
 
 func (e *execution) openWait(consumed uint32) (agent.Transition, error) {
 	e.state.WaitID = nil
-	spec, err := e.state.waitSpec(e.definition)
+	spec, err := e.state.waitSpec()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -122,7 +118,7 @@ func (e *execution) acceptOpening(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	batch, err := e.state.batch(e.definition)
+	batch, err := e.state.batch()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -142,11 +138,11 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	want, err := e.state.waitSpec(e.definition)
+	want, err := e.state.waitSpec()
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	batch, err := e.state.batch(e.definition)
+	batch, err := e.state.batch()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -223,7 +219,7 @@ func (e *execution) acceptActions(signals []agent.Signal) (agent.Transition, err
 }
 
 func (e *execution) acceptTaskStarts(signals []agent.Signal) (consumed uint32, settled bool, err error) {
-	batch, err := e.state.batch(e.definition)
+	batch, err := e.state.batch()
 	if err != nil {
 		return 0, false, err
 	}

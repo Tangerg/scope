@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 )
 
 type panickingCallbacks struct{ cause error }
@@ -56,7 +55,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		{"Dispatcher.Dispatch", func() error { _, err := dispatchEffect(t.Context(), callbacks, EffectRequest{}, nil); return err }},
 		{"ProcessAdmitter.Admit", func() error { return requestProcessAdmission(t.Context(), callbacks, admission) }},
 		{"ProcessInitializationAcknowledger.Acknowledge", func() error {
-			return acknowledgeProcessInitialization(t.Context(), callbacks, initializedProcessOutcome(admission, time.Now()))
+			return acknowledgeProcessInitialization(t.Context(), callbacks, initializedProcessOutcome(admission))
 		}},
 		{"TreeCommitter.ActivateTree", func() error { return activateTree(t.Context(), callbacks, activation) }},
 		{"TreeCommitter.CommitEffect", func() error {

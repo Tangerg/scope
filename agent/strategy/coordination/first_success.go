@@ -231,7 +231,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ag
 
 func (f *firstSuccessExecution) continueCompetition(consumed uint32, winner *uint32) (agent.Transition, error) {
 	f.state.WaitID = nil
-	if winner != nil || len(f.state.remaining()) == 0 {
+	if winner != nil || !f.state.anyRemaining() {
 		output, err := agent.EncodePayload(f.state.result(winner))
 		if err != nil {
 			return agent.Transition{}, err

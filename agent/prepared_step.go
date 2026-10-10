@@ -71,21 +71,22 @@ func (p *preparedStep) pendingEffect(id EffectID) (int, *preparedEffect) {
 	return 0, nil
 }
 
-// Both live and durable resolution use this transition before publication.
-func (p *preparedStep) resolveUnknown(effectID EffectID, settlement Settlement) (int, *preparedEffect, error) {
+// Both live and durable resolution use this transition before publication. It
+// returns the resolved Effect's index; the record stays owned by the Step.
+func (p *preparedStep) resolveUnknown(effectID EffectID, settlement Settlement) (int, error) {
 	if p == nil || !settlement.Valid() || settlement.Status() == SettlementStatusUnknown {
-		return 0, nil, ErrEffectNotPending
+		return 0, ErrEffectNotPending
 	}
 	for index := range p.Effects {
 		record := &p.Effects[index]
 		if record.ID == effectID {
 			if err := record.resolveUnknown(settlement); err != nil {
-				return 0, nil, ErrEffectNotPending
+				return 0, ErrEffectNotPending
 			}
-			return index, record, nil
+			return index, nil
 		}
 	}
-	return 0, nil, ErrEffectNotPending
+	return 0, ErrEffectNotPending
 }
 
 // reservation is what an unadopted prepared Step holds against its Process

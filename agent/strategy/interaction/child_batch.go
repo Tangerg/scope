@@ -269,14 +269,16 @@ func (c childCallBatch) validateToolWindow(ctx context.Context, definition *Defi
 	return nil
 }
 
-func (c childCallBatch) children() []agent.ProcessID {
-	var children []agent.ProcessID
+// childCount counts the started Tool children still awaiting a result. Only the
+// count is needed; the wait target set is owned by the childcall wait path.
+func (c childCallBatch) childCount() int {
+	count := 0
 	for _, invocation := range c.Invocations {
 		if invocation != nil && invocation.ProcessID != nil && invocation.Result == nil {
-			children = append(children, *invocation.ProcessID)
+			count++
 		}
 	}
-	return children
+	return count
 }
 
 func (c childCallBatch) waitSpec(modelCallSequence uint64, callIndex uint32, keys []agent.ChildKey) (agent.ChildWaitSpec, error) {

@@ -183,8 +183,9 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// phase derives the next protocol step.
-func (e executionState) phase(decision Decision) phase {
+// phase derives the next protocol step. It reads only the recorded turn and
+// child evidence; the coordinator Decision is not needed to choose the step.
+func (e executionState) phase() phase {
 	switch {
 	case e.Completed:
 		return phaseCompleted
@@ -249,25 +250,28 @@ func (e executionState) taskIndex() map[agent.ChildKey]*Task {
 	return tasks
 }
 
-func (e executionState) remaining() []agent.ProcessID {
-	var ids []agent.ProcessID
+// remainingCount counts the outstanding started children: admitted tasks whose
+// outcome has not arrived, plus the current turn's running coordinator. Only the
+// count is needed, never the identities.
+func (e executionState) remainingCount() int {
+	count := 0
 	for _, task := range e.Tasks {
 		if task.Start == nil {
 			continue
 		}
-		if id, present := task.Start.ProcessID(); present {
-			ids = append(ids, id)
+		if _, present := task.Start.ProcessID(); present {
+			count++
 		}
 	}
 	if e.Turn != nil && e.Turn.Start != nil {
-		if id, present := e.Turn.Start.ProcessID(); present {
-			ids = append(ids, id)
+		if _, present := e.Turn.Start.ProcessID(); present {
+			count++
 		}
 	}
-	return ids
+	return count
 }
 
-func (e executionState) batch(d *Definition) (childcall.Batch, error) {
+func (e executionState) batch() (childcall.Batch, error) {
 	batch := childcall.Batch{Children: make([]childcall.Child, len(e.Tasks))}
 	if e.WaitID != nil {
 		batch.WaitID = *e.WaitID
@@ -295,12 +299,12 @@ func (e executionState) batch(d *Definition) (childcall.Batch, error) {
 	return batch, nil
 }
 
-func (e executionState) waitSpec(d *Definition) (agent.ChildWaitSpec, error) {
+func (e executionState) waitSpec() (agent.ChildWaitSpec, error) {
 	key, err := agent.ParseWaitKey(collaborationWaitKey)
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
-	batch, err := e.batch(d)
+	batch, err := e.batch()
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
@@ -400,21 +404,21 @@ func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err != nil {
 		return err
 	}
-	current := e.phase(decision)
+	current := e.phase()
 	if current == phaseReady {
 		return e.validateReady()
 	}
-	if err := e.validateTurn(ctx, d, current, decision); err != nil {
+	if err := e.validateTurn(ctx, d, decision); err != nil {
 		return err
 	}
 	if err := e.validatePhaseEvidence(current, pending+pendingControls); err != nil {
 		return err
 	}
-	if err := e.validatePhaseProgress(d, current, decision.Mode); err != nil {
+	if err := e.validatePhaseProgress(current, decision.Mode); err != nil {
 		return err
 	}
 	// The child batch owns key and Process uniqueness across tasks and turn.
-	batch, batchErr := e.batch(d)
+	batch, batchErr := e.batch()
 	if batchErr == nil {
 		batchErr = batch.Validate()
 	}
@@ -450,24 +454,15 @@ func (e executionState) validatePhaseEvidence(current phase, unapplied int) erro
 	return nil
 }
 
-func (e executionState) validatePhaseProgress(d *Definition, current phase, mode Mode) error {
+func (e executionState) validatePhaseProgress(current phase, mode Mode) error {
 	switch current {
-	case phaseStartingTurn:
-		return e.validateStartingTurn()
 	case phaseApplying:
 		return e.validateApplying(mode)
 	case phaseOpening, phaseWaiting:
-		return e.validateWaitingTurn(d, mode)
+		return e.validateWaitingTurn(mode)
 	default:
 		return nil
 	}
-}
-
-func (e executionState) validateStartingTurn() error {
-	if e.Turn.Outcome != nil {
-		return fmt.Errorf("%w: starting turn retains an outcome", ErrInvalidExecutionState)
-	}
-	return nil
 }
 
 func (e executionState) validateApplying(mode Mode) error {
@@ -477,11 +472,11 @@ func (e executionState) validateApplying(mode Mode) error {
 	return nil
 }
 
-func (e executionState) validateWaitingTurn(d *Definition, mode Mode) error {
+func (e executionState) validateWaitingTurn(mode Mode) error {
 	if e.Turn.Outcome != nil && !e.awaitsTasks(mode) {
 		return fmt.Errorf("%w: a decided turn waits only for running tasks with no unseen outcome", ErrInvalidExecutionState)
 	}
-	if _, err := e.waitSpec(d); err != nil {
+	if _, err := e.waitSpec(); err != nil {
 		return fmt.Errorf("%w: child wait: %w", ErrInvalidExecutionState, err)
 	}
 	return nil
@@ -546,15 +541,19 @@ func (e executionState) validateControls(ctx context.Context, pending int) (int,
 	return pendingControls, nil
 }
 
-func (e executionState) validateTurn(ctx context.Context, d *Definition, current phase, decision Decision) error {
+func (e executionState) validateTurn(ctx context.Context, d *Definition, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := e.validateTurnStart(); err != nil {
 		return err
 	}
+	// An undecided turn can only be one whose coordinator has not answered yet:
+	// a recorded Outcome always decodes to a decided Decision, and a missing
+	// Outcome is the only way decision stays the undecided zero value. So the
+	// decided branch owns every post-answer check and nothing remains here.
 	if !decision.decided() {
-		return e.validateUndecidedTurn()
+		return nil
 	}
 	return e.validateAppliedDecision(ctx, d, decision)
 }
@@ -578,13 +577,6 @@ func (e executionState) validateTurnStart() error {
 	}
 	if _, present := e.Turn.processID(); !present {
 		return fmt.Errorf("%w: turn process is absent", ErrInvalidExecutionState)
-	}
-	return nil
-}
-
-func (e executionState) validateUndecidedTurn() error {
-	if e.Turn.Outcome != nil {
-		return fmt.Errorf("%w: turn without a decision retains an outcome", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -621,7 +613,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *Defini
 		}
 		return nil
 	}
-	remaining := len(e.remaining())
+	remaining := e.remainingCount()
 	if !definition.maxTasks.Allows(uint64(len(e.Tasks)), uint64(len(decision.Tasks))) ||
 		uint64(remaining)+uint64(len(decision.Tasks)) > uint64(definition.maxConcurrentTasks) ||
 		uint64(len(decision.Controls)) > uint64(definition.maxControlsPerTurn) {
@@ -669,7 +661,7 @@ func (e executionState) validateActions(ctx context.Context, definition *Definit
 // rather than starting the next turn. Step branches on it and Restore
 // requires it of a waiting decided turn.
 func (e executionState) awaitsTasks(mode Mode) bool {
-	return mode == ModeWait && !e.hasUnseenOutcome() && len(e.remaining()) != 0
+	return mode == ModeWait && !e.hasUnseenOutcome() && e.remainingCount() != 0
 }
 
 func (e executionState) hasUnseenOutcome() bool {

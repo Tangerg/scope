@@ -481,26 +481,26 @@ func (t *treeRuntime) prepareChildStart(
 	spec ChildSpec,
 ) childStartPreparation {
 	if !spec.Valid() || !process.handle.relation.Valid() {
-		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
 	}
 	relation := childProcessRelation(effectID.childProcessID(), process.handle.relation, spec.Key)
 	if !process.handle.capabilities.Allows(spec.Capabilities) {
-		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
 	}
 	if !t.canStartChild(process) {
-		return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
+		return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
 	}
 	if !process.canReserveChildBudget(spec.Budget, t.childDebits(process)) {
-		return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
+		return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
 	}
 	if reserveProcessStartErr := t.engine.reserveProcessStart(relation); reserveProcessStartErr != nil {
 		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
-			return childStartPreparation{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
+			return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
 		}
 		if errors.Is(reserveProcessStartErr, ErrEngineClosed) {
-			return childStartPreparation{failure: failedChildStart(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
+			return childStartPreparation{failure: newEngineFailure(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
 		}
-		return childStartPreparation{failure: failedChildStart(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
 	}
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
@@ -568,7 +568,6 @@ func (t *treeRuntime) canStartChild(parent *processState) bool {
 // cannot consume the new input before that cut is acknowledged.
 func (t *treeRuntime) controlChild(
 	parent *processState,
-	index uint32,
 	record *preparedEffect,
 	request childControlEffectWire,
 	observation effectAttempt,
@@ -1448,7 +1447,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		case childStartOperation:
 			t.startChild(process, record, operation.spec, observation)
 		case childControlOperation:
-			t.controlChild(process, uint32(index), record, operation.request, observation)
+			t.controlChild(process, record, operation.request, observation)
 		default:
 			panic("agent: unhandled framework operation")
 		}
@@ -1719,7 +1718,10 @@ func (t *treeRuntime) applyChildStart(effectID EffectID, pending *pendingChildSt
 			pending.result.deployment,
 			pending.plan.spec.Budget,
 			pending.plan.spec.Capabilities,
-			pending.result.startedAt)
+			// The start time is stamped here, at publication, and persisted with the
+			// child in the same checkpoint. A recovery replay of this unpublished
+			// start restamps it, so the one persisted value is never a second owner.
+			canonicalTime(time.Now()))
 		child := newProcessState(handle, pending.result.execution, pending.result.state)
 		if _, err := t.applyChildStartSettlement(candidate, effectID, pending.result.failure); err != nil {
 			return err
@@ -1728,7 +1730,7 @@ func (t *treeRuntime) applyChildStart(effectID EffectID, pending *pendingChildSt
 			if !errors.Is(err, ErrResourceLimitExceeded) {
 				return err
 			}
-			pending.result = childStartJobResult{failure: failedChildStart(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
+			pending.result = childStartJobResult{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
 			_, err = t.applyChildStartSettlement(parent, effectID, pending.result.failure)
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestChildAllocationPreservesPreparedParentWork(t *testing.T) {
@@ -110,7 +111,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	}
 	// Initialization succeeded, but no pending Effect can accept its settlement.
 	runtime.applyChildStartCompletion(parent, &processJob{
-		childStart: prepared.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt},
+		childStart: prepared.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()},
 	}, result)
 	if parent.status() != StatusFailed {
 		t.Fatalf("rejected settlement parent status=%s", parent.status())

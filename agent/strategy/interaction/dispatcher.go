@@ -100,17 +100,17 @@ func (d *Dispatcher) Dispatch(
 ) (agent.Settlement, error) {
 	ctx = agent.RequireContext(ctx)
 	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
-		return modelHostFailureSettlement(ErrInvalidDispatcherConfig)
+		return failedSettlement(ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return modelHostFailureSettlement(err)
+		return failedSettlement(err)
 	}
 	switch envelope.operation() {
 	case operationModelCall:
 		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
-		return modelHostFailureSettlement(errors.New("interaction: unsupported dispatcher operation"))
+		return failedSettlement(errors.New("interaction: unsupported dispatcher operation"))
 	}
 }
 
@@ -128,11 +128,11 @@ func (d *Dispatcher) dispatchModel(
 	modelRequest := call.Request.Clone()
 	definitions, err := d.modelDefinitions(call.AdvertisedToolNames)
 	if err != nil {
-		return modelHostFailureSettlement(err)
+		return failedSettlement(err)
 	}
 	modelRequest.Tools = definitions
 	if validateErr := modelRequest.Validate(); validateErr != nil {
-		return modelHostFailureSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
+		return failedSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
 	}
 	invocation := modelInvocationFromRequest(
 		request,
@@ -145,11 +145,11 @@ func (d *Dispatcher) dispatchModel(
 			ctx, invocation, modelRequest.Clone(),
 		)
 		if reduceErr != nil {
-			return modelHostFailureSettlement(fmt.Errorf("interaction: reduce model context: %w", reduceErr))
+			return failedSettlement(fmt.Errorf("interaction: reduce model context: %w", reduceErr))
 		}
 		modelRequest.Messages = cloneMessages(effectiveMessages)
 		if validateErr := modelRequest.Validate(); validateErr != nil {
-			return modelHostFailureSettlement(fmt.Errorf("interaction: reduced model context: %w", validateErr))
+			return failedSettlement(fmt.Errorf("interaction: reduced model context: %w", validateErr))
 		}
 	}
 	result := &modelCallResult{}
@@ -160,17 +160,17 @@ func (d *Dispatcher) dispatchModel(
 	}
 	base, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
-		return modelHostFailureSettlement(err)
+		return failedSettlement(err)
 	}
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
 	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
 	minimum, err := agent.EncodePayload(signalEnvelope{ModelResult: result})
 	if err != nil {
-		return modelHostFailureSettlement(err)
+		return failedSettlement(err)
 	}
 	if len(minimum.JSON()) > d.maxResponseBytes {
-		return modelHostFailureSettlement(ErrModelResponseTooLarge)
+		return failedSettlement(ErrModelResponseTooLarge)
 	}
 	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
@@ -319,10 +319,6 @@ func (d *Dispatcher) callModel(
 		return nil, fmt.Errorf("complete model stream: %w", err)
 	}
 	return response, nil
-}
-
-func modelHostFailureSettlement(cause error) (agent.Settlement, error) {
-	return failedSettlement(cause)
 }
 
 func cloneDefinitions(definitions []chat.ToolDefinition) []chat.ToolDefinition {

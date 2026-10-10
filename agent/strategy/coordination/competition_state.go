@@ -75,11 +75,19 @@ func (f firstSuccessState) validate(ctx context.Context, maxCandidates uint32) e
 		len(f.Results) != 0 && len(f.Results) != len(f.Candidates) {
 		return fmt.Errorf("%w: candidate or result count is invalid", ErrInvalidExecutionState)
 	}
+	// Receipts fill results in candidate order, so non-nil results must form a
+	// prefix. One pass checks that no receipt follows an empty slot, avoiding an
+	// admitted() rescan per slot.
+	sawEmpty := false
 	for index, result := range f.Results {
-		if index >= f.admitted() && result != nil {
+		if result == nil {
+			sawEmpty = true
+			continue
+		}
+		if sawEmpty {
 			return fmt.Errorf("%w: start receipt follows an empty result", ErrInvalidExecutionState)
 		}
-		if result != nil && !result.Valid() {
+		if !result.Valid() {
 			return fmt.Errorf("%w: candidate %d result is invalid", ErrInvalidExecutionState, index)
 		}
 	}
@@ -108,7 +116,7 @@ func (f firstSuccessState) validatePhase() error {
 		if f.WaitID != nil && !f.WaitID.Valid() {
 			return fmt.Errorf("%w: competition WaitID is invalid", ErrInvalidExecutionState)
 		}
-		if len(f.remaining()) == 0 {
+		if !f.anyRemaining() {
 			return fmt.Errorf("%w: a competition without running candidates has completed", ErrInvalidExecutionState)
 		}
 	case competitionCompleted:
@@ -136,15 +144,14 @@ func (f firstSuccessState) batch() childcall.Batch {
 	return batch
 }
 
-func (f firstSuccessState) remaining() []agent.ProcessID {
-	var children []agent.ProcessID
+// anyRemaining reports whether any admitted competitor is still running.
+func (f firstSuccessState) anyRemaining() bool {
 	for _, result := range f.Results {
 		if result != nil && result.running() {
-			id, _ := result.Start.ProcessID()
-			children = append(children, id)
+			return true
 		}
 	}
-	return children
+	return false
 }
 
 // Every satisfied wait adds an outcome, so the outcome count keys a fresh wait.

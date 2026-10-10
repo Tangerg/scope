@@ -79,16 +79,17 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			}
 			rootOutcome, rootFound := byProcess[parent.Relation().ProcessID()]
 			childOutcome, childFound := byProcess[child.Relation().ProcessID()]
-			rootStartedAt, rootStarted := rootOutcome.StartedAt()
-			if !rootFound || !rootOutcome.Admission().Relation().IsRoot() ||
-				!rootStarted || rootStartedAt != parent.StartedAt() {
+			if !rootFound || !rootOutcome.Admission().Relation().IsRoot() {
 				t.Fatalf("root outcome = %#v", rootOutcome)
 			}
 			parentID, hasParent := childOutcome.Admission().Relation().ParentID()
-			childStartedAt, childStarted := childOutcome.StartedAt()
-			if !childFound || !hasParent || parentID != parent.Relation().ProcessID() ||
-				!childStarted || childStartedAt != child.StartedAt() {
+			if !childFound || !hasParent || parentID != parent.Relation().ProcessID() {
 				t.Fatalf("child outcome = %#v", childOutcome)
+			}
+			// The start time is a publication fact on the Process, not carried by the
+			// admission outcome, so the published Processes own it.
+			if parent.StartedAt().IsZero() || child.StartedAt().IsZero() {
+				t.Fatalf("published start times = root %s, child %s", parent.StartedAt(), child.StartedAt())
 			}
 			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
@@ -135,9 +136,6 @@ func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t
 			failure, failed := outcomes[0].Failure()
 			if !failed || failure.Code() != test.code {
 				t.Fatalf("initialization failure = %#v, present = %t", failure, failed)
-			}
-			if startedAt, started := outcomes[0].StartedAt(); started || !startedAt.IsZero() {
-				t.Fatalf("failed initialization StartedAt = %s, present = %t", startedAt, started)
 			}
 			processID := outcomes[0].Admission().Relation().ProcessID()
 			if _, published := engine.Process(processID); published {

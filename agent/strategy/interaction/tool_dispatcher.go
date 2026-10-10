@@ -51,10 +51,10 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	ctx = agent.RequireContext(ctx)
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
-		return protocolFailureSettlement(err)
+		return failedSettlement(err)
 	}
 	if envelope.operation() != operationToolCall || envelope.ToolCall == nil {
-		return protocolFailureSettlement(errors.New("interaction: Tool dispatcher requires one tool_call"))
+		return failedSettlement(errors.New("interaction: Tool dispatcher requires one tool_call"))
 	}
 	call := envelope.ToolCall.Invocation
 	resume := envelope.ToolCall.Resume
@@ -73,10 +73,6 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		outcome = toolDispatchResult{InputRequest: required}
 	}
 	return outcome.settlement()
-}
-
-func protocolFailureSettlement(cause error) (agent.Settlement, error) {
-	return failedSettlement(cause)
 }
 
 func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {

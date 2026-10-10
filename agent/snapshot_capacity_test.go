@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -304,8 +305,8 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if mode == "capture_failed" {
 				root.committedExecutionState = ExecutionState{}
 			}
-			result := childStartJobResult{failure: failedChildStart(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
-			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: result.startedAt}}, result)
+			result := childStartJobResult{failure: newEngineFailure(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
+			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}}, result)
 			if runtime.childDebits(root) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")
 			}

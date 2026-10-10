@@ -167,7 +167,7 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 		if err := jsonv2.Unmarshal(cases[index].State.Payload(), &state); err != nil {
 			t.Fatal(err)
 		}
-		current := state.phase(require(state.decision()))
+		current := state.phase()
 		cases[index].Name = fmt.Sprintf("phase%d-%c", current, 'a'+index)
 		phases[current] = true
 		if len(state.Controls) != 0 && state.Controls[0].Result != nil {

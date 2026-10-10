@@ -180,10 +180,10 @@ func (e *execution) acceptFinalModelResponse(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
+// complete encodes an already-validated Output. Its only caller, finishOrRetry,
+// validates the Output at the completion entry and hands the validator a clone,
+// so the Output cannot change between that check and this encoding.
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
-	if err := output.Validate(); err != nil {
-		return agent.Transition{}, err
-	}
 	encoded, err := agent.EncodePayload(output)
 	if err != nil {
 		return agent.Transition{}, err
@@ -411,7 +411,7 @@ func (e *execution) acceptChildStarts(ctx context.Context, signals []agent.Signa
 		}
 		batch.Invocations[index].Result = rejectedDelegateStartResult(calls[index], failure)
 	}
-	if len(batch.children()) == 0 {
+	if batch.childCount() == 0 {
 		if err := e.finishChildBatch(); err != nil {
 			return agent.Transition{}, err
 		}
@@ -619,7 +619,7 @@ func (e *execution) scheduleToolChildren(ctx context.Context, consumed uint32) (
 		return agent.Transition{}, err
 	}
 	batch := e.state.ToolRound.ChildBatch
-	active := len(e.state.ToolRound.ChildBatch.children())
+	active := e.state.ToolRound.ChildBatch.childCount()
 	var effects []agent.Effect
 	for index := batch.nextStartIndex(); active < e.definition.maxConcurrentToolCalls && index < len(calls); index++ {
 		if err := ctx.Err(); err != nil {
