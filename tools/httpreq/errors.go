@@ -17,6 +17,7 @@ var (
 	ErrBodyNotAllowed          = errors.New("httpreq: method does not carry a request body")
 	ErrDuplicateQueryParameter = errors.New("httpreq: query parameter is named by both the URL and Query")
 	ErrDuplicateHeader         = errors.New("httpreq: header names one field more than once")
+	ErrInvalidHeaderField      = errors.New("httpreq: header name or value is not valid HTTP syntax")
 	ErrMethodNotAllowed        = errors.New("httpreq: method is not allowed by client policy")
 	ErrRedirectLimitReached    = errors.New("httpreq: redirect limit reached")
 )

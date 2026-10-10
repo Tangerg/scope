@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpguts"
 )
 
 type Request struct {
@@ -85,12 +87,22 @@ func (r *Request) Validate() error {
 	return nil
 }
 
-// validateHeaderFields admits one entry per HTTP field. A field name is
-// case-insensitive, so two keys naming one field would leave map iteration
-// order to choose the value sent.
+// validateHeaderFields admits one syntactically valid entry per HTTP field.
+// Illegal names or values (empty names, spaces, CR/LF) are rejected here so a
+// request fails admission with a definite failure instead of being handed to the
+// transport, which rejects them before dialing and surfaces an unclassified
+// error. A field name is case-insensitive, so two keys naming one field would
+// leave map iteration order to choose the value sent. The invalid value is never
+// echoed, only the field it belongs to.
 func validateHeaderFields(headers map[string]string) error {
 	names := make(map[string]string, len(headers))
-	for name := range headers {
+	for name, value := range headers {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return fmt.Errorf("%w: name %q", ErrInvalidHeaderField, name)
+		}
+		if !httpguts.ValidHeaderFieldValue(value) {
+			return fmt.Errorf("%w: value for %q", ErrInvalidHeaderField, name)
+		}
 		field := http.CanonicalHeaderKey(name)
 		if previous, duplicate := names[field]; duplicate {
 			return fmt.Errorf("%w: %q and %q", ErrDuplicateHeader, previous, name)
