@@ -90,7 +90,7 @@ func NewTools(source skillsrc.ResourceSource, config Config) ([]toolcontract.Too
 		toolcontract.FuncConfig{
 			Name: "read_skill_resource",
 			Description: "Read one bundled resource referenced by a loaded skill. The path is relative to that skill's directory. " +
-				"This returns file contents only and never executes scripts.",
+				"This returns the resource as UTF-8 text only and never executes scripts; a resource that is not valid UTF-8 is rejected rather than returned as binary.",
 		},
 		set.readResource,
 	)
