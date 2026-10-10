@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"reflect"
@@ -12,10 +14,15 @@ import (
 
 // Func adapts a typed Go function to [Tool]. It is immutable and as safe for
 // concurrent calls as the wrapped function.
+//
+// A Func validates arguments by strictly decoding them into In, not against a
+// retained compiled schema, so it owns only the canonical input-schema JSON it
+// projects into its Definition. [Bind] compiles that JSON when it needs
+// schema-level admission for the Tool contract.
 type Func[In, Out any] struct {
-	config   FuncConfig
-	input    corejsonschema.Schema
-	function func(context.Context, In) (Out, error)
+	config      FuncConfig
+	inputSchema json.RawMessage
+	function    func(context.Context, In) (Out, error)
 }
 
 type FuncConfig struct {
@@ -41,18 +48,19 @@ func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) 
 	if err != nil {
 		return zero, fmt.Errorf("%w: %w", ErrInvalidTool, err)
 	}
+	schema := input.JSON()
 	definition := chat.ToolDefinition{
 		Name:        config.Name,
 		Description: config.Description,
-		InputSchema: input.JSON(),
+		InputSchema: schema,
 	}
 	if err := definition.Validate(); err != nil {
 		return zero, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
 	}
 	return Func[In, Out]{
-		config:   config,
-		input:    input,
-		function: function,
+		config:      config,
+		inputSchema: schema,
+		function:    function,
 	}, nil
 }
 
@@ -73,7 +81,7 @@ func (f Func[In, Out]) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{
 		Name:        f.config.Name,
 		Description: f.config.Description,
-		InputSchema: f.input.JSON(),
+		InputSchema: bytes.Clone(f.inputSchema),
 	}
 }
 
