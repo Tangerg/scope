@@ -4,5 +4,5 @@
 # place and fail in the other.
 set -euo pipefail
 
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
