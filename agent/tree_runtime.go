@@ -505,7 +505,7 @@ func (t *treeRuntime) prepareChildStart(
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
 		resolver: t.engine.resolver, parentDeployment: process.deployment(),
-		spec: spec, relation: relation,
+		spec: spec, relation: relation, incarnation: t.writer.incarnation(),
 	}}
 }
 

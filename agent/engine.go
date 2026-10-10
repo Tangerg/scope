@@ -248,11 +248,14 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		return nil, requestProcessAdmissionErr
 	}
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
+	// A root is admitted exactly once per Start and is never re-initialized on
+	// recovery, so its outcome carries the zero incarnation; only a child start
+	// can be re-attempted under a new incarnation.
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, failedProcessInitializationOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, failedProcessInitializationOutcome(admission, TreeIncarnationID{}, failure))
 		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
 	}
-	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission)); acknowledgeErr != nil {
+	if acknowledgeErr := acknowledgeProcessInitialization(ctx, e.initializationAcknowledger, initializedProcessOutcome(admission, TreeIncarnationID{})); acknowledgeErr != nil {
 		return nil, acknowledgeErr
 	}
 	// The start time is stamped with the handle and persisted in the root's first

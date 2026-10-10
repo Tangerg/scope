@@ -19,6 +19,10 @@ type childStartPlan struct {
 	parentDeployment Deployment
 	spec             ChildSpec
 	relation         ProcessRelation
+	// incarnation is the tree incarnation this attempt runs under. It identifies
+	// the physical attempt in the admission outcome, so a retry after recovery,
+	// which runs under a new incarnation, is distinguishable from this one.
+	incarnation TreeIncarnationID
 }
 
 func (c *childStartPlan) childID() ProcessID { return c.relation.ProcessID() }
@@ -58,10 +62,10 @@ func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
 	}
 	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), c.spec.Input)
 	if err != nil {
-		acknowledgeErr := acknowledgeProcessInitialization(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, failure))
+		acknowledgeErr := acknowledgeProcessInitialization(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, c.incarnation, failure))
 		return childStartJobResult{failure: newEngineFailure(failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr))}
 	}
-	if err := acknowledgeProcessInitialization(ctx, c.acknowledger, initializedProcessOutcome(admission)); err != nil {
+	if err := acknowledgeProcessInitialization(ctx, c.acknowledger, initializedProcessOutcome(admission, c.incarnation)); err != nil {
 		return childStartJobResult{failure: newEngineFailure(failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err)}
 	}
 	return childStartJobResult{

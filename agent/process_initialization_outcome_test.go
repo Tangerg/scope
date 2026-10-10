@@ -86,6 +86,16 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 			if !childFound || !hasParent || parentID != parent.Relation().ProcessID() {
 				t.Fatalf("child outcome = %#v", childOutcome)
 			}
+			// The outcome identifies the physical attempt: a root is admitted once
+			// and carries no incarnation, while a child carries the incarnation its
+			// attempt ran under, so a recovery re-attempt of one admission is
+			// distinguishable instead of colliding on the admission identity.
+			if rootOutcome.Incarnation() != (TreeIncarnationID{}) {
+				t.Fatalf("root outcome incarnation = %s, want zero", rootOutcome.Incarnation())
+			}
+			if !childOutcome.Incarnation().Valid() {
+				t.Fatalf("child outcome incarnation = %s, want a real tree incarnation", childOutcome.Incarnation())
+			}
 			// The start time is a publication fact on the Process, not carried by the
 			// admission outcome, so the published Processes own it.
 			if parent.StartedAt().IsZero() || child.StartedAt().IsZero() {
