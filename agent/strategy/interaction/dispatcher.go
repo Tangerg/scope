@@ -283,7 +283,6 @@ func (d *Dispatcher) callModel(
 		return d.model.Call(ctx, request)
 	}
 	var accumulator chat.ResponseAccumulator
-	seen := false
 	sequence := d.streamer.Stream(ctx, request)
 	if sequence == nil {
 		return nil, errors.New("model streamer returned a nil sequence")
@@ -306,14 +305,11 @@ func (d *Dispatcher) callModel(
 		if err := accumulator.Add(delta); err != nil {
 			return nil, fmt.Errorf("accumulate model stream: %w", err)
 		}
-		seen = true
 		if emit != nil {
 			emit(payload)
 		}
 	}
-	if !seen {
-		return nil, errors.New("model stream ended without a response Delta")
-	}
+	// Response rejects a stream that produced no deltas, so no local tally is kept.
 	response, err := accumulator.Response()
 	if err != nil {
 		return nil, fmt.Errorf("complete model stream: %w", err)
