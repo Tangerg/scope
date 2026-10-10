@@ -33,30 +33,45 @@ func (o optimizer) rewriteUnary(unary *UnaryExpr) Predicate {
 	}
 }
 
+// rewriteBinary normalizes one maximal same-operator group exactly once. It
+// flattens the whole group, rewrites each operand, and re-flattens any group a
+// rewritten operand exposes through double-negation elimination, then
+// deduplicates that flattened set a single time. Because the group is flattened
+// and compared once rather than at every ancestor, a chain of n operands costs
+// O(n^2) comparisons instead of O(n^3). A non-logical binary passes through.
 func (o optimizer) rewriteBinary(binary *BinaryExpr) Predicate {
 	if !binary.operator.IsLogicalOperator() {
 		return binary
 	}
 
-	left := o.rewrite(binary.left.(Predicate))
-	right := o.rewrite(binary.right.(Predicate))
-
-	terms := o.appendLogicalTerms(nil, binary.operator, left)
-	terms = o.appendLogicalTerms(terms, binary.operator, right)
-	terms, deduplicated := o.uniquePredicates(terms)
-	if deduplicated {
-		return o.joinLogical(binary.operator, terms)
+	operands := o.appendLogicalTerms(nil, binary.operator, binary)
+	rewritten := make([]Predicate, len(operands))
+	changed := false
+	for index, operand := range operands {
+		rewritten[index] = o.rewrite(operand)
+		if rewritten[index] != operand {
+			changed = true
+		}
 	}
 
-	if left == binary.left && right == binary.right {
+	var terms []Predicate
+	for _, operand := range rewritten {
+		terms = o.appendLogicalTerms(terms, binary.operator, operand)
+	}
+	unique, deduplicated := o.uniquePredicates(terms)
+	if deduplicated {
+		return o.joinLogical(binary.operator, unique)
+	}
+
+	if !changed {
 		return binary
 	}
-	return &BinaryExpr{
-		left: left, operator: binary.operator, right: right,
-		start: binary.start, end: binary.end,
-	}
+	index := 0
+	return o.rebuildGroup(binary, rewritten, &index)
 }
 
+// appendLogicalTerms collects the operands of the maximal subtree joined by
+// operator, descending only through same-operator binaries.
 func (o optimizer) appendLogicalTerms(terms []Predicate, operator Operator, predicate Predicate) []Predicate {
 	binary, ok := predicate.(*BinaryExpr)
 	if !ok || binary.operator != operator {
@@ -69,6 +84,37 @@ func (o optimizer) appendLogicalTerms(terms []Predicate, operator Operator, pred
 	}
 	terms = o.appendLogicalTerms(terms, operator, left)
 	return o.appendLogicalTerms(terms, operator, right)
+}
+
+// rebuildGroup rebuilds the same-operator group rooted at binary, substituting
+// each operand in flatten order with operands[*index] while preserving the
+// original shape and source positions. It is used only when deduplication
+// removed nothing, so a group whose only change is a rewritten operand keeps its
+// structure instead of collapsing to a canonical left-deep chain. Its descent
+// mirrors appendLogicalTerms so the operand indexing stays aligned.
+func (o optimizer) rebuildGroup(binary *BinaryExpr, operands []Predicate, index *int) Predicate {
+	left := o.rebuildSide(binary.left.(Predicate), binary.operator, operands, index)
+	right := o.rebuildSide(binary.right.(Predicate), binary.operator, operands, index)
+	if left == binary.left && right == binary.right {
+		return binary
+	}
+	return &BinaryExpr{
+		left: left, operator: binary.operator, right: right,
+		start: binary.start, end: binary.end,
+	}
+}
+
+func (o optimizer) rebuildSide(side Predicate, operator Operator, operands []Predicate, index *int) Predicate {
+	if inner, ok := side.(*BinaryExpr); ok && inner.operator == operator {
+		_, leftOK := inner.left.(Predicate)
+		_, rightOK := inner.right.(Predicate)
+		if leftOK && rightOK {
+			return o.rebuildGroup(inner, operands, index)
+		}
+	}
+	operand := operands[*index]
+	*index++
+	return operand
 }
 
 func (o optimizer) uniquePredicates(predicates []Predicate) ([]Predicate, bool) {
