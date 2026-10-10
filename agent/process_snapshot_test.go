@@ -565,6 +565,36 @@ func TestSnapshotRejectsMissingAlwaysEmittedMembers(t *testing.T) {
 	}
 }
 
+func TestSnapshotRejectsMissingOrNullMailboxCursor(t *testing.T) {
+	// The committed cursor projects consumption. It nests inside the mailbox,
+	// whose own decode boundary must reject a missing or null cursor rather than
+	// silently resetting it to zero and reinterpreting consumed Signals as pending.
+	for _, snapshot := range []ProcessSnapshot{completedEngineTestSnapshot(t), preparedEngineTestSnapshot(t)} {
+		if _, err := parseTestProcessSnapshot(snapshot.JSON()); err != nil {
+			t.Fatalf("valid snapshot rejected: %v", err)
+		}
+		for name, value := range map[string]json.RawMessage{"missing": nil, "null": json.RawMessage("null")} {
+			var fields map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(snapshot.JSON(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			var mailbox map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(fields["mailbox"], &mailbox); err != nil {
+				t.Fatal(err)
+			}
+			if value == nil {
+				delete(mailbox, "signal_cursor")
+			} else {
+				mailbox["signal_cursor"] = value
+			}
+			fields["mailbox"] = controlValue(jsonv2.Marshal(mailbox))
+			if _, err := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(fields))); !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("%s signal_cursor accepted: %v", name, err)
+			}
+		}
+	}
+}
+
 func TestPreparedEffectIdentityFollowsBatchPosition(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	wire := controlValue(snapshot.wire())

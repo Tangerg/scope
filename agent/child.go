@@ -31,10 +31,32 @@ type ChildSpec struct {
 	Key           ChildKey      `json:"key"`
 	DeploymentRef DeploymentRef `json:"deployment_ref"`
 	Input         Payload       `json:"input"`
-	// Budget is permanently allocated from the parent to this child.
-	Budget Budget `json:"budget"`
-	// Capabilities is the attenuated authority granted to this child.
-	Capabilities CapabilitySet `json:"capabilities"`
+	// Budget is permanently allocated from the parent to this child. An empty
+	// budget means unlimited, so its absence cannot be reconstructed: a decoded
+	// capture must carry it explicitly.
+	Budget Budget `json:"budget" jsonwire:"required"`
+	// Capabilities is the attenuated authority granted to this child. The empty
+	// set is a valid empty grant, so a missing member cannot stand in for it.
+	Capabilities CapabilitySet `json:"capabilities" jsonwire:"required"`
+}
+
+// UnmarshalJSON owns the spec's presence rule. ChildSpec nests inside the
+// child-start request wire, whose decode checks only its own members, so the
+// granted budget and capabilities need their own boundary: a missing budget
+// must not silently become unlimited, and a missing capability set must not
+// silently clear the grant. Input stays optional because a valid Payload may be
+// the JSON value null, and its zero value is already rejected by Valid.
+func (c *ChildSpec) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return errors.New("agent: nil child spec receiver")
+	}
+	type wire ChildSpec
+	value, err := jsonwire.Decode[wire](data)
+	if err != nil {
+		return err
+	}
+	*c = ChildSpec(value)
+	return nil
 }
 
 func (c ChildSpec) Valid() bool {

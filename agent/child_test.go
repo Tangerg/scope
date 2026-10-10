@@ -647,6 +647,57 @@ func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
 	}
 }
 
+func TestChildStartEffectDecodeRequiresGrantFacts(t *testing.T) {
+	reference, err := descriptorDeploymentRef(testDescriptor(t), ComputeDigest([]byte("impl")), ComputeDigest([]byte("config")), noChildBindings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := ParseChildKey("worker")
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	spec := childTestSpec(key, reference, input)
+	// An explicitly unlimited budget and an explicitly empty capability grant
+	// are both valid facts a capture carries; only their absence is a defect.
+	spec.Budget = Budget{}
+	valid := controlValue(jsonv2.Marshal(childStartEffectWire{Operation: frameworkOperationStartChild, Spec: spec}))
+	decoded, err := decodeChildStartEffect(valid)
+	if err != nil {
+		t.Fatalf("explicit unlimited budget and empty capabilities rejected: %v", err)
+	}
+	if _, limited := decoded.Budget.Steps.Maximum(); limited || !decoded.Capabilities.Valid() || len(decoded.Capabilities.Values()) != 0 {
+		t.Fatalf("decoded grant = %#v", decoded)
+	}
+	for _, field := range []string{"budget", "capabilities"} {
+		for name, value := range map[string]json.RawMessage{"missing": nil, "null": json.RawMessage("null")} {
+			t.Run(name+" "+field, func(t *testing.T) {
+				if _, err := decodeChildStartEffect(rewriteChildSpec(t, valid, field, value)); err == nil {
+					t.Fatalf("decode accepted a child start with %s %q", name, field)
+				}
+			})
+		}
+	}
+}
+
+// rewriteChildSpec replaces field in the request's spec with value, or removes
+// it when value is nil, so a decode boundary can be exercised against absence.
+func rewriteChildSpec(t *testing.T, request json.RawMessage, field string, value json.RawMessage) json.RawMessage {
+	t.Helper()
+	var envelope map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(request, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]json.RawMessage
+	if err := jsonv2.Unmarshal(envelope["spec"], &spec); err != nil {
+		t.Fatal(err)
+	}
+	if value == nil {
+		delete(spec, field)
+	} else {
+		spec[field] = value
+	}
+	envelope["spec"] = controlValue(jsonv2.Marshal(spec))
+	return controlValue(jsonv2.Marshal(envelope))
+}
+
 type childTestInput struct {
 	Mode string `json:"mode"`
 }

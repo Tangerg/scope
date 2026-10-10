@@ -10,6 +10,8 @@ import (
 	"slices"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var (
@@ -453,7 +455,24 @@ type mailboxWire struct {
 // outcomes, so only the enclosing tree can decode it.
 type mailboxDocument struct {
 	Signals      []signalRecordDocument `json:"signals,omitempty"`
-	SignalCursor uint64                 `json:"signal_cursor"`
+	SignalCursor uint64                 `json:"signal_cursor" jsonwire:"required"`
+}
+
+// UnmarshalJSON owns the cursor's presence rule: the mailbox nests inside a
+// Process document, whose decode checks only its own members, so the committed
+// consumption cursor needs its own boundary. A missing or null cursor must not
+// silently reinterpret consumed Signals as pending; an explicit zero is valid.
+func (m *mailboxDocument) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return errors.New("agent: nil mailbox document receiver")
+	}
+	type wire mailboxDocument
+	value, err := jsonwire.Decode[wire](data)
+	if err != nil {
+		return err
+	}
+	*m = mailboxDocument(value)
+	return nil
 }
 
 type signalRecordDocument struct {
