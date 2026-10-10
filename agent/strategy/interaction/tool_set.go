@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -99,6 +100,9 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolO
 	}
 	call := invocation.ToolCall()
 	prepared := t.dispatcher.prepareToolCall(call)
+	if prepared.defect != nil {
+		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery input validation failed: %w", ErrInvalidProtocol, prepared.defect)
+	}
 	if prepared.rejection != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery call is not admitted by its binding", ErrInvalidProtocol)
 	}
@@ -225,6 +229,11 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (plan toolConcurrencyPlan, e
 	}
 	invocation, err := t.contract.Prepare(call)
 	if err != nil {
+		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
+			// A validator defect is an internal fault, not a bad argument; fail the
+			// Step rather than scheduling a call that cannot be validated.
+			return toolConcurrencyPlan{}, errToolInputValidatorDefect
+		}
 		// Invalid arguments receive an ordinary rejection from the child; they
 		// confer no authority to overlap other calls.
 		return toolConcurrencyPlan{}, nil

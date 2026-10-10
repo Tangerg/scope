@@ -10,11 +10,20 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
+// errToolInputValidatorDefect is the fixed, model-safe diagnostic for a tool
+// whose input validator panicked. The recovered value is an internal fault, so
+// its classification replaces it and it never reaches the model.
+var errToolInputValidatorDefect = errors.New("interaction: tool input validation failed")
+
 type preparedToolCall struct {
 	call       chat.ToolCall
 	binding    tool.Binding
 	invocation tool.Invocation
 	rejection  *chat.ToolResult
+	// defect holds an input-validator panic, kept separate from rejection: it is
+	// an internal fault that settles the dispatch as a definite failure rather
+	// than a model-correctable argument error.
+	defect error
 }
 
 func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, advertised []string) *toolCallResult {
@@ -64,6 +73,11 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		})
 	}
 	prepared := t.prepareToolCall(call.Call)
+	if prepared.defect != nil {
+		// A validator defect is settled before Tool.Call runs, as a definite
+		// failure that propagates to the parent, never a model-visible result.
+		return failedSettlement(errToolInputValidatorDefect)
+	}
 	result, advertised, required, rejected, err := t.callTool(ctx, request, prepared)
 	if err != nil {
 		return agent.Settlement{}, err
@@ -173,6 +187,10 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 	prepared.binding = binding
 	invocation, err := binding.Contract().Prepare(call)
 	if err != nil {
+		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
+			prepared.defect = err
+			return prepared
+		}
 		result := rejectedToolResult(call, "invalid arguments: "+agent.NormalizeDiagnostic(err.Error()))
 		prepared.rejection = &result
 		return prepared
