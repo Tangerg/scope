@@ -15,7 +15,6 @@ const (
 	failureSuffixCaseUnknown       = "case_unknown"
 	failureSuffixUnresolvedEffects = "unresolved_effects"
 	failureSuffixNotCompleted      = "not_completed"
-	failureSuffixOutputMissing     = "output_missing"
 	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
 )
 
@@ -219,11 +218,8 @@ func childOutcome(outcome agent.ChildOutcome, code func(suffix string) string, s
 		failure, err := stepfail.Failure(agent.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Termination().Status().String())
 		return &failure, agent.Payload{}, err
 	}
-	output, present := result.Termination().Output()
-	if !present {
-		failure, err := stepfail.Failure(agent.FailureKindContract, code(failureSuffixOutputMissing), subject+" returned no Output")
-		return &failure, agent.Payload{}, err
-	}
+	// A validated Completed termination always carries Output.
+	output, _ := result.Termination().Output()
 	return nil, output, nil
 }
 

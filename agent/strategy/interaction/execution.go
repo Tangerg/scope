@@ -518,10 +518,9 @@ func (e *execution) acceptChildOutcome(kind childCallKind, index int, call chat.
 	if kind == childCallsDelegate {
 		return e.acceptDelegateOutcome(index, call, result)
 	}
-	encoded, present := result.Termination().Output()
-	if !present {
-		return ErrInvalidExecutionState
-	}
+	// terminalFailure already excluded every non-Completed outcome, and a
+	// validated Completed termination always carries Output.
+	encoded, _ := result.Termination().Output()
 	decoded, err := encoded.Decode[toolCallResult]()
 	if err != nil {
 		return err

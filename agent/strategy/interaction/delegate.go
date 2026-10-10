@@ -81,10 +81,8 @@ func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResul
 		}
 		return delegateErrorResult(call, diagnostic), nil
 	}
-	output, present := result.Termination().Output()
-	if !present {
-		return chat.ToolResult{}, ErrInvalidExecutionState
-	}
+	// A validated Completed termination always carries Output.
+	output, _ := result.Termination().Output()
 	toolOutput, err := chat.NewJSONToolOutput(output.JSON())
 	if err != nil {
 		return chat.ToolResult{}, fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
