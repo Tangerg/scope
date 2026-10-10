@@ -141,6 +141,61 @@ func TestRegisterUnknownOutcomeRemainsProtocolError(t *testing.T) {
 	assert.Empty(t, protocolError.Data)
 }
 
+func TestRegisterInputValidatorDefectStaysInternal(t *testing.T) {
+	ctx := t.Context()
+	var calls atomic.Int32
+	defect := validatingTool{
+		testTool: testTool{
+			definition: corechat.ToolDefinition{
+				Name: "defective", Description: "validator panics",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			},
+			call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
+				calls.Add(1)
+				return corechat.NewTextToolOutput("unreachable"), nil
+			},
+		},
+		validator: func([]byte) error { panic("validator defect secret diagnostic") },
+	}
+	cs, cleanup := connectPair(t, ctx, defect)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: "defective", Arguments: map[string]any{}})
+	require.Nil(t, res)
+	protocolError, found := errors.AsType[*jsonrpc.Error](err)
+	require.True(t, found, "call error = %v", err)
+	assert.Equal(t, jsonrpc.CodeInternalError, int(protocolError.Code))
+	assert.NotContains(t, protocolError.Message, "secret diagnostic")
+	assert.Empty(t, protocolError.Data)
+	assert.EqualValues(t, 0, calls.Load(), "a validator defect must not run the tool")
+}
+
+func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
+	ctx := t.Context()
+	var calls atomic.Int32
+	picky := validatingTool{
+		testTool: testTool{
+			definition: corechat.ToolDefinition{
+				Name: "picky", Description: "rejects some input",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			},
+			call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
+				calls.Add(1)
+				return corechat.NewTextToolOutput("unreachable"), nil
+			},
+		},
+		validator: func([]byte) error { return errors.New("argument is out of range") },
+	}
+	cs, cleanup := connectPair(t, ctx, picky)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: "picky", Arguments: map[string]any{}})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.True(t, res.IsError, "model-correctable argument errors stay visible")
+	assert.EqualValues(t, 0, calls.Load())
+}
+
 func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
 	want := corechat.ToolOutput{
 		Content: []corechat.ToolContent{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
@@ -248,6 +303,15 @@ func TestRegister_SnapshotsDefinitionOnce(t *testing.T) {
 	require.False(t, result.IsError)
 	assert.EqualValues(t, 1, tool.definitionCalls.Load())
 }
+
+// validatingTool adds an input validator to a testTool so admission-time
+// classification can be exercised end to end.
+type validatingTool struct {
+	testTool
+	validator func([]byte) error
+}
+
+func (v validatingTool) InputValidator() func([]byte) error { return v.validator }
 
 type badSchemaTool struct{}
 

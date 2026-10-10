@@ -71,11 +71,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		ID: "mcp/" + toolName, Name: toolName, Arguments: rawArgs,
 	})
 	if err != nil {
-		recordSpanError(span, err)
-		return &sdkmcp.CallToolResult{
-			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
-			IsError: true,
-		}, nil
+		return s.prepareError(span, err)
 	}
 	output, err := s.executable.Call(ctx, invocation)
 	if err != nil {
@@ -86,6 +82,22 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		return s.callError(span, err)
 	}
 	return result, nil
+}
+
+// prepareError maps an admission failure. A validator defect is an internal
+// fault, not a caller-correctable argument error, so it must never reach the
+// model; its classification takes priority over any Failure the recovered panic
+// value might wrap. Ordinary invalid arguments stay a model-visible error the
+// client can correct.
+func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
+	recordSpanError(span, err)
+	if _, defect := errors.AsType[*toolcontract.InputValidationPanicError](err); defect {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "tool input validation failed"}
+	}
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+		IsError: true,
+	}, nil
 }
 
 func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {

@@ -10,9 +10,9 @@
 // [tool.FailureKindFailed] with every content part and structured detail;
 // because MCP does not encode refusal, that kind does not imply execution
 // began. [Register] projects the same Failure back into an IsError result.
-// Invalid arguments stay model-visible error results, while unknown local
-// outcomes and authorization errors become generic protocol errors, never
-// definite results or internal diagnostics. Results that require further
+// Invalid arguments stay model-visible error results, while input-validation
+// defects, unknown local outcomes, and authorization errors become generic
+// protocol errors, never definite results or internal diagnostics. Results that require further
 // input return [ErrIncompleteResult]; hosts that need multi-round-trip input
 // must complete that exchange through the SDK. Successful structured results
 // are validated against the output schema frozen at discovery.
