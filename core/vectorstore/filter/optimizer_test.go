@@ -2,6 +2,8 @@ package filter_test
 
 import (
 	jsonv2 "encoding/json/v2"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -97,6 +99,40 @@ func TestParseOptimizerBooleanIdentities(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A conjunction hidden behind a double negation at every link belongs to one
+// maximal AND group. The optimizer must collapse every eliminable NOT NOT and
+// deduplicate the group once, matching the equivalent flat chain.
+func TestParseOptimizerCollapsesNestedDoubleNegation(t *testing.T) {
+	const n = 6
+	nested, err := filter.Parse(nestedDoubleNegationChain(n))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(nested.String(), "not") {
+		t.Fatalf("optimized nested chain retains a negation: %s", nested.String())
+	}
+	flat, err := filter.Parse(longConjunction(n))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for mask := range 1 << n {
+		values := make(map[string]any, n)
+		for index := range n {
+			key := "k" + strconv.Itoa(index)
+			if mask&(1<<index) != 0 {
+				values[key] = index
+			} else {
+				values[key] = index + 100
+			}
+		}
+		got, gotErr := filter.Match(nested, values)
+		want, wantErr := filter.Match(flat, values)
+		if got != want || (gotErr == nil) != (wantErr == nil) {
+			t.Fatalf("mask %d: nested=%v,%v flat=%v,%v", mask, got, gotErr, want, wantErr)
+		}
 	}
 }
 

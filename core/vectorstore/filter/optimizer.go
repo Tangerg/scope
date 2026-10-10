@@ -34,11 +34,12 @@ func (o optimizer) rewriteUnary(unary *UnaryExpr) Predicate {
 }
 
 // rewriteBinary normalizes one maximal same-operator group exactly once. It
-// flattens the whole group, rewrites each operand, and re-flattens any group a
-// rewritten operand exposes through double-negation elimination, then
-// deduplicates that flattened set a single time. Because the group is flattened
-// and compared once rather than at every ancestor, a chain of n operands costs
-// O(n^2) comparisons instead of O(n^3). A non-logical binary passes through.
+// flattens the whole group, rewrites each operand, and deduplicates the result a
+// single time. Flattening penetrates eliminable double negations, so a
+// same-operator subgroup hidden behind NOT NOT joins this one work unit instead
+// of being deduplicated again by its own rewrite: a chain of n operands costs
+// O(n^2) comparisons rather than O(n^3), even when every link is wrapped in a
+// double negation. A non-logical binary passes through.
 func (o optimizer) rewriteBinary(binary *BinaryExpr) Predicate {
 	if !binary.operator.IsLogicalOperator() {
 		return binary
@@ -46,12 +47,8 @@ func (o optimizer) rewriteBinary(binary *BinaryExpr) Predicate {
 
 	operands := o.appendLogicalTerms(nil, binary.operator, binary)
 	rewritten := make([]Predicate, len(operands))
-	changed := false
 	for index, operand := range operands {
 		rewritten[index] = o.rewrite(operand)
-		if rewritten[index] != operand {
-			changed = true
-		}
 	}
 
 	var terms []Predicate
@@ -63,16 +60,19 @@ func (o optimizer) rewriteBinary(binary *BinaryExpr) Predicate {
 		return o.joinLogical(binary.operator, unique)
 	}
 
-	if !changed {
-		return binary
-	}
+	// rebuildGroup returns binary unchanged when no operand moved and no double
+	// negation collapsed, so the identity flag the caller once tracked is implicit.
 	index := 0
 	return o.rebuildGroup(binary, rewritten, &index)
 }
 
 // appendLogicalTerms collects the operands of the maximal subtree joined by
-// operator, descending only through same-operator binaries.
+// operator. It descends through same-operator binaries and penetrates eliminable
+// double negations, so NOT NOT (X and Y) contributes X and Y to an AND group
+// rather than a single nested operand. A non-eliminable NOT or a different
+// operator stays one operand.
 func (o optimizer) appendLogicalTerms(terms []Predicate, operator Operator, predicate Predicate) []Predicate {
+	predicate = stripDoubleNegations(predicate)
 	binary, ok := predicate.(*BinaryExpr)
 	if !ok || binary.operator != operator {
 		return append(terms, predicate)
@@ -86,12 +86,30 @@ func (o optimizer) appendLogicalTerms(terms []Predicate, operator Operator, pred
 	return o.appendLogicalTerms(terms, operator, right)
 }
 
+// stripDoubleNegations removes paired NOT operators, which cancel, returning the
+// first predicate that is not a double negation. An odd negation keeps its
+// outermost NOT.
+func stripDoubleNegations(predicate Predicate) Predicate {
+	for {
+		outer, ok := predicate.(*UnaryExpr)
+		if !ok || outer.operator != OpNot {
+			return predicate
+		}
+		inner, ok := outer.right.(*UnaryExpr)
+		if !ok || inner.operator != OpNot {
+			return predicate
+		}
+		predicate = inner.right
+	}
+}
+
 // rebuildGroup rebuilds the same-operator group rooted at binary, substituting
 // each operand in flatten order with operands[*index] while preserving the
-// original shape and source positions. It is used only when deduplication
-// removed nothing, so a group whose only change is a rewritten operand keeps its
-// structure instead of collapsing to a canonical left-deep chain. Its descent
-// mirrors appendLogicalTerms so the operand indexing stays aligned.
+// original shape and source positions. A group whose only change is a rewritten
+// operand keeps its structure instead of collapsing to a canonical left-deep
+// chain, and an unchanged group returns binary itself. Its descent mirrors
+// appendLogicalTerms, penetrating the same double negations, so the operand
+// indexing stays aligned and a collapsed NOT NOT drops out of the rebuilt tree.
 func (o optimizer) rebuildGroup(binary *BinaryExpr, operands []Predicate, index *int) Predicate {
 	left := o.rebuildSide(binary.left.(Predicate), binary.operator, operands, index)
 	right := o.rebuildSide(binary.right.(Predicate), binary.operator, operands, index)
@@ -105,7 +123,7 @@ func (o optimizer) rebuildGroup(binary *BinaryExpr, operands []Predicate, index 
 }
 
 func (o optimizer) rebuildSide(side Predicate, operator Operator, operands []Predicate, index *int) Predicate {
-	if inner, ok := side.(*BinaryExpr); ok && inner.operator == operator {
+	if inner, ok := stripDoubleNegations(side).(*BinaryExpr); ok && inner.operator == operator {
 		_, leftOK := inner.left.(Predicate)
 		_, rightOK := inner.right.(Predicate)
 		if leftOK && rightOK {
