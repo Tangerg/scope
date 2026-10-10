@@ -172,9 +172,9 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 	if e.state.Turn.Outcome == nil {
 		return e.openWait(1)
 	}
-	decision, err := e.state.decision()
-	if err != nil {
-		return agent.Transition{}, err
+	decision, decisionErr := e.state.decision()
+	if decisionErr != nil {
+		return agent.Transition{}, decisionErr
 	}
 	// A turn decided in an earlier Step starts the next turn; one decided by this
 	// outcome applies first. Both reuse the one decoded Decision.
