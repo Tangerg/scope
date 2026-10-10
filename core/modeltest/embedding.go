@@ -119,12 +119,10 @@ func RunIntegrationEmbedding(t *testing.T, probe IntegrationEmbeddingProbe) {
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if len(response.Outputs) != len(request.Texts) {
-		t.Fatalf("got %d outputs; want %d", len(response.Outputs), len(request.Texts))
-	}
-	for index, output := range response.Outputs {
-		if len(output.Embedding) == 0 {
-			t.Errorf("output %d has empty embedding", index)
-		}
+	// ValidateFor owns the complete output/request correspondence: per-output
+	// count, consistent dimensions, finite components, and Usage. A weaker local
+	// rule here would pass responses the formal contract rejects.
+	if err := response.ValidateFor(request); err != nil {
+		t.Fatalf("response: %v", err)
 	}
 }

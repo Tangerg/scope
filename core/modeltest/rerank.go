@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -86,7 +87,10 @@ func (r rerankObservation) assert(t *testing.T, contract RerankContract, request
 		t.Errorf("URL = %q, want %q", r.path, contract.ExpectedPath)
 	}
 	wire := r.request
-	if wire.Model != contract.ModelID || wire.Query != request.Query || len(wire.Documents) != len(request.Documents) {
+	// The returned result carries only indices, so the oracle must confirm the
+	// adapter sent the exact documents in order; a length check alone would miss
+	// reordered or substituted content.
+	if wire.Model != contract.ModelID || wire.Query != request.Query || !slices.Equal(wire.Documents, request.Documents) {
 		t.Fatalf("wire request = %#v", wire)
 	}
 	limit := wire.TopN
