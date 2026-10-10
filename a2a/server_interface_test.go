@@ -1,6 +1,7 @@
 package a2a_test
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"net/http"
@@ -12,6 +13,59 @@ import (
 
 	"github.com/Tangerg/scope/a2a"
 )
+
+func TestServerRejectsCapabilitiesItCannotFulfill(t *testing.T) {
+	iface := []*sdka2a.AgentInterface{sdka2a.NewAgentInterface("https://agent.example/rpc", sdka2a.TransportProtocolJSONRPC)}
+	for name, capabilities := range map[string]sdka2a.AgentCapabilities{
+		"push notifications": {PushNotifications: true},
+		"extended card":      {ExtendedAgentCard: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := a2a.NewHTTPHandler(a2a.ServerConfig{
+				Agent:     echoAgent{},
+				Card:      &sdka2a.AgentCard{Name: "echo", SupportedInterfaces: iface, Capabilities: capabilities},
+				TaskStore: testTaskStore(t),
+			})
+			if !errors.Is(err, a2a.ErrInvalidCard) {
+				t.Fatalf("NewHTTPHandler error = %v, want ErrInvalidCard", err)
+			}
+		})
+	}
+	// The executor streams, so a card may advertise streaming.
+	if _, err := a2a.NewHTTPHandler(a2a.ServerConfig{
+		Agent:     echoAgent{},
+		Card:      &sdka2a.AgentCard{Name: "echo", SupportedInterfaces: iface, Capabilities: sdka2a.AgentCapabilities{Streaming: true}},
+		TaskStore: testTaskStore(t),
+	}); err != nil {
+		t.Fatalf("streaming card rejected: %v", err)
+	}
+}
+
+func TestServerServesCardAsItsV2Encoding(t *testing.T) {
+	card := &sdka2a.AgentCard{
+		Name:                "echo",
+		SupportedInterfaces: []*sdka2a.AgentInterface{sdka2a.NewAgentInterface("https://agent.example/rpc", sdka2a.TransportProtocolJSONRPC)},
+		Capabilities:        sdka2a.AgentCapabilities{Streaming: true},
+	}
+	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The served bytes must be the one v2 encoding frozen at construction, never
+	// a second encoding through the SDK's JSON v1 path.
+	want, err := jsonv2.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, a2asrv.WellKnownAgentCardPath, nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("card status = %d", recorder.Code)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), want) {
+		t.Fatalf("served card = %s, want its JSON v2 encoding %s", recorder.Body.Bytes(), want)
+	}
+}
 
 func TestServerRejectsInterfacesItCannotServe(t *testing.T) {
 	jsonRPC := func(endpoint string) *sdka2a.AgentInterface {
@@ -35,7 +89,7 @@ func TestServerRejectsInterfacesItCannotServe(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := a2a.NewHTTPHandler(a2a.ServerConfig{
-				Agent: echoAgent{}, Card: &sdka2a.AgentCard{Name: "echo", SupportedInterfaces: interfaces},
+				Agent: echoAgent{}, Card: &sdka2a.AgentCard{Name: "echo", SupportedInterfaces: interfaces}, TaskStore: testTaskStore(t),
 			})
 			if !errors.Is(err, a2a.ErrInvalidRPCInterface) {
 				t.Fatalf("NewHTTPHandler error = %v", err)
@@ -51,7 +105,7 @@ func TestServerRoutesOnlyTheAdvertisedPath(t *testing.T) {
 			sdka2a.NewAgentInterface("https://agent.example/rpc/{literal}/", sdka2a.TransportProtocolJSONRPC),
 		},
 	}
-	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card})
+	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

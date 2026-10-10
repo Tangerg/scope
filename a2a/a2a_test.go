@@ -12,6 +12,7 @@ import (
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	"github.com/Tangerg/scope/a2a"
 	"github.com/Tangerg/scope/core/chat"
@@ -26,7 +27,13 @@ func (echoAgent) Run(_ context.Context, input string) iter.Seq2[string, error] {
 	}
 }
 
-func TestNewHTTPHandlerRequiresAgentAndCard(t *testing.T) {
+// testTaskStore is a bounded-for-tests in-memory task store the Host owns.
+func testTaskStore(t testing.TB) taskstore.Store {
+	t.Helper()
+	return taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
+}
+
+func TestNewHTTPHandlerRequiresAgentCardAndTaskStore(t *testing.T) {
 	card := &sdka2a.AgentCard{Name: "test"}
 	var nilAgent *echoAgent
 	tests := []struct {
@@ -36,18 +43,23 @@ func TestNewHTTPHandlerRequiresAgentAndCard(t *testing.T) {
 	}{
 		{
 			name:   "agent",
-			config: a2a.ServerConfig{Card: card},
+			config: a2a.ServerConfig{Card: card, TaskStore: testTaskStore(t)},
 			want:   a2a.ErrNilAgent,
 		},
 		{
 			name:   "typed nil agent",
-			config: a2a.ServerConfig{Agent: nilAgent, Card: card},
+			config: a2a.ServerConfig{Agent: nilAgent, Card: card, TaskStore: testTaskStore(t)},
 			want:   a2a.ErrNilAgent,
 		},
 		{
 			name:   "card",
-			config: a2a.ServerConfig{Agent: echoAgent{}},
+			config: a2a.ServerConfig{Agent: echoAgent{}, TaskStore: testTaskStore(t)},
 			want:   a2a.ErrNilCard,
+		},
+		{
+			name:   "task store",
+			config: a2a.ServerConfig{Agent: echoAgent{}, Card: card},
+			want:   a2a.ErrNilTaskStore,
 		},
 	}
 
@@ -73,7 +85,7 @@ func TestNewHTTPHandlerRejectsInvalidCard(t *testing.T) {
 				Signatures: []sdka2a.AgentCardSignature{{
 					Header: map[string]any{"unsupported": func() {}},
 				}},
-			}},
+			}, TaskStore: testTaskStore(t)},
 			want: a2a.ErrInvalidCard,
 		},
 	}
@@ -95,7 +107,7 @@ func TestNewHTTPHandlerSnapshotsAgentCard(t *testing.T) {
 			ID: "read", Name: "Read",
 		}},
 	}
-	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card})
+	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +153,7 @@ func TestRoundTrip(t *testing.T) {
 		},
 	}
 
-	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card})
+	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t)})
 	if err != nil {
 		t.Fatalf("NewHTTPHandler: %v", err)
 	}

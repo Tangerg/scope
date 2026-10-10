@@ -11,6 +11,8 @@ var (
 	ErrNilCard     = errors.New("a2a: agent card must not be nil")
 	ErrInvalidCard = errors.New("a2a: invalid agent card")
 
+	ErrNilTaskStore = errors.New("a2a: task store must not be nil")
+
 	ErrNilAgent = errors.New("a2a: agent must not be nil")
 
 	ErrEmptyCardURL       = errors.New("a2a: card URL must not be empty")

@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -54,7 +56,8 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 		Skills:       []sdka2a.AgentSkill{{ID: "fail", Name: "Fail", Description: "Return a failure", Tags: []string{"fail"}}},
 	}
 	var err error
-	delegate, err = NewHTTPHandler(ServerConfig{Agent: failingTraceAgent{}, Card: card})
+	delegate, err = NewHTTPHandler(ServerConfig{Agent: failingTraceAgent{}, Card: card,
+		TaskStore: taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})})
 	if err != nil {
 		t.Fatal(err)
 	}

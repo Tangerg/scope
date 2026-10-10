@@ -8,6 +8,7 @@ import (
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	"github.com/Tangerg/scope/a2a"
 )
@@ -21,6 +22,8 @@ func ExampleNewHTTPHandler() {
 				sdka2a.NewAgentInterface("https://agent.example/custom/rpc", sdka2a.TransportProtocolJSONRPC),
 			},
 		},
+		// The Host owns the task store and its retention; this one is unbounded.
+		TaskStore: taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()}),
 	})
 	if err != nil {
 		panic(err)
