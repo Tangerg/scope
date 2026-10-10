@@ -50,8 +50,9 @@ func (p *Process) Relation() ProcessRelation {
 	return p.handle.relation
 }
 
-// StartedAt returns the observed UTC lifecycle start time recorded before
-// initialization, retained when the Process is published.
+// StartedAt returns the observed UTC lifecycle start time stamped when the
+// Process is first prepared for publication, after admission and initialization,
+// and retained unchanged across recovery.
 func (p *Process) StartedAt() time.Time {
 	return p.handle.startedAt
 }

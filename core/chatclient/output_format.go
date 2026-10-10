@@ -82,10 +82,11 @@ func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
 }
 
 // validate guards against a zero-value format that skipped the constructors.
-// The constructors freeze a valid contract (JSONSchema validates and compiles
-// its schema once; Text and JSON are fixed valid literals), and the fields are
-// private, so there is no other way to hold a contract. Re-validating it here
-// would recompile the JSON Schema on every call and discard the result.
+// The constructors freeze a valid contract at construction (Text and JSON are
+// fixed valid literals; JSONSchema derives, compiles, and validates its schema),
+// and the fields are private, so there is no other way to hold a contract.
+// Re-validating it here would recompile the JSON Schema on every call and
+// discard the result.
 func (o OutputFormat[T]) validate() error {
 	if o.decoder == nil {
 		return fmt.Errorf("%w: nil decoder", ErrInvalidOutputFormat)
