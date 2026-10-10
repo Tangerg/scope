@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 
@@ -73,17 +72,18 @@ func (c chatRerankingOutput) score(candidates rag.Candidates) (rag.Candidates, e
 		)
 	}
 
+	// The strict schema decode that precedes this already enforces the static
+	// bounds the tags declare (index >= 0, score in [0,1]). What remains depends
+	// on this call's candidates: the index upper bound, no duplicate index, and
+	// full coverage.
 	scored := slices.Clone(candidates)
 	seen := make([]bool, len(candidates))
 	for position, item := range c.Scores {
-		if item.Index < 0 || item.Index >= len(candidates) {
+		if item.Index >= len(candidates) {
 			return nil, fmt.Errorf("%w: scores[%d] index %d is out of range", rag.ErrInvalidReranking, position, item.Index)
 		}
 		if seen[item.Index] {
 			return nil, fmt.Errorf("%w: candidate index %d appears more than once", rag.ErrInvalidReranking, item.Index)
-		}
-		if math.IsNaN(item.Score) || math.IsInf(item.Score, 0) || item.Score < 0 || item.Score > 1 {
-			return nil, fmt.Errorf("%w: scores[%d] must be between 0 and 1", rag.ErrInvalidReranking, position)
 		}
 		seen[item.Index] = true
 		scored[item.Index].Score = rag.Score(item.Score)

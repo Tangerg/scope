@@ -11,7 +11,7 @@ import (
 )
 
 type targetedTextTransformer struct {
-	prompt textModelPrompt
+	prompt modelPrompt[string]
 	target string
 }
 
@@ -33,8 +33,9 @@ func newTargetedTextTransformer(
 	if target != strings.TrimSpace(target) {
 		return targetedTextTransformer{}, fmt.Errorf("rag: %s must not have surrounding whitespace", targetLabel)
 	}
-	prompt, err := newTextModelPrompt(
+	prompt, err := newModelPrompt(
 		model,
+		chatclient.Text(),
 		template,
 		fallback,
 		promptVariableTarget,
@@ -57,5 +58,5 @@ func (t targetedTextTransformer) transform(ctx context.Context, query rag.Query)
 	if err != nil {
 		return rag.Query{}, err
 	}
-	return query.WithText(text)
+	return queryFromModel(query, text)
 }

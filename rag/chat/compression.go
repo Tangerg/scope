@@ -33,7 +33,7 @@ type CompressionTransformerConfig struct {
 var _ rag.Transformer = (*CompressionTransformer)(nil)
 
 type CompressionTransformer struct {
-	prompt textModelPrompt
+	prompt modelPrompt[string]
 }
 
 type compressionPromptVariables struct {
@@ -42,8 +42,9 @@ type compressionPromptVariables struct {
 }
 
 func NewCompressionTransformer(config CompressionTransformerConfig) (*CompressionTransformer, error) {
-	prompt, err := newTextModelPrompt(
+	prompt, err := newModelPrompt(
 		config.Model,
+		chatclient.Text(),
 		config.PromptTemplate,
 		compressionDefaultTemplate,
 		promptVariableHistory,
@@ -74,7 +75,7 @@ func (c *CompressionTransformer) Transform(ctx context.Context, query rag.Query)
 		return rag.Query{}, err
 	}
 
-	return query.WithText(compressed)
+	return queryFromModel(query, compressed)
 }
 
 func (c *CompressionTransformer) extractHistory(ctx context.Context, query rag.Query) (string, error) {
