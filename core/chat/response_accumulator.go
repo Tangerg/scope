@@ -20,7 +20,6 @@ type ResponseAccumulator struct {
 	finishReason    FinishReason
 	toolParts       map[string]int
 	seen            bool
-	hasMessage      bool
 }
 
 // accumulatedPart keeps growing text or tool arguments out of immutable strings.
@@ -81,7 +80,7 @@ func (r *ResponseAccumulator) Response() (*Response, error) {
 		return nil, fmt.Errorf("%w: stream ended without a finish reason", ErrInvalidResponse)
 	}
 	output := &Output{FinishReason: r.finishReason}
-	if r.hasMessage {
+	if len(r.parts) > 0 || len(r.messageMetadata) > 0 {
 		message := &Message{Role: RoleAssistant, Metadata: r.messageMetadata.Clone(), Parts: make([]Part, len(r.parts))}
 		for index := range r.parts {
 			message.Parts[index] = r.parts[index].snapshot()
@@ -171,7 +170,6 @@ func (r *ResponseAccumulator) merge(delta *ResponseDelta) {
 	if len(delta.Parts) == 0 && len(delta.MessageMetadata) == 0 {
 		return
 	}
-	r.hasMessage = true
 	mergeValidatedMetadata(&r.messageMetadata, delta.MessageMetadata)
 	for _, part := range delta.Parts {
 		r.mergePart(part)
