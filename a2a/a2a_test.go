@@ -61,6 +61,11 @@ func TestNewHTTPHandlerRequiresAgentCardAndTaskStore(t *testing.T) {
 			config: a2a.ServerConfig{Agent: echoAgent{}, Card: card},
 			want:   a2a.ErrNilTaskStore,
 		},
+		{
+			name:   "typed nil task store",
+			config: a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: (*taskstore.InMemory)(nil)},
+			want:   a2a.ErrNilTaskStore,
+		},
 	}
 
 	for _, test := range tests {

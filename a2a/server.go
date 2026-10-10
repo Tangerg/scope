@@ -10,6 +10,8 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+
+	"github.com/samber/lo"
 )
 
 type ServerConfig struct {
@@ -44,29 +46,33 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if config.Card == nil {
 		return nil, ErrNilCard
 	}
-	if config.TaskStore == nil {
+	if lo.IsNil(config.TaskStore) {
 		return nil, ErrNilTaskStore
 	}
-	capabilities, err := servedCapabilities(config.Card)
+
+	// Freeze the card into the bytes this handler serves and decode a copy it
+	// owns. Those frozen bytes are the single representation of what the server
+	// advertises and admits: the gate, the RPC route, and the served card all
+	// derive from them, so later mutation of config.Card or its Extensions slice
+	// changes none of them.
+	card, encoded, err := freezeCard(config.Card)
 	if err != nil {
 		return nil, err
 	}
-	cardHandler, err := newStaticAgentCardHandler(config.Card)
+	capabilities, err := servedCapabilities(card)
 	if err != nil {
 		return nil, err
 	}
-	rpcPath, err := serverRPCPath(config.Card)
+	rpcPath, err := serverRPCPath(card)
 	if err != nil {
 		return nil, err
 	}
 
-	// One frozen capability value both gates the handler and is projected by the
-	// served card, so the two cannot drift. Later mutation of config.Card changes
-	// neither the enforced gate nor the already-encoded card bytes.
 	requestHandler := a2asrv.NewHandler(exec,
 		a2asrv.WithCapabilityChecks(&capabilities),
 		a2asrv.WithTaskStore(config.TaskStore),
 	)
+	cardHandler := a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded})
 
 	rpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,19 +103,28 @@ func servedCapabilities(card *sdka2a.AgentCard) (sdka2a.AgentCapabilities, error
 	}
 }
 
-func newStaticAgentCardHandler(card *sdka2a.AgentCard) (http.Handler, error) {
-	// The encoded bytes are the one card representation this handler serves. The
-	// SDK's static handler would re-encode the card with JSON v1, whose rules
-	// differ from the v2 encoding validated here and which panics on failure.
+// freezeCard encodes the caller's card into the one byte representation this
+// handler serves, then decodes a copy the handler owns. The round-trip through
+// the validated v2 encoding is the whole freeze: the caller keeps no reference to
+// the owned card or its slices, so no element of Capabilities.Extensions can be
+// rewritten after construction to change admission. Encoding here also avoids the
+// SDK's JSON v1 re-encode, whose rules differ from the v2 form and which panics
+// on failure.
+func freezeCard(card *sdka2a.AgentCard) (*sdka2a.AgentCard, []byte, error) {
 	encoded, err := jsonv2.Marshal(card)
 	if err != nil {
-		return nil, fmt.Errorf("%w %q: encode: %w", ErrInvalidCard, card.Name, err)
+		return nil, nil, fmt.Errorf("%w %q: encode: %w", ErrInvalidCard, card.Name, err)
 	}
-	return a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded}), nil
+	owned := new(sdka2a.AgentCard)
+	if err := jsonv2.Unmarshal(encoded, owned); err != nil {
+		return nil, nil, fmt.Errorf("%w %q: decode: %w", ErrInvalidCard, card.Name, err)
+	}
+	return owned, encoded, nil
 }
 
-// staticAgentCard serves the card from the bytes frozen at construction. The SDK
-// prefers CardJSON when present, so the card is never re-encoded while serving.
+// staticAgentCard serves the card from the bytes frozen at construction. Both the
+// bytes and the card it returns are owned by the handler and derive from the same
+// freeze, so serving never re-encodes and the caller cannot mutate either.
 type staticAgentCard struct {
 	card    *sdka2a.AgentCard
 	encoded []byte
