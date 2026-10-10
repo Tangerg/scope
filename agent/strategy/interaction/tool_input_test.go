@@ -70,13 +70,13 @@ func TestToolInputResumesSequentiallyReusingOneWait(t *testing.T) {
 	for stage, answer := range []string{"first", "second"} {
 		pending := nextToolInputWait(t, ctx, engine, root, answered)
 		answered = append(answered, pending.WaitID())
-		id, err := agent.ParseSignalID(fmt.Sprintf("signal:answer-%d", stage))
-		if err != nil {
-			t.Fatal(err)
+		id, idErr := agent.ParseSignalID(fmt.Sprintf("signal:answer-%d", stage))
+		if idErr != nil {
+			t.Fatal(idErr)
 		}
-		signal, err := pending.ResponseSignal(id, json.RawMessage(`"`+answer+`"`))
-		if err != nil {
-			t.Fatal(err)
+		signal, signalErr := pending.ResponseSignal(id, json.RawMessage(`"`+answer+`"`))
+		if signalErr != nil {
+			t.Fatal(signalErr)
 		}
 		child := pendingToolProcess(t, engine, pending)
 		if accepted, deliveryErr := child.DeliverSignals(ctx, signal); deliveryErr != nil || !accepted {
