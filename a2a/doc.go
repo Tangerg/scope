@@ -7,7 +7,8 @@
 // responsibility rather than a hidden default.
 //
 // Remote tools execute exclusively unless [Endpoint.ConcurrencyPolicy]
-// declares which calls may safely overlap. HTTP JSON-RPC is the only transport
-// exposed here. Client and server spans retain error classifications without
-// raw messages; callers receive complete protocol errors.
+// declares which calls may safely overlap. The served handler is JSON-RPC; the
+// client opens the JSON-RPC and HTTP+JSON transports a card advertises. Client
+// and server spans retain error classifications without raw messages; callers
+// receive complete protocol errors.
 package a2a

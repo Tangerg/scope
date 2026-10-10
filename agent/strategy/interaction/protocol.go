@@ -63,8 +63,8 @@ type toolDispatchRequest struct {
 	Resume     *toolResume `json:"resume,omitzero"`
 }
 
-// toolResume continues the Tool with the input it requested. The Tool
-// Execution owns how many times it has paused.
+// toolResume continues the Tool with the input it requested, carrying the
+// originating request and the response delivered to it.
 type toolResume struct {
 	InputRequest  toolInputRequest `json:"input_request"`
 	InputResponse json.RawMessage  `json:"input_response"`

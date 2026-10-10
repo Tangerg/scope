@@ -197,7 +197,8 @@ func (e *executionState) complete(ctx context.Context, definition *Definition) (
 	if output.Attempts == nil {
 		output.Attempts = []Attempt{}
 	}
-	// The Engine owns the completed Output; the state keeps only its marker.
+	// The Engine owns the completed Output, so the state retains only its phase
+	// and input once completion is reported.
 	*e = executionState{Phase: phaseCompleted, Input: e.Input}
 	return output, nil
 }
