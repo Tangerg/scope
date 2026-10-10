@@ -262,10 +262,11 @@ func (e *execution) advanceToolCallBatch(ctx context.Context, consumedSignals ui
 		return e.rejectCall(consumedSignals, call, fmt.Sprintf("tool %q was not executed because model output reached its token limit; emit the complete call again", call.Name))
 	}
 	if delegate, delegated := e.definition.delegate(call.Name); delegated {
-		if _, err := delegate.prepareInput(call); err != nil {
+		input, err := delegate.prepareInput(call)
+		if err != nil {
 			return e.rejectCall(consumedSignals, call, err.Error())
 		}
-		effects, prepareErr := e.prepareDelegateChildren(ctx, calls)
+		effects, prepareErr := e.prepareDelegateChildren(ctx, calls, input)
 		if prepareErr != nil {
 			return agent.Transition{}, prepareErr
 		}
@@ -541,40 +542,32 @@ func (e *execution) finishChildBatch() error {
 	return nil
 }
 
-func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.ToolCall) ([]agent.Effect, error) {
+// prepareDelegateChildren opens the delegate window at the round cursor. The
+// caller already admitted and prepared the first call's input, rejecting it on
+// failure, so firstInput is reused here; each following delegate whose input
+// prepares extends the window until a non-delegate or an invalid input ends it.
+// Every call is prepared exactly once. A cancellation or construction failure
+// returns before beginChildren, so no partial batch is committed.
+func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.ToolCall, firstInput agent.Payload) ([]agent.Effect, error) {
 	start := e.state.ToolRound.nextCallIndex()
-	end := start
-	for end < uint32(len(calls)) {
+	batch := &childCallBatch{Kind: childCallsDelegate}
+	var effects []agent.Effect
+	for index := start; index < uint32(len(calls)); index++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		delegate, delegated := e.definition.delegate(calls[end].Name)
+		call := calls[index]
+		delegate, delegated := e.definition.delegate(call.Name)
 		if !delegated {
 			break
 		}
-		if _, err := delegate.prepareInput(calls[end]); err != nil {
-			break
-		}
-		end++
-	}
-	// The caller admitted calls[start] as a delegate before asking for this
-	// window. An empty window would leave the round cursor where it is, so the
-	// batch must always contain at least that call.
-	if end == start {
-		return nil, fmt.Errorf("%w: delegate window at ToolCall %d is empty", ErrInvalidExecutionState, start)
-	}
-	batch := &childCallBatch{Kind: childCallsDelegate,
-		Invocations: make([]*childInvocationState, end-start)}
-	effects := make([]agent.Effect, 0, len(batch.Invocations))
-	for index := range batch.Invocations {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		call := calls[start+uint32(index)]
-		delegate, _ := e.definition.delegate(call.Name)
-		input, err := delegate.prepareInput(call)
-		if err != nil {
-			return nil, err
+		input := firstInput
+		if index != start {
+			prepared, err := delegate.prepareInput(call)
+			if err != nil {
+				break
+			}
+			input = prepared
 		}
 		key, err := DelegateChildKey(e.state.ModelCallCount, call)
 		if err != nil {
@@ -587,8 +580,12 @@ func (e *execution) prepareDelegateChildren(ctx context.Context, calls []chat.To
 		if err != nil {
 			return nil, err
 		}
-		batch.Invocations[index] = &childInvocationState{}
+		batch.Invocations = append(batch.Invocations, &childInvocationState{})
 		effects = append(effects, effect)
+	}
+	// The caller admitted calls[start] as a delegate, so the window is non-empty.
+	if len(effects) == 0 {
+		return nil, fmt.Errorf("%w: delegate window at ToolCall %d is empty", ErrInvalidExecutionState, start)
 	}
 	e.state.ToolRound.beginChildren(batch)
 	return effects, nil
