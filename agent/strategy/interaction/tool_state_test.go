@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"math"
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -68,13 +67,11 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: request}
 	for _, state := range []toolExecutionState{
 		{Phase: toolReady, Call: call},
 		{Phase: toolAwaitingResult, Call: call},
-		{Phase: toolAwaitingResult, Call: call, Checkpoint: checkpoint},
-		{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint},
-		{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint, WaitID: &waitID},
+		{Phase: toolAwaitingWaitOpen, Call: call, InputRequest: &request},
+		{Phase: toolAwaitingWaitOpen, Call: call, InputRequest: &request, WaitID: &waitID},
 		{Phase: toolCompleted, Call: call},
 	} {
 		captured, captureErr := (&toolExecution{state: state}).Snapshot()
@@ -149,12 +146,11 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkpoint := &toolCheckpoint{PauseCount: 1, InputRequest: request}
 	definition, err := newToolDefinition("interaction.waiting.tools", "Resume one waiting Tool.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := toolExecutionState{Phase: toolAwaitingWaitOpen, Call: call, Checkpoint: checkpoint, WaitID: &waitID}
+	state := toolExecutionState{Phase: toolAwaitingWaitOpen, Call: call, InputRequest: &request, WaitID: &waitID}
 	captured, err := (&toolExecution{state: state}).Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -176,23 +172,35 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	}
 }
 
-func TestToolExecutionOwnsItsInputPauseCount(t *testing.T) {
+// toolInputRequestsEqual compares the private fields of two requests for tests.
+func toolInputRequestsEqual(a, b toolInputRequest) bool {
+	return bytes.Equal(a.prompt, b.prompt) &&
+		a.responseSchema.Equal(b.responseSchema) &&
+		bytes.Equal(a.continuationState, b.continuationState)
+}
+
+func TestToolInputWaitKeepsOnlyTheCurrentRequest(t *testing.T) {
 	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
 	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A Tool child may pause for input more than once. Each pause keeps only its
+	// current request, and dispatching the resume clears it, so no per-pause
+	// identity accumulates.
 	execution := &toolExecution{state: toolExecutionState{Phase: toolAwaitingResult, Call: call}}
-	for want := uint64(1); want <= 2; want++ {
+	for range 2 {
 		if _, err := execution.openInputWait(request); err != nil {
 			t.Fatal(err)
 		}
-		if execution.state.Checkpoint.PauseCount != want {
-			t.Fatalf("pause count = %d, want %d", execution.state.Checkpoint.PauseCount, want)
+		if execution.state.Phase != toolAwaitingWaitOpen || execution.state.InputRequest == nil || !toolInputRequestsEqual(*execution.state.InputRequest, request) {
+			t.Fatalf("state after openInputWait = %#v", execution.state)
 		}
-	}
-	execution.state.Checkpoint.PauseCount = math.MaxUint64
-	if _, err := execution.openInputWait(request); !errors.Is(err, ErrInvalidExecutionState) {
-		t.Fatalf("exhausted pause count = %v, want ErrInvalidExecutionState", err)
+		if _, err := execution.request(0, toolDispatchRequest{Invocation: call}); err != nil {
+			t.Fatal(err)
+		}
+		if execution.state.InputRequest != nil {
+			t.Fatal("resume dispatch retained the old input request")
+		}
 	}
 }

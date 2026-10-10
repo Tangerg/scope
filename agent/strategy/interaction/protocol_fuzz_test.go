@@ -30,7 +30,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		{
 			ToolCall: &toolDispatchRequest{
 				Invocation: toolCall{Call: call},
-				Resume:     &toolResume{InputRequest: fuzzToolCheckpoint(f).InputRequest, InputResponse: json.RawMessage(`"Ada"`)},
+				Resume:     &toolResume{InputRequest: fuzzToolInputRequest(f), InputResponse: json.RawMessage(`"Ada"`)},
 			},
 		},
 	} {
@@ -73,7 +73,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 	response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
 	result := chat.ToolResult{ID: "call", Name: "ask", Output: chat.NewTextToolOutput("Ada")}
 	failed := chat.ToolResult{ID: "call", Name: "ask", IsError: true, Output: chat.NewTextToolOutput("refused")}
-	checkpoint := fuzzToolCheckpoint(f)
+	request := fuzzToolInputRequest(f)
 	for _, signal := range []signalEnvelope{
 		{ModelResult: &modelCallResult{Response: response}},
 		{ModelResult: &modelCallResult{
@@ -81,7 +81,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: result.Output, AdvertisedToolNames: []string{"ask"}}}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
-		{ToolResult: &toolDispatchResult{InputRequest: &checkpoint.InputRequest}},
+		{ToolResult: &toolDispatchResult{InputRequest: &request}},
 		{InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {
@@ -120,7 +120,7 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 	})
 }
 
-func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
+func fuzzToolInputRequest(f *testing.F) toolInputRequest {
 	f.Helper()
 	request, err := newToolInputRequest(
 		json.RawMessage(`{"question":"Name?"}`),
@@ -130,7 +130,7 @@ func fuzzToolCheckpoint(f *testing.F) *toolCheckpoint {
 	if err != nil {
 		f.Fatal(err)
 	}
-	return &toolCheckpoint{PauseCount: 2, InputRequest: request}
+	return request
 }
 
 func TestInputResponseRequiresPresentJSON(t *testing.T) {

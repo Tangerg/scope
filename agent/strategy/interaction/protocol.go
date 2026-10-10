@@ -1,13 +1,10 @@
 package interaction
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"slices"
-	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -59,14 +56,6 @@ func (t toolCall) validate() error {
 		return fmt.Errorf("%w: tool_call: %w", ErrInvalidProtocol, err)
 	}
 	return nil
-}
-
-func (t toolCall) checkpointWaitKey(pauseCount uint64) (agent.WaitKey, error) {
-	hash := sha256.New()
-	hash.Write([]byte(t.Call.ID))
-	hash.Write([]byte{0})
-	hash.Write([]byte(strconv.FormatUint(uint64(pauseCount), 10)))
-	return agent.ParseWaitKey("interaction.input." + hex.EncodeToString(hash.Sum(nil)))
 }
 
 type toolDispatchRequest struct {
@@ -162,11 +151,6 @@ func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
 type toolDispatchResult struct {
 	Completion   *toolCallResult   `json:"completion,omitzero"`
 	InputRequest *toolInputRequest `json:"input_request,omitzero"`
-}
-
-type toolCheckpoint struct {
-	PauseCount   uint64           `json:"pause_count"`
-	InputRequest toolInputRequest `json:"input_request"`
 }
 
 func newModelEffect(
@@ -373,16 +357,6 @@ func (s signalEnvelope) validateSteer() error {
 		return fmt.Errorf("%w: steer signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return validateSteeringMessages(s.Steer.Messages)
-}
-
-func (t toolCheckpoint) validate() error {
-	if t.PauseCount == 0 {
-		return fmt.Errorf("%w: tool checkpoint pause count is required", ErrInvalidProtocol)
-	}
-	if !t.InputRequest.valid() {
-		return fmt.Errorf("%w: tool checkpoint input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
-	}
-	return nil
 }
 
 func decodeEffect(data json.RawMessage) (effectEnvelope, error) {

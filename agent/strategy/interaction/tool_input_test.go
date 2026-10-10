@@ -3,8 +3,10 @@ package interaction_test
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,105 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+// A Tool child reuses one logical input WaitKey for every pause. The second
+// wait can only open because the first wait's answer was consumed and closed,
+// so this exercises the removal of per-pause wait identity.
+func TestToolInputResumesSequentiallyReusingOneWait(t *testing.T) {
+	executable, err := tool.NewFunc(tool.FuncConfig{
+		Name: "ask_twice", Description: "Ask for input twice before completing.",
+	}, func(ctx context.Context, _ struct{}) (string, error) {
+		continuation, resumed := interaction.ToolInputContinuationFromContext(ctx)
+		if !resumed {
+			return "", interaction.RequireToolInput(
+				json.RawMessage(`{"question":"first?"}`), json.RawMessage(`{"type":"string","minLength":1}`), json.RawMessage(`{"stage":1}`))
+		}
+		var state struct {
+			Stage int `json:"stage"`
+		}
+		if err := jsonv2.Unmarshal(continuation.State(), &state); err != nil {
+			return "", err
+		}
+		if state.Stage == 1 {
+			return "", interaction.RequireToolInput(
+				json.RawMessage(`{"question":"second?"}`), json.RawMessage(`{"type":"string","minLength":1}`), json.RawMessage(`{"stage":2}`))
+		}
+		return "done", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		if request.Messages[len(request.Messages)-1].Role == chat.RoleTool {
+			return textResponse("done"), nil
+		}
+		return toolCallResponse(chat.ToolCall{ID: "ask", Name: "ask_twice", Arguments: `{}`}), nil
+	})
+	deployment := newDeployment(t, model, []tool.Tool{executable}, 2)
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	root, err := engine.Start(ctx, deployment.Deployment, interactionInput(t, "greet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answered []agent.WaitID
+	for stage, answer := range []string{"first", "second"} {
+		pending := nextToolInputWait(t, ctx, engine, root, answered)
+		answered = append(answered, pending.WaitID())
+		id, err := agent.ParseSignalID(fmt.Sprintf("signal:answer-%d", stage))
+		if err != nil {
+			t.Fatal(err)
+		}
+		signal, err := pending.ResponseSignal(id, json.RawMessage(`"`+answer+`"`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := pendingToolProcess(t, engine, pending)
+		if accepted, deliveryErr := child.DeliverSignals(ctx, signal); deliveryErr != nil || !accepted {
+			t.Fatalf("stage %d answer accepted=%t error=%v", stage, accepted, deliveryErr)
+		}
+	}
+	result, err := root.Await(ctx)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("result status=%s error=%v", result.Termination().Status(), err)
+	}
+	if len(answered) != 2 || answered[0] == answered[1] || !answered[0].Valid() || !answered[1].Valid() {
+		t.Fatalf("sequential wait identities = %v", answered)
+	}
+}
+
+// nextToolInputWait returns the pending Tool input once it advances past every
+// WaitID already answered, so a not-yet-consumed prior wait is never re-answered.
+func nextToolInputWait(t *testing.T, ctx context.Context, engine *agent.Engine, root *agent.Process, answered []agent.WaitID) interaction.PendingToolInput {
+	t.Helper()
+	for ctx.Err() == nil {
+		_, pending := captureToolInput(t, engine, root)
+		if !slicesContainsWaitID(answered, pending.WaitID()) {
+			return pending
+		}
+		runtime.Gosched()
+	}
+	t.Fatal(ctx.Err())
+	return interaction.PendingToolInput{}
+}
+
+func slicesContainsWaitID(ids []agent.WaitID, id agent.WaitID) bool {
+	for _, candidate := range ids {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
 
 func TestRequireToolInputSupportsErrorClassification(t *testing.T) {
 	err := interaction.RequireToolInput(

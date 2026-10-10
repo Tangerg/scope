@@ -78,12 +78,6 @@ func (t *toolInputRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (t toolInputRequest) equal(other toolInputRequest) bool {
-	return bytes.Equal(t.prompt, other.prompt) &&
-		t.responseSchema.Equal(other.responseSchema) &&
-		bytes.Equal(t.continuationState, other.continuationState)
-}
-
 func (t toolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
 	if !t.valid() {
 		return nil, ErrInvalidToolInputRequest

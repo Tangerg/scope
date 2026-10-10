@@ -4,7 +4,6 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"math"
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
@@ -12,6 +11,12 @@ import (
 )
 
 const toolExecutionStateKind = "interaction.tool_call"
+
+// toolInputWaitKey names the one input wait a Tool child holds open at a time.
+// Input waits are sequential: a Step consumes the previous wait's answer before
+// it requests the next, so the mailbox never sees this key open twice and the
+// wait never needs a per-pause identity.
+const toolInputWaitKey = "interaction.tool_input"
 
 type toolPhase string
 
@@ -24,10 +29,13 @@ const (
 )
 
 type toolExecutionState struct {
-	Phase      toolPhase       `json:"phase"`
-	Call       toolCall        `json:"call"`
-	Checkpoint *toolCheckpoint `json:"checkpoint,omitzero"`
-	WaitID     *agent.WaitID   `json:"wait_id,omitzero"`
+	Phase toolPhase `json:"phase"`
+	Call  toolCall  `json:"call"`
+	// InputRequest is the input the Tool is currently waiting on. It exists only
+	// while the Tool awaits input and is cleared once copied into the resume
+	// Effect, so no stale request outlives the wait it belongs to.
+	InputRequest *toolInputRequest `json:"input_request,omitzero"`
+	WaitID       *agent.WaitID     `json:"wait_id,omitzero"`
 }
 
 func (t toolExecutionState) phase() toolPhase {
@@ -41,10 +49,8 @@ func (t toolExecutionState) validate() error {
 	if err := t.Call.validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if t.Checkpoint != nil {
-		if err := t.Checkpoint.validate(); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
-		}
+	if t.InputRequest != nil && !t.InputRequest.valid() {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, ErrInvalidToolInputRequest)
 	}
 	if !t.continuationMatchesPhase() {
 		return fmt.Errorf("%w: Tool phase disagrees with its continuation", ErrInvalidExecutionState)
@@ -57,12 +63,10 @@ func (t toolExecutionState) continuationMatchesPhase() bool {
 		return false
 	}
 	switch t.Phase {
-	case toolReady, toolCompleted:
-		return t.Checkpoint == nil
+	case toolReady, toolCompleted, toolAwaitingResult:
+		return t.InputRequest == nil
 	case toolAwaitingWaitOpen:
-		return t.Checkpoint != nil
-	case toolAwaitingResult:
-		return true
+		return t.InputRequest != nil
 	default:
 		return false
 	}
@@ -180,7 +184,7 @@ func (t *toolExecution) acceptInputResponse(signal agent.Signal, envelope signal
 	}
 	return t.request(1, toolDispatchRequest{
 		Invocation: t.state.Call,
-		Resume:     &toolResume{InputRequest: t.state.Checkpoint.InputRequest, InputResponse: envelope.InputResponse},
+		Resume:     &toolResume{InputRequest: *t.state.InputRequest, InputResponse: envelope.InputResponse},
 	})
 }
 
@@ -197,6 +201,7 @@ func (t *toolExecution) request(consumed uint32, call toolDispatchRequest) (agen
 	if err != nil {
 		return agent.Transition{}, err
 	}
+	t.state.InputRequest = nil
 	t.state.WaitID = nil
 	t.state.Phase = toolAwaitingResult
 	return agent.Continue(consumed, effect)
@@ -218,22 +223,14 @@ func (t *toolExecution) acceptResult(envelope signalEnvelope) (agent.Transition,
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	t.state.Checkpoint = nil
+	t.state.InputRequest = nil
 	t.state.WaitID = nil
 	t.state.Phase = toolCompleted
 	return agent.Complete(1, output)
 }
 
 func (t *toolExecution) openInputWait(request toolInputRequest) (agent.Transition, error) {
-	previous := uint64(0)
-	if t.state.Checkpoint != nil {
-		previous = t.state.Checkpoint.PauseCount
-	}
-	if previous == math.MaxUint64 {
-		return agent.Transition{}, fmt.Errorf("%w: Tool input pause count is exhausted", ErrInvalidExecutionState)
-	}
-	checkpoint := toolCheckpoint{PauseCount: previous + 1, InputRequest: request}
-	key, err := t.state.Call.checkpointWaitKey(checkpoint.PauseCount)
+	key, err := agent.ParseWaitKey(toolInputWaitKey)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -241,7 +238,7 @@ func (t *toolExecution) openInputWait(request toolInputRequest) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	t.state.Checkpoint = &checkpoint
+	t.state.InputRequest = &request
 	t.state.Phase = toolAwaitingWaitOpen
 	return agent.Continue(1, effect)
 }

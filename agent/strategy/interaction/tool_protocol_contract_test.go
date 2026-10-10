@@ -46,7 +46,7 @@ func TestToolDeploymentSeparatesInvocationAndCompletion(t *testing.T) {
 	if err = definition.Descriptor().ValidateOutput(output); err != nil {
 		t.Fatal(err)
 	}
-	paused, err := agent.ParsePayload(json.RawMessage(`{"checkpoint":{"pause_count":1},"direct":false}`))
+	paused, err := agent.ParsePayload(json.RawMessage(`{"input_request":{"prompt":"x"},"direct":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,11 +83,11 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 		t.Fatalf("checkpoint JSON = %s, want %s", encoded, want)
 	}
 	var restored toolInputRequest
-	if err = jsonv2.Unmarshal(encoded, &restored); err != nil || !restored.equal(request) {
+	if err = jsonv2.Unmarshal(encoded, &restored); err != nil || !toolInputRequestsEqual(restored, request) {
 		t.Fatalf("request round trip: %s, %v", encoded, err)
 	}
 	clear(encoded)
-	if !restored.equal(request) {
+	if !toolInputRequestsEqual(restored, request) {
 		t.Fatal("outward JSON mutated an immutable request")
 	}
 	for _, test := range []struct {
@@ -103,7 +103,7 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 		if err = jsonv2.Unmarshal([]byte(test.raw), &restored); !errors.Is(err, test.want) {
 			t.Fatalf("invalid request %s: %v, want %v", test.raw, err, test.want)
 		}
-		if !restored.equal(request) {
+		if !toolInputRequestsEqual(restored, request) {
 			t.Fatal("failed decode changed the admitted request")
 		}
 	}
