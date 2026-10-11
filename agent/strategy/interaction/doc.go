@@ -46,9 +46,12 @@
 // unknown or waits for input. A valid tool.Failure produces its model-visible
 // error ToolResult and disposition; its Cause cannot turn it into
 // cancellation, input, or host control. HostFailure, ordinary errors, invalid
-// output, cancellation, deadlines, and panics leave the Tool Effect unknown
-// until the Host settles it; terminating the Process retains those identities
-// without establishing that external work failed. Observer callbacks describe
+// output, cancellation, deadlines, and a panic from Tool.Call leave the Tool
+// Effect unknown until the Host settles it; terminating the Process retains
+// those identities without establishing that external work failed. A panic from
+// a tool's input validator is instead a definite failure classified before
+// Tool.Call runs: it fails the Step without reaching the model and leaves no
+// unknown Effect. Observer callbacks describe
 // attempts and never replace the Engine's settlement boundary. A complete
 // round continues to the model or completes directly only after its
 // Checkpoint is acknowledged. Recovery never replays Tools or models: Hosts

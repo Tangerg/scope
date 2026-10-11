@@ -24,8 +24,9 @@ type Template struct {
 	compiled *template.Template
 }
 
-// ParseTemplate rejects templates whose variable paths or functions could make
-// rendering depend on ambient state.
+// ParseTemplate compiles an immutable prompt template from a non-empty source.
+// It rejects a blank source and any parse error, and configures rendering to
+// fail on a missing map key rather than emit placeholder text.
 func ParseTemplate(source string) (*Template, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, fmt.Errorf("%w: source is empty", ErrInvalidTemplate)
