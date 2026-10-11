@@ -35,10 +35,22 @@ func TestRun(t *testing.T) {
 }
 
 func TestVisitorConformanceAgreesWithCanonicalParser(t *testing.T) {
+	// The canonical DSL round-trips through text, so supplying CompileText also
+	// exercises the numeral-precision and segment-kind checks. Its numeric domain
+	// is float64, matching the parser's literal formatting.
 	storetest.VisitorConformance(t, func(source string) error {
 		_, err := filter.Parse(source)
 		return err
-	}, storetest.Options{})
+	}, storetest.Options{
+		CompileText: func(source string) (string, error) {
+			predicate, err := filter.Parse(source)
+			if err != nil {
+				return "", err
+			}
+			return predicate.String(), nil
+		},
+		NumericDomainIsFloat64: true,
+	})
 }
 
 type validatingCapabilities struct{ allCapabilities }
