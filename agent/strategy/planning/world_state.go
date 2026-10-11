@@ -120,11 +120,9 @@ func (w WorldState) Key() string {
 }
 
 func (w WorldState) MarshalJSON() ([]byte, error) {
-	conditions := slices.Clone(w.conditions)
-	if conditions == nil {
-		conditions = []Condition{}
-	}
-	return jsonv2.Marshal(worldStateWire{Conditions: conditions})
+	// Marshal only reads conditions, and jsonv2 encodes a nil slice as [], so the
+	// "conditions":[] shape needs no defensive copy or nil normalization here.
+	return jsonv2.Marshal(worldStateWire{Conditions: w.conditions})
 }
 
 func (w *WorldState) UnmarshalJSON(data []byte) error {

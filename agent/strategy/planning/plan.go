@@ -83,11 +83,9 @@ func (p Plan) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {
 		return nil, ErrInvalidPlan
 	}
-	actions := slices.Clone(p.actions)
-	if actions == nil {
-		actions = []PlannedAction{}
-	}
-	return jsonv2.Marshal(planWire{Actions: actions})
+	// Marshal only reads actions, and jsonv2 encodes a nil slice as [], so the
+	// "actions":[] shape needs no defensive copy or nil normalization here.
+	return jsonv2.Marshal(planWire{Actions: p.actions})
 }
 
 func (p *Plan) UnmarshalJSON(data []byte) error {
