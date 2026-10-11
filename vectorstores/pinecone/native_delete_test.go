@@ -1,6 +1,7 @@
 package pinecone
 
 import (
+	"errors"
 	"net"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestNativeSDKConditionalDeleteWire(t *testing.T) {
 	go func() { done <- server.Serve(listener) }()
 	t.Cleanup(func() {
 		server.Stop()
-		if serveErr := <-done; serveErr != nil {
+		if serveErr := <-done; serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			t.Error(serveErr)
 		}
 	})

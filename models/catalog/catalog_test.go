@@ -31,6 +31,9 @@ func TestLookup(t *testing.T) {
 	if _, ok := catalog.Default.Lookup("anthropic", "no-such-model"); ok {
 		t.Fatal("unknown model must report ok=false")
 	}
+	if _, ok := catalog.Default.Lookup("does-not-exist", "claude-opus-5"); ok {
+		t.Fatal("unknown provider must report ok=false")
+	}
 }
 
 func TestProvider(t *testing.T) {

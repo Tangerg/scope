@@ -54,6 +54,32 @@ func TestPricingCacheFallbackAndBands(t *testing.T) {
 	if !approximately(below, 0.225) || !approximately(above, 0.775) {
 		t.Fatalf("tier costs = %v, %v", below, above)
 	}
+	if got := (catalog.PricingSchedule{}).Cost(catalog.Usage{InputTokens: 1000}); got != 0 {
+		t.Fatalf("empty schedule cost = %v", got)
+	}
+}
+
+func TestZeroValueReporting(t *testing.T) {
+	// IsZero drives jsonv2 omitzero: a zero value must be omittable, and any
+	// populated field must defeat omitzero so a real capability is never dropped.
+	if !(catalog.Model{}).IsZero() || !(catalog.Limits{}).IsZero() || !(catalog.Modalities{}).IsZero() {
+		t.Fatal("a zero value reported non-zero")
+	}
+	if (catalog.Model{ID: "x"}).IsZero() {
+		t.Fatal("Model with an ID reported zero")
+	}
+	if (catalog.Model{Limits: catalog.Limits{ContextWindow: 1}}).IsZero() {
+		t.Fatal("Model carrying limits reported zero")
+	}
+	if (catalog.Model{Modalities: catalog.Modalities{Input: []catalog.Modality{catalog.ModalityText}}}).IsZero() {
+		t.Fatal("Model carrying modalities reported zero")
+	}
+	if (catalog.Limits{MaxOutputTokens: 1}).IsZero() {
+		t.Fatal("populated Limits reported zero")
+	}
+	if (catalog.Modalities{Output: []catalog.Modality{catalog.ModalityText}}).IsZero() {
+		t.Fatal("populated Modalities reported zero")
+	}
 }
 
 func TestCapabilities(t *testing.T) {
