@@ -85,7 +85,7 @@ func TestLocalExecutorRejectsInvalidOperationLimits(t *testing.T) {
 	if _, err := executor.Glob(t.Context(), GlobRequest{Pattern: "*", MaxResults: -1}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Glob error = %v, want ErrInvalidInput", err)
 	}
-	if _, err := executor.Grep(t.Context(), GrepInput{Pattern: "x", BeforeContext: maximumContextLines + 1}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := executor.Grep(t.Context(), GrepRequest{Pattern: "x", BeforeContextLines: maximumContextLines + 1}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Grep error = %v, want ErrInvalidInput", err)
 	}
 }
@@ -612,7 +612,7 @@ func TestLocalExecutor_Grep_Content(t *testing.T) {
 	dir := t.TempDir()
 	writeTemp(t, dir, "a.txt", "foo bar\nbaz foo\nqux\n")
 	writeTemp(t, dir, "b.txt", "no match here\n")
-	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{Pattern: "foo"})
+	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{Pattern: "foo"})
 	if err != nil {
 		t.Fatalf("Grep: %v", err)
 	}
@@ -632,7 +632,7 @@ func TestLocalExecutor_Grep_FilesWithMatches(t *testing.T) {
 	writeTemp(t, dir, "a.txt", "foo\n")
 	writeTemp(t, dir, "b.txt", "foo\nfoo\n")
 	writeTemp(t, dir, "c.txt", "nothing\n")
-	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{
+	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{
 		Pattern:    "foo",
 		OutputMode: GrepOutputFilesWithMatches,
 	})
@@ -653,7 +653,7 @@ func TestLocalExecutor_Grep_Count(t *testing.T) {
 	writeTemp(t, dir, "a.txt", "foo\nbar\nfoo\n")
 	writeTemp(t, dir, "b.txt", "foo\n")
 	writeTemp(t, dir, "c.txt", "nothing\n")
-	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{
+	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{
 		Pattern:    "foo",
 		OutputMode: GrepOutputCount,
 	})
@@ -670,9 +670,28 @@ func TestLocalExecutor_Grep_Count(t *testing.T) {
 	}
 }
 
+func TestLocalExecutor_Grep_BoundsOversizeLine(t *testing.T) {
+	skipWithoutRipgrep(t)
+	dir := t.TempDir()
+	writeTemp(t, dir, "big.txt", "needle"+strings.Repeat("x", 2<<20)+"\n")
+	writeTemp(t, dir, "small.txt", "needle\n")
+	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{Pattern: "needle"})
+	if err != nil {
+		t.Fatalf("Grep: %v", err)
+	}
+	if !out.Truncated {
+		t.Fatal("a match line beyond the output budget was not reported as truncated")
+	}
+	for _, line := range out.Lines {
+		if len(line.Text) > grepOutputBudget {
+			t.Fatalf("returned a %d-byte line past the %d-byte budget", len(line.Text), grepOutputBudget)
+		}
+	}
+}
+
 func TestLocalExecutor_Grep_InvalidMode(t *testing.T) {
 	dir := t.TempDir()
-	_, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{
+	_, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{
 		Pattern:    "foo",
 		OutputMode: "bogus",
 	})
@@ -712,8 +731,8 @@ func TestLocalExecutor_Grep_AsymmetricContext(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			out, err := executor.Grep(t.Context(), GrepInput{
-				Pattern: "match", BeforeContext: test.before, AfterContext: test.after,
+			out, err := executor.Grep(t.Context(), GrepRequest{
+				Pattern: "match", BeforeContextLines: test.before, AfterContextLines: test.after,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -729,8 +748,8 @@ func TestLocalExecutor_Grep_ReturnsStructuredContext(t *testing.T) {
 	skipWithoutRipgrep(t)
 	dir := t.TempDir()
 	writeTemp(t, dir, "with:colon.txt", "before\nmatch here\nafter\n")
-	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepInput{
-		Pattern: "match", BeforeContext: 1, AfterContext: 1,
+	out, err := mustLocalExecutor(t, dir).Grep(t.Context(), GrepRequest{
+		Pattern: "match", BeforeContextLines: 1, AfterContextLines: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -751,7 +770,7 @@ func TestLocalExecutor_Grep_ReturnsStructuredContext(t *testing.T) {
 
 func TestLocalExecutor_GrepRequiresRipgrep(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	_, err := mustLocalExecutor(t, t.TempDir()).Grep(t.Context(), GrepInput{Pattern: "match"})
+	_, err := mustLocalExecutor(t, t.TempDir()).Grep(t.Context(), GrepRequest{Pattern: "match"})
 	if !errors.Is(err, ErrRipgrepUnavailable) {
 		t.Fatalf("Grep error = %v, want ErrRipgrepUnavailable", err)
 	}

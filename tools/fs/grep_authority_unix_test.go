@@ -31,7 +31,7 @@ func TestGrepReadsOpenedFileAfterPathReplacement(t *testing.T) {
 		t.Fatal(checkErr)
 	}
 	t.Setenv("PATH", bin)
-	result, err := mustLocalExecutor(t, root).Grep(t.Context(), GrepInput{Path: "selected.txt", Pattern: "marker"})
+	result, err := mustLocalExecutor(t, root).Grep(t.Context(), GrepRequest{Path: "selected.txt", Pattern: "marker"})
 	if err != nil {
 		t.Fatal(err)
 	}

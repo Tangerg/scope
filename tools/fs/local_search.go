@@ -15,6 +15,10 @@ const (
 	defaultGlobMaxResults = 100
 	maximumSearchResults  = 1000
 	maximumContextLines   = 20
+	// grepOutputBudget caps the raw ripgrep JSON a single search collects, so one
+	// oversized match line cannot be decoded and accumulated whole regardless of
+	// the result count. Counting wire bytes also charges JSON-escape inflation.
+	grepOutputBudget = 1 << 20
 )
 
 func searchResultLimit(requested, fallback int) (int, error) {

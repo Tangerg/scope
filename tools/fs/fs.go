@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -52,7 +51,7 @@ type Globber interface {
 // Grepper lets a backend own its content-search engine and filesystem boundary.
 // Like Reader, it must support concurrent backend calls.
 type Grepper interface {
-	Grep(ctx context.Context, in GrepInput) (GrepResponse, error)
+	Grep(ctx context.Context, request GrepRequest) (GrepResponse, error)
 }
 
 type ReadInput struct {
@@ -139,56 +138,6 @@ func (g GrepOutputMode) Valid() bool {
 	default:
 		return false
 	}
-}
-
-type GrepInput struct {
-	Pattern    string // regex
-	Path       string // file or directory below the executor's authority root
-	Glob       string // optional file filter ("*.go", "**/*.ts", ...)
-	FileType   string // rg-style ("go", "ts", "rust", ...). Backend decides mapping.
-	IgnoreCase bool
-	Multiline  bool
-
-	BeforeContext int
-	AfterContext  int
-
-	OutputMode GrepOutputMode // zero resolves to GrepOutputContent
-	MaxResults int
-}
-
-func (g GrepInput) resultLimit() (int, error) {
-	for _, lines := range []int{g.BeforeContext, g.AfterContext} {
-		if lines < 0 || lines > maximumContextLines {
-			return 0, fmt.Errorf("%w: grep context lines must be between 0 and %d", ErrInvalidInput, maximumContextLines)
-		}
-	}
-	limit, err := searchResultLimit(g.MaxResults, defaultGrepMaxResults)
-	if err != nil {
-		return 0, err
-	}
-	if g.Pattern == "" {
-		return 0, ErrEmptyPattern
-	}
-	return limit, nil
-}
-
-func (g GrepInput) ripgrepArguments(mode GrepOutputMode) []string {
-	args := []string{"--json", "--no-config", "--no-follow"}
-	if mode == GrepOutputContent {
-		if g.BeforeContext > 0 {
-			args = append(args, "--before-context", strconv.Itoa(g.BeforeContext))
-		}
-		if g.AfterContext > 0 {
-			args = append(args, "--after-context", strconv.Itoa(g.AfterContext))
-		}
-	}
-	if g.IgnoreCase {
-		args = append(args, "--ignore-case")
-	}
-	if g.Multiline {
-		args = append(args, "--multiline", "--multiline-dotall")
-	}
-	return append(args, "--regexp", g.Pattern, "--", "-")
 }
 
 type GrepLineKind string

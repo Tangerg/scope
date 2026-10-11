@@ -29,7 +29,7 @@ func (*typedNilBackend) ApplyPatch(context.Context, ApplyPatchRequest) (ApplyPat
 func (*typedNilBackend) Glob(context.Context, GlobRequest) (GlobResponse, error) {
 	panic("typed nil backend was used")
 }
-func (*typedNilBackend) Grep(context.Context, GrepInput) (GrepResponse, error) {
+func (*typedNilBackend) Grep(context.Context, GrepRequest) (GrepResponse, error) {
 	panic("typed nil backend was used")
 }
 

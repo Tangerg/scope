@@ -41,14 +41,14 @@ type grepSearch struct {
 	decoder    *ripgrepDecoder
 }
 
-func newGrepSearch(ctx context.Context, root *os.Root, executable string, in GrepInput, decoder *ripgrepDecoder) (grepSearch, error) {
+func newGrepSearch(ctx context.Context, root *os.Root, executable string, in GrepRequest, decoder *ripgrepDecoder) (grepSearch, error) {
 	filter, err := newGrepFileFilter(ctx, executable, in)
 	if err != nil {
 		return grepSearch{}, err
 	}
 	args := in.ripgrepArguments(decoder.mode)
 	// An empty run rejects an invalid pattern even when no file is selected.
-	if err := runRipgrep(ctx, executable, args, strings.NewReader(""), newRipgrepDecoder(decoder.mode, 1)); err != nil {
+	if err := runRipgrep(ctx, executable, args, strings.NewReader(""), newRipgrepDecoder(decoder.mode, 1, grepOutputBudget)); err != nil {
 		return grepSearch{}, err
 	}
 	return grepSearch{ctx: ctx, root: root, executable: executable, args: args, filter: filter, decoder: decoder}, nil
@@ -118,6 +118,9 @@ func runRipgrep(ctx context.Context, executable string, args []string, input io.
 		// The decode error is the result; killing and reaping are cleanup.
 		_ = command.Process.Kill()
 		_ = command.Wait()
+		if errors.Is(err, errGrepOutputBudget) {
+			return nil
+		}
 		return err
 	}
 	waitErr := command.Wait()
@@ -143,13 +146,13 @@ type grepFileFilter struct {
 	types []string
 }
 
-func newGrepFileFilter(ctx context.Context, executable string, in GrepInput) (grepFileFilter, error) {
-	if in.Glob != "" {
-		if err := validateGlobPattern(in.Glob); err != nil {
+func newGrepFileFilter(ctx context.Context, executable string, in GrepRequest) (grepFileFilter, error) {
+	if in.FileGlob != "" {
+		if err := validateGlobPattern(in.FileGlob); err != nil {
 			return grepFileFilter{}, err
 		}
 	}
-	filter := grepFileFilter{glob: in.Glob}
+	filter := grepFileFilter{glob: in.FileGlob}
 	if in.FileType == "" {
 		return filter, nil
 	}
@@ -228,28 +231,36 @@ func (r ripgrepEventData) line() (int, error) {
 	return int(r.LineNumber), nil
 }
 
-// ripgrepDecoder accumulates one bounded response across per-file ripgrep
-// runs. ripgrep names stdin rather than the file, so sourcePath attributes
-// each run's events to the root-relative path being searched.
+var errGrepOutputBudget = errors.New("fs.Grep: output byte budget exceeded")
+
+// ripgrepDecoder accumulates one bounded response across per-file ripgrep runs.
+// ripgrep names stdin rather than the file, so sourcePath attributes each run's
+// events to the root-relative path being searched. remaining is the wire-byte
+// budget shared across those runs.
 type ripgrepDecoder struct {
 	sourcePath string
 	mode       GrepOutputMode
 	maxResults int
+	remaining  int
 	response   GrepResponse
 	files      map[string]int
 }
 
-func newRipgrepDecoder(mode GrepOutputMode, maxResults int) *ripgrepDecoder {
-	return &ripgrepDecoder{mode: mode, maxResults: maxResults, files: make(map[string]int)}
+func newRipgrepDecoder(mode GrepOutputMode, maxResults, outputBudget int) *ripgrepDecoder {
+	return &ripgrepDecoder{mode: mode, maxResults: maxResults, remaining: outputBudget, files: make(map[string]int)}
 }
 
 func (r *ripgrepDecoder) decode(reader io.Reader) error {
-	decoder := jsontext.NewDecoder(reader)
+	decoder := jsontext.NewDecoder(&budgetReader{reader: reader, decoder: r})
 	for {
 		var event ripgrepEvent
 		if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
+			}
+			if errors.Is(err, errGrepOutputBudget) {
+				r.response.Truncated = true
+				return err
 			}
 			return fmt.Errorf("decode ripgrep event: %w", err)
 		}
@@ -257,6 +268,25 @@ func (r *ripgrepDecoder) decode(reader io.Reader) error {
 			return err
 		}
 	}
+}
+
+// budgetReader trips the decode once a search has read its byte budget, so a
+// pathological match line stops mid-event instead of being materialized whole.
+type budgetReader struct {
+	reader  io.Reader
+	decoder *ripgrepDecoder
+}
+
+func (b *budgetReader) Read(p []byte) (int, error) {
+	if b.decoder.remaining <= 0 {
+		return 0, errGrepOutputBudget
+	}
+	if len(p) > b.decoder.remaining {
+		p = p[:b.decoder.remaining]
+	}
+	n, err := b.reader.Read(p)
+	b.decoder.remaining -= n
+	return n, err
 }
 
 func (r *ripgrepDecoder) accept(event ripgrepEvent) error {

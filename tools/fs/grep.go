@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/samber/lo"
 
@@ -27,6 +28,41 @@ type GrepRequest struct {
 	OutputMode GrepOutputMode `json:"output_mode,omitempty" jsonschema:"enum=content,enum=files_with_matches,enum=count" jsonschema_description:"Result projection: content (default), files_with_matches, or count."`
 
 	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=1000" jsonschema_description:"Maximum result entries. Defaults to 250 and cannot exceed 1000."`
+}
+
+func (g GrepRequest) resultLimit() (int, error) {
+	for _, lines := range []int{g.BeforeContextLines, g.AfterContextLines} {
+		if lines < 0 || lines > maximumContextLines {
+			return 0, fmt.Errorf("%w: grep context lines must be between 0 and %d", ErrInvalidInput, maximumContextLines)
+		}
+	}
+	limit, err := searchResultLimit(g.MaxResults, defaultGrepMaxResults)
+	if err != nil {
+		return 0, err
+	}
+	if g.Pattern == "" {
+		return 0, ErrEmptyPattern
+	}
+	return limit, nil
+}
+
+func (g GrepRequest) ripgrepArguments(mode GrepOutputMode) []string {
+	args := []string{"--json", "--no-config", "--no-follow"}
+	if mode == GrepOutputContent {
+		if g.BeforeContextLines > 0 {
+			args = append(args, "--before-context", strconv.Itoa(g.BeforeContextLines))
+		}
+		if g.AfterContextLines > 0 {
+			args = append(args, "--after-context", strconv.Itoa(g.AfterContextLines))
+		}
+	}
+	if g.IgnoreCase {
+		args = append(args, "--ignore-case")
+	}
+	if g.Multiline {
+		args = append(args, "--multiline", "--multiline-dotall")
+	}
+	return append(args, "--regexp", g.Pattern, "--", "-")
 }
 
 // Exactly one of Lines, Files, or Counts is populated according to OutputMode.
@@ -78,18 +114,7 @@ func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 }
 
 func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, error) {
-	res, err := g.executor.Grep(ctx, GrepInput{
-		Pattern:       req.Pattern,
-		Path:          req.Path,
-		Glob:          req.FileGlob,
-		FileType:      req.FileType,
-		IgnoreCase:    req.IgnoreCase,
-		Multiline:     req.Multiline,
-		BeforeContext: req.BeforeContextLines,
-		AfterContext:  req.AfterContextLines,
-		OutputMode:    req.OutputMode,
-		MaxResults:    req.MaxResults,
-	})
+	res, err := g.executor.Grep(ctx, req)
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.grep: %w", err)
 	}

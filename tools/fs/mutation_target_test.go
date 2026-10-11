@@ -88,13 +88,13 @@ func TestGrepConfinedSelectionPreservesFilters(t *testing.T) {
 	writeTemp(t, root, ".hidden.go", "needle\n")
 	writeTemp(t, root, ".gitignore", "main.go\n")
 	executor := mustLocalExecutor(t, root)
-	for _, input := range []GrepInput{{Pattern: "NEEDLE", IgnoreCase: true, FileType: "go"}, {Pattern: "needle", Glob: "**/*.go"}, {Pattern: "first.*last", Multiline: true, FileType: "go"}} {
+	for _, input := range []GrepRequest{{Pattern: "NEEDLE", IgnoreCase: true, FileType: "go"}, {Pattern: "needle", FileGlob: "**/*.go"}, {Pattern: "first.*last", Multiline: true, FileType: "go"}} {
 		result, err := executor.Grep(t.Context(), input)
 		if err != nil || len(result.Lines) != 1 || result.Lines[0].Path != "main.go" {
 			t.Fatalf("filtered result = %+v, %v", result, err)
 		}
 	}
-	if _, err := executor.Grep(t.Context(), GrepInput{Pattern: "needle", FileType: "unknown-type"}); err == nil {
+	if _, err := executor.Grep(t.Context(), GrepRequest{Pattern: "needle", FileType: "unknown-type"}); err == nil {
 		t.Fatal("unknown type accepted")
 	}
 }

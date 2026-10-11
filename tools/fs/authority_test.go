@@ -78,7 +78,7 @@ func TestLocalExecutorRejectsLexicalPathEscapes(t *testing.T) {
 		{
 			name: "grep root override",
 			call: func() error {
-				_, err := executor.Grep(t.Context(), GrepInput{Pattern: "secret", Path: outsidePath})
+				_, err := executor.Grep(t.Context(), GrepRequest{Pattern: "secret", Path: outsidePath})
 				return err
 			},
 		},
@@ -166,7 +166,7 @@ func TestLocalExecutorRejectsSymlinkEscapes(t *testing.T) {
 		{
 			name: "grep",
 			call: func() error {
-				_, err := executor.Grep(t.Context(), GrepInput{Pattern: "secret", Path: "escape"})
+				_, err := executor.Grep(t.Context(), GrepRequest{Pattern: "secret", Path: "escape"})
 				return err
 			},
 		},
@@ -206,7 +206,7 @@ func TestLocalExecutorSearchSubtreeKeepsWorkspaceRelativePaths(t *testing.T) {
 		t.Fatalf("glob paths = %v, want %v", glob.Paths, wantPaths)
 	}
 
-	grep, err := executor.Grep(t.Context(), GrepInput{
+	grep, err := executor.Grep(t.Context(), GrepRequest{
 		Pattern: "needle", Path: "src", OutputMode: GrepOutputFilesWithMatches,
 	})
 	if err != nil {

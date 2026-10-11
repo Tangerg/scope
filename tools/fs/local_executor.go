@@ -266,7 +266,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 	return EditResponse{Replacements: replacements}, nil
 }
 
-func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse, err error) {
+func (l *LocalExecutor) Grep(ctx context.Context, in GrepRequest) (_ GrepResponse, err error) {
 	maxResults, err := in.resultLimit()
 	if err != nil {
 		return GrepResponse{}, err
@@ -297,7 +297,7 @@ func (l *LocalExecutor) Grep(ctx context.Context, in GrepInput) (_ GrepResponse,
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w: %w", ErrRipgrepUnavailable, err)
 	}
-	search, err := newGrepSearch(ctx, root, executable, in, newRipgrepDecoder(mode, maxResults))
+	search, err := newGrepSearch(ctx, root, executable, in, newRipgrepDecoder(mode, maxResults, grepOutputBudget))
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.LocalExecutor.Grep: %w", err)
 	}
