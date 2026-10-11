@@ -150,4 +150,4 @@ type EffectPolicy struct {
 	RequiredCapabilities CapabilitySet
 }
 
-func (e EffectPolicy) Valid() bool { return e.Replay.Valid() && e.RequiredCapabilities.Valid() }
+func (e EffectPolicy) Valid() bool { return e.Replay.Valid() }

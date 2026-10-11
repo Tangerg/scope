@@ -60,8 +60,7 @@ func (c *ChildSpec) UnmarshalJSON(data []byte) error {
 }
 
 func (c ChildSpec) Valid() bool {
-	return c.Key.Valid() && c.DeploymentRef.Valid() && c.Input.Valid() &&
-		c.Capabilities.Valid()
+	return c.Key.Valid() && c.DeploymentRef.Valid() && c.Input.Valid()
 }
 
 // NewChildStartEffect creates a Framework-owned Effect requesting one independently

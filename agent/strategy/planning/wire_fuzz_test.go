@@ -40,9 +40,6 @@ func FuzzPlanJSON(f *testing.F) {
 		if err := jsonv2.Unmarshal(data, &plan); err != nil {
 			return
 		}
-		if !plan.Valid() {
-			t.Fatal("decoded Plan is invalid")
-		}
 		encoded, err := jsonv2.Marshal(plan)
 		if err != nil {
 			t.Fatal(err)

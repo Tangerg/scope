@@ -55,7 +55,7 @@ type childBinding struct {
 }
 
 func newChildBinding(deployment agent.Deployment, budget agent.Budget, capabilities agent.CapabilitySet) (childBinding, bool) {
-	if !deployment.Valid() || !capabilities.Valid() {
+	if !deployment.Valid() {
 		return childBinding{}, false
 	}
 	return childBinding{deployment: deployment, budget: budget, capabilities: capabilities}, true

@@ -463,9 +463,6 @@ func (p processSnapshotWire) validateContract() error {
 	if !p.CommittedExecutionState.Valid() {
 		return fmt.Errorf("%w: committed Execution state is invalid", ErrInvalidSnapshot)
 	}
-	if !p.Capabilities.Valid() {
-		return fmt.Errorf("%w: capability set is invalid", ErrInvalidSnapshot)
-	}
 	return nil
 }
 

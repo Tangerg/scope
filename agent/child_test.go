@@ -663,7 +663,7 @@ func TestChildStartEffectDecodeRequiresGrantFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit unlimited budget and empty capabilities rejected: %v", err)
 	}
-	if _, limited := decoded.Budget.Steps.Maximum(); limited || !decoded.Capabilities.Valid() || len(decoded.Capabilities.Values()) != 0 {
+	if _, limited := decoded.Budget.Steps.Maximum(); limited || len(decoded.Capabilities.Values()) != 0 {
 		t.Fatalf("decoded grant = %#v", decoded)
 	}
 	for _, field := range []string{"budget", "capabilities"} {

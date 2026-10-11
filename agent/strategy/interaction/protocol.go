@@ -162,29 +162,20 @@ func newModelEffect(
 	if request == nil {
 		return effectEnvelope{}, fmt.Errorf("%w: model request is nil", ErrInvalidProtocol)
 	}
-	if modelCallSequence == 0 {
-		return effectEnvelope{}, fmt.Errorf("%w: model call sequence is required", ErrInvalidProtocol)
-	}
-	if err := validateAdvertisedToolNames(advertisedToolNames); err != nil {
-		return effectEnvelope{}, fmt.Errorf("%w: advertised Tools: %w", ErrInvalidProtocol, err)
-	}
-	if len(appliedSteerSignalIDs) > 0 {
-		if err := validateSteerSignalIDs(appliedSteerSignalIDs); err != nil {
-			return effectEnvelope{}, fmt.Errorf("%w: applied steer SignalIDs: %w", ErrInvalidProtocol, err)
-		}
-	}
-	cloned := request.Clone()
-	if err := cloned.Validate(); err != nil {
-		return effectEnvelope{}, fmt.Errorf("%w: model request: %w", ErrInvalidProtocol, err)
-	}
-	return effectEnvelope{
+	// Copy owner-provided inputs, then let validateModelCall own the rule set the
+	// decode path also enforces, so construction and decode cannot diverge.
+	envelope := effectEnvelope{
 		ModelCall: &modelCall{
 			ModelCallSequence:     modelCallSequence,
-			Request:               *cloned,
+			Request:               *request.Clone(),
 			AdvertisedToolNames:   slices.Clone(advertisedToolNames),
 			AppliedSteerSignalIDs: slices.Clone(appliedSteerSignalIDs),
 		},
-	}, nil
+	}
+	if err := envelope.validateModelCall(); err != nil {
+		return effectEnvelope{}, err
+	}
+	return envelope, nil
 }
 
 func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {

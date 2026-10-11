@@ -56,7 +56,7 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
-	if !config.Action.Valid() || !config.Deployment.Valid() || !config.Capabilities.Valid() {
+	if !config.Action.Valid() || !config.Deployment.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
 	return ActionBinding{
@@ -71,11 +71,11 @@ func (a ActionBinding) Action() Action { return a.action }
 func (a ActionBinding) delegatesToChild() bool { return a.childDeployment.Valid() }
 
 func (a ActionBinding) Valid() bool {
-	if !a.action.Valid() || !a.required.Valid() {
+	if !a.action.Valid() {
 		return false
 	}
 	if a.delegatesToChild() {
-		return len(a.required.Values()) == 0 && a.childCapabilities.Valid()
+		return len(a.required.Values()) == 0
 	}
 	return a.childInput == nil
 }

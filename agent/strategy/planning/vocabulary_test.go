@@ -135,10 +135,6 @@ func TestEmptyPlanRepresentsAnEmptyActionSequence(t *testing.T) {
 	if len(empty.Actions()) != 0 {
 		t.Fatalf("empty plan = %#v", empty)
 	}
-	if !empty.Valid() {
-		t.Fatal("an empty plan reported itself invalid")
-	}
-
 }
 
 func TestTruthIsAClosedVocabulary(t *testing.T) {

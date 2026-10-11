@@ -18,7 +18,7 @@ func TestEmptyCapabilitySetHasOneArrayRepresentation(t *testing.T) {
 	if err := jsonv2.Unmarshal([]byte("null"), &capabilities); !errors.Is(err, ErrInvalidCapability) {
 		t.Fatalf("null capability set = %v", err)
 	}
-	if err := jsonv2.Unmarshal(encoded, &capabilities); err != nil || !capabilities.Valid() || len(capabilities.Values()) != 0 {
+	if err := jsonv2.Unmarshal(encoded, &capabilities); err != nil || len(capabilities.Values()) != 0 {
 		t.Fatalf("empty capability round trip = %+v, error=%v", capabilities, err)
 	}
 }

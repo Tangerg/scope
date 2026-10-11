@@ -54,7 +54,7 @@ type successorRequest struct {
 }
 
 func (s successorRequest) identity() (agent.Digest, error) {
-	if !s.Predecessor.Valid() || !s.DeploymentRef.Valid() || !s.Input.Valid() || !s.TreeLimits.Valid() || !s.Capabilities.Valid() {
+	if !s.Predecessor.Valid() || !s.DeploymentRef.Valid() || !s.Input.Valid() || !s.TreeLimits.Valid() {
 		return agent.Digest{}, errors.New("invalid successor request")
 	}
 	encoded, err := agent.EncodePayload(s)

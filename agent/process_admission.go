@@ -32,7 +32,7 @@ func (p ProcessAdmission) Budget() Budget { return p.budget }
 func (p ProcessAdmission) Capabilities() CapabilitySet { return p.capabilities }
 
 func (p ProcessAdmission) Valid() bool {
-	return p.relation.Valid() && p.deploymentRef.Valid() && p.descriptor.Valid() && p.capabilities.Valid()
+	return p.relation.Valid() && p.deploymentRef.Valid() && p.descriptor.Valid()
 }
 
 // ProcessAdmitter decides whether one prospective root or child Process may

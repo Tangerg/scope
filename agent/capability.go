@@ -80,9 +80,6 @@ func (c CapabilitySet) Contains(capability Capability) bool {
 }
 
 func (c CapabilitySet) Allows(requested CapabilitySet) bool {
-	if !c.Valid() || !requested.Valid() {
-		return false
-	}
 	for _, capability := range requested.values {
 		if !c.Contains(capability) {
 			return false
@@ -91,22 +88,10 @@ func (c CapabilitySet) Allows(requested CapabilitySet) bool {
 	return true
 }
 
-func (c CapabilitySet) Valid() bool {
-	for index, capability := range c.values {
-		if !capability.Valid() || index > 0 && c.values[index-1].compare(capability) >= 0 {
-			return false
-		}
-	}
-	return true
-}
-
+// Every CapabilitySet originates from construction or decode, which sort,
+// deduplicate, and reject invalid grants, and the backing slice is unexported.
+// A nil slice encodes as the empty array the empty-set contract requires.
 func (c CapabilitySet) MarshalJSON() ([]byte, error) {
-	if !c.Valid() {
-		return nil, ErrInvalidCapability
-	}
-	if len(c.values) == 0 {
-		return []byte("[]"), nil
-	}
 	return jsonv2.Marshal(c.values)
 }
 

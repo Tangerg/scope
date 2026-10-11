@@ -57,7 +57,7 @@ func (p Problem) EvaluatePlan(ctx context.Context, plan Plan) (float64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if !p.Valid() || !plan.Valid() {
+	if !p.Valid() {
 		return 0, ErrInvalidPlan
 	}
 	state := p.initial

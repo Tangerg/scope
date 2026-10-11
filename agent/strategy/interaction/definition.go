@@ -72,7 +72,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if !config.MaxModelCalls.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidDefinitionConfig)
 	}
-	if config.MaxConcurrentToolCalls < 0 || !config.ToolCapabilities.Valid() {
+	if config.MaxConcurrentToolCalls < 0 {
 		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
 	}
 	if !config.Tools.Configured() && (config.ToolBudget != (agent.Budget{}) ||

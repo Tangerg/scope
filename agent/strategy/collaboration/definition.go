@@ -22,7 +22,7 @@ type WorkerConfig struct {
 }
 
 func (w WorkerConfig) valid() bool {
-	return w.Deployment.Valid() && w.Capabilities.Valid()
+	return w.Deployment.Valid()
 }
 
 func (w WorkerConfig) binding() childBinding {

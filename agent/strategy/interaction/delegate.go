@@ -40,8 +40,7 @@ type Delegate struct {
 // NewDelegate fixes the target at construction; model selection cannot change
 // its Deployment, budget, or capabilities.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
-	if !config.Deployment.Valid() || !config.Capabilities.Valid() ||
-		!agent.ValidDescription(config.Description) {
+	if !config.Deployment.Valid() || !agent.ValidDescription(config.Description) {
 		return Delegate{}, ErrInvalidDelegate
 	}
 	descriptor := config.Deployment.Descriptor()
@@ -61,8 +60,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 
 func (d Delegate) Valid() bool {
 	return d.definition.Validate() == nil && agent.ValidDescription(d.definition.Description) &&
-		d.deployment.Valid() &&
-		d.capabilities.Valid()
+		d.deployment.Valid()
 }
 
 func (d Delegate) validateInput(input agent.Payload) error {

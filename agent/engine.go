@@ -188,9 +188,6 @@ func NewEngine(config EngineConfig) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !config.Capabilities.Valid() {
-		return nil, fmt.Errorf("%w: capabilities are invalid", ErrInvalidEngineConfig)
-	}
 	return &Engine{
 		committer:                  config.TreeCommitter,
 		initializationAcknowledger: config.ProcessInitializationAcknowledger,
