@@ -13,18 +13,6 @@ import (
 	"testing"
 )
 
-var documentedCapabilityModules = []string{
-	"a2a",
-	"agent",
-	"etl",
-	"eval",
-	"mcp",
-	"otel",
-	"rag",
-	"skills",
-	"tools",
-}
-
 var documentationOnlyModuleRoots = []string{"core", "examples", "otel", "tools"}
 
 type moduleDocumentation struct {
@@ -226,16 +214,23 @@ func hasPackageOverview(file *ast.File) bool {
 func TestCapabilityModulesKeepCheckedExamples(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
-	for _, relativeModule := range documentedCapabilityModules {
-		t.Run(relativeModule, func(t *testing.T) {
+	modules := discoverModules(t, root)
+	for _, modulePath := range slices.Sorted(maps.Keys(modules)) {
+		module := modules[modulePath]
+		if !module.requiresUsageExample() {
+			continue
+		}
+		t.Run(module.dir, func(t *testing.T) {
 			t.Parallel()
-			moduleRoot := filepath.Join(root, filepath.FromSlash(relativeModule))
+			// A nested module is inspected on its own, so a parent's example
+			// never satisfies an independently published child.
+			moduleRoot := filepath.Join(root, filepath.FromSlash(module.dir))
 			documentation := inspectModuleDocumentation(t, moduleRoot)
 			if len(documentation.packageOverviews) == 0 {
-				t.Fatalf("capability module %s has no public packages", relativeModule)
+				t.Fatalf("capability module %s has no public packages", module.dir)
 			}
 			if documentation.checkedExamples == 0 {
-				t.Errorf("capability module %s has no checked Go usage example", relativeModule)
+				t.Errorf("capability module %s has no checked Go usage example", module.dir)
 			}
 		})
 	}

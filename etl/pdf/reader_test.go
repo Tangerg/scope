@@ -56,7 +56,7 @@ func TestNewReaderAcceptsConfig(t *testing.T) {
 }
 
 func TestReadWholeExtractsRealPDFAndOwnsMetadata(t *testing.T) {
-	payload := testPDF(t, "First page", "Second page")
+	payload := testPDF("First page", "Second page")
 	metadata, err := coremetadata.FromValues(map[string]any{
 		"custom": "kept",
 	})
@@ -88,7 +88,7 @@ func TestReadWholeExtractsRealPDFAndOwnsMetadata(t *testing.T) {
 }
 
 func TestReadPerPageExtractsPageIdentity(t *testing.T) {
-	payload := testPDF(t, "Alpha", "Beta")
+	payload := testPDF("Alpha", "Beta")
 	reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{PerPage: true})
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
@@ -107,7 +107,7 @@ func TestReadPerPageExtractsPageIdentity(t *testing.T) {
 }
 
 func TestReadHonorsCanceledContextBeforeParsing(t *testing.T) {
-	payload := testPDF(t, "Never parsed")
+	payload := testPDF("Never parsed")
 	reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{})
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
@@ -141,10 +141,9 @@ func assertMetadata[T comparable](t *testing.T, metadata coremetadata.Map, key s
 // testPDF emits a complete PDF 1.4 byte stream with a valid xref table. It is
 // intentionally generated in memory: tests exercise the real parser without a
 // binary fixture whose offsets become opaque during review.
-func testPDF(t *testing.T, pages ...string) []byte {
-	t.Helper()
+func testPDF(pages ...string) []byte {
 	if len(pages) == 0 {
-		t.Fatal("testPDF requires at least one page")
+		panic("testPDF requires at least one page")
 	}
 	fontObject := 3 + len(pages)*2
 	objects := make([]string, fontObject)
@@ -194,7 +193,7 @@ func escapePDFText(text string) string {
 }
 
 func TestWholeDocumentSkipsBlankPages(t *testing.T) {
-	data := testPDF(t, "Alpha", "   ", "Omega")
+	data := testPDF("Alpha", "   ", "Omega")
 	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)), pdf.ReaderConfig{})
 	if err != nil {
 		t.Fatal(err)

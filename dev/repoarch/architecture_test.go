@@ -31,12 +31,31 @@ func (r repositoryModule) isCapabilityModule() bool {
 	if slices.Contains(protocolIntegrations, r.dir) || r.dir == "examples" {
 		return false
 	}
+	return !r.inProviderFamily()
+}
+
+// inProviderFamily reports whether the module belongs to a provider or dev
+// tooling family. One owner of that family list keeps the capability and
+// usage-example classifications from drifting apart.
+func (r repositoryModule) inProviderFamily() bool {
 	for _, family := range []string{"models/", "vectorstores/", "historystores/", "tokenizers/", "dev/"} {
 		if strings.HasPrefix(r.dir, family) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+// requiresUsageExample reports whether a module must ship a checked Go usage
+// example. Provider and dev families are exercised by conformance and
+// architecture gates, while core and the examples module are documented in
+// place; every other published module — protocol and observability integrations
+// included — is consumed through a capability API that owns a runnable example.
+func (r repositoryModule) requiresUsageExample() bool {
+	if r.dir == "core" || r.dir == "examples" {
+		return false
+	}
+	return !r.inProviderFamily()
 }
 
 type providerPackage struct {
@@ -271,6 +290,35 @@ func TestNewModulesDefaultToCapabilityClassification(t *testing.T) {
 	} {
 		if got := (repositoryModule{dir: test.dir}).isCapabilityModule(); got != test.capability {
 			t.Errorf("module %s classified as capability = %t, want %t", test.dir, got, test.capability)
+		}
+	}
+}
+
+func TestUsageExamplePolicyCoversConsumedModules(t *testing.T) {
+	for _, test := range []struct {
+		dir     string
+		example bool
+	}{
+		{dir: "agent", example: true},
+		{dir: "a2a", example: true},
+		{dir: "mcp", example: true},
+		{dir: "otel", example: true},
+		{dir: "skills", example: true},
+		{dir: "etl", example: true},
+		{dir: "etl/html", example: true},
+		{dir: "etl/pdf", example: true},
+		{dir: "eval/trajectory", example: true},
+		{dir: "core"},
+		{dir: "examples"},
+		{dir: "models/catalog"},
+		{dir: "models/openai"},
+		{dir: "vectorstores/qdrant"},
+		{dir: "historystores/redis"},
+		{dir: "tokenizers/tiktoken"},
+		{dir: "dev/repoarch"},
+	} {
+		if got := (repositoryModule{dir: test.dir}).requiresUsageExample(); got != test.example {
+			t.Errorf("module %s requires usage example = %t, want %t", test.dir, got, test.example)
 		}
 	}
 }
