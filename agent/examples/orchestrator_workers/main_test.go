@@ -347,3 +347,10 @@ func (p *planningDelegateModel) Calls() int {
 	defer p.mu.Unlock()
 	return p.calls
 }
+
+func TestMainEntryPointRunsToCompletion(t *testing.T) {
+	// main wires the same in-process example as run; exercising it keeps the
+	// command entry point covered. run uses only in-process fakes, so it cannot
+	// reach the os.Exit failure branch.
+	main()
+}

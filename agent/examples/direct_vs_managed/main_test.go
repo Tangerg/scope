@@ -15,3 +15,10 @@ func TestRun(t *testing.T) {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
+
+func TestMainEntryPointRunsToCompletion(t *testing.T) {
+	// main wires the same in-process example as run; exercising it keeps the
+	// command entry point covered. run uses only in-process fakes, so it cannot
+	// reach the os.Exit failure branch.
+	main()
+}
