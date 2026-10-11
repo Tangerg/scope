@@ -160,9 +160,8 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 	for _, record := range records {
 		candidate.mailbox.acceptRecord(record)
 	}
-	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
-		return nil, err
-	}
+	// Every caller validates snapshot capacity on this candidate before adopting
+	// it, so admission is not also measured here.
 	return candidate, nil
 }
 
@@ -394,9 +393,8 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	candidate := p.candidate()
 	candidate.prepared = &prepared
 	candidate.preparedExecution = result.candidate
-	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
-		return nil, &stepFailure{kind: FailureKindExecution, code: failureCodeEngineLimitSnapshot, cause: err}
-	}
+	// applyStepCompletion validates snapshot capacity on this candidate before
+	// adopting it, so admission is not also measured here.
 	return candidate, nil
 }
 

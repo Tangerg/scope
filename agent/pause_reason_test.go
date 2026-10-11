@@ -157,15 +157,21 @@ func TestPauseReservationPreservesCurrentAndPendingReasons(t *testing.T) {
 		runtime.treeLimits.MaxProcessSnapshotBytes = NewQuota(maximum)
 		before := controlValue(process.capture())
 		candidate, err := process.prepareSignals([]Signal{signal}, signalSourceExternal, runtime.treeLimits, resourceAmounts{})
+		if err != nil || candidate == nil {
+			t.Fatalf("prepare admission: %v", err)
+		}
+		// prepareSignals builds the candidate; validateSnapshotCapacity, its
+		// production follow-on in admitSignals, owns the snapshot-size boundary.
+		capacityErr := runtime.validateSnapshotCapacity(candidate)
 		if maximum == exact {
-			if err != nil || candidate == nil {
-				t.Fatalf("exact Pause reservation quota: %v", err)
+			if capacityErr != nil {
+				t.Fatalf("exact Pause reservation quota: %v", capacityErr)
 			}
 			if candidate.pause != process.pause || candidate.pendingControl.pause != process.pendingControl.pause {
 				t.Fatal("admitted Signal changed concurrent Pause reasons")
 			}
-		} else if candidate != nil || !errors.Is(err, ErrResourceLimitExceeded) {
-			t.Fatalf("one byte short: candidate=%v, error=%v", candidate != nil, err)
+		} else if !errors.Is(capacityErr, ErrResourceLimitExceeded) {
+			t.Fatalf("one byte short: error=%v", capacityErr)
 		}
 		if after := controlValue(process.capture()); !bytes.Equal(before.JSON(), after.JSON()) {
 			t.Fatal("unadopted admission changed Pause state or resource usage")
