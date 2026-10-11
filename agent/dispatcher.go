@@ -61,7 +61,9 @@ func newEffectRequest(
 	return EffectRequest{
 		incarnationID: incarnationID, deploymentRef: deploymentRef, relation: relation,
 		stepSequence: stepSequence, batchIndex: batchIndex,
-		effect: effect.clone(),
+		// Effect is a frozen value with an immutable payload, so the request shares
+		// it directly; the public Effect() accessor still copies on read.
+		effect: effect,
 	}
 }
 

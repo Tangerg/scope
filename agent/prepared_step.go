@@ -165,8 +165,10 @@ func (p *preparedStep) clone() preparedStep {
 	clone := *p
 	clone.Effects = make([]preparedEffect, len(p.Effects))
 	for index, effect := range p.Effects {
+		// Effect is a frozen value with an immutable payload shared by value; only
+		// progress carries mutable lifecycle state the candidate must own.
 		clone.Effects[index] = preparedEffect{
-			ID: effect.ID, Effect: effect.Effect.clone(), progress: effect.progress.clone(),
+			ID: effect.ID, Effect: effect.Effect, progress: effect.progress.clone(),
 		}
 	}
 	return clone
