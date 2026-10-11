@@ -3,6 +3,8 @@ package inmemory_test
 import (
 	"context"
 	"math"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/embedding"
@@ -219,6 +221,48 @@ func TestSimilarityRejectsNonFiniteComponents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchScansConcurrentlyWithBorrowedVectors(t *testing.T) {
+	// Search borrows each indexed vector to Similarity read-only and may call it
+	// concurrently. A conforming callback sees stable inputs, so concurrent
+	// searches must agree and stay race-free; a store that mutated or shared a
+	// writable indexed vector would diverge here or trip the race detector.
+	var calls atomic.Int64
+	similarity := func(left, right []float64) vectorstore.Score {
+		calls.Add(1)
+		return inmemory.CosineSimilarity(left, right)
+	}
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: similarity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexDocuments(t, store, mustDoc(t, "a", "alpha", nil), mustDoc(t, "b", "beta", nil), mustDoc(t, "c", "gamma", nil))
+
+	first, err := search(store, t.Context(), &vectorstore.SearchRequest{Query: "alpha"})
+	if err != nil || len(first) == 0 {
+		t.Fatalf("baseline search: %v results, %v", len(first), err)
+	}
+
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := search(store, t.Context(), &vectorstore.SearchRequest{Query: "alpha"})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if len(got) != len(first) || got[0].Document.ID != first[0].Document.ID || got[0].Score != first[0].Score {
+				t.Errorf("concurrent search diverged from baseline %q/%v", first[0].Document.ID, first[0].Score)
+			}
+		}()
+	}
+	wg.Wait()
+	if calls.Load() == 0 {
+		t.Fatal("similarity was never consulted")
 	}
 }
 

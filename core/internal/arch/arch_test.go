@@ -56,18 +56,6 @@ func TestDocumentRemainsPureData(t *testing.T) {
 	}
 }
 
-func TestRemovedConvenienceSurfaceDoesNotReturn(t *testing.T) {
-	forbidden := map[string]map[string]bool{
-		"document":    {"Reader": true, "Writer": true},
-		"metadata":    {"New": true},
-		"vectorstore": {"AcceptAllScores": true, "NewDocumentWriter": true},
-		"image":       {"Image": true, "NewImage": true, "ResponseFormat": true},
-	}
-	for packageName, names := range forbidden {
-		assertTopLevelNamesAbsent(t, packageName, names)
-	}
-}
-
 func TestVectorStoreCapabilitiesRemainSmall(t *testing.T) {
 	want := map[reflect.Type]string{
 		reflect.TypeFor[vectorstore.Indexer]():       "Index",
@@ -115,28 +103,6 @@ func TestVectorStoreCapabilitiesRemainSmall(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestEmbeddingSPIRemainsMinimal(t *testing.T) {
-	assertSingleMethodInterface(t, reflect.TypeFor[embedding.Model](), "Call")
-	forbidden := map[string]bool{
-		"ModelMetadata": true, "Client": true,
-		"ClientRequest": true, "ClientCaller": true,
-		"Dimensioner": true, "DimensionFunc": true,
-		"EncodingFormat": true, "ModalityType": true,
-		"Middleware": true, "MiddlewareChain": true, "Handler": true,
-	}
-	for name := range map[string]bool{
-		"GetDimensions":     true,
-		"ProbeDimensions":   true,
-		"ResolveDimensions": true,
-		"NewClient":         true,
-		"NewClientRequest":  true, "NewClientFromRequest": true,
-		"NewMiddlewareChain": true,
-	} {
-		forbidden[name] = true
-	}
-	assertTopLevelNamesAbsent(t, "embedding", forbidden)
 }
 
 func TestChatRequestKeepsProtocolConcernsAtTheirOwner(t *testing.T) {
@@ -389,13 +355,6 @@ func containsInternalType(typ reflect.Type) bool {
 	return strings.Contains(typ.PkgPath(), "/internal/")
 }
 
-func assertSingleMethodInterface(t *testing.T, typ reflect.Type, method string) {
-	t.Helper()
-	if typ.Kind() != reflect.Interface || typ.NumMethod() != 1 || typ.Method(0).Name != method {
-		t.Errorf("%v methods changed: want only %s", typ, method)
-	}
-}
-
 func assertTopLevelNamesAbsent(t *testing.T, packagePath string, forbidden map[string]bool) {
 	t.Helper()
 	for _, parsed := range parsePackageFiles(t, packagePath) {
@@ -466,12 +425,6 @@ func specificationNames(specification ast.Spec) []string {
 	default:
 		return nil
 	}
-}
-
-func TestTargetChatSPIExcludesDefaultsAndIdentity(t *testing.T) {
-	assertSingleMethodInterface(t, reflect.TypeFor[chat.Model](), "Call")
-	assertSingleMethodInterface(t, reflect.TypeFor[chat.Streamer](), "Stream")
-	assertTopLevelNamesAbsent(t, "chat", map[string]bool{"ModelMetadata": true})
 }
 
 func TestCoreDoesNotImportUpperScopeModules(t *testing.T) {

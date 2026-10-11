@@ -51,7 +51,10 @@ func (u Usage) Validate() error {
 	return nil
 }
 
-func (u Usage) clone() Usage {
+// Clone returns a Usage whose optional breakdown pointers are detached from the
+// caller's, so later mutation of the source cannot alter a captured copy. It is
+// the single owner of which Usage members carry caller-owned storage.
+func (u Usage) Clone() Usage {
 	clone := u
 	clone.ReasoningTokens = ptr.Clone(u.ReasoningTokens)
 	clone.CacheReadInputTokens = ptr.Clone(u.CacheReadInputTokens)

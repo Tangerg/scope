@@ -12,6 +12,12 @@ import (
 // similar. Implementations must be deterministic and symmetric:
 // Similarity(a, b) == Similarity(b, a). Returning [vectorstore.Score] keeps
 // custom strategies inside the same normalized contract as every provider.
+//
+// Both slices are borrowed read-only for the duration of the call: an
+// implementation must not modify or retain them. The store scores a record
+// against the shared indexed vector, so an in-place write would corrupt the
+// index and race concurrent searches. Honoring this, Similarity may be called
+// concurrently, which is how [Store.Search] scans the index.
 type Similarity func(left, right []float64) vectorstore.Score
 
 // CosineSimilarity is the default for [StoreConfig.Similarity] —

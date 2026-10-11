@@ -60,7 +60,7 @@ func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 		r.Model = src.Model
 	}
 	if src.Usage != nil {
-		r.Usage = new(src.Usage.clone())
+		r.Usage = new(src.Usage.Clone())
 	}
 	if !src.CreatedAt.IsZero() {
 		r.CreatedAt = src.CreatedAt
@@ -71,7 +71,7 @@ func (r *ResponseMetadata) mergeValidated(src ResponseMetadata) {
 func (r ResponseMetadata) clone() *ResponseMetadata {
 	clone := r
 	if r.Usage != nil {
-		clone.Usage = new(r.Usage.clone())
+		clone.Usage = new(r.Usage.Clone())
 	}
 	clone.Extra = r.Extra.Clone()
 	return &clone

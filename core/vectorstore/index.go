@@ -38,6 +38,9 @@ func (i *IndexRequest) Validate() error {
 
 	seen := make(map[string]int, len(i.Documents))
 	for index, indexedDocument := range i.Documents {
+		if indexedDocument == nil {
+			return fmt.Errorf("%w: documents[%d]: %w: document is nil", ErrInvalidRequest, index, ErrInvalidDocument)
+		}
 		if err := validateIndexedDocument(indexedDocument); err != nil {
 			return fmt.Errorf("%w: documents[%d]: %w", ErrInvalidRequest, index, err)
 		}
@@ -50,16 +53,12 @@ func (i *IndexRequest) Validate() error {
 	return nil
 }
 
-// validateIndexedDocument enforces the single rule for a complete indexed
-// document: it is non-nil, individually valid, carries a non-blank ID, and has
-// text to embed. IndexRequest admission and SearchResult both apply this rule so
-// a document the store would reject at write cannot reappear in a search result.
-// document.Document.Validate alone admits media without text, which is wider than
-// this store allows.
+// validateIndexedDocument enforces the completeness rule shared by index
+// admission and search results: a present document must be individually valid,
+// carry a non-blank ID, and have text to embed. Each caller owns the presence of
+// the document it passes; document.Document.Validate alone admits media without
+// text, which is wider than this store allows.
 func validateIndexedDocument(indexed *document.Document) error {
-	if indexed == nil {
-		return fmt.Errorf("%w: document is nil", ErrInvalidDocument)
-	}
 	if err := indexed.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
