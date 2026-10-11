@@ -35,7 +35,7 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("web: prepare search request: %w", err)
+		return nil, inputFailure(err)
 	}
 	response, err := s.searcher.Search(ctx, prepared)
 	if err != nil {

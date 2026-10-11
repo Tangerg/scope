@@ -178,6 +178,31 @@ func TestNewToolsRejectsOutputLimitTooSmallForItsEnvelope(t *testing.T) {
 	}
 }
 
+func TestReadSkillResourceRejectsInadmissibleRequestAsDefiniteFailure(t *testing.T) {
+	// panicSource panics on any I/O, proving admission runs before the source is
+	// touched. Both requests pass schema admission but fail the name/path rules.
+	built, err := NewTools(&panicSource{}, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readResource toolcontract.Tool
+	for _, candidate := range built {
+		if candidate.Definition().Name == "read_skill_resource" {
+			readResource = candidate
+		}
+	}
+	for _, arguments := range []string{
+		`{"name":"pdf-processing","path":"../escape.md"}`,
+		`{"name":"Bad Name","path":"ok.md"}`,
+	} {
+		_, callErr := invokeTestTool(t.Context(), readResource, arguments)
+		failure, ok := errors.AsType[*toolcontract.Failure](callErr)
+		if !ok || failure.Kind() != toolcontract.FailureKindFailed {
+			t.Fatalf("args %s: err = %v, want FailureKindFailed", arguments, callErr)
+		}
+	}
+}
+
 func TestSkillToolsRejectMissingArguments(t *testing.T) {
 	tools := newTools(t)
 	for _, test := range []struct {

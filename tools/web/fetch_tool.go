@@ -35,7 +35,7 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("web: prepare fetch request: %w", err)
+		return nil, inputFailure(err)
 	}
 	response, err := f.fetcher.Fetch(ctx, prepared)
 	if err != nil {

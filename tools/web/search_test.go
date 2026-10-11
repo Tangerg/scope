@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type fakeSearcher struct {
@@ -92,14 +94,20 @@ func TestSearchTool_Call_HappyPath(t *testing.T) {
 }
 
 func TestSearchTool_Call_EmptyQuery(t *testing.T) {
-	tool, _ := NewSearchTool(&fakeSearcher{})
-	_, err := invokeTestTool(t.Context(), tool, `{"query":""}`)
-	if err == nil {
-		t.Fatal("Call empty query: want schema error")
+	searcher := &fakeSearcher{}
+	tool, _ := NewSearchTool(searcher)
+	// An empty query fails schema admission before the Call; a blank query passes
+	// minLength=1 and becomes a definite failure the model can correct.
+	if _, err := invokeTestTool(t.Context(), tool, `{"query":""}`); err == nil {
+		t.Fatal("Call empty query: want schema admission error")
 	}
-	_, err = invokeTestTool(t.Context(), tool, `{"query":"   "}`)
-	if !errors.Is(err, ErrEmptyQuery) {
-		t.Errorf("Call blank query: err = %v, want ErrEmptyQuery", err)
+	_, err := invokeTestTool(t.Context(), tool, `{"query":"   "}`)
+	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyQuery) {
+		t.Fatalf("Call blank query: err = %v, want FailureKindFailed wrapping ErrEmptyQuery", err)
+	}
+	if searcher.last != nil {
+		t.Error("blank query reached the searcher")
 	}
 }
 
@@ -129,11 +137,16 @@ func TestSearchTool_Call_EnforcesAdvertisedContract(t *testing.T) {
 }
 
 func TestSearchTool_Call_DomainsMutuallyExclusive(t *testing.T) {
-	tool, _ := NewSearchTool(&fakeSearcher{})
+	searcher := &fakeSearcher{}
+	tool, _ := NewSearchTool(searcher)
 	_, err := invokeTestTool(t.Context(), tool,
 		`{"query":"x","allowed_domains":["a.com"],"blocked_domains":["b.com"]}`)
-	if !errors.Is(err, ErrDomainsBothSides) {
-		t.Errorf("err = %v, want ErrDomainsBothSides", err)
+	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrDomainsBothSides) {
+		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrDomainsBothSides", err)
+	}
+	if searcher.last != nil {
+		t.Error("rejected request reached the searcher")
 	}
 }
 

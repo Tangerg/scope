@@ -24,10 +24,7 @@ func ReadResource(
 	if lo.IsNil(src) {
 		return nil, false, ErrNilSource
 	}
-	if err := ValidateName(name); err != nil {
-		return nil, false, err
-	}
-	if err := validateResourcePath(resource); err != nil {
+	if err := ValidateResourceRequest(name, resource); err != nil {
 		return nil, false, err
 	}
 	if maxBytes <= 0 || maxBytes > maxBoundedReadBytes {
@@ -141,6 +138,17 @@ func resourceIOError(operation, name, resource string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("skills: %s resource %q/%q: %w", operation, name, resource, err)
+}
+
+// ValidateResourceRequest reports whether a resource read targets an admissible
+// skill name and path before any I/O. [ReadResource] applies the same checks; a
+// caller that must distinguish an inadmissible request from a source failure
+// runs this first and treats a non-nil result as a definite input rejection.
+func ValidateResourceRequest(name, resource string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+	return validateResourcePath(resource)
 }
 
 func validateResourcePath(resource string) error {

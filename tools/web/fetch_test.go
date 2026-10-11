@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type fakeFetcher struct {
@@ -79,14 +81,20 @@ func TestFetchTool_Call_HappyPath(t *testing.T) {
 }
 
 func TestFetchTool_Call_EmptyURL(t *testing.T) {
-	tool, _ := NewFetchTool(&fakeFetcher{})
-	_, err := invokeTestTool(t.Context(), tool, `{"url":""}`)
-	if err == nil {
-		t.Fatal("Call empty url: want schema error")
+	fetcher := &fakeFetcher{}
+	tool, _ := NewFetchTool(fetcher)
+	// An empty URL fails schema admission before the Call; a blank URL passes
+	// minLength=1 and becomes a definite failure the model can correct.
+	if _, err := invokeTestTool(t.Context(), tool, `{"url":""}`); err == nil {
+		t.Fatal("Call empty url: want schema admission error")
 	}
-	_, err = invokeTestTool(t.Context(), tool, `{"url":"   "}`)
-	if !errors.Is(err, ErrEmptyURL) {
-		t.Errorf("Call blank url: err = %v, want ErrEmptyURL", err)
+	_, err := invokeTestTool(t.Context(), tool, `{"url":"   "}`)
+	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyURL) {
+		t.Fatalf("Call blank url: err = %v, want FailureKindFailed wrapping ErrEmptyURL", err)
+	}
+	if fetcher.last != nil {
+		t.Error("blank url reached the fetcher")
 	}
 }
 

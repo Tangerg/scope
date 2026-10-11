@@ -78,6 +78,30 @@ func TestRetrievalToolRejectsInvalidConfigurationAndArguments(t *testing.T) {
 	}
 }
 
+func TestRetrievalToolRejectsBlankQueryAsDefiniteFailure(t *testing.T) {
+	retrieved := false
+	retrieval, err := ragtool.NewRetrieval(ragtool.RetrievalConfig{
+		Name: "search", Description: "Search evidence.",
+		Retriever: rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
+			retrieved = true
+			return nil, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A blank query passes schema admission (minLength=1) but fails rag.NewQuery
+	// before the retriever runs, so it must settle as a definite, correctable failure.
+	_, callErr := invokeTestTool(t.Context(), retrieval, `{"query":"   "}`)
+	failure, ok := errors.AsType[*tool.Failure](callErr)
+	if !ok || failure.Kind() != tool.FailureKindFailed || !errors.Is(failure.Cause(), rag.ErrInvalidQuery) {
+		t.Fatalf("blank query error = %v, want FailureKindFailed wrapping rag.ErrInvalidQuery", callErr)
+	}
+	if retrieved {
+		t.Error("blank query reached the retriever")
+	}
+}
+
 func TestRetrievalToolPreservesRetrieverErrors(t *testing.T) {
 	want := errors.New("retrieval failed")
 	retrievalTool, err := ragtool.NewRetrieval(ragtool.RetrievalConfig{

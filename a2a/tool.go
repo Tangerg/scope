@@ -19,6 +19,20 @@ import (
 
 var errEmptyToolName = errors.New("a2a: tool name must not be empty")
 
+// inputFailure reports arguments rejected before the remote agent is called as a
+// definite, model-visible Tool failure rather than an uncertain error.
+func inputFailure(cause error) error {
+	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind:   toolcontract.FailureKindFailed,
+		Output: corechat.NewTextToolOutput(cause.Error()),
+		Cause:  cause,
+	})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
+}
+
 type callArguments struct {
 	Message string `json:"message" jsonschema_description:"The natural-language request to send to the remote agent."`
 }
@@ -85,7 +99,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	input, err := parseCallArguments(invocation.Arguments())
 	if err != nil {
-		return corechat.ToolOutput{}, fmt.Errorf("a2a: decode arguments for agent %q: %w", r.definition.Name, err)
+		return corechat.ToolOutput{}, inputFailure(fmt.Errorf("a2a: decode arguments for agent %q: %w", r.definition.Name, err))
 	}
 
 	projection := textProjection{}

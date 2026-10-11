@@ -2,12 +2,14 @@ package skills
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	skillsrc "github.com/Tangerg/scope/skills"
 )
@@ -117,11 +119,28 @@ func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (string, e
 }
 
 func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceRequest) (string, error) {
+	if err := skillsrc.ValidateResourceRequest(request.Name, request.Path); err != nil {
+		return "", inputFailure(err)
+	}
 	data, truncated, err := skillsrc.ReadResource(ctx, t.source, request.Name, request.Path, t.maxOutputBytes)
 	if err != nil {
 		return "", err
 	}
 	return boundedText(string(data), truncated, t.maxOutputBytes), nil
+}
+
+// inputFailure reports a resource request rejected before any source I/O as a
+// definite, model-visible Tool failure rather than an uncertain error.
+func inputFailure(cause error) error {
+	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind:   toolcontract.FailureKindFailed,
+		Output: chat.NewTextToolOutput(cause.Error()),
+		Cause:  cause,
+	})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
 }
 
 var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")

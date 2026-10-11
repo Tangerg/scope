@@ -5,6 +5,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -49,7 +50,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 		func(ctx context.Context, input RetrievalRequest) (RetrievalOutput, error) {
 			query, err := rag.NewQuery(input.Query)
 			if err != nil {
-				return RetrievalOutput{}, fmt.Errorf("rag: retrieval tool query: %w", err)
+				return RetrievalOutput{}, inputFailure(fmt.Errorf("rag: retrieval tool query: %w", err))
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return RetrievalOutput{}, ctxErr
@@ -80,3 +81,17 @@ func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (ch
 }
 
 func (r Retrieval) Unwrap() coretool.Tool { return r.function }
+
+// inputFailure reports a query rejected before the retriever runs as a definite,
+// model-visible Tool failure rather than an uncertain error.
+func inputFailure(cause error) error {
+	failure, err := coretool.NewFailure(coretool.FailureConfig{
+		Kind:   coretool.FailureKindFailed,
+		Output: chat.NewTextToolOutput(cause.Error()),
+		Cause:  cause,
+	})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
+}
