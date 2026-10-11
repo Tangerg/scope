@@ -206,8 +206,11 @@ func (e *execution) childKey() (agent.ChildKey, error) {
 	return workflowChildKey(e.singleBindingIdentity()...)
 }
 
+// waitKey is the mailbox slot for a single-binding stage's child wait. A stage
+// runs one bound child at a time and consumes its answer before the next, so a
+// fixed key never collides; WaitID owns the wait's identity.
 func (e *execution) waitKey() (agent.WaitKey, error) {
-	return workflowWaitKey(e.singleBindingIdentity()...)
+	return agent.ParseWaitKey("workflow.child")
 }
 
 func (e *execution) finishLoopIteration(
@@ -413,11 +416,11 @@ func fanoutChildKey(stage Stage, index uint32) (agent.ChildKey, error) {
 	return workflowChildKey(string(stage.kind), stage.id, member.id)
 }
 
+// fanoutWaitKey is the mailbox slot for a fanout stage's child wait. A stage
+// holds one fanout window wait at a time and consumes it before opening the next,
+// so a fixed key never collides; WaitID owns the wait's identity.
 func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {
-	return workflowWaitKey(
-		string(e.stage().kind), e.stage().id,
-		strconv.FormatUint(uint64(e.state.fanoutWindowStart()), 10),
-	)
+	return agent.ParseWaitKey("workflow.children")
 }
 
 var _ agent.Execution = (*execution)(nil)

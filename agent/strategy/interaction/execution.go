@@ -435,7 +435,7 @@ func (e *execution) waitForChildren(ctx context.Context, consumed uint32) (agent
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	spec, err := e.state.ToolRound.ChildBatch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
+	spec, err := e.state.ToolRound.ChildBatch.waitSpec(keys)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -481,7 +481,7 @@ func (e *execution) acceptChildCompletions(ctx context.Context, signals []agent.
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	want, err := batch.waitSpec(e.state.ModelCallCount, e.state.ToolRound.nextCallIndex(), keys)
+	want, err := batch.waitSpec(keys)
 	if err != nil {
 		return agent.Transition{}, err
 	}

@@ -25,7 +25,7 @@ func TestChildBatchRequiresDrainedWaitBoundaries(t *testing.T) {
 				t.Run(string(kind)+"/"+string(stage)+"/"+boundary.String(), func(t *testing.T) {
 					execution := childBatchTestExecution(t, kind, stage)
 					batch := execution.state.ToolRound.ChildBatch
-					want, err := batch.waitSpec(execution.state.ModelCallCount, execution.state.ToolRound.nextCallIndex(), mustActiveChildKeys(t, execution))
+					want, err := batch.waitSpec(mustActiveChildKeys(t, execution))
 					if err != nil {
 						t.Fatal(err)
 					}

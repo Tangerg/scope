@@ -12,10 +12,6 @@ func workflowChildKey(parts ...string) (agent.ChildKey, error) {
 	return agent.ParseChildKey(workflowIdentity("child", parts...))
 }
 
-func workflowWaitKey(parts ...string) (agent.WaitKey, error) {
-	return agent.ParseWaitKey(workflowIdentity("wait", parts...))
-}
-
 func workflowIdentity(kind string, parts ...string) string {
 	hash := sha256.New()
 	for _, part := range parts {

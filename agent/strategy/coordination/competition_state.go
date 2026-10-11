@@ -154,9 +154,11 @@ func (f firstSuccessState) anyRemaining() bool {
 	return false
 }
 
-// Every satisfied wait adds an outcome, so the outcome count keys a fresh wait.
+// firstSuccess waits for the remaining competitors one satisfaction at a time and
+// consumes each answer before opening the next, so a fixed key never collides;
+// WaitID, derived from the Effect, owns the wait's identity.
 func (f firstSuccessState) waitSpec() (agent.ChildWaitSpec, error) {
-	key, err := agent.ParseWaitKey(fmt.Sprintf("%s.%d", firstSuccessWaitKeyPrefix, f.observed()))
+	key, err := agent.ParseWaitKey(firstSuccessWaitKeyPrefix)
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}

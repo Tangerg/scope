@@ -186,14 +186,10 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	key, err := planningChildKey(e.state.CurrentActionName, uint64(len(e.state.Attempts))+1)
-	if err != nil {
-		return agent.Transition{}, err
-	}
 	if phase == childcall.PhaseAwaitingStart {
-		return e.acceptChildStart(signal, key)
+		return e.acceptChildStart(signal)
 	}
-	waitKey, err := planningChildWaitKey(key, e.state.Child.ProcessID())
+	waitKey, err := planningChildWaitKey()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -220,7 +216,7 @@ func (e *execution) advanceChild(signals []agent.Signal) (agent.Transition, erro
 	return e.requestSense(1)
 }
 
-func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (agent.Transition, error) {
+func (e *execution) acceptChildStart(signal agent.Signal) (agent.Transition, error) {
 	result, err := e.state.Child.AcceptStart(signal)
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: child start: %w", ErrInvalidProtocol, err)
@@ -230,7 +226,7 @@ func (e *execution) acceptChildStart(signal agent.Signal, key agent.ChildKey) (a
 		e.state.Child = childcall.Single{}
 		return e.requestSense(1)
 	}
-	waitKey, err := planningChildWaitKey(key, e.state.Child.ProcessID())
+	waitKey, err := planningChildWaitKey()
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -257,12 +253,12 @@ func planningChildKey(action string, attempt uint64) (agent.ChildKey, error) {
 	return agent.ParseChildKey("planning.action." + planningIdentity(action, attempt))
 }
 
-func planningChildWaitKey(childKey agent.ChildKey, childID agent.ProcessID) (agent.WaitKey, error) {
-	hash := sha256.New()
-	hash.Write([]byte(childKey.String()))
-	hash.Write([]byte{0})
-	hash.Write([]byte(childID.String()))
-	return agent.ParseWaitKey("planning.child." + hex.EncodeToString(hash.Sum(nil)))
+// planningChildWaitKey is the mailbox slot for the single action child's wait.
+// Planning runs one child at a time and consumes each answer before starting the
+// next, so a fixed key never collides; WaitID, derived from the Effect, owns the
+// wait's identity.
+func planningChildWaitKey() (agent.WaitKey, error) {
+	return agent.ParseWaitKey("planning.child")
 }
 
 func planningIdentity(action string, attempt uint64) string {

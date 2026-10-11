@@ -281,14 +281,11 @@ func (c childCallBatch) childCount() int {
 	return count
 }
 
-func (c childCallBatch) waitSpec(modelCallSequence uint64, callIndex uint32, keys []agent.ChildKey) (agent.ChildWaitSpec, error) {
-	completed := 0
-	for _, invocation := range c.Invocations {
-		if invocation != nil && invocation.Result != nil {
-			completed++
-		}
-	}
-	key, err := agent.ParseWaitKey(fmt.Sprintf("interaction.children:%d:%d:%d", modelCallSequence, callIndex, completed))
+// waitSpec builds the drained child-batch wait. An Interaction holds one child
+// batch wait at a time and consumes its answer before opening the next, so a
+// fixed key never collides; WaitID owns the wait's identity.
+func (c childCallBatch) waitSpec(keys []agent.ChildKey) (agent.ChildWaitSpec, error) {
+	key, err := agent.ParseWaitKey("interaction.children")
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}
