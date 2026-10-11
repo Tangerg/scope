@@ -38,23 +38,36 @@ func (i *IndexRequest) Validate() error {
 
 	seen := make(map[string]int, len(i.Documents))
 	for index, indexedDocument := range i.Documents {
-		if indexedDocument == nil {
-			return fmt.Errorf("%w: %w: documents[%d] is nil", ErrInvalidRequest, ErrInvalidDocument, index)
-		}
-		if err := indexedDocument.Validate(); err != nil {
-			return fmt.Errorf("%w: %w: documents[%d]: %w", ErrInvalidRequest, ErrInvalidDocument, index, err)
-		}
-		if strings.TrimSpace(indexedDocument.ID) == "" {
-			return fmt.Errorf("%w: %w: documents[%d]", ErrInvalidRequest, ErrMissingDocumentID, index)
-		}
-		if indexedDocument.Text == "" {
-			return fmt.Errorf("%w: %w: documents[%d] has no text to embed", ErrInvalidRequest, ErrInvalidDocument, index)
+		if err := validateIndexedDocument(indexedDocument); err != nil {
+			return fmt.Errorf("%w: documents[%d]: %w", ErrInvalidRequest, index, err)
 		}
 		if first, duplicate := seen[indexedDocument.ID]; duplicate {
 			return fmt.Errorf("%w: %w %q at documents[%d] and documents[%d]",
 				ErrInvalidRequest, ErrDuplicateDocumentID, indexedDocument.ID, first, index)
 		}
 		seen[indexedDocument.ID] = index
+	}
+	return nil
+}
+
+// validateIndexedDocument enforces the single rule for a complete indexed
+// document: it is non-nil, individually valid, carries a non-blank ID, and has
+// text to embed. IndexRequest admission and SearchResult both apply this rule so
+// a document the store would reject at write cannot reappear in a search result.
+// document.Document.Validate alone admits media without text, which is wider than
+// this store allows.
+func validateIndexedDocument(indexed *document.Document) error {
+	if indexed == nil {
+		return fmt.Errorf("%w: document is nil", ErrInvalidDocument)
+	}
+	if err := indexed.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
+	}
+	if strings.TrimSpace(indexed.ID) == "" {
+		return ErrMissingDocumentID
+	}
+	if indexed.Text == "" {
+		return fmt.Errorf("%w: document has no text to embed", ErrInvalidDocument)
 	}
 	return nil
 }

@@ -7,8 +7,29 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
+
+func TestSearchResultRequiresCompleteIndexedDocument(t *testing.T) {
+	image, err := media.NewURI("image/png", "https://example.test/a.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A media-only document is individually valid but is not a complete indexed
+	// document: a store rejects it at write, so a search result must reject it too.
+	mediaOnly := &document.Document{ID: "doc-1", Media: image}
+	if docErr := mediaOnly.Validate(); docErr != nil {
+		t.Fatalf("media-only document is individually valid: %v", docErr)
+	}
+	if _, resErr := vectorstore.NewSearchResult(mediaOnly, 0.8); !errors.Is(resErr, vectorstore.ErrInvalidResponse) {
+		t.Fatalf("NewSearchResult accepted a document without text: %v", resErr)
+	}
+	// The same rule rejects it at index admission, confirming one shared owner.
+	if _, reqErr := vectorstore.NewIndexRequest([]*document.Document{mediaOnly}); !errors.Is(reqErr, vectorstore.ErrInvalidRequest) {
+		t.Fatalf("NewIndexRequest accepted a document without text: %v", reqErr)
+	}
+}
 
 func TestSearchRequestValidate(t *testing.T) {
 	cases := []struct {

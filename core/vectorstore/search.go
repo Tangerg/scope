@@ -217,14 +217,10 @@ func (s *SearchResult) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: result is nil", ErrInvalidResponse)
 	}
-	if s.Document == nil {
-		return fmt.Errorf("%w: result document is nil", ErrInvalidResponse)
-	}
-	if err := s.Document.Validate(); err != nil {
-		return fmt.Errorf("%w: result document: %w", ErrInvalidResponse, err)
-	}
-	if strings.TrimSpace(s.Document.ID) == "" {
-		return fmt.Errorf("%w: result: %w", ErrInvalidResponse, ErrMissingDocumentID)
+	// A successful result returns a document the store accepted at index time, so
+	// it must satisfy the same completeness rule, including non-empty text.
+	if err := validateIndexedDocument(s.Document); err != nil {
+		return fmt.Errorf("%w: result: %w", ErrInvalidResponse, err)
 	}
 	if err := s.Score.Validate(); err != nil {
 		return fmt.Errorf("%w: result score: %w", ErrInvalidResponse, err)
