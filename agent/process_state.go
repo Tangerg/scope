@@ -209,16 +209,16 @@ func (p *processState) requestKill(reason string) error {
 	return nil
 }
 
-func (p *processState) prepareResolution(effectID EffectID, settlement Settlement, limits TreeLimits) (*processState, int, error) {
+// prepareResolution builds the resolved candidate; commitResolution owns the
+// snapshot-capacity check through validateSnapshotCapacity, which re-admits this
+// exact candidate, so preparing it does not also measure it.
+func (p *processState) prepareResolution(effectID EffectID, settlement Settlement) (*processState, int, error) {
 	if p.prepared == nil {
 		return nil, 0, ErrEffectNotPending
 	}
 	candidate := p.candidate()
 	index, err := candidate.prepared.resolveUnknown(effectID, settlement)
 	if err != nil {
-		return nil, 0, err
-	}
-	if _, err := candidate.snapshotAdmissionSize(limits); err != nil {
 		return nil, 0, err
 	}
 	return candidate, index, nil

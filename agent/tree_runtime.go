@@ -1042,7 +1042,7 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, effectID Effec
 }
 
 func (t *treeRuntime) commitResolution(process *processState, effectID EffectID, settlement Settlement, reply processReply) {
-	candidate, index, err := process.prepareResolution(effectID, settlement, t.treeLimits)
+	candidate, index, err := process.prepareResolution(effectID, settlement)
 	if err == nil {
 		err = t.validateSnapshotCapacity(candidate)
 	}
