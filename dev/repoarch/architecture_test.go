@@ -34,9 +34,8 @@ func (r repositoryModule) isCapabilityModule() bool {
 	return !r.inProviderFamily()
 }
 
-// inProviderFamily reports whether the module belongs to a provider or dev
-// tooling family. One owner of that family list keeps the capability and
-// usage-example classifications from drifting apart.
+// inProviderFamily owns the provider and dev family list shared by the capability
+// and usage-example classifications.
 func (r repositoryModule) inProviderFamily() bool {
 	for _, family := range []string{"models/", "vectorstores/", "historystores/", "tokenizers/", "dev/"} {
 		if strings.HasPrefix(r.dir, family) {
@@ -46,11 +45,9 @@ func (r repositoryModule) inProviderFamily() bool {
 	return false
 }
 
-// requiresUsageExample reports whether a module must ship a checked Go usage
-// example. Provider and dev families are exercised by conformance and
-// architecture gates, while core and the examples module are documented in
-// place; every other published module — protocol and observability integrations
-// included — is consumed through a capability API that owns a runnable example.
+// requiresUsageExample exempts core, the examples module, and the
+// conformance-tested provider and dev families; every other published module is a
+// consumed capability that owns a runnable example.
 func (r repositoryModule) requiresUsageExample() bool {
 	if r.dir == "core" || r.dir == "examples" {
 		return false

@@ -60,8 +60,6 @@ func TestPricingCacheFallbackAndBands(t *testing.T) {
 }
 
 func TestZeroValueReporting(t *testing.T) {
-	// IsZero drives jsonv2 omitzero: a zero value must be omittable, and any
-	// populated field must defeat omitzero so a real capability is never dropped.
 	if !(catalog.Model{}).IsZero() || !(catalog.Limits{}).IsZero() || !(catalog.Modalities{}).IsZero() {
 		t.Fatal("a zero value reported non-zero")
 	}

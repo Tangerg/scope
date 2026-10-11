@@ -384,8 +384,6 @@ func (r *responseObservation) observeMetadata(span trace.Span, metadata *corecha
 		attributes = append(attributes, semconv.GenAIResponseModel(metadata.Model))
 	}
 	if metadata.Usage != nil {
-		// Detach the snapshot from the caller's Usage so a later replacement that
-		// mutates its breakdown pointers cannot alter what the span recorded.
 		usage := metadata.Usage.Clone()
 		r.usage = &usage
 	}

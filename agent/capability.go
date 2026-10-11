@@ -88,9 +88,8 @@ func (c CapabilitySet) Allows(requested CapabilitySet) bool {
 	return true
 }
 
-// Every CapabilitySet originates from construction or decode, which sort,
-// deduplicate, and reject invalid grants, and the backing slice is unexported.
-// A nil slice encodes as the empty array the empty-set contract requires.
+// Construction and decode already guarantee valid, sorted, unique grants, and a
+// nil slice encodes as the empty-set array the contract requires.
 func (c CapabilitySet) MarshalJSON() ([]byte, error) {
 	return jsonv2.Marshal(c.values)
 }

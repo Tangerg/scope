@@ -162,8 +162,7 @@ func newModelEffect(
 	if request == nil {
 		return effectEnvelope{}, fmt.Errorf("%w: model request is nil", ErrInvalidProtocol)
 	}
-	// Copy owner-provided inputs, then let validateModelCall own the rule set the
-	// decode path also enforces, so construction and decode cannot diverge.
+	// validateModelCall owns the rule set the decode path also enforces.
 	envelope := effectEnvelope{
 		ModelCall: &modelCall{
 			ModelCallSequence:     modelCallSequence,

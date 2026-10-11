@@ -180,8 +180,6 @@ func qdrantFilterStore(t *testing.T, docs []*document.Document) (*Store, *filter
 			t.Error(closeErr)
 		}
 		server.Stop()
-		// Stop can precede Serve in a test that reaches no RPC, so an
-		// intentionally stopped server is the expected outcome, not a failure.
 		if serveErr := <-done; serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			t.Error(serveErr)
 		}

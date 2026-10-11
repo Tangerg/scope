@@ -10,7 +10,6 @@ import (
 )
 
 func ExampleReader() {
-	// testPDF builds a complete two-page PDF 1.4 stream in memory.
 	payload := testPDF("Scope extracts PDF text", "page two")
 	reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{})
 	if err != nil {

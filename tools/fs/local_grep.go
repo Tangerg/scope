@@ -235,8 +235,7 @@ var errGrepOutputBudget = errors.New("fs.Grep: output byte budget exceeded")
 
 // ripgrepDecoder accumulates one bounded response across per-file ripgrep runs.
 // ripgrep names stdin rather than the file, so sourcePath attributes each run's
-// events to the root-relative path being searched. remaining is the wire-byte
-// budget shared across those runs.
+// events to the root-relative path being searched.
 type ripgrepDecoder struct {
 	sourcePath string
 	mode       GrepOutputMode

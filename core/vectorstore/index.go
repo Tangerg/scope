@@ -53,11 +53,9 @@ func (i *IndexRequest) Validate() error {
 	return nil
 }
 
-// validateIndexedDocument enforces the completeness rule shared by index
-// admission and search results: a present document must be individually valid,
-// carry a non-blank ID, and have text to embed. Each caller owns the presence of
-// the document it passes; document.Document.Validate alone admits media without
-// text, which is wider than this store allows.
+// validateIndexedDocument checks completeness for a present document; callers own
+// presence. Document.Validate alone admits media without text, which this store
+// does not.
 func validateIndexedDocument(indexed *document.Document) error {
 	if err := indexed.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)

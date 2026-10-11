@@ -70,10 +70,8 @@ func NewPlan(actions []PlannedAction) (Plan, error) {
 // Actions returns independently owned Action references in execution order.
 func (p Plan) Actions() []PlannedAction { return slices.Clone(p.actions) }
 
-// Every Plan originates from NewPlan or decode, which reject invalid actions,
-// and the backing slice is unexported, so a constructed Plan is always valid.
-// Marshal only reads actions, and jsonv2 encodes a nil slice as [], so the
-// "actions":[] shape needs no defensive copy or nil normalization here.
+// jsonv2 encodes a nil slice as [], so the "actions":[] empty-set shape needs no
+// defensive copy or nil normalization here.
 func (p Plan) MarshalJSON() ([]byte, error) {
 	return jsonv2.Marshal(planWire{Actions: p.actions})
 }

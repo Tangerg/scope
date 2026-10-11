@@ -225,10 +225,6 @@ func TestSimilarityRejectsNonFiniteComponents(t *testing.T) {
 }
 
 func TestSearchScansConcurrentlyWithBorrowedVectors(t *testing.T) {
-	// Search borrows each indexed vector to Similarity read-only and may call it
-	// concurrently. A conforming callback sees stable inputs, so concurrent
-	// searches must agree and stay race-free; a store that mutated or shared a
-	// writable indexed vector would diverge here or trip the race detector.
 	var calls atomic.Int64
 	similarity := func(left, right []float64) vectorstore.Score {
 		calls.Add(1)
