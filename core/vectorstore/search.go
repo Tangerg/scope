@@ -217,6 +217,10 @@ func (s *SearchResult) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: result is nil", ErrInvalidResponse)
 	}
+	// The required Document pointer owns its own presence at this wire boundary.
+	if s.Document == nil {
+		return fmt.Errorf("%w: result document is nil", ErrInvalidResponse)
+	}
 	// A successful result returns a document the store accepted at index time, so
 	// it must satisfy the same completeness rule, including non-empty text.
 	if err := validateIndexedDocument(s.Document); err != nil {
