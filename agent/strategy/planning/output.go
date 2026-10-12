@@ -35,6 +35,10 @@ func (o Outcome) String() string {
 	return string(o)
 }
 
+func (Outcome) JSONSchemaEnum() []string {
+	return []string{string(OutcomeAchieved), string(OutcomeUnreachable), string(OutcomeStuck), string(OutcomeExhausted)}
+}
+
 // AttemptStatus records the observed result of one selected Action attempt.
 type AttemptStatus string
 
@@ -61,18 +65,22 @@ func (a AttemptStatus) String() string {
 	return string(a)
 }
 
+func (AttemptStatus) JSONSchemaEnum() []string {
+	return []string{string(AttemptSucceeded), string(AttemptFailed), string(AttemptUnconfirmed)}
+}
+
 // Attempt is one final, portable Action-attempt fact. Only a failed attempt
 // has a Diagnostic: an unconfirmed attempt is fully explained by its Status.
 type Attempt struct {
-	ActionName string        `json:"action_name" jsonschema:"pattern=^[a-z][a-z0-9._-]{0\\,127}$"`
-	Status     AttemptStatus `json:"status" jsonschema:"enum=succeeded,enum=failed,enum=unconfirmed"`
-	Diagnostic string        `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
+	ActionName agent.QualifiedName `json:"action_name"`
+	Status     AttemptStatus       `json:"status"`
+	Diagnostic string              `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
 }
 
 func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
 
 func (a Attempt) Validate() error {
-	if !agent.ValidQualifiedName(a.ActionName) || !a.Status.Valid() {
+	if !agent.ValidQualifiedName(string(a.ActionName)) || !a.Status.Valid() {
 		return fmt.Errorf("%w: invalid Action attempt identity or status", ErrInvalidResult)
 	}
 	if a.Status != AttemptFailed {
@@ -91,7 +99,7 @@ func (a Attempt) Validate() error {
 // observation and Attempts preserve selection order. No field is derived from
 // Event or Delta history.
 type Output struct {
-	Outcome    Outcome    `json:"outcome" jsonschema:"enum=achieved,enum=unreachable,enum=stuck,enum=exhausted"`
+	Outcome    Outcome    `json:"outcome"`
 	WorldState WorldState `json:"world_state"`
 	Attempts   []Attempt  `json:"attempts"`
 }

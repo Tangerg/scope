@@ -154,7 +154,7 @@ func (d *Definition) problem(state executionState) Problem {
 	excluded := make(map[string]struct{}, len(state.Attempts))
 	for _, attempt := range state.Attempts {
 		if attempt.excluded() {
-			excluded[attempt.ActionName] = struct{}{}
+			excluded[string(attempt.ActionName)] = struct{}{}
 		}
 	}
 	actions := make([]Action, 0, len(d.bindings))
@@ -178,14 +178,14 @@ func (d *Definition) validateActionHistory(ctx context.Context, attempts []Attem
 		if err := attempt.Validate(); err != nil {
 			return fmt.Errorf("attempt %d: %w", index, err)
 		}
-		if _, found := d.binding(attempt.ActionName); !found {
+		if _, found := d.binding(string(attempt.ActionName)); !found {
 			return fmt.Errorf("attempt references unknown Action %q", attempt.ActionName)
 		}
-		if _, present := excluded[attempt.ActionName]; present {
+		if _, present := excluded[string(attempt.ActionName)]; present {
 			return fmt.Errorf("Action %q was attempted after exclusion", attempt.ActionName)
 		}
 		if attempt.excluded() {
-			excluded[attempt.ActionName] = struct{}{}
+			excluded[string(attempt.ActionName)] = struct{}{}
 		}
 	}
 	return ctx.Err()

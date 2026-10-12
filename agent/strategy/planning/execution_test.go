@@ -667,7 +667,7 @@ func assertFailure(t testing.TB, result agent.Result, kind agent.FailureKind, co
 func attemptNames(attempts []planning.Attempt) []string {
 	names := make([]string, len(attempts))
 	for index, attempt := range attempts {
-		names[index] = attempt.ActionName
+		names[index] = string(attempt.ActionName)
 	}
 	return names
 }

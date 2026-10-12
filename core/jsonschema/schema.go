@@ -35,6 +35,20 @@ type Modeler interface {
 	JSONSchemaAlias() any
 }
 
+// Enumerator is implemented by named string types whose JSON value is one of a
+// fixed set, so the schema derives the enum from the type that owns the
+// vocabulary instead of restating it in field tags. Use a value receiver.
+type Enumerator interface {
+	JSONSchemaEnum() []string
+}
+
+// Patterned is implemented by named string types constrained to a regular
+// expression, so the schema derives the pattern from the type that owns the
+// rule instead of restating it in field tags. Use a value receiver.
+type Patterned interface {
+	JSONSchemaPattern() string
+}
+
 // Schema is an immutable, compiled JSON Schema. Its zero value is invalid and
 // successfully constructed values are safe for concurrent validation.
 type Schema struct {
@@ -112,10 +126,9 @@ func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error)
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
-	modeler := reflect.TypeFor[Modeler]()
-	if !typeOf.Implements(modeler) && reflect.PointerTo(typeOf).Implements(modeler) {
-		panic(fmt.Sprintf("%v.JSONSchemaAlias requires a value receiver", typeOf))
-	}
+	requireValueReceiver(typeOf, reflect.TypeFor[Modeler](), "JSONSchemaAlias")
+	requireValueReceiver(typeOf, reflect.TypeFor[Enumerator](), "JSONSchemaEnum")
+	requireValueReceiver(typeOf, reflect.TypeFor[Patterned](), "JSONSchemaPattern")
 	if typeOf == reflect.TypeFor[[]byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
 			{Type: "null"},
@@ -132,13 +145,35 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		minimum = "0"
 		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
 	default:
-		return nil
+		return stringConstraint(reflect.Zero(typeOf).Interface())
 	}
 	// The reflector writes field tags onto the outer schema. Keeping machine
 	// bounds in an intersection lets tags narrow them without widening the type.
 	return &reflection.Schema{Type: "integer", AllOf: []*reflection.Schema{{
 		Minimum: json.Number(minimum), Maximum: json.Number(maximum),
 	}}}
+}
+
+func requireValueReceiver(typeOf, iface reflect.Type, method string) {
+	if !typeOf.Implements(iface) && reflect.PointerTo(typeOf).Implements(iface) {
+		panic(fmt.Sprintf("%v.%s requires a value receiver", typeOf, method))
+	}
+}
+
+func stringConstraint(value any) *reflection.Schema {
+	switch constraint := value.(type) {
+	case Enumerator:
+		members := constraint.JSONSchemaEnum()
+		enum := make([]any, len(members))
+		for index, member := range members {
+			enum[index] = member
+		}
+		return &reflection.Schema{Type: "string", Enum: enum}
+	case Patterned:
+		return &reflection.Schema{Type: "string", Pattern: constraint.JSONSchemaPattern()}
+	default:
+		return nil
+	}
 }
 
 func qualifiedTypeName(typeOf reflect.Type) string {

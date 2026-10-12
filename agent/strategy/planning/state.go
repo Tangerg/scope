@@ -170,7 +170,7 @@ func (e executionState) awaitingConfirmation() bool {
 }
 
 func (e *executionState) confirmAction(action Action) {
-	attempt := Attempt{ActionName: e.CurrentActionName, Status: AttemptSucceeded}
+	attempt := Attempt{ActionName: agent.QualifiedName(e.CurrentActionName), Status: AttemptSucceeded}
 	if !e.WorldState.Satisfies(action.effects...) {
 		attempt.Status = AttemptUnconfirmed
 	}
@@ -180,7 +180,7 @@ func (e *executionState) confirmAction(action Action) {
 
 func (e *executionState) recordFailedAction(reason string) {
 	e.Attempts = append(e.Attempts, Attempt{
-		ActionName: e.CurrentActionName, Status: AttemptFailed, Diagnostic: agent.NormalizeDiagnostic(reason),
+		ActionName: agent.QualifiedName(e.CurrentActionName), Status: AttemptFailed, Diagnostic: agent.NormalizeDiagnostic(reason),
 	})
 	e.CurrentActionName = ""
 }
@@ -231,7 +231,7 @@ func (e executionState) snapshot() (agent.ExecutionState, error) {
 
 func (e executionState) actionExcluded(name string) bool {
 	for _, attempt := range e.Attempts {
-		if attempt.ActionName == name && attempt.excluded() {
+		if string(attempt.ActionName) == name && attempt.excluded() {
 			return true
 		}
 	}

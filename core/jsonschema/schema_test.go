@@ -16,6 +16,33 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
+type enumFixture string
+
+func (enumFixture) JSONSchemaEnum() []string { return []string{"alpha", "beta"} }
+
+type patternFixture string
+
+func (patternFixture) JSONSchemaPattern() string { return "^[a-z]+$" }
+
+func TestForDerivesStringConstraintsFromTheType(t *testing.T) {
+	type payload struct {
+		Mode enumFixture    `json:"mode"`
+		Name patternFixture `json:"name"`
+	}
+	schema, err := jsonschema.For[payload]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, document := range []string{`{"mode":"gamma","name":"ok"}`, `{"mode":"alpha","name":"NO"}`} {
+		if err := schema.Validate([]byte(document)); err == nil {
+			t.Errorf("%s bypassed a type-derived constraint", document)
+		}
+	}
+	if err := schema.Validate([]byte(`{"mode":"alpha","name":"ok"}`)); err != nil {
+		t.Fatalf("conforming value rejected: %v", err)
+	}
+}
+
 func TestValidateRequiresStrictJSONAndPreservesNumbers(t *testing.T) {
 	schema, err := jsonschema.Parse([]byte(`true`))
 	if err != nil {

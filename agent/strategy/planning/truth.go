@@ -24,6 +24,10 @@ func (t Truth) Valid() bool { return t == TruthUnknown || t == TruthFalse || t =
 
 func (t Truth) known() bool { return t == TruthFalse || t == TruthTrue }
 
+// JSONSchemaEnum restricts a wire Truth to the admissible known values;
+// TruthUnknown is absence, never a serialized value.
+func (Truth) JSONSchemaEnum() []string { return []string{string(TruthFalse), string(TruthTrue)} }
+
 func (t Truth) String() string {
 	if !t.Valid() {
 		return invalidEnumName

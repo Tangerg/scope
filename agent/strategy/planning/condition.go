@@ -34,7 +34,7 @@ func (c Condition) MarshalJSON() ([]byte, error) {
 	if !c.Valid() {
 		return nil, ErrInvalidCondition
 	}
-	return jsonv2.Marshal(conditionWire{Key: c.key, Truth: c.truth})
+	return jsonv2.Marshal(conditionWire{Key: agent.QualifiedName(c.key), Truth: c.truth})
 }
 
 func (c *Condition) UnmarshalJSON(data []byte) error {
@@ -45,7 +45,7 @@ func (c *Condition) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidCondition, err)
 	}
-	value, err := NewCondition(wire.Key, wire.Truth)
+	value, err := NewCondition(string(wire.Key), wire.Truth)
 	if err != nil {
 		return err
 	}
@@ -54,8 +54,8 @@ func (c *Condition) UnmarshalJSON(data []byte) error {
 }
 
 type conditionWire struct {
-	Key   string `json:"key" jsonschema:"pattern=^[a-z][a-z0-9._-]{0\\,127}$"`
-	Truth Truth  `json:"truth" jsonschema:"enum=false,enum=true"`
+	Key   agent.QualifiedName `json:"key"`
+	Truth Truth               `json:"truth"`
 }
 
 func (Condition) JSONSchemaAlias() any { return conditionWire{} }
