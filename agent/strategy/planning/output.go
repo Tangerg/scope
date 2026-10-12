@@ -2,6 +2,7 @@ package planning
 
 import (
 	"fmt"
+	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
 )
@@ -24,9 +25,9 @@ const (
 	OutcomeExhausted Outcome = "exhausted"
 )
 
-func (o Outcome) Valid() bool {
-	return o == OutcomeAchieved || o == OutcomeUnreachable || o == OutcomeStuck || o == OutcomeExhausted
-}
+var outcomeVocabulary = []Outcome{OutcomeAchieved, OutcomeUnreachable, OutcomeStuck, OutcomeExhausted}
+
+func (o Outcome) Valid() bool { return slices.Contains(outcomeVocabulary, o) }
 
 func (o Outcome) String() string {
 	if !o.Valid() {
@@ -35,9 +36,7 @@ func (o Outcome) String() string {
 	return string(o)
 }
 
-func (Outcome) JSONSchemaEnum() []string {
-	return []string{string(OutcomeAchieved), string(OutcomeUnreachable), string(OutcomeStuck), string(OutcomeExhausted)}
-}
+func (Outcome) JSONSchemaEnum() []string { return enumNames(outcomeVocabulary) }
 
 // AttemptStatus records the observed result of one selected Action attempt.
 type AttemptStatus string
@@ -54,9 +53,9 @@ const (
 	AttemptUnconfirmed AttemptStatus = "unconfirmed"
 )
 
-func (a AttemptStatus) Valid() bool {
-	return a == AttemptSucceeded || a == AttemptFailed || a == AttemptUnconfirmed
-}
+var attemptStatusVocabulary = []AttemptStatus{AttemptSucceeded, AttemptFailed, AttemptUnconfirmed}
+
+func (a AttemptStatus) Valid() bool { return slices.Contains(attemptStatusVocabulary, a) }
 
 func (a AttemptStatus) String() string {
 	if !a.Valid() {
@@ -65,8 +64,14 @@ func (a AttemptStatus) String() string {
 	return string(a)
 }
 
-func (AttemptStatus) JSONSchemaEnum() []string {
-	return []string{string(AttemptSucceeded), string(AttemptFailed), string(AttemptUnconfirmed)}
+func (AttemptStatus) JSONSchemaEnum() []string { return enumNames(attemptStatusVocabulary) }
+
+func enumNames[T ~string](values []T) []string {
+	names := make([]string, len(values))
+	for index, value := range values {
+		names[index] = string(value)
+	}
+	return names
 }
 
 // Attempt is one final, portable Action-attempt fact. Only a failed attempt

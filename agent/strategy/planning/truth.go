@@ -3,6 +3,7 @@ package planning
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -22,11 +23,13 @@ const (
 
 func (t Truth) Valid() bool { return t == TruthUnknown || t == TruthFalse || t == TruthTrue }
 
-func (t Truth) known() bool { return t == TruthFalse || t == TruthTrue }
+// wireTruths are the admissible known truths; TruthUnknown is absence, never a
+// serialized value. known and JSONSchemaEnum both project this one set.
+var wireTruths = []Truth{TruthFalse, TruthTrue}
 
-// JSONSchemaEnum restricts a wire Truth to the admissible known values;
-// TruthUnknown is absence, never a serialized value.
-func (Truth) JSONSchemaEnum() []string { return []string{string(TruthFalse), string(TruthTrue)} }
+func (t Truth) known() bool { return slices.Contains(wireTruths, t) }
+
+func (Truth) JSONSchemaEnum() []string { return enumNames(wireTruths) }
 
 func (t Truth) String() string {
 	if !t.Valid() {
