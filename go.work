@@ -60,10 +60,14 @@ use (
 	./models/xiaomi
 	./models/zhipu
 	./otel
+	./otel/agent
+	./otel/eval
+	./otel/rag
 	./rag
 	./skills
 	./tokenizers/tiktoken
 	./tools
+	./tools/skills
 	./vectorstores/azureaisearch
 	./vectorstores/azurecosmos
 	./vectorstores/bedrockkb

@@ -27,11 +27,18 @@ type repositoryModule struct {
 func (r repositoryModule) isCapabilityModule() bool {
 	// Protocol and observability integrations adapt capabilities from outside.
 	// New modules are capabilities unless they belong to an explicit exemption.
-	protocolIntegrations := []string{"a2a", "mcp", "otel"}
-	if slices.Contains(protocolIntegrations, r.dir) || r.dir == "examples" {
+	if r.inIntegrationFamily() || r.dir == "examples" {
 		return false
 	}
 	return !r.inProviderFamily()
+}
+
+// inIntegrationFamily owns the protocol and observability integration set. The
+// otel module publishes per-target submodules (otel/agent, otel/eval, otel/rag)
+// so a core-only consumer never inherits agent, eval, or rag; each decorates a
+// capability from outside and therefore may import OpenTelemetry.
+func (r repositoryModule) inIntegrationFamily() bool {
+	return r.dir == "a2a" || r.dir == "mcp" || r.dir == "otel" || strings.HasPrefix(r.dir, "otel/")
 }
 
 // inProviderFamily owns the provider and dev family list shared by the capability
@@ -278,6 +285,10 @@ func TestNewModulesDefaultToCapabilityClassification(t *testing.T) {
 		{dir: "a2a"},
 		{dir: "mcp"},
 		{dir: "otel"},
+		{dir: "otel/agent"},
+		{dir: "otel/eval"},
+		{dir: "otel/rag"},
+		{dir: "tools/skills", capability: true},
 		{dir: "models/newprovider"},
 		{dir: "vectorstores/newprovider"},
 		{dir: "historystores/newprovider"},
@@ -300,6 +311,10 @@ func TestUsageExamplePolicyCoversConsumedModules(t *testing.T) {
 		{dir: "a2a", example: true},
 		{dir: "mcp", example: true},
 		{dir: "otel", example: true},
+		{dir: "otel/agent", example: true},
+		{dir: "otel/eval", example: true},
+		{dir: "otel/rag", example: true},
+		{dir: "tools/skills", example: true},
 		{dir: "skills", example: true},
 		{dir: "etl", example: true},
 		{dir: "etl/html", example: true},
@@ -548,8 +563,10 @@ func moduleLayer(dir string) int {
 		return 0
 	case "a2a", "agent", "etl", "eval", "mcp", "rag", "tools":
 		return 1
-	case "otel":
+	case "otel", "otel/agent":
 		return 2
+	case "otel/eval", "otel/rag":
+		return 3
 	case "examples":
 		return 3
 	case "dev/providerconformance", "dev/repoarch":
@@ -589,7 +606,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	if strings.HasPrefix(source.dir, "models/") && !strings.HasPrefix(source.dir, "models/protocol/") {
 		return strings.HasPrefix(target.dir, "models/protocol/")
 	}
-	if source.dir == "tools" {
+	if source.dir == "tools/skills" {
 		return target.dir == "skills"
 	}
 	if strings.HasPrefix(source.dir, "etl/") {
@@ -600,6 +617,17 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	}
 	if source.dir == "otel" {
 		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
+	}
+	// The otel submodules isolate their target's dependency: each requires only
+	// its decorated capability and, for the shared telemetry helpers, otel itself.
+	if source.dir == "otel/agent" {
+		return target.dir == "agent"
+	}
+	if source.dir == "otel/eval" {
+		return target.dir == "otel" || target.dir == "eval"
+	}
+	if source.dir == "otel/rag" {
+		return target.dir == "otel" || target.dir == "rag"
 	}
 	return false
 }

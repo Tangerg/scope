@@ -1177,7 +1177,9 @@ github.com/RoaringBitmap/roaring/v2 v2.8.0/go.mod h1:FiJcsfkGje/nZBZgCu0ZxCPOKD/
 github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06 h1:KkH3I3sJuOLP3TjA/dfr4NAY8bghDwnXiU7cTKxQqo0=
 github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06/go.mod h1:7erjKLwalezA0k99cWs5L11HWOAPNjdUZ6RxH1BXbbM=
 github.com/Tangerg/scope/eval v0.0.1/go.mod h1:PQlAPC+Ag7QBY4mWlUAQ3BT8iral6/CvmT2QoY/rrWA=
+github.com/Tangerg/scope/otel v0.46.0/go.mod h1:C/em/xHifMR0vv2MCrKsj+FWwGFergCmbVMIYfrY1xY=
 github.com/Tangerg/scope/rag v0.20.1-0.20260912191042-7ff843283b69/go.mod h1:l9smSzy7CaD4idrzS1nz63I6Zrt+Y90psGpf4iii3/s=
+github.com/Tangerg/scope/rag v0.46.0/go.mod h1:QOgT9sI+d1MuiO0n6FyuKzmW2TgITxM7V4UbsBUdxhw=
 github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf h1:FPsprx82rdrX2jiKyS17BH6IrTmUBYqZa/CXT4uvb+I=
 github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf/go.mod h1:peYoMncQljjNS6tZwI9WVyQB3qZS6u79/N3mBOcnd3I=
 github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1ow=

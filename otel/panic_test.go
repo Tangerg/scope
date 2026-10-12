@@ -21,14 +21,12 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	historyotel "github.com/Tangerg/scope/otel/history"
-	ragotel "github.com/Tangerg/scope/otel/rag"
 	toolotel "github.com/Tangerg/scope/otel/tool"
 	vectorotel "github.com/Tangerg/scope/otel/vectorstore"
-	"github.com/Tangerg/scope/rag"
 )
 
 func TestCapabilityPanicsEndObservationAndPropagateUnchanged(t *testing.T) {
-	for _, operation := range []string{"tool", "retrieve", "read", "write", "clear", "conversations", "index", "search", "delete_ids", "delete_where"} {
+	for _, operation := range []string{"tool", "read", "write", "clear", "conversations", "index", "search", "delete_ids", "delete_where"} {
 		t.Run(operation, func(t *testing.T) {
 			spans := tracetest.NewSpanRecorder()
 			traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
@@ -102,10 +100,6 @@ func (p panickingCapability) Call(context.Context, tool.Invocation) (chat.ToolOu
 	panic(p.value)
 }
 
-func (p panickingCapability) Retrieve(context.Context, rag.Query) (rag.Candidates, error) {
-	panic(p.value)
-}
-
 func (p panickingCapability) Read(context.Context, history.ConversationID) ([]chat.Message, error) {
 	panic(p.value)
 }
@@ -143,20 +137,6 @@ func (p panickingCapability) invoke(t *testing.T, operation string, traces trace
 			t.Fatal(err)
 		}
 		_, _ = wrapped.Call(t.Context(), tool.Invocation{})
-	case "retrieve":
-		middleware, err := ragotel.NewMiddleware(ragotel.MiddlewareConfig{TracerProvider: traces, MeterProvider: meters})
-		if err != nil {
-			t.Fatal(err)
-		}
-		wrapped, err := middleware.Wrap(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		query, err := rag.NewQuery("private query")
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = wrapped.Retrieve(t.Context(), query)
 	case "read", "write", "clear", "conversations":
 		middleware, err := historyotel.NewMiddleware(historyotel.MiddlewareConfig{System: "memory", TracerProvider: traces, MeterProvider: meters})
 		if err != nil {

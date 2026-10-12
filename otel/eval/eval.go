@@ -1,5 +1,3 @@
-// Package eval instruments generic Scope evaluation calls with
-// OpenTelemetry.
 package eval
 
 import (

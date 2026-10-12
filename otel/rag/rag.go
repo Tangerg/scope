@@ -1,4 +1,3 @@
-// Package rag instruments retrieval capabilities with OpenTelemetry.
 package rag
 
 import (
