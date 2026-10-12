@@ -24,7 +24,8 @@ const (
 func (t Truth) Valid() bool { return t == TruthUnknown || t == TruthFalse || t == TruthTrue }
 
 // wireTruths are the admissible known truths; TruthUnknown is absence, never a
-// serialized value. known and JSONSchemaEnum both project this one set.
+// serialized value. known, JSONSchemaEnum, and the JSON codec all project this
+// one set, so the accepted wire tokens and the generated schema cannot diverge.
 var wireTruths = []Truth{TruthFalse, TruthTrue}
 
 func (t Truth) known() bool { return slices.Contains(wireTruths, t) }
@@ -39,7 +40,7 @@ func (t Truth) String() string {
 }
 
 func (t Truth) MarshalJSON() ([]byte, error) {
-	if !t.Valid() {
+	if !t.known() {
 		return nil, fmt.Errorf("%w: truth value %q", ErrInvalidCondition, t)
 	}
 	return jsonv2.Marshal(t.String())
@@ -54,7 +55,7 @@ func (t *Truth) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode Truth: %w", ErrInvalidCondition, err)
 	}
 	decoded := Truth(encoded)
-	if !decoded.Valid() {
+	if !decoded.known() {
 		return fmt.Errorf("%w: unsupported truth %q", ErrInvalidCondition, encoded)
 	}
 	*t = decoded
