@@ -23,9 +23,8 @@ const (
 
 func (t Truth) Valid() bool { return t == TruthUnknown || t == TruthFalse || t == TruthTrue }
 
-// wireTruths are the admissible known truths; TruthUnknown is absence, never a
-// serialized value. known, JSONSchemaEnum, and the JSON codec all project this
-// one set, so the accepted wire tokens and the generated schema cannot diverge.
+// TruthUnknown is absence, never a serialized value; known, JSONSchemaEnum, and the
+// JSON codec all project wireTruths, so the wire tokens and schema cannot diverge.
 var wireTruths = []Truth{TruthFalse, TruthTrue}
 
 func (t Truth) known() bool { return slices.Contains(wireTruths, t) }
