@@ -37,7 +37,6 @@ type Driver interface {
 	NewSession(context.Context, neo4j.SessionConfig) neo4j.SessionWithContext
 }
 
-// SimilarityFunction selects Neo4j's native exact similarity function.
 type SimilarityFunction string
 
 const (
@@ -54,10 +53,9 @@ func (s SimilarityFunction) String() string { return string(s) }
 // Empty property names use their exported defaults. Driver, EmbeddingModel and
 // DocumentBatcher are required.
 type StoreConfig struct {
-	Driver Driver
-	// Database is optional; empty uses the driver's default database.
+	Driver   Driver
 	Database string
-	// Label defaults to DefaultLabel. Every node with this label must use the current schema.
+	// Every node carrying Label must use the current schema.
 	Label             string
 	EmbeddingProperty string
 	IDProperty        string
@@ -66,8 +64,7 @@ type StoreConfig struct {
 	MetadataProperty string
 	EmbeddingModel   embedding.Model
 	DocumentBatcher  vectorstore.Batcher
-	// Similarity defaults to SimilarityCosine.
-	Similarity SimilarityFunction
+	Similarity       SimilarityFunction
 	// InitializeSchema creates the ID uniqueness constraint. Construction always
 	// verifies the actual constraint, including when schema creation is disabled.
 	InitializeSchema bool

@@ -52,16 +52,9 @@ type MessageCollection interface {
 	Indexes() mongo.IndexView
 }
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Collection is the live MongoDB collection. Required. The store
-	// does not take ownership of the underlying client.
 	Collection MessageCollection
 
-	// InitializeSchema, when true, ensures an index on
-	// (conversation_id, seq, _id) exists. Idempotent.
 	InitializeSchema bool
 }
 
@@ -86,10 +79,6 @@ type Store struct {
 	sequence   *history.Sequence
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its collection and search index exist
-// would fail on the first index rather than at wiring, where the
-// misconfiguration actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -107,8 +96,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return s, nil
 }
 
-// initIndex creates an ascending compound index on (conversation_id, seq, _id)
-// so per-conversation reads sort efficiently and ties are deterministic.
 func (s *Store) initIndex(ctx context.Context) error {
 	_, err := s.collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{
@@ -121,9 +108,6 @@ func (s *Store) initIndex(ctx context.Context) error {
 	return err
 }
 
-// Write inserts every message under conversationID via InsertMany. A reserved
-// sequence range preserves argument order and remains monotonic if the local
-// clock moves backward.
 // InsertMany is ordered but is not a multi-document transaction: an error can
 // leave earlier messages stored. WriteOutcome preserves the confirmed prefix
 // or marks additional writes uncertain, while the error preserves the cause.
@@ -185,8 +169,6 @@ func errUnacknowledged(operation string) error {
 	)
 }
 
-// Read returns every message stored under conversationID in
-// insertion order.
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -232,8 +214,6 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	return storedMessages, nil
 }
 
-// Clear drops every document for conversationID. Unknown ids result
-// in a no-op (DeleteMany matches zero docs).
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
@@ -252,9 +232,6 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	return nil
 }
 
-// Conversations returns distinct conversation IDs in lexical order. It is a
-// deliberate cross-conversation scan for operational tasks.
-//
 // The distinct command is not used, even though this is exactly a distinct
 // query, because MongoDB documents three limits on it that all have the same
 // remedy. On a sharded cluster "the distinct command may return orphaned

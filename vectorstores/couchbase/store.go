@@ -30,7 +30,6 @@ const (
 	maximumDefaultKeyBytes    = 250
 )
 
-// Similarity selects the native VECTOR_DISTANCE metric.
 type Similarity string
 
 const (
@@ -59,17 +58,15 @@ func (s Similarity) score(distance float64) vectorstore.Score {
 // StoreConfig wires a host-owned SDK cluster and an exclusively managed document
 // collection. The host owns connecting and closing the cluster.
 type StoreConfig struct {
-	Cluster    *gocb.Cluster
-	BucketName string
-	// ScopeName and CollectionName default to the native default namespace.
+	Cluster         *gocb.Cluster
+	BucketName      string
 	ScopeName       string
 	CollectionName  string
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
-	// Similarity defaults to DefaultSimilarity.
-	Similarity Similarity
-	// InitializeSchema creates the collection's default primary query index.
-	// The bucket, scope and collection must already exist.
+	Similarity      Similarity
+	// InitializeSchema creates the collection's default primary query index;
+	// the bucket, scope and collection must already exist.
 	InitializeSchema bool
 }
 
@@ -108,7 +105,6 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store performs exact semantic search over Core-selected documents.
 type Store struct {
 	scope           *gocb.Scope
 	collection      *gocb.Collection

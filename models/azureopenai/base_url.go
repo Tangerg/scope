@@ -10,7 +10,6 @@ import (
 
 const protocolProvider = "azureopenai"
 
-// Config identifies one Azure OpenAI endpoint and its transport.
 type Config struct {
 	APIKey     string
 	BaseURL    string

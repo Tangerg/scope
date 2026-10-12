@@ -8,7 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/moderation"
 )
 
-// ModerationModelConfig binds provider access and defaults shared by every moderation call.
 type ModerationModelConfig struct {
 	APIKey         string
 	DefaultOptions moderation.Options
@@ -40,7 +39,6 @@ type ModerationModel struct {
 	defaultOptions moderation.Options
 }
 
-// NewModerationModel rejects an invalid provider binding before the first moderation call.
 func NewModerationModel(_ context.Context, config ModerationModelConfig) (*ModerationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

@@ -5,7 +5,6 @@ const (
 	Provider = "Deepgram"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	SpeechRequestExtensionKey         = "deepgram/speech_request"
 	SpeechResponseExtensionKey        = "deepgram/speech_response"

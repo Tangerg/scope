@@ -15,7 +15,6 @@ type RerankRequestOptions struct {
 	Truncation *bool `json:"truncation,omitzero"`
 }
 
-// RerankModelConfig binds provider access and defaults shared by every reranking call.
 type RerankModelConfig struct {
 	APIKey         string
 	DefaultOptions rerank.Options
@@ -41,7 +40,6 @@ type RerankModel struct {
 	defaultOptions rerank.Options
 }
 
-// NewRerankModel rejects an invalid provider binding before the first reranking call.
 func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

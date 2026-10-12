@@ -9,10 +9,8 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// TextCounterConfig configures a Gemini-backed token counter.
-// Token counts vary across model families — supply the same Model name
-// you intend to send chat requests under so the count matches the real
-// billing.
+// Token counts vary across model families — supply the same Model name you
+// intend to send chat requests under so the count matches the real billing.
 type TextCounterConfig struct {
 	Client ClientConfig
 	Model  string
@@ -38,7 +36,6 @@ type TextCounter struct {
 	model string
 }
 
-// NewTextCounter rejects an invalid provider/model binding before counting begins.
 func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

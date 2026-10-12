@@ -7,7 +7,6 @@ const (
 	Provider = "Gladia"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	RequestExtensionKey  = "gladia/request"
 	ResponseExtensionKey = "gladia/response"

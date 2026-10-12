@@ -14,7 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/history"
 )
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultDatabase = "neo4j"
 	DefaultLabel    = "ChatMessage"
@@ -25,24 +24,13 @@ const (
 	parameterRows       = "rows"
 )
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Driver is the live Neo4j driver. Required. Callers own its
-	// lifetime.
 	Driver neo4j.DriverWithContext
 
-	// Database selects the Neo4j database to operate against.
-	// Optional: defaults to [DefaultDatabase] ("neo4j").
 	Database string
 
-	// Label is the node label used for stored messages. Optional:
-	// defaults to [DefaultLabel] ("ChatMessage").
 	Label string
 
-	// InitializeSchema, when true, creates an index on
-	// (conversation_id, seq) for the chosen label. Idempotent.
 	InitializeSchema bool
 }
 
@@ -72,10 +60,6 @@ type Store struct {
 	sequence *history.Sequence
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its graph schema and index exist would
-// fail on the first index rather than at wiring, where the misconfiguration
-// actually is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -104,8 +88,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return s, nil
 }
 
-// initIndex creates the (conversation_id, seq) range index on the
-// configured label. Idempotent.
 func (s *Store) initIndex(ctx context.Context) error {
 	indexName := s.label + "_conversation_seq_idx"
 	cypher := fmt.Sprintf(
@@ -119,9 +101,6 @@ func (s *Store) initIndex(ctx context.Context) error {
 	return err
 }
 
-// Write creates a new node per message under conversationID. A reserved
-// sequence range preserves argument order and remains monotonic if the local
-// clock moves backward.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -168,8 +147,6 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
-// Read returns every message stored under conversationID in
-// insertion order (seq ascending).
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -219,8 +196,6 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	return storedMessages, nil
 }
 
-// Clear deletes every node for conversationID under the configured
-// label. Unknown ids are a no-op.
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
@@ -244,7 +219,6 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	return nil
 }
 
-// Conversations returns every stored conversation ID in lexical order.
 func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

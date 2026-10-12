@@ -7,7 +7,6 @@ import (
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
 
-// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type TranscriptionModelConfig struct {
 	Client         ClientConfig
 	DefaultOptions transcription.Options
@@ -31,7 +30,6 @@ var _ transcription.Model = (*TranscriptionModel)(nil)
 // value rejects calls.
 type TranscriptionModel = callModel[transcription.Request, transcription.Response]
 
-// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	return newCallModel[transcription.Request, transcription.Response](protocol.NewTranscriptionModel(ctx, config.protocol()))
 }

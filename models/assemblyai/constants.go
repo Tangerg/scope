@@ -9,7 +9,6 @@ const (
 	Provider = "AssemblyAI"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	RequestExtensionKey  = "assemblyai/request"
 	ResponseExtensionKey = "assemblyai/response"

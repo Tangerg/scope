@@ -18,7 +18,6 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	Provider       = "Google"
 	DefaultBaseURL = protocol.DefaultBaseURL
@@ -62,7 +61,6 @@ func protocolClient(apiKey, baseURL string, httpClient *http.Client) protocol.Cl
 	return protocol.ClientConfig{APIKey: apiKey, BaseURL: baseURL, HTTPClient: httpClient}
 }
 
-// ChatConfig binds provider access and defaults shared by every chat call.
 type ChatConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -83,7 +81,6 @@ func (c ChatConfig) protocol() protocol.ChatConfig {
 // protocol change without breaking this module's public surface.
 type Chat struct{ protocol *protocol.Chat }
 
-// NewChat rejects an invalid provider binding before the first chat call.
 func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	model, err := protocol.NewChat(ctx, config.protocol())
 	if err != nil {
@@ -106,7 +103,6 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return c.protocol.Stream(ctx, req)
 }
 
-// ChatCompletionsConfig binds provider access and defaults shared by every Chat Completions call.
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -124,7 +120,6 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -135,7 +130,6 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	)
 }
 
-// EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
@@ -158,7 +152,6 @@ type EmbeddingModel struct {
 	protocol *protocol.EmbeddingModel
 }
 
-// NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
 func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	model, err := protocol.NewEmbeddingModel(ctx, config.protocol())
 	if err != nil {
@@ -174,7 +167,6 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	return e.protocol.Call(ctx, req)
 }
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	APIKey         string
 	DefaultOptions speech.Options
@@ -195,7 +187,6 @@ func (s SpeechModelConfig) protocol() protocol.SpeechModelConfig {
 // lets the protocol change without breaking this module's public surface.
 type SpeechModel struct{ protocol *protocol.SpeechModel }
 
-// NewSpeechModel rejects an invalid provider binding before the first speech call.
 func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	model, err := protocol.NewSpeechModel(ctx, config.protocol())
 	if err != nil {
@@ -211,7 +202,6 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 	return s.protocol.Call(ctx, req)
 }
 
-// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
@@ -235,7 +225,6 @@ type TranscriptionModel struct {
 	protocol *protocol.TranscriptionModel
 }
 
-// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	model, err := protocol.NewTranscriptionModel(ctx, config.protocol())
 	if err != nil {
@@ -251,7 +240,6 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return t.protocol.Call(ctx, req)
 }
 
-// ImageModelConfig binds provider access and defaults shared by every image call.
 type ImageModelConfig struct {
 	APIKey         string
 	DefaultOptions image.Options
@@ -282,13 +270,10 @@ type ImageGenerationOptions struct {
 	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
 }
 
-// ImageGoogleSearchOptions selects the Google Search sources available during
-// image generation.
 type ImageGoogleSearchOptions struct {
 	SearchTypes []string `json:"search_types,omitempty"`
 }
 
-// ImageSafetySetting carries one Gemini image-safety threshold.
 type ImageSafetySetting struct {
 	Type      string `json:"type"`
 	Threshold string `json:"threshold"`
@@ -300,7 +285,6 @@ type ImageSafetySetting struct {
 // the protocol change without breaking this module's public surface.
 type ImageModel struct{ protocol *protocol.ImageModel }
 
-// NewImageModel rejects an invalid provider binding before the first image call.
 func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	model, err := protocol.NewImageModel(ctx, config.protocol())
 	if err != nil {
@@ -316,7 +300,6 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	return i.protocol.Call(ctx, req)
 }
 
-// TextCounterConfig binds provider access and the model shared by every count.
 type TextCounterConfig struct {
 	APIKey     string
 	Model      string
@@ -337,7 +320,6 @@ func (t TextCounterConfig) protocol() protocol.TextCounterConfig {
 // lets the protocol change without breaking this module's public surface.
 type TextCounter struct{ protocol *protocol.TextCounter }
 
-// NewTextCounter rejects an invalid provider/model binding before counting begins.
 func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
 	counter, err := protocol.NewTextCounter(ctx, config.protocol())
 	if err != nil {

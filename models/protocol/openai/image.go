@@ -16,7 +16,6 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// ImageModelConfig binds provider access and defaults shared by every image call.
 type ImageModelConfig struct {
 	Provider       string
 	APIKey         string
@@ -50,7 +49,6 @@ type ImageModel struct {
 	defaultOptions image.Options
 }
 
-// NewImageModel rejects an invalid provider binding before the first image call.
 func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

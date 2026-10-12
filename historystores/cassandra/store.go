@@ -13,32 +13,21 @@ import (
 	"github.com/Tangerg/scope/core/history"
 )
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultKeyspace  = "scope"
 	DefaultTableName = "chat_history"
 )
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Session is the live gocql session. Required. Callers own
-	// session lifetime.
 	Session *gocql.Session
 
-	// Keyspace is the CQL keyspace. Optional: defaults to
-	// [DefaultKeyspace]. The keyspace must already exist (Cassandra
-	// keyspace creation needs replication-strategy choices the store
-	// cannot make on the user's behalf).
+	// Keyspace must already exist: Cassandra keyspace creation needs
+	// replication-strategy choices the store cannot make for the caller.
 	Keyspace string
 
-	// TableName is the CQL table. Optional: defaults to
-	// [DefaultTableName] ("chat_history").
 	TableName string
 
-	// InitializeSchema, when true, creates the table if it doesn't
-	// already exist. The keyspace itself is NOT created.
+	// InitializeSchema creates the table only; the keyspace is never created.
 	InitializeSchema bool
 }
 
@@ -99,10 +88,6 @@ func requireDurableConsistency(session *gocql.Session) error {
 	return nil
 }
 
-// NewStore performs schema setup during construction, which is why it takes
-// a context: a store returned before its keyspace table exists would fail on
-// the first index rather than at wiring, where the misconfiguration actually
-// is.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -117,9 +102,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		config.TableName = DefaultTableName
 	}
 	qualified := config.Keyspace + "." + config.TableName
-	// A TIMEUUID timestamp advances in 100-nanosecond ticks, so positions are
-	// reserved in that unit: finer spacing would collapse two of them onto one
-	// identifier.
 	sequence, err := history.NewSequence(timeUUIDTick)
 	if err != nil {
 		return nil, err
@@ -154,9 +136,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return s, nil
 }
 
-// Write appends every message under conversationID in one single-partition
-// unlogged batch. Client-generated TIMEUUIDs are strictly increasing within
-// one call; concurrent calls have no defined relative order.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -189,8 +168,6 @@ func sequenceUUID(base int64, index int) gocql.UUID {
 	return gocql.UUIDFromTime(time.Unix(0, base+int64(index)*int64(timeUUIDTick)))
 }
 
-// Read returns every message stored under conversationID in
-// insertion order (TIMEUUID ascending).
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -215,7 +192,6 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	return storedMessages, nil
 }
 
-// Clear drops every row for conversationID. Unknown ids are a no-op.
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
@@ -230,8 +206,6 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	return nil
 }
 
-// Conversations returns every stored conversation ID in lexical order.
-//
 // SELECT DISTINCT on the partition key reads only partition metadata,
 // so no ALLOW FILTERING is needed.
 func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {

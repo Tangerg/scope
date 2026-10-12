@@ -23,7 +23,6 @@ const (
 	StreamChunkExtensionKey = "openai/stream_chunk"
 )
 
-// ChatCompletionsConfig configures an OpenAI Chat Completions adapter.
 // DefaultOptions are copied during construction; callers may select the model
 // per request.
 type ChatCompletionsConfig struct {
@@ -57,7 +56,6 @@ type ChatCompletions struct {
 	dialect  Dialect
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
 func NewChatCompletions(_ context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
 	return newChatCompletions(config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: prepareOpenAIChatRequest})
 }
@@ -84,7 +82,6 @@ func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) er
 	return target.SetExtraField("stream_options", options)
 }
 
-// NewCompatibleChatCompletions rejects an invalid compatible binding before the first call.
 func NewCompatibleChatCompletions(_ context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
 	return newChatCompletions(config, dialect)
 }

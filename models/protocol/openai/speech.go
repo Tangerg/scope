@@ -20,7 +20,6 @@ import (
 // be able to exhaust the process before the response is ever validated.
 const DefaultMaxResponseBytes = int64(32 * 1024 * 1024)
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	Provider         string
 	APIKey           string
@@ -60,7 +59,6 @@ type SpeechModel struct {
 	maxResponseBytes int64
 }
 
-// NewSpeechModel rejects an invalid provider binding before the first speech call.
 func NewSpeechModel(_ context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

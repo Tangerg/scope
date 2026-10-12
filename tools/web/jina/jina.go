@@ -45,8 +45,6 @@ type Config struct {
 	HTTPClient    *http.Client
 }
 
-// Client implements [web.Searcher] and [web.Fetcher] against Jina Search and
-// Jina Reader.
 type Client struct {
 	searchHTTP *resty.Client
 	fetchHTTP  *resty.Client

@@ -37,7 +37,6 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Brave Web Search API.
 type Client struct {
 	http *resty.Client
 }

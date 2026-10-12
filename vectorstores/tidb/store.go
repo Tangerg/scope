@@ -20,12 +20,10 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Provider is the stable backend name for host-side attribution.
 const Provider = "TiDB"
 
 const documentIDBytes = 3072
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTableName       = "vector_store"
 	DefaultIDColumn        = "id"
@@ -35,8 +33,6 @@ const (
 	DefaultDistanceMetric  = DistanceCosine
 )
 
-// DistanceMetric selects the VEC_*_DISTANCE function used at query
-// time.
 type DistanceMetric string
 
 // The metric is a closed vocabulary because score direction and threshold
@@ -86,10 +82,9 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// StoreConfig configures a TiDB v8.4+ vector store.
 type StoreConfig struct {
-	// DB is the database handle. Required. Use a *sql.DB built from
-	// github.com/go-sql-driver/mysql pointed at a TiDB cluster.
+	// DB must be a *sql.DB built from github.com/go-sql-driver/mysql pointed
+	// at a TiDB v8.4+ cluster.
 	DB *sql.DB
 
 	SchemaName      string
@@ -102,10 +97,8 @@ type StoreConfig struct {
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
 
-	Dimensions     int
-	DistanceMetric DistanceMetric
-	// InitializeSchema creates the current table when absent. NewStore always
-	// verifies document identity and lossless metadata storage.
+	Dimensions       int
+	DistanceMetric   DistanceMetric
 	InitializeSchema bool
 }
 
@@ -150,7 +143,6 @@ func (s StoreConfig) validateIdentifiers() error {
 	return identifier(s.EmbeddingColumn).validate("EmbeddingColumn")
 }
 
-// applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
 	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
@@ -167,8 +159,6 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with TiDB's native VECTOR column
-// type and VEC_*_DISTANCE functions.
 type Store struct {
 	db              *sql.DB
 	schemaName      string
@@ -323,7 +313,6 @@ func (s *Store) createTableStatement() string {
 	)
 }
 
-// Index embeds documents and upserts them into the vector table.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("tidb.Store.Index: %w", validateErr)
@@ -556,7 +545,6 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	}
 }
 
-// DeleteIDs removes exactly the caller's IDs. Unknown IDs are ignored.
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	args := make([]any, len(ids))
 	for index, id := range ids {

@@ -11,10 +11,8 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 )
 
-// AudioTranslationModelConfig configures the OpenAI /audio/translations
-// backend. Only "whisper-1" is currently accepted by OpenAI — newer
-// gpt-4o-transcribe models are transcription-only and reject translation
-// calls.
+// Only "whisper-1" is currently accepted by OpenAI — newer gpt-4o-transcribe
+// models are transcription-only and reject translation calls.
 type AudioTranslationModelConfig struct {
 	Provider       string
 	APIKey         string
@@ -55,7 +53,6 @@ type AudioTranslationModel struct {
 	defaultOptions transcription.Options
 }
 
-// NewAudioTranslationModel rejects an invalid provider binding before the first translation call.
 func NewAudioTranslationModel(_ context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

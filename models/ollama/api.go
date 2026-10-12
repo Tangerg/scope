@@ -19,10 +19,8 @@ const (
 	maxNativeErrorBytes       = 64 << 10
 )
 
-// APIConfig configures the Ollama native client. Unlike cloud
-// providers, Ollama runs locally so the typical config is just the
-// BaseURL of the daemon (default: http://127.0.0.1:11434). There is no
-// API key.
+// Ollama runs locally, so the typical config is just the BaseURL of the
+// daemon (default: http://127.0.0.1:11434). There is no API key.
 type apiConfig struct {
 	// BaseURL points at the Ollama daemon. Empty falls back to
 	// [DefaultBaseURL]. Pass an env value like

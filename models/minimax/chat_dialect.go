@@ -24,7 +24,6 @@ const (
 	ThinkingDisabled ThinkingType = "disabled"
 )
 
-// ServiceTier controls MiniMax request admission priority.
 type ServiceTier string
 
 // These are the provider values this adapter recognizes.

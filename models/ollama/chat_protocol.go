@@ -10,7 +10,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// ChatConfig binds provider access and defaults shared by every chat call.
 type ChatConfig struct {
 	DefaultOptions corechat.Options
 	BaseURL        string
@@ -29,13 +28,11 @@ var (
 	_ corechat.Streamer = (*Chat)(nil)
 )
 
-// Chat implements Core chat over Ollama's native /api/chat endpoint.
 type Chat struct {
 	api      *api
 	defaults corechat.Options
 }
 
-// NewChat rejects an invalid provider binding before the first chat call.
 func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

@@ -5,7 +5,6 @@ const (
 	Provider = "Replicate"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	ImageRequestExtensionKey   = "replicate/image_request"
 	SpeechRequestExtensionKey  = "replicate/speech_request"

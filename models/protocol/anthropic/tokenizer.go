@@ -10,10 +10,8 @@ import (
 	"github.com/Tangerg/scope/core/tokenizer"
 )
 
-// TextCounterConfig configures an Anthropic-backed token counter.
-// Model picks the tokenizer vocabulary Anthropic counts against; a
-// mismatch (Claude 3 model name vs Claude 4 vocab) produces wrong
-// counts.
+// Model picks the tokenizer vocabulary Anthropic counts against; a mismatch
+// (Claude 3 model name vs Claude 4 vocab) produces wrong counts.
 type TextCounterConfig struct {
 	APIKey     string
 	Model      string
@@ -45,7 +43,6 @@ type TextCounter struct {
 	model string
 }
 
-// NewTextCounter rejects an invalid provider/model binding before counting begins.
 func NewTextCounter(_ context.Context, config TextCounterConfig) (*TextCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

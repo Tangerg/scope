@@ -15,8 +15,8 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// ResponsesConfig configures an OpenAI Responses adapter. DefaultOptions are
-// copied during construction; callers may select the model per request.
+// DefaultOptions are copied during construction; callers may select the model
+// per request.
 type ResponsesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -63,7 +63,6 @@ var (
 	_ corechat.Streamer = (*Responses)(nil)
 )
 
-// NewResponses rejects an invalid provider binding before the first Responses call.
 func NewResponses(_ context.Context, config ResponsesConfig) (*Responses, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

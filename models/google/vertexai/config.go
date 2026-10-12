@@ -12,9 +12,8 @@ import (
 
 const protocolProvider = "vertexai"
 
-// ClientConfig identifies the Vertex AI project endpoint shared by every
-// modality. HTTPClient remains caller-owned and is never closed by a model;
-// BaseURL is reserved for compatible gateways and test servers.
+// HTTPClient remains caller-owned and is never closed by a model; BaseURL is
+// reserved for compatible gateways and test servers.
 type ClientConfig struct {
 	Project    string
 	Location   string

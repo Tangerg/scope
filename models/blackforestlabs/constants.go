@@ -5,7 +5,6 @@ const (
 	Provider = "BlackForestLabs"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	ImageRequestExtensionKey = "blackforestlabs/image_request"
 

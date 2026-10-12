@@ -35,8 +35,7 @@ type StoreConfig struct {
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
 	// HTTPClient owns authentication, transport policy, and connection lifetime.
-	HTTPClient *http.Client
-	// MaxResponseBytes bounds each response; zero uses DefaultMaxResponseBytes.
+	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
 

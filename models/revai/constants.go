@@ -7,7 +7,6 @@ const (
 	Provider = "RevAI"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	RequestExtensionKey  = "revai/request"
 	ResponseExtensionKey = "revai/response"

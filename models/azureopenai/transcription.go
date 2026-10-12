@@ -7,7 +7,6 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type TranscriptionModelConfig struct {
 	Config
 	DefaultOptions transcription.Options
@@ -22,7 +21,6 @@ func (t TranscriptionModelConfig) Validate() error {
 	return err
 }
 
-// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*openai.TranscriptionModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {

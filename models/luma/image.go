@@ -24,7 +24,6 @@ import (
 // exhaust the process before the response is ever validated.
 const DefaultMaxOutputBytes = int64(32 * 1024 * 1024)
 
-// ImageModelConfig binds provider access and defaults shared by every image call.
 type ImageModelConfig struct {
 	APIKey         string
 	DefaultOptions image.Options
@@ -70,7 +69,6 @@ type ImageModel struct {
 	maxOutputBytes int64
 }
 
-// NewImageModel rejects an invalid provider binding before the first image call.
 func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

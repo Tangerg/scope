@@ -13,7 +13,6 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 )
 
-// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
@@ -67,7 +66,6 @@ type TranscriptionModel struct {
 	pollTimeout    time.Duration
 }
 
-// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
 func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

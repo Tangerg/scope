@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
 
-// StreamingSpeechModel exposes native incremental audio synthesis.
 type StreamingSpeechModel struct {
 	protocol *protocol.StreamingSpeechModel
 }

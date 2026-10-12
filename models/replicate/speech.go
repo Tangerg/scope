@@ -12,7 +12,6 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	APIKey         string
 	DefaultOptions speech.Options
@@ -124,7 +123,6 @@ type SpeechModel struct {
 	defaultOptions speech.Options
 }
 
-// NewSpeechModel rejects an invalid provider binding before the first speech call.
 func NewSpeechModel(_ context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

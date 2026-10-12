@@ -12,7 +12,6 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	Provider      = "Anthropic"
 	BaseURLOpenAI = "https://api.anthropic.com/v1"
@@ -21,7 +20,6 @@ const (
 	OpenAIStreamChunkExtensionKey = "anthropic/openai_stream_chunk"
 )
 
-// MessagesConfig binds provider access and defaults shared by every chat call.
 type MessagesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -35,12 +33,10 @@ func (m MessagesConfig) protocol() anthropicprotocol.MessagesConfig {
 	return anthropicprotocol.MessagesConfig{APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
 }
 
-// NewMessages rejects an invalid provider binding before the first chat call.
 func NewMessages(ctx context.Context, config MessagesConfig) (*anthropicprotocol.Messages, error) {
 	return anthropicprotocol.NewMessages(ctx, config.protocol())
 }
 
-// ChatCompletionsConfig binds provider access and defaults shared by every Chat Completions call.
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -58,7 +54,6 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -88,7 +83,6 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	)
 }
 
-// TextCounterConfig binds provider access and the model shared by every count.
 type TextCounterConfig struct {
 	APIKey     string
 	Model      string
@@ -102,7 +96,6 @@ func (t TextCounterConfig) protocol() anthropicprotocol.TextCounterConfig {
 	return anthropicprotocol.TextCounterConfig{APIKey: t.APIKey, Model: t.Model, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
-// NewTextCounter rejects an invalid provider/model binding before counting begins.
 func NewTextCounter(ctx context.Context, config TextCounterConfig) (*anthropicprotocol.TextCounter, error) {
 	return anthropicprotocol.NewTextCounter(ctx, config.protocol())
 }

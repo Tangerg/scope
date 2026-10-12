@@ -30,8 +30,6 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] and [web.Fetcher] against Tavily Search and
-// Extract.
 type Client struct {
 	http *resty.Client
 }

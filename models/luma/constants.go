@@ -5,7 +5,6 @@ const (
 	Provider = "Luma"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	ImageRequestExtensionKey   = "luma/image_request"
 	ResponseExtensionKey       = "luma/response"

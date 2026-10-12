@@ -18,7 +18,6 @@ type Quota struct {
 	limited bool
 }
 
-// NewQuota constructs a finite inclusive upper bound.
 func NewQuota(maximum uint64) Quota { return Quota{maximum: maximum, limited: true} }
 
 // Maximum returns the finite upper bound, or false for an unlimited quota.

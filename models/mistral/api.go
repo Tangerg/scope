@@ -15,14 +15,12 @@ import (
 
 const maximumErrorResponseBytes = 1 << 20
 
-// API is the authenticated transport for Mistral's native endpoints.
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
-// APIError reports a non-successful Mistral HTTP response.
 type APIError struct {
 	Operation  string
 	StatusCode int

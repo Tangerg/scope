@@ -7,7 +7,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// ReasoningBlockKind identifies a Bedrock Converse reasoning-content variant.
 type ReasoningBlockKind string
 
 // The vocabulary is closed because these kinds classify reasoning blocks the

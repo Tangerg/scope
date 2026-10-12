@@ -26,7 +26,6 @@ const (
 	metadataUtteranceIndex   = "hume/utterance_index"
 )
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	APIKey         string
 	DefaultOptions speech.Options

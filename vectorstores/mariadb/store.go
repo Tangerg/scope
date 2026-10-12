@@ -20,12 +20,10 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Provider is the stable backend name for host-side attribution.
 const Provider = "MariaDB"
 
 const documentIDBytes = 3072
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTableName       = "vector_store"
 	DefaultIDColumn        = "id"
@@ -35,14 +33,11 @@ const (
 	DefaultDistanceMetric  = DistanceCosine
 )
 
-// DistanceMetric selects the vec_distance_<metric> function used for ranking.
 type DistanceMetric string
 
 const (
-	// DistanceCosine — cosine distance. Default.
 	DistanceCosine DistanceMetric = "cosine"
 
-	// DistanceEuclidean — Euclidean (L2) distance.
 	DistanceEuclidean DistanceMetric = "euclidean"
 )
 
@@ -63,47 +58,32 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// StoreConfig contains configuration options for the MariaDB vector
-// store.
 type StoreConfig struct {
-	// DB is the database handle. Required. Use a *sql.DB built from
-	// the github.com/go-sql-driver/mysql driver pointed at a MariaDB
-	// 11.7+ instance (or Enterprise Server 11.4.5-3+) with vector support.
+	// DB must be a *sql.DB built from the github.com/go-sql-driver/mysql
+	// driver pointed at a MariaDB 11.7+ instance (or Enterprise Server
+	// 11.4.5-3+) with vector support.
 	DB *sql.DB
 
-	// SchemaName is the optional schema (database) prefix. When
-	// empty the connection's default database is used.
 	SchemaName string
 
-	// TableName is the table that stores documents and their
-	// embeddings. Optional: defaults to [DefaultTableName].
 	TableName string
 
-	// IDColumn / ContentColumn / MetadataColumn / EmbeddingColumn
-	// override the column names of the generated schema. Each
-	// defaults to its respective Default* constant when empty.
 	IDColumn        string
 	ContentColumn   string
 	MetadataColumn  string
 	EmbeddingColumn string
 
-	// EmbeddingModel produces vectors for the documents. Required.
 	EmbeddingModel embedding.Model
 
-	// DocumentBatcher batches documents before insertion. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the VECTOR column width, and is required when
-	// InitializeSchema is true: the width is part of the column type, and
-	// nothing here can read it off a table that does not exist yet.
+	// Dimensions is required when InitializeSchema is true: the width is part
+	// of the VECTOR column type and cannot be read off a table that does not
+	// exist yet.
 	Dimensions int
 
-	// DistanceMetric selects the distance function. Optional:
-	// defaults to [DistanceCosine].
 	DistanceMetric DistanceMetric
 
-	// InitializeSchema creates the table when absent. NewStore
-	// always verifies the current identity schema; obsolete tables must be rebuilt.
 	InitializeSchema bool
 }
 
@@ -148,7 +128,6 @@ func (s StoreConfig) validateIdentifiers() error {
 	return identifier(s.EmbeddingColumn).validate("EmbeddingColumn")
 }
 
-// applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
 	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
@@ -165,8 +144,6 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with the VECTOR column type and
-// vec_distance_* functions introduced in MariaDB Community Server 11.7.
 type Store struct {
 	db              *sql.DB
 	schemaName      string
@@ -321,7 +298,6 @@ func (s *Store) createTableStatement() string {
 	)
 }
 
-// Index embeds documents and upserts them into the vector table.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("mariadb.Store.Index: %w", validateErr)
@@ -551,7 +527,6 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	}
 }
 
-// DeleteIDs removes exactly the caller's IDs. Unknown IDs are ignored.
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	args := make([]any, len(ids))
 	for index, id := range ids {

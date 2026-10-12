@@ -29,21 +29,11 @@ var scanPatternEscaper = strings.NewReplacer(
 	`]`, `\]`,
 )
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Client is the live go-redis client. Required. The store does
-	// not take ownership — callers Close() the client themselves.
 	Client goredis.UniversalClient
 
-	// KeyPrefix is prepended to every conversation id to namespace the
-	// keys. Optional: defaults to [DefaultKeyPrefix].
 	KeyPrefix string
 
-	// TTL, when non-zero, applies a millisecond-precision expiry to every
-	// conversation key and refreshes it on each Write. Zero means "never
-	// expire".
 	TTL time.Duration
 }
 
@@ -94,14 +84,10 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	}, nil
 }
 
-// key returns the namespaced Redis key for a conversation id.
 func (s *Store) key(conversationID history.ConversationID) string {
 	return s.keyPrefix + conversationID.String()
 }
 
-// Write appends every message under conversationID. When TTL is set, append
-// and expiry refresh execute in one Redis transaction. Empty writes are a
-// no-op.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -142,8 +128,6 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
-// Read returns every message stored under conversationID in
-// insertion order. An empty slice is returned for unknown ids.
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -169,8 +153,6 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	return storedMessages, nil
 }
 
-// Clear drops the entire list for conversationID. Unknown ids are
-// silently ignored (DEL on a missing key is a no-op in Redis).
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
@@ -192,13 +174,11 @@ type keyScanner interface {
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *goredis.ScanCmd
 }
 
-// Conversations enumerates stored conversation IDs via SCAN and returns them
-// in lexical order. SCAN may observe concurrent mutations and repeat keys, so
-// results are de-duplicated.
-//
-// Cluster masters are each scanned to completion with their own cursor. Ring
-// enumeration returns errors.ErrUnsupported because go-redis's ForEachShard
-// skips unavailable shards and does not expose the complete current topology.
+// SCAN may observe concurrent mutations and repeat keys, so results are
+// de-duplicated. Cluster masters are each scanned to completion with their own
+// cursor. Ring enumeration returns errors.ErrUnsupported because go-redis's
+// ForEachShard skips unavailable shards and does not expose the complete
+// current topology.
 func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -233,8 +213,6 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 	return collector.sorted(), nil
 }
 
-// conversationCollector accumulates conversation ids across one or more SCAN
-// cursors.
 type conversationCollector struct {
 	keyPrefix string
 	match     string

@@ -43,7 +43,6 @@ type ChatRequestOptions struct {
 	ServiceTier                       string            `json:"service_tier,omitempty"`
 }
 
-// GuardrailOptions configures a Bedrock streaming guardrail.
 type GuardrailOptions struct {
 	Identifier     string `json:"identifier"`
 	Version        string `json:"version"`
@@ -51,7 +50,6 @@ type GuardrailOptions struct {
 	ProcessingMode string `json:"processing_mode,omitempty"`
 }
 
-// ChatConfig binds provider access and defaults shared by every chat call.
 type ChatConfig struct {
 	DefaultOptions corechat.Options
 	Region         string
@@ -89,7 +87,6 @@ type Chat struct {
 	defaults corechat.Options
 }
 
-// NewChat rejects an invalid provider binding before the first chat call.
 func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

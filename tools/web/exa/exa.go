@@ -31,7 +31,6 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] and [web.Fetcher] against the Exa API.
 type Client struct {
 	http *resty.Client
 }

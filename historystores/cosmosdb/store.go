@@ -18,13 +18,10 @@ import (
 	"github.com/Tangerg/scope/core/history"
 )
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Container is the live Cosmos container handle. Required. It must be
-	// partitioned on [PartitionKeyPath], which [NewStore] reads and refuses
-	// with [ErrIncompatibleContainer] rather than leaving as an obligation.
+	// Container must be partitioned on [PartitionKeyPath], which [NewStore]
+	// reads and refuses with [ErrIncompatibleContainer] rather than leaving
+	// as an obligation.
 	Container *azcosmos.ContainerClient
 }
 
@@ -62,7 +59,6 @@ const PartitionKeyPath = "/conversation_id"
 // choice to accept that is left to the caller, who can make it per Write.
 const MaxMessagesPerWrite = 100
 
-// ErrIncompatibleContainer reports a container partitioned on another path.
 var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
 
 // NewStore confirms the container is partitioned the way this store writes,
@@ -89,7 +85,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return &Store{container: config.Container, sequence: sequence}, nil
 }
 
-// validatePartitionKey refuses a container this store cannot address.
 func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
 	if properties == nil {
 		return fmt.Errorf("%w: the container returned no properties", ErrIncompatibleContainer)
@@ -104,8 +99,6 @@ func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
 	return nil
 }
 
-// document is the wire shape stored in Cosmos. The struct tags match
-// the JSON the SDK expects.
 type document struct {
 	ID             string `json:"id"`
 	ConversationID string `json:"conversation_id"`
@@ -114,11 +107,10 @@ type document struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-// Write creates one document per message. Random document IDs prevent
-// concurrent writers from overwriting each other; seq preserves argument order
-// within one call. Retried calls append fresh documents and are not idempotent.
-// The transactional batch either commits or rolls back; a lost acknowledgment
-// returns an uncertain outcome instead of claiming that nothing was stored.
+// Random document IDs prevent concurrent writers from overwriting each other.
+// Retried calls append fresh documents and are not idempotent. A lost batch
+// acknowledgment returns an uncertain outcome instead of claiming nothing was
+// stored.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -199,8 +191,6 @@ func writeOutcome(response *azcosmos.TransactionalBatchResponse, operations int)
 	return fmt.Errorf("cosmosdb: write: batch of %d message(s) rolled back without naming a cause", operations)
 }
 
-// Read returns every message stored under conversationID in
-// insertion order.
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -266,8 +256,6 @@ func compareDocuments(left, right document) int {
 	return cmp.Compare(left.ID, right.ID)
 }
 
-// Conversations gathers distinct IDs with a cross-partition query and returns
-// them in lexical order.
 func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

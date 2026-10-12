@@ -7,7 +7,6 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// ImageModelConfig binds provider access and defaults shared by every image call.
 type ImageModelConfig struct {
 	Config
 	DefaultOptions image.Options
@@ -22,7 +21,6 @@ func (i ImageModelConfig) Validate() error {
 	return err
 }
 
-// NewImageModel rejects an invalid provider binding before the first image call.
 func NewImageModel(ctx context.Context, config ImageModelConfig) (*openai.ImageModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {

@@ -27,7 +27,6 @@ var (
 	_ vectorstore.FilterDeleter = (*Store)(nil)
 )
 
-// Store uses native document identity and complete Core metadata.
 type Store struct {
 	endpoint         string
 	schemaName       string

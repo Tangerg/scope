@@ -5,7 +5,6 @@ const (
 	Provider = "ElevenLabs"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	SpeechRequestExtensionKey         = "elevenlabs/speech_request"
 	SpeechResponseExtensionKey        = "elevenlabs/speech_response"

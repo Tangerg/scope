@@ -28,7 +28,6 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
-// Client implements [web.Searcher] against the Serper Google Search API.
 type Client struct {
 	http *resty.Client
 }

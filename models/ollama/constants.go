@@ -5,7 +5,6 @@ const (
 	Provider = "Ollama"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	// EmbeddingRequestExtensionKey carries provider-only /api/embed fields.
 	// Model, input texts, and dimensions are owned by Core and are rejected here.

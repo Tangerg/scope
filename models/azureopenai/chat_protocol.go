@@ -15,7 +15,6 @@ const (
 	OpenAIStreamChunkExtensionKey = "azureopenai/openai_stream_chunk"
 )
 
-// ChatCompletionsConfig binds provider access and defaults shared by every chat call.
 type ChatCompletionsConfig struct {
 	Config
 	DefaultOptions corechat.Options
@@ -30,7 +29,6 @@ func (c ChatCompletionsConfig) Validate() error {
 	return err
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first chat call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
 	endpoint, err := config.resolve()
 	if err != nil {

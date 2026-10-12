@@ -8,7 +8,6 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	Config
 	DefaultOptions   speech.Options
@@ -31,7 +30,6 @@ func (s SpeechModelConfig) Validate() error {
 	return err
 }
 
-// NewSpeechModel rejects an invalid provider binding before the first speech call.
 func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*openai.SpeechModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {

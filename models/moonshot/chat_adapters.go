@@ -21,7 +21,6 @@ const (
 	AnthropicStreamEventExtensionKey = "moonshot/anthropic_stream_event"
 )
 
-// ChatCompletionsConfig binds provider access and defaults shared by every chat call.
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -43,7 +42,6 @@ func (c ChatCompletionsConfig) Validate() error {
 // OpenAI-compatible endpoint.
 var maximumTemperature = 1.0
 
-// NewChatCompletions rejects an invalid provider binding before the first chat call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -63,7 +61,6 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	return protocol, nil
 }
 
-// MessagesConfig binds provider access and defaults shared by every Messages call.
 type MessagesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -81,7 +78,6 @@ func (m MessagesConfig) Validate() error {
 	return nil
 }
 
-// NewMessages rejects an invalid provider binding before the first Messages call.
 func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Messages, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

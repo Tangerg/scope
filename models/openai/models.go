@@ -13,16 +13,12 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// Provider is the facade's display name; protocolProvider is the wire token passed
-// to the protocol configs. The extension keys belong to the openai protocol package
-// that reads them, so the facade does not restate them.
 const (
 	Provider         = "OpenAI"
 	protocolProvider = "openai"
 )
 
-// ChatCompletionsConfig configures the OpenAI Chat Completions endpoint. Construction does
-// no network I/O; per-call overrides remain in chat.Request.
+// Construction does no network I/O; per-call overrides remain in chat.Request.
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -41,13 +37,12 @@ func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 	}
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first chat call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	return openaiprotocol.NewChatCompletions(ctx, config.protocol())
 }
 
-// ResponsesConfig configures the OpenAI Responses endpoint independently from
-// Chat Completions because their transport capabilities differ.
+// Responses is configured independently from Chat Completions because their
+// transport capabilities differ.
 type ResponsesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -66,12 +61,10 @@ func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
 	}
 }
 
-// NewResponses rejects an invalid provider binding before the first Responses call.
 func NewResponses(ctx context.Context, config ResponsesConfig) (*openaiprotocol.Responses, error) {
 	return openaiprotocol.NewResponses(ctx, config.protocol())
 }
 
-// EmbeddingModelConfig binds provider access and defaults shared by every embedding call.
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
@@ -85,12 +78,10 @@ func (e EmbeddingModelConfig) protocol() openaiprotocol.EmbeddingModelConfig {
 	return openaiprotocol.EmbeddingModelConfig{Provider: protocolProvider, APIKey: e.APIKey, DefaultOptions: e.DefaultOptions, BaseURL: e.BaseURL, HTTPClient: e.HTTPClient}
 }
 
-// NewEmbeddingModel rejects an invalid provider binding before the first embedding call.
 func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*openaiprotocol.EmbeddingModel, error) {
 	return openaiprotocol.NewEmbeddingModel(ctx, config.protocol())
 }
 
-// TranscriptionModelConfig binds provider access and defaults shared by every transcription call.
 type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
@@ -104,12 +95,10 @@ func (t TranscriptionModelConfig) protocol() openaiprotocol.TranscriptionModelCo
 	return openaiprotocol.TranscriptionModelConfig{Provider: protocolProvider, APIKey: t.APIKey, DefaultOptions: t.DefaultOptions, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
-// NewTranscriptionModel rejects an invalid provider binding before the first transcription call.
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*openaiprotocol.TranscriptionModel, error) {
 	return openaiprotocol.NewTranscriptionModel(ctx, config.protocol())
 }
 
-// AudioTranslationModelConfig binds provider access and defaults shared by every translation call.
 type AudioTranslationModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
@@ -123,12 +112,10 @@ func (a AudioTranslationModelConfig) protocol() openaiprotocol.AudioTranslationM
 	return openaiprotocol.AudioTranslationModelConfig{Provider: protocolProvider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
 }
 
-// NewAudioTranslationModel rejects an invalid provider binding before the first translation call.
 func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*openaiprotocol.AudioTranslationModel, error) {
 	return openaiprotocol.NewAudioTranslationModel(ctx, config.protocol())
 }
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	APIKey           string
 	DefaultOptions   speech.Options
@@ -150,12 +137,10 @@ func (s SpeechModelConfig) protocol() openaiprotocol.SpeechModelConfig {
 	}
 }
 
-// NewSpeechModel rejects an invalid provider binding before the first speech call.
 func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*openaiprotocol.SpeechModel, error) {
 	return openaiprotocol.NewSpeechModel(ctx, config.protocol())
 }
 
-// ImageModelConfig binds provider access and defaults shared by every image call.
 type ImageModelConfig struct {
 	APIKey         string
 	DefaultOptions image.Options
@@ -169,12 +154,10 @@ func (i ImageModelConfig) protocol() openaiprotocol.ImageModelConfig {
 	return openaiprotocol.ImageModelConfig{Provider: protocolProvider, APIKey: i.APIKey, DefaultOptions: i.DefaultOptions, BaseURL: i.BaseURL, HTTPClient: i.HTTPClient}
 }
 
-// NewImageModel rejects an invalid provider binding before the first image call.
 func NewImageModel(ctx context.Context, config ImageModelConfig) (*openaiprotocol.ImageModel, error) {
 	return openaiprotocol.NewImageModel(ctx, config.protocol())
 }
 
-// ModerationModelConfig binds provider access and defaults shared by every moderation call.
 type ModerationModelConfig struct {
 	APIKey         string
 	DefaultOptions moderation.Options
@@ -188,7 +171,6 @@ func (m ModerationModelConfig) protocol() openaiprotocol.ModerationModelConfig {
 	return openaiprotocol.ModerationModelConfig{Provider: protocolProvider, APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
 }
 
-// NewModerationModel rejects an invalid provider binding before the first moderation call.
 func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*openaiprotocol.ModerationModel, error) {
 	return openaiprotocol.NewModerationModel(ctx, config.protocol())
 }

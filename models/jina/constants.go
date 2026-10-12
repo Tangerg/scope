@@ -1,6 +1,5 @@
 package jina
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	Provider = "Jina"
 

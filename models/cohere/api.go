@@ -24,7 +24,6 @@ func (a apiConfig) validate() error {
 	return nil
 }
 
-// api wraps the Cohere v2 capabilities with provider-neutral Core protocols.
 type api struct {
 	v2 *cohereclientv2.Client
 }

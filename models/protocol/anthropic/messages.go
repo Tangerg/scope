@@ -19,8 +19,8 @@ const (
 	protocolMaximumTemperature = 1
 )
 
-// MessagesConfig configures an Anthropic Messages adapter. Defaults are copied
-// during construction; callers may select the model per request.
+// Defaults are copied during construction; callers may select the model per
+// request.
 type MessagesConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -53,7 +53,6 @@ type Messages struct {
 	dialect  Dialect
 }
 
-// NewMessages rejects an invalid provider binding before the first Messages call.
 func NewMessages(_ context.Context, config MessagesConfig) (*Messages, error) {
 	return newMessages(config, Dialect{
 		Provider: protocolProvider, MaxTemperature: protocolMaximumTemperature,
@@ -61,7 +60,6 @@ func NewMessages(_ context.Context, config MessagesConfig) (*Messages, error) {
 	})
 }
 
-// NewCompatibleMessages rejects an invalid compatible binding before the first call.
 func NewCompatibleMessages(_ context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
 	return newMessages(config, dialect)
 }

@@ -42,7 +42,7 @@ type FetchRequest struct {
 	Format ContentFormat `json:"format,omitempty" jsonschema:"enum=markdown,enum=html,enum=text" jsonschema_description:"Content format: markdown (default and best for readable structure), html, or text."`
 }
 
-// Prepare returns a normalized and validated request without mutating f.
+// Prepare does not mutate f; it returns an independently owned request.
 func (f *FetchRequest) Prepare() (*FetchRequest, error) {
 	if f == nil {
 		return nil, ErrMissingFetchRequest

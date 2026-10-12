@@ -83,7 +83,6 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ChatConfig binds provider access and defaults shared by every chat call.
 type ChatConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -113,7 +112,6 @@ type Chat struct {
 	defaults corechat.Options
 }
 
-// NewChat rejects an invalid provider binding before the first chat call.
 func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

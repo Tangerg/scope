@@ -18,10 +18,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-// Provider is the stable backend name for host-side attribution.
 const Provider = "ClickHouse"
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTableName       = "vector_store"
 	DefaultIDColumn        = "id"
@@ -31,8 +29,6 @@ const (
 	DefaultDistanceMetric  = DistanceCosine
 )
 
-// DistanceMetric selects the distance function ClickHouse uses to
-// rank rows.
 type DistanceMetric string
 
 const (
@@ -80,8 +76,6 @@ type StoreConfig struct {
 	// DB uses clickhouse-go v2 with the native TCP protocol. The host owns it.
 	DB *sql.DB
 
-	// DatabaseName is the optional database prefix; empty uses the
-	// connection's current database.
 	DatabaseName string
 
 	TableName       string
@@ -148,7 +142,6 @@ func (s StoreConfig) validateIdentifiers() error {
 	return identifier(s.EmbeddingColumn).validate("EmbeddingColumn")
 }
 
-// applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
 	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
@@ -165,7 +158,6 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with native transaction snapshots.
 type Store struct {
 	db              *sql.DB
 	databaseName    string

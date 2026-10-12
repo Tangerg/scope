@@ -15,38 +15,21 @@ import (
 	"github.com/Tangerg/scope/core/history"
 )
 
-// Default identifiers used when [StoreConfig] leaves them blank.
 const (
 	DefaultSchemaName      = "public"
 	DefaultTableName       = "chat_history"
 	DefaultIndexNameSuffix = "_conversation_idx"
 )
 
-// StoreConfig names every dependency explicitly rather than defaulting a
-// client or connection, so a store cannot be built against a service the
-// caller did not choose.
 type StoreConfig struct {
-	// Pool is the pgx connection pool. Required. The store does not
-	// take ownership — callers close the pool themselves.
 	Pool *pgxpool.Pool
 
-	// SchemaName is the PostgreSQL schema that holds the chat history
-	// table. Optional: defaults to [DefaultSchemaName] ("public").
 	SchemaName string
 
-	// TableName is the table that stores serialized messages.
-	// Optional: defaults to [DefaultTableName] ("chat_history").
 	TableName string
 
-	// IndexName overrides the conversation-id index name generated
-	// when InitializeSchema is true. Optional: defaults to
-	// "<TableName><DefaultIndexNameSuffix>".
 	IndexName string
 
-	// InitializeSchema, when true, creates the table and index if
-	// they don't already exist. When false the store assumes the
-	// schema is already provisioned. Both paths verify the message column
-	// stores canonical Core wire bytes as BYTEA.
 	InitializeSchema bool
 }
 
@@ -178,7 +161,6 @@ func (s *Store) validateMessageColumn(rows pgx.Rows) error {
 	return nil
 }
 
-// initSchema creates the table + index if they don't exist. Idempotent.
 func (s *Store) initSchema(ctx context.Context) error {
 	for _, statement := range s.createSQL {
 		if _, err := s.pool.Exec(ctx, statement); err != nil {
@@ -188,8 +170,6 @@ func (s *Store) initSchema(ctx context.Context) error {
 	return nil
 }
 
-// Write validates the complete batch, checks each native insert acknowledgment,
-// and commits all messages together. Empty writes are a no-op.
 func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
 	if err = ctx.Err(); err != nil {
 		return outcome, err
@@ -245,8 +225,6 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
-// Read returns every message stored under conversationID in
-// insertion order. An empty slice is returned for unknown ids.
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -282,8 +260,6 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	return storedMessages, nil
 }
 
-// Clear drops every message stored under conversationID. Unknown ids
-// are silently ignored.
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
@@ -298,7 +274,6 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	return nil
 }
 
-// Conversations returns every stored conversation ID in lexical order.
 func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

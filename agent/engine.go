@@ -297,7 +297,6 @@ func (e *Engine) Run(ctx context.Context, deployment Deployment, input Payload) 
 	return process.Await(waitContext)
 }
 
-// Process finds a published Process.
 func (e *Engine) Process(id ProcessID) (*Process, bool) {
 	if e == nil || !id.Valid() {
 		return nil, false

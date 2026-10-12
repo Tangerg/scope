@@ -8,7 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-// SpeechModelConfig binds provider access and defaults shared by every speech call.
 type SpeechModelConfig struct {
 	Provider       string
 	Client         ClientConfig

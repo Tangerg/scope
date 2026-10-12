@@ -24,10 +24,8 @@ import (
 
 const documentIDBytes = 2000
 
-// Provider is the stable backend name for host-side attribution.
 const Provider = "Oracle"
 
-// Exported defaults keep constructor behavior visible and overridable.
 const (
 	DefaultTableName       = "VECTOR_STORE"
 	DefaultIDColumn        = "ID"
@@ -37,19 +35,17 @@ const (
 	DefaultDistanceMetric  = DistanceCosine
 )
 
-// DistanceMetric selects the VECTOR_DISTANCE function variant. The
-// constants mirror Oracle's accepted values exactly so they can flow
-// straight into the SQL.
+// DistanceMetric values mirror Oracle's accepted VECTOR_DISTANCE tokens
+// exactly so they can flow straight into the SQL.
 type DistanceMetric string
 
 const (
-	// DistanceCosine — cosine distance.
 	DistanceCosine DistanceMetric = "COSINE"
 
-	// DistanceEuclidean — Euclidean (L2) distance.
 	DistanceEuclidean DistanceMetric = "EUCLIDEAN"
 
-	// DistanceDot selects Oracle's negative inner-product distance.
+	// DistanceDot is Oracle's negative inner-product distance, not a bounded
+	// similarity.
 	DistanceDot DistanceMetric = "DOT"
 )
 
@@ -79,47 +75,31 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	}
 }
 
-// StoreConfig contains configuration options for the Oracle 23ai
-// vector store.
 type StoreConfig struct {
-	// DB is the database handle. Required. Use a *sql.DB built from
-	// github.com/sijms/go-ora/v2 pointed at an Oracle 23ai
-	// instance.
+	// DB must be a *sql.DB built from github.com/sijms/go-ora/v2 pointed at
+	// an Oracle 23ai instance.
 	DB *sql.DB
 
-	// SchemaName is the optional schema prefix (Oracle username).
-	// When empty the connection's current schema is resolved at construction.
 	SchemaName string
 
-	// TableName is the table that stores documents and their
-	// embeddings. Optional: defaults to [DefaultTableName].
 	TableName string
 
-	// IDColumn / ContentColumn / MetadataColumn / EmbeddingColumn
-	// override the column names of the generated schema. Each
-	// defaults to its respective Default* constant when empty.
 	IDColumn        string
 	ContentColumn   string
 	MetadataColumn  string
 	EmbeddingColumn string
 
-	// EmbeddingModel produces vectors for the documents. Required.
 	EmbeddingModel embedding.Model
 
-	// DocumentBatcher batches documents before insertion. Required.
 	DocumentBatcher vectorstore.Batcher
 
-	// Dimensions sets the VECTOR column width when InitializeSchema is true.
-	// Runtime vector construction derives its width from the input; the native
-	// column owns the stored dimension constraint.
+	// Dimensions seeds a newly created VECTOR column; the native column owns
+	// the stored dimension constraint, and runtime vectors derive width from
+	// their input.
 	Dimensions int
 
-	// DistanceMetric selects the distance function. Optional:
-	// defaults to [DistanceCosine].
 	DistanceMetric DistanceMetric
 
-	// InitializeSchema creates the current table when absent. Construction
-	// always verifies exact document identity and lossless metadata storage.
 	InitializeSchema bool
 }
 
@@ -167,7 +147,6 @@ func (s StoreConfig) validateIdentifiers() error {
 	return identifier(s.EmbeddingColumn).validate("EmbeddingColumn")
 }
 
-// applyDefaults fills zero fields with documented defaults.
 func (s *StoreConfig) applyDefaults() {
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
 	s.IDColumn = cmp.Or(s.IDColumn, DefaultIDColumn)
@@ -184,7 +163,6 @@ var (
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
-// Store implements vector-store capabilities with Oracle AI Vector Search.
 type Store struct {
 	db              *sql.DB
 	schemaName      string
@@ -337,7 +315,6 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	return nil
 }
 
-// Index embeds documents and upserts them via MERGE.
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
 	if validateErr := request.Validate(); validateErr != nil {
 		return fmt.Errorf("oracle.Store.Index: %w", validateErr)
@@ -595,10 +572,6 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (er
 	}
 }
 
-// DeleteIDs removes rows by primary key — `DELETE ... WHERE <id> IN
-// (:1, :2, …)` with one positional bind per id. An empty slice is a
-// no-op; unknown ids are silently ignored (idempotent). Implements
-// [vectorstore.IDDeleter].
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
 		return nil

@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 )
 
-// Validate enforces the shared model identifier rule.
 func Validate(id string) error {
 	if !utf8.ValidString(id) {
 		return errors.New("model must be valid UTF-8")

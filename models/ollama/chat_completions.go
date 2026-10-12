@@ -18,7 +18,6 @@ const (
 	OpenAIStreamChunkExtensionKey = "ollama/openai_stream_chunk"
 )
 
-// ChatCompletionsConfig binds provider access and defaults shared by every Chat Completions call.
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -33,7 +32,6 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-// NewChatCompletions rejects an invalid provider binding before the first Chat Completions call.
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

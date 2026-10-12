@@ -5,7 +5,6 @@ const (
 	Provider = "Hume"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
 const (
 	SpeechRequestExtensionKey = "hume/speech_request"
 	DefaultBaseURL            = "https://api.hume.ai/v0"
