@@ -91,6 +91,37 @@ func TestToolDefinitionAcceptsProviderNameCharset(t *testing.T) {
 	}
 }
 
+func TestSanitizeToolNameOutputAlwaysValidates(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object"}`)
+	for _, label := range []string{
+		"read",
+		"My Cool Agent!!",
+		"tool/with:bad*chars",
+		"  spaced  out  ",
+		strings.Repeat("a", 200),
+		"café ☕ tool",
+		"---keep-dashes---",
+		"mixedCASE_123",
+	} {
+		name := chat.SanitizeToolName(label)
+		if name == "" {
+			continue
+		}
+		definition := chat.ToolDefinition{Name: name, InputSchema: schema}
+		if err := definition.Validate(); err != nil {
+			t.Errorf("SanitizeToolName(%q) = %q, which Validate rejects: %v", label, name, err)
+		}
+	}
+	if got := chat.SanitizeToolName(strings.Repeat("a", 200)); len(got) != 64 {
+		t.Errorf("long label not capped: len = %d, want 64", len(got))
+	}
+	for _, empty := range []string{"", "***"} {
+		if got := chat.SanitizeToolName(empty); got != "" {
+			t.Errorf("SanitizeToolName(%q) = %q, want empty", empty, got)
+		}
+	}
+}
+
 func TestToolDefinitionUnmarshalIsAtomic(t *testing.T) {
 	got := validToolDefinition()
 	err := jsonv2.Unmarshal([]byte(`{"name":"replacement","input_schema":[]}`), &got)

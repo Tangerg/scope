@@ -6,6 +6,7 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
+	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -38,8 +39,6 @@ type ToolConcurrencyPolicy func(
 // The Host owns collision resolution across independent server catalogs.
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
-const maxPublicToolNameLength = 64
-
 // ToolDiscoveryConfig configures how DiscoverTools projects remote tools.
 type ToolDiscoveryConfig struct {
 	// PublicName nil uses "<sourceName>_<remoteName>" sanitized to the
@@ -59,26 +58,9 @@ func (t ToolDiscoveryConfig) publicName(sourceName, remoteName string) string {
 		return t.PublicName(sourceName, remoteName)
 	}
 	if sourceName == "" {
-		return sanitizeToolName(remoteName)
+		return chat.SanitizeToolName(remoteName)
 	}
-	return sanitizeToolName(sourceName + "_" + remoteName)
-}
-
-func sanitizeToolName(name string) string {
-	sanitized := make([]byte, 0, len(name))
-	for i := range len(name) {
-		character := name[i]
-		switch {
-		case character >= 'a' && character <= 'z',
-			character >= 'A' && character <= 'Z',
-			character >= '0' && character <= '9',
-			character == '_', character == '-':
-			sanitized = append(sanitized, character)
-		default:
-			sanitized = append(sanitized, '_')
-		}
-	}
-	return string(sanitized[:min(len(sanitized), maxPublicToolNameLength)])
+	return chat.SanitizeToolName(sourceName + "_" + remoteName)
 }
 
 // DiscoverTools reads each live session's current catalog and projects every

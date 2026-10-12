@@ -97,7 +97,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	}
 	for _, span := range spans {
 		want := "*errors.errorString"
-		if span.Name() == "a2a.agent.call failing_agent" {
+		if span.Name() == "a2a.agent.call Failing_Agent" {
 			want = "*tool.Failure"
 		}
 		assertSpanErrorClassification(t, span, want)

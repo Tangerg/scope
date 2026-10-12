@@ -189,8 +189,8 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatal("mutating a ToolSet snapshot changed the owned tool view")
 	}
 
-	if got := tool.Definition().Name; got != "echo_agent" {
-		t.Errorf("tool name = %q, want %q (sanitized from card name)", got, "echo_agent")
+	if got := tool.Definition().Name; got != "Echo_Agent" {
+		t.Errorf("tool name = %q, want %q (sanitized from card name)", got, "Echo_Agent")
 	}
 	definition := tool.Definition()
 	definition.InputSchema[0] = '['

@@ -7,12 +7,39 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
 var ErrInvalidToolDefinition = errors.New("chat: invalid tool definition")
 
-var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+const maxToolNameLength = 64
+
+var toolNamePattern = regexp.MustCompile(fmt.Sprintf(`^[A-Za-z0-9_-]{1,%d}$`, maxToolNameLength))
+
+// SanitizeToolName coerces an arbitrary label into a name [ToolDefinition.Validate]
+// accepts, so callers building one from an external source need not re-encode the
+// constraint. It may return "", which Validate rejects: sanitizing is not validation.
+func SanitizeToolName(label string) string {
+	var b strings.Builder
+	pendingUnderscore := false
+	for _, r := range label {
+		if b.Len() >= maxToolNameLength {
+			break
+		}
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			b.WriteRune(r)
+			pendingUnderscore = false
+		default:
+			if !pendingUnderscore {
+				b.WriteByte('_')
+				pendingUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
 
 // ToolDefinition is the serializable description exposed to a model. Tool
 // execution belongs to package tool and is deliberately absent here.

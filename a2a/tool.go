@@ -55,7 +55,7 @@ type remoteToolConfig struct {
 
 func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 	if config.name == "" {
-		config.name = sanitizeToolName(config.card.Name)
+		config.name = corechat.SanitizeToolName(config.card.Name)
 	}
 	if config.name == "" {
 		return remoteTool{}, errEmptyToolName
@@ -143,22 +143,4 @@ func describeAgent(card *sdka2a.AgentCard) string {
 		b.WriteString(".")
 	}
 	return b.String()
-}
-
-func sanitizeToolName(name string) string {
-	var b strings.Builder
-	prevUnderscore := false
-	for _, r := range strings.ToLower(name) {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-			prevUnderscore = false
-		default:
-			if !prevUnderscore && b.Len() > 0 {
-				b.WriteByte('_')
-				prevUnderscore = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "_")
 }
