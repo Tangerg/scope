@@ -1,9 +1,9 @@
-github.com/Tangerg/scope/core v0.48.0 h1:C2wcpWZWA4ciSEEBxTGk4NEXdEITX1rlX0ZJtcEE7rA=
-github.com/Tangerg/scope/core v0.48.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
-github.com/Tangerg/scope/otel v0.48.0 h1:v51AairhVkb1acAbZ3IzNgaBY/1Uy0XUzcuIWZucH28=
-github.com/Tangerg/scope/otel v0.48.0/go.mod h1:mhL6gB7gjsEsvg4tGuU0MKrZ+X3Xd+DFd4dILpjXm30=
-github.com/Tangerg/scope/rag v0.48.0 h1:KDsTMG/oOa8gzAX2eXxrVOsZWQjVyRf6kUs3WZcnfBE=
-github.com/Tangerg/scope/rag v0.48.0/go.mod h1:HfjmNnM7rn2e4hqZVYCZ7N5FofaCSxc1TS6nTmy814k=
+github.com/Tangerg/scope/core v0.49.0 h1:tPA/oEQ0EeSINM97g/zGYsOooOv+kzlQMnsqeoAccA4=
+github.com/Tangerg/scope/core v0.49.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/otel v0.49.0 h1:mMTWIQvsi8WWSrvbsKU4nF92o+Q5sSn3Nn2csMeREAU=
+github.com/Tangerg/scope/otel v0.49.0/go.mod h1:ra+WkFoUEWtZ/2BpIaTDWiWGSCyTjeKUL1u8MXd7ku4=
+github.com/Tangerg/scope/rag v0.49.0 h1:N3DKPVGRZf3RCBIK0qeCRf98RCsyWxqbIUgdNnAVvvY=
+github.com/Tangerg/scope/rag v0.49.0/go.mod h1:f2f9ABES7y85PDxaDFMiWCA/ifZO3oVy7M0yU94F/IY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
