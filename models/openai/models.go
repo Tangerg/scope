@@ -13,24 +13,12 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-// Exported identifiers keep provider-owned names and defaults out of caller literals.
+// Provider is the facade's display name; protocolProvider is the wire token passed
+// to the protocol configs. The extension keys belong to the openai protocol package
+// that reads them, so the facade does not restate them.
 const (
 	Provider         = "OpenAI"
 	protocolProvider = "openai"
-
-	RequestExtensionKey     = "openai/request"
-	ResponseExtensionKey    = "openai/response"
-	StreamChunkExtensionKey = "openai/stream_chunk"
-
-	ResponsesRequestExtensionKey  = "openai/responses_request"
-	ResponsesResponseExtensionKey = "openai/responses_response"
-
-	SpeechRequestExtensionKey        = "openai/speech_request"
-	TranscriptionRequestExtensionKey = "openai/transcription_request"
-	TranslationRequestExtensionKey   = "openai/translation_request"
-	EmbeddingRequestExtensionKey     = "openai/embedding_request"
-	ImageRequestExtensionKey         = "openai/image_request"
-	ModerationRequestExtensionKey    = "openai/moderation_request"
 )
 
 // ChatCompletionsConfig configures the OpenAI Chat Completions endpoint. Construction does
