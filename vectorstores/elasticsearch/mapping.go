@@ -43,9 +43,9 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 		return schema, fmt.Errorf("%w: requires indexed FLOAT32 dense_vector with a declared dimension", ErrIncompatibleIndex)
 	}
 	schema.dimensions = vector.Dimensions
-	schema.similarity = cmp.Or(vector.Similarity, "cosine")
+	schema.similarity = cmp.Or(nativeSimilarity(vector.Similarity), simCosine)
 	switch schema.similarity {
-	case "cosine", "l2_norm", "dot_product", "max_inner_product":
+	case simCosine, simL2Norm, simDotProduct, simMaxInnerProduct:
 	default:
 		return schema, fmt.Errorf("%w: unsupported native similarity %q", ErrIncompatibleIndex, schema.similarity)
 	}

@@ -353,7 +353,7 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 			field.Similarity = metric
 			fixture.mapping.Properties[embeddingField] = field
 			store := fixture.store(constantModel(), 1)
-			if store.schema.similarity != metric || store.schema.dimensions != 2 {
+			if store.schema.similarity != nativeSimilarity(metric) || store.schema.dimensions != 2 {
 				t.Fatalf("schema=%#v", store.schema)
 			}
 		})

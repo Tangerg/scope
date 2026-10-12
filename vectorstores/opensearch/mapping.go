@@ -46,7 +46,7 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 		return schema, fmt.Errorf("%w: native field and method space disagree", ErrIncompatibleIndex)
 	}
 	schema.dimensions = vector.Dimensions
-	schema.similarity = cmp.Or(vector.SpaceType, vector.Method.SpaceType, "l2")
+	schema.similarity = cmp.Or(nativeSimilarity(vector.SpaceType), nativeSimilarity(vector.Method.SpaceType), simL2)
 	schema.engine = vector.Method.Engine
 	encoder := vector.Method.Parameters.Encoder
 	schema.requireFP16Range = schema.engine == "faiss" && (vector.CompressionLevel == "2x" || encoder != nil && encoder.Name == "sq" && cmp.Or(encoder.Parameters.Type, "fp16") == "fp16")
@@ -54,13 +54,13 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 		schema.requireFP16Range = !encoder.Parameters.Clip
 	}
 	switch schema.similarity {
-	case "cosinesimil", "l2", "innerproduct", "l1", "linf":
+	case simCosine, simL2, simInnerProduct, simL1, simLinf:
 	default:
 		return schema, fmt.Errorf("%w: unsupported native space %q", ErrIncompatibleIndex, schema.similarity)
 	}
 	switch schema.engine {
 	case "lucene", "faiss":
-		if schema.similarity == "l1" || schema.similarity == "linf" {
+		if schema.similarity == simL1 || schema.similarity == simLinf {
 			return schema, fmt.Errorf("%w: native engine does not support space %q", ErrIncompatibleIndex, schema.similarity)
 		}
 	case "nmslib":

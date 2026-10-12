@@ -13,10 +13,21 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+// nativeMetric is the Redis vector distance metric parsed from FT.INFO; score
+// selects its formula from it, so the accepted set and the scoring branches must
+// name the same values.
+type nativeMetric string
+
+const (
+	metricCosine nativeMetric = "COSINE"
+	metricL2     nativeMetric = "L2"
+	metricIP     nativeMetric = "IP"
+)
+
 type nativeSchema struct {
 	prefix     string
 	dimensions int
-	metric     string
+	metric     nativeMetric
 }
 
 func (n nativeSchema) vector(values []float64) ([]byte, error) {
@@ -38,7 +49,7 @@ func (n nativeSchema) validateVector(vector []float32) error {
 		}
 		nonzero = nonzero || value != 0
 	}
-	if n.metric == "COSINE" && !nonzero {
+	if n.metric == metricCosine && !nonzero {
 		return errors.New("redis: cosine vector became all zero in float32")
 	}
 	return nil
@@ -83,17 +94,17 @@ func (n nativeSchema) score(distance float64) (vectorstore.Score, error) {
 		return 0, errors.New("redis: native distance is not finite")
 	}
 	switch n.metric {
-	case "COSINE":
+	case metricCosine:
 		if distance < 0 || distance > 2 {
 			return 0, errors.New("redis: native cosine distance is outside [0,2]")
 		}
 		return vectorstore.ScoreFromCosineDistance(distance), nil
-	case "L2":
+	case metricL2:
 		if distance < 0 {
 			return 0, errors.New("redis: native L2 distance is negative")
 		}
 		return vectorstore.ScoreFromDistance(distance), nil
-	case "IP":
+	case metricIP:
 		return vectorstore.ScoreFromOneMinusInnerProductDistance(distance), nil
 	default:
 		return 0, errors.New("redis: native distance metric is unsupported")

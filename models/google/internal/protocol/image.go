@@ -22,6 +22,16 @@ const (
 	imageMediaTypePrefix = "image/"
 	mediaTypePNG         = "image/png"
 	mediaTypeJPEG        = "image/jpeg"
+
+	imageSize512 = "512"
+	imageSize1K  = "1K"
+	imageSize2K  = "2K"
+	imageSize4K  = "4K"
+
+	thinkingLevelMinimal = "minimal"
+	thinkingLevelLow     = "low"
+	thinkingLevelMedium  = "medium"
+	thinkingLevelHigh    = "high"
 )
 
 // ImageModelConfig binds provider access and defaults shared by every image call.
@@ -80,13 +90,13 @@ func (i *ImageGenerationOptions) validateValues() error {
 	}, i.AspectRatio) {
 		return fmt.Errorf("google: image: unsupported aspect ratio %q", i.AspectRatio)
 	}
-	if i.ImageSize != "" && !slices.Contains([]string{"512", "1K", "2K", "4K"}, i.ImageSize) {
+	if i.ImageSize != "" && !slices.Contains([]string{imageSize512, imageSize1K, imageSize2K, imageSize4K}, i.ImageSize) {
 		return fmt.Errorf("google: image: unsupported image size %q", i.ImageSize)
 	}
 	if i.Delivery != "" && i.Delivery != "inline" && i.Delivery != "uri" {
 		return fmt.Errorf("google: image: unsupported delivery %q", i.Delivery)
 	}
-	if i.ThinkingLevel != "" && !slices.Contains([]string{"minimal", "low", "medium", "high"}, i.ThinkingLevel) {
+	if i.ThinkingLevel != "" && !slices.Contains([]string{thinkingLevelMinimal, thinkingLevelLow, thinkingLevelMedium, thinkingLevelHigh}, i.ThinkingLevel) {
 		return fmt.Errorf("google: image: unsupported thinking level %q", i.ThinkingLevel)
 	}
 	if i.ThinkingSummaries != "" && i.ThinkingSummaries != "auto" && i.ThinkingSummaries != "none" {
@@ -108,21 +118,21 @@ func (i *ImageGenerationOptions) validateValues() error {
 func (i *ImageGenerationOptions) validateModel(modelName string) error {
 	switch modelName {
 	case ModelGemini31FlashLiteImage:
-		if i.ImageSize != "" && i.ImageSize != "1K" {
+		if i.ImageSize != "" && i.ImageSize != imageSize1K {
 			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
 		}
 		if i.GoogleSearch != nil {
 			return fmt.Errorf("google: image: model %q does not support Google Search grounding", modelName)
 		}
-		if i.ThinkingLevel != "" && i.ThinkingLevel != "minimal" && i.ThinkingLevel != "high" {
+		if i.ThinkingLevel != "" && i.ThinkingLevel != thinkingLevelMinimal && i.ThinkingLevel != thinkingLevelHigh {
 			return fmt.Errorf("google: image: model %q only supports minimal or high thinking", modelName)
 		}
 	case ModelGemini25FlashImage:
-		if i.ImageSize != "" && i.ImageSize != "1K" {
+		if i.ImageSize != "" && i.ImageSize != imageSize1K {
 			return fmt.Errorf("google: image: model %q only supports image size 1K", modelName)
 		}
 	case ModelGemini3ProImage:
-		if i.ImageSize == "512" {
+		if i.ImageSize == imageSize512 {
 			return fmt.Errorf("google: image: model %q does not support image size 512", modelName)
 		}
 	}

@@ -13,9 +13,22 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+// nativeSimilarity is the OpenSearch kNN space type parsed from the index mapping;
+// score and vector validation select behavior from it, so the accepted set and the
+// branches must name the same values.
+type nativeSimilarity string
+
+const (
+	simCosine       nativeSimilarity = "cosinesimil"
+	simL2           nativeSimilarity = "l2"
+	simInnerProduct nativeSimilarity = "innerproduct"
+	simL1           nativeSimilarity = "l1"
+	simLinf         nativeSimilarity = "linf"
+)
+
 type nativeSchema struct {
 	dimensions       int
-	similarity       string
+	similarity       nativeSimilarity
 	engine           string
 	requireFP16Range bool
 	resultWindow     int
@@ -62,7 +75,7 @@ func (n nativeSchema) validateVector(vector []float32) error {
 		}
 		zero = zero && value == 0
 	}
-	if n.similarity == "cosinesimil" && zero {
+	if n.similarity == simCosine && zero {
 		return errors.New("opensearch: native cosine space does not accept a zero FLOAT32 vector")
 	}
 
@@ -73,7 +86,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) || raw < 0 {
 		return 0, errors.New("opensearch: native score is invalid")
 	}
-	if n.similarity == "innerproduct" {
+	if n.similarity == simInnerProduct {
 		if raw == 0 {
 			return 0, errors.New("opensearch: native inner product score is zero")
 		}
@@ -83,7 +96,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 		}
 		return vectorstore.ScoreFromInnerProduct(product), nil
 	}
-	if n.similarity != "cosinesimil" && raw > 1 {
+	if n.similarity != simCosine && raw > 1 {
 		return 0, errors.New("opensearch: native distance score exceeds its metric range")
 	}
 	// Native cosine scoring clamps only the lower bound; Core owns normalization

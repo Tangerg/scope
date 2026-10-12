@@ -305,11 +305,11 @@ func TestWholeIndexPreparationBeforePublication(t *testing.T) {
 }
 
 func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
-	for _, metric := range []string{"COSINE", "L2", "IP"} {
-		t.Run(metric, func(t *testing.T) {
+	for _, metric := range []nativeMetric{metricCosine, metricL2, metricIP} {
+		t.Run(string(metric), func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fields := fixture.info["attributes"].([]any)[0].(map[string]any)
-			fields["distance_metric"] = metric
+			fields["distance_metric"] = string(metric)
 			store := fixture.store(constantModel(), 32)
 			if store.schema.metric != metric || store.schema.dimensions != 2 || store.schema.prefix != "embedding:" {
 				t.Fatalf("schema=%#v", store.schema)

@@ -101,18 +101,27 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	return raw.toSearchResponse(prepared.Query), nil
 }
 
+// Google tbs (to-be-searched) query-date-range codes selected by web.Recency.
+const (
+	tbsPastHour  = "qdr:h"
+	tbsPastDay   = "qdr:d"
+	tbsPastWeek  = "qdr:w"
+	tbsPastMonth = "qdr:m"
+	tbsPastYear  = "qdr:y"
+)
+
 func recencyToTbs(r web.Recency) string {
 	switch r {
 	case web.RecencyHour:
-		return "qdr:h"
+		return tbsPastHour
 	case web.RecencyDay:
-		return "qdr:d"
+		return tbsPastDay
 	case web.RecencyWeek:
-		return "qdr:w"
+		return tbsPastWeek
 	case web.RecencyMonth:
-		return "qdr:m"
+		return tbsPastMonth
 	case web.RecencyYear:
-		return "qdr:y"
+		return tbsPastYear
 	}
 	return ""
 }

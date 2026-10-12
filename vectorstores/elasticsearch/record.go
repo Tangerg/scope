@@ -16,9 +16,21 @@ import (
 // Elasticsearch 8.19 validates FLOAT32 squared magnitude with this tolerance.
 const nativeUnitMagnitudeTolerance = float32(1e-3)
 
+// nativeSimilarity is the Elasticsearch dense_vector similarity parsed from the
+// mapping; score and vector validation select behavior from it, so the accepted set
+// and the branches must name the same values.
+type nativeSimilarity string
+
+const (
+	simCosine          nativeSimilarity = "cosine"
+	simL2Norm          nativeSimilarity = "l2_norm"
+	simDotProduct      nativeSimilarity = "dot_product"
+	simMaxInnerProduct nativeSimilarity = "max_inner_product"
+)
+
 type nativeSchema struct {
 	dimensions   int
-	similarity   string
+	similarity   nativeSimilarity
 	resultWindow int
 }
 
@@ -45,10 +57,10 @@ func (n nativeSchema) validateVector(vector []float32) error {
 	if math.IsNaN(float64(magnitude)) || math.IsInf(float64(magnitude), 0) {
 		return errors.New("elasticsearch: vector magnitude is not finite FLOAT32")
 	}
-	if n.similarity == "cosine" && magnitude == 0 {
+	if n.similarity == simCosine && magnitude == 0 {
 		return errors.New("elasticsearch: cosine vector has zero FLOAT32 magnitude")
 	}
-	if n.similarity == "dot_product" && math.Abs(float64(magnitude-1)) > float64(nativeUnitMagnitudeTolerance) {
+	if n.similarity == simDotProduct && math.Abs(float64(magnitude-1)) > float64(nativeUnitMagnitudeTolerance) {
 		return errors.New("elasticsearch: native dot_product requires unit FLOAT32 vectors")
 	}
 	return nil
@@ -58,7 +70,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) || raw < 0 {
 		return 0, errors.New("elasticsearch: native score is invalid")
 	}
-	if n.similarity == "max_inner_product" {
+	if n.similarity == simMaxInnerProduct {
 		if raw == 0 {
 			return 0, errors.New("elasticsearch: native inner product score is zero")
 		}
@@ -69,7 +81,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 		return vectorstore.ScoreFromInnerProduct(product), nil
 	}
 	maximum := float64(1)
-	if n.similarity == "cosine" || n.similarity == "dot_product" {
+	if n.similarity == simCosine || n.similarity == simDotProduct {
 		maximum += float64(nativeUnitMagnitudeTolerance) / 2
 	}
 	if raw > maximum {

@@ -70,12 +70,12 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
 			return nil, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
 		}
-		switch attribute.DistanceMetric {
-		case "COSINE", "L2", "IP":
+		switch nativeMetric(attribute.DistanceMetric) {
+		case metricCosine, metricL2, metricIP:
 		default:
 			return nil, fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
 		}
-		store.schema = nativeSchema{prefix: info.prefixes[0], dimensions: attribute.Dim, metric: attribute.DistanceMetric}
+		store.schema = nativeSchema{prefix: info.prefixes[0], dimensions: attribute.Dim, metric: nativeMetric(attribute.DistanceMetric)}
 		vectorFound = true
 	}
 	if !vectorFound {
