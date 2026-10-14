@@ -10,6 +10,8 @@ with its own `doc.go`.
   boundary invariants.
 - `providerconformance` owns the cross-provider consistency that no single
   provider module can check for itself.
+- `treecommitterconformance` owns database-transaction and process-crash evidence
+  for Agent's public commit contract, using private storage consumers.
 
 ## Dependencies
 

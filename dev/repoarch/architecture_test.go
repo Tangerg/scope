@@ -569,7 +569,7 @@ func moduleLayer(dir string) int {
 		return 3
 	case "examples":
 		return 3
-	case "dev/providerconformance", "dev/repoarch":
+	case "dev/providerconformance", "dev/repoarch", "dev/treecommitterconformance":
 		return 4
 	}
 	if strings.HasPrefix(dir, "models/protocol/") {
@@ -597,7 +597,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 		return false
 	case "examples":
 		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
-	case "dev/providerconformance":
+	case "dev/providerconformance", "dev/treecommitterconformance":
 		return target.layer < source.layer && target.dir != "examples"
 	}
 	if target.dir == "core" {
