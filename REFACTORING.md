@@ -295,7 +295,7 @@ For each batch:
 3. Remove the obsolete path and stale comments.
 4. Update tests, documentation, and architecture gates.
 5. Run focused tests while editing.
-6. Run the affected modules' build, vet, test, race, tidy, isolation, pinned dependency tests, architecture, and lint checks before committing.
+6. Run the affected modules' build, vet, test, race, tidy, isolation, architecture, and lint checks before committing.
 7. State why the change exists and why inspected false positives were left unchanged.
 
 Run the full workspace gate before handing off a completed repository-wide round:
