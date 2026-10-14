@@ -83,6 +83,37 @@ func TestCallWithoutConversationIsTransparent(t *testing.T) {
 	}
 }
 
+func TestCallValidatesCompleteResponseBeforePersisting(t *testing.T) {
+	assistant := chat.NewAssistantMessage(chat.NewTextPart("answer"))
+	for _, test := range []struct {
+		name     string
+		response *chat.Response
+		valid    bool
+	}{
+		{name: "nil response"},
+		{name: "nil output", response: &chat.Response{}},
+		{name: "missing finish reason", response: &chat.Response{Output: &chat.Output{Message: &assistant}}},
+		{name: "invalid role", response: response(chat.NewUserMessage(chat.NewTextPart("answer")))},
+		{name: "invalid message", response: response(chat.NewAssistantMessage(chat.NewTextPart("\xff")))},
+		{name: "invalid metadata", response: &chat.Response{Output: &chat.Output{Message: &assistant, FinishReason: chat.FinishReasonStop}, Metadata: &chat.ResponseMetadata{Model: " padded "}}},
+		{name: "valid empty response", response: &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}, valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &recordingStore{}
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return test.response, nil
+			})
+			got, err := mustMiddleware(t, store).Call(model).Call(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
+			if got != test.response || test.valid && err != nil || !test.valid && !errors.Is(err, chat.ErrInvalidResponse) {
+				t.Fatalf("response=%p error=%v, want response=%p valid=%t", got, err, test.response, test.valid)
+			}
+			if _, writes := store.counts(); writes != 0 {
+				t.Fatalf("response without a persistable valid assistant wrote %d batches", writes)
+			}
+		})
+	}
+}
+
 func TestCallRejectsInvalidConversationBeforeStoreOrModel(t *testing.T) {
 	store := &recordingStore{}
 	middleware := mustMiddleware(t, store)

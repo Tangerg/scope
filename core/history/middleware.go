@@ -28,7 +28,8 @@ func NewMiddleware(store ReadWriter) (Middleware, error) {
 }
 
 // Call is a [chat.CallMiddleware]. The response result is the canonical
-// assistant message persisted to history.
+// assistant message persisted to history. Bound calls reject invalid complete
+// responses before applying the history retention policy.
 func (m Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		conversationID, bound := ConversationIDFromContext(ctx)
@@ -43,6 +44,9 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 		response, err := next.Call(ctx, prepared)
 		if err != nil {
 			return response, err
+		}
+		if err := response.Validate(); err != nil {
+			return response, fmt.Errorf("history: middleware: model response: %w", err)
 		}
 		assistant, persist := m.persistableAssistant(response)
 		if !persist {
@@ -212,7 +216,7 @@ func (m Middleware) snapshotRequest(request *chat.Request) (*chat.Request, error
 }
 
 func (m Middleware) persistableAssistant(response *chat.Response) (chat.Message, bool) {
-	if response == nil || response.Output == nil || response.Output.Message == nil || response.Output.Message.Role != chat.RoleAssistant {
+	if response.Output.Message == nil {
 		return chat.Message{}, false
 	}
 	for _, part := range response.Output.Message.Parts {
