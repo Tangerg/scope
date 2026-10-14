@@ -165,7 +165,7 @@ func TestChildStartSettlementDeterminesCapturedChild(t *testing.T) {
 	}
 	relation := childProcessRelation(record.ID.childProcessID(), rootProcessRelation(wire.processID()), spec.Key)
 	handle := newProcessHandle(relation, deployment, spec.Budget, spec.Capabilities, wire.StartedAt)
-	child := newProcessState(handle, execution, state)
+	child := newProcessState(handle, deployment, execution, state)
 	parentSnapshot := controlValue(newProcessSnapshot(wire))
 	childSnapshot := controlValue(child.capture())
 	if _, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{parentSnapshot, childSnapshot}}); err != nil {

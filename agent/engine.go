@@ -258,7 +258,7 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 	// The start time is stamped with the handle and persisted in the root's first
 	// checkpoint, matching how a child's start time is stamped at publication.
 	handle := newProcessHandle(relation, deployment, e.budget, e.capabilities, canonicalTime(time.Now()))
-	process := newProcessState(handle, execution, state)
+	process := newProcessState(handle, deployment, execution, state)
 	runtime := newTreeRuntime(e, relation.RootID(), e.treeLimits, ctx, process)
 
 	if capacityErr := runtime.validateSnapshotCapacity(); capacityErr != nil {

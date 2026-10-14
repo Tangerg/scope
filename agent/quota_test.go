@@ -133,7 +133,7 @@ func TestChildAdmissionRejectsUnlimitedAuthorityFromFiniteParent(t *testing.T) {
 		}
 		runtime.publishJoins()
 	})
-	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment().DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
+	spec := childTestSpec(controlValue(ParseChildKey("unlimited")), parent.deployment.DeploymentRef(), controlValue(EncodePayload(childTestInput{Mode: "leaf"})))
 	spec.Budget = Budget{}
 	effectID := parent.handle.processID().effectID(1, 0)
 	rejected := runtime.prepareChildStart(parent, effectID, spec)

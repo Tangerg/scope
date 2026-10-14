@@ -87,7 +87,7 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 			for range count {
 				id := newProcessID()
 				root := runtime.members.get(runtime.rootID)
-				handle := newProcessHandle(rootProcessRelation(id), root.handle.deployment,
+				handle := newProcessHandle(rootProcessRelation(id), root.deployment,
 					root.handle.budget, root.handle.capabilities, root.handle.startedAt)
 				result := root.result()
 				result.processID = id
@@ -129,7 +129,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			runtime := newTreeRuntime(engine, parent.handle.processID(), engine.treeLimits, b.Context(), parent)
 			for range retained {
 				id := newProcessID()
-				handle := newProcessHandle(rootProcessRelation(id), parent.handle.deployment,
+				handle := newProcessHandle(rootProcessRelation(id), parent.deployment,
 					parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
@@ -137,7 +137,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 			}
 			key := controlValue(ParseChildKey("worker"))
 			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))
-			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment().DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
+			spec := ChildSpec{Key: key, DeploymentRef: parent.deployment.DeploymentRef(), Input: input, Budget: Budget{Steps: NewQuota(2), Effects: NewQuota(2), Signals: NewQuota(2)}}
 			effectID := parent.handle.processID().effectID(1, 0)
 			b.ReportAllocs()
 			for b.Loop() {

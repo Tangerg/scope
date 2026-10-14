@@ -182,7 +182,7 @@ func newChildCompletionTestProcess(t *testing.T) (*treeRuntime, *processState) {
 	parentID := newProcessID()
 	handle := newProcessHandle(rootProcessRelation(parentID), deployment,
 		engine.budget, engine.capabilities, now)
-	parent := newProcessState(handle, execution, state)
+	parent := newProcessState(handle, deployment, execution, state)
 	runtime := newTreeRuntime(engine, parentID, engine.treeLimits, t.Context(), parent)
 	snapshot := controlValue(runtime.captureTree())
 	checkpoint := controlValue(newTreeCheckpoint(1, checkpointCauseCut, Digest{}, snapshot))

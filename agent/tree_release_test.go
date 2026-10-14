@@ -3,9 +3,45 @@ package agent
 import (
 	"context"
 	"errors"
+	"runtime"
+	"slices"
 	"testing"
 	"time"
+	"weak"
 )
+
+func TestReleasedTreeHandlesDoNotRetainRuntimeOrDeployment(t *testing.T) {
+	process, owner, definition := releasedTreeReferences(t)
+	reference, budget, capabilities := process.DeploymentRef(), process.Budget(), process.Capabilities()
+	for range 3 {
+		runtime.GC()
+	}
+	retainsRuntime, retainsDefinition := owner.Value() != nil, definition.Value() != nil
+	result := mustAwait(t, process)
+	if !reference.Valid() || process.DeploymentRef() != reference || process.Budget() != budget ||
+		!slices.Equal(process.Capabilities().Values(), capabilities.Values()) || result.Termination().Status() != StatusCompleted {
+		t.Fatal("released handle lost its identity, allocation, or result")
+	}
+	runtime.KeepAlive(process)
+	if retainsRuntime || retainsDefinition {
+		t.Fatalf("released handle retains runtime=%t deployment definition=%t", retainsRuntime, retainsDefinition)
+	}
+}
+
+func releasedTreeReferences(t *testing.T) (*Process, weak.Pointer[treeRuntime], weak.Pointer[childTestDefinition]) {
+	t.Helper()
+	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
+	defer mustCloseEngine(t, engine)
+	deployment := newChildTestDeployment(t)
+	process := controlValue(engine.Start(t.Context(), deployment, controlValue(EncodePayload(childTestInput{Mode: "leaf"}))))
+	mustAwait(t, process)
+	owner := weak.Make(process.handle.treeRuntime())
+	definition := weak.Make(deployment.Definition().(*childTestDefinition))
+	if err := engine.ReleaseTree(t.Context(), process.Relation().ProcessID()); err != nil {
+		t.Fatal(err)
+	}
+	return process, owner, definition
+}
 
 func TestReleaseTreeRemovesRegistryAndPreservesTerminalHandles(t *testing.T) {
 	store := NewMemoryTreeCommitter()

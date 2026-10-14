@@ -61,8 +61,8 @@ func BenchmarkTreeAdmission(b *testing.B) {
 						}
 					})
 					relation := childProcessRelation(newProcessID(), root.handle.relation, controlValue(ParseChildKey("admitted")))
-					handle := newProcessHandle(relation, root.deployment(), root.handle.budget, root.handle.capabilities, root.handle.startedAt)
-					child := newProcessState(handle, root.execution, root.committedExecutionState)
+					handle := newProcessHandle(relation, root.deployment, root.handle.budget, root.handle.capabilities, root.handle.startedAt)
+					child := newProcessState(handle, root.deployment, root.execution, root.committedExecutionState)
 					b.Run("child_publication_capacity", func(b *testing.B) {
 						b.ReportAllocs()
 						for b.Loop() {
@@ -129,7 +129,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 	rootID := newProcessID()
 	now := time.Now().Round(0).UTC()
 	handle := newProcessHandle(rootProcessRelation(rootID), deployment, engine.budget, engine.capabilities, now)
-	root := newProcessState(handle, execution, state)
+	root := newProcessState(handle, deployment, execution, state)
 	processes := []*processState{root}
 	for index := 1; index < count; index++ {
 		id := newProcessID()
@@ -139,7 +139,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		}
 		budget := Budget{Steps: NewQuota(10), Effects: NewQuota(10), Signals: NewQuota(10)}
 		handle := newProcessHandle(childProcessRelation(id, root.handle.relation, key), deployment, budget, engine.capabilities, now)
-		child := newProcessState(handle, execution, state)
+		child := newProcessState(handle, deployment, execution, state)
 		waitID, err := ParseWaitID(fmt.Sprintf("wait:waiting-%d", index))
 		if err != nil {
 			t.Fatal(err)

@@ -27,7 +27,7 @@ func (e eventRecorder) prepare(
 	payload json.RawMessage,
 ) eventDraft {
 	event, err := newEventDraft(eventDraft{
-		deploymentRef: process.deployment().DeploymentRef(),
+		deploymentRef: process.deployment.DeploymentRef(),
 		relation:      process.handle.relation,
 		incarnationID: e.writer.incarnation(),
 		stepSequence:  step,

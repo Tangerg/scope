@@ -46,18 +46,19 @@ func prepareRestoredProcess(
 		}
 	}
 	handle := newProcessHandle(wire.Relation, deployment, wire.Budget, wire.Capabilities, wire.StartedAt)
-	return restoreProcessState(ctx, handle, execution, mailbox, wire)
+	return restoreProcessState(ctx, handle, deployment, execution, mailbox, wire)
 }
 
 func restoreProcessState(
 	ctx context.Context,
 	handle *processHandle,
+	deployment Deployment,
 	execution Execution,
 	mailbox signalMailbox,
 	wire processSnapshotWire,
 ) (*processState, error) {
 	process := &processState{
-		handle: handle, execution: execution,
+		handle: handle, deployment: deployment, execution: execution,
 		committedSteps:          wire.CommittedSteps,
 		committedExecutionState: wire.CommittedExecutionState, mailbox: mailbox, restored: true,
 		droppedDeltas: wire.DroppedDeltas,

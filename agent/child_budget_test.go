@@ -100,7 +100,7 @@ func TestRejectedChildSettlementReleasesUnpublishedStart(t *testing.T) {
 	effectID := parent.handle.processID().effectID(1, 0)
 	key, _ := ParseChildKey("worker")
 	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
-	spec := childTestSpec(key, parent.deployment().DeploymentRef(), input)
+	spec := childTestSpec(key, parent.deployment.DeploymentRef(), input)
 	prepared := runtime.prepareChildStart(parent, effectID, spec)
 	if prepared.plan == nil {
 		t.Fatalf("prepare child failed: %+v", prepared.failure)
@@ -154,8 +154,8 @@ func TestTreeAdmissionCountsInFlightSiblingStartsAndInstalledChildrenOnce(t *tes
 	if runtime.canStartChild(first) || !runtime.canStartChild(second) {
 		t.Fatal("in-flight start did not retain its parent's active-child slot")
 	}
-	handle := newProcessHandle(relation, first.deployment(), first.handle.budget, first.handle.capabilities, root.handle.startedAt)
-	child := newProcessState(handle, first.execution, first.committedExecutionState)
+	handle := newProcessHandle(relation, first.deployment, first.handle.budget, first.handle.capabilities, root.handle.startedAt)
+	child := newProcessState(handle, first.deployment, first.execution, first.committedExecutionState)
 	runtime.addProcess(child)
 	if !runtime.canStartChild(second) {
 		t.Fatal("installed child and its pending publication were counted twice")
@@ -203,9 +203,9 @@ func TestChildPublicationRequiresTheReservedRequestDigest(t *testing.T) {
 		if !reserved {
 			handleRelation = childProcessRelation(newProcessID(), parent.handle.relation, key)
 		}
-		handle := newProcessHandle(handleRelation, parent.deployment(),
+		handle := newProcessHandle(handleRelation, parent.deployment,
 			parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
-		handle.tree = &runtime.binding
+		handle.tree = runtime.binding
 		published := func() (published bool) {
 			defer func() { published = recover() == nil }()
 			engine.publishProcessStart(handle)

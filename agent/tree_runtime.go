@@ -15,8 +15,9 @@ import (
 // publish incompatible tree cuts. Fenced completions let computation and dispatch
 // run concurrently without sharing commit authority.
 type treeRuntime struct {
-	// binding is the one cell every member handle reads its owner from.
-	binding    atomic.Pointer[treeRuntime]
+	// The shared cell is separately allocated so retained handles do not keep
+	// this runtime alive through a pointer into its allocation after release.
+	binding    *atomic.Pointer[treeRuntime]
 	engine     *Engine
 	rootID     ProcessID
 	treeLimits TreeLimits
@@ -145,6 +146,7 @@ func newTreeRuntime(
 	writer := newHeadWriter(engine.committer)
 	detached := context.WithoutCancel(RequireContext(ctx))
 	runtime := &treeRuntime{
+		binding:         new(atomic.Pointer[treeRuntime]),
 		engine:          engine,
 		rootID:          rootID,
 		treeLimits:      treeLimits,
@@ -504,7 +506,7 @@ func (t *treeRuntime) prepareChildStart(
 	}
 	return childStartPreparation{plan: &childStartPlan{
 		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
-		resolver: t.engine.resolver, parentDeployment: process.deployment(),
+		resolver: t.engine.resolver, parentDeployment: process.deployment,
 		spec: spec, relation: relation, incarnation: t.writer.incarnation(),
 	}}
 }
@@ -625,7 +627,7 @@ func (t *treeRuntime) effectRequestFor(
 ) EffectRequest {
 	return newEffectRequest(
 		t.writer.incarnation(),
-		process.handle.deploymentRef(),
+		process.handle.deploymentRef,
 		process.handle.relation,
 		process.preparedStepSequence(),
 		batchIndex,
@@ -1336,7 +1338,7 @@ func (t *treeRuntime) buildInspection() TreeInspection {
 
 func (t *treeRuntime) startStep(process *processState) {
 	processID := process.handle.processID()
-	definition := process.deployment().Definition()
+	definition := process.deployment.Definition()
 
 	if failure := process.stepSchedulingFailure(t.childDebits(process)); failure != nil {
 		t.failProcess(process, failure.kind, failure.code, failure.cause)
@@ -1391,7 +1393,7 @@ func (t *treeRuntime) startRestore(process *processState) {
 		return
 	}
 	processID := process.handle.processID()
-	definition := process.deployment().Definition()
+	definition := process.deployment.Definition()
 	state := process.committedExecutionState
 	restoreCtx, cancel := context.WithCancel(context.Background())
 	t.setProcessJob(processID, &processJob{
@@ -1543,7 +1545,7 @@ func (t *treeRuntime) startDispatch(
 	reply processReply,
 ) {
 	processID := process.handle.processID()
-	dispatcher := process.deployment().dispatcher
+	dispatcher := process.deployment.dispatcher
 
 	attempt, ok := t.allocateAttempt(process)
 	if !ok {
@@ -1722,7 +1724,7 @@ func (t *treeRuntime) applyChildStart(effectID EffectID, pending *pendingChildSt
 			// child in the same checkpoint. A recovery replay of this unpublished
 			// start restamps it, so the one persisted value is never a second owner.
 			canonicalTime(time.Now()))
-		child := newProcessState(handle, pending.result.execution, pending.result.state)
+		child := newProcessState(handle, pending.result.deployment, pending.result.execution, pending.result.state)
 		if _, err := t.applyChildStartSettlement(candidate, effectID, pending.result.failure); err != nil {
 			return err
 		}
@@ -2032,7 +2034,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 		panic("agent: invalid tree Process")
 	}
 	t.members.add(process)
-	process.handle.tree = &t.binding
+	process.handle.tree = t.binding
 	t.queueJoin(process)
 	if !process.status().Terminal() {
 		t.enqueueProcess(process.handle.processID())

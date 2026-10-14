@@ -415,8 +415,9 @@ func TestProcessEventSequenceAdvancesOnlyAtPublication(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
 	process := &processState{
+		deployment: deployment,
 		handle: &processHandle{
-			relation: relation, deployment: deployment,
+			relation: relation, deploymentRef: deployment.DeploymentRef(),
 		},
 	}
 

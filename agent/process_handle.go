@@ -11,11 +11,11 @@ import (
 type processHandle struct {
 	// Identity and allocation are immutable after Engine publishes the Process,
 	// so callers can inspect them without contending with the runtime owner goroutine.
-	deployment   Deployment
-	relation     ProcessRelation
-	budget       Budget
-	capabilities CapabilitySet
-	startedAt    time.Time
+	deploymentRef DeploymentRef
+	relation      ProcessRelation
+	budget        Budget
+	capabilities  CapabilitySet
+	startedAt     time.Time
 	// tree is the cell its tree's runtime owns; every member shares it, so
 	// releasing the tree detaches all of them at once.
 	tree *atomic.Pointer[treeRuntime]
@@ -43,14 +43,12 @@ func newProcessHandle(
 	startedAt time.Time,
 ) *processHandle {
 	return &processHandle{
-		deployment: deployment, relation: relation,
+		deploymentRef: deployment.DeploymentRef(), relation: relation,
 		budget: budget, capabilities: capabilities, startedAt: startedAt,
 		outcomePublished: make(chan struct{}),
 		bookkeepingDone:  make(chan struct{}), joined: make(chan struct{}),
 	}
 }
-
-func (p *processHandle) deploymentRef() DeploymentRef { return p.deployment.DeploymentRef() }
 
 func (p *processHandle) publishResult(result Result) bool {
 	return p.publishOutcome(result, nil)

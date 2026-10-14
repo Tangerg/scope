@@ -20,7 +20,8 @@ import (
 type processState struct {
 	// These references establish ownership and remain fixed while the runtime
 	// owner goroutine mutates the execution fields below.
-	handle *processHandle
+	handle     *processHandle
+	deployment Deployment
 
 	// Only treeRuntime's owner goroutine mutates protocol and recovery state, keeping
 	// snapshots and externally visible transitions in one deterministic order.
@@ -61,11 +62,12 @@ type pendingControl struct {
 
 func newProcessState(
 	handle *processHandle,
+	deployment Deployment,
 	execution Execution,
 	state ExecutionState,
 ) *processState {
 	return &processState{
-		handle: handle, execution: execution,
+		handle: handle, deployment: deployment, execution: execution,
 		committedExecutionState: state,
 		mailbox:                 newSignalMailbox(),
 	}
@@ -85,9 +87,6 @@ func (p *processState) candidate() *processState {
 
 // preparedStepSequence numbers the Step that would follow committed progress.
 func (p *processState) preparedStepSequence() uint64 { return p.committedSteps + 1 }
-
-// deployment is the exact binding the Process's handle owns.
-func (p *processState) deployment() Deployment { return p.handle.deployment }
 
 func (p *processState) status() Status {
 	return lifecycleStatus(lo.FromPtr(p.finish).Termination, p.pause.valid(), p.awaitedWaitID().Valid())
@@ -139,7 +138,7 @@ func (p *processState) prepareSignals(signals []Signal, source signalSource, lim
 			if _, addressed := signal.WaitID(); addressed {
 				continue
 			}
-			if err := p.deployment().Descriptor().ValidateSignal(Payload{data: signal.Payload()}); err != nil {
+			if err := p.deployment.Descriptor().ValidateSignal(Payload{data: signal.Payload()}); err != nil {
 				return nil, err
 			}
 		}
@@ -275,21 +274,21 @@ func (p *processState) restorePreparedStep(ctx context.Context, stored *prepared
 		return fmt.Errorf("%w: prepared waits: %w", ErrInvalidSnapshot, err)
 	}
 	if output, completes := prepared.Intent.Output(); completes {
-		if err := p.deployment().Descriptor().ValidateOutput(output); err != nil {
+		if err := p.deployment.Descriptor().ValidateOutput(output); err != nil {
 			return fmt.Errorf("%w: prepared output schema: %w", ErrInvalidSnapshot, err)
 		}
 	}
 	var candidate Execution
 	if !p.status().Terminal() {
 		var err error
-		candidate, err = restoreExecution(ctx, p.deployment().Definition(), prepared.CandidateState)
+		candidate, err = restoreExecution(ctx, p.deployment.Definition(), prepared.CandidateState)
 		if err != nil {
 			return fmt.Errorf("%w: restore prepared Execution: %w", ErrInvalidSnapshot, err)
 		}
 	}
 	for index := range prepared.Effects {
 		record := &prepared.Effects[index]
-		if err := p.deployment().validateEffect(record.Effect); err != nil {
+		if err := p.deployment.validateEffect(record.Effect); err != nil {
 			return fmt.Errorf("%w: prepared Effect: %w", ErrInvalidSnapshot, err)
 		}
 		// Only a Process that can still dispatch asks its Dispatcher; a terminal
@@ -343,7 +342,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 	}
 	effects := transition.Effects()
 	for _, effect := range effects {
-		if err := p.deployment().validateEffect(effect); err != nil {
+		if err := p.deployment.validateEffect(effect); err != nil {
 			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeExecutionEffectInvalid, cause: err,
 			}
@@ -373,7 +372,7 @@ func (p *processState) prepareStep(result stepJobResult, limits TreeLimits, chil
 		}
 	}
 	if output, completes := transition.Output(); completes {
-		if validateOutputErr := p.deployment().Descriptor().ValidateOutput(output); validateOutputErr != nil {
+		if validateOutputErr := p.deployment.Descriptor().ValidateOutput(output); validateOutputErr != nil {
 			return nil, &stepFailure{
 				kind: FailureKindContract, code: failureCodeExecutionOutputInvalid, cause: validateOutputErr,
 			}
@@ -598,7 +597,7 @@ func (p *processState) validatePreparedWaits(prepared *preparedStep) error {
 // dispatch: its Dispatcher must declare a valid policy, and the Process must
 // hold every capability that policy requires.
 func (p *processState) authorizeDispatch(effect Effect) (EffectPolicy, error) {
-	policy, err := dispatcherEffectPolicy(p.deployment().dispatcher, effect)
+	policy, err := dispatcherEffectPolicy(p.deployment.dispatcher, effect)
 	if err != nil {
 		return EffectPolicy{}, err
 	}
@@ -637,7 +636,7 @@ func (p *processState) adopt(finalization *preparedStepFinalization) {
 func (p *processState) snapshotWire() processSnapshotWire {
 	wire := processSnapshotWire{
 		Relation:      p.handle.relation,
-		DeploymentRef: p.deployment().DeploymentRef(), StartedAt: p.handle.startedAt,
+		DeploymentRef: p.deployment.DeploymentRef(), StartedAt: p.handle.startedAt,
 		CommittedSteps: p.committedSteps,
 		Budget:         p.handle.budget, Capabilities: p.handle.capabilities, DroppedDeltas: p.droppedDeltas,
 		CommittedExecutionState: p.committedExecutionState, Mailbox: p.mailbox.wire(),

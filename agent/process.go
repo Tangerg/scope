@@ -40,7 +40,7 @@ type Process struct {
 }
 
 func (p *Process) DeploymentRef() DeploymentRef {
-	return p.handle.deploymentRef()
+	return p.handle.deploymentRef
 }
 
 // Relation returns the Process identity with its immutable parent/root/depth

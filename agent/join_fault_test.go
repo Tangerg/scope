@@ -48,7 +48,7 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 	childID := newProcessID()
 	key, _ := ParseChildKey("completed")
 	relation := childProcessRelation(childID, parent.handle.relation, key)
-	handle := newProcessHandle(relation, parent.handle.deployment,
+	handle := newProcessHandle(relation, parent.deployment,
 		parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 	output, err := EncodePayload(childTestOutput{})
 	if err != nil {
@@ -59,7 +59,8 @@ func TestJoinAfterTreeFaultCannotPublishChildWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := &processState{
-		handle: handle, finish: &processFinish{Termination: termination, FinishedAt: parent.handle.startedAt},
+		deployment: parent.deployment,
+		handle:     handle, finish: &processFinish{Termination: termination, FinishedAt: parent.handle.startedAt},
 	}
 	runtime.addProcess(child)
 	handle.publishResult(child.result())
