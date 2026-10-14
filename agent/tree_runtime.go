@@ -106,7 +106,6 @@ type treeCommit struct {
 type pendingChildStartPublication struct {
 	plan   *childStartPlan
 	result childStartJobResult
-	event  eventDraft
 }
 
 type stepJobResult struct {
@@ -801,7 +800,6 @@ func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) e
 		t.engine.publishProcessStart(child.handle)
 		t.events.emit(child, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
 	}
-	t.events.publish(t.members.get(pending.plan.parentID()), pending.event)
 	return nil
 }
 
@@ -1640,7 +1638,7 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	}
 	// A failed runtime may have already published every outcome. The job still
 	// owns its synchronous completion events, so Close must see it until they return.
-	t.publishJobFinished(process, job, completion)
+	t.completeJobAttempt(process, job, completion)
 	t.jobs.finish(completion)
 	t.queueJoin(process)
 	if t.fault != nil {
@@ -1651,7 +1649,9 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 		t.retireStaleJob(process, completion.result.jobKind())
 		return
 	}
-	t.adoptJobResult(process, job, completion)
+	if job.kind != processJobChildStart {
+		t.adoptJobResult(process, job, completion)
+	}
 	if t.writer.committing() {
 		return
 	}
@@ -1663,12 +1663,16 @@ func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 
 // Attempt facts close even when the candidate is stale, cannot be committed,
 // or a sibling has already stopped the runtime.
-func (t *treeRuntime) publishJobFinished(process *processState, job *processJob, completion treeJobCompletion) {
+func (t *treeRuntime) completeJobAttempt(process *processState, job *processJob, completion treeJobCompletion) {
 	switch result := completion.result.(type) {
 	case stepJobResult:
 		t.events.stepFinished(process, result, job.stale || t.fault != nil)
 	case dispatchJobResult:
 		t.publishDispatchFinished(process, job, result)
+	case childStartJobResult:
+		// Owner-side capacity admission is part of the local start attempt.
+		// Keep the job owned until its synchronous completion fact returns.
+		t.applyChildStartCompletion(process, job, result)
 	}
 }
 
@@ -1695,8 +1699,6 @@ func (t *treeRuntime) adoptJobResult(process *processState, job *processJob, com
 		process.execution = result.execution
 	case dispatchJobResult:
 		t.applyDispatchCompletion(process, job, result)
-	case childStartJobResult:
-		t.applyChildStartCompletion(process, job, result)
 	}
 }
 
@@ -1707,6 +1709,13 @@ func (t *treeRuntime) applyChildStartCompletion(
 ) {
 	plan := job.childStart
 	pending := &pendingChildStartPublication{plan: plan, result: result}
+	defer func() {
+		t.events.publishSettlement(parent, job.effectID, EffectTargetFramework,
+			ChildStartResult{failure: pending.result.failure}.settlementStatus(), job.effectAttempt, nil)
+	}()
+	if t.fault != nil || job.stale {
+		return
+	}
 	transferred := false
 	var publicationErr, checkpointErr error
 	defer func() {
@@ -1723,18 +1732,14 @@ func (t *treeRuntime) applyChildStartCompletion(
 		return
 	}
 
-	pending.event = t.events.settlement(parent,
-		job.effectID, EffectTargetFramework,
-		ChildStartResult{failure: pending.result.failure}.settlementStatus(), job.effectAttempt, nil,
-	)
 	snapshot, err := t.captureTree()
 	if err == nil {
 		commit := &treeCommit{
 			kind: treeCommitEffectSettled, processID: parent.handle.processID(),
-			effectID: job.effectID, snapshot: snapshot, events: []eventDraft{pending.event},
+			effectID: job.effectID, snapshot: snapshot,
 		}
 		if pending.result.started() {
-			commit.child, commit.events = pending, nil
+			commit.child = pending
 		}
 		err = t.startCheckpoint(commit, checkpointCauseChildStart)
 	}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -221,6 +220,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 	}
 	for _, process := range runtime.members.all() {
 		process.deployment = deployment
+		process.handle.deploymentRef = deployment.DeploymentRef()
 		process.currentWaitID = WaitID{}
 		process.committedExecutionState = state
 		process.execution = execution
@@ -274,6 +274,10 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			runtime := newWaitingSnapshotTree(t, 1)
 			root := runtime.members.get(runtime.rootID)
+			var events []Event
+			runtime.events.observation = newObservationBus([]EventListener{EventListenerFunc(func(_ context.Context, event Event) {
+				events = append(events, event)
+			})}, nil, 0)
 			limits := TreeLimits{
 				MaxSnapshotBytes: NewQuota(512 << 14), MaxPendingSignals: runtime.treeLimits.MaxPendingSignals,
 				MaxDepth: 1, MaxChildren: NewQuota(1), MaxActiveChildren: 1, MaxTreeProcesses: NewQuota(2),
@@ -306,7 +310,8 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				root.committedExecutionState = ExecutionState{}
 			}
 			result := childStartJobResult{failure: newEngineFailure(FailureKindExternal, failureCodeEngineChildAdmissionRejected, errors.New("admission refused"))}
-			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: effectAttempt{id: newEffectAttemptID(), startedAt: time.Now()}}, result)
+			attempt := runtime.events.beginEffectAttempt(root, root.preparedStepSequence(), effectID, EffectTargetFramework)
+			runtime.applyChildStartCompletion(root, &processJob{childStart: preparation.plan, effectID: effectID, effectAttempt: attempt}, result)
 			if runtime.childDebits(root) != (resourceAmounts{}) || runtime.members.len() != 1 {
 				t.Fatal("rejection retained child resources")
 			}
@@ -327,6 +332,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 			if root.prepared.Effects[0].settlement().Status() != SettlementStatusFailed {
 				t.Fatal("rejection lost its failed settlement")
 			}
+			assertFrameworkAttemptsClosed(t, events)
 		})
 	}
 }

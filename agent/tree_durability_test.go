@@ -430,6 +430,7 @@ func TestTreeCommitterFaultPreservesEveryConcurrentEffectForReconciliation(t *te
 }
 
 func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.T) {
+	events := make(chan Event, 128)
 	secondKey, err := ParseChildKey("second")
 	if err != nil {
 		t.Fatal(err)
@@ -458,6 +459,7 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	engine, err := NewEngine(EngineConfig{
 		TreeCommitter:   committer,
 		ProcessAdmitter: admitter,
+		EventListeners:  []EventListener{EventListenerFunc(func(_ context.Context, event Event) { events <- event })},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -495,6 +497,11 @@ func TestTreeCommitterFaultReleasesConcurrentChildAdmissionOwnership(t *testing.
 	closeEngineEventually(t, engine)
 	stopped := root.handle.treeRuntime()
 	<-stopped.done
+	var observed []Event
+	for len(events) != 0 {
+		observed = append(observed, <-events)
+	}
+	assertFrameworkAttemptsClosed(t, observed)
 	after := inspectProcessSnapshot(t, root)
 	if string(before.JSON()) != string(after.JSON()) {
 		t.Fatal("late child admission changed the acknowledged head after a fault")

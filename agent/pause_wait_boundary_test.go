@@ -94,6 +94,7 @@ func TestPauseWaitingSurvivesRestoreAndRequiresResume(t *testing.T) {
 func TestPauseDiscardsUnadoptedWaitWithoutConsumingItsSignal(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
 	process.deployment = engineTestDeployment(t, newEngineTestDefinition(t, "engine.wait", "wait"), nil)
+	process.handle.deploymentRef = process.deployment.DeploymentRef()
 	input := controlValue(EncodePayload(engineTestInput{Value: "pause"}))
 	execution, state, _, err := initializeExecution(t.Context(), process.deployment.Definition(), input)
 	if err != nil {

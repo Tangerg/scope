@@ -122,6 +122,7 @@ func TestDispatchCompletionRetainsOriginalError(t *testing.T) {
 		effectFailureTestDispatcher{dispatch: func(EffectRequest) (Settlement, error) {
 			return Settlement{}, fmt.Errorf("dispatch: %w", cause)
 		}})
+	process.handle.deploymentRef = process.deployment.DeploymentRef()
 	effect, err := NewDispatcherEffect([]byte(`{"kind":"effect","value":"test"}`))
 	if err != nil {
 		t.Fatal(err)
