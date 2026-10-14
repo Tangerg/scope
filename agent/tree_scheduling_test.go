@@ -2,12 +2,67 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
 // A fixed number of owner turns makes starvation observable without depending
 // on goroutine timing or measuring machine-specific execution latency.
 const schedulingProgressTurns = 8
+
+func TestTreeSchedulingAdvancesUnderContinuousCommittedSignals(t *testing.T) {
+	for _, readyCompletion := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ready_completion=%t", readyCompletion), func(t *testing.T) {
+			owner, process := newChildCompletionTestProcess(t)
+			owner.completions = make(chan treeJobCompletion, 1)
+			if readyCompletion {
+				owner.startStep(process)
+				completion := receiveTreeRuntimeProbe(t, owner.completions)
+				owner.completions <- completion
+			}
+			replies := make(processReply, treeCommandBufferCapacity)
+			nextSignal, accepted := 0, 0
+			progressed := false
+			for range schedulingProgressTurns {
+				for len(owner.signalCommands) < cap(owner.signalCommands) {
+					id := controlValue(ParseSignalID(fmt.Sprintf("signal:scheduling-%d", nextSignal)))
+					nextSignal++
+					request := controlValue(NewSignalRequest(id, WaitID{}, []byte(`null`)))
+					owner.signalCommands <- processTreeCommand{
+						processID: process.handle.processID(), request: deliverSignalsRequest{requests: []SignalRequest{request}}, reply: replies,
+					}
+				}
+				owner.advanceReadyWork()
+				if owner.writer.committing() {
+					owner.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, owner.writer.done))
+				}
+				for len(replies) != 0 {
+					reply := <-replies
+					if reply.err != nil && !errors.Is(reply.err, ErrProcessFinished) {
+						t.Fatal(reply.err)
+					}
+					if reply.accepted {
+						accepted++
+					}
+				}
+				if readyCompletion {
+					progressed = owner.jobs.get(process.handle.processID()) == nil && (process.prepared != nil || process.committedSteps != 0)
+				} else {
+					progressed = process.attemptSequence != 0
+				}
+				if progressed {
+					break
+				}
+			}
+			if !progressed || accepted == 0 {
+				t.Fatalf("valid Signal commits prevented progress: progressed=%t accepted=%d", progressed, accepted)
+			}
+			if !readyCompletion {
+				owner.applyCompletion(receiveTreeRuntimeProbe(t, owner.completions))
+			}
+		})
+	}
+}
 
 func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 	runtime, process := newChildCompletionTestProcess(t)
@@ -19,8 +74,8 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 		for len(runtime.inspections) < cap(runtime.inspections) {
 			runtime.inspections <- responses
 		}
-		for len(runtime.processCommands) < cap(runtime.processCommands) {
-			runtime.processCommands <- processTreeCommand{
+		for len(runtime.controlCommands) < cap(runtime.controlCommands) {
+			runtime.controlCommands <- processTreeCommand{
 				processID: process.handle.processID(), request: resumeRequest{}, reply: commandResponses,
 			}
 		}
@@ -76,39 +131,53 @@ func TestTreeSchedulingMakesProgressUnderContinuousRequests(t *testing.T) {
 }
 
 func TestTreeSchedulingHonorsControlBeforeAdoptingReadyWork(t *testing.T) {
-	runtime, process := newChildCompletionTestProcess(t)
-	runtime.completions = make(chan treeJobCompletion, 1)
-	runtime.startStep(process)
-	completion := receiveTreeRuntimeProbe(t, runtime.completions)
-	runtime.completions <- completion
-	response := make(processReply, 1)
-	runtime.processCommands <- processTreeCommand{
-		processID: process.handle.processID(), request: killRequest{reason: "stop before adopting the ready Step"}, reply: response,
-	}
-	for range schedulingProgressTurns {
-		runtime.advanceReadyWork()
-		if runtime.writer.committing() {
-			runtime.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, runtime.writer.done))
-		}
-		select {
-		case <-process.handle.outcomePublished:
-			select {
-			case reply := <-response:
-				if reply.err != nil {
-					t.Fatal(reply.err)
+	for _, signalCommit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("signal_commit=%t", signalCommit), func(t *testing.T) {
+			owner, process := newChildCompletionTestProcess(t)
+			owner.completions = make(chan treeJobCompletion, 1)
+			owner.startStep(process)
+			completion := receiveTreeRuntimeProbe(t, owner.completions)
+			owner.completions <- completion
+			if signalCommit {
+				signal := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:before-kill")), WaitID{}, []byte(`null`)))
+				owner.signalCommands <- processTreeCommand{
+					processID: process.handle.processID(), request: deliverSignalsRequest{requests: []SignalRequest{signal}}, reply: make(processReply, 1),
 				}
-			default:
-				t.Fatal("ready work overtook the control request")
+				owner.advanceReadyWork()
+				if !owner.writer.committing() {
+					t.Fatal("Signal did not start a commit")
+				}
 			}
-			result, err := process.handle.outcome()
-			if err != nil || result.Termination().Status() != StatusKilled {
-				t.Fatalf("controlled result=%s error=%v", result.Termination().Status(), err)
+			response := make(processReply, 1)
+			owner.controlCommands <- processTreeCommand{
+				processID: process.handle.processID(), request: killRequest{reason: "stop before adopting the ready Step"}, reply: response,
 			}
-			return
-		default:
-		}
+			for range schedulingProgressTurns {
+				owner.advanceReadyWork()
+				if owner.writer.committing() {
+					owner.applyTreeCommitCompletion(receiveTreeRuntimeProbe(t, owner.writer.done))
+				}
+				select {
+				case <-process.handle.outcomePublished:
+					select {
+					case reply := <-response:
+						if reply.err != nil {
+							t.Fatal(reply.err)
+						}
+					default:
+						t.Fatal("ready work overtook the control request")
+					}
+					result, err := process.handle.outcome()
+					if err != nil || result.Termination().Status() != StatusKilled {
+						t.Fatalf("controlled result=%s error=%v", result.Termination().Status(), err)
+					}
+					return
+				default:
+				}
+			}
+			t.Fatal("ready work starved the control request")
+		})
 	}
-	t.Fatal("ready work starved the control request")
 }
 
 func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {

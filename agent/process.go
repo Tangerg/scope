@@ -233,7 +233,7 @@ func (p *Process) request(ctx context.Context, request processRequest) (processR
 	}
 }
 
-// submit is the only path into the owning runtime's command lane; requests
+// submit is the only path into the owning runtime's command lanes; requests
 // without a reply are accepted once they enter that lane.
 func (p *Process) submit(ctx context.Context, request processRequest, reply processReply) error {
 	ctx = RequireContext(ctx)
@@ -247,8 +247,12 @@ func (p *Process) submit(ctx context.Context, request processRequest, reply proc
 	if err := runtime.checkEventListenerReentrancy(ctx, "process control"); err != nil {
 		return err
 	}
+	commands := runtime.controlCommands
+	if _, signal := request.(deliverSignalsRequest); signal {
+		commands = runtime.signalCommands
+	}
 	select {
-	case runtime.processCommands <- processTreeCommand{processID: p.handle.processID(), request: request, reply: reply}:
+	case commands <- processTreeCommand{processID: p.handle.processID(), request: request, reply: reply}:
 		return nil
 	case <-p.handle.outcomePublished:
 		return p.handle.closedRequestError()

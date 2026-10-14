@@ -27,7 +27,8 @@ type treeRuntime struct {
 	// Callers and jobs never touch owner-line state. They send requests on
 	// these lanes, and the owner applies each one in its own order.
 	context         context.Context
-	processCommands chan processTreeCommand
+	controlCommands chan processTreeCommand
+	signalCommands  chan processTreeCommand
 	freezeCommands  chan freezeCommand
 	completions     chan treeJobCompletion
 	inspections     chan chan TreeInspection
@@ -38,6 +39,7 @@ type treeRuntime struct {
 	joinCandidates  map[ProcessID]*processState
 	runQueue        runQueue
 	jobs            *jobTable
+	nextWork        treeWorkLane
 	fault           error
 	publications    publicationLedger
 	freeze          freezeBarrier
@@ -51,6 +53,15 @@ type processTreeCommand struct {
 	request   processRequest
 	reply     processReply
 }
+
+type treeWorkLane uint8
+
+const (
+	treeWorkSignals treeWorkLane = iota
+	treeWorkCompletions
+	treeWorkExecution
+	treeWorkLaneCount
+)
 
 // freezeCommand is sealed: only acquisition and release of the snapshot
 // barrier travel on the freeze lane.
@@ -153,7 +164,8 @@ func newTreeRuntime(
 		writer:          writer,
 		events:          eventRecorder{observation: engine.observation, writer: writer, context: detached},
 		context:         detached,
-		processCommands: make(chan processTreeCommand, treeCommandBufferCapacity),
+		controlCommands: make(chan processTreeCommand, treeCommandBufferCapacity),
+		signalCommands:  make(chan processTreeCommand, treeCommandBufferCapacity),
 		freezeCommands:  make(chan freezeCommand, treeCommandBufferCapacity),
 		completions:     make(chan treeJobCompletion),
 		inspections:     make(chan chan TreeInspection, treeCommandBufferCapacity),
@@ -212,7 +224,7 @@ func (t *treeRuntime) publishInitialProcessEvents() {
 func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() bool {
 	return context.AfterFunc(rootContext, func() {
 		select {
-		case t.processCommands <- processTreeCommand{
+		case t.controlCommands <- processTreeCommand{
 			processID: t.rootID,
 			request:   hostTerminationRequest{cause: rootContext.Err()},
 		}:
@@ -222,20 +234,29 @@ func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() b
 }
 
 func (t *treeRuntime) advanceReadyWork() bool {
-	// Service every eligible lane once so a continuously ready lane cannot
-	// prevent another from making progress. Each operation rechecks its barriers
-	// because an earlier operation can acquire a freeze or start a commit.
-	lanes := [...]bool{
-		t.tryCommitCompletion(),
-		t.tryFreezeCancellation(),
-		t.tryFreezeCommand(),
-		t.tryProcessCommand(),
-		t.tryCompletion(),
-		t.advanceOne(),
-		t.publishJoins(),
-		t.tryStartCheckpoint(),
+	advanced := t.tryCommitCompletion()
+	advanced = t.tryFreezeCancellation() || advanced
+	advanced = t.tryFreezeCommand() || advanced
+	advanced = t.tryControlCommand() || advanced
+	// A commit suspends the round rather than restarting it at input admission.
+	// Control remains ahead of ordinary work, including after acknowledgment.
+	for range treeWorkLaneCount {
+		if t.mutationsBlocked() {
+			break
+		}
+		lane := t.nextWork
+		t.nextWork = (lane + 1) % treeWorkLaneCount
+		switch lane {
+		case treeWorkSignals:
+			advanced = t.trySignalCommand() || advanced
+		case treeWorkCompletions:
+			advanced = t.tryCompletion() || advanced
+		case treeWorkExecution:
+			advanced = t.advanceOne() || advanced
+		}
 	}
-	return slices.Contains(lanes[:], true)
+	advanced = t.publishJoins() || advanced
+	return t.tryStartCheckpoint() || advanced
 }
 
 func (t *treeRuntime) waitForWork() {
@@ -243,11 +264,13 @@ func (t *treeRuntime) waitForWork() {
 	// These are local selections; only the owner changes the actual barriers.
 	commitDone := t.writer.done
 	freezeCommands := t.freezeCommands
-	processCommands := t.processCommands
+	controlCommands := t.controlCommands
+	signalCommands := t.signalCommands
 	completions := t.completions
 	freezeCancellation := t.freeze.cancellation()
 	if t.mutationsBlocked() {
-		processCommands = nil
+		controlCommands = nil
+		signalCommands = nil
 		completions = nil
 	}
 	if t.writer.committing() {
@@ -266,9 +289,13 @@ func (t *treeRuntime) waitForWork() {
 		case response := <-t.inspections:
 			t.replyInspection(response)
 			continue
-		case command := <-processCommands:
+		case command := <-controlCommands:
+			t.routeProcessCommand(command)
+		case command := <-signalCommands:
+			t.nextWork = treeWorkCompletions
 			t.routeProcessCommand(command)
 		case completion := <-completions:
+			t.nextWork = treeWorkExecution
 			t.applyCompletion(completion)
 		case <-freezeCancellation:
 			t.releaseCurrentFreeze()
@@ -317,12 +344,25 @@ func (t *treeRuntime) tryFreezeCommand() bool {
 	}
 }
 
-func (t *treeRuntime) tryProcessCommand() bool {
+func (t *treeRuntime) tryControlCommand() bool {
 	if t.mutationsBlocked() {
 		return false
 	}
 	select {
-	case command := <-t.processCommands:
+	case command := <-t.controlCommands:
+		t.routeProcessCommand(command)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) trySignalCommand() bool {
+	if t.mutationsBlocked() {
+		return false
+	}
+	select {
+	case command := <-t.signalCommands:
 		t.routeProcessCommand(command)
 		return true
 	default:
