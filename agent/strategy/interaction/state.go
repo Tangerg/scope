@@ -148,8 +148,6 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *Defi
 		return e.validateModelState()
 	case phaseAwaitingChildStarts, phaseAwaitingChildWaitOpen, phaseWaitingChildren:
 		return e.validateActiveCallState(ctx, definition)
-	case phaseCompleted:
-		return e.validateCompletedState()
 	}
 	return nil
 }
