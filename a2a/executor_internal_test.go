@@ -2,13 +2,74 @@ package a2a
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"iter"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 )
+
+type diagnosticAgent struct{ continued *bool }
+
+func (d diagnosticAgent) Run(context.Context, string) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		if !yield("", errors.New("private-http-error-marker")) {
+			return
+		}
+		*d.continued = true
+		yield("unexpected completion", nil)
+	}
+}
+
+func TestHTTPFailureDoesNotPublishInternalDiagnostics(t *testing.T) {
+	continued := false
+	card := &sdka2a.AgentCard{
+		Name: "test", SupportedInterfaces: []*sdka2a.AgentInterface{sdka2a.NewAgentInterface("https://agent.example/invoke", sdka2a.TransportProtocolJSONRPC)},
+	}
+	handler, err := NewHTTPHandler(ServerConfig{
+		Agent: diagnosticAgent{continued: &continued}, Card: card,
+		TaskStore: taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := jsonv2.Marshal(struct {
+		JSONRPC string                     `json:"jsonrpc"`
+		ID      string                     `json:"id"`
+		Method  string                     `json:"method"`
+		Params  *sdka2a.SendMessageRequest `json:"params"`
+	}{"2.0", "1", "SendMessage", &sdka2a.SendMessageRequest{Message: sdka2a.NewMessage(sdka2a.MessageRoleUser, sdka2a.NewTextPart("hello"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/invoke", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-http-error-marker") {
+		t.Fatalf("failure response status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Result struct {
+			Task *sdka2a.Task `json:"task"`
+		} `json:"result"`
+	}
+	if err := jsonv2.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Result.Task == nil || result.Result.Task.Status.State != sdka2a.TaskStateFailed || continued {
+		t.Fatalf("failure result=%+v iteration continued=%t body=%s", result.Result.Task, continued, response.Body.String())
+	}
+	if detail := (textProjection{}).parts(result.Result.Task.Status.Message.Parts); detail != "agent execution failed" {
+		t.Fatalf("public failure message=%q", detail)
+	}
+}
 
 type nilSequenceAgent struct{}
 
@@ -50,7 +111,7 @@ func TestExecutorTurnsNilAgentSequenceIntoFailedTask(t *testing.T) {
 	if final == nil || final.Status.State != sdka2a.TaskStateFailed || final.Status.Message == nil {
 		t.Fatalf("final event = %#v, want failed status with message", final)
 	}
-	if detail := projection.parts(final.Status.Message.Parts); !strings.Contains(detail, "nil output sequence") {
+	if detail := projection.parts(final.Status.Message.Parts); detail != "agent execution failed" {
 		t.Fatalf("failure detail = %q", detail)
 	}
 }

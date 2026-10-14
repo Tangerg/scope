@@ -16,13 +16,16 @@ type Agent interface {
 	// Run handles one inbound A2A message, already flattened to text, and
 	// yields the reply as a sequence of text chunks. A single-shot agent
 	// yields once; a streaming agent yields deltas. A yielded error ends the
-	// task as failed and stops iteration.
+	// task as failed and stops iteration. Errors are internal diagnostics; the
+	// remote task receives a fixed failure message without their contents.
 	Run(ctx context.Context, input string) iter.Seq2[string, error]
 }
 
 type executor struct {
 	agent Agent
 }
+
+const taskFailureMessage = "agent execution failed"
 
 var _ a2asrv.AgentExecutor = (*executor)(nil)
 
@@ -76,7 +79,7 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 
 		fail := func(err error) {
 			recordSpanError(span, err)
-			message := sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(err.Error()))
+			message := sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(taskFailureMessage))
 			yield(sdka2a.NewStatusUpdateEvent(execCtx, sdka2a.TaskStateFailed, message), nil)
 		}
 		sequence := e.agent.Run(spanCtx, input)

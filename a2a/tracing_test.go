@@ -88,8 +88,8 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 		t.Fatalf("failure output = %q, want the partial artifact", text)
 	}
 	remote, ok := errors.AsType[*RemoteAgentError](failure.Cause())
-	if !ok || remote.Detail != "private-agent-error-marker" {
-		t.Fatalf("caller error = %v, want original remote detail", err)
+	if !ok || remote.Detail != "agent execution failed" {
+		t.Fatalf("caller error = %v, want the public failure message", err)
 	}
 	spans := recorder.Ended()
 	if len(spans) != 2 {
