@@ -14,7 +14,7 @@
 # Required tools:
 #   go             — the version in go.work
 #   golangci-lint, govulncheck — scripts/install-check-tools.sh
-#   jq             — used to enforce the reviewed vulnerability allowlist
+#   jq             — used to parse vulnerability findings
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

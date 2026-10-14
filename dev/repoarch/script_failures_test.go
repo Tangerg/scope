@@ -1,6 +1,7 @@
 package repoarch
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,6 +98,51 @@ func TestVulnerabilityCheckAcceptsEmptyFindings(t *testing.T) {
 	output, err := fixture.run(t, "check-vulnerabilities.sh", "consumer")
 	if err != nil || output != "consumer: no reachable vulnerabilities\n" {
 		t.Fatalf("empty findings must remain a successful clean scan: %v\n%s", err, output)
+	}
+}
+
+func TestVulnerabilityCheckRejectsReachableFindings(t *testing.T) {
+	t.Parallel()
+	for _, module := range []string{"consumer", "models/ollama"} {
+		t.Run(module, func(t *testing.T) {
+			for _, id := range []string{
+				"GO-2025-3557", "GO-2025-3558", "GO-2025-3559", "GO-2025-3582",
+				"GO-2025-3689", "GO-2025-3695", "GO-2025-3824", "GO-2025-4251",
+				"GO-2026-9999",
+			} {
+				t.Run(id, func(t *testing.T) {
+					fixture := newScriptFailureFixture(t, "check-vulnerabilities.sh")
+					fixture.write(t, module+"/go.mod", "module github.com/Tangerg/scope/"+module+"\n")
+					fixture.write(t, "scripts/module-packages.sh", "#!/usr/bin/env bash\necho github.com/Tangerg/scope/"+module+"\n")
+					fixture.write(t, "bin/govulncheck", `#!/usr/bin/env bash
+cat <<'REPORT'
+{"osv":{"id":"`+id+`","affected":[{"ranges":[{"events":[{"introduced":"0"}]}]}]}}
+{"finding":{"osv":"`+id+`","trace":[{"module":"github.com/ollama/ollama","version":"v0.32.5","function":"GenerateHandler"}]}}
+REPORT
+`)
+					output, err := fixture.run(t, "check-vulnerabilities.sh", module)
+					if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 1 ||
+						output != module+": reachable vulnerabilities:\n  "+id+"\n" {
+						t.Fatalf("reachable finding %s in %s must fail: %v\n%s", id, module, err, output)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestVulnerabilityCheckReportsNonReachableFindings(t *testing.T) {
+	t.Parallel()
+	fixture := newScriptFailureFixture(t, "check-vulnerabilities.sh")
+	fixture.write(t, "scripts/module-packages.sh", "#!/usr/bin/env bash\necho github.com/Tangerg/scope/consumer\n")
+	fixture.write(t, "bin/govulncheck", `#!/usr/bin/env bash
+cat <<'REPORT'
+{"finding":{"osv":"GO-2026-9999","trace":[{"module":"example.com/dependency","version":"v1.0.0"}]}}
+REPORT
+`)
+	output, err := fixture.run(t, "check-vulnerabilities.sh", "consumer")
+	if err != nil || output != "consumer: no reachable vulnerabilities\nconsumer: informational non-reachable module findings: GO-2026-9999\n" {
+		t.Fatalf("non-reachable findings must remain informational: %v\n%s", err, output)
 	}
 }
 
