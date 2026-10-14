@@ -301,12 +301,12 @@ For each batch:
 Run the full workspace gate before handing off a completed repository-wide round:
 
 ```sh
-scripts/check.sh build vet test race tidy isolate pinned-test lint
+scripts/check.sh build vet test race tidy isolate lint
 ```
 
-The `pinned-test` gate runs tests without `go.work` for modules that require a
-Scope pseudo-version. Workspace tests exercise local dependency sources;
-isolated compilation alone cannot detect behavior differences in pinned dependencies.
+The `isolate` gate checks module hygiene and runs every module's tests without
+`go.work` against its declared dependencies, regardless of dependency version.
+Workspace tests separately exercise local dependency sources.
 
 Push after committing unless the user asks to keep the work local.
 

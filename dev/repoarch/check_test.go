@@ -31,8 +31,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 		"workspace:go test -run ^$ -bench . -benchtime=1x " + packages,
 		"workspace:go mod tidy -diff",
 		"off:go mod tidy -diff",
-		"off:go test -run ^$ ./...",
-		"off:go mod edit -json",
+		"off:go test -count=1 ./...",
 		"lint",
 		"vuln:consumer",
 	}
@@ -46,7 +45,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 		{
 			name: "subset", fast: "0", args: []string{"isolate", "race"},
 			calls: []string{
-				"off:go mod tidy -diff", "off:go test -run ^$ ./...",
+				"off:go mod tidy -diff", "off:go test -count=1 ./...",
 				"workspace:go test -race -count=1 " + packages,
 			},
 		},
@@ -70,9 +69,6 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 			write("scripts/check-vulnerabilities.sh", []byte("#!/usr/bin/env bash\nprintf 'vuln:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
 			write("bin/go", []byte(`#!/usr/bin/env bash
 printf '%s:go %s\n' "${GOWORK:-workspace}" "$*" >> "$CHECK_CALLS"
-if [[ "$*" == 'mod edit -json' ]]; then
-  printf '{"Require":[]}\n'
-fi
 `))
 			write("bin/golangci-lint", []byte("#!/usr/bin/env bash\necho lint >> \"$CHECK_CALLS\"\n"))
 			if err := os.Mkdir(filepath.Join(root, "consumer"), 0o700); err != nil {
@@ -124,28 +120,32 @@ func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
 	}
 }
 
-func TestPinnedTestsDetectDependencySemanticDrift(t *testing.T) {
+func TestIsolationDetectsDependencySemanticDrift(t *testing.T) {
 	t.Parallel()
-	fixture := newCheckFixture(t)
-	for _, check := range []string{"test", "isolate"} {
-		if output, err := fixture.run(t, "", "bash", "scripts/check.sh", check); err != nil {
-			t.Fatalf("%s: %v\n%s", check, err, output)
-		}
-	}
-	output, err := fixture.run(t, "", "bash", "scripts/check.sh", "pinned-test")
-	if err == nil || !strings.Contains(output, "pinned value = 1, want 2") {
-		t.Fatalf("pinned dependency drift must fail the semantic test: %v\n%s", err, output)
-	}
-
-	fixture.env = append(fixture.env, "MODULE=core")
-	if output, err := fixture.run(t, "", "bash", "scripts/check.sh", "pinned-test"); err != nil {
-		t.Fatalf("module without a Scope pseudo-version pin must be skipped: %v\n%s", err, output)
+	for _, version := range []string{checkPseudoVersion, "v0.16.1"} {
+		t.Run(version, func(t *testing.T) {
+			fixture := newCheckFixture(t, version)
+			if output, err := fixture.run(t, "", "bash", "scripts/check.sh", "test"); err != nil {
+				t.Fatalf("workspace test: %v\n%s", err, output)
+			}
+			if output, err := fixture.run(t, "consumer", "env", "GOWORK=off", "go", "test", "-run", "^$", "./..."); err != nil {
+				t.Fatalf("isolated compilation: %v\n%s", err, output)
+			}
+			output, err := fixture.run(t, "", "bash", "scripts/check.sh", "isolate")
+			if err == nil || !strings.Contains(output, "pinned value = 1, want 2") {
+				t.Fatalf("isolation must detect dependency behavior drift: %v\n%s", err, output)
+			}
+			fixture.env = append(fixture.env, "MODULE=core")
+			if output, err := fixture.run(t, "", "bash", "scripts/check.sh", "isolate"); err != nil {
+				t.Fatalf("isolate module without Scope dependencies: %v\n%s", err, output)
+			}
+		})
 	}
 }
 
 func TestIsolationPropagatesModuleHygieneFailure(t *testing.T) {
 	t.Parallel()
-	fixture := newCheckFixture(t)
+	fixture := newCheckFixture(t, checkPseudoVersion)
 	path := filepath.Join(fixture.root, "consumer", "go.mod")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -168,7 +168,9 @@ type checkFixture struct {
 	env  []string
 }
 
-func newCheckFixture(t *testing.T) checkFixture {
+const checkPseudoVersion = "v0.16.1-0.20260910000000-abcdef123456"
+
+func newCheckFixture(t *testing.T, version string) checkFixture {
 	t.Helper()
 	root, pathErr := filepath.EvalSymlinks(t.TempDir())
 	if pathErr != nil {
@@ -194,14 +196,13 @@ func newCheckFixture(t *testing.T) checkFixture {
 	}
 
 	const dependency = "github.com/Tangerg/scope/core"
-	const version = "v0.16.1-0.20260910000000-abcdef123456"
 	dependencyMod := []byte("module " + dependency + "\n\ngo 1.27.0\n")
 	write("go.work", []byte("go 1.27.0\n\nuse (\n ./core\n ./consumer\n)\n"))
 	write("core/go.mod", dependencyMod)
 	write("core/value.go", []byte("package core\nconst Value = 2\n"))
 	write("core/value_test.go", []byte(`package core
 import "testing"
-func TestMustNotRun(t *testing.T) { t.Fatal("module has no pseudo-version pin") }
+func TestValue(t *testing.T) { if Value != 2 { t.Fatalf("value = %d, want 2", Value) } }
 `))
 	write("consumer/go.mod", []byte("module github.com/Tangerg/scope/consumer\n\ngo 1.27.0\n\nrequire "+dependency+" "+version+"\n"))
 	write("consumer/value_test.go", []byte(`package consumer
@@ -273,7 +274,7 @@ func TestEnumerationFailureStopsChecks(t *testing.T) {
 	for _, partial := range []bool{false, true} {
 		for _, boundary := range []string{"workspace", "packages", "buildable"} {
 			t.Run(fmt.Sprintf("%s/partial=%t", boundary, partial), func(t *testing.T) {
-				fixture := newCheckFixture(t)
+				fixture := newCheckFixture(t, checkPseudoVersion)
 				name := "module-packages.sh"
 				body := "#!/usr/bin/env bash\n"
 				if boundary == "workspace" {
@@ -304,7 +305,7 @@ func TestEnumerationFailureStopsChecks(t *testing.T) {
 
 func TestModulePackagesPropagatesGoListFailure(t *testing.T) {
 	t.Parallel()
-	fixture := newCheckFixture(t)
+	fixture := newCheckFixture(t, checkPseudoVersion)
 	if err := os.WriteFile(filepath.Join(fixture.root, "consumer", "broken.go"), []byte("package 123broken\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
