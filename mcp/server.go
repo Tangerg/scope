@@ -28,25 +28,19 @@ func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
 	}
 	for _, definition := range registry.Definitions() {
 		executable, _ := registry.Resolve(definition.Name)
-		tool := serverTool{executable: executable, definition: definition}
+		tool := serverTool{executable: executable, name: definition.Name}
 		// The low-level AddTool keeps the Tool's own schema; the generic SDK
 		// helper would replace it with a reflected one.
-		server.AddTool(tool.descriptor(), tool.handle)
+		server.AddTool(new(sdkmcp.Tool{
+			Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema,
+		}), tool.handle)
 	}
 	return nil
 }
 
 type serverTool struct {
 	executable toolcontract.Binding
-	definition corechat.ToolDefinition
-}
-
-func (s serverTool) descriptor() *sdkmcp.Tool {
-	return new(sdkmcp.Tool{
-		Name:        s.definition.Name,
-		Description: s.definition.Description,
-		InputSchema: s.definition.InputSchema,
-	})
+	name       string
 }
 
 // Invalid arguments and valid definite [toolcontract.Failure] outcomes become
@@ -54,7 +48,7 @@ func (s serverTool) descriptor() *sdkmcp.Tool {
 // unmappable outputs establish no definite Tool result, so they stay JSON-RPC
 // internal errors that preserve that uncertainty without leaking diagnostics.
 func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-	toolName := s.definition.Name
+	toolName := s.name
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.serve "+toolName,
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(semconv.GenAIToolName(toolName)),
