@@ -28,30 +28,37 @@ func newResponsesModel(t *testing.T, baseURL, modelID string) *openai.Responses 
 	return m
 }
 
-// Single-shot /v1/responses payload: a reasoning item, then text, then
-// a function_call, then more text — exactly the interleaved shape the
-// Responses API gives us (and Chat Completions cannot).
+func TestResponses_CoreConformance(t *testing.T) {
+	modeltest.RunChatContract(t, modeltest.ChatContract{
+		New: func(t *testing.T) (chat.Model, chat.Streamer) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != "/responses" {
+					t.Errorf("path = %q; want /responses", request.URL.Path)
+				}
+				writeResponsesCompletion(writer)
+			}))
+			t.Cleanup(server.Close)
+			model := newResponsesModel(t, server.URL, "gpt-5")
+			return model, model
+		},
+		Request:          newResponsesChatRequest,
+		AssertCall:       assertResponsesInterleaved,
+		AssertAggregated: assertResponsesInterleaved,
+	})
+}
 
-func TestResponsesChatModel_Call_InterleavedOutput(t *testing.T) {
-	var seenURL string
-	srv := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		seenURL = request.URL.Path
-		writeResponsesCompletion(writer)
-	}))
-	t.Cleanup(srv.Close)
-
-	m := newResponsesModel(t, srv.URL, "gpt-5")
-	req, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("查天气")))
-
-	resp, err := m.Call(t.Context(), req)
+func newResponsesChatRequest(t *testing.T) *chat.Request {
+	t.Helper()
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("查天气")))
 	if err != nil {
-		t.Fatalf("Call: %v", err)
+		t.Fatal(err)
 	}
-	if !strings.Contains(seenURL, "responses") {
-		t.Errorf("URL = %q; want /v1/responses", seenURL)
-	}
+	return request
+}
 
-	msg := resp.Output.Message
+func assertResponsesInterleaved(t *testing.T, response *chat.Response) {
+	t.Helper()
+	msg := response.Output.Message
 	if msg == nil {
 		t.Fatal("AssistantMessage is nil")
 	}
@@ -93,10 +100,10 @@ func TestResponsesChatModel_Call_InterleavedOutput(t *testing.T) {
 		t.Errorf("tool call = %+v", tc)
 	}
 
-	if resp.Output.FinishReason != chat.FinishReasonToolCalls {
-		t.Errorf("FinishReason = %q; want tool_calls", resp.Output.FinishReason)
+	if response.Output.FinishReason != chat.FinishReasonToolCalls {
+		t.Errorf("FinishReason = %q; want tool_calls", response.Output.FinishReason)
 	}
-	usage := resp.Metadata.Usage
+	usage := response.Metadata.Usage
 	if usage.InputTokens != 12 || usage.OutputTokens != 8 {
 		t.Errorf("usage tokens = %+v", usage)
 	}
@@ -169,71 +176,6 @@ func TestResponsesChatCountsTheSameMultimodalInput(t *testing.T) {
 	}
 }
 
-func TestResponsesChatModel_Stream_InterleavedDeltas(t *testing.T) {
-	// Build the SSE event sequence by hand. Each event ships exactly one
-	// part delta to scope — reasoning → text → tool_call → text — and the
-	// final response.completed carries usage + finish reason.
-	events := responsesInterleavedEvents()
-	srv := modeltest.AnthropicSSEServer(events)
-	t.Cleanup(srv.Close)
-
-	m := newResponsesModel(t, srv.URL, "gpt-5")
-	req, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("查天气")))
-
-	acc := &chat.ResponseAccumulator{}
-	for chunk, err := range m.Stream(t.Context(), req) {
-		if err != nil {
-			t.Fatalf("stream error: %v", err)
-		}
-		if err := acc.Add(chunk); err != nil {
-			t.Fatalf("accumulate: %v", err)
-		}
-	}
-
-	response, err := acc.Response()
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg := response.Output.Message
-	if msg == nil {
-		t.Fatal("AssistantMessage nil after accumulation")
-	}
-	if len(msg.Parts) != 4 {
-		t.Fatalf("Parts len = %d; want 4", len(msg.Parts))
-	}
-
-	reasoning := msg.Parts[0]
-	if reasoning.Text != "想想看" {
-		t.Errorf("reasoning text = %q", reasoning.Text)
-	}
-	if len(reasoning.ReasoningState) == 0 || string(reasoning.ReasoningState) == "enc_xyz" {
-		t.Errorf("reasoning state did not preserve the native item fields")
-	}
-
-	if msg.Parts[1].Text != "先查天气：" {
-		t.Errorf("text1 = %q", msg.Parts[1].Text)
-	}
-	if len(msg.Parts[1].Citations) != 1 || msg.Parts[1].Citations[0].Source.Value != "https://example.com/weather" {
-		t.Errorf("stream text citations = %#v", msg.Parts[1].Citations)
-	}
-
-	tc := msg.Parts[2].ToolCall
-	if tc.ID != "call_w" || tc.Name != "weather" || tc.Arguments != `{"city":"BJ"}` {
-		t.Errorf("tool call = %+v", tc)
-	}
-
-	if msg.Parts[3].Text != "等结果。" {
-		t.Errorf("text2 = %q", msg.Parts[3].Text)
-	}
-
-	if response.Output.FinishReason != chat.FinishReasonToolCalls {
-		t.Errorf("FinishReason = %q", response.Output.FinishReason)
-	}
-	if response.Metadata.Usage.InputTokens != 12 {
-		t.Errorf("usage = %+v", response.Metadata.Usage)
-	}
-}
-
 func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 	requests := make([]map[string]any, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -294,14 +236,14 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 }
 
 func TestResponsesChatRejectsUnsupportedOptions(t *testing.T) {
-	srv := modeltest.JSONServer(http.StatusOK, "{}")
+	srv := modeltest.JSONServer(http.StatusOK, "{}", func(*http.Request) { t.Error("unsupported top_k reached HTTP") })
 	t.Cleanup(srv.Close)
 	m := newResponsesModel(t, srv.URL, "gpt-5")
 	topK := int64(2)
 	req, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
 	req.Options.TopK = &topK
-	if _, err := m.Call(t.Context(), req); err == nil {
-		t.Fatal("Call accepted unsupported top_k")
+	if _, err := m.Call(t.Context(), req); err == nil || !strings.Contains(err.Error(), "top_k") || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("Call error = %v; want explicit unsupported top_k", err)
 	}
 }
 

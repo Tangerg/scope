@@ -325,13 +325,7 @@ func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinished) bool {
 }
 
 func (t Trajectory) TotalTokens() (int64, error) {
-	if err := t.Validate(); err != nil {
-		return 0, err
-	}
-	if !t.HistoryComplete() {
-		return 0, fmt.Errorf("%w: model history is incomplete", ErrIncompleteRecording)
-	}
-	if err := t.validateCoverage(); err != nil {
+	if err := t.CheckCoverage(); err != nil {
 		return 0, err
 	}
 	var total int64
@@ -371,13 +365,7 @@ func (t *Trajectory) canonicalize() error {
 // declared coverage, and a projection selecting the semantic root output. The
 // projection's object order and string escapes are normalized; numbers are not.
 func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.RawMessage]) (string, error) {
-	if err := t.Validate(); err != nil {
-		return "", err
-	}
-	if !t.HistoryComplete() {
-		return "", fmt.Errorf("%w: replay history is incomplete", ErrIncompleteRecording)
-	}
-	if err := t.validateCoverage(); err != nil {
+	if err := t.CheckCoverage(); err != nil {
 		return "", err
 	}
 	if project == nil {
@@ -458,10 +446,7 @@ func (t Trajectory) behaviorEvents(paths map[agent.ProcessID]string) []behaviorE
 }
 
 func (t Trajectory) semanticToolCalls() ([]ToolCall, error) {
-	if !t.HistoryComplete() {
-		return nil, fmt.Errorf("%w: Tool history is incomplete", ErrIncompleteRecording)
-	}
-	if err := t.validateCoverage(); err != nil {
+	if err := t.CheckCoverage(); err != nil {
 		return nil, err
 	}
 	ordered, err := orderSemanticCalls(t.rootProcessID, t.events, t.modelCalls, t.toolCalls)
@@ -675,9 +660,17 @@ func (t Trajectory) TreeUsage() (agent.Usage, error) {
 	return total, nil
 }
 
-func (t Trajectory) validateCoverage() error {
-	if !t.gaps.IsZero() {
-		return fmt.Errorf("%w: recording contains observation gaps", ErrIncompleteRecording)
+// CheckCoverage validates the record and requires complete Process history.
+// Every dispatcher Effect must be classified, and each Model or Tool attempt
+// must have exactly one semantic observation. Missing evidence returns
+// ErrIncompleteRecording. Unknown outcomes and absent token accounting do not
+// imply observation loss and are evaluated independently.
+func (t Trajectory) CheckCoverage() error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	if !t.HistoryComplete() {
+		return fmt.Errorf("%w: recording history is incomplete", ErrIncompleteRecording)
 	}
 	if t.coverage == nil {
 		return fmt.Errorf("%w: semantic coverage is undeclared", ErrIncompleteRecording)

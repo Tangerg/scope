@@ -135,14 +135,28 @@ func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(readme)
-	for _, required := range []string{
-		"```go",
-		"github.com/Tangerg/scope/core/chatclient",
-		"chatclient.New(",
-		"client.Call(",
+	_, block, found := strings.Cut(content, "```go\n")
+	snippet, _, closed := strings.Cut(block, "\n```")
+	if !found || !closed {
+		t.Fatal("README.md is missing its direct chat example")
+	}
+	source, err := os.ReadFile(filepath.Join(repositoryRoot(t), "examples", "chat", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snippet != strings.TrimSuffix(string(source), "\n") {
+		t.Error("README.md direct chat snippet differs from examples/chat/main.go")
+	}
+	for _, entry := range []string{
+		"examples/chat/main.go", "examples/agent/direct_vs_managed/main.go",
+		"examples/agent/reconciliation/doc.go", "dev/treecommitterconformance/doc.go",
+		"examples/go.mod", "go.work",
 	} {
-		if !strings.Contains(content, required) {
-			t.Errorf("README.md is missing direct chat entry %q", required)
+		if !strings.Contains(content, "]("+entry+")") {
+			t.Errorf("README.md is missing checked entry %q", entry)
+		}
+		if _, statErr := os.Stat(filepath.Join(repositoryRoot(t), filepath.FromSlash(entry))); statErr != nil {
+			t.Errorf("README.md entry %s: %v", entry, statErr)
 		}
 	}
 }

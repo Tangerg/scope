@@ -8,6 +8,7 @@ use (
 	./core
 	./dev/providerconformance
 	./dev/repoarch
+	./dev/treecommitterconformance
 	./etl
 	./etl/html
 	./etl/pdf

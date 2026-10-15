@@ -177,12 +177,15 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 	start := controlValue(newTreeCheckpoint(1, checkpointCauseCut, Digest{}, initial))
 	for _, count := range []int{1, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("commits_%d", count), func(b *testing.B) {
+			var retained *MemoryTreeCommitter
+			var committedSnapshotBytes uint64
 			b.ReportAllocs()
 			for b.Loop() {
 				store := NewMemoryTreeCommitter()
 				if err := store.CommitCheckpoint(b.Context(), start); err != nil {
 					b.Fatal(err)
 				}
+				committedSnapshotBytes = uint64(initial.EncodedSize())
 				previous := initial
 				for index := range count {
 					next := first
@@ -194,12 +197,28 @@ func BenchmarkMemoryTreeCommitterRetention(b *testing.B) {
 						b.Fatal(err)
 					}
 					previous = next
+					committedSnapshotBytes += uint64(next.EncodedSize())
 				}
 				if len(store.facts) != count+1 || len(store.heads) != 1 {
 					b.Fatal("lost replay facts or retained extra heads")
 				}
+				retained = store
 			}
-			b.ReportMetric(float64(count+1), "retained_facts")
+			b.StopTimer()
+			// Logical payload sizes exclude Go map/object overhead. Allocated
+			// B/op is churn, not retained heap; heads retain parsed state too.
+			var factBytes, headBytes int
+			for key, digest := range retained.facts {
+				factBytes += len(key) + len(digest.String())
+			}
+			for _, head := range retained.heads {
+				headBytes += head.snapshot.EncodedSize()
+			}
+			b.ReportMetric(float64(len(retained.facts)), "retained_facts")
+			b.ReportMetric(float64(len(retained.heads)), "retained_heads")
+			b.ReportMetric(float64(factBytes), "retained_key_digest_bytes")
+			b.ReportMetric(float64(headBytes), "retained_head_wire_bytes")
+			b.ReportMetric(float64(committedSnapshotBytes), "committed_snapshot_bytes/op")
 		})
 	}
 }

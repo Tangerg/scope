@@ -42,7 +42,13 @@ func interactionCoverage(events []agent.Event) *trajectory.Coverage {
 }
 
 func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
+	if err := (trajectory.Trajectory{}).CheckCoverage(); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
+		t.Fatalf("invalid record coverage = %v", err)
+	}
 	recorded := coveredInteraction(t)
+	if err := recorded.CheckCoverage(); err != nil {
+		t.Fatal(err)
+	}
 	coverage := recorded.Coverage()
 	if len(coverage.Models) != 2 || len(coverage.Tools) != 1 || len(coverage.Other) != 0 {
 		t.Fatalf("coverage = %+v", coverage)
@@ -80,7 +86,7 @@ func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 			sample.change(config.Coverage)
 			candidate, err := trajectory.New(config)
 			if err == nil {
-				_, err = candidate.TotalTokens()
+				err = candidate.CheckCoverage()
 			}
 			if !errors.Is(err, sample.want) {
 				t.Fatalf("classification error = %v, want %v", err, sample.want)
@@ -118,7 +124,7 @@ func TestCoveragePreservesExactlyOneSemanticObservationPerEffect(t *testing.T) {
 			candidate, err := trajectory.New(config)
 			want := trajectory.ErrInvalidTrajectory
 			if err == nil {
-				_, err = candidate.TotalTokens()
+				err = candidate.CheckCoverage()
 				want = trajectory.ErrIncompleteRecording
 			}
 			if !errors.Is(err, want) {

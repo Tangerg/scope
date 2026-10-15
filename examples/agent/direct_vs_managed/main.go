@@ -1,5 +1,11 @@
 // Command direct_vs_managed contrasts a direct model call with the same model
-// capability managed as a recoverable agent Process.
+// capability managed as an agent Process. It uses deterministic local models.
+// Run go run ./examples/agent/direct_vs_managed from the repository root, or
+// GOWORK=off go run ./agent/direct_vs_managed from examples to consume the
+// published Agent and Core versions selected by its go.mod.
+// MemoryTreeCommitter retains facts only for that instance's lifetime; this
+// example does not demonstrate durable or cross-process recovery. See the
+// reconciliation example and dev/treecommitterconformance for those boundaries.
 package main
 
 import (

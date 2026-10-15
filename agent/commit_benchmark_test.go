@@ -13,9 +13,23 @@ import (
 // restoration, and teardown are excluded. The delay models storage waiting,
 // not database throughput or a production adapter's committer guarantees.
 func BenchmarkTreeSignalCommit(b *testing.B) {
-	for _, processCount := range []int{1, 15, 63} {
-		deployment, config, snapshot := benchmarkSignalCommitTree(b, processCount)
-		for _, batchSize := range []int{1, 64} {
+	for _, sample := range []struct {
+		name      string
+		processes int
+		limits    TreeLimits
+	}{
+		{name: "default_root", processes: 1},
+		{name: "default_width", processes: 1 + int(DefaultTreeLimits().MaxActiveChildren)},
+		{name: "expanded_63", processes: 63, limits: TreeLimits{
+			MaxActiveChildren: 63, MaxPendingSignals: 100_000,
+		}},
+	} {
+		deployment, config, snapshot := benchmarkSignalCommitTree(b, sample.processes, sample.limits)
+		batches := []int{1, 64}
+		if sample.processes == 1 {
+			batches = append(batches, int(DefaultTreeLimits().MaxPendingSignals))
+		}
+		for _, batchSize := range batches {
 			requests := make([]SignalRequest, batchSize)
 			for index := range requests {
 				id, err := ParseSignalID(fmt.Sprintf("signal:commit-benchmark-%d", index))
@@ -28,19 +42,26 @@ func BenchmarkTreeSignalCommit(b *testing.B) {
 				}
 			}
 			for _, delay := range []time.Duration{0, time.Millisecond} {
-				name := fmt.Sprintf("processes_%d/batch_%d/ack_%s", processCount, batchSize, delay)
+				name := fmt.Sprintf("%s/batch_%d/ack_%s", sample.name, batchSize, delay)
 				b.Run(name, func(b *testing.B) {
 					var acknowledgmentTime time.Duration
+					var commitLatencies, ackLatencies []time.Duration
 					var snapshotBytes int
 					b.ReportAllocs()
 					for b.Loop() {
-						elapsed, size := benchmarkSignalCommit(b, deployment, config, snapshot, requests, delay)
-						acknowledgmentTime += elapsed
+						elapsed, ack, size := benchmarkSignalCommit(b, deployment, config, snapshot, requests, delay)
+						commitLatencies = append(commitLatencies, elapsed)
+						ackLatencies = append(ackLatencies, ack)
+						acknowledgmentTime += ack
 						snapshotBytes = size
 						b.StartTimer()
 					}
+					reportBenchmarkLatencies(b, "commit", commitLatencies)
+					reportBenchmarkLatencies(b, "ack", ackLatencies)
 					b.ReportMetric(float64(acknowledgmentTime.Nanoseconds())/float64(b.N), "ack_ns/op")
 					b.ReportMetric(float64(snapshotBytes), "snapshot_bytes")
+					b.ReportMetric(float64(sample.processes), "processes")
+					b.ReportMetric(float64(batchSize), "signals/op")
 				})
 			}
 		}
@@ -54,7 +75,7 @@ func benchmarkSignalCommit(
 	snapshot TreeSnapshot,
 	requests []SignalRequest,
 	delay time.Duration,
-) (time.Duration, int) {
+) (time.Duration, time.Duration, int) {
 	b.StopTimer()
 	b.Helper()
 	committer := &signalCommitBenchmarkDurability{
@@ -76,7 +97,9 @@ func benchmarkSignalCommit(
 	}
 	defer stopRecoveryBenchmarkProcess(b, process)
 	b.StartTimer()
+	started := time.Now()
 	accepted, err := process.DeliverSignals(b.Context(), requests...)
+	elapsed := time.Since(started)
 	b.StopTimer()
 	if err != nil || !accepted {
 		b.Fatalf("DeliverSignals accepted=%t error=%v", accepted, err)
@@ -85,10 +108,10 @@ func benchmarkSignalCommit(
 	if len(checkpoints) != 1 {
 		b.Fatalf("signal batch committed %d checkpoints, want 1", len(checkpoints))
 	}
-	return committer.acknowledgmentTime, len(checkpoints[0].TreeSnapshot().JSON())
+	return elapsed, committer.acknowledgmentTime, checkpoints[0].TreeSnapshot().EncodedSize()
 }
 
-func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, EngineConfig, TreeSnapshot) {
+func benchmarkSignalCommitTree(b *testing.B, processCount int, limits TreeLimits) (Deployment, EngineConfig, TreeSnapshot) {
 	b.Helper()
 	childDeployment := newChildTestDeployment(b)
 	childInput, err := EncodePayload(childTestInput{Mode: "leaf"})
@@ -137,9 +160,7 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int) (Deployment, Engi
 				close(paused)
 			}
 		})},
-		Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)},
-		TreeLimits: TreeLimits{MaxDepth: 1, MaxChildren: NewQuota(uint64(processCount)),
-			MaxActiveChildren: uint32(processCount), MaxTreeProcesses: NewQuota(uint64(processCount)), MaxPendingSignals: 100_000},
+		TreeLimits: limits,
 	}
 	engine, err := NewEngine(config)
 	if err != nil {

@@ -19,7 +19,7 @@ func (textProjection) userMessage(text string) *sdka2a.Message {
 }
 
 // A2A has richer content than the text-only Agent boundary. Preserve text and
-// JSON verbatim; represent binary or unsupported content with visible markers.
+// render SDK-decoded data; represent binary or unsupported content with markers.
 func (textProjection) parts(parts sdka2a.ContentParts) string {
 	if len(parts) == 0 {
 		return ""

@@ -125,18 +125,38 @@ func TestCoverageGatesTargetTheirOwningModules(t *testing.T) {
 	if strings.Contains(text, "matrix.module == '.'") {
 		t.Error("CI targets the retired root module; Core-only gates must select matrix.module == 'core'")
 	}
-	for gate, module := range map[string]string{
-		"Core coverage budget":  "core",
-		"Agent coverage budget": "agent",
+	for _, gate := range []struct {
+		name      string
+		condition string
+		command   string
+	}{
+		{name: "Core coverage budget", condition: "matrix.module == 'core'", command: "scripts/check-core-coverage.sh"},
+		{name: "Agent and managed consumer coverage budget", condition: "matrix.module == 'agent' || matrix.module == 'examples'", command: "scripts/check-agent-coverage.sh"},
 	} {
-		block, found := workflowStep(text, gate)
+		block, found := workflowStep(text, gate.name)
 		if !found {
-			t.Errorf("CI is missing %q", gate)
+			t.Errorf("CI is missing %q", gate.name)
 			continue
 		}
-		if !strings.Contains(block, "if: matrix.module == '"+module+"'") {
-			t.Errorf("CI gate %q does not select the %s module", gate, module)
+		var condition string
+		for line := range strings.Lines(block) {
+			if value, hasCondition := strings.CutPrefix(strings.TrimSpace(line), "if: "); hasCondition {
+				condition = value
+			}
 		}
+		if condition != gate.condition {
+			t.Errorf("CI gate %q condition=%q, want %q", gate.name, condition, gate.condition)
+		}
+		if !strings.Contains(block, "run: "+gate.command) {
+			t.Errorf("CI gate %q does not run %s", gate.name, gate.command)
+		}
+	}
+	script, err := os.ReadFile(filepath.Join(root, "scripts", "check-agent-coverage.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), `"../examples/agent/direct_vs_managed `) {
+		t.Error("moved managed consumer lost its coverage budget")
 	}
 
 	block, found := workflowStep(text, "Provider coverage budget")
@@ -569,7 +589,7 @@ func moduleLayer(dir string) int {
 		return 3
 	case "examples":
 		return 3
-	case "dev/providerconformance", "dev/repoarch":
+	case "dev/providerconformance", "dev/repoarch", "dev/treecommitterconformance":
 		return 4
 	}
 	if strings.HasPrefix(dir, "models/protocol/") {
@@ -597,7 +617,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 		return false
 	case "examples":
 		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
-	case "dev/providerconformance":
+	case "dev/providerconformance", "dev/treecommitterconformance":
 		return target.layer < source.layer && target.dir != "examples"
 	}
 	if target.dir == "core" {

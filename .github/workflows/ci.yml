@@ -11,6 +11,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  tree-committer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+      - name: Install check tools
+        run: scripts/install-check-tools.sh
+      - name: PostgreSQL transactions and process crashes
+        run: scripts/check-tree-committer.sh
+
   discover:
     runs-on: ubuntu-latest
     outputs:
@@ -77,8 +93,8 @@ jobs:
         if: matrix.module == 'core'
         run: scripts/check-core-coverage.sh
 
-      - name: Agent coverage budget
-        if: matrix.module == 'agent'
+      - name: Agent and managed consumer coverage budget
+        if: matrix.module == 'agent' || matrix.module == 'examples'
         run: scripts/check-agent-coverage.sh
 
       - name: Provider coverage budget

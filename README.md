@@ -12,10 +12,26 @@ Scope owns reusable AI infrastructure semantics. It does not own product session
 
 Each capability has one owning package and one public representation. Scope avoids root façades, hidden registration, ambient authority, and provider details in shared contracts.
 
-## Direct chat
+## Choose an entry
 
-Use `chatclient` for an ordinary model call; Agent is only needed when the host
-requires managed execution, planning, or durable lifecycle semantics.
+| Need | Canonical APIs | Checked source |
+| --- | --- | --- |
+| Ordinary structured model calls | `chatclient.New`, `Client.Output`; streaming uses `NewStreamClient` | [Core-only consumer](examples/chat/main.go) |
+| Managed execution | Interaction `Definition` and `Dispatcher`, `Deployment`, `Engine.Start`, `Process.Await` | [Direct versus managed](examples/agent/direct_vs_managed/main.go) |
+| Recovery and remote reconciliation | `TreeCommitter`, `Engine.RestoreTree`, `ToolSet.SettleToolResult`, `Process.ResolveUnknownEffect` | [Unknown outcomes](examples/agent/reconciliation/doc.go), [PostgreSQL and process crashes](dev/treecommitterconformance/doc.go) |
+
+Start with ordinary calls when you only need model I/O. The first consumer and
+its tests depend on Core alone. Managed execution adds an explicit commit
+boundary; `MemoryTreeCommitter` retains facts only for that instance's lifetime.
+Persistent storage and business transactions stay with the Host. A terminal
+Process status does not establish that every remote operation has a known result.
+
+## Ordinary structured call
+
+This offline example prints `42` using a deterministic model. It demonstrates the
+calling contract, not live-model quality. The code below is checked against
+[its runnable source](examples/chat/main.go). To use a real model, supply a
+provider's `chat.Model`, such as [OpenAI](models/openai/doc.go).
 
 ```go
 package main
@@ -23,43 +39,88 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"io"
 	"os"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
-	"github.com/Tangerg/scope/models/openai"
 )
 
 func main() {
-	model, err := openai.NewChatCompletions(context.Background(), openai.ChatCompletionsConfig{
-		APIKey:         os.Getenv("OPENAI_API_KEY"),
-		DefaultOptions: chat.Options{Model: os.Getenv("OPENAI_MODEL")},
-	})
-	if err != nil {
-		log.Fatal(err)
+	if err := run(context.Background(), os.Stdout, arithmeticModel{}); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+}
+
+type answer struct {
+	Value int `json:"value"`
+}
+
+func run(ctx context.Context, output io.Writer, model chat.Model) error {
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("What is Scope?")))
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("What is six times seven?")))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	response, err := client.Call(context.Background(), request)
+	result, err := client.Output(ctx, request, chatclient.JSON[answer]())
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	fmt.Println(response.Text())
+	_, err = fmt.Fprintln(output, result.Value)
+	return err
+}
+
+type arithmeticModel struct{}
+
+func (arithmeticModel) Call(ctx context.Context, request *chat.Request) (*chat.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+	return &chat.Response{Output: &chat.Output{
+		Message: new(chat.NewAssistantMessage(chat.NewTextPart(`{"value":42}`))), FinishReason: chat.FinishReasonStop,
+	}}, nil
 }
 ```
 
-Install only the modules used by the program:
+## Run and verify the consumers
+
+From the repository root, run the same examples against workspace sources:
 
 ```sh
-go get github.com/Tangerg/scope/core@latest github.com/Tangerg/scope/models/openai@latest
+go run ./examples/chat
+go run ./examples/agent/direct_vs_managed
+go run ./examples/agent/reconciliation
 ```
+
+The dependency versions have one declaration in [examples/go.mod](examples/go.mod).
+The [workspace](go.work) selects the toolchain. To inspect the published version
+combination and run without workspace sources, change into `examples`:
+
+```sh
+GOWORK=off go list -m github.com/Tangerg/scope/core github.com/Tangerg/scope/agent
+GOWORK=off go run ./chat
+GOWORK=off go run ./agent/direct_vs_managed
+GOWORK=off go run ./agent/reconciliation
+```
+
+The examples module has no local replacements. From the repository root,
+`MODULE=examples scripts/check.sh isolate` checks module hygiene and every
+consumer's behavior against those published dependencies. The full default
+`scripts/check.sh` also checks workspace behavior, race detection, integration
+compilation, benchmarks, lint, and reachable vulnerabilities.
+
+The offline recovery example uses memory storage and a simulated remote ledger.
+For real PostgreSQL transactions and independent-process failure, run
+`scripts/check-tree-committer.sh` with Docker available. It provisions an isolated
+container and runs the same conformance and crash tests with both workspace and
+published dependencies; no credentials or shared database are required.
 
 ## Evolution
 

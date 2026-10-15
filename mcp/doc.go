@@ -30,7 +30,15 @@
 // with a fixed table independent of the host, falls back to
 // application/octet-stream, and marks the envelope so that serving the content
 // again omits the guess. Empty text without metadata is omitted; malformed or
-// unsupported content is rejected. The SDK decodes outputSchema and native
-// _meta numbers as float64, so precision beyond that is lost before Scope
-// receives it.
+// unsupported content is rejected. The SDK decodes inputSchema, outputSchema,
+// and native _meta numbers as float64, so precision beyond that is lost before
+// Scope receives it. These generic decoders belong to the SDK; revisit schema
+// and native metadata precision when changing its JSON decoding.
+//
+// The wire contract tests use independently encoded HTTP peers for discovery,
+// schema admission, exact structured results, error results, metadata, and
+// explicit SDK continuation. Registration is also checked by an independent
+// HTTP caller. An SDK replacement must preserve these tests, including exact
+// integers, long decimals, and present null versus missing structuredContent,
+// while replacing the one public SDK type family in the same migration.
 package mcp
