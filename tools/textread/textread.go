@@ -102,8 +102,9 @@ func Scan(ctx context.Context, source io.Reader, options Options) (Result, error
 	return collector.result(), nil
 }
 
-// VisitLines validates and normalizes a complete bounded input, then calls
-// visit for each one-based line. The line slice is valid only until visit
+// VisitLines validates and normalizes each line before calling visit with its
+// one-based number. Visits are incremental: a later input or callback error
+// does not undo earlier visits. The line slice is valid only until visit
 // returns. A trailing newline contributes a final empty line, matching Scan's
 // editor-facing line identity.
 func VisitLines(ctx context.Context, source io.Reader, limits Limits, visit func(number int, line []byte) error) error {

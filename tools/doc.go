@@ -12,12 +12,15 @@
 //   - shell: run a command and capture its output.
 //   - process: own a local command's lifetime and Unix process-group cleanup.
 //   - content: preserve arbitrary response bytes as UTF-8 or explicit base64.
-//   - fs: read, write, edit, glob, and grep inside an explicitly supplied directory authority.
+//   - fs: read, write, edit, apply_patch, glob, and grep inside an explicitly
+//     supplied directory authority.
 //   - textread: read text with line numbering and limits.
 //   - httpreq: issue an HTTP request against an explicit allowlist.
 //   - web: the neutral Searcher and Fetcher SPIs plus the search and fetch
 //     tools, with one provider package per vendor.
-//   - skills: expose an Agent Skills repository as a callable tool.
+//
+// Agent Skills adapters live in the separate
+// [github.com/Tangerg/scope/tools/skills] module.
 //
 // # Two tiers
 //
@@ -37,11 +40,14 @@
 //
 // # Concurrency and limits
 //
-// A tool may declare, per call, whether it can overlap others and what it
-// conflicts on. Reads declare no conflict; an edit or write keys on its target
-// path, so the loop parallelizes different files and serializes the same file.
-// Output over a limit is truncated and marked, never turned into an error, so
-// the model can decide what to do next.
+// Concurrency declarations follow
+// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool].
+// Filesystem read, glob, and grep tools declare no conflict. Filesystem mutation
+// tools do not declare safe overlap. Backends still own synchronization for
+// direct calls and calls from different Processes.
+//
+// Output truncation is explicit. Hard input and line limits can reject a call;
+// the owning backend contract determines which limits apply.
 //
 // # Execution evidence
 //

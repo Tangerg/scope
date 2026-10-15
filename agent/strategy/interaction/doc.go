@@ -1,14 +1,14 @@
 // Package interaction provides the model-directed execution Strategy for the
 // Agent Framework. Input and Output reuse core/chat values.
 //
-// A Definition owns the serializable working context, the model/Tool state
-// machine, exact managed Delegate bindings, typed Delegate Artifacts, and an
-// optional pure completion validator. A Dispatcher owns model I/O. A ToolSet
-// binds ordinary executable Tools to a separate child Deployment that the
-// Definition binds; its scheduling retains only frozen input validators and
-// classifiers, never executable Tools or their backends. Hosts
-// cover declaration identity in deployment digests. Direct model calls remain
-// available through package chatclient without an Interaction or Engine.
+// A Definition binds immutable model/Tool behavior, exact managed Delegates,
+// and an optional pure completion validator. Each execution owns its
+// serializable working context and state-machine progress. A Dispatcher owns
+// model I/O. A ToolSet binds ordinary executable Tools to a separate child
+// Deployment that the Definition binds; its scheduling retains only frozen
+// input validators and classifiers, never executable Tools or their backends.
+// Hosts cover declaration identity in deployment digests. Direct model calls
+// remain available through package chatclient without an Interaction or Engine.
 //
 // Model-call and child work quotas default to unlimited; a finite zero
 // MaxModelCalls is rejected at construction. Model boundary errors, including

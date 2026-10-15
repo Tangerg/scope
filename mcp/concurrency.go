@@ -8,10 +8,10 @@ import (
 
 var _ ToolConcurrencyPolicy = AnnotatedReadOnlyConcurrencyPolicy
 
-// AnnotatedReadOnlyConcurrencyPolicy lets tools annotated readOnlyHint=true and
-// not destructive run concurrently; every other tool stays exclusive. MCP
-// annotations are untrusted hints, so use it only for servers trusted to order
-// execution. It is scheduling advice, never authorization.
+// AnnotatedReadOnlyConcurrencyPolicy declares no conflict when readOnlyHint is
+// true and destructiveHint is absent or false. The Host must trust those hints
+// to describe the tool's effects; the classifier neither orders remote
+// execution nor authorizes calls.
 func AnnotatedReadOnlyConcurrencyPolicy(_, _ string, annotations sdkmcp.ToolAnnotations, _ toolcontract.Invocation) (key string, concurrent bool) {
 	if !annotations.ReadOnlyHint {
 		return "", false

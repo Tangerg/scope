@@ -301,7 +301,7 @@ For each batch:
 Run the full workspace gate before handing off a completed repository-wide round:
 
 ```sh
-scripts/check.sh build vet test race tidy isolate lint
+scripts/check.sh
 ```
 
 The `isolate` gate checks module hygiene and runs every module's tests without

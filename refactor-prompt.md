@@ -95,7 +95,7 @@ MODULE=dev/repoarch scripts/check.sh build vet test race tidy isolate lint
 Replace `agent` with each affected workspace module and run applicable coverage gates from `scripts`. Architecture checks run as tests in `dev/repoarch`; `architecture` is not a separate `scripts/check.sh` command. Before completing a repository-wide round, run:
 
 ```sh
-scripts/check.sh build vet test race tidy isolate lint
+scripts/check.sh
 ```
 
 Exercise the public library path with deterministic in-process dependencies when that is the real contract. Use a real transport or filesystem when the affected guarantee lives there. Default tests remain offline and credential-independent. Live provider calls require current task authorization; honor existing authorization without asking again, keep execution bounded, and never print or copy credentials.

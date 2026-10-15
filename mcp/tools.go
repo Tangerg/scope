@@ -20,9 +20,10 @@ type ToolSource struct {
 	Session *sdkmcp.ClientSession
 }
 
-// ToolConcurrencyPolicy decides whether a remote tool call may overlap other
-// calls from the same model response. False keeps the call exclusive; true with
-// an empty key declares no known conflict, while equal non-empty keys serialize.
+// ToolConcurrencyPolicy supplies a Host classifier for calls from one model
+// response. Its result follows the scheduling contract of
+// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool].
+// The adapter does not serialize direct Tool.Call invocations.
 //
 // It receives an isolated copy of the annotations and a schema-validated
 // invocation. It must be deterministic, side-effect-free, and safe for
@@ -48,7 +49,7 @@ type ToolDiscoveryConfig struct {
 	// RequestMeta nil forwards no metadata on tool calls.
 	RequestMeta RequestMetaFunc
 
-	// ConcurrencyPolicy nil keeps every MCP call exclusive, because protocol
+	// ConcurrencyPolicy nil supplies no overlap declaration, because protocol
 	// descriptors carry no trustworthy resource-conflict contract.
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }

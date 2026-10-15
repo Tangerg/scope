@@ -6,9 +6,9 @@
 // supplies and owns the task store, so task retention and eviction are its
 // responsibility rather than a hidden default.
 //
-// Remote tools execute exclusively unless [Endpoint.ConcurrencyPolicy]
-// declares which calls may safely overlap. The served handler is JSON-RPC; the
-// client opens the JSON-RPC and HTTP+JSON transports a card advertises. Client
-// and server spans retain error classifications without raw messages; callers
-// receive complete protocol errors.
+// [Endpoint.ConcurrencyPolicy] supplies Host scheduling declarations for remote
+// tools; [ToolConcurrencyPolicy] describes their scope. The served handler is
+// JSON-RPC; the client opens the JSON-RPC and HTTP+JSON transports a card
+// advertises. Client and server spans retain error classifications without raw
+// messages; callers receive complete protocol errors.
 package a2a

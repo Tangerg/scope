@@ -34,7 +34,6 @@ func (r remoteTool) MCPToolIdentity() (sourceName, remoteName string) {
 }
 
 // ConcurrencyPolicy freezes scheduling data without retaining the RPC session.
-// Unknown tools remain exclusive unless discovery received a host policy.
 func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	if r.concurrencyPolicy == nil {
 		return nil

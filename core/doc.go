@@ -65,7 +65,7 @@
 //
 // # Reference implementations and contract suites
 //
-// The history/inmemory and vectorstore/inmemory packages are zero-dependency
+// The history/inmemory and vectorstore/inmemory packages are in-process
 // reference stores. The modeltest, history/storetest, and vectorstore/storetest
 // packages hold the reusable conformance suites an implementor runs to be held
 // to the same protocol as every other provider. They contain no provider

@@ -13,9 +13,11 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ToolConcurrencyPolicy decides whether calls to one endpoint may overlap.
-// False keeps a call exclusive; true permits overlap except for equal non-empty
-// keys. The invocation has passed schema validation. The callback must be
+// ToolConcurrencyPolicy supplies a Host classifier for calls from one model
+// response. Its result follows the scheduling contract of
+// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool].
+// The adapter does not serialize direct Tool.Call invocations.
+// The invocation has passed schema validation. The callback must be
 // deterministic, side-effect-free, and safe for concurrent use and replay.
 // It must not capture a Tool, client, or execution backend; schedulers retain
 // this declaration independently of the endpoint's execution lifetime.
@@ -46,7 +48,7 @@ type Endpoint struct {
 	AllowedRPCOrigins []string
 
 	// ConcurrencyPolicy belongs to the host because distinct remote task IDs do
-	// not establish resource independence. Nil keeps calls exclusive.
+	// not establish resource independence. Nil supplies no overlap declaration.
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 
