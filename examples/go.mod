@@ -6,6 +6,8 @@ require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.1
 	github.com/Tangerg/scope/agent v0.50.0
 	github.com/Tangerg/scope/core v0.50.0
+	github.com/Tangerg/scope/eval v0.50.0
+	github.com/Tangerg/scope/eval/trajectory v0.50.0
 	github.com/Tangerg/scope/mcp v0.50.0
 	github.com/Tangerg/scope/tools v0.50.0
 )

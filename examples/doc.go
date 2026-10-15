@@ -13,6 +13,9 @@
 // go.mod, without local replacements or a separate consumer manifest.
 // Run MODULE=examples scripts/check.sh isolate from the repository root for
 // module hygiene and every consumer's behavior against those dependencies.
+// Command agent/context_reduction compares a deterministic duplicate-output
+// policy with unchanged context using paired eval/trajectory task evidence.
+// Its fixed quality and context-size gates include restoration without replay.
 // The Go requirement lives in go.mod; the workspace selects its toolchain in
 // go.work. For PostgreSQL transactions and independent-process crash recovery,
 // run scripts/check-tree-committer.sh; its module overview describes the scope

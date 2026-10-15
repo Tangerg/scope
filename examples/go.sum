@@ -4,6 +4,10 @@ github.com/Tangerg/scope/agent v0.50.0 h1:QlorNlWnoXI1HLu/PazxOc9EG1BXxHIyGk3IHi
 github.com/Tangerg/scope/agent v0.50.0/go.mod h1:ih9+q5DjA38c4GNdayLBhkEZbonsewi51V7PZxttgI8=
 github.com/Tangerg/scope/core v0.50.0 h1:10ZZGqmeZJum66cOpMJARiOmeynBqVkcogGIFAuFmDc=
 github.com/Tangerg/scope/core v0.50.0/go.mod h1:be3NHjHqR4gB5y2LahLIKKto6ASbEE6IanWwUkVoiYU=
+github.com/Tangerg/scope/eval v0.50.0 h1:+l1bGqTZWfHRqsY412DBuJxAZ5Nk547YZ387Ky7c4nY=
+github.com/Tangerg/scope/eval v0.50.0/go.mod h1:kuNbhFX5Hrn5w8fwsVM1nfsFLs2oDuR8lT0GidcE4DA=
+github.com/Tangerg/scope/eval/trajectory v0.50.0 h1:TcWOvQBDTeDzKz7oNUg1Cm8kDLqvcafZVU9pe5nxIZQ=
+github.com/Tangerg/scope/eval/trajectory v0.50.0/go.mod h1:2toxXe80oT6lhxsmqhH4h/m4gv7Mx7RyyxOGhvG1zPE=
 github.com/Tangerg/scope/mcp v0.50.0 h1:BM4T37Uvjj/Fc60L3U+sQpZ7cXZZhUzuNoTOEQZfs6A=
 github.com/Tangerg/scope/mcp v0.50.0/go.mod h1:qV0Ppizdf0YlsUMBrITHJZRfgHOZaVO1RTHOnG+FyLs=
 github.com/Tangerg/scope/tools v0.50.0 h1:l1GBxNN64W4KN7JDM1L1CdwwMOAcieFPpW0nB0sz3jk=
