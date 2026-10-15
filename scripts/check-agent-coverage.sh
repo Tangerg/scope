@@ -12,7 +12,7 @@ coverage_budget=(
   "./strategy/coordination 80.1"
   "./examples/autonomous 70.2"
   "./examples/composition 78.4"
-  "./examples/direct_vs_managed 69.1"
+  "../examples/agent/direct_vs_managed 69.1"
   "./examples/evaluator_optimizer 75.7"
   "./examples/orchestrator_workers 70.2"
   "./examples/workflow 70.3"
@@ -33,6 +33,9 @@ coverage_budget=(
 configured_packages=$(
   for budget in "${coverage_budget[@]}"; do
     read -r package _ <<<"$budget"
+    # Selected external consumers retain their budgets after leaving Agent;
+    # the module inventory still discovers every Agent package independently.
+    [[ "$package" == ../* ]] && continue
     printf '%s\n' "$package"
   done | sort
 )

@@ -93,8 +93,8 @@ jobs:
         if: matrix.module == 'core'
         run: scripts/check-core-coverage.sh
 
-      - name: Agent coverage budget
-        if: matrix.module == 'agent'
+      - name: Agent and managed consumer coverage budget
+        if: matrix.module == 'agent' || matrix.module == 'examples'
         run: scripts/check-agent-coverage.sh
 
       - name: Provider coverage budget
