@@ -26,6 +26,8 @@ type referenceInput struct {
 	LoseResponse bool   `json:"lose_response"`
 	Reconcile    bool   `json:"reconcile"`
 	WrongAnswer  bool   `json:"wrong_answer"`
+	Expensive    bool   `json:"expensive"`
+	MissingUsage bool   `json:"missing_usage"`
 }
 
 type referenceNote struct {
@@ -136,6 +138,15 @@ func referenceModel(input referenceInput) chat.Model {
 		if err := request.Validate(); err != nil {
 			return nil, err
 		}
+		// Scripted accounting exercises the cost gate, not provider pricing or
+		// a tokenizer. Only the model response originates these usage facts.
+		responseMetadata := &chat.ResponseMetadata{}
+		if !input.MissingUsage {
+			responseMetadata.Usage = &chat.Usage{InputTokens: 8, OutputTokens: 2}
+			if input.Expensive {
+				responseMetadata.Usage.InputTokens = 28
+			}
+		}
 		for _, message := range request.Messages {
 			for _, part := range message.Parts {
 				if part.Kind != chat.PartToolResult {
@@ -148,7 +159,7 @@ func referenceModel(input referenceInput) chat.Model {
 				if input.WrongAnswer {
 					text = "incorrect receipt"
 				}
-				return &chat.Response{Output: &chat.Output{
+				return &chat.Response{Metadata: responseMetadata, Output: &chat.Output{
 					Message: new(chat.NewAssistantMessage(chat.NewTextPart(text))), FinishReason: chat.FinishReasonStop,
 				}}, nil
 			}
@@ -157,7 +168,7 @@ func referenceModel(input referenceInput) chat.Model {
 		if err != nil {
 			return nil, err
 		}
-		return &chat.Response{Output: &chat.Output{
+		return &chat.Response{Metadata: responseMetadata, Output: &chat.Output{
 			Message: new(chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{
 				ID: "call:record", Name: "record_note", Arguments: string(arguments),
 			}))), FinishReason: chat.FinishReasonToolCalls,

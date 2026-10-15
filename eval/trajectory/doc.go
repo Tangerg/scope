@@ -3,6 +3,8 @@
 // experiment persistence, replay scheduler, or product workflow.
 // Its strict JSON record preserves activation-local order and explicit semantic
 // coverage. Take joins a root subtree before consuming its bounded recording.
+// CheckCoverage checks history and semantic observations independently of token
+// accounting or success; HistoryComplete alone only checks Process history.
 // RootUsage and TreeUsage have distinct scopes. Unknown token accounting or
 // elapsed time cannot satisfy an upper bound. Cross-restart history remains a
 // fragment for historical comparisons; raw wall-clock order is not causal.
@@ -14,10 +16,13 @@
 // only project these facts. No session, authorization, or user interface is added.
 //
 // Its fixed dataset grades execution, final-answer quality, business evidence,
-// and cost independently, and regrades retained JSON without another generation.
-// Rejection, repeated input, unresolved writes, and incorrect answers remain in
-// the dataset. Missing token accounting leaves the cost gate incomplete rather
-// than claiming zero cost. The deterministic model proves protocol composition,
+// token cost, and observation coverage independently. It regrades retained JSON
+// without another generation and compares paired cases under the same fixture
+// and Metric identity. A changed token budget changes Decision identity, not
+// measured cost. Rejection, repeated input, unresolved writes, incorrect answers,
+// and over-budget runs remain in the dataset. Missing token accounting leaves
+// the cost gate incomplete rather than claiming zero cost or observation loss.
+// The deterministic model and scripted usage prove protocol composition,
 // not live-model task quality. MemoryTreeCommitter proves only its in-process
 // contract: real storage adapters must run agenttest.RunTreeCommitterConformance
 // and separately prove database transactions, process crashes, and blocked I/O.

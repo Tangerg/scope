@@ -96,6 +96,9 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if checkErr := missingModels.CheckCoverage(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("missing model coverage = %v", checkErr)
+	}
 	if _, checkErr := missingModels.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("missing model calls = %v", checkErr)
 	}
@@ -107,6 +110,9 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if checkErr := missing.CheckCoverage(); checkErr != nil {
+		t.Fatalf("absent metadata became observation loss: %v", checkErr)
+	}
 	if _, checkErr := missing.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("missing accounting = %v", checkErr)
 	}
@@ -117,6 +123,9 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	missing, err = trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if checkErr := missing.CheckCoverage(); checkErr != nil {
+		t.Fatalf("absent accounting became observation loss: %v", checkErr)
 	}
 	if _, checkErr := missing.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("metadata without accounting = %v", checkErr)
@@ -135,6 +144,9 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	unknown, err := trajectory.New(config)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if checkErr := unknown.CheckCoverage(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("undeclared semantic coverage = %v", checkErr)
 	}
 	if _, checkErr := unknown.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("undeclared coverage = %v", checkErr)
@@ -288,6 +300,9 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 	}
 	if restored.HistoryComplete() {
 		t.Fatal("restored fragment claims full history")
+	}
+	if checkErr := restored.CheckCoverage(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("fragment coverage = %v", checkErr)
 	}
 	if _, checkErr := restored.TotalTokens(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("fragment tokens = %v", checkErr)
@@ -576,6 +591,9 @@ func TestDeclaredObservationGapRemainsPortableAndCannotProveCompleteness(t *test
 	}
 	if decoded.Gaps().DroppedEvents != 1 || decoded.HistoryComplete() {
 		t.Fatal("portable gap was lost")
+	}
+	if checkErr := decoded.CheckCoverage(); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("portable gap coverage = %v", checkErr)
 	}
 	if _, err := decoded.BehaviorDigest(rawOutputProjection); !errors.Is(err, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("truncated evidence proved behavior: %v", err)
