@@ -39,6 +39,7 @@ func TestReleaseEntryDerivesModulesAndKeepsTagsImmutable(t *testing.T) {
 		"release plan has invalid layer",
 		"release plan has no modules in layer",
 		"scripts/check.sh build vet test race lint",
+		"release_env scripts/check.sh",
 		"test -run '^$' ./...",
 		"go clean -modcache",
 		"git tag -a",
@@ -160,6 +161,17 @@ func TestReleaseDoesNotPublishUnverifiedNotes(t *testing.T) {
 	}
 }
 
+func TestReleaseRequiresFinalDependencyGatesBeforePush(t *testing.T) {
+	t.Parallel()
+	fixture := newReleasePublicationFixture(t, "new", "final-gates")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	calls := fixture.calls(t)
+	if err == nil || !strings.Contains(output, "final-dependency-gates-failed") ||
+		strings.Contains(calls, "git push") || strings.Contains(calls, "gh release ") {
+		t.Fatalf("final dependency gates must fail before publishing: %v\n%s\ncalls:\n%s", err, output, calls)
+	}
+}
+
 func TestReleasePreservesGitHubPublicationFailures(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"new", "resume", "existing"} {
@@ -178,7 +190,18 @@ func newReleasePublicationFixture(t *testing.T, mode, boundary string) scriptFai
 	t.Helper()
 	fixture := newScriptFailureFixture(t, "release.sh")
 	fixture.env = append(fixture.env, "SCRIPT_MODE="+mode, "SCRIPT_FAILURE="+boundary)
-	fixture.write(t, "scripts/check.sh", "#!/usr/bin/env bash\necho repository-gates >> \"$SCRIPT_CALLS\"\n")
+	fixture.write(t, "go.work", "")
+	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
+echo repository-gates >> "$SCRIPT_CALLS"
+if [[ $# -eq 0 && ! "$GOWORK" -ef "$SCRIPT_ROOT/go.work" ]]; then
+  echo final-checks-missing-workspace >&2
+  exit 23
+fi
+if [[ $# -eq 0 && "$SCRIPT_FAILURE" == final-gates ]]; then
+  echo final-dependency-gates-failed >&2
+  exit 23
+fi
+`)
 	fixture.write(t, "bin/go", `#!/usr/bin/env bash
 set -euo pipefail
 printf 'go %s\n' "$*" >> "$SCRIPT_CALLS"

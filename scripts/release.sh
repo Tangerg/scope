@@ -205,9 +205,9 @@ remote_tag_commit() {
   remote_tag_object "$tag"
 }
 
-release_go() {
+release_env() {
   env \
-    GOWORK=off \
+    GOWORK="$release_root/go.work" \
     GOMODCACHE="$release_modcache" \
     GONOPROXY=github.com/Tangerg/scope \
     GONOSUMDB=github.com/Tangerg/scope \
@@ -215,7 +215,11 @@ release_go() {
     GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0="url.file://$release_root/.insteadOf" \
     GIT_CONFIG_VALUE_0=https://github.com/Tangerg/scope \
-    go "$@"
+    "$@"
+}
+
+release_go() {
+  release_env env GOWORK=off go "$@"
 }
 
 publish_release() {
@@ -377,6 +381,12 @@ done
 
 release_status=$(git status --porcelain)
 [[ -z "$release_status" ]] || fail "release staging left uncommitted changes"
+
+# The final requirements must pass the same gates as consumers without making
+# unpublished tags depend on a public proxy. Only Scope resolves from local Git.
+release_env scripts/check.sh
+release_status=$(git status --porcelain)
+[[ -z "$release_status" ]] || fail "release verification changed the working tree"
 
 # CI starts on the branch update and resolves the pinned requirements of the
 # pushed commits, so the branch and every new tag must become visible together.
