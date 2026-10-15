@@ -189,7 +189,15 @@ func TestReleasePreservesGitHubPublicationFailures(t *testing.T) {
 func newReleasePublicationFixture(t *testing.T, mode, boundary string) scriptFailureFixture {
 	t.Helper()
 	fixture := newScriptFailureFixture(t, "release.sh")
-	fixture.env = append(fixture.env, "SCRIPT_MODE="+mode, "SCRIPT_FAILURE="+boundary)
+	fixture.env = append(fixture.env,
+		"SCRIPT_MODE="+mode, "SCRIPT_FAILURE="+boundary,
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=url.file:///ambient/.insteadOf",
+		"GIT_CONFIG_VALUE_0=https://github.com/Tangerg/scope",
+		"GONOPROXY=github.com/Tangerg/scope",
+		"GONOSUMDB=github.com/Tangerg/scope",
+		"GOPRIVATE=github.com/Tangerg/scope",
+	)
 	fixture.write(t, "go.work", "")
 	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
 echo repository-gates >> "$SCRIPT_CALLS"
@@ -219,6 +227,9 @@ case "$*" in
     sum=fixture
     if [[ "$GOMODCACHE" == */published-modcache ]]; then
       [[ -z "${GIT_CONFIG_VALUE_0:-}" ]] || { echo published-download-used-local-source >&2; exit 42; }
+      [[ -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_KEY_0:-}${GONOPROXY:-}${GONOSUMDB:-}${GOPRIVATE:-}" &&
+         "$GOPROXY" == https://proxy.golang.org && "$GOSUMDB" == sum.golang.org ]] ||
+        { echo published-download-missing-public-boundary >&2; exit 42; }
       printf 'public-download %s\n' "$4" >> "$SCRIPT_CALLS"
       if [[ "$SCRIPT_FAILURE" == public-download ]]; then echo published-download-failed >&2; exit 23; fi
       if [[ "$SCRIPT_FAILURE" == archive-mismatch ]]; then sum=different; fi

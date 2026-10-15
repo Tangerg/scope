@@ -241,7 +241,10 @@ publish_release() {
       fail "remote verification failed for $tag"
 
     release_go mod download -json "$module_path@$release_version" >"$local_download"
-    env GOWORK=off GOMODCACHE="$release_published_modcache" GOPROXY="$release_existing_proxy" \
+    env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
+      GOWORK=off GOMODCACHE="$release_published_modcache" \
+      GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org \
+      GONOPROXY= GONOSUMDB= GOPRIVATE= \
       go mod download -json "$module_path@$release_version" >"$published_download"
     jq -e --arg module "$module_path" --arg version "$release_version" --slurpfile local "$local_download" '
       .Error == null and .Path == $module and .Version == $version and
