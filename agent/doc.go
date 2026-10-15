@@ -105,10 +105,52 @@
 // committer ledger across trees or repeated control checkpoints; storage retention
 // has its own Host-owned lifetime.
 //
+// Defaults suit trees whose input sizes, lifetime work, and population are
+// bounded by the Host. They are not a memory budget or a latency guarantee.
+// A pending-Signal bound does not limit consumed deduplication history. Releasing
+// an Engine tree does not remove the committer's retained head or replay facts.
+//
 // Snapshot admission reserves bounded control and termination metadata with
 // worst-case JSON escaping. Admission of one cut does not authorize future
 // growth. An external result that cannot fit stops the runtime with its unresolved
 // identity; the Host reconciles the outcome from the acknowledged stored head.
+//
+// # Capacity measurements
+//
+// From this module, use the existing benchmark entry points for a local baseline:
+//
+//	go test -run '^$' -bench '^BenchmarkTreeSignalCommit$/[^/]+/batch_(1|64)$/' -benchmem -benchtime=1000x -count=3
+//	go test -run '^$' -bench '^BenchmarkTreeRecoveryBoundary$/(baseline|history_1024|active_batch_64|combined)$/(restore|parse_restore)$' -benchmem -benchtime=1000x -count=3
+//	go test -run '^$' -bench 'BenchmarkWaitingTreeCapture|BenchmarkMemoryTreeCommitterRetention|BenchmarkTreeCaptureGrowthReduction' -benchmem -benchtime=10x -count=3
+//
+// Signal commit samples run from DeliverSignals through checkpoint acknowledgment
+// on a fresh copy of the same paused tree. The default-width fixture retains
+// a root and DefaultTreeLimits().MaxActiveChildren completed children; expanded
+// fixtures explicitly raise limits. The mailbox-capacity fixtures distinguish
+// pending payloads from consumed identities. Prepared Effect counts include
+// requests not yet dispatched; unknown_effects counts actual uncertain outcomes.
+// TreeRecoveryBoundary/restore starts from a decoded snapshot; parse_restore
+// includes strict parsing. Both stop at RestoreTree return, including volatile
+// writer activation, before subsequent execution or remote reconciliation.
+//
+// p50/p95/p99 use nearest-rank serial, closed-loop samples. Read their sample
+// counts; the check runner's one-iteration smoke is not a tail-latency baseline.
+// Sample the mailbox-capacity and large-context cases separately at a fixed
+// count suited to their higher cost; report that count with their results.
+// Record the revision, Go version, CPU, concurrency, and repeated results on the
+// same machine. These fixtures exclude Host storage reads, database/network I/O,
+// model/tool latency, exporter I/O, and sustained competing arrivals. The 1 ms
+// acknowledgment delay models waiting only. Measure those Host costs under the
+// intended arrival rate before choosing quotas or a latency objective.
+//
+// MemoryTreeCommitterRetention reports the latest head's wire size, retained
+// replay key/digest payload bytes, and cumulative offered snapshot bytes. The
+// byte counts omit the additional decoded representation and Go object/map
+// overhead; B/op measures allocation churn, not retained heap.
+// TreeCaptureGrowthReduction measures full
+// snapshot traffic as opaque state grows and shrinks. Large synthetic tree and
+// context fixtures characterize scaling; they do not certify defaults for every
+// combination or authorize a different persistence or writer protocol.
 //
 // # Recovery and observation
 //

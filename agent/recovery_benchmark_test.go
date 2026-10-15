@@ -20,6 +20,7 @@ type treeRecoveryBenchmarkCase struct {
 	name                 string
 	contextBytes         int
 	historyCount         int
+	pendingSignals       bool
 	effectCount          int
 	retainRequestContext bool
 }
@@ -35,6 +36,8 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 		{name: "context_8MiB", contextBytes: 8 << 20},
 		{name: "context_30MiB", contextBytes: 30 << 20},
 		{name: "history_1024", contextBytes: 1 << 10, historyCount: 1024},
+		{name: "history_at_mailbox_capacity", contextBytes: 1 << 10, historyCount: int(DefaultTreeLimits().MaxPendingSignals)},
+		{name: "pending_at_mailbox_capacity", contextBytes: 1 << 10, historyCount: int(DefaultTreeLimits().MaxPendingSignals), pendingSignals: true},
 		{name: "active_batch_64", contextBytes: 1 << 10, effectCount: 64},
 		{name: "combined", contextBytes: 1 << 20, historyCount: 1024, effectCount: 64},
 		{name: "prepared_context_8MiB", contextBytes: 8 << 20, effectCount: 1, retainRequestContext: true},
@@ -44,6 +47,25 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 			snapshot, err := engine.CaptureTree(b.Context(), process.Relation().ProcessID())
 			if err != nil {
 				b.Fatal(err)
+			}
+			rootSnapshot := snapshot.ProcessSnapshots()[0]
+			unknownEffects := len(rootSnapshot.UnknownEffectIDs())
+			var preparedEffects int
+			if rootSnapshot.state.Prepared != nil {
+				preparedEffects = len(rootSnapshot.state.Prepared.Effects)
+			}
+			var pendingSignals int
+			for _, receipt := range rootSnapshot.SignalReceipts() {
+				if !receipt.Consumed() {
+					pendingSignals++
+				}
+			}
+			reportSize := func(b *testing.B) {
+				b.ReportMetric(float64(snapshot.EncodedSize()), "snapshot_bytes")
+				b.ReportMetric(float64(len(rootSnapshot.SignalReceipts())), "retained_signals")
+				b.ReportMetric(float64(pendingSignals), "pending_signals")
+				b.ReportMetric(float64(unknownEffects), "unknown_effects")
+				b.ReportMetric(float64(preparedEffects), "prepared_effects")
 			}
 			data := snapshot.JSON()
 			wire, err := snapshot.wire()
@@ -86,35 +108,49 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 				b.Run(operation.name, func(b *testing.B) {
 					b.ReportAllocs()
 					for b.Loop() {
-						if err := operation.run(); err != nil {
-							b.Fatal(err)
+						if operationErr := operation.run(); operationErr != nil {
+							b.Fatal(operationErr)
 						}
 					}
-					b.ReportMetric(float64(len(data)), "snapshot_bytes")
+					reportSize(b)
 				})
 			}
-			b.Run("restore", func(b *testing.B) {
-				b.ReportAllocs()
-				for b.Loop() {
-					b.StopTimer()
-					restoredEngine, err := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
-					if err != nil {
-						b.Fatal(err)
+			for _, operation := range []string{"restore", "parse_restore"} {
+				b.Run(operation, func(b *testing.B) {
+					var latencies []time.Duration
+					b.ReportAllocs()
+					for b.Loop() {
+						b.StopTimer()
+						restoredEngine, engineErr := NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(snapshot)})
+						if engineErr != nil {
+							b.Fatal(engineErr)
+						}
+						restorable := snapshot
+						b.StartTimer()
+						started := time.Now()
+						if operation == "parse_restore" {
+							restorable, err = ParseTreeSnapshot(data)
+							if err != nil {
+								b.Fatal(err)
+							}
+						}
+						restored, restoreErr := restoredEngine.RestoreTree(b.Context(), deployment, restorable)
+						elapsed := time.Since(started)
+						b.StopTimer()
+						if restoreErr != nil || restored.Relation().ProcessID() != process.Relation().ProcessID() {
+							b.Fatalf("RestoreTree error=%v", restoreErr)
+						}
+						latencies = append(latencies, elapsed)
+						stopRecoveryBenchmarkProcess(b, restored)
+						if closeErr := restoredEngine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
+							b.Fatal(closeErr)
+						}
+						b.StartTimer()
 					}
-					b.StartTimer()
-					restored, err := restoredEngine.RestoreTree(b.Context(), deployment, snapshot)
-					b.StopTimer()
-					if err != nil || restored.Relation().ProcessID() != process.Relation().ProcessID() {
-						b.Fatalf("RestoreTree error=%v", err)
-					}
-					stopRecoveryBenchmarkProcess(b, restored)
-					if err := restoredEngine.Close(context.WithoutCancel(b.Context())); err != nil {
-						b.Fatal(err)
-					}
-					b.StartTimer()
-				}
-				b.ReportMetric(float64(len(data)), "snapshot_bytes")
-			})
+					reportBenchmarkLatencies(b, "recovery", latencies)
+					reportSize(b)
+				})
+			}
 		})
 	}
 }
@@ -189,10 +225,14 @@ func benchmarkRecoverableProcess(
 			b.Fatalf("history accepted=%t error=%v", accepted, err)
 		}
 	}
-	if err := process.Resume(setupCtx); err != nil {
-		b.Fatal(err)
+	steps := uint64(1)
+	if !sample.pendingSignals {
+		if err := process.Resume(setupCtx); err != nil {
+			b.Fatal(err)
+		}
+		steps = 2
+		waitForPausedStepContext(setupCtx, b, process, steps)
 	}
-	waitForPausedStepContext(setupCtx, b, process, 2)
 	if sample.effectCount > 0 {
 		if err := process.Resume(setupCtx); err != nil {
 			b.Fatal(err)
@@ -200,7 +240,7 @@ func benchmarkRecoverableProcess(
 		waitForUnknownSettlementContext(setupCtx, b, process)
 	}
 	wantUsage := Usage{
-		CommittedSteps: 2, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
+		CommittedSteps: steps, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
 	}
 	if usage := inspectProcessSnapshotContext(setupCtx, b, process).Usage(); usage != wantUsage {
 		b.Fatalf("benchmark fixture usage=%+v, want %+v", usage, wantUsage)

@@ -21,6 +21,11 @@
 // protocol acknowledgment duration, proposed snapshot bytes, and conflict or
 // unresolved outcomes. This integration does not select storage, read heads,
 // infer rollback, or measure the age of stored state.
+// Its duration covers the decorated committer call; tree capture, encoding,
+// admission, and complete recovery latency belong to the caller's measurements.
+// BenchmarkTreeCommitterObservation isolates SDK observation overhead using
+// prebuilt checkpoints, a no-I/O committer, and no exporter I/O. Compare it with
+// the Agent module's commit/recovery benchmarks before sizing a Host deployment.
 //
 // Failed invocations use the declared Failure code as error.type. Other error
 // terminations use agent.<termination cause>; Step and Effect failures use
