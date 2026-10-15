@@ -11,7 +11,7 @@ import (
 )
 
 func TestToolDetailsAcrossTransport(t *testing.T) {
-	for _, payload := range []string{"", "null", "9007199254740993", `{"n":18446744073709551615}`, `[null,9007199254740993]`, "false", `"text"`} {
+	for _, payload := range []string{"", "null", "9007199254740993", `{"n":18446744073709551615,"fraction":0.12345678901234567890123456789}`, `{"outer":{"n":9007199254740993,"fraction":0.12345678901234567890123456789},"array":[null,{"z":1,"a":2}]}`, `[null,9007199254740993]`, "false", `"text"`} {
 		t.Run(payload, func(t *testing.T) {
 			serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "server", Version: "1"}, nil)
@@ -55,7 +55,7 @@ func TestToolDetailsAcrossTransport(t *testing.T) {
 				t.Fatal("present content became absent")
 			}
 			encoded := output.Details
-			if string(encoded) != payload {
+			if orderedStructuredContent(t, encoded) != orderedStructuredContent(t, []byte(payload)) {
 				t.Fatalf("structured content = %s; want %s", encoded, payload)
 			}
 		})

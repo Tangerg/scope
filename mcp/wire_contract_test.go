@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -85,8 +86,49 @@ func connectWireMCP(t *testing.T, peer wireMCPPeer) *sdkmcp.ClientSession {
 	return session
 }
 
+func orderedStructuredContent(t *testing.T, raw []byte) string {
+	t.Helper()
+	if len(raw) == 0 {
+		return ""
+	}
+	value := jsontext.Value(bytes.Clone(raw))
+	// Object order is immaterial; raw formatting must retain exact numbers.
+	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
+		t.Fatal(err)
+	}
+	return string(value)
+}
+
+func TestStructuredContentComparisonPreservesValues(t *testing.T) {
+	for _, test := range []struct {
+		name, want, got string
+		equal           bool
+	}{
+		{
+			name:  "object members may reorder recursively",
+			want:  `{"n":18446744073709551615,"fraction":0.12345678901234567890123456789,"nested":[{"b":2,"a":1}]}`,
+			got:   `{"nested":[{"a":1,"b":2}],"fraction":0.12345678901234567890123456789,"n":18446744073709551615}`,
+			equal: true,
+		},
+		{name: "integer precision", want: `{"n":9007199254740993}`, got: `{"n":9007199254740992}`},
+		{name: "fraction precision", want: `{"n":0.12345678901234567890123456789}`, got: `{"n":0.12345678901234567890123456788}`},
+		{name: "null is present", want: "", got: "null"},
+		{name: "empty object is present", want: "", got: `{}`},
+		{name: "empty array is present", want: "", got: `[]`},
+		{name: "object member is present", want: `{"n":null}`, got: `{}`},
+		{name: "array order", want: `[null,9007199254740993]`, got: `[9007199254740993,null]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			equal := orderedStructuredContent(t, []byte(test.want)) == orderedStructuredContent(t, []byte(test.got))
+			if equal != test.equal {
+				t.Fatalf("structured content equality = %t, want %t: %s versus %s", equal, test.equal, test.want, test.got)
+			}
+		})
+	}
+}
+
 func TestWireStructuredContentAndFailureAreLossless(t *testing.T) {
-	for _, payload := range []string{"", "null", "9007199254740993", `{"n":18446744073709551615,"fraction":0.12345678901234567890123456789}`, `[null,9007199254740993]`, "false", `"text"`} {
+	for _, payload := range []string{"", "null", "9007199254740993", `{"n":18446744073709551615,"fraction":0.12345678901234567890123456789}`, `{"outer":{"n":9007199254740993,"fraction":0.12345678901234567890123456789},"array":[null,{"z":1,"a":2}]}`, `[null,9007199254740993]`, "false", `"text"`} {
 		for _, failed := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/error=%t", payload, failed), func(t *testing.T) {
 				session := connectWireMCP(t, wireMCPPeer{t: t, descriptor: `{"name":"probe","inputSchema":{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}}`, call: func(encoded json.RawMessage) string {
@@ -128,7 +170,7 @@ func TestWireStructuredContentAndFailureAreLossless(t *testing.T) {
 				} else if callErr != nil {
 					t.Fatal(callErr)
 				}
-				if string(output.Details) != payload || len(output.Content) != 1 || output.Content[0].Text != "visible" || string(output.Content[0].Metadata["record"]) != "9007199254740993" {
+				if orderedStructuredContent(t, output.Details) != orderedStructuredContent(t, []byte(payload)) || len(output.Content) != 1 || output.Content[0].Text != "visible" || string(output.Content[0].Metadata["record"]) != "9007199254740993" {
 					t.Fatalf("wire result changed: %+v", output)
 				}
 			})
@@ -253,7 +295,7 @@ func TestWireRegistrationPreservesArgumentsSchemaAndResults(t *testing.T) {
 			if err := jsonv2.Unmarshal(encoded, &result); err != nil {
 				t.Fatal(err)
 			}
-			if result.IsError || string(result.Structured) != payload {
+			if result.IsError || orderedStructuredContent(t, result.Structured) != orderedStructuredContent(t, []byte(payload)) {
 				t.Fatalf("structured content changed: %s", encoded)
 			}
 		})

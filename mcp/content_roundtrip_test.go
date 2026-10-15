@@ -80,7 +80,7 @@ func TestRemoteOutputSchemaAdmission(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, test.details, string(output.Details))
+			require.Equal(t, orderedStructuredContent(t, []byte(test.details)), orderedStructuredContent(t, output.Details))
 		})
 	}
 }
