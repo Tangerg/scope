@@ -69,8 +69,9 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 			input = projection.parts(execCtx.Message.Parts)
 		}
 
-		// A2A requires the task to exist before status or artifact events.
-		if !yield(sdka2a.NewSubmittedTask(execCtx, execCtx.Message), nil) {
+		// The SDK already owns an existing task and its appended input history.
+		// A new Task event on continuation would replace that stored state.
+		if execCtx.StoredTask == nil && !yield(sdka2a.NewSubmittedTask(execCtx, execCtx.Message), nil) {
 			return
 		}
 		if !yield(sdka2a.NewStatusUpdateEvent(execCtx, sdka2a.TaskStateWorking, nil), nil) {

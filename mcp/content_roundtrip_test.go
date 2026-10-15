@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"testing"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
@@ -50,19 +51,18 @@ func TestRemoteOutputSchemaAdmission(t *testing.T) {
 		{name: "failure has no success schema obligation", schema: objectSchema, details: `{"error":"failed"}`, isError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "schema-test"}, nil)
-			descriptor := &sdkmcp.Tool{Name: "inspect", InputSchema: json.RawMessage(`{"type":"object"}`)}
+			descriptor := `{"name":"inspect","inputSchema":{"type":"object"}`
 			if test.schema != "" {
-				descriptor.OutputSchema = json.RawMessage(test.schema)
+				descriptor += `,"outputSchema":` + test.schema
 			}
-			server.AddTool(descriptor, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-				result := &sdkmcp.CallToolResult{IsError: test.isError, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "visible"}}}
+			descriptor += `}`
+			session := connectWireMCP(t, wireMCPPeer{t: t, descriptor: descriptor, call: func(json.RawMessage) string {
+				result := fmt.Sprintf(`{"content":[{"type":"text","text":"visible"}],"isError":%t`, test.isError)
 				if test.details != "" {
-					result.StructuredContent = json.RawMessage(test.details)
+					result += `,"structuredContent":` + test.details
 				}
-				return result, nil
-			})
-			session := connectContentServer(t, server)
+				return result + `}`
+			}})
 			tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
 			require.NoError(t, err)
 			output, err := invokeTestTool(t.Context(), tools[0], `{}`)
