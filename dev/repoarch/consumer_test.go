@@ -68,3 +68,27 @@ func TestOrdinaryConsumerLoadsOnlyCore(t *testing.T) {
 		t.Fatal("ordinary consumer no longer exercises chatclient")
 	}
 }
+
+func TestExternalMCPExpertHasNoScopeDependency(t *testing.T) {
+	t.Parallel()
+	command := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "./mcp/expert")
+	command.Dir = filepath.Join(repositoryRoot(t), "examples")
+	command.Env = append(command.Environ(), "GOWORK=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve independent MCP expert: %v\n%s", err, output)
+	}
+	seenSDK := false
+	for line := range strings.Lines(string(output)) {
+		dependency := strings.TrimSpace(line)
+		if dependency == "github.com/Tangerg/go-sdk/mcp" {
+			seenSDK = true
+		}
+		if strings.HasPrefix(dependency, "github.com/Tangerg/scope/") && dependency != "github.com/Tangerg/scope/examples/mcp/expert" {
+			t.Errorf("external MCP expert imports Scope: %s", dependency)
+		}
+	}
+	if !seenSDK {
+		t.Fatal("external MCP expert does not consume the native SDK")
+	}
+}

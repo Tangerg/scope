@@ -20,4 +20,9 @@
 // go.work. For PostgreSQL transactions and independent-process crash recovery,
 // run scripts/check-tree-committer.sh; its module overview describes the scope
 // and isolated Docker environment. These examples do not replace that proof.
+// Command mcp/expert is an independent native-SDK stdio peer. The mcp/mcpagent
+// checks compose it with the existing process backend, authorization Guard,
+// and managed Interaction to verify refusal, cancellation, lost results, and
+// reconnect/restore without replay. They run offline against workspace and
+// published dependencies, without introducing another execution lifecycle.
 package examples
