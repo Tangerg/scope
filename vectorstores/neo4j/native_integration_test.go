@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	native "github.com/neo4j/neo4j-go-driver/v5/neo4j"
-	nativeconfig "github.com/neo4j/neo4j-go-driver/v5/neo4j/config"
+	native "github.com/neo4j/neo4j-go-driver/v6/neo4j"
+	nativeconfig "github.com/neo4j/neo4j-go-driver/v6/neo4j/config"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -28,7 +28,7 @@ import (
 )
 
 type nativeFixture struct {
-	driver          native.DriverWithContext
+	driver          native.Driver
 	label           string
 	model           embedding.Model
 	calls           atomic.Int64
@@ -41,7 +41,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	if dsn == "" || username == "" || password == "" {
 		t.Fatal("SCOPE_NEO4J_DSN, SCOPE_NEO4J_USERNAME and SCOPE_NEO4J_PASSWORD are required with -tags=integration; use an isolated Neo4j 5.18+ server")
 	}
-	driver, err := native.NewDriverWithContext(dsn, native.BasicAuth(username, password, ""), func(cfg *nativeconfig.Config) { cfg.MaxTransactionRetryTime = 2 * time.Second })
+	driver, err := native.NewDriver(dsn, native.BasicAuth(username, password, ""), func(cfg *nativeconfig.Config) { cfg.MaxTransactionRetryTime = 2 * time.Second })
 	if err != nil {
 		t.Fatal(err)
 	}

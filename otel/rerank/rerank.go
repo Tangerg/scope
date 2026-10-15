@@ -12,7 +12,6 @@ import (
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
@@ -71,7 +70,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}
 	loggerProvider := config.LoggerProvider
 	if lo.IsNil(loggerProvider) {
-		loggerProvider = global.GetLoggerProvider()
+		loggerProvider = apiotel.GetLoggerProvider()
 	}
 	meterProvider := config.MeterProvider
 	if lo.IsNil(meterProvider) {

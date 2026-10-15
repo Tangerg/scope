@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -25,7 +25,7 @@ const (
 )
 
 type StoreConfig struct {
-	Driver neo4j.DriverWithContext
+	Driver neo4j.Driver
 
 	Database string
 
@@ -54,7 +54,7 @@ var (
 // sequence for deterministic reads; ordering across separate Store values
 // remains unspecified.
 type Store struct {
-	driver   neo4j.DriverWithContext
+	driver   neo4j.Driver
 	database string
 	label    string
 	sequence *history.Sequence

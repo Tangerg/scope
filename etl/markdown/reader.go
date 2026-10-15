@@ -8,9 +8,8 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
 
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
@@ -38,7 +37,7 @@ type ReaderConfig struct {
 
 type Reader struct {
 	source            io.Reader
-	parser            goldmark.Markdown
+	parser            parser.Parser
 	headingSplitLevel int
 	sourceName        string
 	extraMetadata     coremetadata.Map
@@ -51,7 +50,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	}
 	r := &Reader{
 		source:            source,
-		parser:            goldmark.New(),
+		parser:            parser.New(),
 		headingSplitLevel: config.HeadingSplitLevel,
 		sourceName:        config.SourceName,
 		extraMetadata:     config.Metadata.Clone(),
@@ -112,7 +111,7 @@ func (r *Reader) readWhole(raw []byte) ([]*document.Document, error) {
 
 // Content before the first split heading forms an unnamed lead-in section.
 func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, error) {
-	root := r.parser.Parser().Parse(text.NewReader(raw))
+	root := r.parser.Parse(raw)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -181,9 +180,9 @@ func (*Reader) headingText(h *ast.Heading, raw []byte) string {
 		}
 		switch typed := node.(type) {
 		case *ast.Text:
-			b.Write(typed.Value(raw))
-		case *ast.String:
-			b.Write(typed.Value)
+			b.WriteString(typed.Value.Value(raw))
+		case *ast.CodeSpan:
+			b.WriteString(typed.Value.Str(raw))
 		}
 		return ast.WalkContinue, nil
 	})

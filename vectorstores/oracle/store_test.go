@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	go_ora "github.com/sijms/go-ora/v2"
+	go_ora "github.com/sijms/go-ora/v3"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"

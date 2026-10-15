@@ -20,8 +20,9 @@ import (
 	"testing"
 	"time"
 
-	go_ora "github.com/sijms/go-ora/v2"
-	"github.com/sijms/go-ora/v2/network"
+	go_ora "github.com/sijms/go-ora/v3"
+	"github.com/sijms/go-ora/v3/network"
+	oratypes "github.com/sijms/go-ora/v3/types"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -387,7 +388,7 @@ func nativeFilterSnapshot(t *testing.T, f *nativeFixture) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if _, err := f.db.ExecContext(ctx, "UPDATE "+f.table+" SET FACTS = :1 WHERE ID = :2", go_ora.Blob{Data: []byte(`{"value":"7"}`)}, []byte(docs[0].ID)); err != nil {
+	if _, err := f.db.ExecContext(ctx, "UPDATE "+f.table+" SET FACTS = :1 WHERE ID = :2", nativeBlob(t, []byte(`{"value":"7"}`)), []byte(docs[0].ID)); err != nil {
 		t.Fatal(err)
 	}
 	releaseGate()
@@ -447,7 +448,7 @@ func TestLiveMalformedMetadataFailsExplicitly(t *testing.T) {
 				t.Fatal(err)
 			}
 			statement := "UPDATE " + f.table + " SET FACTS = :1 WHERE ID = :2"
-			args := []any{go_ora.Blob{Data: []byte(test.encoded)}, []byte(docs[0].ID)}
+			args := []any{nativeBlob(t, []byte(test.encoded)), []byte(docs[0].ID)}
 			if test.encoded == "" {
 				statement = "UPDATE " + f.table + " SET FACTS = EMPTY_BLOB() WHERE ID = :1"
 				args = []any{[]byte(docs[0].ID)}
@@ -767,7 +768,7 @@ func TestLiveFilteredDeletionLocksConcurrentWriters(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err = writer.ExecContext(ctx, "UPDATE "+f.table+" SET FACTS = :1 WHERE ID = :2", go_ora.Blob{Data: []byte(`{"value":"7"}`)}, []byte(docs[0].ID)); err != nil {
+		if _, err = writer.ExecContext(ctx, "UPDATE "+f.table+" SET FACTS = :1 WHERE ID = :2", nativeBlob(t, []byte(`{"value":"7"}`)), []byte(docs[0].ID)); err != nil {
 			return err
 		}
 		err = writer.Commit()
@@ -896,4 +897,13 @@ func TestLiveExtendedMetadataFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func nativeBlob(t *testing.T, value []byte) *oratypes.Blob {
+	t.Helper()
+	result, err := oratypes.NewBlob(nil, t.Context(), value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

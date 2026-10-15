@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"testing"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Tangerg/scope/core/document"
@@ -109,7 +109,7 @@ func (n *nativeFixture) QueryByVectorValues(_ context.Context, request *pinecone
 	}
 	slices.SortFunc(page.Matches, func(left, right *pineconesdk.ScoredVector) int {
 		order := cmp.Compare(right.Score, left.Score)
-		if n.metric == pineconesdk.Euclidean {
+		if n.metric == pineconesdk.IndexMetricEuclidean {
 			order = -order
 		}
 		if order != 0 {
@@ -199,7 +199,7 @@ func fixtureStore(t *testing.T) (*Store, *nativeFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native := &nativeFixture{points: make(map[string]*pineconesdk.Vector), scores: make(map[string]float32), metric: pineconesdk.Cosine}
+	native := &nativeFixture{points: make(map[string]*pineconesdk.Vector), scores: make(map[string]float32), metric: pineconesdk.IndexMetricCosine}
 	return &Store{index: native, schema: nativeSchema{dimensions: 2, metric: native.metric}, embeddingClient: model, documentBatcher: fixtureBatcher{}}, native
 }
 

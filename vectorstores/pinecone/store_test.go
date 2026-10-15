@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
@@ -133,7 +133,7 @@ func TestIndexNativeBatchLimitsAndAcknowledgments(t *testing.T) {
 }
 
 func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
-	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.Cosine, pineconesdk.Dotproduct, pineconesdk.Euclidean} {
+	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean} {
 		t.Run(string(metric), func(t *testing.T) {
 			store, native := fixtureStore(t)
 			store.schema.metric, native.metric = metric, metric
@@ -145,12 +145,12 @@ func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
 				}
 				docs = append(docs, &document.Document{ID: fmt.Sprintf("id-%03d", i), Text: "text", Metadata: facts})
 				native.scores[docs[i].ID] = 40
-				if metric == pineconesdk.Euclidean {
+				if metric == pineconesdk.IndexMetricEuclidean {
 					native.scores[docs[i].ID] = 100
 				}
 			}
 			native.scores[docs[len(docs)-1].ID] = 50
-			if metric == pineconesdk.Euclidean {
+			if metric == pineconesdk.IndexMetricEuclidean {
 				native.scores[docs[len(docs)-1].ID] = 0
 			}
 			installDocuments(t, store, docs...)

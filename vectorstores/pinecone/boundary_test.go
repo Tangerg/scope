@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
@@ -110,7 +110,7 @@ func TestSearchDoesNotHideMalformedLowScoreHits(t *testing.T) {
 			store, native := fixtureStore(t)
 			installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
 			if failure == "negative distance" {
-				store.schema.metric = pineconesdk.Euclidean
+				store.schema.metric = pineconesdk.IndexMetricEuclidean
 			}
 			native.query = func(*pineconesdk.QueryByVectorValuesRequest) (*pineconesdk.QueryVectorsResponse, error) {
 				point := clonePoint(native.points["one"])

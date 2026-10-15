@@ -5,31 +5,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gocql/gocql"
+	gocql "github.com/apache/cassandra-gocql-driver/v2"
 
 	"github.com/Tangerg/scope/historystores/cassandra"
 )
 
-// stubSession stands in for a live session. The consistency is set because
-// gocql.Any is the zero value of gocql.Consistency, and NewStore refuses it:
-// at ANY a write may live only as a coordinator hint.
-func stubSession() *gocql.Session {
-	session := new(gocql.Session)
-	session.SetConsistency(gocql.Quorum)
-	return session
+type stubSession struct {
+	*gocql.Session
+	consistency gocql.Consistency
+}
+
+func (s *stubSession) Batch(kind gocql.BatchType) *gocql.Batch {
+	return s.Session.Batch(kind).Consistency(s.consistency)
 }
 
 func TestNewStoreRequiresSession(t *testing.T) {
-	config := cassandra.StoreConfig{}
-	if err := config.Validate(); err == nil {
-		t.Fatal("StoreConfig.Validate should reject a nil Session")
-	}
-	_, err := cassandra.NewStore(t.Context(), config)
-	if err == nil {
-		t.Fatal("expected error when Session is nil")
-	}
-	if !strings.Contains(err.Error(), "session") {
-		t.Fatalf("err = %v; should mention session", err)
+	for name, session := range map[string]cassandra.Session{
+		"nil":       nil,
+		"typed nil": (*gocql.Session)(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := cassandra.StoreConfig{Session: session}
+			if err := config.Validate(); err == nil {
+				t.Fatal("StoreConfig.Validate should reject a nil Session")
+			}
+			_, err := cassandra.NewStore(t.Context(), config)
+			if err == nil || !strings.Contains(err.Error(), "session") {
+				t.Fatalf("NewStore() = %v; should reject the missing session", err)
+			}
+		})
 	}
 }
 
@@ -38,8 +42,8 @@ func TestNewStoreRejectsBadIdentifier(t *testing.T) {
 		name   string
 		config cassandra.StoreConfig
 	}{
-		{"keyspace with hyphen", cassandra.StoreConfig{Session: stubSession(), Keyspace: "my-ks"}},
-		{"table with semicolon", cassandra.StoreConfig{Session: stubSession(), TableName: "x;y"}},
+		{"keyspace with hyphen", cassandra.StoreConfig{Session: &stubSession{Session: new(gocql.Session), consistency: gocql.Quorum}, Keyspace: "my-ks"}},
+		{"table with semicolon", cassandra.StoreConfig{Session: &stubSession{Session: new(gocql.Session), consistency: gocql.Quorum}, TableName: "x;y"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,7 +56,7 @@ func TestNewStoreRejectsBadIdentifier(t *testing.T) {
 
 func TestNewStoreAcceptsValidIdentifiers(t *testing.T) {
 	_, err := cassandra.NewStore(t.Context(), cassandra.StoreConfig{
-		Session:   stubSession(),
+		Session:   &stubSession{Session: new(gocql.Session), consistency: gocql.Quorum},
 		Keyspace:  "scope",
 		TableName: "chat_history",
 	})
@@ -69,12 +73,8 @@ func TestNewStoreAcceptsValidIdentifiers(t *testing.T) {
 // ANY is also the zero value of gocql.Consistency, so this catches a session
 // whose consistency was never configured at all.
 func TestNewStoreRefusesConsistencyThatMayOnlyStoreAHint(t *testing.T) {
-	for name, session := range map[string]*gocql.Session{
-		"explicit ANY": func() *gocql.Session {
-			s := new(gocql.Session)
-			s.SetConsistency(gocql.Any)
-			return s
-		}(),
+	for name, session := range map[string]cassandra.Session{
+		"explicit ANY":     &stubSession{Session: new(gocql.Session), consistency: gocql.Any},
 		"never configured": new(gocql.Session),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -96,8 +96,7 @@ func TestNewStoreAcceptsEveryDurableConsistency(t *testing.T) {
 		gocql.All, gocql.LocalQuorum, gocql.EachQuorum, gocql.LocalOne,
 	} {
 		t.Run(consistency.String(), func(t *testing.T) {
-			session := new(gocql.Session)
-			session.SetConsistency(consistency)
+			session := &stubSession{Session: new(gocql.Session), consistency: consistency}
 			if _, err := cassandra.NewStore(t.Context(), cassandra.StoreConfig{
 				Session: session, Keyspace: "scope", TableName: "chat_history",
 			}); err != nil {

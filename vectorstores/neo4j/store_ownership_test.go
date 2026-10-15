@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	native "github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	native "github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -131,13 +131,13 @@ type testDriver struct {
 	config  native.SessionConfig
 }
 
-func (t *testDriver) NewSession(_ context.Context, config native.SessionConfig) native.SessionWithContext {
+func (t *testDriver) NewSession(_ context.Context, config native.SessionConfig) native.Session {
 	t.config = config
 	return t.session
 }
 
 type testSession struct {
-	native.SessionWithContext
+	native.Session
 	closeErr error
 	workErr  error
 	closed   bool

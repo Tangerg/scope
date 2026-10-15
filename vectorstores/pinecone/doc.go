@@ -3,6 +3,9 @@
 //
 // NewStore requires an existing index named by StoreConfig.IndexName and reads
 // its host, dimensionality and metric through the native SDK DescribeIndex.
+// Schema.Fields["_values"].DenseVector owns vector policy and
+// Deployment.Managed identifies the supported serverless deployment. Deprecated
+// SDK compatibility fields do not participate in admission or execution.
 // Missing policy, unsupported schemas and control-plane authorization failures
 // are errors. The host provisions the index and owns API credentials, native
 // transport configuration and SDK client lifetime. Store opens one native index
@@ -60,9 +63,9 @@
 // SCOPE_PINECONE_LOCAL_ENDPOINT and SCOPE_PINECONE_LOCAL_INDEX_COSINE,
 // SCOPE_PINECONE_LOCAL_INDEX_DOTPRODUCT and SCOPE_PINECONE_LOCAL_INDEX_EUCLIDEAN,
 // naming independently provisioned ready 2-dimensional indexes. They use isolated
-// namespaces and clean them up. Pinecone Local's API 2025-01 control response
-// omits vector_type, so these tests exercise native data-plane behavior directly;
-// current API 2025-04 SDK construction is verified by offline HTTP/gRPC fixtures.
+// namespaces and clean them up. The fixture must support the SDK's API 2026-07;
+// older Pinecone Local API 2025-01 control responses are unsupported. Current
+// construction and conditional requests are verified by offline HTTP/gRPC peers.
 // Local also rejects serverless metadata-filter deletion; its test verifies
 // explicit failure and retained records, without an ID-deletion fallback. The
 // separate cloud deletion test requires SCOPE_PINECONE_API_KEY and

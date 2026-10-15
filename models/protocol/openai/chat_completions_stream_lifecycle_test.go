@@ -60,6 +60,36 @@ func TestStreamAcceptsAudioExpiryAndUsageAfterFinish(t *testing.T) {
 	}
 }
 
+func TestStreamRejectsMalformedAudio(t *testing.T) {
+	for name, audio := range map[string]string{
+		"array":      `[]`,
+		"string":     `"audio"`,
+		"identifier": `{"id":42}`,
+		"data":       `{"data":42}`,
+		"transcript": `{"transcript":42}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			adapter := newLifecycleStreamModel(t, []string{
+				`{"index":0,"delta":{"content":"answer","audio":` + audio + `},"finish_reason":"stop"}`,
+			})
+			request := newToolStreamRequest(t)
+			if response, err := adapter.Call(t.Context(), request); response != nil || !errors.Is(err, corechat.ErrInvalidResponse) {
+				t.Fatalf("Call returned %#v, %v; want ErrInvalidResponse", response, err)
+			}
+			var streamErr error
+			for _, err := range adapter.Stream(t.Context(), request) {
+				if err != nil {
+					streamErr = err
+					break
+				}
+			}
+			if !errors.Is(streamErr, corechat.ErrInvalidResponse) {
+				t.Fatalf("Stream error = %v", streamErr)
+			}
+		})
+	}
+}
+
 func newLifecycleStreamModel(t *testing.T, choices []string) *scopeopenai.ChatCompletions {
 	t.Helper()
 	chunks := make([]string, 0, len(choices)+1)

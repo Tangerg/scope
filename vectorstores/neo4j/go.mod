@@ -4,8 +4,8 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/core v0.50.0
-	github.com/neo4j/neo4j-go-driver/v5 v5.28.5
+	github.com/neo4j/neo4j-go-driver/v6 v6.3.0
 	github.com/samber/lo v1.53.0
 )
 
-require golang.org/x/text v0.42.0 // indirect
+require golang.org/x/text v0.43.0 // indirect

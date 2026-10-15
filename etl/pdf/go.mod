@@ -11,5 +11,5 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )

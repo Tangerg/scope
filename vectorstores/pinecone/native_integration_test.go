@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -25,9 +25,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-// Pinecone Local implements API 2025-01 and omits vector_type from its control
-// response. These tests bind its independently provisioned dense indexes only
-// to the data-plane path; current SDK control-plane construction is tested offline.
+// The fixture must implement the SDK's current control and data protocol.
+// An older Local control response cannot establish the current native policy.
 func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pineconesdk.IndexConnection) {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_PINECONE_LOCAL_ENDPOINT")
@@ -43,8 +42,9 @@ func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pinecone
 	if err != nil {
 		t.Fatal(err)
 	}
-	if index == nil || index.Name != name || index.Metric != metric || index.Dimension == nil || *index.Dimension != 2 || index.Status == nil || !index.Status.Ready {
-		t.Fatalf("local fixture policy differs: %v", index)
+	var schema nativeSchema
+	if err := schema.read(index, name); err != nil || schema.metric != metric || schema.dimensions != 2 {
+		t.Fatalf("local fixture policy differs: %v, %v", index, err)
 	}
 	connection, err := client.Index(pineconesdk.NewIndexConnParams{Host: "http://" + index.Host, Namespace: "scope-test-" + rand.Text()})
 	if err != nil {
@@ -64,11 +64,11 @@ func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pinecone
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Store{index: connection, schema: nativeSchema{dimensions: int(*index.Dimension), metric: index.Metric}, embeddingClient: model, documentBatcher: fixtureBatcher{}}, connection
+	return &Store{index: connection, schema: schema, embeddingClient: model, documentBatcher: fixtureBatcher{}}, connection
 }
 
 func TestLocalNativeCoreFilterConformance(t *testing.T) {
-	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.Cosine, pineconesdk.Dotproduct, pineconesdk.Euclidean} {
+	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean} {
 		t.Run(string(metric), func(t *testing.T) {
 			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 				store, _ := localStore(t, metric)
@@ -87,7 +87,7 @@ func TestLocalNativeCoreFilterConformance(t *testing.T) {
 }
 
 func TestLocalNativeExactMetadataAndScores(t *testing.T) {
-	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.Cosine, pineconesdk.Dotproduct, pineconesdk.Euclidean} {
+	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean} {
 		t.Run(string(metric), func(t *testing.T) {
 			store, native := localStore(t, metric)
 			var facts metadata.Map
@@ -144,7 +144,7 @@ func (c *changedNativeIndex) DeleteVectorsByFilter(ctx context.Context, selectio
 }
 
 func TestLocalNativeConditionalDeleteFailureAndStrictSource(t *testing.T) {
-	store, native := localStore(t, pineconesdk.Cosine)
+	store, native := localStore(t, pineconesdk.IndexMetricCosine)
 	facts, err := metadata.FromValues(map[string]any{"value": "a"})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestLocalNativeConditionalDeleteFailureAndStrictSource(t *testing.T) {
 }
 
 func TestLocalNativeMetadataGroupsRetainRanking(t *testing.T) {
-	store, native := localStore(t, pineconesdk.Dotproduct)
+	store, native := localStore(t, pineconesdk.IndexMetricDotproduct)
 	var docs []*document.Document
 	for i := range filterGroupSize + 1 {
 		facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})

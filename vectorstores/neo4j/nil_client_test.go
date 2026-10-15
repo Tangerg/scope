@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	neo4j "github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	neo4j "github.com/neo4j/neo4j-go-driver/v6/neo4j"
 )
 
-type nilClient struct{ neo4j.DriverWithContext }
+type nilClient struct{ neo4j.Driver }
 
 func TestConfigRejectsTypedNilClient(t *testing.T) {
 	var client *nilClient

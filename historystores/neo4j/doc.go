@@ -24,7 +24,7 @@
 //
 // Example:
 //
-//	drv, _ := neo4j.NewDriverWithContext("neo4j://...", auth)
+//	drv, _ := neo4j.NewDriver("neo4j://...", auth)
 //	defer drv.Close(ctx)
 //	store, _ := neo4jstore.NewStore(ctx, neo4jstore.StoreConfig{
 //	    Driver:           drv,

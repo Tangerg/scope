@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
@@ -22,8 +22,12 @@ type nativeSchema struct {
 }
 
 func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
-	if index == nil || index.Name != name || index.Host == "" || index.Dimension == nil || *index.Dimension <= 0 || *index.Dimension > 20000 || index.VectorType != "dense" || index.Status == nil || !index.Status.Ready || index.Spec == nil || index.Spec.Serverless == nil || index.Spec.Pod != nil {
+	if index == nil || index.Name != name || index.Host == "" || index.Schema == nil || index.Status == nil || !index.Status.Ready || index.Deployment == nil || index.Deployment.Managed == nil || index.Deployment.Pod != nil || index.Deployment.Byoc != nil {
 		return fmt.Errorf("%w: requires a ready dense serverless native index with declared dimensions and host", ErrIncompatibleIndex)
+	}
+	vector := index.Schema.Fields[vectorField].DenseVector
+	if vector == nil || vector.Dimension <= 0 || vector.Dimension > 20000 {
+		return fmt.Errorf("%w: requires a dense %s field with valid dimensions", ErrIncompatibleIndex, vectorField)
 	}
 	host := index.Host
 	if !strings.Contains(host, "://") {
@@ -33,13 +37,13 @@ func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
 	if err != nil || parsed.Hostname() == "" || strings.TrimSpace(host) != host || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("%w: native index has an invalid host", ErrIncompatibleIndex)
 	}
-	switch index.Metric {
-	case pineconesdk.Cosine, pineconesdk.Dotproduct, pineconesdk.Euclidean:
+	switch vector.Metric {
+	case pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean:
 	default:
-		return fmt.Errorf("%w: unsupported native metric %q", ErrIncompatibleIndex, index.Metric)
+		return fmt.Errorf("%w: unsupported native metric %q", ErrIncompatibleIndex, vector.Metric)
 	}
-	n.dimensions = int(*index.Dimension)
-	n.metric = index.Metric
+	n.dimensions = int(vector.Dimension)
+	n.metric = vector.Metric
 	return nil
 }
 
@@ -68,11 +72,11 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 		return 0, errors.New("pinecone: native score is not finite")
 	}
 	switch n.metric {
-	case pineconesdk.Cosine:
+	case pineconesdk.IndexMetricCosine:
 		return vectorstore.ScoreFromCosineSimilarity(raw), nil
-	case pineconesdk.Dotproduct:
+	case pineconesdk.IndexMetricDotproduct:
 		return vectorstore.ScoreFromInnerProduct(raw), nil
-	case pineconesdk.Euclidean:
+	case pineconesdk.IndexMetricEuclidean:
 		if raw < 0 {
 			return 0, errors.New("pinecone: native distance is negative")
 		}

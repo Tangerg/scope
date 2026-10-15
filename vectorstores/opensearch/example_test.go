@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	opensearchsdk "github.com/opensearch-project/opensearch-go/v4"
+	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	opensearchsdk "github.com/opensearch-project/opensearch-go/v4"
+	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -66,7 +66,7 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]storedDocument), scores: make(map[string]float64), mapping: nativeMapping{Dynamic: "strict", Properties: map[string]mappedField{contentField: {Type: "text"}, metadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, embeddingField: {Type: "knn_vector", Dimensions: 2, Method: &nativeMethod{Name: "hnsw", Engine: "lucene", SpaceType: "cosinesimil"}}}}, settings: nativeSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.knn": "true", "index.derived_source.enabled": "false", "index.knn.derived_source.enabled": "false", "index.search.default_pipeline": "_none", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
 	server := httptest.NewServer(fixture)
 	t.Cleanup(server.Close)
-	client, err := opensearchsdk.NewClient(opensearchsdk.Config{Addresses: []string{server.URL}, Transport: server.Client().Transport, DisableRetry: true})
+	client, err := opensearchsdk.NewClient(opensearchsdk.Config{Addresses: []string{server.URL}, Transport: server.Client().Transport, DisableRetry: true, DiscoverNodesOnStart: new(false)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +110,9 @@ func (p *protocolFixture) page(hits []searchHit, total int, cursor string) searc
 
 func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	var response any
+	response, health := nativeHealthResponse(r)
 	switch {
+	case health:
 	case strings.HasSuffix(r.URL.Path, "/_mapping"):
 		response = map[string]mappedIndex{"documents": {Mappings: p.mapping}}
 	case strings.HasSuffix(r.URL.Path, "/_settings"):
@@ -231,6 +232,25 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := jsonv2.MarshalWrite(w, response); err != nil {
 		p.t.Error(err)
+	}
+}
+
+func nativeHealthResponse(request *http.Request) (any, bool) {
+	if request.Method != http.MethodGet {
+		return nil, false
+	}
+	switch request.URL.Path {
+	case "/":
+		return map[string]any{"name": "fixture", "cluster_name": "fixture", "version": map[string]string{"number": "3.6.0", "distribution": "opensearch"}}, true
+	case "/_cluster/health":
+		if request.URL.RawQuery != "local=true" {
+			return nil, false
+		}
+		return map[string]any{"cluster_name": "fixture", "status": "green", "timed_out": false, "number_of_nodes": 1, "number_of_data_nodes": 1, "active_primary_shards": 1, "active_shards": 1, "relocating_shards": 0, "initializing_shards": 0, "unassigned_shards": 0}, true
+	case "/_nodes/_local/http,os,thread_pool":
+		return map[string]any{"nodes": map[string]any{"fixture": map[string]any{"name": "fixture", "os": map[string]int{"allocated_processors": 2}}}}, true
+	default:
+		return nil, false
 	}
 }
 

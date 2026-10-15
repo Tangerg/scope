@@ -17,7 +17,8 @@ import (
 	"testing"
 	"time"
 
-	elasticsearchsdk "github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/elastic-transport-go/v8/elastictransport"
+	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -35,7 +36,7 @@ func liveStore(t *testing.T, metric string, model embedding.Model) (*Store, *ela
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	t.Cleanup(transport.CloseIdleConnections)
-	client, err := elasticsearchsdk.NewClient(elasticsearchsdk.Config{Addresses: []string{endpoint}, Username: os.Getenv("SCOPE_ELASTICSEARCH_USERNAME"), Password: os.Getenv("SCOPE_ELASTICSEARCH_PASSWORD"), Transport: transport})
+	client, err := elasticsearchsdk.New(elasticsearchsdk.WithAddresses(endpoint), elasticsearchsdk.WithBasicAuth(os.Getenv("SCOPE_ELASTICSEARCH_USERNAME"), os.Getenv("SCOPE_ELASTICSEARCH_PASSWORD")), elasticsearchsdk.WithTransportOptions(elastictransport.WithTransport(transport)))
 	if err != nil {
 		t.Fatal(err)
 	}

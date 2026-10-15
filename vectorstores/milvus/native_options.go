@@ -1,11 +1,11 @@
 package milvus
 
 import (
-	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
-	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
-	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
-	"github.com/milvus-io/milvus/client/v2/entity"
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
+	"github.com/milvus-io/milvus-proto/go-api/v3/milvuspb"
+	"github.com/milvus-io/milvus-proto/go-api/v3/schemapb"
+	"github.com/milvus-io/milvus/client/v3/entity"
+	"github.com/milvus-io/milvus/client/v3/milvusclient"
 )
 
 // The SDK iterator interpolates VARCHAR cursors without escaping. Native
@@ -37,8 +37,11 @@ type nativeDeletion struct {
 	metadata   *string
 }
 
-func (n nativeDeletion) Request() *milvuspb.DeleteRequest {
-	request := milvusclient.NewDeleteOption(n.collection).WithExpr("id in {ids}").Request()
+func (n nativeDeletion) Request() (*milvuspb.DeleteRequest, error) {
+	request, err := milvusclient.NewDeleteOption(n.collection).WithExpr("id in {ids}").Request()
+	if err != nil {
+		return nil, err
+	}
 	request.ConsistencyLevel = commonpb.ConsistencyLevel_Strong
 	request.ExprTemplateValues = map[string]*schemapb.TemplateValue{
 		"ids": {Val: &schemapb.TemplateValue_ArrayVal{ArrayVal: &schemapb.TemplateArrayValue{Data: &schemapb.TemplateArrayValue_StringData{StringData: &schemapb.StringArray{Data: n.ids}}}}},
@@ -47,5 +50,5 @@ func (n nativeDeletion) Request() *milvuspb.DeleteRequest {
 		request.Expr += " and metadata == {metadata}"
 		request.ExprTemplateValues["metadata"] = &schemapb.TemplateValue{Val: &schemapb.TemplateValue_StringVal{StringVal: *n.metadata}}
 	}
-	return request
+	return request, nil
 }

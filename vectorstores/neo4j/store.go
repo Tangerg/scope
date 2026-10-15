@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
@@ -34,7 +34,7 @@ const (
 
 // Driver creates sessions; its connection pool remains owned by the host.
 type Driver interface {
-	NewSession(context.Context, neo4j.SessionConfig) neo4j.SessionWithContext
+	NewSession(context.Context, neo4j.SessionConfig) neo4j.Session
 }
 
 type SimilarityFunction string

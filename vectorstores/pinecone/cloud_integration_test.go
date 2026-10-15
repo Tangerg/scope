@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"

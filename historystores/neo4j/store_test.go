@@ -4,15 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	neo4jstore "github.com/Tangerg/scope/historystores/neo4j"
 )
 
-// stubDriver is a non-nil but never-used DriverWithContext for tests
+// stubDriver is a non-nil but never-used Driver for tests
 // that only exercise validation. The driver is never queried.
-func stubDriver() neo4j.DriverWithContext {
-	drv, _ := neo4j.NewDriverWithContext("bolt://127.0.0.1:0", neo4j.NoAuth())
+func stubDriver() neo4j.Driver {
+	drv, _ := neo4j.NewDriver("bolt://127.0.0.1:0", neo4j.NoAuth())
 	return drv
 }
 

@@ -3,9 +3,8 @@ package markdown_test
 import (
 	"testing"
 
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/parser"
 
 	"github.com/Tangerg/scope/etl/markdown"
 )
@@ -26,7 +25,7 @@ func TestIndentedCodePreserved(t *testing.T) {
 	if chunks[0] != "    secret := 1\n    print(secret)" {
 		t.Fatalf("code indentation changed: %q", chunks[0])
 	}
-	tree := goldmark.DefaultParser().Parse(text.NewReader([]byte(chunks[0])))
+	tree := parser.New().Parse([]byte(chunks[0]))
 	if _, ok := tree.FirstChild().(*ast.CodeBlock); !ok {
 		t.Fatalf("code became %s after split: %q", tree.FirstChild().Kind(), chunks[0])
 	}

@@ -176,14 +176,16 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		o.refused = true
 		parts = append(parts, corechat.NewRefusalDelta(choice.Delta.Refusal))
 	}
-	if field, found := choice.Delta.JSON.ExtraFields["audio"]; found && field.Raw() != "null" {
+	if field := choice.Delta.JSON.Audio; field.Raw() != "" && field.Raw() != "null" {
+		// The SDK coerces response numbers to strings; Core requires the wire
+		// audio fields to retain their declared types before accumulation.
 		var audio struct {
 			ID         string `json:"id"`
 			Data       string `json:"data"`
 			Transcript string `json:"transcript"`
 		}
 		if err := jsonv2.Unmarshal([]byte(field.Raw()), &audio); err != nil {
-			return nil, fmt.Errorf("audio delta: %w", err)
+			return nil, fmt.Errorf("audio delta: %w: %w", corechat.ErrInvalidResponse, err)
 		}
 		if audio.ID != "" {
 			if o.audioID != "" && o.audioID != audio.ID {

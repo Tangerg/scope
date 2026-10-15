@@ -7,7 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/gocql/gocql"
+	gocql "github.com/apache/cassandra-gocql-driver/v2"
+	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
@@ -18,8 +19,16 @@ const (
 	DefaultTableName = "chat_history"
 )
 
+// Session supplies the query and batch operations used by Store. The caller
+// owns the session. Batch copies its immutable default consistency without I/O;
+// Store never changes that default or closes the session.
+type Session interface {
+	Query(string, ...any) *gocql.Query
+	Batch(gocql.BatchType) *gocql.Batch
+}
+
 type StoreConfig struct {
-	Session *gocql.Session
+	Session Session
 
 	// Keyspace must already exist: Cassandra keyspace creation needs
 	// replication-strategy choices the store cannot make for the caller.
@@ -32,7 +41,7 @@ type StoreConfig struct {
 }
 
 func (s StoreConfig) Validate() error {
-	if s.Session == nil {
+	if lo.IsNil(s.Session) {
 		return errors.New("cassandra: session is required")
 	}
 	if s.Keyspace != "" && !validIdentifier(s.Keyspace) {
@@ -45,6 +54,7 @@ func (s StoreConfig) Validate() error {
 }
 
 var (
+	_ Session        = (*gocql.Session)(nil)
 	_ history.Store  = (*Store)(nil)
 	_ history.Lister = (*Store)(nil)
 )
@@ -54,7 +64,7 @@ var (
 // argument order with a locally monotonic TIMEUUID range; relative ordering
 // across concurrent calls or separate Store values remains unspecified.
 type Store struct {
-	session  *gocql.Session
+	session  Session
 	sequence *history.Sequence
 
 	writeCQL  string
@@ -78,11 +88,9 @@ var ErrUnacknowledgedWrites = errors.New("cassandra: session consistency does no
 // is gone if the hint expires before delivery. That is a stored conversation
 // reported to a caller who has not got one.
 //
-// The level is read off a batch rather than the session, because that is the
-// only exported path to it; building one performs no I/O and NewBatch copies
-// the session's own value.
-func requireDurableConsistency(session *gocql.Session) error {
-	if consistency := session.NewBatch(gocql.UnloggedBatch).GetConsistency(); consistency == gocql.Any {
+// Admission reads the default through the same batch constructor Write uses.
+func requireDurableConsistency(session Session) error {
+	if consistency := session.Batch(gocql.UnloggedBatch).GetConsistency(); consistency == gocql.Any {
 		return fmt.Errorf("%w: consistency is %s", ErrUnacknowledgedWrites, consistency)
 	}
 	return nil
@@ -128,7 +136,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 
 	if config.InitializeSchema {
-		if err := s.session.Query(s.createCQL).WithContext(ctx).Exec(); err != nil {
+		if err := s.session.Query(s.createCQL).ExecContext(ctx); err != nil {
 			return nil, fmt.Errorf("cassandra: create table: %w", err)
 		}
 	}
@@ -151,14 +159,14 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	if err != nil {
 		return outcome, fmt.Errorf("cassandra: write: encode messages: %w", err)
 	}
-	batch := s.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+	batch := s.session.Batch(gocql.UnloggedBatch)
 	sequenceBase := s.sequence.Reserve(len(encoded))
 	for index, raw := range encoded {
 		messageSequence := sequenceUUID(sequenceBase, index)
 		batch.Query(s.writeCQL, conversationID.String(), messageSequence, string(raw))
 	}
 	outcome.Uncertain = true
-	if err = s.session.ExecuteBatch(batch); err != nil {
+	if err = batch.ExecContext(ctx); err != nil {
 		return outcome, fmt.Errorf("cassandra: write: execute batch: %w", err)
 	}
 	return history.WriteOutcome{Accepted: len(messages)}, nil
@@ -176,7 +184,7 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 		return nil, err
 	}
 
-	iterator := s.session.Query(s.readCQL, conversationID.String()).WithContext(ctx).Iter()
+	iterator := s.session.Query(s.readCQL, conversationID.String()).IterContext(ctx)
 	defer closeIterator(iterator, "read", &err)
 
 	storedMessages = []chat.Message{}
@@ -200,7 +208,7 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 		return err
 	}
 
-	if err = s.session.Query(s.clearCQL, conversationID.String()).WithContext(ctx).Exec(); err != nil {
+	if err = s.session.Query(s.clearCQL, conversationID.String()).ExecContext(ctx); err != nil {
 		return fmt.Errorf("cassandra: clear: delete partition: %w", err)
 	}
 	return nil
@@ -213,7 +221,7 @@ func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID
 		return nil, err
 	}
 
-	iterator := s.session.Query(s.listCQL).WithContext(ctx).Iter()
+	iterator := s.session.Query(s.listCQL).IterContext(ctx)
 	defer closeIterator(iterator, "list conversations", &err)
 
 	ids = []history.ConversationID{}

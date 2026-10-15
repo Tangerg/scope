@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"github.com/milvus-io/milvus/client/v3/milvusclient"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"

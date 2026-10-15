@@ -4,7 +4,7 @@ import (
 	"errors"
 	"regexp"
 
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"github.com/milvus-io/milvus/client/v3/milvusclient"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/embedding"

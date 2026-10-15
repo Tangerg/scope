@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 
@@ -15,6 +15,7 @@ import (
 
 const (
 	Provider             = "Pinecone"
+	vectorField          = "_values"
 	MaxTopK              = 10000
 	MaxVectorsPerUpsert  = 1000
 	contentField         = "content"

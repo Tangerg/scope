@@ -3,7 +3,7 @@ package milvus
 import (
 	"testing"
 
-	"github.com/milvus-io/milvus/client/v2/entity"
+	"github.com/milvus-io/milvus/client/v3/entity"
 
 	"github.com/Tangerg/scope/core/vectorstore"
 )

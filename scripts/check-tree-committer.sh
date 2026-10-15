@@ -21,7 +21,7 @@ container=$(docker run -d --pull=missing --label scope.tree-committer-test=true 
   -p 127.0.0.1::5432 \
   --health-cmd='pg_isready -U scope_test -d scope_treecommit_test' \
   --health-interval=1s --health-timeout=3s --health-retries=30 \
-  postgres:15-alpine@sha256:2e7b888f221193cddee9ce554d3311dc8be197a5d0c904fe30f5f568e0f99851 \
+  postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 \
   -c fsync=on -c synchronous_commit=on -c full_page_writes=on)
 
 ready=0

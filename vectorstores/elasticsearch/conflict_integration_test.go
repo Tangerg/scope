@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	elasticsearchsdk "github.com/elastic/go-elasticsearch/v8"
+	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"

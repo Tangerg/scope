@@ -17,7 +17,8 @@ import (
 	"testing"
 	"time"
 
-	elasticsearchsdk "github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/elastic-transport-go/v8/elastictransport"
+	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -66,7 +67,7 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]storedDocument), scores: make(map[string]float64), mapping: nativeMapping{Dynamic: "strict", Properties: map[string]mappedField{contentField: {Type: "text"}, metadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, embeddingField: {Type: "dense_vector", Dimensions: 2, Similarity: "cosine"}}}, settings: nativeSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.mapping.source.mode": "STORED", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
 	server := httptest.NewServer(fixture)
 	t.Cleanup(server.Close)
-	client, err := elasticsearchsdk.NewClient(elasticsearchsdk.Config{Addresses: []string{server.URL}, Transport: server.Client().Transport, DisableRetry: true})
+	client, err := elasticsearchsdk.New(elasticsearchsdk.WithAddresses(server.URL), elasticsearchsdk.WithTransportOptions(elastictransport.WithTransport(server.Client().Transport), elastictransport.WithDisableRetry()))
 	if err != nil {
 		t.Fatal(err)
 	}

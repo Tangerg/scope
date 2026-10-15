@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 
 	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -211,7 +211,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 				return nil, err
 			}
 			rank := raw
-			if s.schema.metric == pineconesdk.Euclidean {
+			if s.schema.metric == pineconesdk.IndexMetricEuclidean {
 				rank = -raw
 			}
 			ranked = append(ranked, scoredDocument{result: result, rank: rank})

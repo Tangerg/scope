@@ -10,11 +10,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/samber/lo"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
-	extensionast "github.com/yuin/goldmark/extension/ast"
-	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/v2/ast"
+	"github.com/yuin/goldmark/v2/extension"
+	extensionast "github.com/yuin/goldmark/v2/extension/ast"
+	"github.com/yuin/goldmark/v2/parser"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
@@ -50,7 +49,7 @@ type SplitterConfig struct {
 // list items, or code lines. Active heading ancestry is repeated in each chunk
 // so independently retrieved chunks retain their section context.
 type Splitter struct {
-	parser            goldmark.Markdown
+	parser            parser.Parser
 	tokenizer         tokenizer.Tokenizer
 	maxTokensPerChunk int
 	maxChunks         int
@@ -76,7 +75,7 @@ func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	}
 
 	splitter := &Splitter{
-		parser:            goldmark.New(goldmark.WithExtensions(extension.Table)),
+		parser:            parser.New(parser.WithExtensions(extension.TableParser)),
 		tokenizer:         config.Tokenizer,
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		maxChunks:         config.MaxChunks,
@@ -193,7 +192,7 @@ func (s *sectionBuilder) finish() []markdownSection {
 }
 
 func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
-	root := s.parser.Parser().Parse(text.NewReader(source))
+	root := s.parser.Parse(source)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -243,10 +242,11 @@ func classifyBlock(source []byte, node ast.Node, end int, raw string) markdownBl
 	case *ast.List:
 		block.kind = blockList
 		block.parts = childSources(source, typed, end)
-	case *ast.FencedCodeBlock:
-		block.kind = blockFencedCode
 	case *ast.CodeBlock:
 		block.kind = blockIndentedCode
+		if typed.CodeBlockKind == ast.CodeBlockKindFenced {
+			block.kind = blockFencedCode
+		}
 	default:
 		block.kind = blockAtomic
 	}

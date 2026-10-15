@@ -1,16 +1,18 @@
 package opensearch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
-	opensearchsdk "github.com/opensearch-project/opensearch-go/v4"
+	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/embedding"
 
@@ -265,13 +267,23 @@ func (c *countedBody) Close() error { c.closed = true; return nil }
 
 type nativeBodyTransport struct{ body *countedBody }
 
-func (n nativeBodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
+func (n nativeBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if response, health := nativeHealthResponse(request); health {
+		encoded, err := jsonv2.Marshal(response)
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(encoded))}, nil
+	}
+	if request.Method != http.MethodGet || request.URL.Path != "/documents/_mapping" {
+		return nil, fmt.Errorf("unexpected native request %s %s", request.Method, request.URL)
+	}
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: n.body}, nil
 }
 
 func TestNativeStreamingTransportEnforcesBoundBeforeBuffering(t *testing.T) {
 	body := &countedBody{Reader: strings.NewReader(strings.Repeat("x", 1<<20))}
-	client, err := opensearchsdk.NewClient(opensearchsdk.Config{Addresses: []string{"http://native.fixture"}, Transport: nativeBodyTransport{body: body}, DisableRetry: true})
+	client, err := opensearchsdk.NewClient(opensearchsdk.Config{Addresses: []string{"http://native.fixture"}, Transport: nativeBodyTransport{body: body}, DisableRetry: true, DiscoverNodesOnStart: new(false)})
 	if err != nil {
 		t.Fatal(err)
 	}

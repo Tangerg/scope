@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
-	go_ora "github.com/sijms/go-ora/v2"
+	oratypes "github.com/sijms/go-ora/v3/types"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -76,7 +76,7 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 }
 
 type StoreConfig struct {
-	// DB must be a *sql.DB built from github.com/sijms/go-ora/v2 pointed at
+	// DB must be a *sql.DB built from github.com/sijms/go-ora/v3 pointed at
 	// an Oracle 23ai instance.
 	DB *sql.DB
 
@@ -377,7 +377,15 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 				if err != nil {
 					return fmt.Errorf("oracle: marshal vector for %s: %w", id, err)
 				}
-				if _, err := stmt.ExecContext(ctx, []byte(id), go_ora.Clob{String: doc.Text, Valid: true}, go_ora.Blob{Data: metaJSON}, string(vectorJSON)); err != nil {
+				content, err := oratypes.NewClob(nil, ctx, doc.Text, false)
+				if err != nil {
+					return fmt.Errorf("oracle: encode content for %s: %w", id, err)
+				}
+				facts, err := oratypes.NewBlob(nil, ctx, metaJSON)
+				if err != nil {
+					return fmt.Errorf("oracle: encode metadata for %s: %w", id, err)
+				}
+				if _, err := stmt.ExecContext(ctx, []byte(id), content, facts, string(vectorJSON)); err != nil {
 					return fmt.Errorf("merge %s: %w", id, err)
 				}
 			}

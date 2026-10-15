@@ -6,10 +6,10 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
-	"github.com/milvus-io/milvus/client/v2/entity"
-	"github.com/milvus-io/milvus/client/v2/index"
-	"github.com/milvus-io/milvus/client/v2/milvusclient"
+	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
+	"github.com/milvus-io/milvus/client/v3/entity"
+	"github.com/milvus-io/milvus/client/v3/index"
+	"github.com/milvus-io/milvus/client/v3/milvusclient"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/embedding"

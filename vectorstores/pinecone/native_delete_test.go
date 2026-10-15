@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	pineconesdk "github.com/pinecone-io/go-pinecone/v4/pinecone"
+	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -13,7 +13,7 @@ import (
 )
 
 func TestNativeSDKConditionalDeleteWire(t *testing.T) {
-	file, err := protoregistry.GlobalFiles.FindFileByPath("db_data_2025-04.proto")
+	file, err := protoregistry.GlobalFiles.FindFileByPath("db_data_2026-07.proto")
 	if err != nil {
 		t.Fatal(err)
 	}
