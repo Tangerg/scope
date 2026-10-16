@@ -304,8 +304,6 @@ func TestRegister_SnapshotsDefinitionOnce(t *testing.T) {
 	assert.EqualValues(t, 1, tool.definitionCalls.Load())
 }
 
-// validatingTool adds an input validator to a testTool so admission-time
-// classification can be exercised end to end.
 type validatingTool struct {
 	testTool
 	validator func([]byte) error

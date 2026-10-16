@@ -13,8 +13,7 @@ import (
 type ToolSource struct {
 	Name string
 
-	// Session must be initialized. Discovered tools borrow it; the caller
-	// closes it.
+	// The caller owns the session lifetime.
 	Session *sdkmcp.ClientSession
 }
 
@@ -34,14 +33,11 @@ type ToolConcurrencyPolicy func(
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
 type ToolDiscoveryConfig struct {
-	// PublicName nil uses "<sourceName>_<remoteName>" sanitized to the
-	// function-name charset model providers accept, truncated to 64 bytes.
 	PublicName PublicToolNameFunc
 
 	RequestMeta RequestMetaFunc
 
-	// ConcurrencyPolicy nil supplies no overlap declaration, because protocol
-	// descriptors carry no trustworthy resource-conflict contract.
+	// Protocol descriptors cannot establish resource conflicts for the host.
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 

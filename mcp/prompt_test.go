@@ -69,3 +69,55 @@ func TestPromptMessagesToChatSkipsEmptyText(t *testing.T) {
 		t.Fatalf("messages = %#v, want empty", messages)
 	}
 }
+
+func TestPromptMessagesToChatCoversEveryProtocolShape(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		content sdkmcp.Content
+		kind    chat.PartKind
+	}{
+		{name: "text", content: &sdkmcp.TextContent{Text: "hello"}, kind: chat.PartText},
+		{name: "empty text is dropped", content: &sdkmcp.TextContent{}},
+		{name: "image", content: &sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte("\x89PNG")}, kind: chat.PartMedia},
+		{name: "audio", content: &sdkmcp.AudioContent{MIMEType: "audio/mpeg", Data: []byte("\xFF")}, kind: chat.PartMedia},
+		{name: "resource link", content: &sdkmcp.ResourceLink{MIMEType: "image/png", URI: "https://example.com/a.png"}, kind: chat.PartMedia},
+		{name: "embedded text", content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///inline", Text: "inline"}}, kind: chat.PartText},
+		{name: "embedded blob", content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///image", MIMEType: "image/png", Blob: []byte("\x89PNG")}}, kind: chat.PartMedia},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			messages, err := scopemcp.PromptMessagesToChat([]*sdkmcp.PromptMessage{{Role: "user", Content: test.content}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.kind == "" {
+				if len(messages) != 0 {
+					t.Fatalf("empty content produced messages: %#v", messages)
+				}
+				return
+			}
+			if len(messages) != 1 || len(messages[0].Parts) != 1 {
+				t.Fatalf("expected one message with one part: %#v", messages)
+			}
+			if messages[0].Role != chat.RoleUser || messages[0].Parts[0].Kind != test.kind {
+				t.Fatalf("message = %#v, want user with %s part", messages[0], test.kind)
+			}
+		})
+	}
+}
+
+func TestPromptMessagesToChatRejectsUnusableContent(t *testing.T) {
+	for name, content := range map[string]sdkmcp.Content{
+		"nil text":          (*sdkmcp.TextContent)(nil),
+		"nil image":         (*sdkmcp.ImageContent)(nil),
+		"nil audio":         (*sdkmcp.AudioContent)(nil),
+		"nil resource link": (*sdkmcp.ResourceLink)(nil),
+		"nil embedded":      (*sdkmcp.EmbeddedResource)(nil),
+		"empty embedded":    &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := scopemcp.PromptMessagesToChat([]*sdkmcp.PromptMessage{{Role: "user", Content: content}}); err == nil {
+				t.Fatal("unusable prompt content was accepted")
+			}
+		})
+	}
+}

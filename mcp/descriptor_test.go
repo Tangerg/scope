@@ -39,16 +39,13 @@ func TestDescriptorSnapshotOwnsOnlyProjectedSDKValues(t *testing.T) {
 	original.InputSchema.(map[string]any)["type"] = "array"
 	original.OutputSchema.(map[string]any)["type"] = "string"
 	*original.Annotations.DestructiveHint = true
+	*original.Annotations.OpenWorldHint = true
 	assert.Equal(t, "remote", snapshot.remoteName)
 	assert.Equal(t, "public", snapshot.definition.Name)
 	assert.Equal(t, "original", snapshot.definition.Description)
 	assert.JSONEq(t, `{"type":"object","properties":{"x":{"type":"string"}}}`, string(snapshot.definition.InputSchema))
 	require.NoError(t, snapshot.outputSchema.Validate([]byte(`3`)))
 	require.Error(t, snapshot.outputSchema.Validate([]byte(`"3"`)))
-	first := snapshot.annotations()
-	*first.DestructiveHint = true
-	*first.OpenWorldHint = true
-	second := snapshot.annotations()
-	assert.False(t, *second.DestructiveHint)
-	assert.False(t, *second.OpenWorldHint)
+	assert.False(t, *snapshot.toolAnnotations.DestructiveHint)
+	assert.False(t, *snapshot.toolAnnotations.OpenWorldHint)
 }

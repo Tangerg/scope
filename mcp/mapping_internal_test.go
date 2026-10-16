@@ -285,50 +285,6 @@ func TestRemoteContentRejectsMediaFieldsOnText(t *testing.T) {
 	}
 }
 
-func TestPromptContentToPartCoversEveryProtocolShape(t *testing.T) {
-	cases := map[string]struct {
-		content sdkmcp.Content
-		include bool
-	}{
-		"text":                  {content: &sdkmcp.TextContent{Text: "hello"}, include: true},
-		"empty text is dropped": {content: &sdkmcp.TextContent{}},
-		"image":                 {content: &sdkmcp.ImageContent{MIMEType: pngMIME, Data: []byte("\x89PNG")}, include: true},
-		"audio":                 {content: &sdkmcp.AudioContent{MIMEType: "audio/mpeg", Data: []byte("\xFF")}, include: true},
-		"resource link":         {content: &sdkmcp.ResourceLink{MIMEType: pngMIME, URI: "https://example.com/a.png"}, include: true},
-		"embedded text":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///inline", Text: "inline"}}, include: true},
-		"embedded blob":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///image", MIMEType: pngMIME, Blob: []byte("\x89PNG")}}, include: true},
-	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			part, include, err := promptContentToPart(testCase.content)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if include != testCase.include {
-				t.Fatalf("include = %t, want %t (part %#v)", include, testCase.include, part)
-			}
-		})
-	}
-}
-
-func TestPromptContentToPartRejectsUnusableContent(t *testing.T) {
-	cases := map[string]sdkmcp.Content{
-		"nil text":          (*sdkmcp.TextContent)(nil),
-		"nil image":         (*sdkmcp.ImageContent)(nil),
-		"nil audio":         (*sdkmcp.AudioContent)(nil),
-		"nil resource link": (*sdkmcp.ResourceLink)(nil),
-		"nil embedded":      (*sdkmcp.EmbeddedResource)(nil),
-		"empty embedded":    &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{}},
-	}
-	for name, content := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, _, err := promptContentToPart(content); err == nil {
-				t.Fatal("unusable prompt content was accepted")
-			}
-		})
-	}
-}
-
 func TestMapServerContentEscapesInlineResourceNames(t *testing.T) {
 	opaque, err := media.NewBytes("application/pdf", []byte("%PDF"))
 	if err != nil {

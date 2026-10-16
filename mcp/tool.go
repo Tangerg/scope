@@ -36,7 +36,7 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 		return nil
 	}
 	policy, sourceName, remoteName := r.concurrencyPolicy, r.sourceName, r.descriptor.remoteName
-	annotations := r.descriptor.annotations()
+	annotations := r.descriptor.toolAnnotations
 	return func(invocation toolcontract.Invocation) (string, bool) {
 		return policy(sourceName, remoteName, cloneToolAnnotations(annotations), invocation)
 	}

@@ -56,7 +56,7 @@ type contentEnvelope struct {
 	Description string              `json:"description,omitempty"`
 	Size        *int64              `json:"size,omitzero"`
 	Icons       []sdkmcp.Icon       `json:"icons,omitempty"`
-	// Do not re-export an inferred MIME type as a server declaration.
+	// A guessed MIME type is not a declaration by the remote server.
 	MIMETypeInferred bool `json:"mimeTypeInferred,omitzero"`
 }
 
@@ -316,8 +316,13 @@ func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
 	if _, collision := envelope.Meta[coreContentMetadataKey]; collision {
 		return nil, errors.New("mcp: content metadata uses the reserved Core metadata key")
 	}
+	if envelope.Kind == "" {
+		if err := envelope.infer(part); err != nil {
+			return nil, err
+		}
+	}
 	if part.Kind == chat.PartMedia {
-		if !envelope.linksMedia(part.Media) {
+		if envelope.Kind != contentLink {
 			portable.Name = part.Media.Name
 		}
 		portable.MediaID, portable.MediaMetadata = part.Media.ID, part.Media.Metadata.Clone()
@@ -331,11 +336,6 @@ func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
 }
 
 func (c contentEnvelope) content(part chat.ToolContent) (sdkmcp.Content, error) {
-	if c.Kind == "" {
-		if err := c.infer(part); err != nil {
-			return nil, err
-		}
-	}
 	if err := c.validateFields(part.Kind); err != nil {
 		return nil, err
 	}
@@ -383,13 +383,6 @@ func (c contentEnvelope) validateFields(part chat.PartKind) error {
 		return errors.New("mcp: content metadata marks an inferred MIME type on content without media")
 	}
 	return nil
-}
-
-func (c contentEnvelope) linksMedia(value *media.Media) bool {
-	if c.Kind == "" {
-		return value.Source.Kind != media.SourceBytes
-	}
-	return c.Kind == contentLink
 }
 
 func (c contentEnvelope) bytesContent(value *media.Media, meta sdkmcp.Meta) (sdkmcp.Content, error) {

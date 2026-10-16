@@ -12,7 +12,7 @@ type RequestMetaFunc func(ctx context.Context) sdkmcp.Meta
 
 type requestMetaContextKey struct{}
 
-// The context must not retain buffers the caller can mutate.
+// Callers may reuse metadata buffers while the request is in flight.
 func WithRequestMeta(ctx context.Context, meta sdkmcp.Meta) context.Context {
 	if len(meta) == 0 {
 		return ctx

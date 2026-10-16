@@ -200,14 +200,23 @@ func TestToolsConcurrencyPolicyReceivesRemoteIdentity(t *testing.T) {
 
 func TestToolsConcurrencyPolicyCannotMutateDescriptor(t *testing.T) {
 	ctx := t.Context()
-	cs, _, cleanup := startServerWithEcho(t, ctx)
-	defer cleanup()
-
-	var destructive []bool
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "policy-test"}, nil)
+	server.AddTool(&sdkmcp.Tool{
+		Name: "echo", Description: "echo the input", InputSchema: json.RawMessage(echoSchema),
+		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)},
+	}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "stable"}}}, nil
+	})
+	cs := connectContentServer(t, server)
+	var destructive, openWorld []bool
 	wrapped, err := scopemcp.DiscoverTools(ctx, []scopemcp.ToolSource{{Name: "primary", Session: cs}}, scopemcp.ToolDiscoveryConfig{
 		ConcurrencyPolicy: func(_, _ string, annotations sdkmcp.ToolAnnotations, _ toolcontract.Invocation) (string, bool) {
-			destructive = append(destructive, annotations.DestructiveHint != nil && *annotations.DestructiveHint)
-			annotations.DestructiveHint = new(true)
+			require.NotNil(t, annotations.DestructiveHint)
+			require.NotNil(t, annotations.OpenWorldHint)
+			destructive = append(destructive, *annotations.DestructiveHint)
+			openWorld = append(openWorld, *annotations.OpenWorldHint)
+			*annotations.DestructiveHint = true
+			*annotations.OpenWorldHint = true
 			return "", true
 		},
 	})
@@ -226,7 +235,10 @@ func TestToolsConcurrencyPolicyCannotMutateDescriptor(t *testing.T) {
 		_, concurrent := policy(invocation)
 		assert.True(t, concurrent)
 	}
-	assert.Equal(t, []bool{false, false}, destructive)
+	_, concurrent := scheduled.ConcurrencyPolicy()(invocation)
+	assert.True(t, concurrent)
+	assert.Equal(t, []bool{false, false, false}, destructive)
+	assert.Equal(t, []bool{false, false, false}, openWorld)
 
 	out, err := invokeTestTool(ctx, wrapped[0], `{"text":"stable"}`)
 	require.NoError(t, err)

@@ -49,10 +49,6 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 	return snapshot, nil
 }
 
-func (d descriptorSnapshot) annotations() sdkmcp.ToolAnnotations {
-	return cloneToolAnnotations(d.toolAnnotations)
-}
-
 func cloneToolAnnotations(annotations sdkmcp.ToolAnnotations) sdkmcp.ToolAnnotations {
 	if annotations.DestructiveHint != nil {
 		annotations.DestructiveHint = new(*annotations.DestructiveHint)
