@@ -8,10 +8,8 @@ import (
 
 var _ ToolConcurrencyPolicy = AnnotatedReadOnlyConcurrencyPolicy
 
-// AnnotatedReadOnlyConcurrencyPolicy declares no conflict when readOnlyHint is
-// true and destructiveHint is absent or false. The Host must trust those hints
-// to describe the tool's effects; the classifier neither orders remote
-// execution nor authorizes calls.
+// Only the host can establish whether remote hints describe actual effects.
+// Classification neither orders execution nor authorizes calls.
 func AnnotatedReadOnlyConcurrencyPolicy(_, _ string, annotations sdkmcp.ToolAnnotations, _ toolcontract.Invocation) (key string, concurrent bool) {
 	if !annotations.ReadOnlyHint {
 		return "", false

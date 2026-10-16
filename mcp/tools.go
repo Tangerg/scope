@@ -10,9 +10,7 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ToolSource is one live client session whose tools DiscoverTools projects.
 type ToolSource struct {
-	// Name prefixes public tool names and errors. Empty is allowed.
 	Name string
 
 	// Session must be initialized. Discovered tools borrow it; the caller
@@ -20,33 +18,26 @@ type ToolSource struct {
 	Session *sdkmcp.ClientSession
 }
 
-// ToolConcurrencyPolicy supplies a Host classifier for calls from one model
-// response. Its result follows the scheduling contract of
-// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool].
-// The adapter does not serialize direct Tool.Call invocations.
-//
-// It receives an isolated copy of the annotations and a schema-validated
-// invocation. It must be deterministic, side-effect-free, and safe for
-// concurrent use, because a durable resume may plan queued calls again. It must
-// not capture a Tool, session, or execution backend: schedulers retain it
-// beyond the remote tool's execution lifetime.
+// Schedulers may rerun this callback during durable recovery and retain it
+// beyond RPC sessions. It must be deterministic, side-effect-free, safe for
+// concurrent use, and free of Tool, session, or execution-backend captures.
+// Annotations are isolated and the invocation is schema-validated. Results follow
+// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool]; direct
+// Tool.Call invocations remain the host's responsibility.
 type ToolConcurrencyPolicy func(
 	sourceName, remoteName string,
 	annotations sdkmcp.ToolAnnotations,
 	invocation toolcontract.Invocation,
 ) (key string, concurrent bool)
 
-// PublicToolNameFunc projects remote identities into model-compatible names.
 // The Host owns collision resolution across independent server catalogs.
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
-// ToolDiscoveryConfig configures how DiscoverTools projects remote tools.
 type ToolDiscoveryConfig struct {
 	// PublicName nil uses "<sourceName>_<remoteName>" sanitized to the
 	// function-name charset model providers accept, truncated to 64 bytes.
 	PublicName PublicToolNameFunc
 
-	// RequestMeta nil forwards no metadata on tool calls.
 	RequestMeta RequestMetaFunc
 
 	// ConcurrencyPolicy nil supplies no overlap declaration, because protocol
@@ -64,8 +55,6 @@ func (t ToolDiscoveryConfig) publicName(sourceName, remoteName string) string {
 	return chat.SanitizeToolName(sourceName + "_" + remoteName)
 }
 
-// DiscoverTools reads each live session's current catalog and projects every
-// remote descriptor into a Scope tool. It does not cache or own the sessions.
 func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscoveryConfig) ([]toolcontract.Tool, error) {
 	var tools []toolcontract.Tool
 	seen := make(map[string]struct{})

@@ -7,7 +7,6 @@ import (
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 )
 
-// ErrNoServerSession reports a reverse call made outside an MCP tool invocation.
 var ErrNoServerSession = errors.New("mcp: no active MCP server session on context")
 
 type serverCall struct {
@@ -36,9 +35,7 @@ func serverCallFromContext(ctx context.Context) serverCall {
 	return call
 }
 
-// ReportProgress requires a client-supplied progressToken; otherwise it returns
-// nil without sending a notification. Progress should increase monotonically.
-// A nil total means the work size is unknown. Session errors propagate unchanged.
+// Without a progress token, the client has not requested notifications.
 func ReportProgress(ctx context.Context, progress float64, total *float64, message string) error {
 	return serverCallFromContext(ctx).reportProgress(ctx, progress, total, message)
 }
@@ -61,8 +58,6 @@ func (s serverCall) reportProgress(ctx context.Context, progress float64, total 
 	return s.session.NotifyProgress(ctx, params)
 }
 
-// Elicit asks the connected client for structured user input. It returns
-// ErrNoServerSession outside MCP dispatch and preserves RPC error causes.
 func Elicit(ctx context.Context, params sdkmcp.ElicitParams) (*sdkmcp.ElicitResult, error) {
 	return serverCallFromContext(ctx).elicit(ctx, params)
 }

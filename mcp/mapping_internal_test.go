@@ -257,11 +257,11 @@ func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
 	}
 }
 
-func TestMapServerMediaRejectsAnUnusableSource(t *testing.T) {
-	if _, err := mapServerMedia(&media.Media{MIME: "not a mime"}, nil); err == nil {
+func TestMapServerContentRejectsAnUnusableMediaSource(t *testing.T) {
+	if _, err := mapServerContent(corechat.ToolContent{Kind: corechat.PartMedia, Media: &media.Media{MIME: "not a mime"}}); err == nil {
 		t.Fatal("an unparsable MIME type was accepted")
 	}
-	if _, err := mapServerMedia(&media.Media{MIME: pngMIME}, nil); err == nil {
+	if _, err := mapServerContent(corechat.ToolContent{Kind: corechat.PartMedia, Media: &media.Media{MIME: pngMIME}}); err == nil {
 		t.Fatal("an unset media source was accepted")
 	}
 }
@@ -329,13 +329,13 @@ func TestPromptContentToPartRejectsUnusableContent(t *testing.T) {
 	}
 }
 
-func TestMapServerMediaEscapesInlineResourceNames(t *testing.T) {
+func TestMapServerContentEscapesInlineResourceNames(t *testing.T) {
 	opaque, err := media.NewBytes("application/pdf", []byte("%PDF"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	opaque.Name = "quarterly report#1?.pdf"
-	content, err := mapServerMedia(opaque, nil)
+	content, err := mapServerContent(corechat.ToolContent{Kind: corechat.PartMedia, Media: opaque})
 	if err != nil {
 		t.Fatal(err)
 	}

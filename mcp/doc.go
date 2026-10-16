@@ -17,8 +17,6 @@
 // must complete that exchange through the SDK. Successful structured results
 // are validated against the output schema frozen at discovery.
 //
-// Spans record error classifications, never raw error messages.
-//
 // Tool results and prompts share one content codec. [ContentMetadataKey]
 // carries MCP annotations, resource provenance, and presentation metadata
 // that Core has no field for, and Core metadata, citations, and media names,
@@ -37,11 +35,4 @@
 // validation. Native _meta values remain json.RawMessage throughout SDK decoding
 // and Scope projection, preserving nested numbers, null, and empty values.
 // Consumers decode metadata into their declared types when interpreting it.
-//
-// The wire contract tests use independently encoded HTTP peers for discovery,
-// schema admission, exact structured results, error results, metadata, and
-// explicit SDK continuation. Registration is also checked by an independent
-// HTTP caller. An SDK replacement must preserve these tests, including exact
-// integers, long decimals, and present null versus missing structuredContent,
-// while replacing the one public SDK type family in the same migration.
 package mcp

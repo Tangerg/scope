@@ -23,8 +23,7 @@ import (
 
 const wireMCPVersion = "2026-07-28"
 
-// The peer uses independent JSON wire values; neither its descriptor nor its
-// results pass through the SDK encoder before reaching the client decoder.
+// Independent wire JSON prevents SDK encoder/decoder bugs from canceling out.
 type wireMCPPeer struct {
 	t          *testing.T
 	descriptor string

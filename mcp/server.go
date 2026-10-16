@@ -15,9 +15,8 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// Register validates the complete batch before adding any tool, so a rejected
-// batch adds nothing. Handlers keep the identity snapshotted at registration
-// even if a Tool later changes.
+// Atomic admission prevents partially registered catalogs. Handlers retain
+// the admitted identities because Tools may mutate after registration.
 func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
 	if server == nil {
 		return ErrNilServer
@@ -43,10 +42,7 @@ type serverTool struct {
 	name       string
 }
 
-// Invalid arguments and valid definite [toolcontract.Failure] outcomes become
-// model-visible IsError results. Ordinary errors, invalid Failures, and
-// unmappable outputs establish no definite Tool result, so they stay JSON-RPC
-// internal errors that preserve that uncertainty without leaking diagnostics.
+// Ordinary errors cannot prove a tool outcome, and diagnostics must not reach the model.
 func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 	toolName := s.name
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.serve "+toolName,
@@ -78,11 +74,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 	return result, nil
 }
 
-// prepareError maps an admission failure. A validator defect is an internal
-// fault, not a caller-correctable argument error, so it must never reach the
-// model; its classification takes priority over any Failure the recovered panic
-// value might wrap. Ordinary invalid arguments stay a model-visible error the
-// client can correct.
+// Validator panics are host defects, even when they wrap a tool Failure.
 func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
 	recordSpanError(span, err)
 	if _, defect := errors.AsType[*toolcontract.InputValidationPanicError](err); defect {

@@ -26,14 +26,11 @@ var _ toolcontract.Tool = remoteTool{}
 
 func (r remoteTool) Definition() corechat.ToolDefinition { return r.descriptor.definition.Clone() }
 
-// MCPToolIdentity returns the unsanitized source and remote tool names bound to
-// this wrapper. Consumers use the pair for policy decisions; Definition.Name is
-// a provider-constrained presentation label and is not an injective identity.
+// Sanitized provider names can collide; policy uses the original identity.
 func (r remoteTool) MCPToolIdentity() (sourceName, remoteName string) {
 	return r.sourceName, r.descriptor.remoteName
 }
 
-// ConcurrencyPolicy freezes scheduling data without retaining the RPC session.
 func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	if r.concurrencyPolicy == nil {
 		return nil
@@ -63,9 +60,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		Arguments: json.RawMessage(invocation.Arguments()),
 	}
 	if r.requestMeta != nil {
-		if meta := r.requestMeta(ctx); len(meta) > 0 {
-			params.Meta = sdkmcp.Meta(metadata.Map(meta).Clone())
-		}
+		params.Meta = sdkmcp.Meta(metadata.Map(r.requestMeta(ctx)).Clone())
 	}
 
 	res, err := r.session.CallTool(ctx, params)

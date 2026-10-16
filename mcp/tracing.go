@@ -12,7 +12,7 @@ import (
 
 var mcpTracer = otel.Tracer("github.com/Tangerg/scope/mcp")
 
-// Raw remote errors can contain business content; telemetry retains only their classification.
+// Remote errors may contain business data.
 func recordSpanError(span trace.Span, err error) {
 	classification := semconv.ErrorType(err)
 	switch {

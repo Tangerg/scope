@@ -13,9 +13,7 @@ const (
 	promptRoleAssistant sdkmcp.Role = "assistant"
 )
 
-// PromptMessagesToChat converts MCP prompt messages into Core chat messages
-// through the shared content codec. Messages whose only content is empty text
-// are omitted; malformed or unsupported content is an error.
+// Core cannot represent an empty text part, so empty MCP messages are omitted.
 func PromptMessagesToChat(messages []*sdkmcp.PromptMessage) ([]chat.Message, error) {
 	out := make([]chat.Message, 0, len(messages))
 	for index, message := range messages {

@@ -9,11 +9,7 @@ var (
 
 	ErrNilSession = errors.New("mcp: session must not be nil")
 
-	// ErrMediaReference rejects a Core media reference, an opaque handle valid
-	// only with the provider that issued it, which MCP has no content to carry.
 	ErrMediaReference = errors.New("mcp: media references cannot cross MCP")
 
-	// ErrEmptyEmbeddedResource identifies valid empty inline content that Core
-	// cannot represent. Its URI remains provenance, never a resource link.
 	ErrEmptyEmbeddedResource = errors.New("mcp: empty embedded resources are unsupported")
 )

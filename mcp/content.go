@@ -19,9 +19,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// ContentMetadataKey identifies MCP content annotations, resource provenance,
-// and media-type inference in Core Part and ToolContent metadata. Text and media stay in their Core
-// payload fields; this envelope never contains another copy of those payloads.
+// MCP-only facts live here so Core remains the sole owner of payload and media fields.
 const ContentMetadataKey = "mcp/content"
 
 const coreContentMetadataKey = "scope/content"
@@ -58,14 +56,12 @@ type contentEnvelope struct {
 	Description string              `json:"description,omitempty"`
 	Size        *int64              `json:"size,omitzero"`
 	Icons       []sdkmcp.Icon       `json:"icons,omitempty"`
-	// MIMETypeInferred records that the server declared no media type and Core
-	// Media.MIME holds the client's extension guess, so serving the content
-	// again omits the guess instead of presenting it as declared.
+	// Do not re-export an inferred MIME type as a server declaration.
 	MIMETypeInferred bool `json:"mimeTypeInferred,omitzero"`
 }
 
 type resourceEnvelope struct {
-	// URI is provenance for inline data; a linked resource uses Core Media.URI.
+	// Inline URIs record provenance; Core Media.URI alone owns links.
 	URI      string       `json:"uri,omitempty"`
 	MIMEType string       `json:"mimeType,omitempty"`
 	Meta     metadata.Map `json:"_meta,omitzero"`
@@ -98,14 +94,11 @@ func (r resourceEnvelope) contents(part chat.ToolContent, mimeTypeInferred bool)
 }
 
 type coreContentEnvelope struct {
-	Metadata  metadata.Map    `json:"metadata,omitzero"`
-	Citations []chat.Citation `json:"citations,omitempty"`
-	// Name carries Core Media.Name for every MCP content except a resource
-	// link, the only MCP content with a name field of its own.
-	Name string `json:"name,omitempty"`
-	// MediaID and MediaMetadata carry the Core Media fields no MCP content has.
-	MediaID       string       `json:"media_id,omitempty"`
-	MediaMetadata metadata.Map `json:"media_metadata,omitempty"`
+	Metadata      metadata.Map    `json:"metadata,omitzero"`
+	Citations     []chat.Citation `json:"citations,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	MediaID       string          `json:"media_id,omitempty"`
+	MediaMetadata metadata.Map    `json:"media_metadata,omitempty"`
 }
 
 func (c coreContentEnvelope) isZero() bool {
@@ -114,6 +107,29 @@ func (c coreContentEnvelope) isZero() bool {
 
 func (c coreContentEnvelope) describesMedia() bool {
 	return c.Name != "" || c.MediaID != "" || len(c.MediaMetadata) != 0
+}
+
+func (c coreContentEnvelope) restore(part *chat.ToolContent, kind contentKind) error {
+	if _, collision := c.Metadata[ContentMetadataKey]; collision {
+		return errors.New("mcp: Core content metadata contains a nested MCP envelope")
+	}
+	if c.describesMedia() && part.Kind != chat.PartMedia {
+		return errors.New("mcp: Core content metadata describes media on non-media content")
+	}
+	if c.Name != "" && kind == contentLink {
+		return errors.New("mcp: Core content metadata duplicates the resource link name")
+	}
+	if part.Kind == chat.PartMedia {
+		if c.Name != "" {
+			part.Media.Name = c.Name
+		}
+		part.Media.ID = c.MediaID
+		if len(c.MediaMetadata) != 0 {
+			part.Media.Metadata = c.MediaMetadata
+		}
+	}
+	part.Metadata, part.Citations = c.Metadata, c.Citations
+	return nil
 }
 
 func mapRemoteContent(content sdkmcp.Content) (chat.ToolContent, bool, error) {
@@ -178,17 +194,17 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (chat.ToolContent, cont
 	if err != nil {
 		return chat.ToolContent{}, contentEnvelope{}, err
 	}
-	envelope := contentEnvelope{Kind: contentResource, Annotations: value.Annotations, Resource: &resourceEnvelope{Meta: resourceMeta}}
+	envelope := contentEnvelope{Kind: contentResource, Annotations: value.Annotations,
+		Resource: &resourceEnvelope{URI: resource.URI, Meta: resourceMeta}}
 	var part chat.ToolContent
 	switch {
 	case resource.Text != "" && resource.Blob != nil:
 		return chat.ToolContent{}, contentEnvelope{}, errors.New("mcp: embedded resource carries both text and blob")
 	case resource.Text != "":
 		part = chat.ToolContent{Kind: chat.PartText, Text: resource.Text}
-		envelope.Resource.URI, envelope.Resource.MIMEType = resource.URI, resource.MIMEType
+		envelope.Resource.MIMEType = resource.MIMEType
 	case len(resource.Blob) != 0:
 		part, err = remoteBytesMedia(resourceMIME(resource.MIMEType, resource.URI), resource.Blob)
-		envelope.Resource.URI = resource.URI
 		envelope.MIMETypeInferred = resource.MIMEType == ""
 	default:
 		return chat.ToolContent{}, contentEnvelope{}, ErrEmptyEmbeddedResource
@@ -210,25 +226,9 @@ func (c contentEnvelope) attach(part *chat.ToolContent, nativeMeta sdkmcp.Meta) 
 		if err := jsonv2.Unmarshal(raw, &portable, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return fmt.Errorf("mcp: decode Core content metadata: %w", err)
 		}
-		if _, collision := portable.Metadata[ContentMetadataKey]; collision {
-			return errors.New("mcp: Core content metadata contains a nested MCP envelope")
+		if err := portable.restore(part, c.Kind); err != nil {
+			return err
 		}
-		if portable.describesMedia() && part.Kind != chat.PartMedia {
-			return errors.New("mcp: Core content metadata describes media on non-media content")
-		}
-		if portable.Name != "" {
-			if c.Kind == contentLink {
-				return errors.New("mcp: Core content metadata duplicates the resource link name")
-			}
-			part.Media.Name = portable.Name
-		}
-		if part.Kind == chat.PartMedia {
-			part.Media.ID = portable.MediaID
-			if len(portable.MediaMetadata) != 0 {
-				part.Media.Metadata = portable.MediaMetadata
-			}
-		}
-		part.Metadata, part.Citations = portable.Metadata, portable.Citations
 		delete(c.Meta, coreContentMetadataKey)
 	}
 	if c.Kind == contentText && len(c.Meta) == 0 && c.Annotations == nil {
@@ -259,11 +259,7 @@ func remoteBytesMedia(mimeType string, data []byte) (chat.ToolContent, error) {
 
 const defaultResourceMIME = "application/octet-stream"
 
-// resourceMIME infers an undeclared type from a fixed table rather than
-// mime.TypeByExtension, whose answers depend on the host's MIME files. The
-// table holds only the image, audio, and document types Scope model adapters
-// accept as media input; any other type stays opaque to them, so the default
-// loses nothing a consumer could act on.
+// Host MIME files vary across machines; the fixed mapping keeps restored content deterministic.
 func resourceMIME(mimeType, uri string) string {
 	if mimeType != "" {
 		return mimeType
@@ -335,12 +331,10 @@ func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
 }
 
 func (c contentEnvelope) content(part chat.ToolContent) (sdkmcp.Content, error) {
-	meta := metadataToMCP(c.Meta)
 	if c.Kind == "" {
-		if part.Kind == chat.PartText {
-			return &sdkmcp.TextContent{Text: part.Text, Meta: meta}, nil
+		if err := c.infer(part); err != nil {
+			return nil, err
 		}
-		return mapServerMedia(part.Media, meta)
 	}
 	if err := c.validateFields(part.Kind); err != nil {
 		return nil, err
@@ -348,6 +342,8 @@ func (c contentEnvelope) content(part chat.ToolContent) (sdkmcp.Content, error) 
 	if !c.Kind.admits(part.Kind) {
 		return nil, fmt.Errorf("mcp: content kind %q does not match Core part %q", c.Kind, part.Kind)
 	}
+
+	meta := metadataToMCP(c.Meta)
 	switch c.Kind {
 	case contentText:
 		return &sdkmcp.TextContent{Text: part.Text, Meta: meta, Annotations: c.Annotations}, nil
@@ -389,8 +385,6 @@ func (c contentEnvelope) validateFields(part chat.PartKind) error {
 	return nil
 }
 
-// linksMedia reports whether the media maps to a resource link, which carries
-// Core Media.Name in its own name field.
 func (c contentEnvelope) linksMedia(value *media.Media) bool {
 	if c.Kind == "" {
 		return value.Source.Kind != media.SourceBytes
@@ -409,38 +403,34 @@ func (c contentEnvelope) bytesContent(value *media.Media, meta sdkmcp.Meta) (sdk
 	return &sdkmcp.AudioContent{MIMEType: value.MIME, Data: data, Meta: meta, Annotations: c.Annotations}, nil
 }
 
-// inlineResourceURIPrefix names opaque inline bytes, which MCP can carry only as
-// an embedded resource and every resource requires a URI.
+// MCP requires a URI even when the payload is inline bytes.
 const inlineResourceURIPrefix = "scope://tool-output/"
 
-func mapServerMedia(value *media.Media, meta sdkmcp.Meta) (sdkmcp.Content, error) {
+func (c *contentEnvelope) infer(part chat.ToolContent) error {
+	if part.Kind == chat.PartText {
+		c.Kind = contentText
+		return nil
+	}
+	value := part.Media
 	mediaType, _, err := mime.ParseMediaType(value.MIME)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	switch value.Source.Kind {
 	case media.SourceBytes:
-		data, err := value.Bytes()
-		if err != nil {
-			return nil, err
-		}
 		switch {
 		case strings.HasPrefix(mediaType, "image/"):
-			return &sdkmcp.ImageContent{MIMEType: value.MIME, Data: data, Meta: meta}, nil
+			c.Kind = contentImage
 		case strings.HasPrefix(mediaType, "audio/"):
-			return &sdkmcp.AudioContent{MIMEType: value.MIME, Data: data, Meta: meta}, nil
+			c.Kind = contentAudio
 		default:
-			return &sdkmcp.EmbeddedResource{Meta: meta, Resource: &sdkmcp.ResourceContents{
-				URI: inlineResourceURIPrefix + url.PathEscape(value.Name), MIMEType: value.MIME, Blob: data,
-			}}, nil
+			c.Kind = contentResource
+			c.Resource = &resourceEnvelope{URI: inlineResourceURIPrefix + url.PathEscape(value.Name)}
 		}
 	case media.SourceURI:
-		uri, err := value.URI()
-		if err != nil {
-			return nil, err
-		}
-		return &sdkmcp.ResourceLink{URI: uri, Name: value.Name, MIMEType: value.MIME, Meta: meta}, nil
+		c.Kind = contentLink
 	default:
-		return nil, media.ErrInvalidSource
+		return media.ErrInvalidSource
 	}
+	return nil
 }
