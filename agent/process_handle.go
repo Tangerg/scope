@@ -151,5 +151,4 @@ func (p *processHandle) treeRuntime() *treeRuntime {
 	return p.tree.Load()
 }
 
-// processID is the identity the Process's relation names.
 func (p *processHandle) processID() ProcessID { return p.relation.ProcessID() }

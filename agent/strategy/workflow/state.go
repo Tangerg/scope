@@ -66,7 +66,6 @@ func (f *fanoutChildState) recordStart(start agent.ChildStartResult) {
 	}
 }
 
-// fanoutBatch is the window's child batch at stage.
 func (e executionState) fanoutBatch(stage Stage) (childcall.Batch, error) {
 	batch := childcall.Batch{Children: make([]childcall.Child, len(e.ActiveFanoutWindow))}
 	if e.FanoutWaitID != nil {

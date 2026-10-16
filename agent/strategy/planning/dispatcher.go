@@ -27,7 +27,6 @@ type Dispatcher struct {
 	executors  map[string]ActionExecutor
 }
 
-// bound returns the dispatcher-bound Action name selects and its executor.
 func (d *Dispatcher) bound(name string) (ActionBinding, ActionExecutor, bool) {
 	binding, found := d.definition.binding(name)
 	executor, bound := d.executors[name]

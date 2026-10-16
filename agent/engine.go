@@ -431,7 +431,6 @@ func (e *Engine) reserveChildStart(relation ProcessRelation) error {
 	return nil
 }
 
-// discardProcessStart releases the identities relation's start reserved.
 func (e *Engine) discardProcessStart(relation ProcessRelation) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

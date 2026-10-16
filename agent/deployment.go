@@ -85,7 +85,6 @@ func (d Deployment) Descriptor() Descriptor { return d.descriptor }
 
 func (d Deployment) Definition() Definition { return d.definition }
 
-// boundChild returns the static child binding with exactly reference.
 func (d Deployment) boundChild(reference DeploymentRef) (Deployment, bool) {
 	index, found := slices.BinarySearchFunc(d.children, reference, compareBoundChild)
 	if !found {

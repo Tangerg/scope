@@ -36,7 +36,6 @@ func (p preparedStep) wire() (preparedStepWire, error) {
 	return wire, nil
 }
 
-// step rebuilds the prepared Step numbered sequence of processID.
 func (p preparedStepWire) step(processID ProcessID, sequence uint64, grants childGrantSource) (preparedStep, error) {
 	step := preparedStep{CandidateState: p.CandidateState, Intent: p.Intent}
 	for index, wire := range p.Effects {

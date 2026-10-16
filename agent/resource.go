@@ -245,7 +245,6 @@ func (t TreeLimits) validate() error {
 	}
 }
 
-// admitsDepth reports whether a Process at depth may exist in this tree.
 func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
 // admitsPendingSignals is the one MaxPendingSignals rule: the unconsumed
@@ -264,7 +263,6 @@ func (t TreeLimits) admitsChildren(children, active uint64) bool {
 	return t.MaxChildren.Allows(children) && active <= uint64(t.MaxActiveChildren)
 }
 
-// admitsTreeSize reports whether a tree may hold processes lifetime Processes.
 func (t TreeLimits) admitsTreeSize(processes uint64) bool {
 	return t.MaxTreeProcesses.Allows(processes)
 }
