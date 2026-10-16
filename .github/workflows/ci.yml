@@ -11,6 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  darwin-tools:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+      - name: Install check tools
+        run: |
+          brew install ripgrep
+          scripts/install-check-tools.sh
+      - name: Process, filesystem, and shell contracts
+        env:
+          MODULE: tools
+        run: scripts/check.sh
+      - name: Darwin completed process-group cancellation
+        working-directory: tools
+        run: go test -race -v -count=10 -run '^TestProcessGroupCancellationKeepsItsCompletedResult$' ./process
+
   tree-committer:
     runs-on: ubuntu-latest
     steps:
