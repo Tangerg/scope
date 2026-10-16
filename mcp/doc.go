@@ -22,8 +22,8 @@
 // Tool results and prompts share one content codec. [ContentMetadataKey]
 // carries MCP annotations, resource provenance, and presentation metadata
 // that Core has no field for, and Core metadata, citations, and media names,
-// IDs, and metadata that MCP has no field for travel through MCP _meta as JSON
-// text so their numbers survive. A Core media reference is an opaque handle
+// IDs, and metadata that MCP has no field for travel through MCP _meta as native
+// JSON objects. A Core media reference is an opaque handle
 // valid only with the provider that issued it, so serving one fails with
 // [ErrMediaReference]; a received resource link is always a URI. When a
 // server declares no media type, the client infers one from the URI extension
@@ -34,8 +34,9 @@
 // never a link fallback. Empty inline resources return [ErrEmptyEmbeddedResource]
 // because Core cannot represent them. Malformed or unsupported content is rejected.
 // Tool schemas preserve exact JSON numbers through SDK discovery and Core
-// validation. Native _meta outside tool descriptors still decodes as float64,
-// so precision beyond that is lost before Scope receives it.
+// validation. Native _meta values remain json.RawMessage throughout SDK decoding
+// and Scope projection, preserving nested numbers, null, and empty values.
+// Consumers decode metadata into their declared types when interpreting it.
 //
 // The wire contract tests use independently encoded HTTP peers for discovery,
 // schema admission, exact structured results, error results, metadata, and

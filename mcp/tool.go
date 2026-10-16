@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -64,7 +64,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	}
 	if r.requestMeta != nil {
 		if meta := r.requestMeta(ctx); len(meta) > 0 {
-			params.Meta = maps.Clone(meta)
+			params.Meta = sdkmcp.Meta(metadata.Map(meta).Clone())
 		}
 	}
 

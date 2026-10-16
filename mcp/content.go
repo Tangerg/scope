@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -203,12 +203,11 @@ func (c contentEnvelope) attach(part *chat.ToolContent, nativeMeta sdkmcp.Meta) 
 		return err
 	}
 	if raw, present := c.Meta[coreContentMetadataKey]; present {
-		var encoded string
-		if err := jsonv2.Unmarshal(raw, &encoded); err != nil {
-			return fmt.Errorf("mcp: decode Core content metadata encoding: %w", err)
+		if jsontext.Value(raw).Kind() != jsontext.KindBeginObject {
+			return errors.New("mcp: Core content metadata must be an object")
 		}
 		var portable coreContentEnvelope
-		if err := jsonv2.Unmarshal([]byte(encoded), &portable, jsonv2.RejectUnknownMembers(true)); err != nil {
+		if err := jsonv2.Unmarshal(raw, &portable, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return fmt.Errorf("mcp: decode Core content metadata: %w", err)
 		}
 		if _, collision := portable.Metadata[ContentMetadataKey]; collision {
@@ -239,24 +238,15 @@ func (c contentEnvelope) attach(part *chat.ToolContent, nativeMeta sdkmcp.Meta) 
 }
 
 func metadataFromMCP(native sdkmcp.Meta) (metadata.Map, error) {
-	var values metadata.Map
-	for key, value := range native {
-		if err := values.Set(key, value); err != nil {
-			return nil, fmt.Errorf("mcp: encode content metadata: %w", err)
-		}
+	values := metadata.Map(native).Clone()
+	if err := values.Validate(); err != nil {
+		return nil, fmt.Errorf("mcp: content metadata: %w", err)
 	}
 	return values, nil
 }
 
 func metadataToMCP(values metadata.Map) sdkmcp.Meta {
-	if len(values) == 0 {
-		return nil
-	}
-	native := make(sdkmcp.Meta, len(values))
-	for key, value := range values {
-		native[key] = json.RawMessage(slices.Clone(value))
-	}
-	return native
+	return sdkmcp.Meta(values.Clone())
 }
 
 func remoteBytesMedia(mimeType string, data []byte) (chat.ToolContent, error) {
@@ -337,13 +327,7 @@ func mapServerContent(part chat.ToolContent) (sdkmcp.Content, error) {
 		portable.MediaID, portable.MediaMetadata = part.Media.ID, part.Media.Metadata.Clone()
 	}
 	if !portable.isZero() {
-		encoded, err := jsonv2.Marshal(portable)
-		if err != nil {
-			return nil, err
-		}
-		// JSON text keeps exact Core numbers intact through SDKs that decode
-		// arbitrary protocol metadata into floating-point interface values.
-		if err := envelope.Meta.Set(coreContentMetadataKey, string(encoded)); err != nil {
+		if err := envelope.Meta.Set(coreContentMetadataKey, portable); err != nil {
 			return nil, err
 		}
 	}

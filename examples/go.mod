@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/examples
 go 1.27.0
 
 require (
-	github.com/Tangerg/go-sdk v1.8.1-scope.2
+	github.com/Tangerg/go-sdk v1.8.1-scope.3
 	github.com/Tangerg/scope/agent v0.51.1
 	github.com/Tangerg/scope/core v0.51.1
 	github.com/Tangerg/scope/eval v0.51.1

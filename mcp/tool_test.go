@@ -99,12 +99,12 @@ func TestTool_MetaForwardedToServer(t *testing.T) {
 	ctx := t.Context()
 	srvT, cliT := sdkmcp.NewInMemoryTransports()
 
-	receivedMeta := make(chan map[string]any, 1)
+	receivedMeta := make(chan sdkmcp.Meta, 1)
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "meta-srv"}, nil)
 	srv.AddTool(
 		&sdkmcp.Tool{Name: "snitch", Description: "reports meta", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-			receivedMeta <- map[string]any(req.Params.Meta)
+			receivedMeta <- req.Params.Meta
 			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "ok"}}}, nil
 		},
 	)
@@ -122,12 +122,12 @@ func TestTool_MetaForwardedToServer(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	callCtx := scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{"userId": "u-42", "trace": "tx-99"})
+	callCtx := scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{"userId": json.RawMessage(`"u-42"`), "trace": json.RawMessage(`"tx-99"`)})
 	out, err := invokeTestTool(callCtx, tools[0], "{}")
 	require.NoError(t, err)
 	assert.Equal(t, "ok", testOutputText(out))
 
 	got := <-receivedMeta
-	assert.Equal(t, "u-42", got["userId"])
-	assert.Equal(t, "tx-99", got["trace"])
+	assert.JSONEq(t, `"u-42"`, string(got["userId"]))
+	assert.JSONEq(t, `"tx-99"`, string(got["trace"]))
 }

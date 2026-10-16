@@ -146,7 +146,7 @@ func TestWireStructuredContentAndFailureAreLossless(t *testing.T) {
 					if string(params.Arguments.N) != "9007199254740993" || string(params.Meta.N) != "9007199254740993" {
 						t.Errorf("request numbers changed: %s", encoded)
 					}
-					result := fmt.Sprintf(`{"content":[{"type":"text","text":"visible","_meta":{"scope/content":"{\"metadata\":{\"record\":9007199254740993}}"}}],"isError":%t`, failed)
+					result := fmt.Sprintf(`{"content":[{"type":"text","text":"visible","_meta":{"scope/content":{"metadata":{"record":9007199254740993}}}}],"isError":%t`, failed)
 					if payload != "" {
 						result += `,"structuredContent":` + payload
 					}
@@ -299,5 +299,71 @@ func TestWireRegistrationPreservesArgumentsSchemaAndResults(t *testing.T) {
 				t.Fatalf("structured content changed: %s", encoded)
 			}
 		})
+	}
+}
+
+func TestWireNativeMetadataThroughDiscoveryAndRegistration(t *testing.T) {
+	const exact = `{"integer":9007199254740993,"uint":18446744073709551615,"fraction":0.12345678901234567890123456789,"nested":[null,{},[],{"n":-9007199254740993}]}`
+	meta := `"_meta":{"native":` + exact + `}`
+	contents := `[` +
+		`{"type":"text","text":"hello",` + meta + `},` +
+		`{"type":"image","mimeType":"image/png","data":"AQ==",` + meta + `},` +
+		`{"type":"audio","mimeType":"audio/wav","data":"AQ==",` + meta + `},` +
+		`{"type":"resource_link","name":"probe","uri":"https://example.com/a.pdf","mimeType":"application/pdf",` + meta + `},` +
+		`{"type":"resource","resource":{"uri":"file:///a","text":"hello",` + meta + `},` + meta + `},` +
+		`{"type":"resource","resource":{"uri":"file:///a.png","mimeType":"image/png","blob":"AQ==",` + meta + `},` + meta + `}]`
+	session := connectWireMCP(t, wireMCPPeer{t: t, descriptor: `{"name":"probe","inputSchema":{"type":"object"}}`, call: func(params json.RawMessage) string {
+		var request struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		}
+		if err := jsonv2.Unmarshal(params, &request); err != nil {
+			t.Error(err)
+		}
+		if orderedStructuredContent(t, request.Meta["native"]) != orderedStructuredContent(t, []byte(exact)) {
+			t.Errorf("request metadata changed: %s", params)
+		}
+		return `{"content":` + contents + `}`
+	}})
+	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{RequestMeta: func(context.Context) sdkmcp.Meta { return sdkmcp.Meta{"native": json.RawMessage(exact)} }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	output, err := invokeTestTool(ctx, tools[0], `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "proxy"}, nil)
+	if registerErr := scopemcp.Register(proxy, tools...); registerErr != nil {
+		t.Fatal(registerErr)
+	}
+	proxySession := connectContentServer(t, proxy)
+	result, err := proxySession.CallTool(ctx, &sdkmcp.CallToolParams{Name: "probe", Arguments: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := jsonv2.Marshal(result.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orderedStructuredContent(t, encoded) != orderedStructuredContent(t, []byte(contents)) {
+		t.Fatalf("native content changed: %s", encoded)
+	}
+	for index, content := range result.Content {
+		messages, err := scopemcp.PromptMessagesToChat([]*sdkmcp.PromptMessage{{Role: "user", Content: content}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := jsonv2.Marshal(messages[0].Parts[0].Metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := jsonv2.Marshal(output.Content[index].Metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if orderedStructuredContent(t, got) != orderedStructuredContent(t, want) {
+			t.Fatalf("prompt metadata changed: %s", got)
+		}
 	}
 }

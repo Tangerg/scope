@@ -278,7 +278,7 @@ func TestMapServerContentRejectsMediaReferences(t *testing.T) {
 
 func TestRemoteContentRejectsMediaFieldsOnText(t *testing.T) {
 	for _, encoded := range []string{`{"name":"x"}`, `{"media_id":"x"}`, `{"media_metadata":{"k":1}}`} {
-		text := &sdkmcp.TextContent{Text: "hello", Meta: sdkmcp.Meta{coreContentMetadataKey: encoded}}
+		text := &sdkmcp.TextContent{Text: "hello", Meta: sdkmcp.Meta{coreContentMetadataKey: json.RawMessage(encoded)}}
 		if part, _, err := mapRemoteContent(text); err == nil {
 			t.Fatalf("text with %s = %#v, want an error", encoded, part)
 		}
@@ -440,7 +440,7 @@ func TestMapServerContentOmitsAnInferredMIME(t *testing.T) {
 }
 
 func TestMapRemoteContentRejectsAMisplacedCoreName(t *testing.T) {
-	meta := sdkmcp.Meta{coreContentMetadataKey: json.RawMessage(`"{\"name\":\"x\"}"`)}
+	meta := sdkmcp.Meta{coreContentMetadataKey: json.RawMessage(`{"name":"x"}`)}
 	for _, content := range []sdkmcp.Content{
 		&sdkmcp.TextContent{Text: "body", Meta: meta},
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///a", Text: "body"}, Meta: meta},
@@ -456,5 +456,14 @@ func TestMapRemoteContentRejectsAMisplacedCoreName(t *testing.T) {
 	}
 	if mediaPart(t, part).Name != "x" {
 		t.Fatalf("image name = %q, want x", part.Media.Name)
+	}
+}
+
+func TestMapRemoteContentRequiresNativeCoreMetadataObject(t *testing.T) {
+	for _, raw := range []string{`"{\"metadata\":{\"n\":9007199254740993}}"`, `null`, `[]`, `true`, `9007199254740993`} {
+		_, _, err := mapRemoteContent(&sdkmcp.TextContent{Text: "hello", Meta: sdkmcp.Meta{coreContentMetadataKey: json.RawMessage(raw)}})
+		if err == nil {
+			t.Fatalf("accepted non-object Core metadata: %s", raw)
+		}
 	}
 }

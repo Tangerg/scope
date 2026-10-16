@@ -87,7 +87,7 @@ func TestRemoteOutputSchemaAdmission(t *testing.T) {
 
 func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	annotations := &sdkmcp.Annotations{Audience: []sdkmcp.Role{"assistant"}, Priority: 0.75, LastModified: "2026-09-27T00:00:00Z"}
-	meta := sdkmcp.Meta{"example/value": json.RawMessage(`{"id":42}`)}
+	meta := sdkmcp.Meta{"example/value": json.RawMessage(`{"id":9007199254740993,"fraction":0.12345678901234567890123456789,"nested":[18446744073709551615,null,{},[]]}`)}
 	contents := []sdkmcp.Content{
 		&sdkmcp.TextContent{Text: "visible text", Meta: meta, Annotations: annotations},
 		&sdkmcp.ImageContent{Data: []byte{1, 2, 3}, MIMEType: "image/png", Meta: meta, Annotations: annotations},
@@ -132,8 +132,8 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	require.NoError(t, err)
 	got, err := jsonv2.Marshal(result.Content)
 	require.NoError(t, err)
-	require.JSONEq(t, string(want), string(got))
-	require.Contains(t, string(got), `"id":42`)
+	require.Equal(t, orderedStructuredContent(t, want), orderedStructuredContent(t, got))
+	require.Contains(t, string(got), `"id":9007199254740993`)
 }
 
 func TestCoreContentMetadataAndCitationsRoundTrip(t *testing.T) {
@@ -180,9 +180,9 @@ func TestCoreMediaNamesRoundTrip(t *testing.T) {
 	wire, err := jsonv2.Marshal(result.Content)
 	require.NoError(t, err)
 	require.JSONEq(t, `[
-		{"type":"image","mimeType":"image/png","data":"AQ==","_meta":{"scope/content":"{\"name\":\"chart.png\"}"}},
-		{"type":"audio","mimeType":"audio/mpeg","data":"Ag==","_meta":{"scope/content":"{\"name\":\"voice.mp3\"}"}},
-		{"type":"resource","resource":{"uri":"scope://tool-output/report.pdf","mimeType":"application/pdf","blob":"Aw=="},"_meta":{"scope/content":"{\"name\":\"report.pdf\"}"}},
+		{"type":"image","mimeType":"image/png","data":"AQ==","_meta":{"scope/content":{"name":"chart.png"}}},
+		{"type":"audio","mimeType":"audio/mpeg","data":"Ag==","_meta":{"scope/content":{"name":"voice.mp3"}}},
+		{"type":"resource","resource":{"uri":"scope://tool-output/report.pdf","mimeType":"application/pdf","blob":"Aw=="},"_meta":{"scope/content":{"name":"report.pdf"}}},
 		{"type":"resource_link","uri":"https://example.com/a.png","name":"site","mimeType":"image/png"}
 	]`, string(wire))
 

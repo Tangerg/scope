@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -231,7 +232,7 @@ func runBriefing(
 	if err != nil {
 		return briefOutput{}, err
 	}
-	ctx = scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{requestMetaKey: "mcp-agent"})
+	ctx = scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{requestMetaKey: json.RawMessage(`"mcp-agent"`)})
 	result, err := engine.Run(ctx, deployment, input)
 	if err != nil {
 		return briefOutput{}, fmt.Errorf("run MCP briefing interaction: %w", err)

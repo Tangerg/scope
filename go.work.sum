@@ -1170,6 +1170,7 @@ github.com/ProtonMail/gopenpgp/v2 v2.7.1/go.mod h1:/BU5gfAVwqyd8EfC3Eu7zmuhwYQpK
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0 h1:t527LHHE3HmiHrq74QMpNPZpGCIJzTx+apLkMKt4HC0=
 github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06 h1:KkH3I3sJuOLP3TjA/dfr4NAY8bghDwnXiU7cTKxQqo0=
 github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06/go.mod h1:7erjKLwalezA0k99cWs5L11HWOAPNjdUZ6RxH1BXbbM=
+github.com/Tangerg/go-sdk v1.8.1-scope.3/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
 github.com/Tangerg/scope/eval v0.0.1/go.mod h1:PQlAPC+Ag7QBY4mWlUAQ3BT8iral6/CvmT2QoY/rrWA=
 github.com/Tangerg/scope/otel v0.46.0/go.mod h1:C/em/xHifMR0vv2MCrKsj+FWwGFergCmbVMIYfrY1xY=
 github.com/Tangerg/scope/rag v0.20.1-0.20260912191042-7ff843283b69/go.mod h1:l9smSzy7CaD4idrzS1nz63I6Zrt+Y90psGpf4iii3/s=
