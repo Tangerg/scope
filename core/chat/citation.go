@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
 var ErrInvalidCitation = errors.New("chat: invalid citation")
 
-// CitationSourceKind distinguishes a resolvable URI from an opaque source
+// CitationSourceKind distinguishes an absolute URI from an opaque source
 // reference whose interpretation remains with the provider or host.
 type CitationSourceKind string
 
@@ -25,7 +26,10 @@ func (c CitationSourceKind) Valid() bool {
 
 // CitationSource identifies cited material without adopting a provider's
 // location taxonomy. Provider-native page, block, and character coordinates
-// remain in the preserved native response.
+// remain in the preserved native response. URI sources may use any scheme,
+// including file and urn, and may include a fragment. They require a non-empty
+// target and contain no whitespace. Validation identifies material; it never
+// resolves the URI or grants permission to access it.
 type CitationSource struct {
 	Kind  CitationSourceKind `json:"kind"`
 	Value string             `json:"value"`
@@ -43,8 +47,8 @@ func (c CitationSource) Validate() error {
 	}
 	if c.Kind == CitationSourceURI {
 		parsed, err := url.Parse(c.Value)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return fmt.Errorf("%w: source URI %q must be absolute", ErrInvalidCitation, c.Value)
+		if err != nil || !parsed.IsAbs() || (parsed.Opaque == "" && parsed.Host == "" && parsed.Path == "") || strings.ContainsFunc(c.Value, unicode.IsSpace) {
+			return fmt.Errorf("%w: source URI %q must be absolute with a non-empty target and no whitespace", ErrInvalidCitation, c.Value)
 		}
 	}
 	return nil
