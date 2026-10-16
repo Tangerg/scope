@@ -13,7 +13,8 @@ import (
 type ToolSource struct {
 	Name string
 
-	// The caller owns the session lifetime.
+	// Discovered tools borrow this initialized session. The caller must keep it
+	// open for their calls and remains responsible for closing it.
 	Session *sdkmcp.ClientSession
 }
 
@@ -33,10 +34,16 @@ type ToolConcurrencyPolicy func(
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
 type ToolDiscoveryConfig struct {
+	// If nil, names use [chat.SanitizeToolName] on "<sourceName>_<remoteName>"
+	// (or remoteName alone when sourceName is empty), with a 64-byte limit.
+	// Sanitizing can merge identities; [DiscoverTools] rejects batch collisions.
 	PublicName PublicToolNameFunc
 
+	// If nil, no additional request metadata is forwarded to tool calls,
+	// including metadata stored by [WithRequestMeta].
 	RequestMeta RequestMetaFunc
 
+	// If nil, tools provide no overlap declaration; this does not serialize calls.
 	// Protocol descriptors cannot establish resource conflicts for the host.
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
