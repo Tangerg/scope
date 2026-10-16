@@ -5,6 +5,8 @@
 // path advertised by its card, plus the well-known AgentCard endpoint. The Host
 // supplies and owns the task store, so task retention and eviction are its
 // responsibility rather than a hidden default.
+// Discovery has independent time and decoded-body limits configured by
+// [Endpoint.CardTimeout] and [Endpoint.CardMaxBytes]; neither limits RPC work.
 //
 // [Endpoint.ConcurrencyPolicy] supplies Host scheduling declarations for remote
 // tools; [ToolConcurrencyPolicy] describes their scope. The served handler is

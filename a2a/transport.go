@@ -42,6 +42,11 @@ type Endpoint struct {
 	// does not impose a timeout on long-running agent RPC calls.
 	CardTimeout time.Duration
 
+	// CardMaxBytes bounds the decoded AgentCard response body before parsing.
+	// Zero selects 1 MiB. Excess data returns an *http.MaxBytesError, even if a
+	// valid card precedes it. This limit does not apply to RPC responses.
+	CardMaxBytes int64
+
 	// AllowedRPCOrigins adds trusted RPC origins beyond CardURL's own origin.
 	// Entries use the exact "scheme://host[:port]" form. Empty prevents an
 	// AgentCard from redirecting calls to another origin.
@@ -52,7 +57,10 @@ type Endpoint struct {
 	ConcurrencyPolicy ToolConcurrencyPolicy
 }
 
-const defaultCardTimeout = 30 * time.Second
+const (
+	defaultCardTimeout        = 30 * time.Second
+	defaultCardMaxBytes int64 = 1 << 20
+)
 
 func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.AgentCard, error) {
 	if endpoint.CardURL == "" {
@@ -60,6 +68,9 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 	}
 	if endpoint.CardTimeout < 0 {
 		return nil, nil, ErrInvalidCardTimeout
+	}
+	if endpoint.CardMaxBytes < 0 {
+		return nil, nil, ErrInvalidCardMaxBytes
 	}
 	policy, err := newEndpointOriginPolicy(endpoint.CardURL, endpoint.AllowedRPCOrigins)
 	if err != nil {
@@ -70,6 +81,11 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 		baseClient = http.DefaultClient
 	}
 	cardClient := policy.cardOrigins.restrict(baseClient)
+	cardMaxBytes := endpoint.CardMaxBytes
+	if cardMaxBytes == 0 {
+		cardMaxBytes = defaultCardMaxBytes
+	}
+	cardClient.Transport = &cardRoundTripper{base: cardClient.Transport, maxBytes: cardMaxBytes}
 
 	cardTimeout := endpoint.CardTimeout
 	if cardTimeout == 0 {
@@ -98,4 +114,18 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 		return nil, nil, fmt.Errorf("a2a: open client for agent %q: %w", card.Name, err)
 	}
 	return client, card, nil
+}
+
+type cardRoundTripper struct {
+	base     http.RoundTripper
+	maxBytes int64
+}
+
+func (c *cardRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := c.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	response.Body = http.MaxBytesReader(nil, response.Body, c.maxBytes)
+	return response, nil
 }

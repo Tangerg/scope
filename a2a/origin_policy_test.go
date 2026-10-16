@@ -52,6 +52,7 @@ func TestDialRejectsInvalidCardConfiguration(t *testing.T) {
 		{name: "relative card URL", endpoint: Endpoint{CardURL: "/agent"}, want: ErrInvalidCardURL},
 		{name: "non-HTTP card URL", endpoint: Endpoint{CardURL: "file:///tmp/card.json"}, want: ErrInvalidCardURL},
 		{name: "negative timeout", endpoint: Endpoint{CardURL: "https://agent.example", CardTimeout: -time.Second}, want: ErrInvalidCardTimeout},
+		{name: "negative size", endpoint: Endpoint{CardURL: "https://agent.example", CardMaxBytes: -1}, want: ErrInvalidCardMaxBytes},
 		{name: "RPC origin with path", endpoint: Endpoint{CardURL: "https://agent.example", AllowedRPCOrigins: []string{"https://rpc.example/path"}}, want: ErrInvalidRPCOrigin},
 	}
 	for _, test := range tests {

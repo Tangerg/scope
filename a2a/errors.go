@@ -15,11 +15,12 @@ var (
 
 	ErrNilAgent = errors.New("a2a: agent must not be nil")
 
-	ErrEmptyCardURL       = errors.New("a2a: card URL must not be empty")
-	ErrInvalidCardURL     = errors.New("a2a: invalid card URL")
-	ErrInvalidCardTimeout = errors.New("a2a: card timeout must not be negative")
-	ErrInvalidRPCOrigin   = errors.New("a2a: invalid allowed RPC origin")
-	ErrOriginNotAllowed   = errors.New("a2a: origin not allowed")
+	ErrEmptyCardURL        = errors.New("a2a: card URL must not be empty")
+	ErrInvalidCardURL      = errors.New("a2a: invalid card URL")
+	ErrInvalidCardTimeout  = errors.New("a2a: card timeout must not be negative")
+	ErrInvalidCardMaxBytes = errors.New("a2a: card maximum bytes must not be negative")
+	ErrInvalidRPCOrigin    = errors.New("a2a: invalid allowed RPC origin")
+	ErrOriginNotAllowed    = errors.New("a2a: origin not allowed")
 
 	ErrInvalidRPCInterface = errors.New("a2a: invalid RPC interface")
 
