@@ -97,7 +97,6 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///repo/image.png", MIMEType: "image/png", Blob: []byte{6, 7}, Meta: meta}, Meta: meta, Annotations: annotations},
 		&sdkmcp.ResourceLink{URI: "https://example.com/photo.JPG", Name: "photo"},
 		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///repo/clip.wav", Blob: []byte{8}}},
-		&sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "https://example.com/notes.md"}},
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "source"}, nil)
 	server.AddTool(&sdkmcp.Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
@@ -114,7 +113,6 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	for index, want := range []struct{ mime, envelope string }{
 		{mime: "image/jpeg", envelope: `{"type":"resource_link","mimeTypeInferred":true}`},
 		{mime: "audio/wav", envelope: `{"type":"resource","resource":{"uri":"file:///repo/clip.wav"},"mimeTypeInferred":true}`},
-		{mime: "application/octet-stream", envelope: `{"type":"resource","resource":{},"mimeTypeInferred":true}`},
 	} {
 		part := output.Content[6+index]
 		require.Equal(t, want.mime, part.Media.MIME)

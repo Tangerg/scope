@@ -72,24 +72,25 @@ type resourceEnvelope struct {
 }
 
 func (r resourceEnvelope) contents(part chat.ToolContent, mimeTypeInferred bool) (*sdkmcp.ResourceContents, error) {
+	if r.URI == "" {
+		return nil, errors.New("mcp: embedded resource URI is missing")
+	}
 	resource := &sdkmcp.ResourceContents{URI: r.URI, Meta: metadataToMCP(r.Meta)}
 	if part.Kind == chat.PartText {
 		resource.Text, resource.MIMEType = part.Text, r.MIMEType
 		return resource, nil
 	}
-	inline := part.Media.Source.Kind == media.SourceBytes
-	if r.MIMEType != "" || (!inline && r.URI != "") {
+	if part.Media.Source.Kind != media.SourceBytes {
+		return nil, errors.New("mcp: embedded resource requires inline content")
+	}
+	if r.MIMEType != "" {
 		return nil, errors.New("mcp: resource metadata duplicates a Core media field")
 	}
 	if !mimeTypeInferred {
 		resource.MIMEType = part.Media.MIME
 	}
 	var err error
-	if inline {
-		resource.Blob, err = part.Media.Bytes()
-	} else {
-		resource.URI, err = part.Media.URI()
-	}
+	resource.Blob, err = part.Media.Bytes()
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +171,9 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (chat.ToolContent, cont
 	if resource == nil {
 		return chat.ToolContent{}, contentEnvelope{}, errors.New("mcp: embedded resource is nil")
 	}
+	if resource.URI == "" {
+		return chat.ToolContent{}, contentEnvelope{}, errors.New("mcp: embedded resource URI is missing")
+	}
 	resourceMeta, err := metadataFromMCP(resource.Meta)
 	if err != nil {
 		return chat.ToolContent{}, contentEnvelope{}, err
@@ -177,7 +181,7 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (chat.ToolContent, cont
 	envelope := contentEnvelope{Kind: contentResource, Annotations: value.Annotations, Resource: &resourceEnvelope{Meta: resourceMeta}}
 	var part chat.ToolContent
 	switch {
-	case resource.Text != "" && len(resource.Blob) != 0:
+	case resource.Text != "" && resource.Blob != nil:
 		return chat.ToolContent{}, contentEnvelope{}, errors.New("mcp: embedded resource carries both text and blob")
 	case resource.Text != "":
 		part = chat.ToolContent{Kind: chat.PartText, Text: resource.Text}
@@ -186,11 +190,8 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (chat.ToolContent, cont
 		part, err = remoteBytesMedia(resourceMIME(resource.MIMEType, resource.URI), resource.Blob)
 		envelope.Resource.URI = resource.URI
 		envelope.MIMETypeInferred = resource.MIMEType == ""
-	case resource.URI != "":
-		part, err = remoteURIMedia(resource.MIMEType, resource.URI)
-		envelope.MIMETypeInferred = resource.MIMEType == ""
 	default:
-		return chat.ToolContent{}, contentEnvelope{}, errors.New("mcp: embedded resource has no text, blob, or URI")
+		return chat.ToolContent{}, contentEnvelope{}, ErrEmptyEmbeddedResource
 	}
 	return part, envelope, err
 }

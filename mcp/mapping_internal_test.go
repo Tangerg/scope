@@ -75,7 +75,7 @@ func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 			},
 		},
 		"embedded text resource": {
-			content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{Text: "inline"}},
+			content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///inline", Text: "inline"}},
 			include: true,
 			assert: func(t *testing.T, part corechat.ToolContent) {
 				if part.Text != "inline" {
@@ -85,25 +85,13 @@ func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 		},
 		"embedded blob resource": {
 			content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
-				MIMEType: pngMIME,
-				Blob:     []byte("\x89PNG"),
+				URI: "file:///image", MIMEType: pngMIME,
+				Blob: []byte("\x89PNG"),
 			}},
 			include: true,
 			assert: func(t *testing.T, part corechat.ToolContent) {
 				if mediaPart(t, part).MIME != pngMIME {
 					t.Fatalf("embedded blob MIME = %q", part.Media.MIME)
-				}
-			},
-		},
-		"embedded linked resource": {
-			content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
-				MIMEType: pngMIME,
-				URI:      "https://example.com/b.png",
-			}},
-			include: true,
-			assert: func(t *testing.T, part corechat.ToolContent) {
-				if mediaPart(t, part).MIME != pngMIME {
-					t.Fatalf("embedded link MIME = %q", part.Media.MIME)
 				}
 			},
 		},
@@ -307,12 +295,8 @@ func TestPromptContentToPartCoversEveryProtocolShape(t *testing.T) {
 		"image":                 {content: &sdkmcp.ImageContent{MIMEType: pngMIME, Data: []byte("\x89PNG")}, include: true},
 		"audio":                 {content: &sdkmcp.AudioContent{MIMEType: "audio/mpeg", Data: []byte("\xFF")}, include: true},
 		"resource link":         {content: &sdkmcp.ResourceLink{MIMEType: pngMIME, URI: "https://example.com/a.png"}, include: true},
-		"embedded text":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{Text: "inline"}}, include: true},
-		"embedded blob":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{MIMEType: pngMIME, Blob: []byte("\x89PNG")}}, include: true},
-		"embedded linked resource": {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{
-			MIMEType: pngMIME,
-			URI:      "https://example.com/b.png",
-		}}, include: true},
+		"embedded text":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///inline", Text: "inline"}}, include: true},
+		"embedded blob":         {content: &sdkmcp.EmbeddedResource{Resource: &sdkmcp.ResourceContents{URI: "file:///image", MIMEType: pngMIME, Blob: []byte("\x89PNG")}}, include: true},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {

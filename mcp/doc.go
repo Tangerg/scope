@@ -29,11 +29,13 @@
 // server declares no media type, the client infers one from the URI extension
 // with a fixed table independent of the host, falls back to
 // application/octet-stream, and marks the envelope so that serving the content
-// again omits the guess. Empty text without metadata is omitted; malformed or
-// unsupported content is rejected. The SDK decodes inputSchema, outputSchema,
-// and native _meta numbers as float64, so precision beyond that is lost before
-// Scope receives it. These generic decoders belong to the SDK; revisit schema
-// and native metadata precision when changing its JSON decoding.
+// again omits the guess. Empty text without metadata is omitted. Embedded
+// resources require a URI and inline content; their URI records provenance,
+// never a link fallback. Empty inline resources return [ErrEmptyEmbeddedResource]
+// because Core cannot represent them. Malformed or unsupported content is rejected.
+// Tool schemas preserve exact JSON numbers through SDK discovery and Core
+// validation. Native _meta outside tool descriptors still decodes as float64,
+// so precision beyond that is lost before Scope receives it.
 //
 // The wire contract tests use independently encoded HTTP peers for discovery,
 // schema admission, exact structured results, error results, metadata, and
