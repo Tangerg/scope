@@ -213,6 +213,23 @@ func TestEveryExecutionPhaseRestoresAndRejectsContradictions(t *testing.T) {
 				state.Tasks[0].Outcome = &outcome
 			}
 		}
+		if state.Turn != nil && state.Turn.Outcome != nil {
+			// A coordinator outcome with unresolved descendant Effects cannot
+			// authorize its Decision; Restore must reject it as the live path does.
+			mutations["unresolved coordinator"] = func(state *executionState) {
+				var wire map[string]json.RawMessage
+				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(state.Turn.Outcome)), &wire); err != nil {
+					t.Fatal(err)
+				}
+				wire["descendant_unresolved_effects"] = json.RawMessage(
+					`[{"process_id":"process:forged-descendant","effect_id":"process:forged-descendant:step:1:effect:0"}]`)
+				var outcome agent.ChildOutcome
+				if err := jsonv2.Unmarshal(require(jsonv2.Marshal(wire)), &outcome); err != nil {
+					t.Fatal(err)
+				}
+				state.Turn.Outcome = &outcome
+			}
+		}
 		for name, mutate := range mutations {
 			t.Run(cases[index].Name+"/"+name, func(t *testing.T) {
 				var altered executionState

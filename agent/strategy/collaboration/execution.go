@@ -188,7 +188,7 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agent.Signal) 
 // collaboration with: a failed coordinator, or one whose subtree retains
 // unresolved Effects and so cannot authorize a Decision.
 func turnFailure(outcome agent.ChildOutcome) (agent.Failure, bool, error) {
-	if !outcome.SubtreeResolved() {
+	if !coordinatorOutcomeAuthorizes(outcome) {
 		failure, err := stepfail.Failure(agent.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
 		return failure, true, err
 	}

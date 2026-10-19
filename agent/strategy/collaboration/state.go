@@ -362,6 +362,16 @@ func validateDrainedOutcome(start *agent.ChildStartResult, outcome *agent.ChildO
 	return nil
 }
 
+// coordinatorOutcomeAuthorizes is the single rule deciding whether a finished
+// coordinator turn may authorize its Decision: its subtree must be fully
+// resolved. A worker keeps its unresolved-Effect evidence for coordinator
+// policy, so this applies only to the coordinator. The live path maps a
+// violation to a stable Failure and Restore to ErrInvalidExecutionState, but
+// both consult this predicate so the two paths cannot diverge.
+func coordinatorOutcomeAuthorizes(outcome agent.ChildOutcome) bool {
+	return outcome.SubtreeResolved()
+}
+
 func (e executionState) validate(ctx context.Context, d *Definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -584,6 +594,11 @@ func (e executionState) validateTurnStart() error {
 func (e executionState) validateAppliedDecision(ctx context.Context, d *Definition, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	// A recorded coordinator outcome authorizes this Decision, so it must satisfy
+	// the same resolution rule the live path enforces before applying one.
+	if !coordinatorOutcomeAuthorizes(*e.Turn.Outcome) {
+		return fmt.Errorf("%w: coordinator subtree has unresolved Effects", ErrInvalidExecutionState)
 	}
 	output, _ := e.Turn.Outcome.Result().Termination().Output()
 	if err := d.coordinator.deployment.Descriptor().ValidateOutput(output); err != nil {
