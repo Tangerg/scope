@@ -154,6 +154,13 @@ type sourceText struct {
 	hadCRLF bool
 }
 
-func (s sourceText) restore(updated string) []byte {
-	return restoreFormat(updated, s.hadBOM, s.hadCRLF)
+// restore is the single admission point for a text candidate becoming file
+// bytes. Every write path — Write content, Edit result, or patched hunk output
+// — passes here, so a NUL cannot reach a text file whichever entry produced the
+// candidate. ApplyPatch calls this during preparation, before any file commits.
+func (s sourceText) restore(updated string) ([]byte, error) {
+	if strings.ContainsRune(updated, 0) {
+		return nil, ErrBinaryFile
+	}
+	return restoreFormat(updated, s.hadBOM, s.hadCRLF), nil
 }

@@ -100,9 +100,6 @@ func (e editOperation) apply(content, path string) (string, int, error) {
 	if e.OldString == e.NewString {
 		return "", 0, errors.New("new_string must differ from old_string")
 	}
-	if strings.ContainsRune(e.NewString, 0) {
-		return "", 0, ErrBinaryFile
-	}
 	occurrences := strings.Count(content, e.OldString)
 	if occurrences == 0 {
 		return "", 0, fmt.Errorf("old_string not found in %s", path)

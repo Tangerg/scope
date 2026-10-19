@@ -168,9 +168,13 @@ func (f filePatch) prepare(ctx context.Context, targets patchTargets) (preparedP
 			result: PatchFileResponse{Path: f.path(), Hunks: f.hunks(), Deleted: true},
 		}, nil
 	}
+	data, err := source.restore(string(patched))
+	if err != nil {
+		return preparedPatch{}, err
+	}
 	prepared := preparedPatch{
 		target: targets[f.newPath],
-		data:   source.restore(string(patched)),
+		data:   data,
 		mode:   mode,
 		result: PatchFileResponse{Path: f.path(), Hunks: f.hunks(), Created: f.created()},
 	}

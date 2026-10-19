@@ -105,6 +105,65 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 	}
 }
 
+// A plain text hunk can carry a NUL, which is a different fact from a binary
+// diff. Every patch shape must reject such a candidate before any file commits,
+// matching Write and Edit, so a text file never receives binary content.
+func TestApplyPatchRejectsNULInTextHunkBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		setup     func(t *testing.T, root string)
+		patch     string
+		unchanged map[string]string // path -> required content; "" means must be absent
+	}{
+		{
+			name:      "create",
+			patch:     "--- /dev/null\n+++ created\n@@ -0,0 +1 @@\n+hello\x00world\n",
+			unchanged: map[string]string{"created": ""},
+		},
+		{
+			name:      "modify",
+			setup:     func(t *testing.T, root string) { writeTemp(t, root, "existing", "old\n") },
+			patch:     "--- existing\n+++ existing\n@@ -1 +1 @@\n-old\n+new\x00line\n",
+			unchanged: map[string]string{"existing": "old\n"},
+		},
+		{
+			name:      "rename",
+			setup:     func(t *testing.T, root string) { writeTemp(t, root, "src.txt", "old\n") },
+			patch:     movePatch("src.txt", "dst.txt", "@@ -1 +1 @@\n-old\n+new\x00line\n"),
+			unchanged: map[string]string{"src.txt": "old\n", "dst.txt": ""},
+		},
+		{
+			name: "multi-file last illegal",
+			patch: "--- /dev/null\n+++ clean\n@@ -0,0 +1 @@\n+legal\n" +
+				"--- /dev/null\n+++ newdir/dirty\n@@ -0,0 +1 @@\n+bad\x00content\n",
+			unchanged: map[string]string{"clean": "", "newdir": ""},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if test.setup != nil {
+				test.setup(t, root)
+			}
+			out, err := mustLocalExecutor(t, root).ApplyPatch(t.Context(), ApplyPatchRequest{Patch: test.patch})
+			if !errors.Is(err, ErrBinaryFile) || !errors.Is(err, ErrMutationRejected) || len(out.Files) != 0 {
+				t.Fatalf("NUL hunk = %#v, %v; want ErrMutationRejected wrapping ErrBinaryFile", out, err)
+			}
+			for path, want := range test.unchanged {
+				data, readErr := os.ReadFile(filepath.Join(root, path))
+				if want == "" {
+					if !errors.Is(readErr, os.ErrNotExist) {
+						t.Fatalf("%s should be absent: %q, %v", path, data, readErr)
+					}
+					continue
+				}
+				if readErr != nil || string(data) != want {
+					t.Fatalf("%s = %q, %v; want unchanged %q", path, data, readErr, want)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyPatchInterruptedMoveReportsCreatedDestination(t *testing.T) {
 	root := t.TempDir()
 	readOnlyPatchDirectory(t, root)

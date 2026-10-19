@@ -173,9 +173,6 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
 		}
 	}()
-	if strings.ContainsRune(in.Content, 0) {
-		return WriteResponse{}, fmt.Errorf("fs.LocalExecutor.Write: %w", ErrBinaryFile)
-	}
 	path, err := l.authorize(in.Path, false)
 	if err != nil {
 		return WriteResponse{}, err
@@ -211,7 +208,10 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 		return WriteResponse{}, statErr
 	}
 
-	out := restoreFormat(in.Content, hadBOM, hadCRLF)
+	out, err := sourceText{hadBOM: hadBOM, hadCRLF: hadCRLF}.restore(in.Content)
+	if err != nil {
+		return WriteResponse{}, err
+	}
 	committing = true
 	if err := target.write(ctx, out, mode); err != nil {
 		return WriteResponse{}, err
@@ -259,8 +259,12 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 		return EditResponse{}, err
 	}
 
+	out, err := source.restore(updated)
+	if err != nil {
+		return EditResponse{}, err
+	}
 	committing = true
-	if err := target.write(ctx, source.restore(updated), &source.mode); err != nil {
+	if err := target.write(ctx, out, &source.mode); err != nil {
 		return EditResponse{}, err
 	}
 	return EditResponse{Replacements: replacements}, nil
