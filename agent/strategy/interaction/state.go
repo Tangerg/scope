@@ -82,7 +82,7 @@ func (a artifactRecord) validate(definition *Definition, modelCallCount uint64) 
 	if a.ModelCallSequence == 0 || a.ModelCallSequence > modelCallCount || a.ToolCallID == "" || !found || !a.Output.Valid() {
 		return errors.New("invalid identity or output")
 	}
-	if err := delegate.deployment.Descriptor().OutputSchema().Validate(a.Output.JSON()); err != nil {
+	if err := delegate.validateOutput(a.Output); err != nil {
 		return fmt.Errorf("violates Delegate output contract: %w", err)
 	}
 	return nil
@@ -116,7 +116,39 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	if err := e.validateArtifacts(ctx, definition); err != nil {
 		return err
 	}
-	return e.validatePhaseState(ctx, definition)
+	if err := e.validatePhaseState(ctx, definition); err != nil {
+		return err
+	}
+	return e.validateRoundDelegateOutputs(definition)
+}
+
+// validateRoundDelegateOutputs admits the current round's successful Delegate
+// results against each binding's OutputSchema, the same rule the archived
+// records enforce. A generic Tool result check cannot see this contract, so
+// without it a structurally invalid Delegate output would be accepted by Restore
+// and only fail on a later Step or re-Restore. It runs after validatePhaseState
+// has confirmed the response and result/call consistency.
+func (e executionState) validateRoundDelegateOutputs(definition *Definition) error {
+	if e.ToolRound == nil {
+		return nil
+	}
+	calls, err := validatedToolCalls(e.ToolRound.Response)
+	if err != nil {
+		return nil
+	}
+	for index, result := range e.ToolRound.Results {
+		if index >= len(calls) {
+			break
+		}
+		delegate, delegated := definition.delegate(calls[index].Name)
+		if !delegated || result.Disposition != ResultSucceeded {
+			continue
+		}
+		if _, err := delegate.admitResultOutput(result.Output); err != nil {
+			return fmt.Errorf("%w: round Delegate result %d: %w", ErrInvalidExecutionState, index, err)
+		}
+	}
+	return nil
 }
 
 func (e executionState) validateEnvelope() error {
@@ -321,12 +353,13 @@ func (e *executionState) recordRoundArtifacts(definition *Definition) error {
 		return err
 	}
 	for index, result := range e.ToolRound.Results {
-		if _, delegated := definition.delegate(calls[index].Name); !delegated || result.Disposition != ResultSucceeded {
+		delegate, delegated := definition.delegate(calls[index].Name)
+		if !delegated || result.Disposition != ResultSucceeded {
 			continue
 		}
-		output, err := agent.ParsePayload(result.Output.Details)
+		output, err := delegate.admitResultOutput(result.Output)
 		if err != nil {
-			return fmt.Errorf("%w: Delegate result output: %w", ErrInvalidExecutionState, err)
+			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 		}
 		e.ArtifactRecords = append(e.ArtifactRecords, artifactRecord{
 			ModelCallSequence: e.ModelCallCount, ToolCallID: calls[index].ID, DelegateName: calls[index].Name, Output: output,

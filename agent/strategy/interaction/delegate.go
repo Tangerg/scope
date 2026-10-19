@@ -70,6 +70,36 @@ func (d Delegate) validateInput(input agent.Payload) error {
 	return d.deployment.Descriptor().InputSchema().Validate(input.JSON())
 }
 
+// validateOutput is the single admission rule for a successful Delegate's
+// structured output: it must satisfy the one OutputSchema this binding's
+// Deployment owns. The current round and the archived ArtifactRecords share
+// this rule, so a result that cannot continue is rejected the first time
+// Restore sees it instead of on a later Step.
+func (d Delegate) validateOutput(output agent.Payload) error {
+	if !d.Valid() {
+		return ErrInvalidDelegate
+	}
+	if !output.Valid() {
+		return fmt.Errorf("%w: Delegate result output is invalid", ErrInvalidDelegate)
+	}
+	return d.deployment.Descriptor().OutputSchema().Validate(output.JSON())
+}
+
+// admitResultOutput parses a successful Delegate result's structured Details and
+// validates them through validateOutput, returning the admitted Payload. A
+// result carrying no structured Details is rejected here, before it could reach
+// the model context or an archived record.
+func (d Delegate) admitResultOutput(output chat.ToolOutput) (agent.Payload, error) {
+	payload, err := agent.ParsePayload(output.Details)
+	if err != nil {
+		return agent.Payload{}, fmt.Errorf("Delegate result output: %w", err)
+	}
+	if err := d.validateOutput(payload); err != nil {
+		return agent.Payload{}, err
+	}
+	return payload, nil
+}
+
 func delegateToolResult(call chat.ToolCall, result agent.Result) (chat.ToolResult, error) {
 	if result.Termination().Status() != agent.StatusCompleted {
 		termination := result.Termination()
