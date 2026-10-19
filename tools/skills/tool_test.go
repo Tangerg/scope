@@ -203,6 +203,28 @@ func TestReadSkillResourceRejectsInadmissibleRequestAsDefiniteFailure(t *testing
 	}
 }
 
+func TestLoadSkillRejectsInadmissibleNameAsDefiniteFailure(t *testing.T) {
+	// panicSource panics on any I/O, proving the name rule runs before the source
+	// is touched. "Bad Name" passes schema admission but fails ValidateName, and
+	// the model must see a definite failure it can correct rather than an
+	// uncertain load attempt.
+	built, err := NewTools(&panicSource{}, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var load toolcontract.Tool
+	for _, candidate := range built {
+		if candidate.Definition().Name == "load_skill" {
+			load = candidate
+		}
+	}
+	_, callErr := invokeTestTool(t.Context(), load, `{"name":"Bad Name"}`)
+	failure, ok := errors.AsType[*toolcontract.Failure](callErr)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), skillsrc.ErrNameInvalid) {
+		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrNameInvalid", callErr)
+	}
+}
+
 func TestSkillToolsRejectMissingArguments(t *testing.T) {
 	tools := newTools(t)
 	for _, test := range []struct {

@@ -111,6 +111,11 @@ func (t *toolSet) list(ctx context.Context, _ struct{}) (string, error) {
 }
 
 func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (string, error) {
+	// An inadmissible name is rejected before any source I/O, so the model sees
+	// a definite input failure rather than an uncertain load attempt.
+	if err := skillsrc.ValidateName(request.Name); err != nil {
+		return "", inputFailure(err)
+	}
 	skill, err := t.source.Load(ctx, request.Name)
 	if err != nil {
 		return "", err

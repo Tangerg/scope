@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -159,6 +160,19 @@ func TestSearchTool_Call_SearcherError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "upstream boom") {
 		t.Errorf("err = %v, want wrapped 'upstream boom'", err)
+	}
+}
+
+// A provider rejects an unsupported filter before any backend call, so the
+// tool must preserve it as a definite failure the model can correct, unlike the
+// uncertain upstream error in TestSearchTool_Call_SearcherError.
+func TestSearchTool_Call_UnsupportedFilterIsDefiniteFailure(t *testing.T) {
+	searcher := &fakeSearcher{err: fmt.Errorf("provider: %w: hourly recency", ErrUnsupportedFilter)}
+	tool, _ := NewSearchTool(searcher)
+	_, err := invokeTestTool(t.Context(), tool, `{"query":"hello","recency":"hour"}`)
+	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFilter) {
+		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFilter", err)
 	}
 }
 

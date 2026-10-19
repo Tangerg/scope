@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -133,6 +134,19 @@ func TestFetchTool_Call_FetcherError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fetch boom") {
 		t.Errorf("err = %v, want wrapped 'fetch boom'", err)
+	}
+}
+
+// A provider rejects an unsupported format before any backend call, so the
+// tool must preserve it as a definite failure the model can correct, unlike the
+// uncertain upstream error in TestFetchTool_Call_FetcherError.
+func TestFetchTool_Call_UnsupportedFormatIsDefiniteFailure(t *testing.T) {
+	fetcher := &fakeFetcher{err: fmt.Errorf("provider: %w: plain text", ErrUnsupportedFormat)}
+	tool, _ := NewFetchTool(fetcher)
+	_, err := invokeTestTool(t.Context(), tool, `{"url":"https://example.com","format":"text"}`)
+	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFormat) {
+		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFormat", err)
 	}
 }
 

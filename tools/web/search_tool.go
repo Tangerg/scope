@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -39,6 +40,11 @@ func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*Search
 	}
 	response, err := s.searcher.Search(ctx, prepared)
 	if err != nil {
+		// A provider rejects an unsupported filter before any backend call, so
+		// the outcome is a definite input failure, not an uncertain attempt.
+		if errors.Is(err, ErrUnsupportedFilter) {
+			return nil, inputFailure(err)
+		}
 		return nil, fmt.Errorf("web: execute search: %w", err)
 	}
 	if validationErr := response.Validate(); validationErr != nil {
