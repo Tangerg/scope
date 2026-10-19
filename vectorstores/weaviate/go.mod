@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/weaviate
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.51.1
+	github.com/Tangerg/scope/core v0.53.0
 	github.com/go-openapi/strfmt v0.27.3
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.53.0
