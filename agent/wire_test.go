@@ -167,3 +167,15 @@ func TestCanonicalPayloadBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeJSONClassifiesOversizeWithSentinel(t *testing.T) {
+	// Both the supplied-size and normalized-size guards tag oversize with the
+	// sentinel so a caller reusing this encoding as an admission bound can tell an
+	// undeliverable payload from an otherwise invalid one.
+	if _, err := normalizeJSON([]byte(`"abcdef"`), 3); !errors.Is(err, ErrPayloadTooLarge) {
+		t.Fatalf("oversize supplied input = %v, want ErrPayloadTooLarge", err)
+	}
+	if _, err := normalizeJSON([]byte(`"ab"`), 100); err != nil {
+		t.Fatalf("in-bound input rejected: %v", err)
+	}
+}

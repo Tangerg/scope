@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -180,12 +181,24 @@ func (e *execution) acceptFinalModelResponse(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-// complete encodes an already-validated Output. Its only caller, finishOrRetry,
-// validates the Output at the completion entry and hands the validator a clone,
-// so the Output cannot change between that check and this encoding.
+// complete admits an already-validated Output by its canonical payload
+// encoding, the exact form the Engine delivers. Reusing that encoding makes
+// deliverability the admission condition on both the live and the recovery
+// completion path: a response too large to deliver becomes a definite failure
+// here instead of an opaque encode error that leaves the Interaction unable to
+// finish. finishOrRetry validated the Output before this call, so size is the
+// only remaining reason the encoding can reject it.
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
 	encoded, err := agent.EncodePayload(output)
 	if err != nil {
+		if errors.Is(err, agent.ErrPayloadTooLarge) {
+			return stepfail.Transition(
+				consumedSignals,
+				agent.FailureKindExecution,
+				failureCodeInteractionLimitResponseBytes,
+				"final response exceeds the deliverable payload size limit",
+			)
+		}
 		return agent.Transition{}, err
 	}
 	e.state.complete()
@@ -660,6 +673,7 @@ const (
 	failureCodeInteractionDelegateUnresolvedEffects  = "interaction.delegate.unresolved_effects"
 	failureCodeInteractionHostFailed                 = "interaction.host.failed"
 	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
+	failureCodeInteractionLimitResponseBytes         = "interaction.limit.response_bytes"
 	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
 	failureCodeInteractionToolProcessFailed          = "interaction.tool.process_failed"
 )

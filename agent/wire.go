@@ -30,6 +30,12 @@ func canonicalTime(instant time.Time) time.Time { return instant.Round(0).UTC() 
 
 var ErrInvalidPayload = errors.New("agent: invalid payload")
 
+// ErrPayloadTooLarge reports a value whose supplied or canonical encoding
+// exceeds MaxPayloadBytes. It lets a caller that reuses this encoding as an
+// admission bound, such as an Interaction's final Output, distinguish an
+// undeliverable payload from an otherwise invalid one.
+var ErrPayloadTooLarge = errors.New("agent: payload exceeds the maximum encoded size")
+
 // Payload is an immutable canonical JSON value. Its zero value is invalid.
 // ParsePayload and EncodePayload copy and normalize their input. Descriptor
 // schemas define its role as Process input or final output; streamed Deltas
@@ -102,14 +108,14 @@ func normalizeJSON(data []byte, limit int) (json.RawMessage, error) {
 		return nil, errors.New("JSON value is empty")
 	}
 	if len(data) > limit {
-		return nil, fmt.Errorf("JSON value exceeds %d bytes", limit)
+		return nil, fmt.Errorf("%w: %d bytes exceeds %d", ErrPayloadTooLarge, len(data), limit)
 	}
 	normalized := jsontext.Value(bytes.Clone(data))
 	if err := normalized.Format(jsontext.ReorderRawObjects(true), jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true)); err != nil {
 		return nil, fmt.Errorf("JSON value is not valid RFC 7493 JSON: %w", err)
 	}
 	if len(normalized) > limit {
-		return nil, fmt.Errorf("normalized JSON value exceeds %d bytes", limit)
+		return nil, fmt.Errorf("%w: normalized %d bytes exceeds %d", ErrPayloadTooLarge, len(normalized), limit)
 	}
 	return json.RawMessage(normalized), nil
 }
