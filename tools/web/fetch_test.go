@@ -137,9 +137,8 @@ func TestFetchTool_Call_FetcherError(t *testing.T) {
 	}
 }
 
-// A provider rejects an unsupported format before any backend call, so the
-// tool must preserve it as a definite failure the model can correct, unlike the
-// uncertain upstream error in TestFetchTool_Call_FetcherError.
+// Unlike the uncertain upstream error in TestFetchTool_Call_FetcherError, a
+// pre-request provider rejection must reach the model as a definite failure.
 func TestFetchTool_Call_UnsupportedFormatIsDefiniteFailure(t *testing.T) {
 	fetcher := &fakeFetcher{err: fmt.Errorf("provider: %w: plain text", ErrUnsupportedFormat)}
 	tool, _ := NewFetchTool(fetcher)

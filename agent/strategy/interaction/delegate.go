@@ -70,11 +70,9 @@ func (d Delegate) validateInput(input agent.Payload) error {
 	return d.deployment.Descriptor().InputSchema().Validate(input.JSON())
 }
 
-// validateOutput is the single admission rule for a successful Delegate's
-// structured output: it must satisfy the one OutputSchema this binding's
-// Deployment owns. The current round and the archived ArtifactRecords share
-// this rule, so a result that cannot continue is rejected the first time
-// Restore sees it instead of on a later Step.
+// validateOutput is the one OutputSchema admission a successful Delegate result
+// must pass. The current round and the archived records share it, so an output
+// that cannot continue is rejected the first time Restore sees it, not later.
 func (d Delegate) validateOutput(output agent.Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
@@ -85,10 +83,9 @@ func (d Delegate) validateOutput(output agent.Payload) error {
 	return d.deployment.Descriptor().OutputSchema().Validate(output.JSON())
 }
 
-// admitResultOutput parses a successful Delegate result's structured Details and
-// validates them through validateOutput, returning the admitted Payload. A
-// result carrying no structured Details is rejected here, before it could reach
-// the model context or an archived record.
+// admitResultOutput is validateOutput for a raw result: a success carrying no
+// structured Details is rejected here, before it reaches the model context or an
+// archived record.
 func (d Delegate) admitResultOutput(output chat.ToolOutput) (agent.Payload, error) {
 	payload, err := agent.ParsePayload(output.Details)
 	if err != nil {

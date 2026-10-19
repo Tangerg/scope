@@ -190,8 +190,7 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 
 func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 	process := admissionTestProcess(t, 0)
-	// A real near-limit snapshot: the candidate state carries a large payload so
-	// admission is exercised at a genuine size, not a token one.
+	// A large candidate state exercises admission at a real size, not a token one.
 	largeState := controlValue(ParseExecutionState("engine.effect",
 		controlValue(jsonv2.Marshal(engineTestState{Phase: "effect", Value: strings.Repeat("x", 44<<14)}))))
 	limits := admissionTestLimits()
@@ -204,9 +203,8 @@ func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 		t.Fatalf("preparing local waits exceeded capacity: %v", failure.cause)
 	}
 
-	// A local wait settles deterministically from its own request, so the prepared
-	// step already encodes that settlement and reserves no further growth for it.
-	// This is the claim: reserving even one byte per wait would double-charge it.
+	// The claim: a local wait settles deterministically, so it reserves no further
+	// snapshot growth. Reserving even one byte per wait would double-charge it.
 	waits := 0
 	for index := range process.prepared.Effects {
 		effect := process.prepared.Effects[index]
@@ -224,9 +222,8 @@ func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 		t.Fatalf("prepared %d local waits, want 2", waits)
 	}
 
-	// The real admission owner admits the prepared snapshot at its exact size and
-	// rejects one byte below it. The boundary size comes from admission itself,
-	// never recomputed by a parallel billing helper the test could agree with.
+	// Exercise the real admission boundary; the size comes from admission itself,
+	// not a parallel billing helper the test could tautologically agree with.
 	size, err := process.snapshotAdmissionSize(limits)
 	if err != nil {
 		t.Fatalf("admission size: %v", err)

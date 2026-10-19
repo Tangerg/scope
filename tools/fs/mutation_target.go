@@ -154,10 +154,9 @@ type sourceText struct {
 	hadCRLF bool
 }
 
-// restore is the single admission point for a text candidate becoming file
-// bytes. Every write path — Write content, Edit result, or patched hunk output
-// — passes here, so a NUL cannot reach a text file whichever entry produced the
-// candidate. ApplyPatch calls this during preparation, before any file commits.
+// restore is the one place a text candidate becomes file bytes, so Write, Edit,
+// and ApplyPatch cannot each admit a NUL differently. ApplyPatch runs it during
+// preparation, before any file in a multi-file patch commits.
 func (s sourceText) restore(updated string) ([]byte, error) {
 	if strings.ContainsRune(updated, 0) {
 		return nil, ErrBinaryFile

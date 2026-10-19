@@ -8,11 +8,9 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// A model response can pass its settlement envelope bound yet, once wrapped in
-// the final Output, exceed the deliverable payload size. Completion reuses the
-// Output's canonical encoding as its admission, so an undeliverable response
-// becomes a definite failure instead of an opaque encode error that leaves the
-// Interaction unable to finish.
+// A response fitting its settlement envelope can still exceed the deliverable
+// payload size once wrapped in the final Output; completion must then fail
+// definitely, not with an opaque encode error that strands the Interaction.
 func TestCompleteFailsDefinitelyWhenFinalOutputExceedsDeliverableSize(t *testing.T) {
 	definition, err := NewDefinition(DefinitionConfig{
 		Name: "interaction.oversize", Description: "Check the deliverable output bound.",

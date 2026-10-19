@@ -30,10 +30,9 @@ func canonicalTime(instant time.Time) time.Time { return instant.Round(0).UTC() 
 
 var ErrInvalidPayload = errors.New("agent: invalid payload")
 
-// ErrPayloadTooLarge reports a value whose supplied or canonical encoding
-// exceeds MaxPayloadBytes. It lets a caller that reuses this encoding as an
-// admission bound, such as an Interaction's final Output, distinguish an
-// undeliverable payload from an otherwise invalid one.
+// ErrPayloadTooLarge reports an encoding over MaxPayloadBytes, letting a caller
+// that reuses this encoding as an admission bound tell an undeliverable payload
+// from an otherwise invalid one.
 var ErrPayloadTooLarge = errors.New("agent: payload exceeds the maximum encoded size")
 
 // Payload is an immutable canonical JSON value. Its zero value is invalid.

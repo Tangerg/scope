@@ -181,13 +181,10 @@ func (e *execution) acceptFinalModelResponse(
 	return e.requestModel(consumedSignals, appliedSteerSignalIDs)
 }
 
-// complete admits an already-validated Output by its canonical payload
-// encoding, the exact form the Engine delivers. Reusing that encoding makes
-// deliverability the admission condition on both the live and the recovery
-// completion path: a response too large to deliver becomes a definite failure
-// here instead of an opaque encode error that leaves the Interaction unable to
-// finish. finishOrRetry validated the Output before this call, so size is the
-// only remaining reason the encoding can reject it.
+// complete admits an Output by the canonical payload encoding the Engine
+// delivers, so a response too large to deliver becomes a definite failure here
+// rather than an opaque encode error that strands the Interaction. finishOrRetry
+// already validated the Output, so size is the only encode failure left.
 func (e *execution) complete(consumedSignals uint32, output Output) (agent.Transition, error) {
 	encoded, err := agent.EncodePayload(output)
 	if err != nil {

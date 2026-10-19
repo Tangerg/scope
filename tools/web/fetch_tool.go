@@ -40,8 +40,7 @@ func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResp
 	}
 	response, err := f.fetcher.Fetch(ctx, prepared)
 	if err != nil {
-		// A provider rejects an unsupported format before any backend call, so
-		// the outcome is a definite input failure, not an uncertain attempt.
+		// An unsupported format is rejected before any backend call: definite, not uncertain.
 		if errors.Is(err, ErrUnsupportedFormat) {
 			return nil, inputFailure(err)
 		}

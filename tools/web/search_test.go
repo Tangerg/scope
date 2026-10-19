@@ -163,9 +163,8 @@ func TestSearchTool_Call_SearcherError(t *testing.T) {
 	}
 }
 
-// A provider rejects an unsupported filter before any backend call, so the
-// tool must preserve it as a definite failure the model can correct, unlike the
-// uncertain upstream error in TestSearchTool_Call_SearcherError.
+// Unlike the uncertain upstream error in TestSearchTool_Call_SearcherError, a
+// pre-request provider rejection must reach the model as a definite failure.
 func TestSearchTool_Call_UnsupportedFilterIsDefiniteFailure(t *testing.T) {
 	searcher := &fakeSearcher{err: fmt.Errorf("provider: %w: hourly recency", ErrUnsupportedFilter)}
 	tool, _ := NewSearchTool(searcher)

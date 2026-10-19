@@ -122,12 +122,9 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	return e.validateRoundDelegateOutputs(definition)
 }
 
-// validateRoundDelegateOutputs admits the current round's successful Delegate
-// results against each binding's OutputSchema, the same rule the archived
-// records enforce. A generic Tool result check cannot see this contract, so
-// without it a structurally invalid Delegate output would be accepted by Restore
-// and only fail on a later Step or re-Restore. It runs after validatePhaseState
-// has confirmed the response and result/call consistency.
+// validateRoundDelegateOutputs applies the Delegate OutputSchema admission the
+// generic Tool-result check cannot see to the current round's results. It runs
+// after validatePhaseState has confirmed response and result/call consistency.
 func (e executionState) validateRoundDelegateOutputs(definition *Definition) error {
 	if e.ToolRound == nil {
 		return nil

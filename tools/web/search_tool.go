@@ -40,8 +40,7 @@ func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*Search
 	}
 	response, err := s.searcher.Search(ctx, prepared)
 	if err != nil {
-		// A provider rejects an unsupported filter before any backend call, so
-		// the outcome is a definite input failure, not an uncertain attempt.
+		// An unsupported filter is rejected before any backend call: definite, not uncertain.
 		if errors.Is(err, ErrUnsupportedFilter) {
 			return nil, inputFailure(err)
 		}

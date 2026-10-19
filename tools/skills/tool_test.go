@@ -205,9 +205,7 @@ func TestReadSkillResourceRejectsInadmissibleRequestAsDefiniteFailure(t *testing
 
 func TestLoadSkillRejectsInadmissibleNameAsDefiniteFailure(t *testing.T) {
 	// panicSource panics on any I/O, proving the name rule runs before the source
-	// is touched. "Bad Name" passes schema admission but fails ValidateName, and
-	// the model must see a definite failure it can correct rather than an
-	// uncertain load attempt.
+	// is touched. "Bad Name" clears schema admission but fails ValidateName.
 	built, err := NewTools(&panicSource{}, Config{})
 	if err != nil {
 		t.Fatal(err)

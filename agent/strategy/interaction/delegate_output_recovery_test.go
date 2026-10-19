@@ -9,11 +9,9 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// A current round's successful Delegate result is its Artifact until the round
-// ends, so Restore must admit it against the same OutputSchema the archived
-// records use. Generic Tool-result validation cannot see that contract, so
-// without the shared rule a structurally invalid output would be accepted the
-// first time and only fail on a later Step or re-Restore.
+// Generic Tool-result validation cannot see the Delegate OutputSchema, so Restore
+// must apply the shared admission the archived records use; otherwise a
+// structurally invalid output passes and only fails on a later Step or re-Restore.
 func TestRoundDelegateResultRestoreValidatesOutputContract(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
 	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
