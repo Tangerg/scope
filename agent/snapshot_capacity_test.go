@@ -190,19 +190,56 @@ func TestTreeCapacityRejectsIndividuallyRepresentableProcesses(t *testing.T) {
 
 func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 	process := admissionTestProcess(t, 0)
+	// A real near-limit snapshot: the candidate state carries a large payload so
+	// admission is exercised at a genuine size, not a token one.
+	largeState := controlValue(ParseExecutionState("engine.effect",
+		controlValue(jsonv2.Marshal(engineTestState{Phase: "effect", Value: strings.Repeat("x", 44<<14)}))))
 	limits := admissionTestLimits()
-	limits.MaxProcessSnapshotBytes = NewQuota(128 << 14)
-	payload := json.RawMessage(`"` + strings.Repeat("x", 33<<14) + `"`)
+	limits.MaxProcessSnapshotBytes = NewQuota(4 << 20)
+
 	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first"))))
 	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second"))))
-	dispatch := controlValue(NewDispatcherEffect(json.RawMessage(`{}`)))
-	transition := controlValue(Continue(0, dispatch, first, second))
-	if failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: process.committedExecutionState}); failure != nil {
-		t.Fatalf("waits whose settlements their requests determine were charged twice: %v", failure.cause)
+	transition := controlValue(Continue(0, first, second))
+	if failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: largeState}); failure != nil {
+		t.Fatalf("preparing local waits exceeded capacity: %v", failure.cause)
 	}
-	size := uint64(len(controlValue(process.capture()).JSON()))
-	if size > 2*uint64(len(payload))+(4<<10) {
-		t.Fatalf("prepared waits encoded %d bytes for %d payload bytes", size, 2*len(payload))
+
+	// A local wait settles deterministically from its own request, so the prepared
+	// step already encodes that settlement and reserves no further growth for it.
+	// This is the claim: reserving even one byte per wait would double-charge it.
+	waits := 0
+	for index := range process.prepared.Effects {
+		effect := process.prepared.Effects[index]
+		if effect.Effect.Target() != EffectTargetFramework {
+			continue
+		}
+		waits++
+		if _, growth, err := effect.snapshotReservation(); err != nil {
+			t.Fatalf("local wait %d reservation: %v", index, err)
+		} else if growth != 0 {
+			t.Fatalf("local wait %d reserved %d settlement bytes, want 0", index, growth)
+		}
+	}
+	if waits != 2 {
+		t.Fatalf("prepared %d local waits, want 2", waits)
+	}
+
+	// The real admission owner admits the prepared snapshot at its exact size and
+	// rejects one byte below it. The boundary size comes from admission itself,
+	// never recomputed by a parallel billing helper the test could agree with.
+	size, err := process.snapshotAdmissionSize(limits)
+	if err != nil {
+		t.Fatalf("admission size: %v", err)
+	}
+	fits := limits
+	fits.MaxProcessSnapshotBytes = NewQuota(size)
+	if _, err := process.snapshotAdmissionSize(fits); err != nil {
+		t.Fatalf("exact capacity rejected admission: %v", err)
+	}
+	tight := limits
+	tight.MaxProcessSnapshotBytes = NewQuota(size - 1)
+	if _, err := process.snapshotAdmissionSize(tight); !errors.Is(err, ErrResourceLimitExceeded) {
+		t.Fatalf("one byte below capacity = %v, want ErrResourceLimitExceeded", err)
 	}
 }
 
