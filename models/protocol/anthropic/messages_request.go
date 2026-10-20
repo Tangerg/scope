@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -39,9 +41,13 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	req = req.Clone()
 	req.Options = options
 	extensionKey := protocolRequestExtensionKey(dialect.Provider)
-	fields, _, err := req.Options.Extensions.Decode[map[string]any](extensionKey)
+	encodedFields, _, err := req.Options.Extensions.Decode[metadata.Map](extensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: extension %q: %w", extensionKey, err)
+	}
+	fields, err := encodedFields.Values()
+	if err != nil {
+		return nil, err
 	}
 	if dialect.PrepareRequest != nil {
 		if fields == nil {
@@ -62,7 +68,11 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		return nil, err
 	}
 	params := anthropicsdk.MessageNewParams{OutputConfig: outputConfig}
-	params.SetExtraFields(fields)
+	nativeFields, err := nativeJSONFields(fields)
+	if err != nil {
+		return nil, err
+	}
+	params.SetExtraFields(nativeFields)
 
 	if options.Model == "" {
 		return nil, errors.New("anthropic: model is required in defaults or request options")
@@ -156,6 +166,13 @@ func projectMessageInputTokenCount(params *anthropicsdk.MessageNewParams) (*anth
 	projected.Messages = params.Messages
 	projected.Model = params.Model
 	projected.System.OfTextBlockArray = params.System
+	projected.OutputConfig = params.OutputConfig
+	if params.Tools != nil {
+		projected.Tools = make([]anthropicsdk.MessageCountTokensToolUnionParam, len(params.Tools))
+		for index, definition := range params.Tools {
+			projected.Tools[index] = anthropicsdk.MessageCountTokensToolUnionParam(definition)
+		}
+	}
 	return &projected, nil
 }
 
@@ -183,7 +200,11 @@ func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsd
 		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, "output_config", err)
 	}
 	if len(extraFields) > 0 {
-		config.SetExtraFields(extraFields)
+		nativeFields, err := nativeJSONFields(extraFields)
+		if err != nil {
+			return anthropicsdk.OutputConfigParam{}, err
+		}
+		config.SetExtraFields(nativeFields)
 	}
 	delete(fields, "output_config")
 	return config, nil
@@ -220,12 +241,20 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, dialect Dialect, par
 		schema = map[string]any{"type": "object"}
 	} else {
 		var err error
-		schema, err = format.SchemaAs[map[string]any]()
+		var encoded metadata.Map
+		encoded, err = format.SchemaAs[metadata.Map]()
+		if err == nil {
+			schema, err = encoded.Values()
+		}
 		if err != nil {
 			return fmt.Errorf("anthropic: output schema: %w", err)
 		}
 	}
-	params.OutputConfig.Format = anthropicsdk.JSONOutputFormatParam{Schema: schema}
+	nativeSchema, err := nativeJSONFields(schema)
+	if err != nil {
+		return err
+	}
+	params.OutputConfig.Format = anthropicsdk.JSONOutputFormatParam{Schema: nativeSchema}
 	return nil
 }
 
@@ -409,7 +438,7 @@ func mapProtocolAssistantPart(index int, part corechat.Part, provider string) (a
 	case corechat.PartReasoning:
 		return mapProtocolReasoningPart(index, part, provider)
 	case corechat.PartToolCall:
-		block, err := mapProtocolToolCall(index, *part.ToolCall)
+		block, err := mapProtocolToolCall(*part.ToolCall)
 		return block, true, err
 	case corechat.PartRefusal:
 		return anthropicsdk.NewTextBlock(part.Text), true, nil
@@ -449,12 +478,10 @@ func mapProtocolReasoningPart(index int, part corechat.Part, provider string) (a
 	}
 }
 
-func mapProtocolToolCall(index int, call corechat.ToolCall) (anthropicsdk.ContentBlockParamUnion, error) {
-	var input any
+func mapProtocolToolCall(call corechat.ToolCall) (anthropicsdk.ContentBlockParamUnion, error) {
+	input := json.RawMessage(call.Arguments)
 	if call.Arguments == "" {
-		input = map[string]any{}
-	} else if err := jsonv2.Unmarshal([]byte(call.Arguments), &input); err != nil {
-		return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("parts[%d].tool_call.arguments: %w", index, err)
+		input = json.RawMessage(`{}`)
 	}
 	return anthropicsdk.NewToolUseBlock(call.ID, input, call.Name), nil
 }
@@ -462,17 +489,42 @@ func mapProtocolToolCall(index int, call corechat.ToolCall) (anthropicsdk.Conten
 func mapProtocolTools(definitions []corechat.ToolDefinition) ([]anthropicsdk.ToolUnionParam, error) {
 	tools := make([]anthropicsdk.ToolUnionParam, 0, len(definitions))
 	for i := range definitions {
-		var schema map[string]any
-		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
+		var encodedSchema metadata.Map
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &encodedSchema); err != nil {
 			return nil, fmt.Errorf("anthropic: tools[%d].input_schema: %w", i, err)
 		}
+		schema, err := encodedSchema.Values()
+		if err != nil {
+			return nil, err
+		}
 		delete(schema, "type")
+		nativeSchema, err := nativeJSONFields(schema)
+		if err != nil {
+			return nil, err
+		}
 		tool := anthropicsdk.ToolParam{
 			Name:        definitions[i].Name,
 			Description: param.NewOpt(definitions[i].Description),
-			InputSchema: anthropicsdk.ToolInputSchemaParam{ExtraFields: schema},
+			InputSchema: anthropicsdk.ToolInputSchemaParam{ExtraFields: nativeSchema},
 		}
 		tools = append(tools, anthropicsdk.ToolUnionParam{OfTool: &tool})
 	}
 	return tools, nil
+}
+
+// The SDK's encoder treats json.Number as a string. Encoded members keep each
+// provider-owned JSON value intact across that encoder's open-field boundary.
+func nativeJSONFields(fields map[string]any) (map[string]any, error) {
+	encoded, err := metadata.FromValues(fields)
+	if err != nil {
+		return nil, err
+	}
+	if encoded == nil {
+		return nil, nil
+	}
+	native := make(map[string]any, len(encoded))
+	for name, value := range encoded {
+		native[name] = value
+	}
+	return native, nil
 }

@@ -72,5 +72,9 @@ func (t *TextCounter) CountText(ctx context.Context, text string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(resp.InputTokens), nil
+	count := int(resp.InputTokens)
+	if int64(count) != resp.InputTokens {
+		return 0, errors.New("anthropic: input_tokens count exceeds int")
+	}
+	return count, nil
 }

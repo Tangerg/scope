@@ -14,7 +14,7 @@ type Dialect struct {
 	RejectTopP     bool
 	// NativeJSONSchema reports whether this endpoint implements Anthropic's
 	// output_config.format JSON Schema control. Compatible providers that do not
-	// declare it receive the shared prompt fallback.
+	// declare it reject that output format with ErrUnsupportedOutputFormat.
 	NativeJSONSchema bool
 	// PrepareRequest applies provider policy to the resolved, independently
 	// owned request before the Messages wire projection is built. Fields holds

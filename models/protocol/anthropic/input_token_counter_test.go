@@ -75,3 +75,30 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 		t.Fatalf("count request omitted the inline image: %s", captured.Messages[0])
 	}
 }
+
+func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
+	for _, body := range []string{`{}`, `null`, `{"input_tokens":null}`, `{"input_tokens":"bogus"}`, `{"input_tokens":-1}`, `{"input_tokens":0}`, `{"input_tokens":7}`} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			counter, err := anthropic.NewTextCounter(t.Context(), anthropic.TextCounterConfig{APIKey: "test", BaseURL: server.URL, Model: "model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("text")))
+			count, modelErr := model.CountInputTokens(t.Context(), request)
+			textCount, textErr := counter.CountText(t.Context(), "text")
+			valid := body == `{"input_tokens":0}` || body == `{"input_tokens":7}`
+			if valid != (modelErr == nil) || valid != (textErr == nil) || valid && count != int64(textCount) {
+				t.Fatalf("count=%d/%d errors=%v/%v", count, textCount, modelErr, textErr)
+			}
+		})
+	}
+}

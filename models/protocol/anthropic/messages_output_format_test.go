@@ -32,10 +32,22 @@ func TestProtocolOutputFormatUsesNativeSchemaOrRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	params = anthropicsdk.MessageNewParams{}
-	if err := mapProtocolOutputFormat(&jsonFormat, Dialect{NativeJSONSchema: true}, &params); err != nil {
+	if mapErr := mapProtocolOutputFormat(&jsonFormat, Dialect{NativeJSONSchema: true}, &params); mapErr != nil {
+		t.Fatal(mapErr)
+	}
+	encoded, err := jsonv2.Marshal(params.OutputConfig.Format)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if params.OutputConfig.Format.Schema["type"] != "object" || len(params.System) != 0 {
+	var format struct {
+		Schema struct {
+			Type string `json:"type"`
+		} `json:"schema"`
+	}
+	if err := jsonv2.Unmarshal(encoded, &format); err != nil {
+		t.Fatal(err)
+	}
+	if format.Schema.Type != "object" || len(params.System) != 0 {
 		t.Fatalf("native JSON mapping = %#v", params)
 	}
 

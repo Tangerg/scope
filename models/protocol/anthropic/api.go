@@ -150,7 +150,14 @@ func (a *api) countTokens(ctx context.Context, req *anthropicsdk.MessageCountTok
 	if req == nil {
 		return nil, errors.New("anthropic: request must not be nil")
 	}
-	return a.wrapResult(a.client.Messages.CountTokens(ctx, *req, opts...))
+	response, err := a.wrapResult(a.client.Messages.CountTokens(ctx, *req, opts...))
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || !response.JSON.InputTokens.Valid() || response.InputTokens < 0 {
+		return nil, errors.New("anthropic: invalid input_tokens count")
+	}
+	return response, nil
 }
 
 func (*api) wrapError(err error) error {
