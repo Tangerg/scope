@@ -15,7 +15,6 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
-	OpenAIRequestExtensionKey        = "minimax/openai_request"
 	OpenAIStreamChunkExtensionKey    = "minimax/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "minimax/anthropic_request"
 	AnthropicStreamEventExtensionKey = "minimax/anthropic_stream_event"
@@ -51,6 +50,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 		return nil, fmt.Errorf("minimax: configure reasoning dialect: %w", err)
 	}
 	reasoningDialect.PrepareRequest = prepareOpenAIRequest
+	reasoningDialect.DisableRawRequestExtension = true
 	reasoningDialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntl), HTTPClient: config.HTTPClient},

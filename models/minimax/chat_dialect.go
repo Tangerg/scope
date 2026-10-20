@@ -1,6 +1,9 @@
 package minimax
 
 import (
+	"bytes"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -83,5 +86,26 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 			return err
 		}
 	}
+	return nil
+}
+
+func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return errors.New("minimax: nil ChatRequestOptions")
+	}
+	raw := bytes.TrimSpace(data)
+	if len(raw) == 0 || raw[0] != '{' {
+		return errors.New("minimax: request options must be an object")
+	}
+	type wireOptions ChatRequestOptions
+	var decoded wireOptions
+	if err := jsonv2.Unmarshal(raw, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	candidate := ChatRequestOptions(decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*c = candidate
 	return nil
 }
