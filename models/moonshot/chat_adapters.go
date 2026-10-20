@@ -15,7 +15,6 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
-	OpenAIRequestExtensionKey        = "moonshot/openai_request"
 	OpenAIStreamChunkExtensionKey    = "moonshot/openai_stream_chunk"
 	AnthropicRequestExtensionKey     = "moonshot/anthropic_request"
 	AnthropicStreamEventExtensionKey = "moonshot/anthropic_stream_event"
@@ -48,6 +47,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	}
 	dialect := openai.ReasoningContentReplayDialect("moonshot")
 	dialect.PrepareRequest = prepareOpenAIRequest
+	dialect.DisableRawRequestExtension = true
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	// Moonshot's migration guide states the narrower range outright: "Kimi API
 	// 的 temperature 参数的取值范围是 [0, 1]，而 OpenAI 的 temperature 参数的

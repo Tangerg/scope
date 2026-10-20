@@ -1,6 +1,7 @@
 package moonshot
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -122,6 +123,10 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return errors.New("moonshot: nil ChatRequestOptions")
+	}
+	raw := bytes.TrimSpace(data)
+	if len(raw) == 0 || raw[0] != '{' {
+		return errors.New("moonshot: request options must be an object")
 	}
 	type wireOptions ChatRequestOptions
 	var decoded wireOptions
