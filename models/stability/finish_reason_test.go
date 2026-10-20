@@ -19,7 +19,7 @@ func TestBuildResponseRejectsFilteredGeneration(t *testing.T) {
 		want   string
 	}{
 		{name: "success", reason: finishReasonSuccess},
-		{name: "absent", reason: ""},
+		{name: "absent", reason: "", want: `unrecognized finish_reason ""`},
 		{
 			name:   "filtered",
 			reason: finishReasonContentFiltered,
@@ -35,7 +35,7 @@ func TestBuildResponseRejectsFilteredGeneration(t *testing.T) {
 			body, err := jsonv2.Marshal(jsonResponse{
 				Image:        base64.StdEncoding.EncodeToString([]byte("png-bytes")),
 				FinishReason: sample.reason,
-				Seed:         7,
+				Seed:         new(int64(7)),
 			})
 			if err != nil {
 				t.Fatal(err)

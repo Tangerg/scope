@@ -36,7 +36,11 @@ func newAPI(config apiConfig) (*api, error) {
 
 	client := resty.New()
 	if config.HTTPClient != nil {
-		client = resty.NewWithClient(config.HTTPClient)
+		ownedClient := *config.HTTPClient
+		if ownedClient.Transport == nil {
+			ownedClient.Transport = http.DefaultTransport
+		}
+		client = resty.NewWithClient(&ownedClient)
 	}
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
@@ -107,7 +111,7 @@ func (g *generateRequest) validate() error {
 type jsonResponse struct {
 	Image        string `json:"image"`
 	FinishReason string `json:"finish_reason"`
-	Seed         int64  `json:"seed"`
+	Seed         *int64 `json:"seed,omitzero"`
 }
 
 func (a *api) generate(ctx context.Context, path string, req *generateRequest) ([]byte, http.Header, error) {

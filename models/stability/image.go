@@ -140,7 +140,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 // classify is not evidence of success.
 func checkFinishReason(reason string) error {
 	switch reason {
-	case "", finishReasonSuccess:
+	case finishReasonSuccess:
 		return nil
 	case finishReasonContentFiltered:
 		return fmt.Errorf(
@@ -180,8 +180,13 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 			return nil, setErr
 		}
 	}
-	if setErr := outputMetadata.Set("stability/seed", envelope.Seed); setErr != nil {
-		return nil, setErr
+	if envelope.Seed != nil {
+		if *envelope.Seed < 0 || *envelope.Seed > 4294967294 {
+			return nil, fmt.Errorf("stability: invalid response seed %d", *envelope.Seed)
+		}
+		if setErr := outputMetadata.Set("stability/seed", *envelope.Seed); setErr != nil {
+			return nil, setErr
+		}
 	}
 
 	output, err := image.NewOutput(value, outputMetadata)
@@ -190,7 +195,7 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 	}
 
 	meta := &image.ResponseMetadata{}
-	if rid := hdr.Get("request-id"); rid != "" {
+	if rid := hdr.Get("x-request-id"); rid != "" {
 		if err := meta.Extra.Set("stability/request_id", rid); err != nil {
 			return nil, err
 		}
