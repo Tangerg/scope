@@ -262,7 +262,7 @@ func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 func mapChatTools(definitions []corechat.ToolDefinition) ([]chatTool, error) {
 	tools := make([]chatTool, 0, len(definitions))
 	for index := range definitions {
-		var parameters map[string]any
+		var parameters map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &parameters); err != nil {
 			return nil, fmt.Errorf("mistral: tools[%d].input_schema: %w", index, err)
 		}
@@ -271,7 +271,7 @@ func mapChatTools(definitions []corechat.ToolDefinition) ([]chatTool, error) {
 			Function: chatFunction{
 				Name:        definitions[index].Name,
 				Description: definitions[index].Description,
-				Parameters:  parameters,
+				Parameters:  json.RawMessage(bytes.Clone(definitions[index].InputSchema)),
 			},
 		})
 	}

@@ -203,9 +203,9 @@ type chatTool struct {
 }
 
 type chatFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 type chatToolCall struct {
