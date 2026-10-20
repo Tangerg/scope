@@ -44,6 +44,11 @@ func (g GrepRequest) resultLimit() (int, error) {
 	if len(g.Pattern) < minimumPatternLength {
 		return 0, ErrEmptyPattern
 	}
+	if g.FileGlob != "" {
+		if err := validateGlobPattern(g.FileGlob); err != nil {
+			return 0, err
+		}
+	}
 	return limit, nil
 }
 

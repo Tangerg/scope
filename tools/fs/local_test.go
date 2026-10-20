@@ -777,6 +777,7 @@ func TestLocalExecutor_GrepRequiresRipgrep(t *testing.T) {
 }
 
 func TestGrepRejectsInvalidFileGlobIndependentlyOfDirectoryContents(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	for _, contents := range []string{"empty", "file", "directory"} {
 		t.Run(contents, func(t *testing.T) {
 			root := t.TempDir()

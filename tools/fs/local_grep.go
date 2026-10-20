@@ -147,11 +147,6 @@ type grepFileFilter struct {
 }
 
 func newGrepFileFilter(ctx context.Context, executable string, in GrepRequest) (grepFileFilter, error) {
-	if in.FileGlob != "" {
-		if err := validateGlobPattern(in.FileGlob); err != nil {
-			return grepFileFilter{}, err
-		}
-	}
 	filter := grepFileFilter{glob: in.FileGlob}
 	if in.FileType == "" {
 		return filter, nil

@@ -22,3 +22,5 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
+
+retract v0.54.0 // File glob admission depended on ripgrep availability.
