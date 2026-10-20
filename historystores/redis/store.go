@@ -103,21 +103,25 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 	if err != nil {
 		return outcome, fmt.Errorf("redis: write: encode messages: %w", err)
 	}
-	payloads := make([]any, len(encoded))
-	for index, raw := range encoded {
-		payloads[index] = raw
+	arguments := make([]any, 2, len(encoded)+2)
+	arguments[0], arguments[1] = "rpush", s.key(conversationID)
+	for _, raw := range encoded {
+		arguments = append(arguments, raw)
 	}
 
 	key := s.key(conversationID)
+	appendCommand := &historyAppend{IntCmd: goredis.NewIntCmd(ctx, arguments...)}
 	outcome.Uncertain = true
 	if s.ttl == 0 {
-		if err = s.client.RPush(ctx, key, payloads...).Err(); err != nil {
+		if err = s.client.Process(ctx, appendCommand); err != nil {
 			return outcome, fmt.Errorf("redis: write: append messages: %w", err)
 		}
 		return history.WriteOutcome{Accepted: len(messages)}, nil
 	}
 	transaction := s.client.TxPipeline()
-	appendCommand := transaction.RPush(ctx, key, payloads...)
+	if err = transaction.Process(ctx, appendCommand); err != nil {
+		return history.WriteOutcome{}, fmt.Errorf("redis: queue history append: %w", err)
+	}
 	transaction.PExpire(ctx, key, s.ttl)
 	if _, err = transaction.Exec(ctx); err != nil {
 		if appendCommand.Err() == nil {
@@ -282,3 +286,9 @@ func (c *conversationCollector) sorted() []history.ConversationID {
 	slices.Sort(ids)
 	return ids
 }
+
+// A history append may already have taken effect when its reply is lost.
+// Its command owns the execution permission before entering the SDK.
+type historyAppend struct{ *goredis.IntCmd }
+
+func (*historyAppend) NoRetry() bool { return true }

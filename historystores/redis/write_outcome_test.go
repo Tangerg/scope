@@ -19,8 +19,14 @@ type writeClient struct {
 }
 
 func (w writeClient) TxPipeline() goredis.Pipeliner { return w.pipeline }
-func (w writeClient) RPush(ctx context.Context, key string, values ...any) *goredis.IntCmd {
-	return w.pipeline.RPush(ctx, key, values...)
+func (w writeClient) Process(ctx context.Context, command goredis.Cmder) error {
+	if !command.NoRetry() {
+		panic("history append permits retries")
+	}
+	if err := w.pipeline.Process(ctx, command); err != nil {
+		return err
+	}
+	return command.Err()
 }
 
 type writePipeline struct {
@@ -29,11 +35,12 @@ type writePipeline struct {
 	execErr   error
 }
 
-func (w *writePipeline) RPush(ctx context.Context, _ string, _ ...any) *goredis.IntCmd {
-	command := goredis.NewIntCmd(ctx)
-	command.SetVal(2)
+func (w *writePipeline) Process(_ context.Context, command goredis.Cmder) error {
+	if !command.NoRetry() {
+		panic("queued history append permits retries")
+	}
 	command.SetErr(w.appendErr)
-	return command
+	return nil
 }
 func (w *writePipeline) PExpire(ctx context.Context, _ string, _ time.Duration) *goredis.BoolCmd {
 	return goredis.NewBoolCmd(ctx)
