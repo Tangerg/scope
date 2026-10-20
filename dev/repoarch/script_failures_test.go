@@ -160,7 +160,7 @@ func TestReleaseRejectsIncompleteMetadataBeforeGates(t *testing.T) {
 	}
 }
 
-func TestReleaseRejectsIncompleteMetadataAfterGates(t *testing.T) {
+func TestReleaseRejectsIncompleteStagingBeforeGates(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		boundary  string
@@ -168,7 +168,7 @@ func TestReleaseRejectsIncompleteMetadataAfterGates(t *testing.T) {
 	}{
 		{boundary: "status-2", forbidden: "mod tidy"},
 		{boundary: "requirements-2", forbidden: "mod tidy"},
-		{boundary: "status-3", forbidden: "git push"},
+		{boundary: "status-3", forbidden: "repository-gates"},
 	} {
 		t.Run(test.boundary, func(t *testing.T) {
 			fixture := newScriptFailureFixture(t, "release.sh")
@@ -176,10 +176,22 @@ func TestReleaseRejectsIncompleteMetadataAfterGates(t *testing.T) {
 			output, err := fixture.run(t, "release.sh", "v0.0.2")
 			calls := fixture.calls(t)
 			if err == nil || !strings.Contains(output, "metadata-failed:"+test.boundary) ||
-				!strings.Contains(calls, "repository-gates") || strings.Contains(calls, test.forbidden) {
+				strings.Contains(calls, "repository-gates") || strings.Contains(calls, test.forbidden) {
 				t.Fatalf("%s metadata failure must stop subsequent release work: %v\n%s\ncalls:\n%s", test.boundary, err, output, calls)
 			}
 		})
+	}
+}
+
+func TestReleaseRejectsIncompleteMetadataAfterGates(t *testing.T) {
+	t.Parallel()
+	fixture := newScriptFailureFixture(t, "release.sh")
+	fixture.prepareRelease(t, "status-4")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	calls := fixture.calls(t)
+	if err == nil || !strings.Contains(output, "metadata-failed:status-4") ||
+		!strings.Contains(calls, "repository-gates") || strings.Contains(calls, "git push") {
+		t.Fatalf("failed status after gates must stop publication: %v\n%s\ncalls:\n%s", err, output, calls)
 	}
 }
 
@@ -260,7 +272,7 @@ exit 42
 	s.write(t, "scripts/check.sh", `#!/usr/bin/env bash
 echo repository-gates >> "$SCRIPT_CALLS"
 case "$SCRIPT_FAILURE" in
-  status-2|status-3|requirements-2) exit 0 ;;
+  status-4) exit 0 ;;
   *) exit 41 ;;
 esac
 `)

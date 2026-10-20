@@ -38,9 +38,7 @@ func TestReleaseEntryDerivesModulesAndKeepsTagsImmutable(t *testing.T) {
 		"depth[path] + 0",
 		"release plan has invalid layer",
 		"release plan has no modules in layer",
-		"scripts/check.sh build vet test race lint",
 		"release_env scripts/check.sh",
-		"test -run '^$' ./...",
 		"go clean -modcache",
 		"git tag -a",
 		"mod download -json",
@@ -52,7 +50,6 @@ func TestReleaseEntryDerivesModulesAndKeepsTagsImmutable(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"scripts/check.sh build vet test race tidy lint",
 		"tag -d",
 		"--force",
 		"push -f",
@@ -119,6 +116,14 @@ func TestReleasePublishesNotesFromVerifiedModuleTags(t *testing.T) {
 				"refs/tags/core/v0.0.2:refs/tags/core/v0.0.2 refs/tags/consumer/v0.0.2:refs/tags/consumer/v0.0.2\n"
 			if mode == "new" && (strings.Count(calls, "git push") != 1 || !strings.Contains(calls, atomicPush)) {
 				t.Fatalf("the branch and its new tags must be published in one atomic push:\n%s", calls)
+			}
+			if mode == "new" {
+				gatesAt := strings.Index(calls, "repository-gates\n")
+				dependenciesAt := strings.Index(calls, "git tag -a consumer/v0.0.2")
+				pushAt := strings.Index(calls, atomicPush)
+				if strings.Count(calls, "repository-gates\n") != 1 || dependenciesAt < 0 || gatesAt < dependenciesAt || pushAt < gatesAt {
+					t.Fatalf("run the complete gates once, after every dependency is frozen and before publishing:\n%s", calls)
+				}
 			}
 			publishedAt := strings.Index(calls, "gh release "+action)
 			for _, module := range []string{"core", "consumer"} {

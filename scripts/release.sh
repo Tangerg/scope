@@ -328,12 +328,9 @@ if [[ -n "$release_first_existing_tag" ]]; then
   done <<< "$release_changed_paths"
 fi
 
-printf 'release: running repository gates before freezing %s\n' "$release_version"
-# Tidy belongs to the dependency layer below: a new package in an internal
-# module cannot be resolved independently until that module's new tag exists.
-scripts/check.sh build vet test race lint
+printf 'release: preparing dependency layers for %s\n' "$release_version"
 release_status=$(git status --porcelain)
-[[ -z "$release_status" ]] || fail "repository gates changed the working tree"
+[[ -z "$release_status" ]] || fail "release planning changed the working tree"
 
 release_max_layer=$(awk -F '\t' 'END { print $1 }' "$release_plan")
 for ((release_layer = 0; release_layer <= release_max_layer; release_layer++)); do
@@ -350,9 +347,6 @@ for ((release_layer = 0; release_layer <= release_max_layer; release_layer++)); 
 
     release_go -C "$release_module_dir" mod tidy
     release_go -C "$release_module_dir" mod tidy -diff
-    # Repository-wide behavior was tested above; this pass proves that every
-    # test package resolves through released module metadata without go.work.
-    release_go -C "$release_module_dir" test -run '^$' ./...
 
     release_tag=$(tag_for "$release_module_path")
     if git rev-parse -q --verify "refs/tags/$release_tag" >/dev/null; then
@@ -387,6 +381,7 @@ release_status=$(git status --porcelain)
 
 # The final requirements must pass the same gates as consumers without making
 # unpublished tags depend on a public proxy. Only Scope resolves from local Git.
+printf 'release: running complete repository gates for %s\n' "$release_version"
 release_env scripts/check.sh
 release_status=$(git status --porcelain)
 [[ -z "$release_status" ]] || fail "release verification changed the working tree"

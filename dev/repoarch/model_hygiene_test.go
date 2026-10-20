@@ -19,13 +19,9 @@ func TestClosedSchemaVocabulariesUseNamedTypes(t *testing.T) {
 			if !ok || field.Tag == nil || !schemaTagDeclaresEnum(field.Tag.Value) {
 				return true
 			}
-			identifier, rawString := field.Type.(*ast.Ident)
-			if !rawString || identifier.Name != "string" {
-				return true
-			}
 			position := fset.Position(field.Pos())
 			t.Errorf(
-				"%s:%d closed jsonschema enum uses raw string; declare a named string type that owns the vocabulary",
+				"%s:%d jsonschema enum duplicates vocabulary; derive it from the named domain type",
 				filepath.ToSlash(path), position.Line,
 			)
 			return true

@@ -785,7 +785,7 @@ func assertNoProviderSiblingImport(t *testing.T, provider providerPackage, path,
 	if target == provider.relative || strings.HasPrefix(target, provider.relative+"/") {
 		return
 	}
-	if provider.family == "vectorstores" && strings.HasPrefix(provider.relative, "postgres/") && strings.HasPrefix(target, "postgres/internal/") {
+	if provider.family == "vectorstores" && strings.HasPrefix(provider.relative, "postgres/") && (target == "postgres" || strings.HasPrefix(target, "postgres/internal/")) {
 		return
 	}
 	t.Errorf("%s imports sibling provider %s", filepath.ToSlash(path), importPath)
