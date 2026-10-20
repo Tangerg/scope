@@ -43,7 +43,7 @@ func TestNativeFilterConformance(t *testing.T) {
 		for _, hit := range response.Results {
 			ids = append(ids, hit.Document.ID)
 		}
-		if err := store.DeleteWhere(ctx, predicate); err != nil {
+		if err := store.DeleteIDs(ctx, ids); err != nil {
 			return nil, err
 		}
 		if len(service.records) != len(docs)-len(ids) {
@@ -162,9 +162,6 @@ func TestInvalidSourceIsRejectedOutsidePredicateAndBeforePublication(t *testing.
 			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "new", Text: "new"}}}); err == nil || service.writes != 1 {
 				t.Fatalf("invalid source permitted publication: %v writes=%d", err, service.writes)
 			}
-			if err := store.DeleteWhere(t.Context(), mustPredicate(t, "x == 'absent'")); err == nil || service.deletions != 0 {
-				t.Fatalf("invalid source permitted deletion: %v", err)
-			}
 		})
 	}
 }
@@ -236,24 +233,6 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
 	if err == nil || response != nil {
 		t.Fatalf("nonadvancing native source accepted: %v %v", response, err)
-	}
-}
-
-func TestDeletionKeepsChangedMetadataAndNeverDropsTheGuard(t *testing.T) {
-	store, service := indexedStore(t, entity.COSINE, []*document.Document{{ID: "one", Text: "one", Metadata: metadata.Map{"x": json.RawMessage(`"old"`)}}}, nil)
-	service.beforeDelete = func() { service.records[0].metadata = `{"x":"NEW"}` }
-	if err := store.DeleteWhere(t.Context(), mustPredicate(t, "x == 'old'")); err != nil {
-		t.Fatal(err)
-	}
-	if len(service.records) != 1 {
-		t.Fatal("metadata update lost its identity")
-	}
-	service.beforeDelete = nil
-	if err := store.DeleteWhere(t.Context(), mustPredicate(t, "x == 'NEW'")); err != nil {
-		t.Fatal(err)
-	}
-	if len(service.records) != 0 {
-		t.Fatal("current matching metadata retained")
 	}
 }
 

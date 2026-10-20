@@ -105,7 +105,7 @@ func TestLiveFilterConformance(t *testing.T) {
 				for _, hit := range response.Results {
 					ids = append(ids, hit.Document.ID)
 				}
-				if deleteErr := store.DeleteWhere(ctx, predicate); deleteErr != nil {
+				if deleteErr := store.DeleteIDs(ctx, ids); deleteErr != nil {
 					return nil, deleteErr
 				}
 				policy, err := store.readPolicy(ctx)
@@ -151,58 +151,27 @@ func TestLiveExactMetadataAndLiteralCursor(t *testing.T) {
 			t.Fatalf("native record changed: %v", doc)
 		}
 	}
-	if deleteErr := store.DeleteWhere(t.Context(), mustPredicate(t, "id IS NOT NULL")); deleteErr != nil {
+	if deleteErr := store.DeleteIDs(t.Context(), []string{docs[2].ID}); deleteErr != nil {
 		t.Fatal(deleteErr)
 	}
 	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "native", Options: vectorstore.SearchOptions{TopK: len(docs)}})
-	if err != nil || len(response.Results) != len(docs)-11 {
-		t.Fatalf("literal guarded deletion response=%v error=%v", response, err)
+	if err != nil || len(response.Results) != len(docs)-1 {
+		t.Fatalf("literal deletion response=%v error=%v", response, err)
 	}
 }
 
 type liveInterceptor struct {
-	mu           sync.Mutex
-	beforeDelete func(context.Context) error
-	groups       []int
+	mu     sync.Mutex
+	groups []int
 }
 
 func (l *liveInterceptor) intercept(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
 	l.mu.Lock()
-	before := l.beforeDelete
-	if strings.HasSuffix(method, "/Delete") {
-		l.beforeDelete = nil
-	} else {
-		before = nil
-	}
 	if query, ok := request.(*milvuspb.SearchRequest); ok {
 		l.groups = append(l.groups, len(query.ExprTemplateValues["ids"].GetArrayVal().GetStringData().GetData()))
 	}
 	l.mu.Unlock()
-	if before != nil {
-		if err := before(ctx); err != nil {
-			return err
-		}
-	}
 	return invoke(ctx, method, request, reply, connection, options...)
-}
-
-func TestLiveDeletionKeepsChangedMetadata(t *testing.T) {
-	interceptor := &liveInterceptor{}
-	store, _ := liveStore(t, entity.IP, nil, interceptor.intercept)
-	docs := []*document.Document{{ID: "one", Text: "original", Metadata: metadata.Map{"state": json.RawMessage(`"old"`)}}}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
-		t.Fatal(err)
-	}
-	interceptor.beforeDelete = func(ctx context.Context) error {
-		return store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "changed", Metadata: metadata.Map{"state": json.RawMessage(`"NEW"`)}}}})
-	}
-	if err := store.DeleteWhere(t.Context(), mustPredicate(t, "state == 'old'")); err != nil {
-		t.Fatal(err)
-	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
-	if err != nil || len(response.Results) != 1 || response.Results[0].Document.Text != "changed" {
-		t.Fatalf("updated native record deleted: %v %v", response, err)
-	}
 }
 
 func TestLiveGroupsKeepNativeRawRank(t *testing.T) {

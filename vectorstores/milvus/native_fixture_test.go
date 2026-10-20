@@ -49,7 +49,6 @@ type nativeService struct {
 	queryHook    func(*milvuspb.QueryResults)
 	searchHook   func(*milvuspb.SearchResults)
 	upsertHook   func(*milvuspb.MutationResult)
-	beforeDelete func()
 	beforeSearch func()
 	nativeError  error
 }
@@ -231,23 +230,16 @@ func (n *nativeService) Delete(_ context.Context, request *milvuspb.DeleteReques
 	if n.nativeError != nil {
 		return nil, n.nativeError
 	}
-	if n.beforeDelete != nil {
-		n.beforeDelete()
-	}
 	if request.ConsistencyLevel != commonpb.ConsistencyLevel_Strong {
 		return nil, errors.New("fixture: delete must be strong")
 	}
 	ids := request.ExprTemplateValues["ids"].GetArrayVal().GetStringData().GetData()
-	guard, guarded := request.ExprTemplateValues["metadata"]
-	if guarded && request.Expr != "id in {ids} and metadata == {metadata}" {
-		return nil, errors.New("fixture: invalid metadata guard")
-	}
-	if !guarded && request.Expr != "id in {ids}" {
+	if request.Expr != "id in {ids}" || len(request.ExprTemplateValues) != 1 {
 		return nil, errors.New("fixture: invalid identity intent")
 	}
 	before := len(n.records)
 	n.records = slices.DeleteFunc(n.records, func(record fixtureRecord) bool {
-		return slices.Contains(ids, record.id) && (!guarded || record.metadata == guard.GetStringVal())
+		return slices.Contains(ids, record.id)
 	})
 	return &milvuspb.MutationResult{Status: &commonpb.Status{}, DeleteCnt: int64(before - len(n.records))}, nil
 }

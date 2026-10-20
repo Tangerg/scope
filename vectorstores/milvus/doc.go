@@ -1,5 +1,5 @@
 // Package milvus exposes the official Milvus / Zilliz Cloud gRPC client through
-// Core's Indexer, Searcher, FilterDeleter and IDDeleter capabilities. The host
+// Core's Indexer, Searcher and IDDeleter capabilities. The host
 // owns the client, authentication, retries, transport and lifetime. Scope never
 // creates, loads, changes or closes native resources.
 //
@@ -44,12 +44,9 @@
 // native failure can leave an earlier batch stored; no rollback or retry hides
 // this outcome.
 //
-// Deletion. DeleteWhere selects through Core and submits native conditions on
-// both ID and the complete observed metadata string. The native strong delete
-// owns the condition and mutation; changed metadata retains the document. This
-// does not promise a cross-request snapshot or compare text/vector revisions.
-// DeleteIDs expresses literal ID intent, validates the whole input, deduplicates
-// it and ignores unknown identities. No deletion falls back to unguarded IDs.
+// Deletion. DeleteIDs expresses literal ID intent, validates the whole input,
+// deduplicates it and ignores unknown identities. FilterDeleter is unsupported:
+// native filtered deletion does not atomically guard metadata at mutation time.
 //
 // See https://milvus.io/docs/v2.6.x/get-and-scalar-query.md and
 // https://milvus.io/docs/v2.6.x/delete-entities.md for native operation contracts.

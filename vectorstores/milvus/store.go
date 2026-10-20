@@ -20,10 +20,9 @@ import (
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Indexer   = (*Store)(nil)
+	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type collectionClient interface {
@@ -292,33 +291,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		return nil, err
 	}
 	return response, nil
-}
-
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err := predicate.Validate(); err != nil {
-		return err
-	}
-	policy, err := s.readPolicy(ctx)
-	if err != nil {
-		return err
-	}
-	records, err := s.selectDocuments(ctx, policy, predicate)
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
-		result, err := s.client.Delete(ctx, nativeDeletion{collection: s.collectionName, ids: []string{record.doc.ID}, metadata: &record.metadata})
-		if err != nil {
-			return err
-		}
-		if result.DeleteCount < 0 || result.DeleteCount > 1 {
-			return errors.New("milvus: conditional deletion acknowledgment is inconsistent")
-		}
-	}
-	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {

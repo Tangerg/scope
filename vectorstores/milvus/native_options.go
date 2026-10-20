@@ -29,12 +29,9 @@ func (s sourcePage) Request() (*milvuspb.QueryRequest, error) {
 	return request, nil
 }
 
-// Scope supplies selection facts; the native delete owns the condition and
-// mutation under its strong-consistency timestamp. No ID-only retry is valid.
 type nativeDeletion struct {
 	collection string
 	ids        []string
-	metadata   *string
 }
 
 func (n nativeDeletion) Request() (*milvuspb.DeleteRequest, error) {
@@ -45,10 +42,6 @@ func (n nativeDeletion) Request() (*milvuspb.DeleteRequest, error) {
 	request.ConsistencyLevel = commonpb.ConsistencyLevel_Strong
 	request.ExprTemplateValues = map[string]*schemapb.TemplateValue{
 		"ids": {Val: &schemapb.TemplateValue_ArrayVal{ArrayVal: &schemapb.TemplateArrayValue{Data: &schemapb.TemplateArrayValue_StringData{StringData: &schemapb.StringArray{Data: n.ids}}}}},
-	}
-	if n.metadata != nil {
-		request.Expr += " and metadata == {metadata}"
-		request.ExprTemplateValues["metadata"] = &schemapb.TemplateValue{Val: &schemapb.TemplateValue_StringVal{StringVal: *n.metadata}}
 	}
 	return request, nil
 }
