@@ -26,6 +26,7 @@ func projectResponsesInputTokenCount(params *responses.ResponseNewParams) (*resp
 	projected.Input.OfResponseInputItemArray = params.Input.OfInputItemList
 	projected.Text.Format = params.Text.Format
 	projected.Text.Verbosity = string(params.Text.Verbosity)
+	projected.Tools = params.Tools
 	return &projected, nil
 }
 
@@ -79,10 +80,11 @@ func mapResponsesOutputFormat(format *corechat.OutputFormat) (responses.Response
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}, nil
 	case corechat.OutputFormatJSONSchema:
-		schema, err := format.SchemaAs[map[string]any]()
+		encoded, err := format.SchemaAs[metadata.Map]()
 		if err != nil {
-			return responses.ResponseFormatTextConfigUnionParam{}, fmt.Errorf("openai responses: output schema: %w", err)
+			return responses.ResponseFormatTextConfigUnionParam{}, err
 		}
+		schema := nativeSchemaFields(encoded)
 		definition := responses.ResponseFormatTextJSONSchemaConfigParam{
 			Name:   format.Name,
 			Schema: schema,
@@ -100,10 +102,11 @@ func mapResponsesOutputFormat(format *corechat.OutputFormat) (responses.Response
 func mapResponsesTools(definitions []corechat.ToolDefinition) ([]responses.ToolUnionParam, error) {
 	tools := make([]responses.ToolUnionParam, 0, len(definitions))
 	for index := range definitions {
-		var schema map[string]any
-		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
+		var encodedSchema metadata.Map
+		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &encodedSchema); err != nil {
 			return nil, fmt.Errorf("openai responses: tools[%d].input_schema: %w", index, err)
 		}
+		schema := nativeSchemaFields(encodedSchema)
 		tools = append(tools, responses.ToolUnionParam{OfFunction: &responses.FunctionToolParam{
 			Name: definitions[index].Name, Description: openaisdk.String(definitions[index].Description), Parameters: schema, Strict: openaisdk.Bool(false),
 		}})

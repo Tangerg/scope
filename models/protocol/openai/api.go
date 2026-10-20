@@ -132,7 +132,14 @@ func (a *api) responseInputTokensCount(ctx context.Context, req *responses.Input
 	if req == nil {
 		return nil, errors.New("openai: input token count request must not be nil")
 	}
-	return a.wrapResult(a.client.Responses.InputTokens.Count(ctx, *req, opts...))
+	response, err := a.wrapResult(a.client.Responses.InputTokens.Count(ctx, *req, opts...))
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || !response.JSON.InputTokens.Valid() || response.InputTokens < 0 {
+		return nil, errors.New("openai: invalid input_tokens count")
+	}
+	return response, nil
 }
 
 func (a *api) embedding(ctx context.Context, req *openai.EmbeddingNewParams, opts ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {

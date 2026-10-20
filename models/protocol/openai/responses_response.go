@@ -10,34 +10,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func responsesCitation(annotation responses.ResponseOutputTextAnnotationUnion) (corechat.Citation, bool, error) {
-	switch typed := annotation.AsAny().(type) {
-	case responses.ResponseOutputTextAnnotationURLCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: typed.URL},
-			Title:  typed.Title,
-		}, true, nil
-	case responses.ResponseOutputTextAnnotationFileCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
-			Title:  typed.Filename,
-		}, true, nil
-	case responses.ResponseOutputTextAnnotationContainerFileCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
-			Title:  typed.Filename,
-		}, true, nil
-	case responses.ResponseOutputTextAnnotationFilePath:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
-		}, true, nil
-	case nil:
-		return corechat.Citation{}, false, nil
-	default:
-		return corechat.Citation{}, false, fmt.Errorf("unsupported annotation %T", typed)
-	}
-}
-
 func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDelta, error) {
 	if response == nil {
 		return nil, fmt.Errorf("%w: openai responses: nil response", corechat.ErrInvalidResponse)

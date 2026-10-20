@@ -9,6 +9,8 @@ import (
 // RequestFields contains provider-owned top-level JSON fields that are not
 // represented by Core. Fields owned by Core are rejected instead of allowing
 // an extension to silently override the neutral request.
+// Numbers decoded from extensions remain json.Number until a typed/native
+// projection chooses their representation.
 type RequestFields map[string]any
 
 func coreOwnedChatField(name string) bool {
@@ -21,7 +23,11 @@ func coreOwnedChatField(name string) bool {
 }
 
 func decodeRequestFields(values metadata.Extensions, key string, reserved ...string) (RequestFields, error) {
-	fields, _, err := values.Decode[RequestFields](key)
+	encoded, _, err := values.Decode[metadata.Map](key)
+	if err != nil {
+		return nil, fmt.Errorf("openai: extension %q: %w", key, err)
+	}
+	fields, err := encoded.Values()
 	if err != nil {
 		return nil, fmt.Errorf("openai: extension %q: %w", key, err)
 	}

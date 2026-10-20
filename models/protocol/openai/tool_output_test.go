@@ -2,11 +2,8 @@ package openai
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"strings"
 	"testing"
-
-	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -60,63 +57,5 @@ func TestOpenAIChatToolOutputRejectsMediaInsteadOfDroppingIt(t *testing.T) {
 	})
 	if _, err := mapRequestMessage(message); err == nil || !strings.Contains(err.Error(), "does not support media Tool output") {
 		t.Fatalf("mapRequestMessage error = %v", err)
-	}
-}
-
-func TestResponsesCitationsCoverOfficialAnnotationVariants(t *testing.T) {
-	tests := []struct {
-		name      string
-		data      string
-		wantKind  corechat.CitationSourceKind
-		wantValue string
-	}{
-		{name: "URL", data: `{"type":"url_citation","url":"https://example.com/source","title":"Source","start_index":0,"end_index":6}`, wantKind: corechat.CitationSourceURI, wantValue: "https://example.com/source"},
-		{name: "file citation", data: `{"type":"file_citation","file_id":"file-1","filename":"paper.pdf","index":0}`, wantKind: corechat.CitationSourceReference, wantValue: "file-1"},
-		{name: "container file", data: `{"type":"container_file_citation","container_id":"container-1","file_id":"file-2","filename":"result.txt","start_index":0,"end_index":6}`, wantKind: corechat.CitationSourceReference, wantValue: "file-2"},
-		{name: "file path", data: `{"type":"file_path","file_id":"file-3","index":0}`, wantKind: corechat.CitationSourceReference, wantValue: "file-3"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var annotation responses.ResponseOutputTextAnnotationUnion
-			if unmarshalErr := jsonv2.Unmarshal([]byte(tt.data), &annotation); unmarshalErr != nil {
-				t.Fatal(unmarshalErr)
-			}
-			citation, include, err := responsesCitation(annotation)
-			assertProjectedCitation(t, citation, include, err, tt.wantKind, tt.wantValue)
-
-			var streamAnnotation responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion
-			if unmarshalErr := jsonv2.Unmarshal([]byte(tt.data), &streamAnnotation); unmarshalErr != nil {
-				t.Fatal(unmarshalErr)
-			}
-			citation, include, err = responsesStreamCitation(streamAnnotation)
-			assertProjectedCitation(t, citation, include, err, tt.wantKind, tt.wantValue)
-		})
-	}
-
-	if citation, include, err := responsesCitation(responses.ResponseOutputTextAnnotationUnion{}); err != nil || include || citation != (corechat.Citation{}) {
-		t.Fatalf("empty response annotation = %#v, %v, %v", citation, include, err)
-	}
-	if citation, include, err := responsesStreamCitation(responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion{}); err != nil || include || citation != (corechat.Citation{}) {
-		t.Fatalf("empty stream annotation = %#v, %v, %v", citation, include, err)
-	}
-}
-
-func assertProjectedCitation(
-	t *testing.T,
-	citation corechat.Citation,
-	include bool,
-	err error,
-	wantKind corechat.CitationSourceKind,
-	wantValue string,
-) {
-	t.Helper()
-	if err != nil || !include {
-		t.Fatalf("citation = %#v, %v, %v", citation, include, err)
-	}
-	if citation.Source.Kind != wantKind || citation.Source.Value != wantValue {
-		t.Fatalf("citation source = %#v", citation.Source)
-	}
-	if err := citation.Validate(); err != nil {
-		t.Fatalf("projected citation is invalid: %v", err)
 	}
 }

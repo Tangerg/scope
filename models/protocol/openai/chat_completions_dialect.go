@@ -102,8 +102,7 @@ type Dialect struct {
 	TokenLimitField TokenLimitField
 	// NativeOutputFormat reports whether this compatible endpoint natively
 	// supports a Core output format. A nil function means the full OpenAI response_format
-	// surface is supported. Unsupported JSON formats use the shared prompt
-	// fallback instead of sending an invalid native parameter.
+	// surface is supported. Unsupported formats return ErrUnsupportedOutputFormat.
 	NativeOutputFormat func(corechat.OutputFormatType) bool
 	// DisableRawRequestExtension prevents provider adapters from accepting an
 	// arbitrary OpenAI request object when their documented request surface is

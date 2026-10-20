@@ -312,3 +312,73 @@ func writeResponsesCompletion(writer http.ResponseWriter) {
 		fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", event.Event, event.Data)
 	}
 }
+
+func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
+	for _, body := range []string{`{}`, `null`, `{"input_tokens":null}`, `{"input_tokens":"bogus"}`, `{"input_tokens":-1}`, `{"input_tokens":0}`, `{"input_tokens":7}`} {
+		t.Run(body, func(t *testing.T) {
+			server := modeltest.JSONServer(http.StatusOK, body)
+			defer server.Close()
+			model := newResponsesModel(t, server.URL, "model")
+			request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("text")))
+			count, err := model.CountInputTokens(t.Context(), request)
+			valid := body == `{"input_tokens":0}` || body == `{"input_tokens":7}`
+			if valid != (err == nil) {
+				t.Fatalf("count=%d err=%v", count, err)
+			}
+		})
+	}
+}
+
+func TestResponsesProjectsEveryCitationThroughStreamAndCall(t *testing.T) {
+	for _, sample := range []struct {
+		annotation, value string
+		kind              chat.CitationSourceKind
+	}{
+		{`{"type":"url_citation","url":"https://example.com","title":"Source","start_index":0,"end_index":5}`, "https://example.com", chat.CitationSourceURI},
+		{`{"type":"file_citation","file_id":"file-1","filename":"paper.pdf","index":0}`, "file-1", chat.CitationSourceReference},
+		{`{"type":"container_file_citation","container_id":"container","file_id":"file-2","filename":"result.txt","start_index":0,"end_index":5}`, "file-2", chat.CitationSourceReference},
+		{`{"type":"file_path","file_id":"file-3","index":0}`, "file-3", chat.CitationSourceReference},
+	} {
+		t.Run(sample.value, func(t *testing.T) {
+			item := `{"type":"message","id":"msg","role":"assistant","status":"completed","content":[{"type":"output_text","text":"claim","annotations":[` + sample.annotation + `]}]}`
+			events := []modeltest.AnthropicEvent{
+				{Event: "response.created", Data: `{"type":"response.created","response":{"id":"resp","model":"model","status":"in_progress"}}`},
+				{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg","delta":"claim"}`},
+				{Event: "response.output_text.annotation.added", Data: `{"type":"response.output_text.annotation.added","item_id":"msg","output_index":0,"content_index":0,"annotation_index":0,"annotation":` + sample.annotation + `}`},
+				{Event: "response.completed", Data: `{"type":"response.completed","response":{"id":"resp","model":"model","status":"completed","output":[` + item + `]}}`},
+			}
+			server := modeltest.AnthropicSSEServer(events)
+			defer server.Close()
+			model := newResponsesModel(t, server.URL, "model")
+			request := newResponsesChatRequest(t)
+			for _, streaming := range []bool{false, true} {
+				var response *chat.Response
+				var err error
+				if streaming {
+					var accumulator chat.ResponseAccumulator
+					for delta, streamErr := range model.Stream(t.Context(), request) {
+						if streamErr != nil {
+							t.Fatal(streamErr)
+						}
+						if addErr := accumulator.Add(delta); addErr != nil {
+							t.Fatal(addErr)
+						}
+					}
+					response, err = accumulator.Response()
+				} else {
+					response, err = model.Call(t.Context(), request)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				parts := response.Output.Message.Parts
+				if len(parts) != 1 || parts[0].Text != "claim" || len(parts[0].Citations) != 1 {
+					t.Fatalf("citation parts=%+v", parts)
+				}
+				if citation := parts[0].Citations[0]; citation.Source.Kind != sample.kind || citation.Source.Value != sample.value {
+					t.Fatalf("citation=%+v", citation)
+				}
+			}
+		})
+	}
+}

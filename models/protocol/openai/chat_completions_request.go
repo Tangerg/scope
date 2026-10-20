@@ -11,15 +11,17 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func mapToolDefinitions(definitions []corechat.ToolDefinition) ([]openaisdk.ChatCompletionToolUnionParam, error) {
 	tools := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(definitions))
 	for i := range definitions {
-		var schema map[string]any
-		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
+		var encodedSchema metadata.Map
+		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &encodedSchema); err != nil {
 			return nil, fmt.Errorf("openai: tools[%d].input_schema: %w", i, err)
 		}
+		schema := nativeSchemaFields(encodedSchema)
 		tools = append(tools, openaisdk.ChatCompletionToolUnionParam{
 			OfFunction: &openaisdk.ChatCompletionFunctionToolParam{
 				Function: openaisdk.FunctionDefinitionParam{
@@ -234,4 +236,17 @@ func mapAssistantMessage(message corechat.Message) (openaisdk.ChatCompletionMess
 		assistant.Audio.ID = audioID
 	}
 	return mapped, nil
+}
+
+// SDK schema maps encode json.Number as strings. Keep the encoded JSON members
+// so local contracts and provider contracts have the same exact numeric values.
+func nativeSchemaFields(fields metadata.Map) map[string]any {
+	if fields == nil {
+		return nil
+	}
+	native := make(map[string]any, len(fields))
+	for name, value := range fields {
+		native[name] = value
+	}
+	return native
 }
