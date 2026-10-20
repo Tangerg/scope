@@ -3,25 +3,25 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.54.0
-	github.com/Tangerg/scope/models/anthropic v0.54.0
-	github.com/Tangerg/scope/models/assemblyai v0.54.0
-	github.com/Tangerg/scope/models/blackforestlabs v0.54.0
-	github.com/Tangerg/scope/models/gladia v0.54.0
-	github.com/Tangerg/scope/models/google v0.54.0
-	github.com/Tangerg/scope/models/luma v0.54.0
-	github.com/Tangerg/scope/models/openai v0.54.0
-	github.com/Tangerg/scope/models/replicate v0.54.0
-	github.com/Tangerg/scope/models/revai v0.54.0
-	github.com/Tangerg/scope/tools v0.54.0
+	github.com/Tangerg/scope/core v0.54.1
+	github.com/Tangerg/scope/models/anthropic v0.54.1
+	github.com/Tangerg/scope/models/assemblyai v0.54.1
+	github.com/Tangerg/scope/models/blackforestlabs v0.54.1
+	github.com/Tangerg/scope/models/gladia v0.54.1
+	github.com/Tangerg/scope/models/google v0.54.1
+	github.com/Tangerg/scope/models/luma v0.54.1
+	github.com/Tangerg/scope/models/openai v0.54.1
+	github.com/Tangerg/scope/models/replicate v0.54.1
+	github.com/Tangerg/scope/models/revai v0.54.1
+	github.com/Tangerg/scope/tools v0.54.1
 )
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Tangerg/scope/models/protocol/anthropic v0.54.0 // indirect
-	github.com/Tangerg/scope/models/protocol/openai v0.54.0 // indirect
+	github.com/Tangerg/scope/models/protocol/anthropic v0.54.1 // indirect
+	github.com/Tangerg/scope/models/protocol/openai v0.54.1 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.81.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
