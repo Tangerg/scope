@@ -36,10 +36,8 @@ type nativeFixture struct {
 	distances    map[string]float64
 	hybridScores map[string]float64
 	beforeQuery  func()
-	beforeDelete func()
 	queryChange  func([]map[string]any) []map[string]any
 	sourceChange func([]*models.Object) []*models.Object
-	deleteChange func(*models.BatchDeleteResponse)
 	shortPages   bool
 	groups       []int
 	hybrids      []int
@@ -197,46 +195,6 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			items = n.queryChange(items)
 		}
 		response = map[string]any{"data": map[string]any{"Get": map[string]any{"Documents": items}}}
-	case request.Method == http.MethodDelete && request.URL.Path == "/v1/batch/objects":
-		n.deletes.Add(1)
-		var body models.BatchDelete
-		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
-			n.t.Error(err)
-			return
-		}
-		if body.Match == nil || body.Match.Class != "Documents" || body.Match.Where == nil || body.Match.Where.Operator != "And" || len(body.Match.Where.Operands) != 2 {
-			n.t.Error("native deletion lost metadata precondition")
-			return
-		}
-		identity, facts := body.Match.Where.Operands[0], body.Match.Where.Operands[1]
-		if identity.Operator != "ContainsAny" || !slices.Equal(identity.Path, []string{"id"}) || facts.Operator != "Equal" || !slices.Equal(facts.Path, []string{fieldMetadata}) || facts.ValueText == nil {
-			n.t.Error("native deletion has invalid where operands")
-			return
-		}
-		if n.beforeDelete != nil {
-			n.beforeDelete()
-			n.beforeDelete = nil
-		}
-		results := &models.BatchDeleteResponseResults{Limit: 10000}
-		for _, id := range identity.ValueTextArray {
-			object, ok := n.objects[id]
-			if !ok {
-				continue
-			}
-			current := object.Properties.(map[string]any)[fieldMetadata].(string)
-			if strings.TrimSpace(current) != strings.TrimSpace(*facts.ValueText) {
-				continue
-			}
-			results.Objects = append(results.Objects, &models.BatchDeleteResponseResultsObjectsItems0{ID: strfmt.UUID(id), Status: new(models.BatchDeleteResponseResultsObjectsItems0StatusSUCCESS)})
-			results.Matches++
-			results.Successful++
-			delete(n.objects, id)
-		}
-		answer := &models.BatchDeleteResponse{Match: &models.BatchDeleteResponseMatch{Class: "Documents"}, DryRun: new(false), Results: results}
-		if n.deleteChange != nil {
-			n.deleteChange(answer)
-		}
-		response = answer
 	case request.Method == http.MethodDelete && strings.HasPrefix(request.URL.Path, "/v1/objects/Documents/"):
 		n.deletes.Add(1)
 		id := strings.TrimPrefix(request.URL.Path, "/v1/objects/Documents/")

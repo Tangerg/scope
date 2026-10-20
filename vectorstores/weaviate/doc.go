@@ -26,7 +26,7 @@
 //
 // # Search and filtering
 //
-// Every Search and DeleteWhere enumerates the complete native source with vectors
+// Every Search enumerates the complete native source with vectors
 // through REST after cursors. Core filter.Match is the sole metadata predicate
 // evaluator. No projection or native metadata DSL can advance filtering semantics.
 // Enumeration follows short pages until an empty page and rejects malformed
@@ -44,14 +44,9 @@
 //
 // # Deletion and concurrent writes
 //
-// DeleteWhere first completes selection, then sends native batch-delete conditions
-// combining selected UUIDs with the observed complete metadata JSON. A concurrent
-// metadata change is not followed by an unconditional ID deletion. Native field
-// tokenization compares whole values case-sensitively after trimming outer
-// whitespace; this is a metadata condition, not a byte comparison or revision CAS.
-// There is no multi-request snapshot. Earlier groups may already be deleted if a
-// later group fails, and native matches must each have a SUCCESS acknowledgment.
 // DeleteIDs is an explicit identity deletion and ignores only native not-found.
+// FilterDeleter is unsupported because native batch deletion does not atomically
+// guard metadata at mutation time.
 //
 // # Breaking contract
 //

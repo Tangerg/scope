@@ -88,9 +88,6 @@ func TestCompleteSourceValidationCannotHideCorruptionBehindPredicate(t *testing.
 		if err == nil || response != nil {
 			t.Fatalf("corrupt source became success: %v %v", response, err)
 		}
-		if err = store.DeleteWhere(t.Context(), filter.EQ("value", "outside")); err == nil || fixture.deletes.Load() != 0 {
-			t.Fatal("corrupt source allowed deletion")
-		}
 	}
 }
 

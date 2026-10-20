@@ -117,27 +117,27 @@ func validateVector(vector []float32, dimensions int) error {
 	return nil
 }
 
-func decodeDocument(id string, properties map[string]any) (*document.Document, string, error) {
+func decodeDocument(id string, properties map[string]any) (*document.Document, error) {
 	if err := validateObjectID(id); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if len(properties) != 2 {
-		return nil, "", errors.New("weaviate: native record does not have the current property shape")
+		return nil, errors.New("weaviate: native record does not have the current property shape")
 	}
 	text, textOK := properties[fieldContent].(string)
 	facts, factsOK := properties[fieldMetadata].(string)
 	if !textOK || !factsOK {
-		return nil, "", errors.New("weaviate: content and metadata must be strings")
+		return nil, errors.New("weaviate: content and metadata must be strings")
 	}
 	var values metadata.Map
 	if err := values.UnmarshalJSON([]byte(facts)); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	doc := &document.Document{ID: id, Text: text, Metadata: values}
 	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return doc, facts, nil
+	return doc, nil
 }
 
 func encodeRecord(doc *document.Document, name string) (*models.Object, error) {
@@ -182,7 +182,6 @@ func graphQLRelevance(additional map[string]any, mode vectorstore.SearchMode) (f
 	return strconv.ParseFloat(text, 64)
 }
 
-type selectedDocument struct{ id, metadataJSON string }
 type rankedDocument struct {
 	result *vectorstore.SearchResult
 	rank   float64

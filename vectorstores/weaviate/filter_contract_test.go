@@ -7,8 +7,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -39,7 +37,7 @@ func TestFilterSelectionUsesCompleteMetadata(t *testing.T) {
 				for _, hit := range response.Results {
 					ids = append(ids, hit.Document.ID)
 				}
-				if err = store.DeleteWhere(ctx, predicate); err != nil {
+				if err = store.DeleteIDs(ctx, ids); err != nil {
 					return nil, err
 				}
 				for _, id := range ids {
@@ -50,18 +48,6 @@ func TestFilterSelectionUsesCompleteMetadata(t *testing.T) {
 				return ids, nil
 			}})
 		})
-	}
-}
-
-func TestConditionalDeletionRetainsChangedMetadata(t *testing.T) {
-	id := "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4"
-	store, fixture := indexedNativeStore(t, []*document.Document{{ID: id, Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`"x"`)}}})
-	fixture.beforeDelete = func() { fixture.objects[id].Properties.(map[string]any)[fieldMetadata] = `{"value":"X"}` }
-	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "x")); err != nil {
-		t.Fatal(err)
-	}
-	if _, kept := fixture.objects[id]; !kept {
-		t.Fatal("conditional deletion lost changed fact")
 	}
 }
 
@@ -104,23 +90,6 @@ func TestSemanticGroupsMergeRawDistanceAndHybridUsesOneFusion(t *testing.T) {
 		}
 		if mode == vectorstore.SearchModeHybrid && !slices.Equal(fixture.hybrids, []int{len(docs)}) {
 			t.Fatalf("hybrid was split into competing score scales: %v", fixture.hybrids)
-		}
-	}
-}
-
-func TestNativeDeletionAcknowledgmentCannotHidePartialFailure(t *testing.T) {
-	for _, change := range []func(*models.BatchDeleteResponse){
-		func(result *models.BatchDeleteResponse) { result.Results.Failed = 1 },
-		func(result *models.BatchDeleteResponse) { result.Results.Successful = 0 },
-		func(result *models.BatchDeleteResponse) { result.Results.Objects = nil },
-		func(result *models.BatchDeleteResponse) {
-			result.Results.Objects[0].Status = new(models.BatchDeleteResponseResultsObjectsItems0StatusFAILED)
-		},
-	} {
-		store, fixture := indexedNativeStore(t, []*document.Document{{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "text"}})
-		fixture.deleteChange = change
-		if err := store.DeleteWhere(t.Context(), filter.IsNull("value")); err == nil {
-			t.Fatal("invalid native deletion acknowledgment became success")
 		}
 	}
 }

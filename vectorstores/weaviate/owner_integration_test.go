@@ -140,7 +140,7 @@ func TestLiveFilterConformance(t *testing.T) {
 						for _, hit := range response.Results {
 							ids = append(ids, hit.Document.ID)
 						}
-						if err = store.DeleteWhere(ctx, predicate); err != nil {
+						if err = store.DeleteIDs(ctx, ids); err != nil {
 							return nil, err
 						}
 						remaining, err := client.Data().ObjectsGetter().WithClassName(store.className).WithLimit(len(docs)).Do(ctx)
@@ -191,25 +191,11 @@ func TestLiveExactMetadata(t *testing.T) {
 }
 
 type liveWeaviateTransport struct {
-	mu           sync.Mutex
-	beforeDelete func(context.Context) error
-	groups       []int
+	mu     sync.Mutex
+	groups []int
 }
 
 func (l *liveWeaviateTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	l.mu.Lock()
-	before := l.beforeDelete
-	if request.Method == http.MethodDelete && request.URL.Path == "/v1/batch/objects" {
-		l.beforeDelete = nil
-	} else {
-		before = nil
-	}
-	l.mu.Unlock()
-	if before != nil {
-		if err := before(request.Context()); err != nil {
-			return nil, err
-		}
-	}
 	if request.Method == http.MethodPost && request.URL.Path == "/v1/graphql" {
 		raw, err := io.ReadAll(request.Body)
 		if err != nil {
@@ -238,7 +224,7 @@ func (l *liveWeaviateTransport) RoundTrip(request *http.Request) (*http.Response
 	return http.DefaultTransport.RoundTrip(request)
 }
 
-func TestLiveConditionalDeletionAndStrictSource(t *testing.T) {
+func TestLiveStrictSource(t *testing.T) {
 	trace := &liveWeaviateTransport{}
 	store, _ := liveWeaviateStore(t, distanceCosine, nil, trace)
 	client := liveWeaviateClient(t, nil)
@@ -247,17 +233,7 @@ func TestLiveConditionalDeletionAndStrictSource(t *testing.T) {
 	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
 		t.Fatal(err)
 	}
-	trace.beforeDelete = func(ctx context.Context) error {
-		return client.Data().Updater().WithClassName(store.className).WithID(first).WithMerge().WithProperties(map[string]any{fieldMetadata: `{"value":"X"}`}).Do(ctx)
-	}
-	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "x")); err != nil {
-		t.Fatal(err)
-	}
-	objects, err := client.Data().ObjectsGetter().WithClassName(store.className).WithVector().WithLimit(10).Do(t.Context())
-	if err != nil || len(objects) != 1 || objects[0].ID.String() != first || objects[0].Properties.(map[string]any)[fieldMetadata] != `{"value":"X"}` {
-		t.Fatalf("changed fact lost: %v %v", objects, err)
-	}
-	if err = client.Data().Updater().WithClassName(store.className).WithID(first).WithMerge().WithProperties(map[string]any{fieldMetadata: `{"key":1,"key":2}`}).Do(t.Context()); err != nil {
+	if err := client.Data().Updater().WithClassName(store.className).WithID(first).WithMerge().WithProperties(map[string]any{fieldMetadata: `{"key":1,"key":2}`}).Do(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "outside"), MinScore: 1}})

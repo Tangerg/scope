@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -24,10 +23,9 @@ import (
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Indexer   = (*Store)(nil)
+	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
@@ -152,8 +150,8 @@ func checkBatchAcknowledgments(objects []*models.Object, responses []models.Obje
 	return nil
 }
 
-func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) ([]selectedDocument, int, error) {
-	var selected []selectedDocument
+func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) ([]string, int, error) {
+	var selected []string
 	dimensions := 0
 	after := ""
 	for {
@@ -182,7 +180,7 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate)
 			if !ok {
 				return nil, 0, errors.New("weaviate: native properties are not an object")
 			}
-			doc, facts, decodeErr := decodeDocument(object.ID.String(), properties)
+			doc, decodeErr := decodeDocument(object.ID.String(), properties)
 			if decodeErr != nil {
 				return nil, 0, decodeErr
 			}
@@ -207,7 +205,7 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate)
 				}
 			}
 			if matched {
-				selected = append(selected, selectedDocument{id: doc.ID, metadataJSON: facts})
+				selected = append(selected, doc.ID)
 			}
 			after = doc.ID
 		}
@@ -252,9 +250,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	fields := []graphql.Field{{Name: fieldContent}, {Name: fieldMetadata}, {Name: "_additional", Fields: []graphql.Field{{Name: additionalID}, {Name: relevance}, {Name: additionalVector}}}}
 	var ids []string
 	if request.Options.Filter != nil {
-		for _, record := range selected {
-			ids = append(ids, record.id)
-		}
+		ids = selected
 	}
 	groups := [][]string{nil}
 	if ids != nil {
@@ -299,7 +295,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			if !ok {
 				return nil, ErrInvalidObjectID
 			}
-			doc, _, decodeErr := decodeDocument(id, map[string]any{fieldContent: object[fieldContent], fieldMetadata: object[fieldMetadata]})
+			doc, decodeErr := decodeDocument(id, map[string]any{fieldContent: object[fieldContent], fieldMetadata: object[fieldMetadata]})
 			if decodeErr != nil {
 				return nil, decodeErr
 			}
@@ -389,57 +385,6 @@ func (s *Store) resultObjects(result *models.GraphQLResponse) ([]map[string]any,
 
 func identitySelection(ids []string) *filters.WhereBuilder {
 	return filters.Where().WithPath([]string{additionalID}).WithOperator(filters.ContainsAny).WithValueText(ids...)
-}
-
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err := predicate.Validate(); err != nil {
-		return err
-	}
-	selected, _, err := s.selectDocuments(ctx, predicate)
-	if err != nil {
-		return err
-	}
-	groups := make(map[string][]string)
-	for _, record := range selected {
-		groups[record.metadataJSON] = append(groups[record.metadataJSON], record.id)
-	}
-	for _, facts := range slices.Sorted(maps.Keys(groups)) {
-		for ids := range slices.Chunk(groups[facts], metadataScanPageSize) {
-			condition := filters.Where().WithOperator(filters.And).WithOperands([]*filters.WhereBuilder{identitySelection(ids), filters.Where().WithPath([]string{fieldMetadata}).WithOperator(filters.Equal).WithValueText(facts)})
-			result, deleteErr := s.client.Batch().ObjectsBatchDeleter().WithClassName(s.className).WithWhere(condition).WithDryRun(false).WithOutput("verbose").Do(ctx)
-			if deleteErr != nil {
-				return deleteErr
-			}
-			if err = checkConditionalDeletion(result, s.className, ids); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func checkConditionalDeletion(response *models.BatchDeleteResponse, class string, ids []string) error {
-	if response == nil || response.Results == nil || response.Match == nil || response.Match.Class != class || response.DryRun == nil || *response.DryRun {
-		return errors.New("weaviate: conditional delete returned an invalid acknowledgment")
-	}
-	result := response.Results
-	if result.Matches < 0 || result.Matches > int64(len(ids)) || result.Successful != result.Matches || result.Failed != 0 || len(result.Objects) != int(result.Matches) {
-		return errors.New("weaviate: conditional deletion did not confirm every native match")
-	}
-	seen := make(map[string]struct{})
-	for _, object := range result.Objects {
-		if object == nil || object.Status == nil || *object.Status != models.BatchDeleteResponseResultsObjectsItems0StatusSUCCESS || object.Errors != nil || !slices.Contains(ids, object.ID.String()) {
-			return errors.New("weaviate: conditional deletion returned an invalid object result")
-		}
-		if _, duplicate := seen[object.ID.String()]; duplicate {
-			return errors.New("weaviate: conditional deletion repeated an identity")
-		}
-		seen[object.ID.String()] = struct{}{}
-	}
-	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
