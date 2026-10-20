@@ -101,6 +101,13 @@ func TestReleasePublishesNotesFromVerifiedModuleTags(t *testing.T) {
 				t.Fatalf("notes must derive each module's own tagged commit:\n%s", data)
 			}
 			calls := fixture.calls(t)
+			if !strings.Contains(calls, "staged-cache "+filepath.Join(fixture.root, "cache")+"\n") ||
+				strings.Contains(calls, "cleanup-cache "+filepath.Join(fixture.root, "cache")+"\n") {
+				t.Fatalf("staging must reuse the borrowed Go cache without cleaning it:\n%s", calls)
+			}
+			if cacheMarker, readErr := os.ReadFile(filepath.Join(fixture.root, "cache", "borrowed")); readErr != nil || string(cacheMarker) != "preserve" {
+				t.Fatalf("borrowed module cache was modified: %v", readErr)
+			}
 			action := "create"
 			if mode == "existing" {
 				action = "edit"
@@ -147,6 +154,7 @@ func TestReleaseDoesNotPublishUnverifiedNotes(t *testing.T) {
 		{mode: "new", boundary: "remote-mismatch", message: "remote verification failed for core/v0.0.2"},
 		{mode: "resume", boundary: "remote-mismatch", message: "remote verification failed for core/v0.0.2"},
 		{mode: "new", boundary: "public-download", message: "published-download-failed"},
+		{mode: "new", boundary: "public-download-json", message: "public-download-json-failed"},
 		{mode: "resume", boundary: "public-download", message: "published-download-failed"},
 		{mode: "resume", boundary: "archive-mismatch", message: "published archive differs from its tagged source"},
 		{mode: "resume", boundary: "release-list", message: "release-list-failed"},
@@ -194,6 +202,7 @@ func TestReleasePreservesGitHubPublicationFailures(t *testing.T) {
 func newReleasePublicationFixture(t *testing.T, mode, boundary string) scriptFailureFixture {
 	t.Helper()
 	fixture := newScriptFailureFixture(t, "release.sh")
+	fixture.write(t, "cache/borrowed", "preserve")
 	fixture.env = append(fixture.env,
 		"SCRIPT_MODE="+mode, "SCRIPT_FAILURE="+boundary,
 		"GIT_CONFIG_COUNT=1",
@@ -227,9 +236,11 @@ case "$*" in
     if [[ "$2" == */consumer ]]; then echo '{"Require":[{"Path":"github.com/Tangerg/scope/core"}]}'
     else echo '{"Require":[]}'; fi
     ;;
-  *'mod edit -require='*|*'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...'|'clean -modcache') ;;
+  *'mod edit -require='*|*'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...') ;;
+  'clean -modcache') printf 'cleanup-cache %s\n' "$GOMODCACHE" >> "$SCRIPT_CALLS" ;;
   'mod download -json '*)
     sum=fixture
+    mkdir -p "$GOMODCACHE"
     if [[ "$GOMODCACHE" == */published-modcache ]]; then
       [[ -z "${GIT_CONFIG_VALUE_0:-}" ]] || { echo published-download-used-local-source >&2; exit 42; }
       [[ -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_KEY_0:-}${GONOPROXY:-}${GONOSUMDB:-}${GOPRIVATE:-}" &&
@@ -237,7 +248,13 @@ case "$*" in
         { echo published-download-missing-public-boundary >&2; exit 42; }
       printf 'public-download %s\n' "$4" >> "$SCRIPT_CALLS"
       if [[ "$SCRIPT_FAILURE" == public-download ]]; then echo published-download-failed >&2; exit 23; fi
+      if [[ "$SCRIPT_FAILURE" == public-download-json ]]; then
+        echo '{"Error":"public-download-json-failed"}'
+        exit 23
+      fi
       if [[ "$SCRIPT_FAILURE" == archive-mismatch ]]; then sum=different; fi
+    else
+      printf 'staged-cache %s\n' "$GOMODCACHE" >> "$SCRIPT_CALLS"
     fi
     printf '{"Path":"%s","Version":"%s","Sum":"%s","GoModSum":"fixture"}\n' "${4%@*}" "${4##*@}" "$sum"
     ;;

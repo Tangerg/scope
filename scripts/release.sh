@@ -20,10 +20,8 @@ cleanup() {
   if [[ -n "${release_temporary_dir:-}" &&
     "$release_temporary_dir" == /tmp/scope-release.* &&
     -d "$release_temporary_dir" ]]; then
-    local cache
-    for cache in "$release_temporary_dir/modcache" "$release_temporary_dir/published-modcache"; do
-      [[ ! -d "$cache" ]] || env GOWORK=off GOMODCACHE="$cache" go clean -modcache
-    done
+    local cache=$release_temporary_dir/published-modcache
+    [[ ! -d "$cache" ]] || env GOWORK=off GOMODCACHE="$cache" go clean -modcache
     rm -rf -- "$release_temporary_dir"
   fi
 }
@@ -83,9 +81,7 @@ release_plan=$release_temporary_dir/plan.tsv
 release_remote_tags=$release_temporary_dir/remote-tags.tsv
 release_existing_modcache=$(go env GOMODCACHE)
 release_existing_proxy=$(go env GOPROXY)
-release_modcache=$release_temporary_dir/modcache
 release_published_modcache=$release_temporary_dir/published-modcache
-mkdir -p "$release_modcache"
 : >"$release_edge_table"
 
 git ls-remote --tags "$release_remote" >"$release_remote_tags"
@@ -208,10 +204,10 @@ remote_tag_commit() {
 release_env() {
   env \
     GOWORK="$release_root/go.work" \
-    GOMODCACHE="$release_modcache" \
+    GOMODCACHE="$release_existing_modcache" \
     GONOPROXY=github.com/Tangerg/scope \
     GONOSUMDB=github.com/Tangerg/scope \
-    GOPROXY="file://$release_existing_modcache/cache/download,$release_existing_proxy" \
+    GOPROXY="$release_existing_proxy" \
     GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0="url.file://$release_root/.insteadOf" \
     GIT_CONFIG_VALUE_0=https://github.com/Tangerg/scope \
@@ -241,17 +237,21 @@ publish_release() {
       fail "remote verification failed for $tag"
 
     release_go mod download -json "$module_path@$release_version" >"$local_download"
-    env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
+    if ! env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
       GOWORK=off GOMODCACHE="$release_published_modcache" \
       GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org \
       GONOPROXY= GONOSUMDB= GOPRIVATE= \
-      go mod download -json "$module_path@$release_version" >"$published_download"
+      go mod download -json "$module_path@$release_version" >"$published_download"; then
+      cat "$published_download" >&2
+      fail "$tag public archive download failed"
+    fi
     jq -e --arg module "$module_path" --arg version "$release_version" --slurpfile local "$local_download" '
       .Error == null and .Path == $module and .Version == $version and
       (.Sum | type == "string" and length > 0) and (.GoModSum | type == "string" and length > 0) and
       ($local | length == 1) and $local[0].Error == null and
       .Sum == $local[0].Sum and .GoModSum == $local[0].GoModSum
     ' "$published_download" >/dev/null || fail "$tag published archive differs from its tagged source"
+    printf 'release: verified public archive %s\n' "$tag"
 
     printf '| `%s` | [%s](https://github.com/%s/tree/%s) | [%s](https://github.com/%s/commit/%s) |\n' \
       "$module_path" "$tag" "$release_repository" "$tag" "$commit" "$release_repository" "$commit" >>"$notes"
@@ -395,12 +395,5 @@ while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
     release_push_refs+=("refs/tags/$release_tag:refs/tags/$release_tag")
 done <"$release_plan"
 git push --atomic "$release_remote" "${release_push_refs[@]}"
-while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
-  release_tag=$(tag_for "$release_module_path")
-  release_published=$(git ls-remote --tags "$release_remote" "refs/tags/$release_tag^{}" | awk 'NR == 1 { print $1 }')
-  [[ "$release_published" == "$(git rev-list -n 1 "$release_tag")" ]] ||
-    fail "remote verification failed for $release_tag"
-done <"$release_plan"
-
 publish_release
 printf 'release: published %s for %d modules\n' "$release_version" "$release_module_count"
