@@ -6,6 +6,9 @@
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
 // Native chat request extensions use the SDK's camelCase JSON fields only.
+// GenerateContent has one native decoder shared by unary and streaming calls.
+// SDK DTOs and authentication are reused; SDK response converters and automatic
+// continuation are not executed. HTTP extensions allow headers and timeout only.
 // Core Citation owns validation of native citations with a URI. Invalid
 // citations fail Call and Stream rather than disappearing from a successful response.
 // Citation-only chunks reach Core's accumulator, which owns text attachment.

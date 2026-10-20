@@ -2,6 +2,7 @@ package protocol_test
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -90,5 +91,24 @@ func TestImageModelRejectsUnsupportedImagenOnlyOptions(t *testing.T) {
 	req.Options.NegativePrompt = "blurry"
 	if _, err := model.Call(t.Context(), req); err == nil {
 		t.Fatal("Call accepted Imagen-only negative_prompt")
+	}
+}
+
+func TestImageRequiresExplicitCompletedInteraction(t *testing.T) {
+	for _, status := range []string{"completed", "failed", "canceled", "incomplete", "budget_exceeded", "in_progress", "unknown", ""} {
+		t.Run(status, func(t *testing.T) {
+			body := fmt.Sprintf(`{"status":%q,"steps":[{"type":"model_output","content":[{"type":"image","data":"UE5H","mime_type":"image/png"}]}]}`, status)
+			server := modeltest.JSONServer(http.StatusOK, body)
+			defer server.Close()
+			model, err := protocol.NewImageModel(t.Context(), protocol.ImageModelConfig{Client: protocol.ClientConfig{APIKey: "test", BaseURL: server.URL}, DefaultOptions: image.Options{Model: protocol.ModelGemini31FlashImage}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := image.NewRequest("cube")
+			response, err := model.Call(t.Context(), request)
+			if (status == "completed") != (err == nil) || (err != nil && response != nil) {
+				t.Fatalf("status %q produced %v, %v", status, response, err)
+			}
+		})
 	}
 }

@@ -353,6 +353,8 @@ func validateImageSafetySettings(settings []ImageSafetySetting) error {
 	return nil
 }
 
+const imageInteractionCompleted = "completed"
+
 type imageInteractionResponse struct {
 	ID      string            `json:"id"`
 	Model   string            `json:"model"`
@@ -404,6 +406,9 @@ func (i imageInteractionOutput) media() (*media.Media, error) {
 func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Response, error) {
 	if apiResp == nil {
 		return nil, errors.New("google: image: nil Interactions response")
+	}
+	if apiResp.Status != imageInteractionCompleted {
+		return nil, fmt.Errorf("google: image: Interactions status %q is not completed", apiResp.Status)
 	}
 	var outputs []*image.Output
 	for stepIndex, rawStep := range apiResp.Steps {

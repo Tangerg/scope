@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -13,7 +14,11 @@ func TestProtocolToolResultPreservesStructuredAndMediaContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response["value"] != float64(4) || len(parts) != 0 {
+	encoded, encodeErr := jsonv2.Marshal(response)
+	if encodeErr != nil {
+		t.Fatal(encodeErr)
+	}
+	if string(encoded) != `{"value":4}` || len(parts) != 0 {
 		t.Fatalf("structured result = %#v, %#v", response, parts)
 	}
 

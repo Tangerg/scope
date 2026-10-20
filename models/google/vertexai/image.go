@@ -13,6 +13,7 @@ import (
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
 
 type ImageModelConfig struct {
@@ -50,7 +51,7 @@ var _ image.Model = (*ImageModel)(nil)
 // GenerateContent. It intentionally does not expose Imagen's Predict endpoint:
 // Google deprecated the Imagen GA endpoints in favor of Gemini image models.
 type ImageModel struct {
-	client         *genai.Client
+	client         *protocol.GenerationClient
 	defaultOptions image.Options
 }
 
@@ -72,7 +73,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, fmt.Errorf("vertexai: create Gen AI client: %w", err)
 	}
-	return &ImageModel{client: client, defaultOptions: config.DefaultOptions.Clone()}, nil
+	return &ImageModel{client: protocol.NewGenerationClient(client), defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
 func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
@@ -165,6 +166,9 @@ func (i *ImageModel) buildResponse(apiResp *genai.GenerateContentResponse) (*ima
 	if apiResp == nil {
 		return nil, errors.New("vertexai: image: nil GenerateContent response")
 	}
+	if err := protocol.ValidateGenerationCompletion(apiResp); err != nil {
+		return nil, fmt.Errorf("vertexai: image: %w", err)
+	}
 	var outputs []*image.Output
 	for candidateIndex, candidate := range apiResp.Candidates {
 		if candidate == nil || candidate.Content == nil {
@@ -223,7 +227,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, err
 	}
-	apiResp, err := i.client.Models.GenerateContent(ctx, modelName, contents, config)
+	apiResp, err := i.client.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("vertexai: image: GenerateContent: %w", err)
 	}

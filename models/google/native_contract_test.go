@@ -77,6 +77,44 @@ func newNativeUnarySpeech(t *testing.T, provider string, server *httptest.Server
 	return model
 }
 
+func TestNativeGenerationRetainsExplicitZeroAndEmptyToolObject(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		t.Run(provider, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var body struct {
+					GenerationConfig struct {
+						Temperature *float64 `json:"temperature"`
+					} `json:"generationConfig"`
+					Tools []map[string]any `json:"tools"`
+				}
+				if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+					t.Error(err)
+				}
+				if body.GenerationConfig.Temperature == nil || *body.GenerationConfig.Temperature != 0 {
+					t.Error("explicit zero temperature was omitted")
+				}
+				if len(body.Tools) != 1 || body.Tools[0]["googleSearch"] == nil {
+					t.Errorf("empty native tool object was omitted: %#v", body.Tools)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(writer, "data: {\"candidates\":[{\"index\":0,\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]},\"finishReason\":\"STOP\"}]}\n\n")
+			}))
+			defer server.Close()
+			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Options.Temperature = new(float64(0))
+			if err := request.Options.Extensions.Set(provider+"/request", map[string]any{"tools": []any{map[string]any{"googleSearch": map[string]any{}}}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := newNativeChat(t, provider, server).Call(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func nativeTranscriptionRequest(t *testing.T) *transcription.Request {
 	t.Helper()
 	audio, err := media.NewBytes("audio/wav", []byte("input audio"))

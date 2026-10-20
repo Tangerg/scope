@@ -66,10 +66,7 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*genai.Content, *genai.EmbedContentConfig, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
-	if err != nil {
-		return "", nil, nil, err
-	}
+	effectiveOptions := req.Options
 
 	extensionKey := protocolKey(e.provider, "embedding_request")
 	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](extensionKey)
@@ -115,8 +112,14 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
 func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedContentResponse, expectedResults int) (*embedding.Response, error) {
+	if apiResp == nil {
+		return nil, fmt.Errorf("%w: google: missing embedding response", embedding.ErrInvalidResponse)
+	}
 	outputs := make([]*embedding.Output, expectedResults)
 	for index, item := range apiResp.Embeddings {
+		if item == nil {
+			return nil, fmt.Errorf("%w: google: embeddings[%d] is null", embedding.ErrInvalidResponse, index)
+		}
 		values := make([]float64, len(item.Values))
 		for i, value := range item.Values {
 			values[i] = float64(value)
@@ -159,6 +162,12 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effective := *req
+	effective.Options, err = e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	req = &effective
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)

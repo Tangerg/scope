@@ -94,7 +94,14 @@ func (*speechBinding) validateOptions(options speech.Options) error {
 var errNoAudio = errors.New("google: tts chunk has no audio inline-data parts")
 
 func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse) (*speech.Response, error) {
-	if len(apiResp.Candidates) == 0 || apiResp.Candidates[0].Content == nil {
+	if apiResp == nil || len(apiResp.Candidates) == 0 {
+		return nil, errNoAudio
+	}
+
+	if apiResp.Candidates[0] == nil {
+		return nil, errors.New("google: speech: null candidate")
+	}
+	if apiResp.Candidates[0].Content == nil {
 		return nil, errNoAudio
 	}
 
@@ -105,6 +112,9 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 		mimeType string
 	)
 	for _, part := range apiResp.Candidates[0].Content.Parts {
+		if part == nil {
+			return nil, errors.New("google: speech: null content part")
+		}
 		if part.InlineData == nil || len(part.InlineData.Data) == 0 {
 			continue
 		}

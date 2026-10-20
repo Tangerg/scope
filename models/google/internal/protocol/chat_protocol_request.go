@@ -1,7 +1,9 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -108,7 +110,7 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, config *genai.Genera
 	case corechat.OutputFormatJSON:
 		config.ResponseMIMEType = "application/json"
 	case corechat.OutputFormatJSONSchema:
-		schema, err := format.SchemaAs[any]()
+		schema, err := format.SchemaAs[json.RawMessage]()
 		if err != nil {
 			return fmt.Errorf("google: output schema: %w", err)
 		}
@@ -285,7 +287,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		case corechat.PartReasoning:
 			mapped = append(mapped, &genai.Part{Text: part.Text, Thought: true, ThoughtSignature: slices.Clone(part.ReasoningState)})
 		case corechat.PartToolCall:
-			var arguments map[string]any
+			var arguments map[string]json.RawMessage
 			if part.ToolCall.Arguments != "" {
 				if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
 					return nil, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
@@ -294,7 +296,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 			mapped = append(mapped, &genai.Part{FunctionCall: &genai.FunctionCall{
 				ID:   part.ToolCall.ID,
 				Name: part.ToolCall.Name,
-				Args: arguments,
+				Args: protocolJSONFields(arguments),
 			}})
 		case corechat.PartMedia:
 			mediaPart, err := mapProtocolMedia(part.Media)
@@ -385,20 +387,31 @@ func mapProtocolToolMedia(value *media.Media) (*genai.FunctionResponsePart, erro
 }
 
 func protocolToolResultJSON(result []byte, isError bool) map[string]any {
-	var decoded any
-	if len(result) != 0 && jsonv2.Unmarshal(result, &decoded) == nil {
-		if !isError {
-			if object, ok := decoded.(map[string]any); ok {
-				return object
-			}
-			return map[string]any{"output": decoded}
-		}
-		return map[string]any{"error": decoded}
-	}
+	key := "output"
 	if isError {
-		return map[string]any{"error": string(result)}
+		key = "error"
 	}
-	return map[string]any{"output": string(result)}
+	if jsontext.Value(result).IsValid() {
+		if !isError && bytes.HasPrefix(bytes.TrimSpace(result), []byte("{")) {
+			var object map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(result, &object); err == nil {
+				return protocolJSONFields(object)
+			}
+		}
+		return map[string]any{key: json.RawMessage(bytes.Clone(result))}
+	}
+	return map[string]any{key: string(result)}
+}
+
+func protocolJSONFields(fields map[string]json.RawMessage) map[string]any {
+	if fields == nil {
+		return nil
+	}
+	native := make(map[string]any, len(fields))
+	for name, value := range fields {
+		native[name] = value
+	}
+	return native
 }
 
 func mapProtocolTools(definitions []corechat.ToolDefinition) ([]*genai.Tool, error) {
@@ -407,7 +420,7 @@ func mapProtocolTools(definitions []corechat.ToolDefinition) ([]*genai.Tool, err
 	}
 	declarations := make([]*genai.FunctionDeclaration, 0, len(definitions))
 	for i := range definitions {
-		var schema map[string]any
+		var schema map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(definitions[i].InputSchema, &schema); err != nil {
 			return nil, fmt.Errorf("google: tools[%d].input_schema: %w", i, err)
 		}

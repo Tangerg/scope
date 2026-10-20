@@ -90,7 +90,7 @@ func TestStreamingSpeechAggregateAndStream(t *testing.T) {
 
 func TestStreamingSpeechRejectsIncompleteResults(t *testing.T) {
 	for _, provider := range []string{"google", "vertexai"} {
-		for _, ending := range []string{"truncated", "provider error", "blocked", "empty"} {
+		for _, ending := range []string{"truncated", "provider error", "bare provider error", "blocked", "empty", "null candidate", "scalar candidate", "null part"} {
 			t.Run(provider+"/"+ending, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "text/event-stream")
@@ -101,6 +101,14 @@ func TestStreamingSpeechRejectsIncompleteResults(t *testing.T) {
 					switch ending {
 					case "provider error":
 						fmt.Fprint(w, "data: {\"error\":{\"code\":500,\"message\":\"failed\",\"status\":\"INTERNAL\"}}\n\n")
+					case "bare provider error":
+						fmt.Fprint(w, "{\"error\":{\"code\":500,\"message\":\"failed\",\"status\":\"INTERNAL\"}}\n\n")
+					case "null candidate":
+						fmt.Fprint(w, "data: {\"candidates\":[null]}\n\n")
+					case "scalar candidate":
+						fmt.Fprint(w, "data: {\"candidates\":[1]}\n\n")
+					case "null part":
+						fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[null]}}]}\n\n")
 					case "blocked":
 						fmt.Fprint(w, "data: {\"candidates\":[{\"finishReason\":\"SAFETY\"}]}\n\n")
 					case "empty":
@@ -118,13 +126,15 @@ func TestStreamingSpeechRejectsIncompleteResults(t *testing.T) {
 					t.Fatalf("partial aggregate accepted: %v, %v", response, err)
 				}
 				var streamErr error
+				errorsSeen := 0
 				for _, err := range model.Stream(t.Context(), req) {
 					if err != nil {
 						streamErr = err
+						errorsSeen++
 					}
 				}
-				if streamErr == nil {
-					t.Fatal("stream accepted incomplete result")
+				if streamErr == nil || errorsSeen != 1 {
+					t.Fatalf("incomplete stream errors=%d, last=%v", errorsSeen, streamErr)
 				}
 			})
 		}

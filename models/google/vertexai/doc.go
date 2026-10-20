@@ -2,7 +2,7 @@
 // backend and Application Default Credentials.
 //
 // Chat, transcription, speech, and text embedding share the official Google
-// Gen AI SDK protocol mappers with package google while supplying
+// Gen AI DTOs and native protocol boundary with package google while supplying
 // genai.BackendVertexAI, project, and location. Image generation has its own
 // adapter because the current Vertex contract is GenerateContent with Gemini
 // image models, whereas the public Gemini Developer API now recommends the

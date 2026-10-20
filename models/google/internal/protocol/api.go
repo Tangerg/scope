@@ -61,6 +61,7 @@ func (c ClientConfig) Validate() error {
 
 type api struct {
 	client           *genai.Client
+	generation       *GenerationClient
 	interactionsHTTP *resty.Client
 }
 
@@ -74,6 +75,13 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		return nil, err
 	}
 
+	if config.HTTPClient != nil {
+		ownedClient := *config.HTTPClient
+		if ownedClient.Transport == nil {
+			ownedClient.Transport = http.DefaultTransport
+		}
+		config.HTTPClient = &ownedClient
+	}
 	clientCfg := &genai.ClientConfig{
 		Backend:    config.Backend,
 		HTTPClient: config.HTTPClient,
@@ -110,15 +118,15 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		SetHeader("x-goog-api-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
 
-	return &api{client: client, interactionsHTTP: interactionsHTTP}, nil
+	return &api{client: client, generation: NewGenerationClient(client), interactionsHTTP: interactionsHTTP}, nil
 }
 
 func (a *api) chatCompletion(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
-	return a.wrapResult(a.client.Models.GenerateContent(ctx, modelName, contents, config))
+	return a.wrapResult(a.generation.GenerateContent(ctx, modelName, contents, config))
 }
 
 func (a *api) chatCompletionStream(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) iter.Seq2[*genai.GenerateContentResponse, error] {
-	return a.wrapSequence(a.client.Models.GenerateContentStream(ctx, modelName, contents, config))
+	return a.wrapSequence(a.generation.GenerateContentStream(ctx, modelName, contents, config))
 }
 
 func (a *api) embedding(ctx context.Context, modelName string, contents []*genai.Content, config *genai.EmbedContentConfig) (*genai.EmbedContentResponse, error) {
@@ -126,7 +134,14 @@ func (a *api) embedding(ctx context.Context, modelName string, contents []*genai
 }
 
 func (a *api) countTokens(ctx context.Context, modelName string, contents []*genai.Content, config *genai.CountTokensConfig) (*genai.CountTokensResponse, error) {
-	return a.wrapResult(a.client.Models.CountTokens(ctx, modelName, contents, config))
+	response, err := a.wrapResult(a.client.Models.CountTokens(ctx, modelName, contents, config))
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.TotalTokens < 0 {
+		return nil, errors.New("google: invalid totalTokens count")
+	}
+	return response, nil
 }
 
 func (*api) wrapError(err error) error {
