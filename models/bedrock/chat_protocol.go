@@ -3,6 +3,7 @@ package bedrock
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -12,9 +13,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -35,7 +36,7 @@ const (
 // provider-neutral Core equivalent. Common model, message, tool, and sampling
 // fields are derived exclusively from the Core request.
 type ChatRequestOptions struct {
-	AdditionalModelRequestFields      map[string]any    `json:"additional_model_request_fields,omitempty"`
+	AdditionalModelRequestFields      metadata.Map      `json:"additional_model_request_fields,omitempty"`
 	AdditionalModelResponseFieldPaths []string          `json:"additional_model_response_field_paths,omitempty"`
 	Guardrail                         *GuardrailOptions `json:"guardrail,omitzero"`
 	PerformanceLatency                string            `json:"performance_latency,omitempty"`
@@ -197,7 +198,15 @@ func (c *Chat) buildConverseStreamInput(req *corechat.Request) (*bedrockruntime.
 		ToolConfig:                        prepared.tools,
 	}
 	if prepared.native.AdditionalModelRequestFields != nil {
-		input.AdditionalModelRequestFields = document.NewLazyDocument(prepared.native.AdditionalModelRequestFields)
+		encoded, err := jsonv2.Marshal(prepared.native.AdditionalModelRequestFields)
+		if err != nil {
+			return nil, "", err
+		}
+		native, err := documentFromJSON(encoded)
+		if err != nil {
+			return nil, "", err
+		}
+		input.AdditionalModelRequestFields = native
 	}
 	return input, prepared.model, nil
 }

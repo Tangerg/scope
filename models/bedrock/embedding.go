@@ -93,6 +93,13 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	effective := *req
+	effective.Options = effectiveOptions
+	req = &effective
 	// Titan embeds one text per invocation and Cohere embeds the batch in one,
 	// so the request-wide correspondence is only whole once a family path has
 	// finished. Each path still accounts for its own invocation; this asks the
@@ -103,10 +110,6 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 		}
 	}()
 
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
-	if err != nil {
-		return nil, err
-	}
 	nativeValue, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
 		return nil, err

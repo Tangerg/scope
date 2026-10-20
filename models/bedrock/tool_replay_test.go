@@ -3,8 +3,10 @@ package bedrock
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func TestEmptyToolObjectsReachBedrockWire(t *testing.T) {
@@ -103,5 +106,40 @@ func TestToolJSONDocumentsPreserveMeaningfulEmptyValues(t *testing.T) {
 	encoded, err := block.(*types.ContentBlockMemberToolUse).Value.Input.MarshalSmithyDocument()
 	if err != nil || string(encoded) != `{}` {
 		t.Fatalf("absent argument text = %s, %v; want {}", encoded, err)
+	}
+}
+
+func TestConversePreservesExactOpenJSONNumbers(t *testing.T) {
+	var body []byte
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var readErr error
+		body, readErr = io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Error(readErr)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	model := &Chat{api: &api{}, defaults: corechat.Options{Model: "anthropic.claude-test"}}
+	request := &corechat.Request{Messages: []corechat.Message{
+		corechat.NewUserMessage(corechat.NewTextPart("lookup")),
+		corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993,"ratio":12345678901234567890.0123456789}`})),
+		corechat.NewToolMessage(corechat.ToolResult{ID: "call", Name: "lookup", Output: corechat.ToolOutput{Details: json.RawMessage(`{"id":9007199254740993}`)}}),
+	}, Tools: []corechat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}}
+	if err := request.Options.Extensions.Set(ChatRequestExtensionKey, ChatRequestOptions{AdditionalModelRequestFields: metadata.Map{"native": json.RawMessage(`9007199254740993`)}}); err != nil {
+		t.Fatal(err)
+	}
+	input, _, err := model.buildConverseStreamInput(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := bedrockruntime.NewFromConfig(aws.Config{Region: "us-east-1", Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""), HTTPClient: server.Client(), RetryMaxAttempts: 1}, func(options *bedrockruntime.Options) { options.BaseEndpoint = aws.String(server.URL) })
+	_, err = client.ConverseStream(t.Context(), input)
+	wire := string(body)
+	if err == nil || requests != 1 || strings.Count(wire, `"id":9007199254740993`) != 2 || !strings.Contains(wire, `"const":9007199254740993`) || !strings.Contains(wire, `"native":9007199254740993`) || !strings.Contains(wire, `"ratio":12345678901234567890.0123456789`) {
+		t.Fatalf("requests=%d error=%v body=%s", requests, err, body)
 	}
 }

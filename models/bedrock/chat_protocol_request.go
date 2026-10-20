@@ -1,7 +1,6 @@
 package bedrock
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -169,16 +168,18 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 			return nil, false, fmt.Errorf("unknown Bedrock reasoning kind %q", kind)
 		}
 	case corechat.PartToolCall:
-		var arguments any = map[string]any{}
+		arguments := document.NewLazyDocument(map[string]any{})
 		if part.ToolCall.Arguments != "" {
-			if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
+			var err error
+			arguments, err = documentFromJSON([]byte(part.ToolCall.Arguments))
+			if err != nil {
 				return nil, false, fmt.Errorf("tool call arguments: %w", err)
 			}
 		}
 		return &types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
 			ToolUseId: aws.String(part.ToolCall.ID),
 			Name:      aws.String(part.ToolCall.Name),
-			Input:     document.NewLazyDocument(arguments),
+			Input:     arguments,
 		}}, true, nil
 	case corechat.PartToolResult:
 		status := types.ToolResultStatusSuccess
@@ -204,12 +205,12 @@ func mapToolResultContent(output corechat.ToolOutput) ([]types.ToolResultContent
 		if len(output.Details) == 0 {
 			return []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{}}, nil
 		}
-		var value any
-		if err := jsonv2.Unmarshal(output.Details, &value); err != nil {
+		value, err := documentFromJSON(output.Details)
+		if err != nil {
 			return nil, err
 		}
 		return []types.ToolResultContentBlock{
-			&types.ToolResultContentBlockMemberJson{Value: document.NewLazyDocument(value)},
+			&types.ToolResultContentBlockMemberJson{Value: value},
 		}, nil
 	}
 	content := make([]types.ToolResultContentBlock, 0, len(output.Content))
@@ -252,14 +253,14 @@ func mapProtocolTools(definitions []corechat.ToolDefinition, choice *corechat.To
 	}
 	tools := make([]types.Tool, 0, len(definitions))
 	for index := range definitions {
-		var schema any
-		if err := jsonv2.Unmarshal(definitions[index].InputSchema, &schema); err != nil {
+		schema, err := documentFromJSON(definitions[index].InputSchema)
+		if err != nil {
 			return nil, fmt.Errorf("bedrock: tools[%d].input_schema: %w", index, err)
 		}
 		tools = append(tools, &types.ToolMemberToolSpec{Value: types.ToolSpecification{
 			Name:        aws.String(definitions[index].Name),
 			Description: aws.String(definitions[index].Description),
-			InputSchema: &types.ToolInputSchemaMemberJson{Value: document.NewLazyDocument(schema)},
+			InputSchema: &types.ToolInputSchemaMemberJson{Value: schema},
 		}})
 	}
 	configuration := &types.ToolConfiguration{Tools: tools}

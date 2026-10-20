@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/metadata"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -43,7 +45,7 @@ func TestChatBuildConverseStreamInput(t *testing.T) {
 		Options: corechat.Options{Temperature: &temperature},
 	}
 	if setExtensionErr := request.Options.Extensions.Set(ChatRequestExtensionKey, ChatRequestOptions{
-		AdditionalModelRequestFields: map[string]any{"thinking": true},
+		AdditionalModelRequestFields: metadata.Map{"thinking": []byte(`true`)},
 		RequestMetadata:              map[string]string{"tenant": "test"},
 	}); setExtensionErr != nil {
 		t.Fatal(setExtensionErr)
