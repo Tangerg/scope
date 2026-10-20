@@ -45,7 +45,7 @@ func (a *api) createGeneration(ctx context.Context, params lumaagents.Generation
 	if a == nil || a.client == nil || a.client.Generations == nil {
 		return nil, errors.New("luma: nil API")
 	}
-	return a.client.Generations.New(ctx, params)
+	return admitGeneration(a.client.Generations.New(ctx, params))
 }
 
 func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagents.Generation, error) {
@@ -55,5 +55,15 @@ func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagen
 	if generationID == "" {
 		return nil, errors.New("luma: generation ID is required")
 	}
-	return a.client.Generations.Get(ctx, generationID)
+	return admitGeneration(a.client.Generations.Get(ctx, generationID))
+}
+
+func admitGeneration(generation *lumaagents.Generation, err error) (*lumaagents.Generation, error) {
+	if err != nil {
+		return nil, err
+	}
+	if generation == nil {
+		return nil, errors.New("luma: generation response must be an object")
+	}
+	return generation, nil
 }

@@ -93,3 +93,27 @@ func TestImageModelConfigRejectsNegativeOutputLimit(t *testing.T) {
 		t.Fatal("NewImageModel accepted a negative output limit")
 	}
 }
+
+func TestImageRejectsNullGenerationAtSubmissionAndPoll(t *testing.T) {
+	for _, poll := range []bool{false, true} {
+		t.Run(fmt.Sprint(poll), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if poll && r.Method == http.MethodPost {
+					_, _ = w.Write([]byte(`{"id":"generation","state":"queued","type":"image","model":"uni-1","output":[]}`))
+				} else {
+					_, _ = w.Write([]byte(`null`))
+				}
+			}))
+			defer server.Close()
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: luma.ModelUni1}, PollInterval: time.Millisecond})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := image.NewRequest("image")
+			if response, err := model.Call(t.Context(), request); response != nil || err == nil {
+				t.Fatalf("null generation=%v, %v", response, err)
+			}
+		})
+	}
+}
