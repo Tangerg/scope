@@ -52,3 +52,50 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 		}
 	}
 }
+
+func TestAudioSourceCannotBeSuppliedByNativeConfiguration(t *testing.T) {
+	for _, source := range []string{"uri", "inline"} {
+		for _, defaults := range []bool{false, true} {
+			for _, native := range []any{
+				map[string]any{"url": "https://example.test/core.wav"},
+				map[string]any{"url": "https://example.test/native.wav"},
+				map[string]any{"url": nil},
+				map[string]any{"unknown": true},
+				[]string{"invalid"},
+			} {
+				requests := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(http.StatusBadRequest) }))
+				var extensions metadata.Extensions
+				if err := extensions.Set(revai.RequestExtensionKey, map[string]any{"source_config": native}); err != nil {
+					t.Fatal(err)
+				}
+				audio, err := media.NewURI("audio/wav", "https://example.test/core.wav")
+				if source == "inline" {
+					audio, err = media.NewBytes("audio/wav", []byte("audio"))
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				request, err := transcription.NewRequest(audio)
+				if err != nil {
+					t.Fatal(err)
+				}
+				options := transcription.Options{Model: revai.ModelMachine}
+				if defaults {
+					options.Extensions = extensions
+				} else {
+					request.Options.Extensions = extensions
+				}
+				model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = model.Call(t.Context(), request)
+				server.Close()
+				if err == nil || requests != 0 {
+					t.Fatalf("source=%s defaults=%t native=%#v requests=%d error=%v", source, defaults, native, requests, err)
+				}
+			}
+		}
+	}
+}

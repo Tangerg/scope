@@ -53,7 +53,11 @@ func newAPI(config apiConfig) (*api, error) {
 	}
 	client := resty.New()
 	if config.HTTPClient != nil {
-		client = resty.NewWithClient(config.HTTPClient)
+		ownedClient := *config.HTTPClient
+		if ownedClient.Transport == nil {
+			ownedClient.Transport = http.DefaultTransport
+		}
+		client = resty.NewWithClient(&ownedClient)
 	}
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
@@ -63,8 +67,7 @@ func newAPI(config apiConfig) (*api, error) {
 }
 
 type jobOptions struct {
-	MediaURL             string         `json:"media_url,omitempty"`
-	SourceConfig         map[string]any `json:"source_config,omitzero"`
+	SourceConfig         *sourceConfig  `json:"source_config,omitzero"`
 	Metadata             string         `json:"metadata,omitempty"`
 	CallbackURL          string         `json:"callback_url,omitempty"`
 	NotificationConfig   map[string]any `json:"notification_config,omitzero"`
@@ -84,6 +87,11 @@ type jobOptions struct {
 	RushMode             bool           `json:"rush,omitzero"`
 	TestMode             bool           `json:"test_mode,omitzero"`
 	SegmentsToTranscribe []any          `json:"segments_to_transcribe,omitzero"`
+}
+
+type sourceConfig struct {
+	URL         string            `json:"url"`
+	AuthHeaders map[string]string `json:"auth_headers,omitzero"`
 }
 
 // Job is the body Rev returns for /jobs (and the poll body for

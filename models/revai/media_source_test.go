@@ -26,8 +26,15 @@ func TestTranscriptionUsesCoreAudioURI(t *testing.T) {
 			if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 				t.Error(err)
 			}
-			if body["media_url"] != "https://example.test/audio.mp3" {
-				t.Errorf("audio URI=%v", body["media_url"])
+			source, ok := body["source_config"].(map[string]any)
+			if !ok || source["url"] != "https://example.test/audio.mp3" {
+				t.Errorf("source_config=%#v", source)
+			}
+			if _, exists := body["media_url"]; exists {
+				t.Error("obsolete media_url present")
+			}
+			if headers, ok := source["auth_headers"].(map[string]any); !ok || headers["Authorization"] != "Bearer resource" {
+				t.Errorf("authorization=%#v", source)
 			}
 			fmt.Fprint(w, `{"id":"job-1"}`)
 		} else if strings.Contains(r.URL.Path, "transcript") {
@@ -39,6 +46,9 @@ func TestTranscriptionUsesCoreAudioURI(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: revai.ModelMachine}
+	if err := opts.Extensions.Set(revai.RequestExtensionKey, map[string]any{"source_config": map[string]any{"auth_headers": map[string]string{"Authorization": "Bearer resource"}}}); err != nil {
+		t.Fatal(err)
+	}
 	model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
 	if err != nil {
 		t.Fatal(err)

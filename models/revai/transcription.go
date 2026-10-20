@@ -2,6 +2,8 @@ package revai
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +52,8 @@ var _ transcription.Model = (*TranscriptionModel)(nil)
 // transcription.Options.Model (ModelMachine or ModelHuman). Diarization, custom
 // vocabularies, and profanity filtering use Options.Extensions under
 // RequestExtensionKey.
+// Audio.Source alone chooses the media location. URI sources use source_config.url;
+// the native source_config extension may supply auth_headers only, for URI audio.
 type TranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
@@ -84,13 +88,24 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, err
 	}
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
+	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
 	for _, field := range []string{"media_url", "language", "transcriber"} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+	if raw, exists := nativeFields["source_config"]; exists {
+		var sourceFields map[string]json.RawMessage
+		if decodeErr := jsonv2.Unmarshal(raw, &sourceFields); decodeErr != nil {
+			return nil, fmt.Errorf("revai: source_config: %w", decodeErr)
+		}
+		for field := range sourceFields {
+			if field != "auth_headers" {
+				return nil, fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)
+			}
 		}
 	}
 
@@ -107,9 +122,15 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	var job *job
 	if req.Audio.Source.Kind == media.SourceURI {
-		jobOpts.MediaURL = req.Audio.Source.URI
+		if jobOpts.SourceConfig == nil {
+			jobOpts.SourceConfig = &sourceConfig{}
+		}
+		jobOpts.SourceConfig.URL = req.Audio.Source.URI
 		job, err = t.api.submitURL(ctx, *jobOpts)
 	} else {
+		if jobOpts.SourceConfig != nil {
+			return nil, errors.New("revai: source_config requires URI audio")
+		}
 		audio, audioErr := req.Audio.Bytes()
 		if audioErr != nil {
 			return nil, audioErr
