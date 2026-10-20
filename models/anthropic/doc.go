@@ -16,7 +16,7 @@
 // cannot tell that apart from the adapter never having mapped them. It caps
 // temperature at 1 and "values greater than 1 are capped at 1", so a larger
 // value is refused rather than silently altered. response_format is ignored
-// too, so a JSON output format is met with the shared prompt fallback.
+// too, so unsupported JSON output formats return ErrUnsupportedOutputFormat.
 //
 // Anthropic calls the layer "primarily intended to test and compare model
 // capabilities, and not considered a long-term or production-ready solution".

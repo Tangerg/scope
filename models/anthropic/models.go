@@ -65,7 +65,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	// problem in another shape: the table caps it at 1 and says "values greater
 	// than 1 are capped at 1", which alters the request rather than rejecting
 	// it. response_format is also ignored, so JSON output goes through the
-	// shared prompt fallback rather than a parameter the endpoint drops.
+	// ErrUnsupportedOutputFormat instead of a parameter the endpoint drops.
 	maximumTemperature := 1.0
 	return openaiprotocol.NewCompatibleChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
