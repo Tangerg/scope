@@ -183,6 +183,8 @@ func (*Reader) headingText(h *ast.Heading, raw []byte) string {
 			b.WriteString(typed.Value.Value(raw))
 		case *ast.CodeSpan:
 			b.WriteString(typed.Value.Str(raw))
+		case *ast.AutoLink:
+			b.WriteString(typed.Label.Value(raw))
 		}
 		return ast.WalkContinue, nil
 	})
@@ -242,7 +244,7 @@ func (s *section) document(metadata coremetadata.Map) (*document.Document, error
 	if body == "" {
 		return nil, nil
 	}
-	if s.heading != "" {
+	if s.level > 0 {
 		if err := metadata.Set(MetadataHeading, s.heading); err != nil {
 			return nil, err
 		}

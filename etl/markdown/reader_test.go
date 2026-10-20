@@ -155,3 +155,32 @@ func TestNewReaderRejectsNilSource(t *testing.T) {
 		t.Fatal("typed nil source must fail")
 	}
 }
+
+func TestHeadingProjectionIncludesAutolinksAndEmptyHeadings(t *testing.T) {
+	for _, heading := range []struct{ source, title string }{
+		{"<https://example.com>", "https://example.com"},
+		{"<hello@example.com>", "hello@example.com"},
+		{"**See** <https://example.com> `now`", "See https://example.com now"},
+		{"", ""},
+	} {
+		t.Run(heading.source, func(t *testing.T) {
+			reader, err := markdown.NewReader(strings.NewReader("Lead\n\n# "+heading.source+"\n\nBody\n\n## Child\n\nMore"), markdown.ReaderConfig{HeadingSplitLevel: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			docs, err := reader.Read(t.Context())
+			if err != nil || len(docs) != 3 {
+				t.Fatalf("documents = %v, %v", docs, err)
+			}
+			if _, present := docs[0].Metadata[markdown.MetadataHeadingLevel]; present {
+				t.Fatal("lead acquired a heading")
+			}
+			if got, ok := metadataValue[string](t, docs[1].Metadata, markdown.MetadataHeading); !ok || got != heading.title {
+				t.Fatalf("heading = %q, %t", got, ok)
+			}
+			if got, ok := metadataValue[string](t, docs[2].Metadata, markdown.MetadataHeadingPath); !ok || got != heading.title+" > Child" {
+				t.Fatalf("child path = %q, %t", got, ok)
+			}
+		})
+	}
+}
