@@ -23,8 +23,8 @@ func (f failingTraceTool) Definition() corechat.ToolDefinition {
 	return corechat.ToolDefinition{Name: "fail", Description: "Return a failure", InputSchema: []byte(`{"type":"object"}`)}
 }
 
-func (f failingTraceTool) Call(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-	return corechat.ToolOutput{}, errors.New("private-tool-error-marker")
+func (f failingTraceTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{}, errors.New("private-tool-error-marker")
 }
 
 func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	require.Len(t, executables, 1)
 	binding, err := tool.Bind(executables[0])
 	require.NoError(t, err)
-	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`})
+	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`}, nil)
 	require.NoError(t, err)
 	_, err = binding.Call(t.Context(), invocation)
 	_, ok := errors.AsType[*tool.Failure](err)

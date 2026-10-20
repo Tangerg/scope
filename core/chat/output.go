@@ -62,7 +62,6 @@ func (o OutputMetadata) MarshalJSON() ([]byte, error) {
 	if err := (&o).validate(); err != nil {
 		return nil, err
 	}
-	type wireOutputMetadata OutputMetadata
 	return jsonv2.Marshal(wireOutputMetadata(o), jsonv2.Deterministic(true))
 }
 
@@ -70,7 +69,6 @@ func (o *OutputMetadata) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output metadata receiver is nil", ErrInvalidResponse)
 	}
-	type wireOutputMetadata OutputMetadata
 	var decoded wireOutputMetadata
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output metadata: %w", ErrInvalidResponse, err)
@@ -143,7 +141,6 @@ func (o Output) MarshalJSON() ([]byte, error) {
 	if err := (&o).Validate(); err != nil {
 		return nil, err
 	}
-	type wireOutput Output
 	return jsonv2.Marshal(wireOutput(o), jsonv2.Deterministic(true))
 }
 
@@ -151,7 +148,6 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output receiver is nil", ErrInvalidResponse)
 	}
-	type wireOutput Output
 	var decoded wireOutput
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
@@ -163,3 +159,11 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	*o = candidate
 	return nil
 }
+
+type wireOutputMetadata OutputMetadata
+
+func (OutputMetadata) JSONSchemaAlias() any { return wireOutputMetadata{} }
+
+type wireOutput Output
+
+func (Output) JSONSchemaAlias() any { return wireOutput{} }

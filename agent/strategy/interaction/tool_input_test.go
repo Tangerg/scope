@@ -21,25 +21,25 @@ import (
 // wait can only open because the first wait's answer was consumed and closed,
 // so this exercises the removal of per-pause wait identity.
 func TestToolInputResumesSequentiallyReusingOneWait(t *testing.T) {
-	executable, err := tool.NewFunc(tool.FuncConfig{
+	executable, err := newContinuingTool(tool.FuncConfig{
 		Name: "ask_twice", Description: "Ask for input twice before completing.",
-	}, func(ctx context.Context, _ struct{}) (string, error) {
-		continuation, resumed := interaction.ToolInputContinuationFromContext(ctx)
+	}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+		continuation, resumed := callInput.Continuation()
 		if !resumed {
-			return "", interaction.RequireToolInput(
+			return waitingInput(
 				json.RawMessage(`{"question":"first?"}`), json.RawMessage(`{"type":"string","minLength":1}`), json.RawMessage(`{"stage":1}`))
 		}
 		var state struct {
 			Stage int `json:"stage"`
 		}
 		if err := jsonv2.Unmarshal(continuation.State(), &state); err != nil {
-			return "", err
+			return tool.Result{}, err
 		}
 		if state.Stage == 1 {
-			return "", interaction.RequireToolInput(
+			return waitingInput(
 				json.RawMessage(`{"question":"second?"}`), json.RawMessage(`{"type":"string","minLength":1}`), json.RawMessage(`{"stage":2}`))
 		}
-		return "done", nil
+		return tool.Result{Output: chat.NewTextToolOutput("done")}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -116,16 +116,7 @@ func slicesContainsWaitID(ids []agent.WaitID, id agent.WaitID) bool {
 	return false
 }
 
-func TestRequireToolInputSupportsErrorClassification(t *testing.T) {
-	err := interaction.RequireToolInput(
-		json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`),
-	)
-	if !errors.Is(fmt.Errorf("tool paused: %w", err), interaction.ErrToolInputRequired) {
-		t.Fatalf("wrapped input request = %v, want ErrToolInputRequired", err)
-	}
-}
-
-func TestRequireToolInputRejectsInvalidAndOversizedJSON(t *testing.T) {
+func TestInputRequestRejectsInvalidAndOversizedJSON(t *testing.T) {
 	for name, value := range map[string]string{
 		"duplicate member": `{"answer":1,"answer":2}`,
 		"trailing value":   `1 2`,
@@ -133,9 +124,9 @@ func TestRequireToolInputRejectsInvalidAndOversizedJSON(t *testing.T) {
 		"normalized size":  `"` + strings.Repeat("<", (1<<20)/6+1) + `"`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := interaction.RequireToolInput(json.RawMessage(value), json.RawMessage(`true`), json.RawMessage(`null`))
-			if !errors.Is(err, interaction.ErrInvalidToolInputRequest) {
-				t.Fatalf("error = %v, want ErrInvalidToolInputRequest", err)
+			_, err := newInputRequest(json.RawMessage(value), json.RawMessage(`true`), json.RawMessage(`null`))
+			if !errors.Is(err, tool.ErrInvalidInputRequest) {
+				t.Fatalf("error = %v, want tool.ErrInvalidInputRequest", err)
 			}
 		})
 	}
@@ -247,16 +238,16 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	t.Helper()
 	const value = "9007199254740993"
 	const schema = `{"const":9007199254740993}`
-	resumed := make(chan interaction.ToolInputContinuation, 1)
-	executable, err := tool.NewFunc(tool.FuncConfig{
+	resumed := make(chan tool.Continuation, 1)
+	executable, err := newContinuingTool(tool.FuncConfig{
 		Name: "confirm_number", Description: "Confirm an exact numeric value.",
-	}, func(ctx context.Context, _ struct{}) (string, error) {
-		continuation, ok := interaction.ToolInputContinuationFromContext(ctx)
+	}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+		continuation, ok := callInput.Continuation()
 		if !ok {
-			return "", interaction.RequireToolInput(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
+			return waitingInput(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
 		}
 		resumed <- continuation
-		return "confirmed", nil
+		return tool.Result{Output: chat.NewTextToolOutput("confirmed")}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +305,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, responseErr := pending.ResponseSignal(id, json.RawMessage(`9007199254740992`)); !errors.Is(responseErr, interaction.ErrInvalidToolInputRequest) {
+	if _, responseErr := pending.ResponseSignal(id, json.RawMessage(`9007199254740992`)); !errors.Is(responseErr, tool.ErrInvalidInputRequest) {
 		t.Fatalf("adjacent integer validation error=%v", responseErr)
 	}
 	var signal agent.SignalRequest

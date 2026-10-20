@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/eval"
 )
 
@@ -54,9 +56,9 @@ func TestSuiteRejectsUnencodableReportBeforeCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	suite, err := eval.NewSuite(eval.SuiteConfig[int]{Assessments: []eval.Assessment[int]{
-		{ID: "assessment", Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[int]{ID: "assessment", Evaluator: eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
 			return eval.Report{Metric: metric, Feedback: "\xff"}, nil
-		})},
+		})})),
 	}})
 	if err != nil {
 		t.Fatal(err)

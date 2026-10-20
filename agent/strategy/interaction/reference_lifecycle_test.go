@@ -28,18 +28,18 @@ func (r *referenceObserver) OnToolSettled(_ context.Context, invocation interact
 func TestLogicalReferenceAcrossAttemptsRoundsObserversAndParents(t *testing.T) {
 	observer := &referenceObserver{started: make(chan interaction.ToolInvocation, 3), settled: make(chan interaction.ToolInvocation, 3)}
 	invoked := make(chan interaction.ToolInvocation, 3)
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "confirm", Description: "Confirm one logical call."},
-		func(ctx context.Context, _ struct{}) (string, error) {
+	executable, err := newContinuingTool(tool.FuncConfig{Name: "confirm", Description: "Confirm one logical call."},
+		func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 			invocation, found := interaction.ToolInvocationFromContext(ctx)
 			if !found {
-				return "", errors.New("Tool invocation is missing")
+				return tool.Result{}, errors.New("Tool invocation is missing")
 			}
 			invoked <- invocation
 			reference, _ := invocation.Reference()
-			if _, resumed := interaction.ToolInputContinuationFromContext(ctx); reference.ModelCallSequence() == 1 && !resumed {
-				return "", interaction.RequireToolInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"const":true}`), json.RawMessage(`null`))
+			if _, resumed := callInput.Continuation(); reference.ModelCallSequence() == 1 && !resumed {
+				return waitingInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"const":true}`), json.RawMessage(`null`))
 			}
-			return "confirmed", nil
+			return tool.Result{Output: chat.NewTextToolOutput("confirmed")}, nil
 		})
 	if err != nil {
 		t.Fatal(err)

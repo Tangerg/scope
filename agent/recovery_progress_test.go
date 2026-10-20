@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"testing/synctest"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type recoveryProgressCommitter struct {
@@ -23,7 +25,7 @@ func (r *recoveryProgressCommitter) CommitCheckpoint(ctx context.Context, checkp
 
 func TestRecoveryFixtureWaitsForNewPausedProgress(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		schema := controlValue(SchemaFor[executionReplayBenchmarkState]())
+		schema := controlValue(jsonschema.For[executionReplayBenchmarkState]())
 		descriptor := controlValue(NewDescriptor(DescriptorConfig{
 			Name: "benchmark.tree_recovery", Description: "Test recovery fixture progress.",
 			InputSchema: schema, OutputSchema: schema,

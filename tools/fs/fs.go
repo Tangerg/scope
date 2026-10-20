@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -118,6 +119,16 @@ const (
 	GrepOutputCount            GrepOutputMode = "count"
 )
 
+var grepOutputModeVocabulary = [...]GrepOutputMode{GrepOutputContent, GrepOutputFilesWithMatches, GrepOutputCount}
+
+func (GrepOutputMode) JSONSchemaEnum() []string {
+	values := make([]string, len(grepOutputModeVocabulary))
+	for index, value := range grepOutputModeVocabulary {
+		values[index] = string(value)
+	}
+	return values
+}
+
 func (g GrepOutputMode) Normalize() (GrepOutputMode, error) {
 	if g == "" {
 		g = GrepOutputContent
@@ -129,12 +140,7 @@ func (g GrepOutputMode) Normalize() (GrepOutputMode, error) {
 }
 
 func (g GrepOutputMode) Valid() bool {
-	switch g {
-	case "", GrepOutputContent, GrepOutputFilesWithMatches, GrepOutputCount:
-		return true
-	default:
-		return false
-	}
+	return g == "" || slices.Contains(grepOutputModeVocabulary[:], g)
 }
 
 type GrepLineKind string

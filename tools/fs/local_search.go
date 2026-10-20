@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 const (
+	minimumPatternLength  = 1
 	defaultGrepMaxResults = 250
 	defaultGlobMaxResults = 100
 	maximumSearchResults  = 1000
@@ -55,6 +58,9 @@ func (g globFilesystem) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func validateGlobPattern(pattern string) error {
+	if !doublestar.ValidatePattern(pattern) {
+		return fmt.Errorf("%w: invalid glob pattern %q", ErrInvalidInput, pattern)
+	}
 	if filepath.IsAbs(pattern) {
 		return fmt.Errorf("%w: glob pattern %q", ErrPathOutsideRoot, pattern)
 	}

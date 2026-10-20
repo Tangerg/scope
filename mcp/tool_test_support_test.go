@@ -14,7 +14,7 @@ func prepareTestTool(executable toolcontract.Tool, arguments string) (toolcontra
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	})
+	}, nil)
 	return binding, invocation, err
 }
 
@@ -23,7 +23,8 @@ func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}
-	return binding.Call(ctx, invocation)
+	result, err := binding.Call(ctx, invocation)
+	return result.Output, err
 }
 
 func testOutputText(output chat.ToolOutput) string {

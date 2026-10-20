@@ -194,3 +194,20 @@ func TestWindowStoreDelegatesWritesAndClear(t *testing.T) {
 		t.Fatalf("after Clear = %#v", got)
 	}
 }
+
+func TestWindowStoreLargeLimitUsesOnlyActualHistory(t *testing.T) {
+	base := new(inmemory.Store)
+	window, err := history.NewWindowStore(base, int(^uint(0)>>1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for count := range 3 {
+		got, err := window.Read(t.Context(), "conversation")
+		if err != nil || got == nil || len(got) != count {
+			t.Fatalf("Read after %d writes = %v, %v", count, got, err)
+		}
+		if _, err := base.Write(t.Context(), "conversation", chat.NewUserMessage(chat.NewTextPart("turn"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

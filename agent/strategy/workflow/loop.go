@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // LoopPredicate is a bounded, deterministic, side-effect-free completion test
@@ -57,11 +58,11 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	if !agent.ValidQualifiedName(config.ID) || !valid || !config.MaxIterations.Allows(1) || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
-	valueSchema, err := agent.SchemaFor[T]()
+	valueSchema, err := jsonschema.For[T]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Loop %q value schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	resultSchema, err := agent.SchemaFor[LoopResult[T]]()
+	resultSchema, err := jsonschema.For[LoopResult[T]]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Loop %q result schema: %w", ErrInvalidStage, config.ID, err)
 	}
@@ -99,7 +100,7 @@ func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(conte
 	}
 }
 
-func loopResult[T any](resultSchema agent.Schema) func(json.RawMessage, uint64, bool) (json.RawMessage, error) {
+func loopResult[T any](resultSchema jsonschema.Schema) func(json.RawMessage, uint64, bool) (json.RawMessage, error) {
 	return func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
 		output, err := agent.ParsePayload(raw)
 		if err != nil {

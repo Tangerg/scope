@@ -7,6 +7,8 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/eval"
 )
 
@@ -14,24 +16,24 @@ func TestSuiteCollectPreservesIndependentSuccessAndFailure(t *testing.T) {
 	failed := errors.New("judge unavailable")
 	for _, concurrency := range []int{1, 2} {
 		assessments := []eval.Assessment[string]{
-			{ID: "quality", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "quality", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				return scoredReport("quality", eval.VerdictPass, 1), nil
-			})},
-			{ID: "judge", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			})})),
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "judge", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				return scoredReport("quality", eval.VerdictPass, 1), failed
-			})},
-			{ID: "independent", Evaluator: eval.EvaluatorFunc[string](func(ctx context.Context, _ string) (eval.Report, error) {
+			})})),
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "independent", Evaluator: eval.EvaluatorFunc[string](func(ctx context.Context, _ string) (eval.Report, error) {
 				if err := ctx.Err(); err != nil {
 					return eval.Report{}, err
 				}
 				return scoredReport("quality", eval.VerdictFail, 0), nil
-			})},
+			})})),
 		}
 		suite, err := eval.NewSuite(eval.SuiteConfig[string]{Assessments: assessments, MaxConcurrency: concurrency})
 		if err != nil {
 			t.Fatal(err)
 		}
-		assessments[0].ID = "mutated"
+		assessments[0] = lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "mutated", Evaluator: validStringEvaluator()}))
 		result, err := suite.Run(t.Context(), "input")
 		if err != nil || result.Validate() != nil || result.Complete() || result.Verdict() != eval.VerdictUnspecified || !errors.Is(result.Err(), failed) {
 			t.Fatalf("collect result = %#v, %v", result, err)
@@ -70,18 +72,18 @@ func TestSuiteCollectDoesNotCancelAnInFlightIndependentAssessment(t *testing.T) 
 		started := make(chan struct{})
 		release := make(chan struct{})
 		suite, err := eval.NewSuite(eval.SuiteConfig[string]{MaxConcurrency: 2, Assessments: []eval.Assessment[string]{
-			{ID: "failure", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "failure", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				<-started
 				return eval.Report{}, failed
-			})},
-			{ID: "independent", Evaluator: eval.EvaluatorFunc[string](func(ctx context.Context, _ string) (eval.Report, error) {
+			})})),
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "independent", Evaluator: eval.EvaluatorFunc[string](func(ctx context.Context, _ string) (eval.Report, error) {
 				close(started)
 				<-release
 				if ctx.Err() != nil {
 					return eval.Report{}, ctx.Err()
 				}
 				return scoredReport("quality", eval.VerdictPass, 1), nil
-			})},
+			})})),
 		}})
 		if err != nil {
 			t.Fatal(err)
@@ -107,17 +109,17 @@ func TestSuiteFailFastAndCancellationKeepAllPlannedIdentities(t *testing.T) {
 	for _, canceled := range []bool{false, true} {
 		ctx, cancel := context.WithCancel(t.Context())
 		suite, err := eval.NewSuite(eval.SuiteConfig[string]{ErrorPolicy: eval.ErrorFailFast, Assessments: []eval.Assessment[string]{
-			{ID: "first", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "first", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				if canceled {
 					cancel()
 					return eval.Report{}, context.Canceled
 				}
 				return eval.Report{}, failed
-			})},
-			{ID: "later", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			})})),
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "later", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				t.Error("assessment started after fail-fast/cancellation")
 				return scoredReport("quality", eval.VerdictPass, 1), nil
-			})},
+			})})),
 		}})
 		if err != nil {
 			cancel()
@@ -136,15 +138,12 @@ func TestSuiteFailFastAndCancellationKeepAllPlannedIdentities(t *testing.T) {
 }
 
 func TestSuiteValidatesIdentityAndRejectsInvalidEvaluatorReports(t *testing.T) {
-	var typedNil *nilEvaluator
 	for _, config := range []eval.SuiteConfig[int]{
 		{},
-		{Assessments: []eval.Assessment[int]{{ID: "", Evaluator: validIntEvaluator()}}},
-		{Assessments: []eval.Assessment[int]{{ID: " spaced", Evaluator: validIntEvaluator()}}},
-		{Assessments: []eval.Assessment[int]{{ID: "a", Evaluator: typedNil}}},
-		{Assessments: []eval.Assessment[int]{{ID: "a", Evaluator: validIntEvaluator()}, {ID: "a", Evaluator: validIntEvaluator()}}},
-		{Assessments: []eval.Assessment[int]{{ID: "a", Evaluator: validIntEvaluator()}}, MaxConcurrency: -1},
-		{Assessments: []eval.Assessment[int]{{ID: "a", Evaluator: validIntEvaluator()}}, ErrorPolicy: "unknown"},
+		{Assessments: []eval.Assessment[int]{{}}},
+		{Assessments: []eval.Assessment[int]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[int]{ID: "a", Evaluator: validIntEvaluator()})), lo.Must(eval.NewAssessment(eval.AssessmentConfig[int]{ID: "a", Evaluator: validIntEvaluator()}))}},
+		{Assessments: []eval.Assessment[int]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[int]{ID: "a", Evaluator: validIntEvaluator()}))}, MaxConcurrency: -1},
+		{Assessments: []eval.Assessment[int]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[int]{ID: "a", Evaluator: validIntEvaluator()}))}, ErrorPolicy: "unknown"},
 	} {
 		if _, err := eval.NewSuite(config); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 			t.Fatalf("invalid suite accepted: %#v, %v", config, err)
@@ -177,5 +176,31 @@ func TestExperimentDetailsAreEvidenceWithoutStatisticalWeight(t *testing.T) {
 	}
 	if len(report.Cases()[0].Result.Results[0].Report.Details) != 2 {
 		t.Fatal("experiment record lost owned supporting evidence")
+	}
+}
+
+func TestAssessmentBindsConfigurationAndRejectsInvalidValues(t *testing.T) {
+	var typedNil *nilEvaluator
+	for _, config := range []eval.AssessmentConfig[int]{
+		{ID: "", Evaluator: validIntEvaluator()},
+		{ID: " spaced", Evaluator: validIntEvaluator()},
+		{ID: "valid", Evaluator: typedNil},
+	} {
+		if _, err := eval.NewAssessment(config); !errors.Is(err, eval.ErrInvalidAssessment) {
+			t.Fatalf("invalid binding=%v", err)
+		}
+	}
+	config := eval.AssessmentConfig[int]{ID: "bound", Evaluator: validIntEvaluator()}
+	bound, err := eval.NewAssessment(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ID = "changed"
+	config.Evaluator = nil
+	if bound.ID() != "bound" {
+		t.Fatal("configuration changed bound identity")
+	}
+	if _, err := bound.Evaluate(t.Context(), 1); err != nil {
+		t.Fatal(err)
 	}
 }

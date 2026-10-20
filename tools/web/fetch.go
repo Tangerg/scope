@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -17,13 +18,21 @@ const (
 	FormatText     ContentFormat = "text"
 )
 
-func (c ContentFormat) Validate() error {
-	switch c {
-	case "", FormatMarkdown, FormatHTML, FormatText:
-		return nil
-	default:
-		return ErrInvalidFormat
+var contentFormatVocabulary = [...]ContentFormat{FormatMarkdown, FormatHTML, FormatText}
+
+func (ContentFormat) JSONSchemaEnum() []string {
+	values := make([]string, len(contentFormatVocabulary))
+	for index, value := range contentFormatVocabulary {
+		values[index] = string(value)
 	}
+	return values
+}
+
+func (c ContentFormat) Validate() error {
+	if c == "" || slices.Contains(contentFormatVocabulary[:], c) {
+		return nil
+	}
+	return ErrInvalidFormat
 }
 
 func (c ContentFormat) Normalize() (ContentFormat, error) {
@@ -39,7 +48,7 @@ func (c ContentFormat) Normalize() (ContentFormat, error) {
 type FetchRequest struct {
 	URL string `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL of the page to fetch."`
 
-	Format ContentFormat `json:"format,omitempty" jsonschema:"enum=markdown,enum=html,enum=text" jsonschema_description:"Content format: markdown (default and best for readable structure), html, or text."`
+	Format ContentFormat `json:"format,omitempty" jsonschema_description:"Content format: markdown (default and best for readable structure), html, or text."`
 }
 
 // Prepare does not mutate f; it returns an independently owned request.

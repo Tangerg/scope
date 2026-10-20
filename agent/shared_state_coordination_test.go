@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type revisionRequest struct {
@@ -158,11 +159,11 @@ func (r *revisionLostAcknowledgment) CommitEffect(ctx context.Context, boundary 
 }
 
 func TestSharedStateCoordinationRestoresObservedRevisionInsteadOfCurrentState(t *testing.T) {
-	inputSchema, err := agent.SchemaFor[revisionRequest]()
+	inputSchema, err := jsonschema.For[revisionRequest]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[revisionObservation]()
+	outputSchema, err := jsonschema.For[revisionObservation]()
 	if err != nil {
 		t.Fatal(err)
 	}

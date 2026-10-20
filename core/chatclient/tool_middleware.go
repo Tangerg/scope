@@ -28,6 +28,8 @@ type toolMiddleware struct {
 // Tools and ToolChoice exclusively, so it cannot be stacked. Placed inside
 // history.Middleware.Call, history persists only fresh input and the final
 // answer; placed outside, it also records tool proposals and results.
+// A Tool requesting external input stops the batch; ToolBatchError preserves
+// that checkpoint for inspection. This middleware has no continuation runtime.
 func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolBatch)
@@ -75,7 +77,7 @@ func (t *toolMiddleware) call(
 	current.Tools = t.cloneDefinitions()
 	response, err := next.Call(ctx, current)
 	if err != nil {
-		return nil, err
+		return response, err
 	}
 	calls, err := toolCalls(response)
 	if err != nil || len(calls) == 0 {
@@ -85,11 +87,11 @@ func (t *toolMiddleware) call(
 	if err != nil {
 		return nil, err
 	}
-	results, err := batch.execute(ctx)
+	results, inputRequest, err := batch.execute(ctx)
 	if err != nil {
 		return nil, &ToolBatchError{
 			completed: results, request: current,
-			proposal: response.Clone(), cause: err,
+			proposal: response.Clone(), cause: err, inputRequest: inputRequest,
 		}
 	}
 	current.Messages = append(
@@ -126,7 +128,7 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 		if !exists {
 			return nil, fmt.Errorf("%w: tool call[%d] names unbound tool %q", ErrInvalidToolBatch, index, call.Name)
 		}
-		invocation, err := binding.Contract().Prepare(call)
+		invocation, err := binding.Contract().Prepare(call, nil)
 		if err != nil {
 			return nil, fmt.Errorf("chatclient: prepare tool call[%d]: %w", index, err)
 		}
@@ -137,19 +139,23 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 	return batch, nil
 }
 
-func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, error) {
+func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, *tool.InputRequest, error) {
 	results := make([]chat.ToolResult, 0, len(p))
 	for _, call := range p {
 		output, err := call.binding.Call(ctx, call.invocation)
 		if err != nil {
-			return results, err
+			return results, nil, err
 		}
 		if err := output.Validate(); err != nil {
-			return results, fmt.Errorf("invalid output: %w", err)
+			return results, nil, fmt.Errorf("invalid output: %w", err)
 		}
-		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Clone()})
+		if output.InputRequest != nil {
+			request := *output.InputRequest
+			return results, &request, errors.New("chatclient: Tool requested external input; use a resumable runtime")
+		}
+		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Output.Clone()})
 	}
-	return results, nil
+	return results, nil, nil
 }
 
 func (t *toolMiddleware) cloneDefinitions() []chat.ToolDefinition {

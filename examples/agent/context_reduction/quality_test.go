@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
@@ -32,7 +34,7 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 	}
 	type sample = eval.TrialSample[contextTask, trajectory.Trajectory]
 	suite, err := eval.NewSuite(eval.SuiteConfig[sample]{Assessments: []eval.Assessment[sample]{
-		{ID: "quality", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[sample]{ID: "quality", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
 			text, answerErr := answer(*value.Execution.Output)
 			if answerErr != nil {
 				return eval.Report{}, answerErr
@@ -43,8 +45,8 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 			}
 			decision, decisionErr := score.Decide(minimumQualityScore)
 			return eval.Report{Metric: qualityMetric, Score: &score, Decision: &decision}, decisionErr
-		})},
-		{ID: "execution", Evaluator: eval.EvaluatorFunc[sample](func(ctx context.Context, value sample) (eval.Report, error) {
+		})})),
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[sample]{ID: "execution", Evaluator: eval.EvaluatorFunc[sample](func(ctx context.Context, value sample) (eval.Report, error) {
 			calls := make([]trajectory.ToolExpectation, len(value.Case.Subject.Documents))
 			for index := range calls {
 				arguments, encodeErr := jsonv2.Marshal(readReport{Index: index})
@@ -56,11 +58,11 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 			return (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{Actual: *value.Execution.Output, Expected: trajectory.Expectation{
 				Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls}, Limits: trajectory.Limits{DroppedDeltas: new(uint64(0))},
 			}})
-		})},
-		{ID: "context", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
+		})})),
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[sample]{ID: "context", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
 			bytes, measureErr := inputBytes(*value.Execution.Output)
 			return eval.Report{Metric: byteMetric, Measurement: new(float64(bytes))}, measureErr
-		})},
+		})})),
 	}})
 	if err != nil {
 		t.Fatal(err)

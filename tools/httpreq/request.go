@@ -9,15 +9,17 @@ import (
 	"time"
 
 	"golang.org/x/net/http/httpguts"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type Request struct {
 	URL       string            `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL. Host must match the configured allowlist."`
-	Method    Method            `json:"method,omitempty" jsonschema:"enum=GET,enum=HEAD,enum=POST,enum=PUT,enum=PATCH,enum=DELETE" jsonschema_description:"HTTP method: GET (default), HEAD, POST, PUT, PATCH, or DELETE. Must be in the configured method allowlist."`
+	Method    Method            `json:"method,omitempty" jsonschema_description:"HTTP method: GET (default), HEAD, POST, PUT, PATCH, or DELETE. Must be in the configured method allowlist."`
 	Headers   map[string]string `json:"headers,omitempty" jsonschema_description:"Optional request headers. Values here override this tool's configured default headers. Host overrides are prohibited; authority comes from the URL."`
 	Query     map[string]string `json:"query,omitempty" jsonschema_description:"Optional query parameters appended to the URL; a name must not also appear in the URL's own query."`
 	Body      string            `json:"body,omitempty" jsonschema_description:"Optional request body for POST, PUT, PATCH, or DELETE; GET and HEAD carry none. For JSON, pass a JSON-encoded string and set Content-Type via Headers."`
-	TimeoutMS int               `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=120000" jsonschema_description:"Per-call timeout in milliseconds, from 1 to 120000. Omit to use the configured default."`
+	TimeoutMS int               `json:"timeout_ms,omitzero" jsonschema_description:"Per-call timeout in milliseconds, within the supported request limit. Omit to use the configured default."`
 }
 
 func (r *Request) prepare() (*Request, error) {
@@ -110,4 +112,10 @@ func validateHeaderFields(headers map[string]string) error {
 		names[field] = name
 	}
 	return nil
+}
+
+func (Request) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		"timeout_ms": {Minimum: new(float64(1)), Maximum: new(float64(MaxRequestTimeout / time.Millisecond))},
+	}}
 }

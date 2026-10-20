@@ -12,6 +12,7 @@ import (
 	"github.com/samber/lo"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // TreeCommitterConformanceDriver separates commits from reads so the suite can
@@ -466,15 +467,15 @@ func conformanceDeployment(t *testing.T, mode conformanceMode) agent.Deployment 
 
 func conformanceDescriptor(t *testing.T, name, description string) agent.Descriptor {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[conformanceInput]()
+	inputSchema, err := jsonschema.For[conformanceInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[conformanceOutput]()
+	outputSchema, err := jsonschema.For[conformanceOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signalSchema, err := agent.ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		t.Fatal(err)
 	}

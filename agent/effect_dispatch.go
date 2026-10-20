@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 )
 
 var errInvalidEffectPolicy = errors.New("agent: invalid Dispatcher Effect policy")
@@ -13,7 +12,7 @@ func dispatcherEffectPolicy(dispatcher Dispatcher, effect Effect) (EffectPolicy,
 		return dispatcher.Policy(effect), nil
 	})
 	if err != nil {
-		return EffectPolicy{}, fmt.Errorf("%w: %w", errInvalidEffectPolicy, err)
+		return EffectPolicy{}, err
 	}
 	if !policy.Valid() {
 		return EffectPolicy{}, errInvalidEffectPolicy

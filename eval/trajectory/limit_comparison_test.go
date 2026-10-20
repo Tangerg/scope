@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/samber/lo"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -25,14 +27,14 @@ func TestChangedLimitMetricIsAnotherObservation(t *testing.T) {
 		if datasetErr != nil {
 			t.Fatal(datasetErr)
 		}
-		suite, suiteErr := eval.NewSuite(eval.SuiteConfig[trajectory.Trajectory]{Assessments: []eval.Assessment[trajectory.Trajectory]{{
+		suite, suiteErr := eval.NewSuite(eval.SuiteConfig[trajectory.Trajectory]{Assessments: []eval.Assessment[trajectory.Trajectory]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[trajectory.Trajectory]{
 			ID: "trajectory",
 			Evaluator: eval.EvaluatorFunc[trajectory.Trajectory](func(ctx context.Context, actual trajectory.Trajectory) (eval.Report, error) {
 				return trajectory.Evaluator{}.Evaluate(ctx, trajectory.Sample{
 					Actual: actual, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Limits: limits},
 				})
 			}),
-		}}})
+		}))}})
 		if suiteErr != nil {
 			t.Fatal(suiteErr)
 		}

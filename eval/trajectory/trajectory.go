@@ -184,7 +184,7 @@ func (t Trajectory) Validate() error {
 	if err != nil {
 		return err
 	}
-	if err := t.validateTerminalEvidence(paths, history); err != nil {
+	if err := t.validateTerminalEvidence(history); err != nil {
 		return err
 	}
 	if err := t.validateModelCalls(paths); err != nil {
@@ -210,20 +210,20 @@ func (t Trajectory) validateRootOutcome() error {
 
 type eventHistory struct {
 	rootFinished int
-	finished     map[agent.ProcessID]bool
-	stopped      map[agent.ProcessID]bool
+	finished     map[activationProcess]bool
+	stopped      map[activationProcess]bool
+	sequences    map[activationProcess]uint64
 }
 
 func (t Trajectory) eventHistory() (eventHistory, error) {
-	history := eventHistory{finished: make(map[agent.ProcessID]bool), stopped: make(map[agent.ProcessID]bool)}
-	sequences := make(map[activationProcess]uint64)
+	history := eventHistory{finished: make(map[activationProcess]bool), stopped: make(map[activationProcess]bool), sequences: make(map[activationProcess]uint64)}
 	var missingEvents uint64
 	for index, event := range t.events {
 		if !event.Valid() || event.Relation().RootID() != t.rootProcessID {
 			return eventHistory{}, fmt.Errorf("%w: events[%d] is invalid or belongs to another tree", ErrInvalidTrajectory, index)
 		}
 		activation := activationProcess{event.Relation().ProcessID(), eventIncarnation(event)}
-		previous := sequences[activation]
+		previous := history.sequences[activation]
 		if event.ProcessSequence() <= previous {
 			return eventHistory{}, fmt.Errorf("%w: events[%d] breaks process-local order", ErrInvalidTrajectory, index)
 		}
@@ -232,7 +232,7 @@ func (t Trajectory) eventHistory() (eventHistory, error) {
 			return eventHistory{}, fmt.Errorf("%w: events[%d] exceeds declared observation loss", ErrInvalidTrajectory, index)
 		}
 		missingEvents += missing
-		sequences[activation] = event.ProcessSequence()
+		history.sequences[activation] = event.ProcessSequence()
 		if err := t.recordTerminal(&history, event); err != nil {
 			return eventHistory{}, err
 		}
@@ -241,14 +241,15 @@ func (t Trajectory) eventHistory() (eventHistory, error) {
 }
 
 func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) error {
+	activation := activationProcess{event.Relation().ProcessID(), eventIncarnation(event)}
 	switch event.Name() {
 	case agent.EventRuntimeStopped:
-		history.stopped[event.Relation().ProcessID()] = true
+		history.stopped[activation] = true
 	case agent.EventProcessFinished:
-		if history.finished[event.Relation().ProcessID()] {
+		if history.finished[activation] {
 			return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
 		}
-		history.finished[event.Relation().ProcessID()] = true
+		history.finished[activation] = true
 		if event.Relation().ProcessID() != t.rootProcessID {
 			return nil
 		}
@@ -261,12 +262,12 @@ func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) err
 	return nil
 }
 
-func (t Trajectory) validateTerminalEvidence(paths map[agent.ProcessID]string, history eventHistory) error {
+func (t Trajectory) validateTerminalEvidence(history eventHistory) error {
 	complete := t.gaps.DroppedEvents == 0
 	if complete {
-		for process := range paths {
-			if !history.finished[process] && !history.stopped[process] {
-				return fmt.Errorf("%w: process %s has no terminal evidence", ErrIncompleteRecording, process)
+		for activation := range history.sequences {
+			if !history.finished[activation] && !history.stopped[activation] {
+				return fmt.Errorf("%w: process %s incarnation %s has no terminal evidence", ErrIncompleteRecording, activation.process, activation.incarnation)
 			}
 		}
 	}
@@ -276,7 +277,11 @@ func (t Trajectory) validateTerminalEvidence(paths map[agent.ProcessID]string, h
 		}
 		return nil
 	}
-	if history.rootFinished != 0 || !history.stopped[t.rootProcessID] && complete || t.rootUsage != (agent.Usage{}) {
+	rootStopped := false
+	for activation := range history.stopped {
+		rootStopped = rootStopped || activation.process == t.rootProcessID
+	}
+	if history.rootFinished != 0 || !rootStopped && complete || t.rootUsage != (agent.Usage{}) {
 		return fmt.Errorf("%w: absent root result requires runtime-stop or lost event evidence and no root usage", ErrInvalidTrajectory)
 	}
 	return nil

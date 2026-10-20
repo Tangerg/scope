@@ -11,11 +11,12 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func cancellationDefinition(t *testing.T, planner Planner, cost CostFunc) *Definition {
 	t.Helper()
-	schema, err := agent.SchemaFor[struct{}]()
+	schema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		t.Fatal(err)
 	}

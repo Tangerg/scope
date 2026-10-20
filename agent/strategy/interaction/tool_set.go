@@ -99,7 +99,7 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolO
 		return agent.Settlement{}, err
 	}
 	call := invocation.ToolCall()
-	prepared := t.dispatcher.prepareToolCall(call)
+	prepared := t.dispatcher.prepareToolCall(call, nil)
 	if prepared.defect != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery input validation failed: %w", ErrInvalidProtocol, prepared.defect)
 	}
@@ -227,7 +227,7 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (plan toolConcurrencyPlan, e
 	if t.concurrent == nil {
 		return toolConcurrencyPlan{}, nil
 	}
-	invocation, err := t.contract.Prepare(call)
+	invocation, err := t.contract.Prepare(call, nil)
 	if err != nil {
 		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
 			// A validator defect is an internal fault, not a bad argument; fail the

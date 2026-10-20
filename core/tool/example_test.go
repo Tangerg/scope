@@ -6,8 +6,31 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+func ExampleNewInputRequest() {
+	schema, err := jsonschema.Parse([]byte(`{"type":"boolean"}`))
+	if err != nil {
+		panic(err)
+	}
+	request, err := tool.NewInputRequest(tool.InputRequestConfig{
+		Prompt: []byte(`"Approve the write?"`), ResponseSchema: schema, ContinuationState: []byte(`{"record":"draft"}`),
+	})
+	if err != nil {
+		panic(err)
+	}
+	result := tool.Result{InputRequest: &request}
+	continuation, err := result.InputRequest.Continuation([]byte(`true`))
+	if err != nil {
+		panic(err)
+	}
+	// The runtime persists the checkpoint and routes this answer to the same
+	// call through binding.Contract().Prepare(call, &continuation).
+	fmt.Println(string(continuation.State()), string(continuation.Response()))
+	// Output: {"record":"draft"} true
+}
 
 func Example() {
 	type input struct {
@@ -33,7 +56,7 @@ func Example() {
 	if !ok {
 		panic("missing add")
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "add", Arguments: `{"a":2,"b":3}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "add", Arguments: `{"a":2,"b":3}`}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +64,7 @@ func Example() {
 	if err != nil {
 		panic(err)
 	}
-	text, _ := result.Text()
+	text, _ := result.Output.Text()
 	fmt.Println(text)
 	// Output:
 	// add
@@ -89,7 +112,7 @@ func ExampleNewGuard() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}, nil)
 	if err != nil {
 		panic(err)
 	}

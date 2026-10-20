@@ -370,3 +370,42 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 		})
 	}
 }
+
+func TestOversizedReplayStopsRuntimeAndPreservesUnknownHead(t *testing.T) {
+	for _, recording := range []bool{false, true} {
+		t.Run(fmt.Sprint(recording), func(t *testing.T) {
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter(), TreeLimits: TreeLimits{MaxProcessSnapshotBytes: NewQuota(512 << 10)}}
+			if recording {
+				config.TreeCommitter = &recordingTreeCommitter{}
+			}
+			engine := controlValue(NewEngine(config))
+			defer mustCloseEngine(t, engine)
+			calls := 0
+			dispatcher := replayTestDispatcher{policy: ReplayPolicySameIdentity, dispatch: func(context.Context, EffectRequest) (Settlement, error) {
+				calls++
+				if calls == 1 {
+					return Settlement{}, errors.New("outcome uncertain")
+				}
+				return NewSettlement(SettlementStatusSucceeded, []byte(`"`+strings.Repeat("x", 400<<10)+`"`))
+			}}
+			definition := newEngineTestDefinition(t, "engine.effect", "effect")
+			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, dispatcher), controlValue(EncodePayload(engineTestInput{Value: "bounded"}))))
+			unknown := waitForUnknownSettlement(t, process).UnknownEffectIDs()[0]
+			before := controlValue(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+			if err := process.ReplayUnknownEffect(t.Context(), unknown); !errors.Is(err, ErrResourceLimitExceeded) {
+				t.Fatalf("oversize replay = %v", err)
+			}
+			if err := process.Join(t.Context()); !errors.Is(err, ErrResourceLimitExceeded) {
+				t.Fatalf("runtime did not stop: %v", err)
+			}
+			after := controlValue(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+			if before.HeadDigest != after.HeadDigest || calls != 2 {
+				t.Fatalf("replay changed durable head or repeated dispatch: calls=%d", calls)
+			}
+			ids := after.Processes[0].Snapshot.UnknownEffectIDs()
+			if len(ids) != 1 || ids[0] != unknown {
+				t.Fatalf("replay lost unresolved identity: %v", ids)
+			}
+		})
+	}
+}

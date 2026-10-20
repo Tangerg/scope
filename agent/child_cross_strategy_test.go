@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEngineStartsChildFromAnotherStrategyThroughExactResolver(t *testing.T) {
@@ -200,8 +202,8 @@ func newBoundCrossParentDeployment(t *testing.T, child Deployment) Deployment {
 
 func newCrossParent(t *testing.T, definition *crossParentDefinition) Deployment {
 	t.Helper()
-	inputSchema, _ := SchemaFor[struct{}]()
-	outputSchema, _ := SchemaFor[childTestOutput]()
+	inputSchema, _ := jsonschema.For[struct{}]()
+	outputSchema, _ := jsonschema.For[childTestOutput]()
 	descriptor, err := NewDescriptor(DescriptorConfig{
 		Name: "test.cross_parent", Description: "Start a child owned by another Strategy.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,

@@ -168,19 +168,19 @@ func (r *recoveryTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) 
 	return func(tool.Invocation) (string, bool) { return key, true }
 }
 
-func (r *recoveryTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
+func (r *recoveryTool) Call(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
 	r.calls.Add(1)
 	if r.after != nil {
 		select {
 		case <-r.after:
 		case <-ctx.Done():
-			return chat.ToolOutput{}, ctx.Err()
+			return tool.Result{}, ctx.Err()
 		}
 	}
 	if r.unknown {
-		return chat.ToolOutput{}, errors.New("external outcome unavailable")
+		return tool.Result{}, errors.New("external outcome unavailable")
 	}
-	return chat.NewTextToolOutput(r.name), nil
+	return tool.Result{Output: chat.NewTextToolOutput(r.name)}, nil
 }
 
 type toolSettlementCrash struct {

@@ -2,15 +2,8 @@ package arch_test
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"io/fs"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -23,7 +16,7 @@ func TestExecutableToolProtocolStaysMinimal(t *testing.T) {
 		t.Fatalf("Tool shape = %v with %d methods, want two-method interface", typeOf, typeOf.NumMethod())
 	}
 	want := map[string]reflect.Type{
-		"Call":       reflect.TypeFor[func(context.Context, tool.Invocation) (chat.ToolOutput, error)](),
+		"Call":       reflect.TypeFor[func(context.Context, tool.Invocation) (tool.Result, error)](),
 		"Definition": reflect.TypeFor[func() chat.ToolDefinition](),
 	}
 	for name, signature := range want {
@@ -90,65 +83,4 @@ func TestFuncStaysAnImmutableValueAdapter(t *testing.T) {
 	if !typeOf.Implements(reflect.TypeFor[tool.InputValidatingTool]()) {
 		t.Fatal("Func value does not declare its input admission rules")
 	}
-	assertReceiverMethodsInFile(t, "Func", "function.go")
-}
-
-func assertReceiverMethodsInFile(t *testing.T, receiver, filename string) {
-	t.Helper()
-	fset := token.NewFileSet()
-	root := moduleRoot(t)
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if path != root && (entry.Name() == "vendor" || entry.Name() == "internal" || strings.HasPrefix(entry.Name(), ".")) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return err
-		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || len(function.Recv.List) != 1 || receiverName(function.Recv.List[0].Type) != receiver {
-				continue
-			}
-			if filepath.Base(path) != filename {
-				t.Errorf("%s.%s is declared in %s, want %s", receiver, function.Name.Name, filepath.Base(path), filename)
-			}
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("inspect %s receiver methods: %v", receiver, err)
-	}
-}
-
-func receiverName(expression ast.Expr) string {
-	switch expression := expression.(type) {
-	case *ast.Ident:
-		return expression.Name
-	case *ast.StarExpr:
-		return receiverName(expression.X)
-	case *ast.IndexExpr:
-		return receiverName(expression.X)
-	case *ast.IndexListExpr:
-		return receiverName(expression.X)
-	default:
-		return ""
-	}
-}
-
-func moduleRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller did not report test path")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

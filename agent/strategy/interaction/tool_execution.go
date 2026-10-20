@@ -5,9 +5,12 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
+	"github.com/Tangerg/scope/core/tool"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const toolExecutionStateKind = "interaction.tool_call"
@@ -34,8 +37,8 @@ type toolExecutionState struct {
 	// InputRequest is the input the Tool is currently waiting on. It exists only
 	// while the Tool awaits input and is cleared once copied into the resume
 	// Effect, so no stale request outlives the wait it belongs to.
-	InputRequest *toolInputRequest `json:"input_request,omitzero"`
-	WaitID       *agent.WaitID     `json:"wait_id,omitzero"`
+	InputRequest *tool.InputRequest `json:"input_request,omitzero"`
+	WaitID       *agent.WaitID      `json:"wait_id,omitzero"`
 }
 
 func (t toolExecutionState) phase() toolPhase {
@@ -49,8 +52,8 @@ func (t toolExecutionState) validate() error {
 	if err := t.Call.validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	if t.InputRequest != nil && !t.InputRequest.valid() {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, ErrInvalidToolInputRequest)
+	if t.InputRequest != nil && !t.InputRequest.Valid() {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, tool.ErrInvalidInputRequest)
 	}
 	if !t.continuationMatchesPhase() {
 		return fmt.Errorf("%w: Tool phase disagrees with its continuation", ErrInvalidExecutionState)
@@ -75,11 +78,11 @@ func (t toolExecutionState) continuationMatchesPhase() bool {
 type toolDefinition struct{ descriptor agent.Descriptor }
 
 func newToolDefinition(name, description string) (*toolDefinition, error) {
-	inputSchema, err := agent.SchemaFor[toolCall]()
+	inputSchema, err := jsonschema.For[toolCall]()
 	if err != nil {
 		return nil, err
 	}
-	outputSchema, err := agent.SchemaFor[toolCallResult]()
+	outputSchema, err := jsonschema.For[toolCallResult]()
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +232,7 @@ func (t *toolExecution) acceptResult(envelope signalEnvelope) (agent.Transition,
 	return agent.Complete(1, output)
 }
 
-func (t *toolExecution) openInputWait(request toolInputRequest) (agent.Transition, error) {
+func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transition, error) {
 	key, err := agent.ParseWaitKey(toolInputWaitKey)
 	if err != nil {
 		return agent.Transition{}, err

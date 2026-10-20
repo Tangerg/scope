@@ -11,6 +11,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // scriptedEffectStateKind names the Definition and its ExecutionState kind.
@@ -151,7 +152,7 @@ type scriptedEffectDefinition struct {
 
 func newScriptedEffectDefinition(t *testing.T, effect agent.Effect) *scriptedEffectDefinition {
 	t.Helper()
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 var (
@@ -112,7 +114,7 @@ type executionReplayBenchmarkDefinition struct {
 
 func newExecutionReplayBenchmarkDefinition(b *testing.B) executionReplayBenchmarkDefinition {
 	b.Helper()
-	schema, err := SchemaFor[executionReplayBenchmarkState]()
+	schema, err := jsonschema.For[executionReplayBenchmarkState]()
 	if err != nil {
 		b.Fatal(err)
 	}

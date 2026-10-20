@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // CheckDispatcherRejection verifies that malformed protocol input settles at
@@ -63,7 +64,7 @@ const (
 
 func newRejectionDeployment(t *testing.T, dispatcher agent.Dispatcher, effect agent.Effect) agent.Deployment {
 	t.Helper()
-	schema, err := agent.SchemaFor[struct{}]()
+	schema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const treeRuntimeProgressTimeout = 5 * time.Second
@@ -142,15 +144,15 @@ type treeRuntimeTestDefinition struct {
 
 func newTreeRuntimeTestDeployment(t testing.TB) (Deployment, *treeRuntimeTestProbe) {
 	t.Helper()
-	inputSchema, err := SchemaFor[treeRuntimeTestInput]()
+	inputSchema, err := jsonschema.For[treeRuntimeTestInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[treeRuntimeTestOutput]()
+	outputSchema, err := jsonschema.For[treeRuntimeTestOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signalSchema, err := ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		t.Fatal(err)
 	}

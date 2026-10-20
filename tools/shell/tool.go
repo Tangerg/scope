@@ -71,7 +71,7 @@ func (t *Tool) Definition() chat.ToolDefinition {
 	return t.typed.Definition()
 }
 
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return t.typed.Call(ctx, invocation)
 }
 

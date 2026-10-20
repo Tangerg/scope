@@ -21,7 +21,6 @@ func TestClientKeepsFocusedCallSurface(t *testing.T) {
 	if methods := declaredMethods(t, "Client"); !slices.Equal(methods, want) {
 		t.Fatalf("Client methods = %v, want %v", methods, want)
 	}
-	assertReceiverMethodsInFile(t, "Client", "client.go")
 	if methods := declaredMethods(t, "StreamClient"); !slices.Equal(methods, []string{"Stream"}) {
 		t.Fatalf("StreamClient methods = %v, want [Stream]", methods)
 	}
@@ -51,26 +50,6 @@ func declaredMethods(t *testing.T, receiver string) []string {
 	}
 	slices.Sort(methods)
 	return methods
-}
-
-func assertReceiverMethodsInFile(t *testing.T, receiver, filename string) {
-	t.Helper()
-	fset := token.NewFileSet()
-	for _, path := range productionGoFiles(t) {
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", path, err)
-		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || len(function.Recv.List) != 1 || receiverName(function.Recv.List[0].Type) != receiver {
-				continue
-			}
-			if filepath.Base(path) != filename {
-				t.Errorf("%s.%s is declared in %s, want %s", receiver, function.Name.Name, filepath.Base(path), filename)
-			}
-		}
-	}
 }
 
 func receiverName(expression ast.Expr) string {

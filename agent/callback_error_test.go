@@ -155,3 +155,64 @@ func TestRuntimeUsesSealedErrorFacts(t *testing.T) {
 		t.Fatalf("failure=%+v", got)
 	}
 }
+
+type panickingPolicyDispatcher struct{ cause error }
+
+func (p panickingPolicyDispatcher) Policy(Effect) EffectPolicy { panic(p.cause) }
+func (p panickingPolicyDispatcher) Dispatch(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	return Settlement{}, errors.New("dispatch must not run after a policy panic")
+}
+
+func TestPolicyPanicDoesNotCrashRuntime(t *testing.T) {
+	if os.Getenv("SCOPE_POLICY_PANIC_CHILD") == "1" {
+		var nilPath *fs.PathError
+		for _, cause := range []error{errors.New("policy defect"), nilPath} {
+			engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
+			definition := newEngineTestDefinition(t, "engine.effect", "effect")
+			process := controlValue(engine.Start(t.Context(), engineTestDeployment(t, definition, panickingPolicyDispatcher{cause}), controlValue(EncodePayload(engineTestInput{Value: "input"}))))
+			failure, ok := mustAwait(t, process).Termination().Failure()
+			if !ok || failure.Kind() != FailureKindPanic || failure.Code() != failureCodeExecutionEffectInvalid {
+				t.Fatalf("policy failure = %+v", failure)
+			}
+			mustCloseEngine(t, engine)
+		}
+		return
+	}
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestPolicyPanicDoesNotCrashRuntime$")
+	command.Env = append(os.Environ(), "SCOPE_POLICY_PANIC_CHILD=1")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("policy crashed runtime: %v\n%s", err, output)
+	}
+}
+
+type recoveryPolicyDispatcher struct {
+	calls int
+	cause error
+}
+
+func (r *recoveryPolicyDispatcher) Policy(Effect) EffectPolicy {
+	r.calls++
+	if r.calls > 1 {
+		panic(r.cause)
+	}
+	return EffectPolicy{Replay: ReplayPolicySameIdentity}
+}
+func (*recoveryPolicyDispatcher) Dispatch(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+	return Settlement{}, errors.New("must not dispatch")
+}
+
+func TestRecoveryPolicyPanicUsesSealedClassification(t *testing.T) {
+	var nilPath *fs.PathError
+	for _, cause := range []error{errors.New("policy defect"), nilPath} {
+		pending, previous, _ := durablePendingTreeSnapshot(t)
+		dispatcher := &recoveryPolicyDispatcher{cause: cause}
+		deployment := engineTestDeployment(t, previous.Definition(), dispatcher)
+		engine := controlValue(NewEngine(EngineConfig{TreeCommitter: newSnapshotTestCommitter(pending)}))
+		process := controlValue(engine.RestoreTree(t.Context(), deployment, pending))
+		failure, ok := mustAwait(t, process).Termination().Failure()
+		if !ok || failure.Kind() != FailureKindPanic || failure.Code() != failureCodeEngineEffectRecoveryInvalid {
+			t.Fatalf("recovery policy failure=%+v", failure)
+		}
+		mustCloseEngine(t, engine)
+	}
+}

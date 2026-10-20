@@ -217,9 +217,9 @@ func (t *trustBoundaryTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (t *trustBoundaryTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (t *trustBoundaryTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	t.calls.Add(1)
-	return chat.NewTextToolOutput(t.name + " result"), nil
+	return tool.Result{Output: chat.NewTextToolOutput(t.name + " result")}, nil
 }
 
 func (t *trustBoundaryTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {

@@ -26,15 +26,15 @@ func (progressTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (progressTool) Call(ctx context.Context, _ toolcontract.Invocation) (chat.ToolOutput, error) {
+func (progressTool) Call(ctx context.Context, _ toolcontract.Invocation) (toolcontract.Result, error) {
 	total := 3.0
 	for i := range 3 {
 		if err := mcp.ReportProgress(ctx, float64(i+1), &total, "step"); err != nil &&
 			!errors.Is(err, mcp.ErrNoServerSession) {
-			return chat.ToolOutput{}, err
+			return toolcontract.Result{}, err
 		}
 	}
-	return chat.NewTextToolOutput("ok"), nil
+	return toolcontract.Result{Output: chat.NewTextToolOutput("ok")}, nil
 }
 
 func TestNotifyHelpers_Progress(t *testing.T) {

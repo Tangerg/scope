@@ -2,6 +2,7 @@ package workflow
 
 import (
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type BindingRole string
@@ -32,8 +33,8 @@ type BindingTopology struct {
 	Role          BindingRole         `json:"role"`
 	ID            string              `json:"id,omitempty"`
 	DeploymentRef agent.DeploymentRef `json:"deployment_ref"`
-	InputSchema   agent.Schema        `json:"input_schema"`
-	OutputSchema  agent.Schema        `json:"output_schema"`
+	InputSchema   jsonschema.Schema   `json:"input_schema"`
+	OutputSchema  jsonschema.Schema   `json:"output_schema"`
 	// Budget is the non-renewable allocation for each child start.
 	Budget       agent.Budget        `json:"budget"`
 	Capabilities agent.CapabilitySet `json:"capabilities"`
@@ -42,10 +43,10 @@ type BindingTopology struct {
 // StageTopology is a function-free projection of one sealed Stage. Limits are
 // present only for the Stage kinds that own them.
 type StageTopology struct {
-	ID           string       `json:"id"`
-	Kind         StageKind    `json:"kind"`
-	InputSchema  agent.Schema `json:"input_schema"`
-	OutputSchema agent.Schema `json:"output_schema"`
+	ID           string            `json:"id"`
+	Kind         StageKind         `json:"kind"`
+	InputSchema  jsonschema.Schema `json:"input_schema"`
+	OutputSchema jsonschema.Schema `json:"output_schema"`
 	// Bindings are exact child bindings in stable declaration order.
 	Bindings []BindingTopology `json:"bindings,omitempty"`
 	// WindowSize is the fixed Fork or Map execution-window size.

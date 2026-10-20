@@ -100,7 +100,7 @@ func (i *instrumentedTool) Definition() chat.ToolDefinition {
 
 func (i *instrumentedTool) Unwrap() coretool.Tool { return i.next }
 
-func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocation) (result chat.ToolOutput, err error) {
+func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocation) (result coretool.Result, err error) {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameExecuteTool,
 		semconv.GenAIToolName(i.definition.Name),

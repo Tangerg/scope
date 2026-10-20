@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func contractValue[T any](value T, err error) T {
@@ -63,7 +64,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 		t.Run(strategy, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			textSchema := contractValue(agent.SchemaFor[string]())
+			textSchema := contractValue(jsonschema.For[string]())
 			gate := contractDeployment(contractValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "contract.winner", Description: "Wait for explicit completion.", RequestSchema: textSchema, AnswerSchema: textSchema})), nil)
 			var loserCalls atomic.Int32
 			loser := contractInteraction(interaction.DefinitionConfig{Name: "contract.loser", Description: "Retain an unknown remote result.", MaxModelCalls: agent.NewQuota(1)}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
@@ -96,7 +97,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				done := contractValue(planning.NewCondition("world.done", planning.TruthTrue))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
 				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: delegate, Budget: delegateBudget}))
-				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(agent.SchemaFor[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: agent.NewQuota(2)}))
+				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(jsonschema.For[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: agent.NewQuota(2)}))
 				dispatcher := contractValue(planning.NewDispatcher(definition, planning.DispatcherConfig{Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
 					rootCalls.Add(1)
 					return planning.NewWorldState()

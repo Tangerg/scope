@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func BenchmarkActionHistory(b *testing.B) {
@@ -19,7 +20,7 @@ func BenchmarkActionHistory(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			schema, err := agent.SchemaFor[string]()
+			schema, err := jsonschema.For[string]()
 			if err != nil {
 				b.Fatal(err)
 			}

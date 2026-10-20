@@ -161,6 +161,7 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, err
 	}
+	wire.Mailbox = mailbox.wire()
 	normalized, err := jsonv2.Marshal(wire, jsonv2.Deterministic(true))
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)

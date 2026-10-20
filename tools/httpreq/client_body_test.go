@@ -133,12 +133,12 @@ func TestToolPreservesInterruptedPostResponseAsEvidence(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "post-1", Name: "http_request", Arguments: `{"url":"https://example.com","method":"POST","body":"create"}`,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	output, err := binding.Call(t.Context(), invocation)
-	if !errors.Is(err, cause) || !reflect.DeepEqual(output, chat.ToolOutput{}) {
+	if !errors.Is(err, cause) || !reflect.DeepEqual(output, tool.Result{}) {
 		t.Fatalf("interrupted HTTP invocation = %+v, %v", output, err)
 	}
 	if failure, found := errors.AsType[*tool.Failure](err); found {
@@ -186,7 +186,7 @@ func TestToolPreservesNonUTF8BodyAndHeaderObservations(t *testing.T) {
 		}
 		invocation, err := binding.Contract().Prepare(chat.ToolCall{
 			ID: "read-1", Name: "http_request", Arguments: `{"url":"https://example.com"}`,
-		})
+		}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -196,12 +196,12 @@ func TestToolPreservesNonUTF8BodyAndHeaderObservations(t *testing.T) {
 			if !found || !errors.Is(err, cause) {
 				t.Fatalf("HTTP byte observations were lost: %v", err)
 			}
-			output = callErr.Evidence()
+			output.Output = callErr.Evidence()
 		} else if err != nil {
 			t.Fatalf("cap splitting UTF8 converted a response to an error: %v", err)
 		}
 		var response httpreq.Response
-		if err := jsonv2.Unmarshal(output.Details, &response); err != nil {
+		if err := jsonv2.Unmarshal(output.Output.Details, &response); err != nil {
 			t.Fatal(err)
 		}
 		if response.Status != http.StatusCreated || !bytes.Equal(response.Body.Bytes(), prefix) || response.Truncated == interrupted || body.closed != 1 {

@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type expectedTopologyBinding struct {
@@ -270,7 +271,7 @@ func TestTopologyLimitPresence(t *testing.T) {
 		{"finite loop", new(agent.NewQuota(3)), `{"maximum":3}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			schema, err := agent.SchemaFor[int]()
+			schema, err := jsonschema.For[int]()
 			if err != nil {
 				t.Fatal(err)
 			}

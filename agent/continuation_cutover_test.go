@@ -9,12 +9,13 @@ import (
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEpisodeCutoverLeavesRejectedInputWithIngress(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := newEpisodeStore()
-		schema, err := agent.SchemaFor[episodeState]()
+		schema, err := jsonschema.For[episodeState]()
 		if err != nil {
 			t.Fatal(err)
 		}

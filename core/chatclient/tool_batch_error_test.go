@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -91,5 +92,53 @@ func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 				t.Fatal("batch error retained mutable output storage")
 			}
 		})
+	}
+}
+
+type suspendingBatchTool struct{ calls int }
+
+func (*suspendingBatchTool) Definition() chat.ToolDefinition {
+	return middlewareTool{name: "confirm"}.Definition()
+}
+
+func (s *suspendingBatchTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	s.calls++
+	if s.calls == 1 {
+		return tool.Result{Output: chat.NewTextToolOutput("first completed")}, nil
+	}
+	schema, err := jsonschema.Parse([]byte(`{"type":"boolean"}`))
+	if err != nil {
+		return tool.Result{}, err
+	}
+	request, err := tool.NewInputRequest(tool.InputRequestConfig{Prompt: []byte(`"confirm?"`), ResponseSchema: schema, ContinuationState: []byte(`{"step":2}`)})
+	return tool.Result{InputRequest: &request}, err
+}
+
+func TestSynchronousBatchRetainsInputCheckpointAndCompletedPrefix(t *testing.T) {
+	executable := new(suspendingBatchTool)
+	middleware, err := NewSingleBatchToolMiddleware(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modelCalls := 0
+	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		modelCalls++
+		return toolCallResponse(chat.ToolCall{ID: "first", Name: "confirm", Arguments: `{"value":"one"}`}, chat.ToolCall{ID: "second", Name: "confirm", Arguments: `{"value":"two"}`}, chat.ToolCall{ID: "third", Name: "confirm", Arguments: `{"value":"three"}`}), nil
+	}))
+	response, err := model.Call(t.Context(), textRequest("write"))
+	var failure *ToolBatchError
+	if response != nil || !errors.As(err, &failure) || len(failure.Completed()) != 1 || failure.FailedCall().ID != "second" || executable.calls != 2 || modelCalls != 1 {
+		t.Fatalf("response=%v error=%v tool calls=%d model calls=%d", response, err, executable.calls, modelCalls)
+	}
+	request, present := failure.InputRequest()
+	if !present || string(request.Prompt()) != `"confirm?"` {
+		t.Fatalf("checkpoint=%+v present=%t", request, present)
+	}
+	continuation, err := request.Continuation([]byte(`true`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(continuation.State()) != `{"step":2}` {
+		t.Fatal("Tool checkpoint changed")
 	}
 }

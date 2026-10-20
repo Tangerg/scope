@@ -27,10 +27,11 @@ type Tool interface {
 	// capability-specific semantic validation. Ordinary failure is returned as
 	// error without assigning retry or control-flow meaning. Implementations must
 	// honor ctx and must not retain the invocation or its arguments.
-	// On error, the returned output is not consumed; use [Failure] to preserve
+	// A successful Result completes or requests input. On error, the returned
+	// result is not consumed; use [Failure] to preserve
 	// complete failure content, including acknowledged partial effects. Use
 	// [CallError] for non-final execution evidence without asserting an outcome.
-	Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error)
+	Call(ctx context.Context, invocation Invocation) (Result, error)
 }
 
 // contractState is the frozen trust boundary. The compiled input Schema owns the
@@ -105,14 +106,17 @@ func (c Contract) Definition() chat.ToolDefinition {
 // contract. Its fields are intentionally private: only Contract.Prepare can
 // promote an untrusted model proposal into an executable invocation.
 type Invocation struct {
-	contract  *contractState
-	arguments []byte
+	contract     *contractState
+	arguments    []byte
+	continuation *Continuation
 }
 
 // Prepare validates identity, RFC 7493 JSON syntax, the frozen input schema,
 // and its independent input validator. It does not invoke the executable Tool
 // or authorization policy. Blank arguments are normalized to the empty object.
-func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
+// A nil continuation starts a new logical call. A driving runtime may pass an
+// answer only for the same call that produced its committed InputRequest.
+func (c Contract) Prepare(call chat.ToolCall, continuation *Continuation) (Invocation, error) {
 	if c.state == nil {
 		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
 	}
@@ -132,7 +136,15 @@ func (c Contract) Prepare(call chat.ToolCall) (Invocation, error) {
 	if err := c.validateInput(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
-	return Invocation{contract: c.state, arguments: arguments}, nil
+	if continuation != nil && !continuation.valid() {
+		return Invocation{}, fmt.Errorf("%w: invalid continuation", ErrInvalidInvocation)
+	}
+	var frozen *Continuation
+	if continuation != nil {
+		owned := *continuation
+		frozen = &owned
+	}
+	return Invocation{contract: c.state, arguments: arguments, continuation: frozen}, nil
 }
 
 func (c Contract) validateInput(arguments []byte) (err error) {
@@ -152,12 +164,21 @@ func (c Contract) validateInput(arguments []byte) (err error) {
 
 // Call executes an Invocation prepared by this Binding's exact Contract. It
 // rejects another binding's contract even when the public Tool name matches.
-func (b Binding) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
+func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error) {
 	if b.contract.state == nil || invocation.contract != b.contract.state {
-		return chat.ToolOutput{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
+		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
 	return b.executable.Call(ctx, invocation)
 }
 
 // Arguments returns an owned copy of the validated JSON object.
 func (i Invocation) Arguments() []byte { return bytes.Clone(i.arguments) }
+
+// Continuation returns input supplied explicitly for this invocation. Prepare
+// with nil always starts a new call, regardless of values inherited in ctx.
+func (i Invocation) Continuation() (Continuation, bool) {
+	if i.continuation == nil {
+		return Continuation{}, false
+	}
+	return *i.continuation, true
+}

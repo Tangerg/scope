@@ -85,9 +85,9 @@ func (m Middleware[T]) Wrap(next coreeval.Assessment[T]) (coreeval.Assessment[T]
 	if err := next.Validate(); err != nil {
 		return coreeval.Assessment[T]{}, fmt.Errorf("%w: %w", ErrInvalidAssessment, err)
 	}
-	evaluator := next.Evaluator
-	identity := attribute.String(assessmentIDAttribute, string(next.ID))
-	next.Evaluator = coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
+
+	identity := attribute.String(assessmentIDAttribute, string(next.ID()))
+	evaluator := coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
 		startedAt := time.Now()
 		operation := attribute.String(operationAttribute, operationEvaluate)
 		spanCtx, span := m.tracer.Start(ctx, spanName,
@@ -113,16 +113,13 @@ func (m Middleware[T]) Wrap(next coreeval.Assessment[T]) (coreeval.Assessment[T]
 				metric.WithAttributes(attributes...),
 			)
 		})
-		report, err = evaluator.Evaluate(spanCtx, subject)
-		if err == nil {
-			err = report.Validate()
-		}
+		report, err = next.Evaluate(spanCtx, subject)
 		if err != nil {
 			return coreeval.Report{}, err
 		}
 		return report, nil
 	})
-	return next, nil
+	return coreeval.NewAssessment(coreeval.AssessmentConfig[T]{ID: next.ID(), Evaluator: evaluator})
 }
 
 func reportAttributes(report coreeval.Report) []attribute.KeyValue {

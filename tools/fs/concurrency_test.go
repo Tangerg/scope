@@ -23,7 +23,7 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestReadToolUsesConcurrentReaderContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "read", Name: "read", Arguments: `{"path":"file.txt"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "read", Name: "read", Arguments: `{"path":"file.txt"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

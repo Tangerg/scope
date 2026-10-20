@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestDeploymentRefBindsContractImplementationAndConfiguration(t *testing.T) {
@@ -100,7 +102,7 @@ func FuzzDeploymentRefJSONRoundTrip(f *testing.F) {
 
 func testDescriptorForFuzz(f *testing.F) Descriptor {
 	f.Helper()
-	schema, err := SchemaFor[wireFixture]()
+	schema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		f.Fatal(err)
 	}

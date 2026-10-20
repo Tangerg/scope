@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/timestamp"
 )
 
@@ -32,25 +34,33 @@ const (
 	RecencyYear  Recency = "year"
 )
 
-func (r Recency) Validate() error {
-	switch r {
-	case "", RecencyHour, RecencyDay, RecencyWeek, RecencyMonth, RecencyYear:
-		return nil
-	default:
-		return ErrInvalidRecency
+var recencyVocabulary = [...]Recency{RecencyHour, RecencyDay, RecencyWeek, RecencyMonth, RecencyYear}
+
+func (Recency) JSONSchemaEnum() []string {
+	values := make([]string, len(recencyVocabulary))
+	for index, value := range recencyVocabulary {
+		values[index] = string(value)
 	}
+	return values
+}
+
+func (r Recency) Validate() error {
+	if r == "" || slices.Contains(recencyVocabulary[:], r) {
+		return nil
+	}
+	return ErrInvalidRecency
 }
 
 type SearchRequest struct {
 	Query string `json:"query" jsonschema:"minLength=1" jsonschema_description:"Non-empty web search query. Include the current year when asking for the latest information."`
 
-	MaxResults int `json:"max_results,omitzero" jsonschema:"minimum=1,maximum=20" jsonschema_description:"Maximum results to return, from 1 to 20. Omit to use the configured search default (typically 5-10)."`
+	MaxResults int `json:"max_results,omitzero" jsonschema_description:"Maximum results to return within the supported search limit. Omit to use the configured search default (typically 5-10)."`
 
-	AllowedDomains []string `json:"allowed_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Only include results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with blocked_domains."`
+	AllowedDomains []string `json:"allowed_domains,omitempty" jsonschema_description:"Only include results from the allowed domains (bare domain names, no protocol). Mutually exclusive with blocked_domains."`
 
-	BlockedDomains []string `json:"blocked_domains,omitempty" jsonschema:"maxItems=20" jsonschema_description:"Exclude results from at most 20 domains (bare domain names, no protocol). Mutually exclusive with allowed_domains."`
+	BlockedDomains []string `json:"blocked_domains,omitempty" jsonschema_description:"Exclude results from these domains (bare domain names, no protocol). Mutually exclusive with allowed_domains."`
 
-	Recency Recency `json:"recency,omitempty" jsonschema:"enum=hour,enum=day,enum=week,enum=month,enum=year" jsonschema_description:"Optional time window: hour, day, week, month, or year."`
+	Recency Recency `json:"recency,omitempty" jsonschema_description:"Optional time window: hour, day, week, month, or year."`
 }
 
 // Prepare returns an independently owned, normalized request after validating
@@ -274,4 +284,12 @@ type Searcher interface {
 	// honor ctx, preserve provider error causes, and reject unsupported
 	// explicit fields instead of ignoring them.
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
+}
+
+func (SearchRequest) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		"max_results":     {Minimum: new(float64(1)), Maximum: new(float64(maxSearchResults))},
+		"allowed_domains": {MaxItems: new(uint64(maxDomainFilters))},
+		"blocked_domains": {MaxItems: new(uint64(maxDomainFilters))},
+	}}
 }

@@ -82,12 +82,12 @@ func TestFuncPreservesNonfinalExecutionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "write-1", Name: "write", Arguments: "{}"})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "write-1", Name: "write", Arguments: "{}"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	output, err := binding.Call(t.Context(), invocation)
-	if !reflect.DeepEqual(output, chat.ToolOutput{}) || !errors.Is(err, context.DeadlineExceeded) {
+	if !reflect.DeepEqual(output, tool.Result{}) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Call = %+v, %v", output, err)
 	}
 	observed, found := errors.AsType[*tool.CallError](err)

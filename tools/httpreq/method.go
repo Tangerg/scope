@@ -2,6 +2,7 @@ package httpreq
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -16,6 +17,16 @@ const (
 	MethodDELETE Method = http.MethodDelete
 )
 
+var methodVocabulary = [...]Method{MethodGET, MethodHEAD, MethodPOST, MethodPUT, MethodPATCH, MethodDELETE}
+
+func (Method) JSONSchemaEnum() []string {
+	values := make([]string, len(methodVocabulary))
+	for index, value := range methodVocabulary {
+		values[index] = string(value)
+	}
+	return values
+}
+
 // Normalize applies the wire default and canonical HTTP casing, and rejects
 // methods outside the tool contract.
 func (m Method) Normalize() (Method, error) {
@@ -23,12 +34,10 @@ func (m Method) Normalize() (Method, error) {
 	if normalized == "" {
 		normalized = MethodGET
 	}
-	switch normalized {
-	case MethodGET, MethodHEAD, MethodPOST, MethodPUT, MethodPATCH, MethodDELETE:
+	if slices.Contains(methodVocabulary[:], normalized) {
 		return normalized, nil
-	default:
-		return "", ErrInvalidMethod
 	}
+	return "", ErrInvalidMethod
 }
 
 func (m Method) Validate() error {

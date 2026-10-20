@@ -45,7 +45,7 @@ func TestToolConcurrencyPolicyUsesHostPolicy(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

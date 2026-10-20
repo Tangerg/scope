@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // MapConfig declares a bounded homogeneous item fan-out. The Stage input is
@@ -75,7 +76,7 @@ func (m mapSource) member(index uint32) (fanoutMember, bool) {
 
 func (m mapSource) bindings() []childBinding { return []childBinding{m.binding} }
 
-func (m mapSource) topology(_ agent.Schema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
+func (m mapSource) topology(_ jsonschema.Schema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32) {
 	return []BindingTopology{m.binding.topology(BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
 }
 
@@ -111,26 +112,26 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 }
 
 type mapSchemas struct {
-	input      agent.Schema
-	itemInput  agent.Schema
-	itemOutput agent.Schema
-	output     agent.Schema
+	input      jsonschema.Schema
+	itemInput  jsonschema.Schema
+	itemOutput jsonschema.Schema
+	output     jsonschema.Schema
 }
 
 func mapSchemasFor[I, O any](id string) (mapSchemas, error) {
-	input, err := agent.SchemaFor[[]I]()
+	input, err := jsonschema.For[[]I]()
 	if err != nil {
 		return mapSchemas{}, fmt.Errorf("%w: Map %q input schema: %w", ErrInvalidStage, id, err)
 	}
-	itemInput, err := agent.SchemaFor[I]()
+	itemInput, err := jsonschema.For[I]()
 	if err != nil {
 		return mapSchemas{}, fmt.Errorf("%w: Map %q item schema: %w", ErrInvalidStage, id, err)
 	}
-	itemOutput, err := agent.SchemaFor[O]()
+	itemOutput, err := jsonschema.For[O]()
 	if err != nil {
 		return mapSchemas{}, fmt.Errorf("%w: Map %q item output schema: %w", ErrInvalidStage, id, err)
 	}
-	output, err := agent.SchemaFor[[]O]()
+	output, err := jsonschema.For[[]O]()
 	if err != nil {
 		return mapSchemas{}, fmt.Errorf("%w: Map %q output schema: %w", ErrInvalidStage, id, err)
 	}

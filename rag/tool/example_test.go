@@ -32,7 +32,7 @@ func ExampleRetrieval() {
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "search-1", Name: "search", Arguments: `{"query":"Go design"}`,
-	})
+	}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +41,7 @@ func ExampleRetrieval() {
 		panic(err)
 	}
 	var output ragtool.RetrievalOutput
-	if decodeErr := jsonv2.Unmarshal(result.Details, &output); decodeErr != nil {
+	if decodeErr := jsonv2.Unmarshal(result.Output.Details, &output); decodeErr != nil {
 		panic(decodeErr)
 	}
 	fmt.Println(output.Candidates[0].Document.Text)

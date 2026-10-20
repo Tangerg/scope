@@ -133,8 +133,8 @@ func validCheckpointAnswer(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, responseSignalErr := pending.ResponseSignal(invalidID, json.RawMessage(`42`)); !errors.Is(responseSignalErr, interaction.ErrInvalidToolInputRequest) {
-		t.Fatalf("invalid response error = %v, want ErrInvalidToolInputRequest", responseSignalErr)
+	if _, responseSignalErr := pending.ResponseSignal(invalidID, json.RawMessage(`42`)); !errors.Is(responseSignalErr, tool.ErrInvalidInputRequest) {
+		t.Fatalf("invalid response error = %v, want tool.ErrInvalidInputRequest", responseSignalErr)
 	}
 	wrongWaitID, err := agent.ParseWaitID("wait:wrong")
 	if err != nil {
@@ -221,11 +221,11 @@ func (*inputRequestTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (i *inputRequestTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
-	continuation, resumed := interaction.ToolInputContinuationFromContext(ctx)
+func (i *inputRequestTool) Call(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+	continuation, resumed := callInput.Continuation()
 	if !resumed {
 		i.initialCalls.Add(1)
-		return chat.ToolOutput{}, interaction.RequireToolInput(
+		return waitingInput(
 			json.RawMessage(`{"question":"What is your name?"}`),
 			json.RawMessage(`{"type":"string","minLength":1}`),
 			json.RawMessage(`{"stage":"awaiting_name"}`),
@@ -238,13 +238,13 @@ func (i *inputRequestTool) Call(ctx context.Context, _ tool.Invocation) (chat.To
 		Stage string `json:"stage"`
 	}
 	if err := jsonv2.Unmarshal(continuation.State(), &state); err != nil || state.Stage != "awaiting_name" {
-		return chat.ToolOutput{}, errors.New("invalid continuation state")
+		return tool.Result{}, errors.New("invalid continuation state")
 	}
 	var name string
 	if err := jsonv2.Unmarshal(continuation.Response(), &name); err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Result{}, err
 	}
-	return chat.NewTextToolOutput("hello " + name), nil
+	return tool.Result{Output: chat.NewTextToolOutput("hello " + name)}, nil
 }
 
 func (i *inputRequestTool) Release() {

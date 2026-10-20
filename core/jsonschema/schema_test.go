@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/speech"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type enumFixture string
@@ -172,8 +173,8 @@ func TestForQualifiesSameNamedTypesFromDifferentPackages(t *testing.T) {
 		} `json:"properties"`
 		Definitions map[string]json.RawMessage `json:"$defs"`
 	}
-	if err := jsonv2.Unmarshal(schema.JSON(), &document); err != nil {
-		t.Fatal(err)
+	if decodeErr := jsonv2.Unmarshal(schema.JSON(), &document); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
 	chatRef := document.Properties["chat"].Ref
 	speechRef := document.Properties["speech"].Ref
@@ -186,6 +187,18 @@ func TestForQualifiesSameNamedTypesFromDifferentPackages(t *testing.T) {
 			t.Fatalf("ref %q has no matching definition", ref)
 		}
 	}
+	sample := response{
+		Chat:   chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("answer"))), FinishReason: chat.FinishReasonStop},
+		Speech: speech.Output{Audio: []byte("audio")},
+	}
+	encoded, err := jsonv2.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validationErr := schema.Validate(encoded); validationErr != nil {
+		t.Fatalf("derived schema rejected real wire %s: %v", encoded, validationErr)
+	}
+
 }
 
 func TestForUsesRichValueSchemaModel(t *testing.T) {
@@ -385,5 +398,131 @@ func TestParseRejectsImplicitExternalResources(t *testing.T) {
 	}
 	if err := schema.Validate([]byte(`1`)); err == nil {
 		t.Fatal("internal reference was ignored")
+	}
+}
+
+type constrainedScore float64
+
+func (constrainedScore) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Minimum: new(float64(0)), Maximum: new(float64(1))}
+}
+
+type constrainedRequest struct {
+	Limit int              `json:"limit"`
+	Names []string         `json:"names"`
+	Score constrainedScore `json:"score" jsonschema:"minimum=-100,maximum=100"`
+}
+
+func (constrainedRequest) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		"limit": {Minimum: new(float64(1)), Maximum: new(float64(20))},
+		"names": {MinItems: new(uint64(1)), MaxItems: new(uint64(2))},
+	}}
+}
+
+func TestForProjectsDomainConstraintsWithoutReplacingWireTypes(t *testing.T) {
+	schema, err := jsonschema.For[constrainedRequest]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"limit":0,"names":["one"],"score":0.5}`,
+		`{"limit":21,"names":["one"],"score":0.5}`,
+		`{"limit":1,"names":[],"score":0.5}`,
+		`{"limit":1,"names":["a","b","c"],"score":0.5}`,
+		`{"limit":1,"names":[1],"score":0.5}`,
+		`{"limit":1,"names":["a"],"score":1.1}`,
+	} {
+		if err := schema.Validate([]byte(raw)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Errorf("accepted %s: %v", raw, err)
+		}
+	}
+	if err := schema.Validate([]byte(`{"limit":20,"names":["a","b"],"score":1}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type constrainedLabel string
+
+func (constrainedLabel) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{MinLength: new(uint64(1)), MaxLength: new(uint64(3))}
+}
+
+type constrainedSmallInt int8
+
+func (constrainedSmallInt) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Minimum: new(float64(-4)), Maximum: new(float64(4))}
+}
+
+func TestForPreservesOwnedScalarBoundsAcrossFieldTags(t *testing.T) {
+	schema, err := jsonschema.For[struct {
+		Name constrainedLabel    `json:"name" jsonschema:"minLength=0,maxLength=100"`
+		Size constrainedSmallInt `json:"size" jsonschema:"minimum=-100,maximum=100"`
+	}]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{`{"name":"","size":0}`, `{"name":"long","size":0}`, `{"name":"ok","size":5}`, `{"name":"ok","size":-5}`} {
+		if err := schema.Validate([]byte(raw)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Errorf("accepted %s: %v", raw, err)
+		}
+	}
+	if err := schema.Validate([]byte(`{"name":"ok","size":4}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type missingConstraintProperty struct{ Value string }
+
+func (missingConstraintProperty) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{"missing": {MinLength: new(uint64(1))}}}
+}
+
+type invalidScalarConstraint int
+
+func (invalidScalarConstraint) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{"missing": {MinLength: new(uint64(1))}}}
+}
+
+type unsupportedConstraint bool
+
+func (unsupportedConstraint) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Minimum: new(float64(0))}
+}
+
+type pointerConstraint string
+
+func (*pointerConstraint) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{MinLength: new(uint64(1))}
+}
+
+func TestForRejectsInvalidConstraintDeclarations(t *testing.T) {
+	for _, derive := range []func() (jsonschema.Schema, error){
+		jsonschema.For[missingConstraintProperty],
+		jsonschema.For[invalidScalarConstraint],
+		jsonschema.For[unsupportedConstraint],
+		jsonschema.For[pointerConstraint],
+	} {
+		if _, err := derive(); !errors.Is(err, jsonschema.ErrInvalid) {
+			t.Fatalf("invalid constraint declaration: %v", err)
+		}
+	}
+}
+
+func TestSchemaEqualUsesValidCanonicalContracts(t *testing.T) {
+	first, err := jsonschema.Parse([]byte(`{"type":"string","maxLength":3}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := jsonschema.Parse([]byte(`{ "maxLength": 3, "type": "string" }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	different, err := jsonschema.For[int]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Equal(second) || first.Equal(different) || first.Equal(jsonschema.Schema{}) || (jsonschema.Schema{}).Equal(jsonschema.Schema{}) {
+		t.Fatal("schema equality lost canonical validity or contract identity")
 	}
 }

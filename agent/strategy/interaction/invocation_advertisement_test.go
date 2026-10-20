@@ -21,16 +21,16 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	var capture attributionCapture
 	discover := &callbackTool{
 		name: "discover",
-		call: func(ctx context.Context, _ string) (string, error) {
+		continuing: func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 			invocation, found := interaction.ToolInvocationFromContext(ctx)
 			if !found {
-				return "", errors.New("Tool invocation attribution is missing")
+				return tool.Result{}, errors.New("Tool invocation attribution is missing")
 			}
 			capture.addTool(invocation)
 			if err := interaction.AdvertiseTools(ctx, "lookup", "lookup"); err != nil {
-				return "", err
+				return tool.Result{}, err
 			}
-			return "lookup is available", nil
+			return tool.Result{Output: chat.NewTextToolOutput("lookup is available")}, nil
 		},
 	}
 	lookup := &callbackTool{
@@ -112,9 +112,7 @@ func TestContextQueriesTreatNilAsAbsent(t *testing.T) {
 	if _, present := interaction.ToolInvocationFromContext(nilContext); present {
 		t.Fatal("nil context has a Tool invocation")
 	}
-	if _, present := interaction.ToolInputContinuationFromContext(nilContext); present {
-		t.Fatal("nil context has a Tool input continuation")
-	}
+
 }
 
 func TestAdvertiseToolsRejectsNilContext(t *testing.T) {
@@ -214,9 +212,9 @@ type invalidOutputTool struct {
 	tool.Tool
 }
 
-func (i *invalidOutputTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+func (i *invalidOutputTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
 	output, err := i.Tool.Call(ctx, invocation)
-	output.Details = json.RawMessage(`{`)
+	output.Output.Details = json.RawMessage(`{`)
 	return output, err
 }
 
@@ -232,14 +230,14 @@ func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	}
 	waiting := &callbackTool{
 		name: "waiting",
-		call: func(ctx context.Context, _ string) (string, error) {
-			if _, resumed := interaction.ToolInputContinuationFromContext(ctx); resumed {
-				return "continued", nil
+		continuing: func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+			if _, resumed := callInput.Continuation(); resumed {
+				return tool.Result{Output: chat.NewTextToolOutput("continued")}, nil
 			}
 			if err := interaction.AdvertiseTools(ctx, "waiting_hidden"); err != nil {
-				return "", err
+				return tool.Result{}, err
 			}
-			return "", interaction.RequireToolInput(
+			return waitingInput(
 				json.RawMessage(`"continue?"`),
 				json.RawMessage(`{"type":"boolean"}`),
 				json.RawMessage(`{"stage":"waiting"}`),
@@ -515,8 +513,9 @@ func (m *manifestScriptModel) Call(_ context.Context, request *chat.Request) (*c
 }
 
 type callbackTool struct {
-	name string
-	call func(context.Context, string) (string, error)
+	continuing func(context.Context, tool.Invocation) (tool.Result, error)
+	name       string
+	call       func(context.Context, string) (string, error)
 }
 
 func (c *callbackTool) Definition() chat.ToolDefinition {
@@ -526,9 +525,12 @@ func (c *callbackTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (c *callbackTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+func (c *callbackTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+	if c.continuing != nil {
+		return c.continuing(ctx, invocation)
+	}
 	result, err := c.call(ctx, string(invocation.Arguments()))
-	return chat.NewTextToolOutput(result), err
+	return tool.Result{Output: chat.NewTextToolOutput(result)}, err
 }
 
 func successfulCallback(context.Context, string) (string, error) { return "done", nil }

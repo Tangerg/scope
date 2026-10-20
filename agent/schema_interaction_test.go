@@ -7,10 +7,11 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-func TestSchemaForAcceptsInteractionProviderMetadataAndReasoningSignature(t *testing.T) {
+func TestInteractionOutputConformsToCoreSchema(t *testing.T) {
 	reasoning := chat.NewReasoningPart("provider reasoning", []byte{0, 1, 2, 255})
 	reasoning.Metadata = metadata.Map{
 		"openai/reasoning_field":    json.RawMessage(`"reasoning_content"`),
@@ -35,7 +36,7 @@ func TestSchemaForAcceptsInteractionProviderMetadataAndReasoningSignature(t *tes
 		t.Fatal(validateErr)
 	}
 
-	schema, err := agent.SchemaFor[interaction.Output]()
+	schema, err := jsonschema.For[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
 	}

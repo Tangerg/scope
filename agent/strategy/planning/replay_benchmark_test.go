@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func BenchmarkPlanningReplayBoundary(b *testing.B) {
@@ -21,7 +22,7 @@ func BenchmarkPlanningReplayBoundary(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		b.Fatal(err)
 	}

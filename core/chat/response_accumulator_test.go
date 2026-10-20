@@ -366,3 +366,26 @@ func TestUsagePresenceSurvivesStreamingAndExplicitZero(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseAccumulatorRetainsCitationMetadata(t *testing.T) {
+	citation := chat.NewCitationDelta(chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com"}})
+	if err := citation.Metadata.Set("provider_state", map[string]int{"page": 2}); err != nil {
+		t.Fatal(err)
+	}
+	var accumulator chat.ResponseAccumulator
+	if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("claim"), citation}}); err != nil {
+		t.Fatal(err)
+	}
+	citation.Metadata["provider_state"][0] = '['
+	if err := accumulator.Add(&chat.ResponseDelta{FinishReason: chat.FinishReasonStop}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := accumulator.Response()
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := response.Output.Message.Parts[0]
+	if len(part.Citations) != 1 || string(part.Metadata["provider_state"]) != `{"page":2}` {
+		t.Fatalf("citation metadata = %v", part)
+	}
+}

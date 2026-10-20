@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Tangerg/scope/core/tool"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type operation string
@@ -66,8 +69,8 @@ type toolDispatchRequest struct {
 // toolResume continues the Tool with the input it requested, carrying the
 // originating request and the response delivered to it.
 type toolResume struct {
-	InputRequest  toolInputRequest `json:"input_request"`
-	InputResponse json.RawMessage  `json:"input_response"`
+	InputRequest  tool.InputRequest `json:"input_request"`
+	InputResponse json.RawMessage   `json:"input_response"`
 }
 
 // signalEnvelope carries exactly one result or input; the member present
@@ -121,7 +124,7 @@ func (m modelCallResult) settlement(maxBytes int) (agent.Settlement, error) {
 }
 
 type steerInput struct {
-	Messages []chat.Message `json:"messages" jsonschema:"minItems=1"`
+	Messages []chat.Message `json:"messages"`
 }
 
 // toolCallResult is what executing one ToolCall adds: its output, disposition,
@@ -149,8 +152,8 @@ func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
 }
 
 type toolDispatchResult struct {
-	Completion   *toolCallResult   `json:"completion,omitzero"`
-	InputRequest *toolInputRequest `json:"input_request,omitzero"`
+	Completion   *toolCallResult    `json:"completion,omitzero"`
+	InputRequest *tool.InputRequest `json:"input_request,omitzero"`
 }
 
 func newModelEffect(
@@ -225,10 +228,10 @@ func (e effectEnvelope) validateToolCall() error {
 	if resume == nil {
 		return nil
 	}
-	if !resume.InputRequest.valid() {
-		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
+	if !resume.InputRequest.Valid() {
+		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, tool.ErrInvalidInputRequest)
 	}
-	_, err := resume.InputRequest.validateResponse(resume.InputResponse)
+	_, err := resume.InputRequest.Continuation(resume.InputResponse)
 	return err
 }
 
@@ -292,8 +295,8 @@ func (t toolDispatchResult) validate() error {
 		return fmt.Errorf("%w: Tool dispatch requires one result or input request", ErrInvalidProtocol)
 	}
 	if t.InputRequest != nil {
-		if !t.InputRequest.valid() {
-			return fmt.Errorf("%w: tool input: %w", ErrInvalidProtocol, ErrInvalidToolInputRequest)
+		if !t.InputRequest.Valid() {
+			return fmt.Errorf("%w: tool input: %w", ErrInvalidProtocol, tool.ErrInvalidInputRequest)
 		}
 		return nil
 	}
@@ -397,4 +400,10 @@ func decodeSignal(data json.RawMessage) (signalEnvelope, error) {
 		return signalEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
+}
+
+func (steerInput) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		"messages": {MinItems: new(uint64(minimumSteeringMessages))},
+	}}
 }

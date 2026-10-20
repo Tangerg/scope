@@ -6,6 +6,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const firstSuccessStateKind = "coordination.first_success"
@@ -50,11 +51,11 @@ func NewFirstSuccess(config FirstSuccessConfig) (*FirstSuccess, error) {
 	if config.MaxCandidates == 0 || config.Accept == nil {
 		return nil, fmt.Errorf("%w: candidate bound and success predicate are required", ErrInvalidConfig)
 	}
-	inputSchema, err := agent.SchemaFor[[]agent.ChildSpec]()
+	inputSchema, err := jsonschema.For[[]agent.ChildSpec]()
 	if err != nil {
 		return nil, err
 	}
-	outputSchema, err := agent.SchemaFor[FirstSuccessResult]()
+	outputSchema, err := jsonschema.For[FirstSuccessResult]()
 	if err != nil {
 		return nil, err
 	}

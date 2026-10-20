@@ -265,12 +265,12 @@ func TestDefinitionRejectsNegativeToolConcurrencyLimit(t *testing.T) {
 func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 	var siblingCalls atomic.Int32
 	var requestingCalls atomic.Int32
-	requesting := &scheduledTool{name: "requesting", call: func(ctx context.Context, _ string) (string, error) {
+	requesting := &scheduledTool{name: "requesting", continuing: func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 		requestingCalls.Add(1)
-		if _, resumed := interaction.ToolInputContinuationFromContext(ctx); resumed {
-			return "requesting result", nil
+		if _, resumed := callInput.Continuation(); resumed {
+			return tool.Result{Output: chat.NewTextToolOutput("requesting result")}, nil
 		}
-		return "", interaction.RequireToolInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"stage":1}`))
+		return waitingInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"stage":1}`))
 	}}
 	sibling := &scheduledTool{name: "sibling", call: func(context.Context, string) (string, error) {
 		siblingCalls.Add(1)
@@ -306,18 +306,22 @@ func TestConcurrentToolInputWaitPreservesCompletedSibling(t *testing.T) {
 }
 
 type scheduledTool struct {
-	name string
-	key  string
-	call func(context.Context, string) (string, error)
+	continuing func(context.Context, tool.Invocation) (tool.Result, error)
+	name       string
+	key        string
+	call       func(context.Context, string) (string, error)
 }
 
 func (s *scheduledTool) Definition() chat.ToolDefinition {
 	return concurrencyToolDefinition(s.name)
 }
 
-func (s *scheduledTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+func (s *scheduledTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+	if s.continuing != nil {
+		return s.continuing(ctx, invocation)
+	}
 	result, err := s.call(ctx, string(invocation.Arguments()))
-	return chat.NewTextToolOutput(result), err
+	return tool.Result{Output: chat.NewTextToolOutput(result)}, err
 }
 
 func (s *scheduledTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
@@ -334,9 +338,9 @@ func (e *exclusiveTool) Definition() chat.ToolDefinition {
 	return concurrencyToolDefinition(e.name)
 }
 
-func (e *exclusiveTool) Call(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+func (e *exclusiveTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
 	result, err := e.call(ctx, string(invocation.Arguments()))
-	return chat.NewTextToolOutput(result), err
+	return tool.Result{Output: chat.NewTextToolOutput(result)}, err
 }
 
 type toolRelease struct {

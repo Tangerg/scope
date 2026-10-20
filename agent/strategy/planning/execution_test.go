@@ -13,6 +13,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/planning"
 	"github.com/Tangerg/scope/agent/strategy/planning/goap"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestManagedPlanningReobservesAndReplansAfterEveryAction(t *testing.T) {
@@ -555,7 +556,7 @@ type managedDeploymentConfig struct {
 
 func newManagedDefinition(t testing.TB, config managedDeploymentConfig) *planning.Definition {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[struct{}]()
+	inputSchema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		t.Fatal(err)
 	}

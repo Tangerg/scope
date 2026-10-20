@@ -3,6 +3,7 @@ package coordination_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -233,5 +234,67 @@ func TestDeadlineSettlementStatusOwnsWhetherItWasReached(t *testing.T) {
 			t.Fatalf("%s settlement ended %s with %+v", test.status, final.Termination().Status(), failure)
 		}
 		closeEngine(t, engine)
+	}
+}
+
+func TestDeadlineFailureSettlementPreservesAndValidatesDiagnostic(t *testing.T) {
+	for _, resolved := range []bool{false, true} {
+		for _, test := range []struct {
+			payload string
+			valid   bool
+		}{
+			{`"timer source lost its clock"`, true}, {`{}`, false}, {`null`, false}, {`""`, false}, {`" untrimmed"`, false},
+		} {
+			t.Run(fmt.Sprintf("resolved=%t/%s", resolved, test.payload), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					status, payload := agent.SettlementStatusFailed, []byte(test.payload)
+					if resolved {
+						status, payload = agent.SettlementStatusUnknown, []byte(`{}`)
+					}
+					dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{{SettlementStatus: status, SettlementPayload: payload}}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+					if err != nil {
+						t.Fatal(err)
+					}
+					process, err := engine.Start(t.Context(), deadlineBinding(t, dispatcher), encodedInput(t, time.Now().Add(time.Hour)))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if resolved {
+						synctest.Wait()
+						inspection, err := engine.InspectTree(t.Context(), process.Relation().ProcessID())
+						if err != nil {
+							t.Fatal(err)
+						}
+						ids := inspection.Processes[0].Snapshot.UnknownEffectIDs()
+						if len(ids) != 1 {
+							t.Fatalf("unknown timer=%v", ids)
+						}
+						settlement, err := agent.NewSettlement(agent.SettlementStatusFailed, []byte(test.payload))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := process.ResolveUnknownEffect(t.Context(), ids[0], settlement); err != nil {
+							t.Fatal(err)
+						}
+					}
+					failure, ok := result(t, process).Termination().Failure()
+					if !ok {
+						t.Fatal("failed timer completed")
+					}
+					if test.valid {
+						if failure.Kind() != agent.FailureKindExternal || failure.Message() != "timer source lost its clock" {
+							t.Fatalf("failure diagnostic=%+v", failure)
+						}
+					} else if failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" {
+						t.Fatalf("malformed diagnostic=%+v", failure)
+					}
+					closeEngine(t, engine)
+				})
+			})
+		}
 	}
 }

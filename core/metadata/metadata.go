@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"unicode/utf8"
+
+	reflection "github.com/invopop/jsonschema"
 )
 
 var (
@@ -175,7 +177,6 @@ func (m Map) MarshalJSON() ([]byte, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	type wireMap Map
 	return jsonv2.Marshal(wireMap(m), jsonv2.Deterministic(true), jsonv2.FormatNilMapAsNull(true))
 }
 
@@ -195,3 +196,14 @@ func (m *Map) UnmarshalJSON(data []byte) error {
 	*m = candidate
 	return nil
 }
+
+type wireMap Map
+
+func (wireMap) JSONSchema() *reflection.Schema {
+	return &reflection.Schema{OneOf: []*reflection.Schema{
+		{Type: "null"},
+		{Type: "object", AdditionalProperties: reflection.TrueSchema},
+	}}
+}
+
+func (Map) JSONSchemaAlias() any { return wireMap{} }

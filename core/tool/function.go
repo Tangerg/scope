@@ -89,29 +89,29 @@ func (f Func[In, Out]) Definition() chat.ToolDefinition {
 // dispatched, that function owns the outcome, including acknowledged effects;
 // cancellation never replaces its completed result. Successful output must
 // satisfy the canonical ToolOutput contract.
-func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
+func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result, error) {
 	if f.function == nil {
-		return chat.ToolOutput{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)
+		return Result{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return chat.ToolOutput{}, ctxErr
+		return Result{}, ctxErr
 	}
 	input, err := decodeFuncInput[In](invocation.Arguments())
 	if err != nil {
-		return chat.ToolOutput{}, fmt.Errorf("tool: decode function arguments: %w", err)
+		return Result{}, fmt.Errorf("tool: decode function arguments: %w", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return chat.ToolOutput{}, ctxErr
+		return Result{}, ctxErr
 	}
 	output, err := f.function(ctx, input)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return Result{}, err
 	}
 	result, err := f.encodeResult(output)
 	if err != nil {
-		return chat.ToolOutput{}, fmt.Errorf("tool: encode function result: %w", err)
+		return Result{}, fmt.Errorf("tool: encode function result: %w", err)
 	}
-	return result, nil
+	return Result{Output: result}, nil
 }
 
 // InputValidator retains only the input type's decoding behavior. It captures

@@ -6,6 +6,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"testing"
 
+	"github.com/Tangerg/scope/core/tool"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -120,9 +122,9 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 	})
 }
 
-func fuzzToolInputRequest(f *testing.F) toolInputRequest {
+func fuzzToolInputRequest(f *testing.F) tool.InputRequest {
 	f.Helper()
-	request, err := newToolInputRequest(
+	request, err := newInputRequest(
 		json.RawMessage(`{"question":"Name?"}`),
 		json.RawMessage(`{"type":"string","minLength":1}`),
 		json.RawMessage(`{"stage":"name","id":9007199254740993}`),

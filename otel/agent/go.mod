@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/agent v0.53.0
+	github.com/Tangerg/scope/core v0.53.0
 	github.com/samber/lo v1.53.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/Tangerg/scope/core v0.53.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

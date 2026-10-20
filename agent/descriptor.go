@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // MaxDescriptionBytes bounds descriptions of advertised behavior.
@@ -30,14 +31,14 @@ type DescriptorConfig struct {
 	// discovery without execution-specific state.
 	Description string
 
-	InputSchema Schema
+	InputSchema jsonschema.Schema
 
-	OutputSchema Schema
+	OutputSchema jsonschema.Schema
 
 	// SignalSchema declares unaddressed Host input. The zero value rejects all
 	// unaddressed Signals. Addressed replies belong to their external wait;
 	// Engine-owned protocol frames never pass through this schema.
-	SignalSchema Schema
+	SignalSchema jsonschema.Schema
 }
 
 func (d DescriptorConfig) validate() error {
@@ -48,10 +49,10 @@ func (d DescriptorConfig) validate() error {
 		return fmt.Errorf("%w: description must be non-empty, trimmed UTF-8, and at most %d bytes", ErrInvalidDescriptor, MaxDescriptionBytes)
 	}
 	if !d.InputSchema.Valid() {
-		return fmt.Errorf("%w: input schema: %w", ErrInvalidDescriptor, ErrInvalidSchema)
+		return fmt.Errorf("%w: input schema: %w", ErrInvalidDescriptor, jsonschema.ErrInvalid)
 	}
 	if !d.OutputSchema.Valid() {
-		return fmt.Errorf("%w: output schema: %w", ErrInvalidDescriptor, ErrInvalidSchema)
+		return fmt.Errorf("%w: output schema: %w", ErrInvalidDescriptor, jsonschema.ErrInvalid)
 	}
 	return nil
 }
@@ -61,9 +62,9 @@ func (d DescriptorConfig) validate() error {
 type Descriptor struct {
 	name         string
 	description  string
-	inputSchema  Schema
-	outputSchema Schema
-	signalSchema Schema
+	inputSchema  jsonschema.Schema
+	outputSchema jsonschema.Schema
+	signalSchema jsonschema.Schema
 	digest       Digest
 }
 
@@ -73,7 +74,7 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	}
 	if !config.SignalSchema.Valid() {
 		var err error
-		config.SignalSchema, err = ParseSchema([]byte("false"))
+		config.SignalSchema, err = jsonschema.Parse([]byte("false"))
 		if err != nil {
 			return Descriptor{}, fmt.Errorf("%w: rejecting signal schema: %w", ErrInvalidDescriptor, err)
 		}
@@ -97,12 +98,12 @@ func (d Descriptor) Name() string { return d.name }
 
 func (d Descriptor) Description() string { return d.description }
 
-func (d Descriptor) InputSchema() Schema { return d.inputSchema }
+func (d Descriptor) InputSchema() jsonschema.Schema { return d.inputSchema }
 
-func (d Descriptor) OutputSchema() Schema { return d.outputSchema }
+func (d Descriptor) OutputSchema() jsonschema.Schema { return d.outputSchema }
 
 // SignalSchema returns the unaddressed input contract; false rejects all input.
-func (d Descriptor) SignalSchema() Schema { return d.signalSchema }
+func (d Descriptor) SignalSchema() jsonschema.Schema { return d.signalSchema }
 
 func (d Descriptor) Digest() Digest { return d.digest }
 
@@ -183,15 +184,15 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDescriptor, err)
 	}
-	inputSchema, err := ParseSchema(wire.InputSchema)
+	inputSchema, err := jsonschema.Parse(wire.InputSchema)
 	if err != nil {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidDescriptor, err)
 	}
-	outputSchema, err := ParseSchema(wire.OutputSchema)
+	outputSchema, err := jsonschema.Parse(wire.OutputSchema)
 	if err != nil {
 		return fmt.Errorf("%w: output schema: %w", ErrInvalidDescriptor, err)
 	}
-	signalSchema, err := ParseSchema(wire.SignalSchema)
+	signalSchema, err := jsonschema.Parse(wire.SignalSchema)
 	if err != nil {
 		return fmt.Errorf("%w: signal schema: %w", ErrInvalidDescriptor, err)
 	}

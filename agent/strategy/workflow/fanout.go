@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type fanoutSource interface {
@@ -14,7 +15,7 @@ type fanoutSource interface {
 	// ordered window plus the total count. A start at count returns an empty window.
 	windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) (inputs []agent.Payload, count uint32, err error)
 	member(index uint32) (fanoutMember, bool)
-	topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32)
+	topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32)
 	bindings() []childBinding
 }
 
@@ -32,7 +33,7 @@ func fanoutWindowLen(start, count, windowSize uint32) uint32 {
 type fanoutStage struct {
 	source       fanoutSource
 	windowSize   uint32
-	outputSchema agent.Schema
+	outputSchema jsonschema.Schema
 	// complete receives the Stage input with the member outputs, so members
 	// never carry the input forward themselves.
 	complete func(ctx context.Context, input json.RawMessage, outputs []json.RawMessage) (json.RawMessage, error)
@@ -42,7 +43,7 @@ type fanoutOutputs struct {
 	stageName    string
 	stageID      string
 	memberName   string
-	resultSchema agent.Schema
+	resultSchema jsonschema.Schema
 }
 
 func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.RawMessage) ([]T, error) {

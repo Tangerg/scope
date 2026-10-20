@@ -207,7 +207,6 @@ func (m Media) MarshalJSON() ([]byte, error) {
 	if err := (&m).Validate(); err != nil {
 		return nil, err
 	}
-	type wireMedia Media
 	return jsonv2.Marshal(wireMedia(m), jsonv2.Deterministic(true))
 }
 
@@ -215,7 +214,6 @@ func (m *Media) UnmarshalJSON(data []byte) error {
 	if m == nil {
 		return ErrNilMedia
 	}
-	type wireMedia Media
 	var decoded wireMedia
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("media: decode: %w", err)
@@ -227,3 +225,7 @@ func (m *Media) UnmarshalJSON(data []byte) error {
 	*m = candidate
 	return nil
 }
+
+type wireMedia Media
+
+func (Media) JSONSchemaAlias() any { return wireMedia{} }

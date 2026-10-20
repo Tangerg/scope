@@ -7,6 +7,7 @@ import (
 	"math"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // ForkReducer combines the Fork's input with its branch outputs in
@@ -44,7 +45,7 @@ type ForkConfig[I, B, O any] struct {
 
 type forkSource struct{ branches []fanoutMember }
 
-func newForkSource(stageID string, inputSchema, branchSchema agent.Schema, declared []ForkBranch) (forkSource, error) {
+func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, declared []ForkBranch) (forkSource, error) {
 	branches := make([]fanoutMember, 0, len(declared))
 	seen := make(map[string]struct{}, len(declared))
 	for index, branch := range declared {
@@ -110,7 +111,7 @@ func (f forkSource) bindings() []childBinding {
 	return bindings
 }
 
-func (f forkSource) topology(inputSchema, outputSchema agent.Schema) ([]BindingTopology, uint32) {
+func (f forkSource) topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32) {
 	bindings := make([]BindingTopology, len(f.branches))
 	for index, branch := range f.branches {
 		bindings[index] = branch.binding.topology(BindingRoleBranch, branch.id, inputSchema, outputSchema)
@@ -127,15 +128,15 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		config.WindowSize == 0 || uint64(config.WindowSize) > uint64(len(config.Branches)) {
 		return Stage{}, ErrInvalidStage
 	}
-	inputSchema, err := agent.SchemaFor[I]()
+	inputSchema, err := jsonschema.For[I]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Fork %q input schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	branchSchema, err := agent.SchemaFor[B]()
+	branchSchema, err := jsonschema.For[B]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Fork %q branch schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	outputSchema, err := agent.SchemaFor[O]()
+	outputSchema, err := jsonschema.For[O]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Fork %q output schema: %w", ErrInvalidStage, config.ID, err)
 	}

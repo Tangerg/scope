@@ -7,6 +7,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const (
@@ -19,8 +20,8 @@ const (
 type InputGateConfig struct {
 	Name          string
 	Description   string
-	RequestSchema agent.Schema
-	AnswerSchema  agent.Schema
+	RequestSchema jsonschema.Schema
+	AnswerSchema  jsonschema.Schema
 }
 
 // InputGate retains its initial request in Strategy state, opens an external
@@ -30,14 +31,14 @@ type InputGateConfig struct {
 // final Step runs. A router retains responsibility for rejected input.
 type InputGate struct {
 	descriptor   agent.Descriptor
-	answerSchema agent.Schema
+	answerSchema jsonschema.Schema
 }
 
 func NewInputGate(config InputGateConfig) (*InputGate, error) {
 	if !config.AnswerSchema.Valid() {
 		return nil, fmt.Errorf("%w: answer schema is required", ErrInvalidConfig)
 	}
-	outputSchema, err := agent.SchemaFor[agent.Signal]()
+	outputSchema, err := jsonschema.For[agent.Signal]()
 	if err != nil {
 		return nil, err
 	}

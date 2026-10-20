@@ -9,6 +9,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/strategy/planning"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestDefinitionConformance(t *testing.T) {
@@ -103,7 +104,7 @@ func TestMalformedPlanningOperationSettlesBeforeExternalWork(t *testing.T) {
 
 func TestDefinitionRejectsFiniteZeroActionAttempts(t *testing.T) {
 	condition := mustCondition(t, "goal.done", planning.TruthTrue)
-	schema, err := agent.SchemaFor[struct{}]()
+	schema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		t.Fatal(err)
 	}

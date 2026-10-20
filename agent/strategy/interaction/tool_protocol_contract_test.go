@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/core/tool"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -70,7 +72,7 @@ func TestToolProtocolRejectsSupersededAndIncompleteShapes(t *testing.T) {
 }
 
 func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
-	request, err := newToolInputRequest(json.RawMessage(`{"id":9007199254740993}`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`))
+	request, err := newInputRequest(json.RawMessage(`{"id":9007199254740993}`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,36 +84,36 @@ func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 	if string(encoded) != want {
 		t.Fatalf("checkpoint JSON = %s, want %s", encoded, want)
 	}
-	var restored toolInputRequest
-	if err = jsonv2.Unmarshal(encoded, &restored); err != nil || !toolInputRequestsEqual(restored, request) {
+	var restored tool.InputRequest
+	if err = jsonv2.Unmarshal(encoded, &restored); err != nil || !inputRequestsEqual(restored, request) {
 		t.Fatalf("request round trip: %s, %v", encoded, err)
 	}
 	clear(encoded)
-	if !toolInputRequestsEqual(restored, request) {
+	if !inputRequestsEqual(restored, request) {
 		t.Fatal("outward JSON mutated an immutable request")
 	}
 	for _, test := range []struct {
 		raw  string
 		want error
 	}{
-		{`null`, ErrInvalidToolInputRequest},
-		{`{}`, ErrInvalidToolInputRequest},
-		{`{"prompt":null,"response_schema":false}`, ErrInvalidToolInputRequest},
-		{`{"prompt":null,"response_schema":true,"continuation_state":null,"unknown":true}`, ErrInvalidToolInputRequest},
+		{`null`, tool.ErrInvalidInputRequest},
+		{`{}`, tool.ErrInvalidInputRequest},
+		{`{"prompt":null,"response_schema":false}`, tool.ErrInvalidInputRequest},
+		{`{"prompt":null,"response_schema":true,"continuation_state":null,"unknown":true}`, tool.ErrInvalidInputRequest},
 		{`{"prompt":null,"prompt":true,"response_schema":true,"continuation_state":null}`, jsontext.ErrDuplicateName},
 	} {
 		if err = jsonv2.Unmarshal([]byte(test.raw), &restored); !errors.Is(err, test.want) {
 			t.Fatalf("invalid request %s: %v, want %v", test.raw, err, test.want)
 		}
-		if !toolInputRequestsEqual(restored, request) {
+		if !inputRequestsEqual(restored, request) {
 			t.Fatal("failed decode changed the admitted request")
 		}
 	}
-	if _, err = jsonv2.Marshal(toolInputRequest{}); !errors.Is(err, ErrInvalidToolInputRequest) {
+	if _, err = jsonv2.Marshal(tool.InputRequest{}); !errors.Is(err, tool.ErrInvalidInputRequest) {
 		t.Fatalf("zero request encoded: %v", err)
 	}
-	var absent *toolInputRequest
-	if err = absent.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, ErrInvalidToolInputRequest) {
+	var absent *tool.InputRequest
+	if err = absent.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, tool.ErrInvalidInputRequest) {
 		t.Fatalf("nil receiver: %v", err)
 	}
 }
@@ -120,12 +122,12 @@ func TestToolInputRequestPreservesJSONNumbers(t *testing.T) {
 	for _, value := range []string{"9007199254740993", "18446744073709551615", "1.234567890123456789", "1e400"} {
 		t.Run(value, func(t *testing.T) {
 			schema := `{"const":` + value + `}`
-			request, err := newToolInputRequest(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
+			request, err := newInputRequest(json.RawMessage(value), json.RawMessage(schema), json.RawMessage(value))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if string(request.prompt) != value || string(request.responseSchema.JSON()) != schema || string(request.continuationState) != value {
-				t.Fatalf("request changed JSON numbers: prompt=%s schema=%s continuation=%s", request.prompt, request.responseSchema.JSON(), request.continuationState)
+			if string(request.Prompt()) != value || string(request.ResponseSchema().JSON()) != schema || string(request.State()) != value {
+				t.Fatalf("request changed JSON numbers: prompt=%s schema=%s continuation=%s", request.Prompt(), request.ResponseSchema().JSON(), request.State())
 			}
 		})
 	}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 // PendingToolInput is the consumer-facing view of one current Tool input wait.
@@ -14,7 +16,7 @@ type PendingToolInput struct {
 	processID      agent.ProcessID
 	waitID         agent.WaitID
 	prompt         json.RawMessage
-	responseSchema agent.Schema
+	responseSchema jsonschema.Schema
 }
 
 // ProcessID returns the Tool child that must receive the response.
@@ -42,11 +44,14 @@ func (p PendingToolInput) ResponseSignal(
 	if !p.Valid() {
 		return agent.SignalRequest{}, ErrInvalidPendingToolInput
 	}
-	response, err := validateToolInputResponse(p.responseSchema, response)
+	signal, err := NewToolInputResponseSignal(id, p.waitID, response)
 	if err != nil {
 		return agent.SignalRequest{}, err
 	}
-	return NewToolInputResponseSignal(id, p.waitID, response)
+	if err := p.responseSchema.Validate(response); err != nil {
+		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", tool.ErrInvalidInputRequest, err)
+	}
+	return signal, nil
 }
 
 // PendingToolInputs reads every current Tool input wait in a captured tree,
@@ -73,7 +78,7 @@ func PendingToolInputs(snapshot agent.TreeSnapshot) ([]PendingToolInput, error) 
 			return nil, ErrInvalidPendingToolInput
 		}
 		request := *state.InputRequest
-		pending = append(pending, PendingToolInput{processID: process.Relation().ProcessID(), waitID: waitID, prompt: request.prompt, responseSchema: request.responseSchema})
+		pending = append(pending, PendingToolInput{processID: process.Relation().ProcessID(), waitID: waitID, prompt: request.Prompt(), responseSchema: request.ResponseSchema()})
 	}
 	return pending, nil
 }

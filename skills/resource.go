@@ -11,12 +11,22 @@ import (
 	"github.com/samber/lo"
 )
 
+// ResourceOpener opens a resource bundled under one exact skill root.
+type ResourceOpener interface {
+	// OpenResource validates the owning skill and rejects absolute paths,
+	// traversal, and symlink escape. Success returns a non-nil regular file that
+	// the caller owns and closes. Failed opens close any acquired file. An absent
+	// skill returns ErrSkillNotFound; a missing resource returns fs.ErrNotExist.
+	// Cancellation and I/O errors remain identifiable through errors.Is.
+	OpenResource(ctx context.Context, name, resource string) (fs.File, error)
+}
+
 // ReadResource reads at most maxBytes from a bundled skill resource. The
 // truncated result is valid content but must not be treated as the complete
 // resource. maxBytes must be positive.
 func ReadResource(
 	ctx context.Context,
-	src ResourceSource,
+	src ResourceOpener,
 	name string,
 	resource string,
 	maxBytes int64,
@@ -81,7 +91,7 @@ func readBounded(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte,
 }
 
 // receivedResourceFile settles ownership and cancellation after a source call.
-// ResourceSource owns the regular-file invariant; composition does not stat the
+// ResourceOpener owns the regular-file invariant; composition does not stat the
 // same open descriptor again.
 func receivedResourceFile(
 	ctx context.Context,

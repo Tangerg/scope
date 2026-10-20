@@ -16,6 +16,7 @@ type processHandle struct {
 	budget        Budget
 	capabilities  CapabilitySet
 	startedAt     time.Time
+	incarnationID TreeIncarnationID
 	// tree is the cell its tree's runtime owns; every member shares it, so
 	// releasing the tree detaches all of them at once.
 	tree *atomic.Pointer[treeRuntime]

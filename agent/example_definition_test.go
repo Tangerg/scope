@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type echoInput struct {
@@ -105,11 +106,11 @@ func (e *echoExecution) Snapshot() (agent.ExecutionState, error) {
 }
 
 func newEchoDefinition() (echoDefinition, error) {
-	inputSchema, err := agent.SchemaFor[echoInput]()
+	inputSchema, err := jsonschema.For[echoInput]()
 	if err != nil {
 		return echoDefinition{}, err
 	}
-	outputSchema, err := agent.SchemaFor[echoOutput]()
+	outputSchema, err := jsonschema.For[echoOutput]()
 	if err != nil {
 		return echoDefinition{}, err
 	}

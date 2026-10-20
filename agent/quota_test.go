@@ -8,6 +8,8 @@ import (
 	"maps"
 	"math"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func ExampleQuota() {
@@ -47,7 +49,7 @@ func TestRestoredChildCannotExceedParentAuthority(t *testing.T) {
 }
 
 func TestQuotaPreservesUnlimitedFiniteAndZero(t *testing.T) {
-	schema := controlValue(SchemaFor[Quota]())
+	schema := controlValue(jsonschema.For[Quota]())
 	for _, test := range []struct {
 		name      string
 		quota     Quota

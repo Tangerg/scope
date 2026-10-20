@@ -70,13 +70,14 @@ type emptyAnswerTool struct{ received chan string }
 func (*emptyAnswerTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{Name: "answer", Description: "Wait for JSON.", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
-func (e *emptyAnswerTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
-	continuation, resumed := interaction.ToolInputContinuationFromContext(ctx)
+func (e *emptyAnswerTool) Call(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+	continuation, resumed := callInput.Continuation()
 	if !resumed {
-		return chat.ToolOutput{}, interaction.RequireToolInput(json.RawMessage(`{}`), json.RawMessage(`{}`), json.RawMessage(`null`))
+		return waitingInput(json.RawMessage(`{}`), json.RawMessage(`{}`), json.RawMessage(`null`))
 	}
 	e.received <- string(continuation.Response())
-	return chat.NewJSONToolOutput(continuation.Response())
+	completedOutput1, completedErr1 := chat.NewJSONToolOutput(continuation.Response())
+	return tool.Result{Output: completedOutput1}, completedErr1
 }
 
 func TestEmptyToolAnswersSurviveWaitingRecovery(t *testing.T) {

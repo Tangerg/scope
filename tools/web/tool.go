@@ -29,7 +29,7 @@ type readOnlyTool struct {
 
 func (r readOnlyTool) Definition() chat.ToolDefinition { return r.inner.Definition() }
 
-func (r readOnlyTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (r readOnlyTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return r.inner.Call(ctx, invocation)
 }
 

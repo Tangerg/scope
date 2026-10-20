@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func require[T any](value T, err error) T {
@@ -42,7 +43,7 @@ func fixture(coordinator func(context.Context, Turn) (Decision, error), workers 
 func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agent.Deployment) DefinitionConfig {
 	decision := transformed("test.coordinator", coordinator)
 	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate tasks.", Coordinator: workerConfig(decision),
-		StateSchema: require(agent.SchemaFor[string]()), OutputSchema: require(agent.SchemaFor[string]()),
+		StateSchema: require(jsonschema.For[string]()), OutputSchema: require(jsonschema.For[string]()),
 		MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
 	for _, worker := range workers {
 		config.Workers = append(config.Workers, workerConfig(worker))
@@ -62,7 +63,7 @@ func echo() agent.Deployment {
 	return transformed("test.echo", func(_ context.Context, text string) (string, error) { return "echo: " + text, nil })
 }
 func gate() agent.Deployment {
-	schema := require(agent.SchemaFor[string]())
+	schema := require(jsonschema.For[string]())
 	return binding(require(coordination.NewInputGate(coordination.InputGateConfig{Name: "test.gate", Description: "Receive input.", RequestSchema: schema, AnswerSchema: schema})))
 }
 func run(t *testing.T, definition *Definition, committer agent.TreeCommitter) (*agent.Engine, *agent.Process) {
@@ -231,7 +232,7 @@ func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
 	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
 		return Decision{State: turn.State, Output: require(agent.ParsePayload([]byte(`null`)))}, nil
 	}, echo())
-	config.OutputSchema = require(agent.ParseSchema([]byte(`{"type":"null"}`)))
+	config.OutputSchema = require(jsonschema.Parse([]byte(`{"type":"null"}`)))
 	definition := require(NewDefinition(config))
 	store := agent.NewMemoryTreeCommitter()
 	engine, process := run(t, definition, store)

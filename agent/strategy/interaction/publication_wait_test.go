@@ -31,12 +31,12 @@ func TestPublicationAcrossWaitingCheckpointAndStorageReopen(t *testing.T) {
 		return nil
 	}
 	var executions, models atomic.Int32
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "confirm", Description: "Wait for input."}, func(ctx context.Context, _ struct{}) (string, error) {
-		if _, resumed := interaction.ToolInputContinuationFromContext(ctx); !resumed {
-			return "", interaction.RequireToolInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
+	executable, err := newContinuingTool(tool.FuncConfig{Name: "confirm", Description: "Wait for input."}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+		if _, resumed := callInput.Continuation(); !resumed {
+			return waitingInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
 		}
 		executions.Add(1)
-		return "confirmed after input", nil
+		return tool.Result{Output: chat.NewTextToolOutput("confirmed after input")}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

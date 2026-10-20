@@ -50,6 +50,9 @@ func (p *Process) Relation() ProcessRelation {
 	return p.handle.relation
 }
 
+// TreeIncarnationID identifies this activation, including after its runtime exits.
+func (p *Process) TreeIncarnationID() TreeIncarnationID { return p.handle.incarnationID }
+
 // StartedAt returns the observed UTC lifecycle start time stamped when the
 // Process is first prepared for publication, after admission and initialization,
 // and retained unchanged across recovery.
@@ -64,8 +67,9 @@ func (p *Process) StartedAt() time.Time {
 //
 // Unaddressed input must satisfy Descriptor.SignalSchema and never releases a
 // wait or pause. A current external wait accepts only its answer until
-// satisfied, including while Paused and after an earlier answer in the same
-// batch; any other wait answer returns ErrSignalRejected. Reusing a SignalID
+// satisfied, including while Paused. Later unaddressed input in the same batch
+// is then admitted; an answer to any other wait returns ErrSignalRejected.
+// Reusing a SignalID
 // with different normalized payload bytes or WaitID, or repeating it within the
 // batch, returns ErrSignalConflict. Identical historical identities are
 // retained without another budget charge or acceptance event. Exceeding

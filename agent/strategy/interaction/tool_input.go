@@ -1,176 +1,13 @@
 package interaction
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/core/tool"
 )
-
-const maxInputProtocolBytes = 1 << 20
-
-// toolInputRequest freezes the checkpoint carried by RequireToolInput.
-// The Tool owns continuation state; Engine owns Process and wait identities.
-type toolInputRequest struct {
-	prompt            json.RawMessage
-	responseSchema    agent.Schema
-	continuationState json.RawMessage
-}
-
-func newToolInputRequest(
-	prompt json.RawMessage,
-	responseSchema json.RawMessage,
-	continuationState json.RawMessage,
-) (toolInputRequest, error) {
-	parsedPrompt, err := parseToolInputJSON(prompt)
-	if err != nil {
-		return toolInputRequest{}, fmt.Errorf("%w: prompt: %w", ErrInvalidToolInputRequest, err)
-	}
-	schema, err := agent.ParseSchema(responseSchema)
-	if err != nil {
-		return toolInputRequest{}, fmt.Errorf("%w: response schema: %w", ErrInvalidToolInputRequest, err)
-	}
-	continuation, err := parseToolInputJSON(continuationState)
-	if err != nil {
-		return toolInputRequest{}, fmt.Errorf("%w: continuation state: %w", ErrInvalidToolInputRequest, err)
-	}
-	return toolInputRequest{
-		prompt: parsedPrompt.JSON(), responseSchema: schema, continuationState: continuation.JSON(),
-	}, nil
-}
-
-func (t toolInputRequest) valid() bool {
-	return len(t.prompt) > 0 && t.responseSchema.Valid() && len(t.continuationState) > 0
-}
-
-type toolInputRequestWire struct {
-	Prompt            json.RawMessage `json:"prompt"`
-	ResponseSchema    json.RawMessage `json:"response_schema"`
-	ContinuationState json.RawMessage `json:"continuation_state"`
-}
-
-func (t toolInputRequest) MarshalJSON() ([]byte, error) {
-	if !t.valid() {
-		return nil, ErrInvalidToolInputRequest
-	}
-	return jsonv2.Marshal(toolInputRequestWire{
-		Prompt: t.prompt, ResponseSchema: t.responseSchema.JSON(), ContinuationState: t.continuationState,
-	})
-}
-
-func (t *toolInputRequest) UnmarshalJSON(data []byte) error {
-	if t == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidToolInputRequest)
-	}
-	wire, err := jsonwire.Decode[toolInputRequestWire](data)
-	if err != nil {
-		return fmt.Errorf("%w: decode: %w", ErrInvalidToolInputRequest, err)
-	}
-	request, err := newToolInputRequest(wire.Prompt, wire.ResponseSchema, wire.ContinuationState)
-	if err != nil {
-		return err
-	}
-	*t = request
-	return nil
-}
-
-func (t toolInputRequest) validateResponse(response json.RawMessage) (json.RawMessage, error) {
-	if !t.valid() {
-		return nil, ErrInvalidToolInputRequest
-	}
-	return validateToolInputResponse(t.responseSchema, response)
-}
-
-func validateToolInputResponse(schema agent.Schema, response json.RawMessage) (json.RawMessage, error) {
-	input, err := parseToolInputJSON(response)
-	if err != nil {
-		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
-	}
-	if err := schema.Validate(input.JSON()); err != nil {
-		return nil, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
-	}
-	return input.JSON(), nil
-}
-
-// toolInputRequiredError carries one validated, snapshot-safe toolInputRequest across
-// a Tool boundary. It is control flow, not a failed ToolResult.
-type toolInputRequiredError struct {
-	request toolInputRequest
-}
-
-// RequireToolInput validates the request and returns an error matching
-// ErrToolInputRequired. A Tool returns this before external side effects, or after
-// storing enough ContinuationState to prove safe re-entry. A HostFailure,
-// cancellation, or deadline in the same error chain takes precedence: the Effect
-// remains unknown instead of committing an input checkpoint.
-//
-// Prompt is a Tool-defined JSON value for the consumer; responseSchema governs
-// its answer. ContinuationState is returned only to the requesting Tool through
-// ToolInputContinuationFromContext. The request freezes all three values and
-// holds no Process or wait identity. JSON numbers retain their precision; prompt
-// and continuationState must each fit within one MiB before and after normalization.
-func RequireToolInput(
-	prompt json.RawMessage,
-	responseSchema json.RawMessage,
-	continuationState json.RawMessage,
-) error {
-	request, err := newToolInputRequest(prompt, responseSchema, continuationState)
-	if err != nil {
-		return err
-	}
-	return &toolInputRequiredError{request: request}
-}
-
-func (*toolInputRequiredError) Error() string {
-	return ErrToolInputRequired.Error()
-}
-
-func (*toolInputRequiredError) Unwrap() error { return ErrToolInputRequired }
-
-func (t *toolInputRequiredError) inputRequest() (toolInputRequest, bool) {
-	if t == nil || !t.request.valid() {
-		return toolInputRequest{}, false
-	}
-	return t.request, true
-}
-
-// ToolInputContinuation is the immutable state and validated external response
-// attached only while re-entering the Tool that requested input.
-type ToolInputContinuation struct {
-	state    json.RawMessage
-	response json.RawMessage
-}
-
-func (t ToolInputContinuation) State() json.RawMessage {
-	return bytes.Clone(t.state)
-}
-
-func (t ToolInputContinuation) Response() json.RawMessage {
-	return bytes.Clone(t.response)
-}
-
-type toolContinuationContextKey struct{}
-
-func withToolInputContinuation(ctx context.Context, continuation ToolInputContinuation) context.Context {
-	return context.WithValue(ctx, toolContinuationContextKey{}, continuation)
-}
-
-// ToolInputContinuationFromContext returns continuation data only for the active
-// resumed Tool call. Ordinary first attempts and a nil context return false.
-func ToolInputContinuationFromContext(ctx context.Context) (ToolInputContinuation, bool) {
-	if ctx == nil {
-		return ToolInputContinuation{}, false
-	}
-	continuation, ok := ctx.Value(toolContinuationContextKey{}).(ToolInputContinuation)
-	if !ok || len(continuation.state) == 0 || len(continuation.response) == 0 {
-		return ToolInputContinuation{}, false
-	}
-	return continuation, true
-}
 
 // NewToolInputResponseSignal validates JSON and addresses the exact wait.
 // Execution checks the authoritative response schema; PendingToolInput.ResponseSignal
@@ -181,11 +18,11 @@ func NewToolInputResponseSignal(
 	response json.RawMessage,
 ) (agent.SignalRequest, error) {
 	if !waitID.Valid() {
-		return agent.SignalRequest{}, fmt.Errorf("%w: WaitID is required", ErrInvalidToolInputRequest)
+		return agent.SignalRequest{}, fmt.Errorf("%w: WaitID is required", tool.ErrInvalidInputRequest)
 	}
 	input, err := parseToolInputJSON(response)
 	if err != nil {
-		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", ErrInvalidToolInputRequest, err)
+		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", tool.ErrInvalidInputRequest, err)
 	}
 	payload, err := jsonv2.Marshal(signalEnvelope{
 		InputResponse: input.JSON(),
@@ -197,15 +34,15 @@ func NewToolInputResponseSignal(
 }
 
 func parseToolInputJSON(data json.RawMessage) (agent.Payload, error) {
-	if len(data) == 0 || len(data) > maxInputProtocolBytes {
-		return agent.Payload{}, fmt.Errorf("JSON value must contain at most %d bytes", maxInputProtocolBytes)
+	if len(data) == 0 || len(data) > tool.MaxInputBytes {
+		return agent.Payload{}, fmt.Errorf("JSON value must contain at most %d bytes", tool.MaxInputBytes)
 	}
 	input, err := agent.ParsePayload(data)
 	if err != nil {
 		return agent.Payload{}, err
 	}
-	if len(input.JSON()) > maxInputProtocolBytes {
-		return agent.Payload{}, fmt.Errorf("normalized JSON value exceeds %d bytes", maxInputProtocolBytes)
+	if len(input.JSON()) > tool.MaxInputBytes {
+		return agent.Payload{}, fmt.Errorf("normalized JSON value exceeds %d bytes", tool.MaxInputBytes)
 	}
 	return input, nil
 }

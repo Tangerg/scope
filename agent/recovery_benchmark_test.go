@@ -8,6 +8,8 @@ import (
 	"math/rand/v2"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 var (
@@ -162,11 +164,11 @@ func benchmarkRecoverableProcess(
 	b.Helper()
 	setupCtx, cancelSetup := context.WithTimeout(b.Context(), benchmarkSetupTimeout)
 	defer cancelSetup()
-	schema, err := SchemaFor[executionReplayBenchmarkState]()
+	schema, err := jsonschema.For[executionReplayBenchmarkState]()
 	if err != nil {
 		b.Fatal(err)
 	}
-	signalSchema, err := ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -293,6 +293,10 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 		config.Events[i] = changeEvent(t, event, fields)
 	}
 	config.Events = append(config.Events, first)
+	if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		t.Fatalf("unfinished prior activation = %v", err)
+	}
+	config.Events = config.Events[:len(config.Events)-1]
 	config.Elapsed = nil
 	restored, err := trajectory.New(config)
 	if err != nil {

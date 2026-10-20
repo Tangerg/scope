@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestRun(t *testing.T) {
@@ -216,7 +217,7 @@ func (p *planningTaskState) review(_ context.Context, request planning.ActionReq
 
 func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[workerTask]()
+	inputSchema, err := jsonschema.For[workerTask]()
 	if err != nil {
 		t.Fatal(err)
 	}

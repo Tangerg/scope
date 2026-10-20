@@ -3,7 +3,6 @@ package interaction_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -163,12 +162,6 @@ func TestManagedInteractionPreservesUnknownModelOutcomes(t *testing.T) {
 }
 
 func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
-	inputRequired := interaction.RequireToolInput(
-		json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`),
-	)
-	if !errors.Is(inputRequired, interaction.ErrToolInputRequired) {
-		t.Fatal(inputRequired)
-	}
 	privateOutcome, err := tool.NewFailure(tool.FailureConfig{
 		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("private authorization dependency"),
 	})
@@ -186,15 +179,11 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
 		{name: "cancellation", cause: context.Canceled},
 		{name: "deadline", cause: context.DeadlineExceeded},
-		{name: "host failure with input request", cause: interaction.HostFailure(inputRequired)},
-		{name: "cancellation with input request", cause: errors.Join(inputRequired, context.Canceled)},
-		{name: "deadline with input request", cause: errors.Join(context.DeadlineExceeded, inputRequired)},
 		{name: "panic", panics: true},
 		{name: "invalid output", invalidOutput: true},
 		{name: "authorization failed", cause: errors.New("private policy failure"), authorization: true},
 		{name: "authorization nested refusal", cause: privateOutcome, authorization: true},
 		{name: "authorization canceled refusal", cause: errors.Join(context.DeadlineExceeded, privateOutcome), authorization: true},
-		{name: "authorization input request", cause: inputRequired, authorization: true},
 		{name: "authorization host failure", cause: interaction.HostFailure(privateOutcome), authorization: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

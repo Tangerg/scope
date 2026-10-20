@@ -4,11 +4,11 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/scope/agent v0.53.0
+	github.com/Tangerg/scope/core v0.53.0
 	github.com/jackc/pgx/v5 v5.11.0
 )
 
 require (
-	github.com/Tangerg/scope/core v0.53.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect

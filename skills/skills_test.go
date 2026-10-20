@@ -13,6 +13,22 @@ import (
 
 type panicFS struct{}
 
+type resourceOnly struct {
+	open func(context.Context, string, string) (fs.File, error)
+}
+
+func (r resourceOnly) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
+	return r.open(ctx, name, resource)
+}
+
+func TestReadResourceNeedsOnlyResourceOpening(t *testing.T) {
+	owner := newTestFS()
+	data, truncated, err := ReadResource(t.Context(), resourceOnly{open: owner.OpenResource}, "pdf-processing", "references/REFERENCE.md", 100)
+	if err != nil || truncated || len(data) == 0 {
+		t.Fatalf("data=%q truncated=%t error=%v", data, truncated, err)
+	}
+}
+
 func (*panicFS) Open(string) (fs.File, error) {
 	panic("typed-nil filesystem was used")
 }

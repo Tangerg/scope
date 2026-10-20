@@ -41,7 +41,8 @@ func (p ProcessAdmission) Valid() bool {
 // resources, or re-enter the Engine. They must respect ctx, return in bounded
 // time, and be safe for concurrent calls. Persistence, charging, and business
 // idempotency are implementation responsibilities; a prepared Step may replay
-// the same child admission with the same prospective identity after recovery.
+// the same child admission with the same prospective identity and resources
+// after recovery. The runtime durably confirms that proposal before calling Host.
 //
 // The runtime cancels an active child admission when its parent terminates.
 // Every accepted admission concludes with exactly one

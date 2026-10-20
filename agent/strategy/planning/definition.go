@@ -9,6 +9,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const executionStateKind = "planning"
@@ -23,7 +24,7 @@ type DefinitionConfig struct {
 
 	// InputSchema is the authoritative schema for opaque task input passed to
 	// Sensor, ActionExecutor, and child input functions.
-	InputSchema agent.Schema
+	InputSchema jsonschema.Schema
 
 	Goal Goal
 
@@ -73,7 +74,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 		}
 		names[name] = index
 	}
-	outputSchema, err := agent.SchemaFor[Output]()
+	outputSchema, err := jsonschema.For[Output]()
 	if err != nil {
 		return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
 	}

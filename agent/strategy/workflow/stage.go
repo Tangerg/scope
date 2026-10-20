@@ -7,6 +7,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const invalidEnumName = "invalid"
@@ -66,8 +67,8 @@ func (c childBinding) deploymentRef() agent.DeploymentRef { return c.deployment.
 func (c childBinding) topology(
 	role BindingRole,
 	id string,
-	inputSchema agent.Schema,
-	outputSchema agent.Schema,
+	inputSchema jsonschema.Schema,
+	outputSchema jsonschema.Schema,
 ) BindingTopology {
 	return BindingTopology{
 		Role: role, ID: id, DeploymentRef: c.deploymentRef(),
@@ -81,8 +82,8 @@ func (c childBinding) topology(
 type Stage struct {
 	id           string
 	kind         StageKind
-	inputSchema  agent.Schema
-	outputSchema agent.Schema
+	inputSchema  jsonschema.Schema
+	outputSchema jsonschema.Schema
 	transform    transformStage
 	call         childBinding
 	switcher     switchStage
@@ -112,11 +113,11 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 	if !agent.ValidQualifiedName(id) || transform == nil {
 		return Stage{}, ErrInvalidStage
 	}
-	inputSchema, err := agent.SchemaFor[I]()
+	inputSchema, err := jsonschema.For[I]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: transform %q input schema: %w", ErrInvalidStage, id, err)
 	}
-	outputSchema, err := agent.SchemaFor[O]()
+	outputSchema, err := jsonschema.For[O]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: transform %q output schema: %w", ErrInvalidStage, id, err)
 	}
@@ -166,7 +167,7 @@ func Call(config CallConfig) (Stage, error) {
 
 func (s Stage) Valid() bool { return s.kind.Valid() }
 
-func (s Stage) hasIdenticalInputSchema(schema agent.Schema) bool {
+func (s Stage) hasIdenticalInputSchema(schema jsonschema.Schema) bool {
 	return s.inputSchema.Equal(schema)
 }
 

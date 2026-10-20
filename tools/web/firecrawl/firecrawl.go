@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Tangerg/scope/tools/web/internal/googletbs"
+
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -57,7 +59,7 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 	return &searchRequest{
 		Query: request.QueryWithSiteOperators(),
 		Limit: cmp.Or(request.MaxResults, defaultSearchResultCount),
-		Tbs:   recencyToTbs(request.Recency),
+		Tbs:   googletbs.FromRecency(request.Recency),
 	}
 }
 
@@ -135,29 +137,4 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		return nil, fmt.Errorf("firecrawl: response is missing requested %s content", format)
 	}
 	return &web.FetchResponse{Content: *content, Format: format}, nil
-}
-
-// Google tbs (to-be-searched) query-date-range codes selected by web.Recency.
-const (
-	tbsPastHour  = "qdr:h"
-	tbsPastDay   = "qdr:d"
-	tbsPastWeek  = "qdr:w"
-	tbsPastMonth = "qdr:m"
-	tbsPastYear  = "qdr:y"
-)
-
-func recencyToTbs(r web.Recency) string {
-	switch r {
-	case web.RecencyHour:
-		return tbsPastHour
-	case web.RecencyDay:
-		return tbsPastDay
-	case web.RecencyWeek:
-		return tbsPastWeek
-	case web.RecencyMonth:
-		return tbsPastMonth
-	case web.RecencyYear:
-		return tbsPastYear
-	}
-	return ""
 }

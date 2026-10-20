@@ -20,6 +20,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 	agentotel "github.com/Tangerg/scope/otel/agent"
 )
 
@@ -709,11 +710,11 @@ func testDeployment(t testing.TB) agent.Deployment {
 
 func testDeploymentWithDispatcher(t testing.TB, dispatcher agent.Dispatcher) agent.Deployment {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[testInput]()
+	inputSchema, err := jsonschema.For[testInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[testOutput]()
+	outputSchema, err := jsonschema.For[testOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}

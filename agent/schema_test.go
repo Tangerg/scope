@@ -5,30 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-)
 
-func TestSchemaValidationSeparatesSchemaAndValueFailures(t *testing.T) {
-	if err := (Schema{}).Validate(json.RawMessage(`1`)); !errors.Is(err, ErrInvalidSchema) {
-		t.Fatalf("zero schema error = %v", err)
-	}
-	schema, err := SchemaFor[int]()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, raw := range []string{`"one"`, `{`, `1 2`, `{"a":1,"a":2}`} {
-		if err := schema.Validate(json.RawMessage(raw)); !errors.Is(err, ErrSchemaValidation) {
-			t.Fatalf("Validate(%q) error = %v", raw, err)
-		}
-	}
-}
+	"github.com/Tangerg/scope/core/jsonschema"
+)
 
 type jsonWireFixture struct {
 	Metadata  map[string]json.RawMessage `json:"metadata"`
 	Signature []byte                     `json:"signature"`
 }
 
-func TestSchemaForValidatesTypedWireValues(t *testing.T) {
-	schema, err := SchemaFor[wireFixture]()
+func TestPayloadConformsToDerivedSchema(t *testing.T) {
+	schema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +30,12 @@ func TestSchemaForValidatesTypedWireValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.Validate(invalid.JSON()); !errors.Is(err, ErrSchemaValidation) {
-		t.Fatalf("Validate(invalid) error = %v, want ErrSchemaValidation; schema = %s", err, schema.JSON())
+	if err := schema.Validate(invalid.JSON()); !errors.Is(err, jsonschema.ErrValidation) {
+		t.Fatalf("Validate(invalid) error = %v, want jsonschema.ErrValidation; schema = %s", err, schema.JSON())
 	}
 }
 
-func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
+func TestChildSpecConformsToDerivedSchema(t *testing.T) {
 	key, err := ParseChildKey("candidate")
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +45,7 @@ func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := childTestSpec(key, newChildTestDeployment(t).DeploymentRef(), input)
-	schema, err := SchemaFor[ChildSpec]()
+	schema, err := jsonschema.For[ChildSpec]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +58,8 @@ func TestSchemaForChildSpecUsesItsPublicWireContract(t *testing.T) {
 	}
 }
 
-func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
-	schema, err := SchemaFor[jsonWireFixture]()
+func TestPayloadSchemaMatchesEncodingJSONWireTypes(t *testing.T) {
+	schema, err := jsonschema.For[jsonWireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +93,8 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validateOutputErr := schema.Validate(arraySignature.JSON()); !errors.Is(validateOutputErr, ErrSchemaValidation) {
-		t.Fatalf("Validate(array signature) error = %v, want ErrSchemaValidation", validateOutputErr)
+	if validateOutputErr := schema.Validate(arraySignature.JSON()); !errors.Is(validateOutputErr, jsonschema.ErrValidation) {
+		t.Fatalf("Validate(array signature) error = %v, want jsonschema.ErrValidation", validateOutputErr)
 	}
 	if !bytes.Contains(schema.JSON(), []byte(`"contentEncoding":"base64"`)) {
 		t.Fatalf("derived schema does not identify the byte-slice encoding: %s", schema.JSON())
@@ -118,41 +105,5 @@ func TestSchemaForMatchesEncodingJSONWireTypes(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidPayload) {
 		t.Fatalf("EncodePayload(invalid RawMessage) error = %v, want ErrInvalidPayload", err)
-	}
-}
-
-func TestSchemaOwnsWireBytes(t *testing.T) {
-	raw := json.RawMessage(`{"type":"string"}`)
-	schema, err := ParseSchema(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw[2] = 'x'
-	if got := string(schema.JSON()); got != `{"type":"string"}` {
-		t.Fatalf("Schema.JSON() = %s", got)
-	}
-}
-
-func TestSchemaRejectsInvalidDefinitions(t *testing.T) {
-	for _, data := range []json.RawMessage{
-		nil,
-		[]byte(`[]`),
-		[]byte(`{"type":"not-a-type"}`),
-		[]byte(`{"minLength":-1}`),
-		[]byte(`{"$ref":"https://example.com/external-schema"}`),
-	} {
-		if _, err := ParseSchema(data); !errors.Is(err, ErrInvalidSchema) {
-			t.Fatalf("ParseSchema(%q) error = %v, want ErrInvalidSchema", data, err)
-		}
-	}
-}
-
-func TestSchemaEqualRequiresValidContracts(t *testing.T) {
-	text := controlValue(SchemaFor[string]())
-	if !text.Equal(controlValue(SchemaFor[string]())) || text.Equal(controlValue(SchemaFor[int]())) {
-		t.Fatal("schema equality does not follow the canonical contract")
-	}
-	if (Schema{}).Equal(Schema{}) {
-		t.Fatal("two absent schemas compared equal")
 	}
 }

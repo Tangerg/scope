@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 )
 
 // Source is the read-only repository that discovers and loads skills. Its
@@ -41,14 +40,7 @@ type Source interface {
 // opening a resource bundled under a skill directory.
 type ResourceSource interface {
 	Source
-	// OpenResource opens one bundled resource beneath the exact skill root. It
-	// must reject absolute paths, traversal, and symlink escape according to the
-	// source's trust boundary and return a non-nil regular file on success.
-	// The source validates the owning skill in this same operation. An absent
-	// skill returns ErrSkillNotFound; a missing resource in an existing skill
-	// returns fs.ErrNotExist without ErrSkillNotFound. Failed opens close any
-	// acquired file; successful callers own and close the returned file.
-	OpenResource(ctx context.Context, name, resource string) (fs.File, error)
+	ResourceOpener
 }
 
 func contextError(ctx context.Context, operation string) error {

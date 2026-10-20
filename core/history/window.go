@@ -115,7 +115,7 @@ func newMessageWindow(messages []chat.Message, limit int) messageWindow {
 }
 
 func (m messageWindow) project() ([]chat.Message, error) {
-	projected := make([]chat.Message, 0, m.limit)
+	projected := []chat.Message{}
 	if len(m.systemMessages) > 0 {
 		merged, err := m.mergedSystemMessage()
 		if err != nil {

@@ -1,7 +1,6 @@
 package history
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -45,24 +44,4 @@ func (c ConversationID) Validate() error {
 		}
 	}
 	return nil
-}
-
-type conversationIDContextKey struct{}
-
-// WithConversationID returns a child context carrying the history partition
-// key for one model call. An empty ID deliberately shadows and disables an ID
-// inherited from a parent context. As with context.WithValue, ctx must not be
-// nil.
-func WithConversationID(ctx context.Context, conversationID ConversationID) context.Context {
-	return context.WithValue(ctx, conversationIDContextKey{}, conversationID)
-}
-
-// ConversationIDFromContext returns the ID carried by ctx. Empty values behave
-// as absent so middleware can transparently skip history for unbound calls.
-func ConversationIDFromContext(ctx context.Context) (ConversationID, bool) {
-	if ctx == nil {
-		return "", false
-	}
-	conversationID, ok := ctx.Value(conversationIDContextKey{}).(ConversationID)
-	return conversationID, ok && conversationID != ""
 }

@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type scopeJoinDefinition struct {
@@ -15,7 +17,7 @@ type scopeJoinDefinition struct {
 
 func newScopeJoinDeployment(t *testing.T, boundary ChildWaitBoundary, dispatcher Dispatcher) Deployment {
 	t.Helper()
-	schema, err := SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		t.Fatal(err)
 	}

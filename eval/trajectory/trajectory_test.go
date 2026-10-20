@@ -15,6 +15,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -463,18 +464,18 @@ func (fixtureWeatherTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (f fixtureWeatherTool) Call(ctx context.Context, _ tool.Invocation) (chat.ToolOutput, error) {
+func (f fixtureWeatherTool) Call(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
 	if f.release != nil {
 		select {
 		case <-ctx.Done():
-			return chat.ToolOutput{}, ctx.Err()
+			return tool.Result{}, ctx.Err()
 		case <-f.release:
 		}
 	}
 	if f.failure != nil {
-		return chat.ToolOutput{}, f.failure
+		return tool.Result{}, f.failure
 	}
-	return chat.NewTextToolOutput("sunny"), nil
+	return tool.Result{Output: chat.NewTextToolOutput("sunny")}, nil
 }
 
 func runTrajectory(t *testing.T) trajectory.Trajectory {
@@ -484,16 +485,16 @@ func runTrajectory(t *testing.T) trajectory.Trajectory {
 
 func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[fixtureInput]()
+	inputSchema, err := jsonschema.For[fixtureInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[fixtureOutput]()
+	outputSchema, err := jsonschema.For[fixtureOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if value.NullOutput {
-		outputSchema, err = agent.ParseSchema(json.RawMessage(`{"type":"null"}`))
+		outputSchema, err = jsonschema.Parse(json.RawMessage(`{"type":"null"}`))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type fuzzDelegateInput struct {
@@ -145,11 +146,11 @@ func (fuzzWorkerDefinition) Restore(context.Context, agent.ExecutionState) (agen
 
 func fuzzInteractionDefinition(f testing.TB) *Definition {
 	f.Helper()
-	inputSchema, err := agent.SchemaFor[fuzzDelegateInput]()
+	inputSchema, err := jsonschema.For[fuzzDelegateInput]()
 	if err != nil {
 		f.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[fuzzDelegateOutput]()
+	outputSchema, err := jsonschema.For[fuzzDelegateOutput]()
 	if err != nil {
 		f.Fatal(err)
 	}

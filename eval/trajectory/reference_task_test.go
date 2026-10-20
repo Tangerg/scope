@@ -14,6 +14,7 @@ import (
 	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -177,45 +178,53 @@ func referenceModel(input referenceInput) chat.Model {
 }
 
 func referenceTools(input referenceInput, service *referenceService, recorder *referenceRecorder) (interaction.ToolSet, error) {
-	answerSchema, err := agent.SchemaFor[referenceAnswer]()
+	answerSchema, err := jsonschema.For[referenceAnswer]()
 	if err != nil {
 		return interaction.ToolSet{}, err
 	}
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "record_note", Description: "Record a note after explicit input."},
-		func(ctx context.Context, note referenceNote) (string, error) {
-			continuation, resumed := interaction.ToolInputContinuationFromContext(ctx)
+	executable, err := newContinuingTool(tool.FuncConfig{Name: "record_note", Description: "Record a note after explicit input."},
+		func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+			var note referenceNote
+			if decodeErr := jsonv2.Unmarshal(callInput.Arguments(), &note, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+				return tool.Result{}, decodeErr
+			}
+			continuation, resumed := callInput.Continuation()
 			if !resumed {
 				prompt, promptErr := jsonv2.Marshal(note)
 				if promptErr != nil {
-					return "", promptErr
+					return tool.Result{}, promptErr
 				}
-				return "", interaction.RequireToolInput(prompt, answerSchema.JSON(), []byte(`null`))
+				request, requestErr := tool.NewInputRequest(tool.InputRequestConfig{Prompt: prompt, ResponseSchema: answerSchema, ContinuationState: []byte(`null`)})
+				if requestErr != nil {
+					return tool.Result{}, requestErr
+				}
+				return tool.Result{InputRequest: &request}, nil
 			}
 			var answer referenceAnswer
 			if decodeErr := jsonv2.Unmarshal(continuation.Response(), &answer, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
-				return "", decodeErr
+				return tool.Result{}, decodeErr
 			}
 			if !answer.Approved {
 				failure, rejectionErr := tool.NewFailure(tool.FailureConfig{
 					Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("rejected"),
 				})
 				if rejectionErr != nil {
-					return "", rejectionErr
+					return tool.Result{}, rejectionErr
 				}
-				return "", failure
+				return tool.Result{}, failure
 			}
 			invocation, ok := interaction.ToolInvocationFromContext(ctx)
 			if !ok {
-				return "", errors.New("reference: missing Engine attribution")
+				return tool.Result{}, errors.New("reference: missing Engine attribution")
 			}
 			text, writeErr := service.write(invocation.EffectID(), note)
 			if writeErr != nil {
-				return "", writeErr
+				return tool.Result{}, writeErr
 			}
 			if input.LoseResponse {
-				return "", errors.New("reference: response lost after acknowledged business write")
+				return tool.Result{}, errors.New("reference: response lost after acknowledged business write")
 			}
-			return text, nil
+			return tool.Result{Output: chat.NewTextToolOutput(text)}, nil
 		})
 	if err != nil {
 		return interaction.ToolSet{}, err
@@ -402,4 +411,21 @@ func Example_referenceTask() {
 	// Output:
 	// completed 1 0
 	// unknown
+}
+
+type referenceNoteTool struct {
+	definition chat.ToolDefinition
+	call       func(context.Context, tool.Invocation) (tool.Result, error)
+}
+
+func newContinuingTool(config tool.FuncConfig, call func(context.Context, tool.Invocation) (tool.Result, error)) (referenceNoteTool, error) {
+	schema, err := jsonschema.For[referenceNote]()
+	if err != nil {
+		return referenceNoteTool{}, err
+	}
+	return referenceNoteTool{definition: chat.ToolDefinition{Name: config.Name, Description: config.Description, InputSchema: schema.JSON()}, call: call}, nil
+}
+func (r referenceNoteTool) Definition() chat.ToolDefinition { return r.definition.Clone() }
+func (r referenceNoteTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
+	return r.call(ctx, input)
 }

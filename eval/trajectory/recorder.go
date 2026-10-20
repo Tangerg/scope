@@ -192,16 +192,17 @@ func (r *recording) seal() recordedEvidence {
 	return r.recordedEvidence
 }
 
-// Recorder's zero value accepts bounded concurrent tree recordings. Only root
-// start/restore events open a session. Take joins the subtree, detaches the
+// Recorder's zero value accepts bounded concurrent tree activation recordings.
+// Root process and tree incarnation identify a session. Only root start and
+// nonterminal restore events open one. Take joins the subtree, detaches the
 // session, and validates outside shared locks. RuntimeStopped and known
 // observation losses remain exportable evidence; they do not invent a Result.
 type Recorder struct {
 	mu    sync.Mutex
-	trees map[agent.ProcessID]*recording
+	trees map[activationProcess]*recording
 }
 
-func (r *Recorder) session(root agent.ProcessID) *recording {
+func (r *Recorder) session(root activationProcess) *recording {
 	if r == nil {
 		return nil
 	}
@@ -213,7 +214,7 @@ func (r *Recorder) session(root agent.ProcessID) *recording {
 func (r *Recorder) open(event agent.Event) *recording {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	root := event.Relation().RootID()
+	root := activationProcess{event.Relation().RootID(), eventIncarnation(event)}
 	if entry := r.trees[root]; entry != nil {
 		return entry
 	}
@@ -223,14 +224,14 @@ func (r *Recorder) open(event agent.Event) *recording {
 		return nil
 	}
 	if r.trees == nil {
-		r.trees = make(map[agent.ProcessID]*recording)
+		r.trees = make(map[activationProcess]*recording)
 	}
 	entry := newRecording(event)
 	r.trees[root] = entry
 	return entry
 }
 
-func (r *Recorder) detach(root agent.ProcessID) *recording {
+func (r *Recorder) detach(root activationProcess) *recording {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry := r.trees[root]
@@ -248,7 +249,8 @@ func (r *Recorder) OnEvent(_ context.Context, event agent.Event) {
 }
 
 func (r *Recorder) OnModelStarted(_ context.Context, invocation interaction.ModelInvocation, request *chat.Request) {
-	entry := r.session(invocation.Relation().RootID())
+	incarnation, _ := invocation.TreeIncarnationID()
+	entry := r.session(activationProcess{invocation.Relation().RootID(), incarnation})
 	if entry == nil || !invocation.Valid() || request == nil {
 		return
 	}
@@ -256,7 +258,8 @@ func (r *Recorder) OnModelStarted(_ context.Context, invocation interaction.Mode
 }
 
 func (r *Recorder) OnModelSettled(_ context.Context, invocation interaction.ModelInvocation, settlement interaction.ModelSettlement) {
-	entry := r.session(invocation.Relation().RootID())
+	incarnation, _ := invocation.TreeIncarnationID()
+	entry := r.session(activationProcess{invocation.Relation().RootID(), incarnation})
 	if entry == nil || !invocation.Valid() {
 		return
 	}
@@ -264,7 +267,8 @@ func (r *Recorder) OnModelSettled(_ context.Context, invocation interaction.Mode
 }
 
 func (r *Recorder) OnToolStarted(_ context.Context, invocation interaction.ToolInvocation) {
-	entry := r.session(invocation.Relation().RootID())
+	incarnation, _ := invocation.TreeIncarnationID()
+	entry := r.session(activationProcess{invocation.Relation().RootID(), incarnation})
 	if entry == nil || !invocation.Valid() {
 		return
 	}
@@ -272,7 +276,8 @@ func (r *Recorder) OnToolStarted(_ context.Context, invocation interaction.ToolI
 }
 
 func (r *Recorder) OnToolSettled(_ context.Context, invocation interaction.ToolInvocation, settlement interaction.ToolSettlement) {
-	entry := r.session(invocation.Relation().RootID())
+	incarnation, _ := invocation.TreeIncarnationID()
+	entry := r.session(activationProcess{invocation.Relation().RootID(), incarnation})
 	if entry == nil || !invocation.Valid() {
 		return
 	}
@@ -299,7 +304,7 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 	if err != nil {
 		return Trajectory{}, err
 	}
-	entry := r.detach(process.Relation().ProcessID())
+	entry := r.detach(activationProcess{process.Relation().ProcessID(), process.TreeIncarnationID()})
 	if entry == nil {
 		return Trajectory{}, fmt.Errorf("%w: root recording is absent or already consumed", ErrIncompleteRecording)
 	}
@@ -315,13 +320,13 @@ func (r *Recorder) Take(ctx context.Context, process *agent.Process, coverage *C
 	return New(config)
 }
 
-// Discard releases one failed or abandoned recording. The Host must first join
+// Discard releases this root activation's recording. The Host must first join
 // or stop its tree; later callbacks cannot implicitly reopen a consumed session.
-func (r *Recorder) Discard(root agent.ProcessID) {
-	if r == nil {
+func (r *Recorder) Discard(process *agent.Process) {
+	if r == nil || process == nil || !process.Relation().IsRoot() {
 		return
 	}
-	r.detach(root)
+	r.detach(activationProcess{process.Relation().ProcessID(), process.TreeIncarnationID()})
 }
 
 // settledRoot reports committed=false for a RuntimeError, whose stop is

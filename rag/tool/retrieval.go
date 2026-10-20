@@ -76,7 +76,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 
 func (r Retrieval) Definition() chat.ToolDefinition { return r.function.Definition() }
 
-func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (chat.ToolOutput, error) {
+func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (coretool.Result, error) {
 	return r.function.Call(ctx, invocation)
 }
 

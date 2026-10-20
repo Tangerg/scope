@@ -22,26 +22,26 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				var initialCalls, resumedCalls atomic.Int32
-				executable, err := tool.NewFunc(tool.FuncConfig{
+				executable, err := newContinuingTool(tool.FuncConfig{
 					Name: "confirm", Description: "Confirm the pending Tool operation.",
-				}, func(ctx context.Context, _ struct{}) (string, error) {
+				}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 					invocation, present := ToolInvocationFromContext(ctx)
 					if !present {
-						return "", errors.New("root Tool invocation lost physical attribution")
+						return tool.Result{}, errors.New("root Tool invocation lost physical attribution")
 					}
 					if reference, attributed := invocation.Reference(); attributed || reference.Valid() {
-						return "", errors.New("root Tool invocation invented an Interaction parent")
+						return tool.Result{}, errors.New("root Tool invocation invented an Interaction parent")
 					}
-					continuation, resumed := ToolInputContinuationFromContext(ctx)
+					continuation, resumed := callInput.Continuation()
 					if !resumed {
 						initialCalls.Add(1)
-						return "", RequireToolInput([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{"pending":true}`))
+						return waitingInput([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{"pending":true}`))
 					}
 					resumedCalls.Add(1)
 					if string(continuation.Response()) != "true" || string(continuation.State()) != `{"pending":true}` {
-						return "", errors.New("Tool continuation changed its answer or state")
+						return tool.Result{}, errors.New("Tool continuation changed its answer or state")
 					}
-					return "confirmed", nil
+					return tool.Result{Output: chat.NewTextToolOutput("confirmed")}, nil
 				})
 				if err != nil {
 					t.Fatal(err)

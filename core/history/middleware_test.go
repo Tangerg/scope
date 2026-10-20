@@ -16,11 +16,11 @@ import (
 )
 
 func TestNewRejectsNilStore(t *testing.T) {
-	if _, err := history.NewMiddleware(nil); !errors.Is(err, history.ErrNilStore) {
+	if _, err := history.NewMiddleware(history.MiddlewareConfig{}); !errors.Is(err, history.ErrNilStore) {
 		t.Fatalf("New(nil) error = %v", err)
 	}
 	var typedNil *recordingStore
-	if _, err := history.NewMiddleware(typedNil); !errors.Is(err, history.ErrNilStore) {
+	if _, err := history.NewMiddleware(history.MiddlewareConfig{Store: typedNil, ConversationID: "conversation-1"}); !errors.Is(err, history.ErrNilStore) {
 		t.Fatalf("New(typed nil) error = %v", err)
 	}
 }
@@ -41,7 +41,7 @@ func TestCallReplaysInStableOrderAndPersistsOnlyFreshExchange(t *testing.T) {
 		chat.NewSystemMessage("live system"),
 		chat.NewUserMessage(chat.NewTextPart("fresh user")),
 	)
-	got, err := middleware.Call(model).Call(boundContext(t), request)
+	got, err := middleware.Call(model).Call(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,26 +61,6 @@ func TestCallReplaysInStableOrderAndPersistsOnlyFreshExchange(t *testing.T) {
 		messageKey{chat.RoleUser, "fresh user"},
 		messageKey{chat.RoleAssistant, "answer"},
 	)
-}
-
-func TestCallWithoutConversationIsTransparent(t *testing.T) {
-	store := &recordingStore{}
-	middleware := mustMiddleware(t, store)
-	request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))
-	var samePointer bool
-	model := chat.ModelFunc(func(_ context.Context, got *chat.Request) (*chat.Response, error) {
-		samePointer = got == request
-		return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
-	})
-	if _, err := middleware.Call(model).Call(t.Context(), request); err != nil {
-		t.Fatal(err)
-	}
-	if !samePointer {
-		t.Fatal("unbound request was not passed through unchanged")
-	}
-	if reads, writes := store.counts(); reads != 0 || writes != 0 {
-		t.Fatalf("store calls = read %d, write %d", reads, writes)
-	}
 }
 
 func TestCallValidatesCompleteResponseBeforePersisting(t *testing.T) {
@@ -103,7 +83,7 @@ func TestCallValidatesCompleteResponseBeforePersisting(t *testing.T) {
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return test.response, nil
 			})
-			got, err := mustMiddleware(t, store).Call(model).Call(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
+			got, err := mustMiddleware(t, store).Call(model).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
 			if got != test.response || test.valid && err != nil || !test.valid && !errors.Is(err, chat.ErrInvalidResponse) {
 				t.Fatalf("response=%p error=%v, want response=%p valid=%t", got, err, test.response, test.valid)
 			}
@@ -111,27 +91,6 @@ func TestCallValidatesCompleteResponseBeforePersisting(t *testing.T) {
 				t.Fatalf("response without a persistable valid assistant wrote %d batches", writes)
 			}
 		})
-	}
-}
-
-func TestCallRejectsInvalidConversationBeforeStoreOrModel(t *testing.T) {
-	store := &recordingStore{}
-	middleware := mustMiddleware(t, store)
-	called := false
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		called = true
-		return nil, nil
-	})
-	ctx := history.WithConversationID(t.Context(), " padded")
-	_, err := middleware.Call(model).Call(ctx, mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
-	if !errors.Is(err, history.ErrInvalidConversationID) {
-		t.Fatalf("Call error = %v", err)
-	}
-	if called {
-		t.Fatal("model was called")
-	}
-	if reads, writes := store.counts(); reads != 0 || writes != 0 {
-		t.Fatalf("store calls = read %d, write %d", reads, writes)
 	}
 }
 
@@ -145,7 +104,7 @@ func TestCallPreservesReadModelAndWriteErrors(t *testing.T) {
 		return nil, nil
 	})
 	request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))
-	if _, err := middleware.Call(model).Call(boundContext(t), request); !errors.Is(err, readErr) {
+	if _, err := middleware.Call(model).Call(t.Context(), request); !errors.Is(err, readErr) {
 		t.Fatalf("read error = %v", err)
 	}
 	if modelCalled {
@@ -158,7 +117,7 @@ func TestCallPreservesReadModelAndWriteErrors(t *testing.T) {
 	middleware = mustMiddleware(t, store)
 	got, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return modelResponse, modelErr
-	})).Call(boundContext(t), request)
+	})).Call(t.Context(), request)
 	if got != modelResponse || !errors.Is(err, modelErr) {
 		t.Fatalf("model result = %p, %v", got, err)
 	}
@@ -172,7 +131,7 @@ func TestCallPreservesReadModelAndWriteErrors(t *testing.T) {
 	modelResponse = response(chat.NewAssistantMessage(chat.NewTextPart("answer")))
 	got, err = middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return modelResponse, nil
-	})).Call(boundContext(t), request)
+	})).Call(t.Context(), request)
 	if got != modelResponse || !errors.Is(err, writeErr) {
 		t.Fatalf("write result = %p, %v", got, err)
 	}
@@ -189,7 +148,7 @@ func TestCallDefersToolCallUntilCompleteToolExchange(t *testing.T) {
 
 	if _, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return response(call), nil
-	})).Call(boundContext(t), mustRequest(t, user)); err != nil {
+	})).Call(t.Context(), mustRequest(t, user)); err != nil {
 		t.Fatal(err)
 	}
 	if _, writes := store.counts(); writes != 0 {
@@ -198,7 +157,7 @@ func TestCallDefersToolCallUntilCompleteToolExchange(t *testing.T) {
 
 	if _, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return response(chat.NewAssistantMessage(chat.NewTextPart("sunny"))), nil
-	})).Call(boundContext(t), mustRequest(t, user, call, tool)); err != nil {
+	})).Call(t.Context(), mustRequest(t, user, call, tool)); err != nil {
 		t.Fatal(err)
 	}
 	writes := store.writesSnapshot()
@@ -228,7 +187,7 @@ func TestCallPersistsExchangeBeforeCallerReusesValues(t *testing.T) {
 			t.Fatalf("prepared input = %#v", prepared.Messages)
 		}
 		return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
-	})).Call(boundContext(t), request)
+	})).Call(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +214,7 @@ func TestCallRejectsInvalidStoredMessagesBeforeModel(t *testing.T) {
 				return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
 			})
 			request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question")))
-			if _, err := middleware.Call(model).Call(boundContext(t), request); !errors.Is(err, chat.ErrInvalidMessage) {
+			if _, err := middleware.Call(model).Call(t.Context(), request); !errors.Is(err, chat.ErrInvalidMessage) {
 				t.Fatalf("stored message error = %v, want ErrInvalidMessage", err)
 			}
 			if called {
@@ -283,7 +242,7 @@ func TestStreamIsLazyAndPersistsOnlyNaturalCompletion(t *testing.T) {
 			yield(chunk("lo", chat.FinishReasonStop), nil)
 		}
 	})
-	sequence := middleware.Stream(streamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
+	sequence := middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
 	if started {
 		t.Fatal("streamer started before iteration")
 	}
@@ -310,41 +269,6 @@ func TestStreamIsLazyAndPersistsOnlyNaturalCompletion(t *testing.T) {
 	)
 }
 
-func TestStreamWithoutConversationForwardsWithoutHistory(t *testing.T) {
-	store := &recordingStore{}
-	middleware := mustMiddleware(t, store)
-	request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))
-	samePointer := false
-	streamer := chat.StreamerFunc(func(_ context.Context, got *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-		samePointer = got == request
-		return func(yield func(*chat.ResponseDelta, error) bool) {
-			yield(chunk("answer", chat.FinishReasonStop), nil)
-		}
-	})
-	var got string
-	for response, err := range middleware.Stream(streamer).Stream(t.Context(), request) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		got = response.Text()
-	}
-	if !samePointer || got != "answer" {
-		t.Fatalf("forward result samePointer=%v text=%q", samePointer, got)
-	}
-	if reads, writes := store.counts(); reads != 0 || writes != 0 {
-		t.Fatalf("store calls = read %d, write %d", reads, writes)
-	}
-
-	nilStreamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil })
-	var gotErr error
-	for _, err := range middleware.Stream(nilStreamer).Stream(t.Context(), request) {
-		gotErr = err
-	}
-	if !errors.Is(gotErr, history.ErrNilStream) {
-		t.Fatalf("nil forwarded sequence error = %v", gotErr)
-	}
-}
-
 func TestStreamDoesNotPersistOnEarlyStopProviderErrorOrMalformedChunk(t *testing.T) {
 	t.Run("early stop", func(t *testing.T) {
 		store := &recordingStore{}
@@ -359,7 +283,7 @@ func TestStreamDoesNotPersistOnEarlyStopProviderErrorOrMalformedChunk(t *testing
 				yield(chunk("second", chat.FinishReasonStop), nil)
 			}
 		})
-		sequence := middleware.Stream(streamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
+		sequence := middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
 		sequence(func(*chat.ResponseDelta, error) bool { return false })
 		if !closed {
 			t.Fatal("provider resources were not released")
@@ -382,7 +306,7 @@ func TestStreamDoesNotPersistOnEarlyStopProviderErrorOrMalformedChunk(t *testing
 			}
 		})
 		var gotErr error
-		for _, err := range middleware.Stream(streamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
+		for _, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
 			if err != nil {
 				gotErr = err
 			}
@@ -404,7 +328,7 @@ func TestStreamDoesNotPersistOnEarlyStopProviderErrorOrMalformedChunk(t *testing
 			}
 		})
 		var errorsSeen int
-		for _, err := range middleware.Stream(streamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
+		for _, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
 			if err != nil {
 				errorsSeen++
 			}
@@ -429,7 +353,7 @@ func TestStreamReportsWriteFailureAndNilSequence(t *testing.T) {
 	})
 	var gotErr error
 	var chunks int
-	for response, err := range middleware.Stream(streamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
+	for response, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
 		if err != nil {
 			gotErr = err
 		} else if response != nil {
@@ -444,7 +368,7 @@ func TestStreamReportsWriteFailureAndNilSequence(t *testing.T) {
 	middleware = mustMiddleware(t, store)
 	nilStreamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil })
 	gotErr = nil
-	for _, err := range middleware.Stream(nilStreamer).Stream(boundContext(t), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
+	for _, err := range middleware.Stream(nilStreamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
 		gotErr = err
 	}
 	if !errors.Is(gotErr, history.ErrNilStream) {
@@ -455,7 +379,7 @@ func TestStreamReportsWriteFailureAndNilSequence(t *testing.T) {
 func TestMiddlewarePreservesContextCancellation(t *testing.T) {
 	store := new(inmemory.Store)
 	middleware := mustMiddleware(t, store)
-	ctx, cancel := context.WithCancel(boundContext(t))
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		t.Fatal("model called after cancellation")
@@ -540,7 +464,7 @@ func assertMessages(t *testing.T, messages []chat.Message, want ...messageKey) {
 
 func mustMiddleware(t *testing.T, store history.ReadWriter) history.Middleware {
 	t.Helper()
-	middleware, err := history.NewMiddleware(store)
+	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: "conversation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,11 +480,6 @@ func mustRequest(t *testing.T, messages ...chat.Message) *chat.Request {
 	return request
 }
 
-func boundContext(t *testing.T) context.Context {
-	t.Helper()
-	return history.WithConversationID(t.Context(), "conversation-1")
-}
-
 func response(message chat.Message) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
 }
@@ -571,4 +490,46 @@ func chunk(text string, finish chat.FinishReason) *chat.ResponseDelta {
 		delta.Parts = []chat.PartDelta{chat.NewTextDelta(text)}
 	}
 	return delta
+}
+
+func TestMiddlewareBindsOneValidatedPartition(t *testing.T) {
+	store := new(inmemory.Store)
+	for _, id := range []history.ConversationID{"", " padded"} {
+		if _, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: id}); !errors.Is(err, history.ErrInvalidConversationID) {
+			t.Fatalf("invalid partition %q: %v", id, err)
+		}
+	}
+	config := history.MiddlewareConfig{Store: store, ConversationID: "first"}
+	first, err := history.NewMiddleware(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConversationID = "second"
+	second, err := history.NewMiddleware(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response(chat.NewAssistantMessage(chat.NewTextPart("call"))), nil
+	})
+	if _, err := first.Call(model).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("first")))); err != nil {
+		t.Fatal(err)
+	}
+	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		return func(yield func(*chat.ResponseDelta, error) bool) { yield(chunk("stream", chat.FinishReasonStop), nil) }
+	})
+	for _, err := range second.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("second")))) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []history.ConversationID{"first", "second"} {
+		messages, err := store.Read(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(messages) != 2 || messages[0].Text() != id.String() {
+			t.Fatalf("partition %q: %#v", id, messages)
+		}
+	}
 }

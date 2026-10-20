@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -55,16 +56,32 @@ func TestInteractionSnapshotRetainsOneCurrentContext(t *testing.T) {
 func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, []json.RawMessage) {
 	t.Helper()
 	var calls uint32
+	ready := make(chan struct{})
 	model := chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		calls++
 		if calls > rounds {
+			want := 1 + 2*int(rounds)
+			if mode == "changed" {
+				want += int(rounds) + 1
+			}
+			if len(request.Messages) != want {
+				t.Errorf("restored model context has %d messages, want %d", len(request.Messages), want)
+			}
 			return textResponse("done"), nil
 		}
 		return toolCallResponse(chat.ToolCall{ID: fmt.Sprintf("call_%d", calls), Name: "context", Arguments: `{}`}), nil
 	})
-	executable, err := tool.NewFunc(tool.FuncConfig{
+	executable, err := newContinuingTool(tool.FuncConfig{
 		Name: "context", Description: "Return a fixed size context contribution.",
-	}, func(context.Context, struct{}) (string, error) { return strings.Repeat("x", 1024), nil })
+	}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
+		if calls == rounds {
+			if _, resumed := callInput.Continuation(); !resumed {
+				close(ready)
+				return waitingInput(json.RawMessage(`"continue?"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`null`))
+			}
+		}
+		return tool.Result{Output: chat.NewTextToolOutput(strings.Repeat("x", 1024))}, nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +109,8 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engineConfig := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
+	engine, err := agent.NewEngine(engineConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,20 +119,71 @@ func measureInteractionContext(t *testing.T, rounds uint32, mode string) (int, [
 			t.Error(closeErr)
 		}
 	})
-	result, err := engine.Run(t.Context(), deployment, interactionInput(t, "start"))
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
-		t.Fatalf("interaction result=%s error=%v", result.Termination().Status(), err)
-	}
-	snapshot, err := engine.CaptureTree(t.Context(), result.ProcessID())
+	ctx := t.Context()
+	process, err := engine.Start(ctx, deployment, interactionInput(t, "start"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, parseErr := agent.ParseTreeSnapshot(snapshot.JSON()); parseErr != nil {
-		t.Fatalf("compacted snapshot failed recovery validation: %v", parseErr)
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	snapshot, _ := captureToolInput(t, engine, process)
+	activeBytes := len(rootProcessSnapshot(snapshot).JSON())
+	parsed, err := agent.ParseTreeSnapshot(snapshot.JSON())
+	if err != nil {
+		t.Fatalf("active snapshot failed validation: %v", err)
+	}
+	recovered, err := agent.NewEngine(engineConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := recovered.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	root, err := recovered.RestoreTree(ctx, deployment, parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if killErr := process.Kill(ctx, "retire old activation"); killErr != nil && !errors.Is(killErr, agent.ErrTreeIncarnationConflict) {
+		t.Fatal(killErr)
+	}
+	if joinErr := process.Join(ctx); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+		t.Fatalf("old activation exit = %v", joinErr)
+	}
+	_, pending := captureToolInput(t, recovered, root)
+	id, err := agent.ParseSignalID("signal:resume-context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := pending.ResponseSignal(id, json.RawMessage(`true`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := pendingToolProcess(t, recovered, pending)
+	if _, deliveryErr := child.DeliverSignals(ctx, answer); deliveryErr != nil {
+		t.Fatal(deliveryErr)
+	}
+	result, err := root.Await(ctx)
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+		t.Fatalf("restored interaction=%s, %v", result.Termination().Status(), err)
+	}
+	if joinErr := root.Join(ctx); joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	final, err := recovered.CaptureTree(ctx, root.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rounds >= 16 && len(rootProcessSnapshot(final).JSON()) >= activeBytes {
+		t.Fatal("completion retained the active working context")
 	}
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
-	return len(snapshot.JSON()), recorder.modelResults
+	return activeBytes, recorder.modelResults
 }
 
 type storageContextReducer struct{ changed bool }

@@ -3,15 +3,19 @@ package jsonschema
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	reflection "github.com/invopop/jsonschema"
 	validation "github.com/santhosh-tekuri/jsonschema/v6"
@@ -23,7 +27,10 @@ const (
 	resourceURL      = "urn:scope:json-schema"
 )
 
-var ErrInvalid = errors.New("jsonschema: invalid schema")
+var (
+	ErrInvalid    = errors.New("jsonschema: invalid schema")
+	ErrValidation = errors.New("jsonschema: instance validation failed")
+)
 
 // Modeler is implemented by values whose encoding/json/v2 representation is
 // described by a separate typed model. Implementations must use a value
@@ -49,6 +56,55 @@ type Patterned interface {
 	JSONSchemaPattern() string
 }
 
+// Constrained projects domain-owned limits onto a type or its JSON properties.
+// Runtime validation and schema generation must derive from the same declarations.
+// Implementations use a value receiver.
+type Constrained interface{ JSONSchemaConstraints() Constraints }
+
+type Constraints struct {
+	Minimum    *float64
+	Maximum    *float64
+	MinLength  *uint64
+	MaxLength  *uint64
+	MinItems   *uint64
+	MaxItems   *uint64
+	Properties map[string]Constraints
+}
+
+func (c Constraints) apply(schema *reflection.Schema) error {
+	if c.Minimum != nil {
+		schema.Minimum = json.Number(strconv.FormatFloat(*c.Minimum, 'g', -1, 64))
+	}
+	if c.Maximum != nil {
+		schema.Maximum = json.Number(strconv.FormatFloat(*c.Maximum, 'g', -1, 64))
+	}
+	if c.MinLength != nil {
+		schema.MinLength = c.MinLength
+	}
+	if c.MaxLength != nil {
+		schema.MaxLength = c.MaxLength
+	}
+	if c.MinItems != nil {
+		schema.MinItems = c.MinItems
+	}
+	if c.MaxItems != nil {
+		schema.MaxItems = c.MaxItems
+	}
+	for name, constraint := range c.Properties {
+		if schema.Properties == nil {
+			return fmt.Errorf("constraint names unknown property %q", name)
+		}
+		property, exists := schema.Properties.Get(name)
+		if !exists {
+			return fmt.Errorf("constraint names unknown property %q", name)
+		}
+		if err := constraint.apply(property); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Schema is an immutable, compiled JSON Schema. Its zero value is invalid and
 // successfully constructed values are safe for concurrent validation.
 type Schema struct {
@@ -60,6 +116,10 @@ type Schema struct {
 // encoding/json/v2 field names and options and the invopop/jsonschema tag dialect.
 // Structs reject additional properties by default. Integer bounds preserve the
 // Go representation even when field tags specify a wider semantic range.
+// Named definitions include their Go package; moving a type changes its canonical
+// schema and any deployment identities derived from it.
+// Custom encodings require Modeler, except standard-library types with known
+// wire contracts. Opaque Schema values cannot be derived from their Go fields.
 func For[T any]() (Schema, error) {
 	typeOf := reflect.TypeFor[T]()
 	definition, err := reflectType(typeOf)
@@ -105,12 +165,25 @@ func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error)
 			err = fmt.Errorf("unsupported type: %v", recovered)
 		}
 	}()
+	named := make(map[string]reflect.Type)
 	reflector := reflection.Reflector{
 		Anonymous: true,
 		Mapper:    reflectWireType,
-		Namer:     qualifiedTypeName,
+		Namer: func(typeOf reflect.Type) string {
+			name := qualifiedTypeName(typeOf)
+			named[name] = typeOf
+			return name
+		},
 	}
 	reflected := reflector.ReflectFromType(typeOf)
+	for name, definition := range reflected.Definitions {
+		if owner := named[name]; owner != nil && owner.Implements(reflect.TypeFor[Constrained]()) {
+			constraint := reflect.Zero(owner).Interface().(Constrained).JSONSchemaConstraints()
+			if err := constraint.apply(definition); err != nil {
+				return nil, err
+			}
+		}
+	}
 	name, referenced := strings.CutPrefix(reflected.Ref, definitionPrefix)
 	if !referenced {
 		return reflected, nil
@@ -129,6 +202,22 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 	requireValueReceiver(typeOf, reflect.TypeFor[Modeler](), "JSONSchemaAlias")
 	requireValueReceiver(typeOf, reflect.TypeFor[Enumerator](), "JSONSchemaEnum")
 	requireValueReceiver(typeOf, reflect.TypeFor[Patterned](), "JSONSchemaPattern")
+	requireValueReceiver(typeOf, reflect.TypeFor[Constrained](), "JSONSchemaConstraints")
+	switch typeOf {
+	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP](), reflect.TypeFor[url.URL]():
+		return nil
+	case reflect.TypeFor[json.Number]():
+		return &reflection.Schema{Type: "number"}
+	}
+	stringModel := typeOf.Kind() == reflect.String && (typeOf.Implements(reflect.TypeFor[Enumerator]()) || typeOf.Implements(reflect.TypeFor[Patterned]()))
+	if !stringModel {
+		for _, codec := range []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[jsonv2.MarshalerTo](), reflect.TypeFor[encoding.TextMarshaler]()} {
+			if typeOf.Implements(codec) || reflect.PointerTo(typeOf).Implements(codec) {
+				panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaAlias", typeOf))
+			}
+		}
+
+	}
 	if typeOf == reflect.TypeFor[[]byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
 			{Type: "null"},
@@ -145,13 +234,39 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		minimum = "0"
 		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
 	default:
-		return stringConstraint(reflect.Zero(typeOf).Interface())
+		value := reflect.Zero(typeOf).Interface()
+		if constraint, ok := value.(Constrained); ok && typeOf.Kind() != reflect.Struct {
+			definition := stringConstraint(value)
+			if definition == nil {
+				switch typeOf.Kind() {
+				case reflect.Float32, reflect.Float64:
+					definition = &reflection.Schema{Type: "number"}
+				case reflect.String:
+					definition = &reflection.Schema{Type: "string"}
+				default:
+					panic("constraints require a supported scalar or struct")
+				}
+			}
+			owned := &reflection.Schema{}
+			if err := constraint.JSONSchemaConstraints().apply(owned); err != nil {
+				panic(err)
+			}
+			definition.AllOf = append(definition.AllOf, owned)
+			return definition
+		}
+		return stringConstraint(value)
 	}
 	// The reflector writes field tags onto the outer schema. Keeping machine
 	// bounds in an intersection lets tags narrow them without widening the type.
-	return &reflection.Schema{Type: "integer", AllOf: []*reflection.Schema{{
-		Minimum: json.Number(minimum), Maximum: json.Number(maximum),
-	}}}
+	definition := &reflection.Schema{Type: "integer", AllOf: []*reflection.Schema{{Minimum: json.Number(minimum), Maximum: json.Number(maximum)}}}
+	if owner, ok := reflect.Zero(typeOf).Interface().(Constrained); ok {
+		constraint := &reflection.Schema{}
+		if err := owner.JSONSchemaConstraints().apply(constraint); err != nil {
+			panic(err)
+		}
+		definition.AllOf = append(definition.AllOf, constraint)
+	}
+	return definition
 }
 
 func requireValueReceiver(typeOf, iface reflect.Type, method string) {
@@ -208,6 +323,11 @@ func (s Schema) JSON() json.RawMessage { return bytes.Clone(s.raw) }
 
 func (s Schema) Valid() bool { return len(s.raw) > 0 && s.compiled != nil }
 
+// Equal compares valid schemas by their canonical JSON contract.
+func (s Schema) Equal(other Schema) bool {
+	return s.Valid() && other.Valid() && bytes.Equal(s.raw, other.raw)
+}
+
 // Validate requires one RFC 7493 JSON document and validates it against the
 // compiled schema without rounding JSON numbers through floating-point values.
 func (s Schema) Validate(raw []byte) error {
@@ -215,14 +335,14 @@ func (s Schema) Validate(raw []byte) error {
 		return ErrInvalid
 	}
 	if !jsontext.Value(raw).IsValid() {
-		return errors.New("jsonschema: value must be one valid RFC 7493 JSON document")
+		return fmt.Errorf("%w: value must be one valid RFC 7493 JSON document", ErrValidation)
 	}
 	value, err := validation.UnmarshalJSON(bytes.NewReader(raw))
 	if err != nil {
-		return fmt.Errorf("jsonschema: decode value: %w", err)
+		return fmt.Errorf("%w: decode value: %w", ErrValidation, err)
 	}
 	if err := s.compiled.Validate(value); err != nil {
-		return fmt.Errorf("jsonschema: validate value: %w", err)
+		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	return nil
 }

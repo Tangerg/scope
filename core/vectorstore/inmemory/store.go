@@ -241,6 +241,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("inmemory: delete by ID: %w", err)
+	}
 	for _, id := range ids {
 		delete(s.records, id)
 	}

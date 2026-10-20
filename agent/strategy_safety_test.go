@@ -18,6 +18,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/planning"
 	"github.com/Tangerg/scope/agent/strategy/planning/goap"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func safetyValue[T any](value T, err error) T {
@@ -114,7 +115,7 @@ func safetyChild[I, O any](output O) (agent.Deployment, safetyResolver) {
 	for _, key := range []string{"winner", "loser"} {
 		candidates = append(candidates, agent.ChildSpec{Key: safetyValue(agent.ParseChildKey(key)), DeploymentRef: timer.DeploymentRef(), Input: safetyValue(agent.EncodePayload(time.Unix(1, 0).UTC())), Budget: budget})
 	}
-	definition := &safetyCompetition{descriptor: safetyValue(agent.NewDescriptor(agent.DescriptorConfig{Name: "safety.competition", Description: "Complete while a loser retains uncertainty.", InputSchema: safetyValue(agent.SchemaFor[I]()), OutputSchema: safetyValue(agent.SchemaFor[O]())})),
+	definition := &safetyCompetition{descriptor: safetyValue(agent.NewDescriptor(agent.DescriptorConfig{Name: "safety.competition", Description: "Complete while a loser retains uncertainty.", InputSchema: safetyValue(jsonschema.For[I]()), OutputSchema: safetyValue(jsonschema.For[O]())})),
 		competition: safetyValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "safety.first_success", Description: "Select a winner.", MaxCandidates: 2, Accept: func(context.Context, agent.ChildKey, agent.ChildOutcome) (bool, error) { return true, nil }})), candidates: safetyValue(agent.EncodePayload(candidates)), output: safetyValue(agent.EncodePayload(output))}
 	child := safetyBinding(definition, nil)
 	return child, safetyResolver{child.DeploymentRef(): child, timer.DeploymentRef(): timer}
@@ -268,7 +269,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 		t.Run(mode.String(), func(t *testing.T) {
 			output := safetyValue(agent.EncodePayload("done"))
 			decision := collaboration.Decision{Mode: mode, State: safetyValue(agent.EncodePayload("initial"))}
-			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(agent.SchemaFor[string]()), AnswerSchema: safetyValue(agent.SchemaFor[string]())})), nil)
+			worker := safetyBinding(safetyValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "safety.worker", Description: "Never admitted.", RequestSchema: safetyValue(jsonschema.For[string]()), AnswerSchema: safetyValue(jsonschema.For[string]())})), nil)
 			if mode == collaboration.ModeUndecided {
 				decision.Output = output
 			} else {
@@ -276,7 +277,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			}
 			child, resolver := safetyChild[collaboration.Turn](decision)
 			resolver[worker.DeploymentRef()] = worker
-			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}}, StateSchema: safetyValue(agent.SchemaFor[string]()), OutputSchema: safetyValue(agent.SchemaFor[string]()), MaxTurns: agent.NewQuota(2), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
+			definition := safetyValue(collaboration.NewDefinition(collaboration.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: collaboration.WorkerConfig{Deployment: child, Budget: agent.Budget{Steps: agent.NewQuota(128), Effects: agent.NewQuota(128), Signals: agent.NewQuota(128)}}, Workers: []collaboration.WorkerConfig{{Deployment: worker, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(16), Signals: agent.NewQuota(16)}}}, StateSchema: safetyValue(jsonschema.For[string]()), OutputSchema: safetyValue(jsonschema.For[string]()), MaxTurns: agent.NewQuota(2), MaxTasks: agent.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
 			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(agent.EncodePayload("initial")), "collaboration.coordinator.unresolved_effects", func() {})
 			var wire map[string]json.RawMessage
 			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
@@ -329,7 +330,7 @@ func TestPlanningRejectsUnresolvedChildAction(t *testing.T) {
 			planner := goap.New(goap.Config{})
 			definition := safetyValue(planning.NewDefinition(planning.DefinitionConfig{
 				Name: "safety.planning", Description: "Reject an uncertain child before reobserving the world.",
-				InputSchema: safetyValue(agent.SchemaFor[string]()), Goal: goal,
+				InputSchema: safetyValue(jsonschema.For[string]()), Goal: goal,
 				Actions: []planning.ActionBinding{binding, safetyValue(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: finish}))},
 				Planner: planning.PlannerFunc(func(ctx context.Context, problem planning.Problem) (planning.Plan, bool, error) {
 					planCalls.Add(1)

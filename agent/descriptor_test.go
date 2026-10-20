@@ -5,14 +5,16 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestDescriptorOwnsContractAndValidatesValues(t *testing.T) {
-	inputSchema, err := SchemaFor[wireFixture]()
+	inputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[wireFixture]()
+	outputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +47,11 @@ func TestDescriptorOwnsContractAndValidatesValues(t *testing.T) {
 }
 
 func TestDescriptorDigestChangesWithContract(t *testing.T) {
-	inputSchema, err := SchemaFor[wireFixture]()
+	inputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[wireFixture]()
+	outputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestDescriptorDigestChangesWithContract(t *testing.T) {
 	if first.Digest() == second.Digest() {
 		t.Fatal("descriptor digest did not change with description")
 	}
-	countSchema, err := SchemaFor[struct {
+	countSchema, err := jsonschema.For[struct {
 		Count int `json:"count"`
 	}]()
 	if err != nil {
@@ -145,11 +147,11 @@ func testDescriptor(t *testing.T) Descriptor {
 
 func descriptorConfig(t *testing.T) DescriptorConfig {
 	t.Helper()
-	inputSchema, err := SchemaFor[wireFixture]()
+	inputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[wireFixture]()
+	outputSchema, err := jsonschema.For[wireFixture]()
 	if err != nil {
 		t.Fatal(err)
 	}

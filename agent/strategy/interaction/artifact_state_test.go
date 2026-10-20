@@ -10,6 +10,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
@@ -68,7 +69,7 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = definition.Restore(t.Context(), envelope)
-			if test.name == "wrong schema" && !errors.Is(err, agent.ErrSchemaValidation) {
+			if test.name == "wrong schema" && !errors.Is(err, jsonschema.ErrValidation) {
 				t.Fatalf("schema cause lost: %v", err)
 			}
 			if !errors.Is(err, ErrInvalidExecutionState) {

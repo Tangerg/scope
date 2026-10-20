@@ -9,6 +9,8 @@ import (
 	"path"
 	"testing/fstest"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/swebench"
 )
@@ -84,7 +86,7 @@ func ExampleSubmission_Collect() {
 	// Assessment identity remains declared even when a case has no grade.
 	// Reassessment of collected evidence does not invoke the target again.
 	suite, err := eval.NewSuite(eval.SuiteConfig[swebench.CaseResult]{
-		Assessments: []eval.Assessment[swebench.CaseResult]{{
+		Assessments: []eval.Assessment[swebench.CaseResult]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[swebench.CaseResult]{
 			ID: "official-resolution",
 			Evaluator: eval.EvaluatorFunc[swebench.CaseResult](func(ctx context.Context, result swebench.CaseResult) (eval.Report, error) {
 				if contextErr := ctx.Err(); contextErr != nil {
@@ -92,7 +94,7 @@ func ExampleSubmission_Collect() {
 				}
 				return result.Report()
 			}),
-		}},
+		}))},
 	})
 	check(err)
 	var cases []eval.Case[swebench.CaseResult]

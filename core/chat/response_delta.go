@@ -169,7 +169,6 @@ func (p PartDelta) MarshalJSON() ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	type wirePartDelta PartDelta
 	return jsonv2.Marshal(wirePartDelta(p), jsonv2.Deterministic(true))
 }
 
@@ -177,7 +176,6 @@ func (p *PartDelta) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: part delta receiver is nil", ErrInvalidResponse)
 	}
-	type wirePartDelta PartDelta
 	var decoded wirePartDelta
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode part delta: %w", ErrInvalidResponse, err)
@@ -270,7 +268,6 @@ func (r ResponseDelta) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireResponseDelta ResponseDelta
 	return jsonv2.Marshal(wireResponseDelta(r), jsonv2.Deterministic(true))
 }
 
@@ -278,7 +275,6 @@ func (r *ResponseDelta) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: response delta receiver is nil", ErrInvalidResponse)
 	}
-	type wireResponseDelta ResponseDelta
 	var decoded wireResponseDelta
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response delta: %w", ErrInvalidResponse, err)
@@ -290,3 +286,11 @@ func (r *ResponseDelta) UnmarshalJSON(data []byte) error {
 	*r = candidate
 	return nil
 }
+
+type wirePartDelta PartDelta
+
+func (PartDelta) JSONSchemaAlias() any { return wirePartDelta{} }
+
+type wireResponseDelta ResponseDelta
+
+func (ResponseDelta) JSONSchemaAlias() any { return wireResponseDelta{} }

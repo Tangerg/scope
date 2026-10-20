@@ -5,17 +5,18 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
 // ExampleRecorder records one deterministic Agent run as a listener on the
 // Engine, then takes the drained root subtree as a portable Trajectory.
 func ExampleRecorder() {
-	inputSchema, err := agent.SchemaFor[fixtureInput]()
+	inputSchema, err := jsonschema.For[fixtureInput]()
 	if err != nil {
 		panic(err)
 	}
-	outputSchema, err := agent.SchemaFor[fixtureOutput]()
+	outputSchema, err := jsonschema.For[fixtureOutput]()
 	if err != nil {
 		panic(err)
 	}

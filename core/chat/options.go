@@ -173,7 +173,6 @@ func (o Options) MarshalJSON() ([]byte, error) {
 	if err := o.Validate(); err != nil {
 		return nil, err
 	}
-	type wireOptions Options
 	return jsonv2.Marshal(wireOptions(o), jsonv2.Deterministic(true))
 }
 
@@ -181,7 +180,6 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidOptions)
 	}
-	type wireOptions Options
 	var decoded wireOptions
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidOptions, err)
@@ -193,3 +191,7 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	*o = candidate
 	return nil
 }
+
+type wireOptions Options
+
+func (Options) JSONSchemaAlias() any { return wireOptions{} }

@@ -4,6 +4,8 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type quotaLoopDefinition struct{ descriptor Descriptor }
@@ -53,7 +55,7 @@ func (q *quotaLoopExecution) Snapshot() (ExecutionState, error) {
 }
 
 func TestUnlimitedExecutionExceedsFormerDefaultSteps(t *testing.T) {
-	schema := controlValue(SchemaFor[uint64]())
+	schema := controlValue(jsonschema.For[uint64]())
 	definition := quotaLoopDefinition{descriptor: controlValue(NewDescriptor(DescriptorConfig{Name: "test.quota_loop", Description: "Continue for the requested number of Steps.", InputSchema: schema, OutputSchema: schema}))}
 	deployment := controlValue(NewDeployment(DeploymentConfig{Definition: definition, ImplementationDigest: ComputeDigest([]byte("quota-loop")), ConfigurationDigest: ComputeDigest([]byte("unlimited"))}))
 	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))

@@ -10,6 +10,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/messaging"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // senderStateKind names the sender ExecutionState kind its Snapshot writes and Restore reads.
@@ -79,7 +80,7 @@ func inspect(t testing.TB, engine *agent.Engine, process *agent.Process) agent.P
 
 func newGate(t testing.TB) *coordination.InputGate {
 	t.Helper()
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,11 +102,11 @@ type senderExecution struct{ state senderState }
 
 func newSender(t testing.TB) senderDefinition {
 	t.Helper()
-	in, err := agent.SchemaFor[messaging.Message]()
+	in, err := jsonschema.For[messaging.Message]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := agent.SchemaFor[messaging.Receipt]()
+	out, err := jsonschema.For[messaging.Receipt]()
 	if err != nil {
 		t.Fatal(err)
 	}

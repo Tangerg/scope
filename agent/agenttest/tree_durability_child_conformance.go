@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func runCrashBeforeChildCommit(t *testing.T, store TreeCommitterConformanceDriver) {
@@ -481,11 +482,11 @@ func (c *crashTreeExecution) Snapshot() (agent.ExecutionState, error) {
 
 func newCrashTreeDeployment(t *testing.T) agent.Deployment {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[crashTreeInput]()
+	inputSchema, err := jsonschema.For[crashTreeInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := agent.SchemaFor[crashTreeOutput]()
+	outputSchema, err := jsonschema.For[crashTreeOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}

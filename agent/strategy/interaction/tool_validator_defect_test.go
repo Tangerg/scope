@@ -24,9 +24,9 @@ func (panicInputValidatorTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (p panicInputValidatorTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (p panicInputValidatorTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	p.called.Store(true)
-	return chat.NewTextToolOutput("unreachable"), nil
+	return tool.Result{Output: chat.NewTextToolOutput("unreachable")}, nil
 }
 
 func (panicInputValidatorTool) InputValidator() func([]byte) error {

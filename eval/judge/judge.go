@@ -92,7 +92,7 @@ func trimmedIdentity(value string) bool {
 }
 
 type modelReport struct {
-	Score    eval.Score `json:"score" jsonschema:"minimum=0,maximum=1"`
+	Score    eval.Score `json:"score"`
 	Feedback string     `json:"feedback,omitzero"`
 }
 

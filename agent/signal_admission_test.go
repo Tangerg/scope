@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
@@ -102,8 +104,8 @@ func TestSignalBatchDeduplicatesBeforeChargingFullMailbox(t *testing.T) {
 func TestSignalSchemaRejectionIsAtomic(t *testing.T) {
 	definition := &rejectedStepDefinition{descriptor: controlValue(NewDescriptor(DescriptorConfig{
 		Name: "test.signal_schema", Description: "Accept string signals while paused.",
-		InputSchema: controlValue(SchemaFor[engineTestInput]()), OutputSchema: controlValue(SchemaFor[engineTestOutput]()),
-		SignalSchema: controlValue(SchemaFor[string]()),
+		InputSchema: controlValue(jsonschema.For[engineTestInput]()), OutputSchema: controlValue(jsonschema.For[engineTestOutput]()),
+		SignalSchema: controlValue(jsonschema.For[string]()),
 	})), err: errors.New("test finished")}
 	engine := controlValue(NewEngine(EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}))
 	defer mustCloseEngine(t, engine)

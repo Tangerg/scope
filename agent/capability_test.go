@@ -7,6 +7,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEmptyCapabilitySetHasOneArrayRepresentation(t *testing.T) {
@@ -78,8 +80,8 @@ type capabilityTestDefinition struct {
 
 func newCapabilityTestDefinition(t *testing.T) *capabilityTestDefinition {
 	t.Helper()
-	inputSchema, _ := SchemaFor[struct{}]()
-	outputSchema, _ := SchemaFor[struct{}]()
+	inputSchema, _ := jsonschema.For[struct{}]()
+	outputSchema, _ := jsonschema.For[struct{}]()
 	descriptor, err := NewDescriptor(DescriptorConfig{
 		Name: "test.capability", Description: "Verify Effect capability enforcement.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,

@@ -11,7 +11,8 @@
 //
 // # Independent assessments
 //
-// Assessment declares an ID before its Evaluator runs. Suite.Run preserves one
+// NewAssessment freezes an AssessmentConfig into one identity and evaluator
+// binding. Reconfiguration creates a new Assessment. Suite.Run preserves one
 // AssessmentResult for every declaration, including failures, cancellation,
 // and work not started. Under ErrorCollect, a child error does not cancel other
 // assessments. Under ErrorFailFast, pending work stops and completed results

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func BenchmarkRecordOutcomes(b *testing.B) {
@@ -38,7 +39,7 @@ func BenchmarkRecordOutcomes(b *testing.B) {
 // benchmarkDeploymentRef names the Deployment every test candidate requests.
 func benchmarkDeploymentRef(t testing.TB) agent.DeploymentRef {
 	t.Helper()
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		t.Fatal(err)
 	}

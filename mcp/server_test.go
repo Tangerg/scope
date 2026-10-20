@@ -60,8 +60,9 @@ type testTool struct {
 
 func (t testTool) Definition() corechat.ToolDefinition { return t.definition.Clone() }
 
-func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (corechat.ToolOutput, error) {
-	return t.call(ctx, invocation)
+func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+	completedOutput1, completedErr1 := t.call(ctx, invocation)
+	return tool.Result{Output: completedOutput1}, completedErr1
 }
 
 func connectPair(t *testing.T, ctx context.Context, registered ...tool.Tool) (*sdkmcp.ClientSession, func()) {
@@ -317,8 +318,8 @@ func (badSchemaTool) Definition() corechat.ToolDefinition {
 	return corechat.ToolDefinition{Name: "bad", InputSchema: json.RawMessage("{not-json")}
 }
 
-func (badSchemaTool) Call(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-	return corechat.ToolOutput{}, nil
+func (badSchemaTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{}, nil
 }
 
 type missingSchemaTypeTool struct{}
@@ -327,8 +328,8 @@ func (missingSchemaTypeTool) Definition() corechat.ToolDefinition {
 	return corechat.ToolDefinition{Name: "missing-schema-type", InputSchema: json.RawMessage(`{}`)}
 }
 
-func (missingSchemaTypeTool) Call(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-	return corechat.ToolOutput{}, nil
+func (missingSchemaTypeTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{}, nil
 }
 
 type definitionOnceTool struct {
@@ -346,6 +347,6 @@ func (d *definitionOnceTool) Definition() corechat.ToolDefinition {
 	}
 }
 
-func (*definitionOnceTool) Call(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-	return corechat.NewTextToolOutput("ok"), nil
+func (*definitionOnceTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{Output: corechat.NewTextToolOutput("ok")}, nil
 }

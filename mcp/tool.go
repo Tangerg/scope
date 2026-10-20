@@ -42,7 +42,7 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	}
 }
 
-func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
+func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out toolcontract.Result, err error) {
 	remoteName := r.descriptor.remoteName
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.call "+remoteName,
 		trace.WithSpanKind(trace.SpanKindClient),
@@ -65,7 +65,8 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	res, err := r.session.CallTool(ctx, params)
 	if err != nil {
-		return corechat.ToolOutput{}, fmt.Errorf("mcp: call tool %q: %w", remoteName, err)
+		return toolcontract.Result{}, fmt.Errorf("mcp: call tool %q: %w", remoteName, err)
 	}
-	return remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
+	completedOutput1, completedErr1 := remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
+	return toolcontract.Result{Output: completedOutput1}, completedErr1
 }

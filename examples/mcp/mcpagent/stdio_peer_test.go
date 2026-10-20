@@ -68,13 +68,15 @@ func openExpert(t *testing.T, ctx context.Context, artifact expertArtifact) *std
 	p := &stdioPeer{artifact: artifact, events: make(chan string, 8)}
 	var pipes []*os.File
 	t.Cleanup(func() {
-		if p.session != nil {
-			if err := p.session.Close(); err != nil {
+		// Stop the owned peer before closing its session can independently make
+		// it exit and race process-group termination against a Darwin zombie.
+		if p.command != nil {
+			if err := p.command.Close(); err != nil {
 				t.Error(err)
 			}
 		}
-		if p.command != nil {
-			if err := p.command.Close(); err != nil {
+		if p.session != nil {
+			if err := p.session.Close(); err != nil {
 				t.Error(err)
 			}
 		}
@@ -101,7 +103,9 @@ func openExpert(t *testing.T, ctx context.Context, artifact expertArtifact) *std
 	input, requests := newPipe()
 	responses, output := newPipe()
 	diagnostics, stderr := newPipe()
-	command, err := process.New(ctx, process.Config{
+	// Peer lifetime belongs to cleanup; individual operation cancellation must
+	// not race that cleanup with a second process shutdown.
+	command, err := process.New(context.WithoutCancel(ctx), process.Config{
 		Argv: []string{artifact.binary}, Directory: t.TempDir(), Env: []string{},
 		Stdin: input, Stdout: output, Stderr: stderr,
 	})

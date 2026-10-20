@@ -14,10 +14,6 @@ import (
 
 type panicSource struct{}
 
-func (*panicSource) Lookup(context.Context, string) (skillsrc.Summary, error) {
-	panic("unexpected Lookup")
-}
-
 func (*panicSource) List(context.Context) ([]skillsrc.Summary, error) {
 	panic("typed-nil source was used")
 }
@@ -62,7 +58,7 @@ func newToolsWithConfig(t *testing.T, config Config) map[string]toolcontract.Too
 
 func TestNewToolsRejectsNilSource(t *testing.T) {
 	var typedNil *panicSource
-	for _, source := range []skillsrc.ResourceSource{nil, typedNil} {
+	for _, source := range []Source{nil, typedNil} {
 		if _, err := NewTools(source, Config{}); !errors.Is(err, ErrNilSource) {
 			t.Errorf("err = %v, want ErrNilSource", err)
 		}

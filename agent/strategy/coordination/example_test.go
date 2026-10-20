@@ -8,10 +8,11 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func ExampleFirstSuccess() {
-	textSchema, err := agent.SchemaFor[string]()
+	textSchema, err := jsonschema.For[string]()
 	if err != nil {
 		panic(err)
 	}

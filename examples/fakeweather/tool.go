@@ -161,11 +161,11 @@ func New(writer io.Writer) *Tool {
 
 func (t *Tool) Definition() chat.ToolDefinition { return t.typed.Definition() }
 
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	t.log("validated_request", string(invocation.Arguments()))
 	out, err := t.typed.Call(ctx, invocation)
 	if err == nil {
-		modelOutput, _ := out.Text()
+		modelOutput, _ := out.Output.Text()
 		t.log("model_response", modelOutput)
 	}
 	return out, err

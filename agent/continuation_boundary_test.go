@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T) {
@@ -24,7 +25,7 @@ func TestEpisodeBoundaryRejectsUnresolvedDescendantAfterRootSuccess(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		schema, err := agent.SchemaFor[string]()
+		schema, err := jsonschema.For[string]()
 		if err != nil {
 			t.Fatal(err)
 		}

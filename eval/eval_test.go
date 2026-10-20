@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -32,7 +34,7 @@ func scoredReport(name string, verdict eval.Verdict, score eval.Score) eval.Repo
 
 func testSuite[T any](t testing.TB, evaluator eval.Evaluator[T]) *eval.Suite[T] {
 	t.Helper()
-	suite, err := eval.NewSuite(eval.SuiteConfig[T]{Assessments: []eval.Assessment[T]{{ID: "evaluation", Evaluator: evaluator}}})
+	suite, err := eval.NewSuite(eval.SuiteConfig[T]{Assessments: []eval.Assessment[T]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[T]{ID: "evaluation", Evaluator: evaluator}))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,13 +370,13 @@ func TestSuitePreservesHeterogeneousResultsAndExperimentSummarizesEachMetric(t *
 	}
 	suite, err := eval.NewSuite(eval.SuiteConfig[string]{
 		Assessments: []eval.Assessment[string]{
-			{ID: "quality", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "quality", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				return scoredReport("quality", eval.VerdictPass, 0.8), nil
-			})},
-			{ID: "latency", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
+			})})),
+			lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "latency", Evaluator: eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
 				latency := 125.0
 				return eval.Report{Metric: latencyMetric, Measurement: &latency}, nil
-			})},
+			})})),
 		},
 	})
 	if err != nil {

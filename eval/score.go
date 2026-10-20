@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -12,6 +13,8 @@ import (
 type Score float64
 
 const (
+	minimumScore       = 0
+	maximumScore       = 1
 	thresholdPolicy    = "threshold"
 	thresholdParameter = "threshold"
 )
@@ -28,8 +31,8 @@ func (s Score) Float64() float64 { return float64(s) }
 
 func (s Score) Validate() error {
 	value := s.Float64()
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
-		return fmt.Errorf("%w: must be between 0 and 1", ErrInvalidScore)
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < minimumScore || value > maximumScore {
+		return fmt.Errorf("%w: must be between %d and %d", ErrInvalidScore, minimumScore, maximumScore)
 	}
 	return nil
 }
@@ -52,4 +55,8 @@ func (s Score) Decide(threshold Score) (Decision, error) {
 		decision.Verdict = VerdictPass
 	}
 	return decision, nil
+}
+
+func (Score) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Minimum: new(float64(minimumScore)), Maximum: new(float64(maximumScore))}
 }

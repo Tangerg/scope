@@ -26,7 +26,7 @@ type ReadSkillResourceRequest struct {
 }
 
 type toolSet struct {
-	source         skillsrc.ResourceSource
+	source         Source
 	maxOutputBytes int64
 }
 
@@ -46,7 +46,15 @@ type Config struct {
 	MaxOutputBytes int64
 }
 
-func NewTools(source skillsrc.ResourceSource, config Config) ([]toolcontract.Tool, error) {
+// Source provides the operations exposed by the three skill Tools. List and Load
+// follow skills.Source's validity, cancellation, and detached-value contracts.
+type Source interface {
+	skillsrc.ResourceOpener
+	List(ctx context.Context) ([]skillsrc.Summary, error)
+	Load(ctx context.Context, name string) (*skillsrc.Skill, error)
+}
+
+func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	if lo.IsNil(source) {
 		return nil, ErrNilSource
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // SwitchSelector is a bounded, deterministic, side-effect-free case selector.
@@ -51,7 +52,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	if !agent.ValidQualifiedName(config.ID) || config.Select == nil || len(config.Cases) == 0 {
 		return Stage{}, ErrInvalidStage
 	}
-	inputSchema, err := agent.SchemaFor[I]()
+	inputSchema, err := jsonschema.For[I]()
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Switch %q input schema: %w", ErrInvalidStage, config.ID, err)
 	}
@@ -82,27 +83,27 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 	}, nil
 }
 
-func newSwitchCases(stageID string, inputSchema agent.Schema, declared []SwitchCase) ([]switchCase, agent.Schema, error) {
+func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []SwitchCase) ([]switchCase, jsonschema.Schema, error) {
 	cases := make([]switchCase, 0, len(declared))
 	seen := make(map[string]struct{}, len(declared))
-	var outputSchema agent.Schema
+	var outputSchema jsonschema.Schema
 	for index, candidate := range declared {
 		binding, valid := newChildBinding(candidate.Deployment, candidate.Budget, candidate.Capabilities)
 		if !agent.ValidQualifiedName(candidate.ID) || !valid {
-			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
+			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[candidate.ID]; duplicate {
-			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, stageID, candidate.ID)
+			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, stageID, candidate.ID)
 		}
 		seen[candidate.ID] = struct{}{}
 		descriptor := candidate.Deployment.Descriptor()
 		if !inputSchema.Equal(descriptor.InputSchema()) {
-			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
+			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}
 		if index == 0 {
 			outputSchema = descriptor.OutputSchema()
 		} else if !outputSchema.Equal(descriptor.OutputSchema()) {
-			return nil, agent.Schema{}, fmt.Errorf("%w: Switch %q case %q output schema mismatch", ErrInvalidStage, stageID, candidate.ID)
+			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q case %q output schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}
 		cases = append(cases, switchCase{id: candidate.ID, binding: binding})
 	}

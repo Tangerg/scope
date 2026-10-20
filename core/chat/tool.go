@@ -79,7 +79,6 @@ func (t ToolOutput) MarshalJSON() ([]byte, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
-	type wireToolOutput ToolOutput
 	return jsonv2.Marshal(wireToolOutput(t), jsonv2.Deterministic(true))
 }
 
@@ -87,7 +86,6 @@ func (t *ToolOutput) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidToolOutput)
 	}
-	type wireToolOutput ToolOutput
 	var decoded wireToolOutput
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidToolOutput, err)
@@ -172,3 +170,7 @@ func (t ToolResult) Validate() error {
 	}
 	return nil
 }
+
+type wireToolOutput ToolOutput
+
+func (ToolOutput) JSONSchemaAlias() any { return wireToolOutput{} }

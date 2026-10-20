@@ -12,6 +12,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type forkInput struct {
@@ -283,8 +284,8 @@ type managedBranchDefinition struct {
 
 func newManagedBranchDeployment(t *testing.T, branch string, tracker *branchTracker) agent.Deployment {
 	t.Helper()
-	inputSchema, _ := agent.SchemaFor[forkInput]()
-	outputSchema, _ := agent.SchemaFor[branchOutput]()
+	inputSchema, _ := jsonschema.For[forkInput]()
+	outputSchema, _ := jsonschema.For[branchOutput]()
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name:        "test.workflow.branch_" + branch,
 		Description: "Execute one controlled managed Fork branch.",

@@ -8,23 +8,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/eval"
 )
 
 func TestTrialPreservesCandidateAndIndependentAssessmentFailure(t *testing.T) {
 	graderError := errors.New("grader unavailable")
 	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{
-		{ID: "patch", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{ID: "patch", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
 			if sample.Execution.Status != eval.ExecutionBudgetExhausted || sample.Execution.Output == nil || *sample.Execution.Output != "candidate" {
 				t.Fatalf("assessment lost execution evidence: %+v", sample.Execution)
 			}
 			score := eval.Score(1)
 			metric, err := eval.NewMetric(eval.MetricConfig{Name: "patch_present"})
 			return eval.Report{Metric: metric, Score: &score}, err
-		})},
-		{ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(context.Context, eval.TrialSample[string, string]) (eval.Report, error) {
+		})})),
+		lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(context.Context, eval.TrialSample[string, string]) (eval.Report, error) {
 			return eval.Report{}, graderError
-		})},
+		})})),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -63,12 +65,12 @@ func TestTrialPreservesCandidateAndIndependentAssessmentFailure(t *testing.T) {
 func TestTrialDiscardsInvalidTargetReceiptAndKeepsPlannedAssessments(t *testing.T) {
 	targetError := errors.New("could not collect candidate")
 	for _, runErr := range []error{targetError, nil} {
-		suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{{
+		suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{
 			ID: "official-tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(context.Context, eval.TrialSample[string, string]) (eval.Report, error) {
 				t.Error("assessment ran without a valid receipt")
 				return eval.Report{}, nil
 			}),
-		}}})
+		}))}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,10 +93,10 @@ func TestTrialDiscardsInvalidTargetReceiptAndKeepsPlannedAssessments(t *testing.
 func TestTrialPreservesReceiptWhenContextStopsBeforeGrading(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{{ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(context.Context, eval.TrialSample[string, string]) (eval.Report, error) {
+	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(context.Context, eval.TrialSample[string, string]) (eval.Report, error) {
 		t.Error("grading started after cancellation")
 		return eval.Report{}, nil
-	})}}})
+	})}))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +141,7 @@ func TestExecutionJSONPreservesEmptyCandidateAndRejectsInvalidFacts(t *testing.T
 func TestTrialRetainsCompletedExecutionWithoutCandidate(t *testing.T) {
 	noCandidate := errors.New("candidate unavailable")
 	assessed := false
-	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{{
+	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{
 		ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
 			assessed = true
 			if sample.Execution.Status != eval.ExecutionCompleted || sample.Execution.Output != nil {
@@ -147,7 +149,7 @@ func TestTrialRetainsCompletedExecutionWithoutCandidate(t *testing.T) {
 			}
 			return eval.Report{}, noCandidate
 		}),
-	}}})
+	}))}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +187,7 @@ func TestExecutionJSONDistinguishesAbsentAndNullCandidates(t *testing.T) {
 }
 
 func ExampleTrial() {
-	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{{
+	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{
 		ID: "answer", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
 			if sample.Execution.Output == nil {
 				return eval.Report{}, errors.New("answer unavailable")
@@ -201,7 +203,7 @@ func ExampleTrial() {
 			decision, err := score.Decide(1)
 			return eval.Report{Metric: metric, Score: &score, Decision: &decision}, err
 		}),
-	}}})
+	}))}})
 	if err != nil {
 		panic(err)
 	}

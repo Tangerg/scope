@@ -109,15 +109,15 @@ func (additionTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (additionTool) Call(_ context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+func (additionTool) Call(_ context.Context, invocation tool.Invocation) (tool.Result, error) {
 	var input struct {
 		Left  float64 `json:"left"`
 		Right float64 `json:"right"`
 	}
 	if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Result{}, err
 	}
-	return chat.NewTextToolOutput(fmt.Sprintf("%g", input.Left+input.Right)), nil
+	return tool.Result{Output: chat.NewTextToolOutput(fmt.Sprintf("%g", input.Left+input.Right))}, nil
 }
 
 type calculatorModel struct{ calls int }

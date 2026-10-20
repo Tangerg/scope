@@ -35,11 +35,11 @@ func TestCommitErrorPreservesCompletedGenerationAndWriteFacts(t *testing.T) {
 		for _, streaming := range []bool{false, true} {
 			cause := errors.New("persistence failed")
 			store := &outcomeStore{outcome: outcome, err: cause}
-			middleware, err := history.NewMiddleware(store)
+			middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: "conversation"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			ctx := history.WithConversationID(t.Context(), "conversation")
+			ctx := t.Context()
 			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
 			if err != nil {
 				t.Fatal(err)
@@ -137,7 +137,7 @@ func (c *contradictoryStore) Write(context.Context, history.ConversationID, ...c
 }
 
 func TestCommitRejectsUnacknowledgedSuccess(t *testing.T) {
-	middleware, err := history.NewMiddleware(&contradictoryStore{})
+	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: &contradictoryStore{}, ConversationID: "conversation"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCommitRejectsUnacknowledgedSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := middleware.Call(model).Call(history.WithConversationID(t.Context(), "conversation"), request)
+	got, err := middleware.Call(model).Call(t.Context(), request)
 	failure, ok := errors.AsType[*history.CommitError](err)
 	if got != response || !ok || !errors.Is(err, history.ErrInvalidWriteOutcome) || failure.Outcome() != (history.WriteOutcome{Uncertain: true}) {
 		t.Fatalf("response=%p failure=%#v error=%v", got, failure, err)

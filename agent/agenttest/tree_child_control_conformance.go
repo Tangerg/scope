@@ -11,6 +11,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type childControlOperation string
@@ -661,11 +662,11 @@ func (c *childControlExecution) Snapshot() (agent.ExecutionState, error) {
 
 func newChildControlDeployment(t *testing.T, scenario childControlScenario) (agent.Deployment, chan struct{}) {
 	t.Helper()
-	inputSchema, err := agent.SchemaFor[bool]()
+	inputSchema, err := jsonschema.For[bool]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signalSchema, err := agent.ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		t.Fatal(err)
 	}

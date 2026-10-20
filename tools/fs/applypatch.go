@@ -106,7 +106,7 @@ func (a *ApplyPatchTool) Definition() chat.ToolDefinition {
 	return a.typed.Definition()
 }
 
-func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return a.typed.Call(ctx, invocation)
 }
 

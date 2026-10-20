@@ -1078,17 +1078,18 @@ func (t *treeRuntime) resolveUnknownEffect(process *processState, effectID Effec
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	t.commitResolution(process, effectID, settlement, reply)
+	if err := t.commitResolution(process, effectID, settlement, reply); err != nil {
+		reply.send(processResponse{err: err})
+	}
 }
 
-func (t *treeRuntime) commitResolution(process *processState, effectID EffectID, settlement Settlement, reply processReply) {
+func (t *treeRuntime) commitResolution(process *processState, effectID EffectID, settlement Settlement, reply processReply) error {
 	candidate, index, err := process.prepareResolution(effectID, settlement)
 	if err == nil {
 		err = t.validateSnapshotCapacity(candidate)
 	}
 	if err != nil {
-		reply.send(processResponse{err: err})
-		return
+		return err
 	}
 	process.adoptCandidate(candidate)
 	record := process.prepared.Effects[index]
@@ -1102,6 +1103,7 @@ func (t *treeRuntime) commitResolution(process *processState, effectID EffectID,
 		reply.send(processResponse{err: err})
 		t.failRuntime(err, process.handle.processID(), effectID)
 	}
+	return nil
 }
 
 func (t *treeRuntime) replayUnknownEffect(process *processState, effectID EffectID, reply processReply) {
@@ -1118,9 +1120,13 @@ func (t *treeRuntime) replayUnknownEffect(process *processState, effectID Effect
 		reply.send(processResponse{err: ErrEffectNotPending})
 		return
 	}
-	policy, err := process.authorizeDispatch(record.Effect)
-	if err != nil || record.Effect.Target() != EffectTargetDispatcher || policy.Replay != ReplayPolicySameIdentity {
-		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, err)})
+	policy, failure := process.authorizeDispatch(record.Effect, failureCodeEngineEffectRecoveryInvalid)
+	if failure != nil {
+		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, failure.cause)})
+		return
+	}
+	if record.Effect.Target() != EffectTargetDispatcher || policy.Replay != ReplayPolicySameIdentity {
+		reply.send(processResponse{err: ErrEffectReplayForbidden})
 		return
 	}
 	// The committed Unknown already retains the exact uncertain operation.
@@ -1460,7 +1466,18 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		}
 		process.adoptCandidate(candidate)
 		record = &process.prepared.Effects[index]
-		if record.Effect.Target() == EffectTargetDispatcher {
+		requiresPermission := record.Effect.Target() == EffectTargetDispatcher
+		if record.Effect.Target() == EffectTargetFramework {
+			operation, err := decodeFrameworkOperation(record.Effect.Payload())
+			if err != nil {
+				t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+				return
+			}
+			_, requiresPermission = operation.(childStartOperation)
+		}
+		// Host admission may already reserve external resources. Its exact child
+		// proposal and Step input frontier must survive before that call begins.
+		if requiresPermission {
 			if err := t.commitEffect(process, treeCommitEffectPending, record.ID, nil); err != nil {
 				t.failRuntime(err, process.handle.processID(), EffectID{})
 			}
@@ -1520,13 +1537,10 @@ func (t *treeRuntime) recoverPendingEffect(
 	}
 	replayPolicy := ReplayPolicyNever
 	if !process.pendingControl.hasTerminalIntent() {
-		policy, err := process.authorizeDispatch(record.Effect)
-		if err != nil {
-			code := failureCodeEngineEffectRecoveryInvalid
-			if errors.Is(err, ErrInvalidCapability) {
-				code = failureCodeEngineCapabilityDenied
-			}
-			t.failProcessContract(process, code, err)
+		policy, failure := process.authorizeDispatch(record.Effect, failureCodeEngineEffectRecoveryInvalid)
+		if failure != nil {
+			t.failProcess(process, failure.kind, failure.code, failure.cause)
+			t.finishIfTerminal(process)
 			return
 		}
 		replayPolicy = policy.Replay
@@ -1921,7 +1935,10 @@ func (t *treeRuntime) applyDispatchCompletion(
 			job.reply.send(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
 			return
 		}
-		t.commitResolution(process, record.ID, settlement, job.reply)
+		if err := t.commitResolution(process, record.ID, settlement, job.reply); err != nil {
+			job.reply.send(processResponse{err: err})
+			t.failRuntime(err, process.handle.processID(), record.ID)
+		}
 		return
 	}
 
@@ -2079,6 +2096,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 		panic("agent: invalid tree Process")
 	}
 	t.members.add(process)
+	process.handle.incarnationID = t.writer.incarnation()
 	process.handle.tree = t.binding
 	t.queueJoin(process)
 	if !process.status().Terminal() {

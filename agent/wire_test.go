@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type wireFixture struct {
@@ -145,7 +146,7 @@ func TestTextBearingProtocolConstructorsRejectInvalidUTF8(t *testing.T) {
 	if _, err := Pause(0, invalid); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("Pause accepted invalid text: %v", err)
 	}
-	if _, err := NewDescriptor(DescriptorConfig{Name: "test", Description: invalid, InputSchema: controlValue(SchemaFor[wireFixture]()), OutputSchema: controlValue(SchemaFor[wireFixture]())}); !errors.Is(err, ErrInvalidDescriptor) {
+	if _, err := NewDescriptor(DescriptorConfig{Name: "test", Description: invalid, InputSchema: controlValue(jsonschema.For[wireFixture]()), OutputSchema: controlValue(jsonschema.For[wireFixture]())}); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("Descriptor accepted invalid text: %v", err)
 	}
 }

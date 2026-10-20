@@ -59,7 +59,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 
 	invocation, err := s.executable.Contract().Prepare(corechat.ToolCall{
 		ID: "mcp/" + toolName, Name: toolName, Arguments: rawArgs,
-	})
+	}, nil)
 	if err != nil {
 		return s.prepareError(span, err)
 	}
@@ -67,7 +67,10 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 	if err != nil {
 		return s.callError(span, err)
 	}
-	result, err := mapServerToolOutput(output)
+	if output.InputRequest != nil {
+		return s.callError(span, errors.New("mcp: Tool requested external input; the server call has no continuation binding"))
+	}
+	result, err := mapServerToolOutput(output.Output)
 	if err != nil {
 		return s.callError(span, err)
 	}

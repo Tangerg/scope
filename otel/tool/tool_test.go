@@ -35,9 +35,9 @@ func (*testTool) Definition() chat.ToolDefinition {
 	}
 }
 
-func (t *testTool) Call(ctx context.Context, invocation coretool.Invocation) (chat.ToolOutput, error) {
+func (t *testTool) Call(ctx context.Context, invocation coretool.Invocation) (coretool.Result, error) {
 	t.called = trace.SpanFromContext(ctx).SpanContext().IsValid() && string(invocation.Arguments()) == `{"key":"secret"}`
-	return chat.NewTextToolOutput(t.result), t.err
+	return coretool.Result{Output: chat.NewTextToolOutput(t.result)}, t.err
 }
 
 func (*testTool) Marked() {}
@@ -77,12 +77,12 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{"key":"secret"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{"key":"secret"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, err := binding.Call(t.Context(), invocation)
-	text, textOK := result.Text()
+	text, textOK := result.Output.Text()
 	if err != nil || !textOK || text != inner.result || !inner.called {
 		t.Fatalf("Call = (%q, %v), context observed = %t", text, err, inner.called)
 	}
@@ -128,7 +128,7 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

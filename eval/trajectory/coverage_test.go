@@ -12,6 +12,7 @@ import (
 	"testing/synctest"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -138,11 +139,11 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 	for _, unknownAttempts := range []uint32{1, 2} {
 		t.Run(fmt.Sprintf("unknown_attempts_%d", unknownAttempts), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				inputSchema, err := agent.SchemaFor[fixtureInput]()
+				inputSchema, err := jsonschema.For[fixtureInput]()
 				if err != nil {
 					t.Fatal(err)
 				}
-				outputSchema, err := agent.SchemaFor[fixtureOutput]()
+				outputSchema, err := jsonschema.For[fixtureOutput]()
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -206,6 +206,7 @@ func (r *ResponseAccumulator) mergePart(delta PartDelta) {
 	case PartDeltaCitation:
 		part := &r.parts[len(r.parts)-1].part
 		part.Citations = append(part.Citations, *delta.Citation)
+		mergeValidatedMetadata(&part.Metadata, delta.Metadata)
 	}
 }
 

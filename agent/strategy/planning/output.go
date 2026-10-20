@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Outcome is the Planning-owned semantic reason a Goal-directed execution
@@ -79,7 +80,7 @@ func enumNames[T ~string](values []T) []string {
 type Attempt struct {
 	ActionName agent.QualifiedName `json:"action_name"`
 	Status     AttemptStatus       `json:"status"`
-	Diagnostic string              `json:"diagnostic,omitempty" jsonschema:"minLength=1,maxLength=4096"`
+	Diagnostic string              `json:"diagnostic,omitempty"`
 }
 
 func (a Attempt) excluded() bool { return a.Status != AttemptSucceeded }
@@ -149,4 +150,9 @@ func validateAttempts(attempts []Attempt) error {
 		}
 	}
 	return nil
+}
+
+// JSON Schema counts characters; Validate enforces the complete UTF-8 byte bound.
+func (Attempt) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{"diagnostic": {MinLength: new(uint64(1)), MaxLength: new(uint64(agent.MaxDiagnosticBytes))}}}
 }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func controlValue[T any](value T, err error) T {
@@ -66,7 +68,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 			if _, present := decoded.Failure(); present != failed {
 				t.Fatal("incorrect failure presence")
 			}
-			schema := controlValue(SchemaFor[ChildControlResult]())
+			schema := controlValue(jsonschema.For[ChildControlResult]())
 			if err := schema.Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +151,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	if got, addressed := decoded.WaitID(); !addressed || got != wait {
 		t.Fatal("wait identity lost")
 	}
-	if err := controlValue(SchemaFor[SignalRequest]()).Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
+	if err := controlValue(jsonschema.For[SignalRequest]()).Validate((controlValue(ParsePayload(payload))).JSON()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := jsonv2.Marshal(SignalRequest{}); err == nil {
@@ -166,7 +168,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	if err := jsonv2.Unmarshal(settled, &decoded); err == nil {
 		t.Fatal("request accepted a settlement status")
 	}
-	if err := controlValue(SchemaFor[SignalRequest]()).Validate(settled); err == nil {
+	if err := controlValue(jsonschema.For[SignalRequest]()).Validate(settled); err == nil {
 		t.Fatal("request schema advertises a settlement status")
 	}
 	mailbox := newSignalMailbox()
@@ -325,7 +327,7 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 	descriptor := newChildTestDeployment(t).Descriptor()
 	input := controlValue(EncodePayload(descriptor))
-	if err := controlValue(SchemaFor[Descriptor]()).Validate(input.JSON()); err != nil {
+	if err := controlValue(jsonschema.For[Descriptor]()).Validate(input.JSON()); err != nil {
 		t.Fatal(err)
 	}
 	decoded := controlValue(input.Decode[Descriptor]())

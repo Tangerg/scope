@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
@@ -260,15 +261,15 @@ func TestStartCanceledBeforeSubmissionHasNoAdmissionSideEffects(t *testing.T) {
 
 func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinition {
 	t.Helper()
-	inputSchema, err := SchemaFor[engineTestInput]()
+	inputSchema, err := jsonschema.For[engineTestInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[engineTestOutput]()
+	outputSchema, err := jsonschema.For[engineTestOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signalSchema, err := ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		t.Fatal(err)
 	}

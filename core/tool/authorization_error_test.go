@@ -45,7 +45,7 @@ func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`})
+				invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`}, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -84,7 +84,7 @@ func TestGuardDoesNotExecuteAfterPolicyCancelsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

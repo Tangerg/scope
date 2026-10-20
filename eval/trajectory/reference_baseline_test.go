@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/metadata"
@@ -100,7 +102,7 @@ func referenceSuite(fixtures []referenceFixture, maximumTokens int64) (*eval.Sui
 		byID[fixture.Case.ID] = fixture
 	}
 	assess := func(id eval.AssessmentID, evaluate func(context.Context, referenceEvidence, referenceFixture) (eval.Report, error)) eval.Assessment[eval.TrialSample[referenceInput, referenceEvidence]] {
-		return eval.Assessment[eval.TrialSample[referenceInput, referenceEvidence]]{ID: id,
+		return lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[referenceInput, referenceEvidence]]{ID: id,
 			Evaluator: eval.EvaluatorFunc[eval.TrialSample[referenceInput, referenceEvidence]](func(ctx context.Context, sample eval.TrialSample[referenceInput, referenceEvidence]) (eval.Report, error) {
 				if err := ctx.Err(); err != nil {
 					return eval.Report{}, err
@@ -114,7 +116,7 @@ func referenceSuite(fixtures []referenceFixture, maximumTokens int64) (*eval.Sui
 				}
 				return evaluate(ctx, *sample.Execution.Output, fixture)
 			}),
-		}
+		}))
 	}
 	return eval.NewSuite(eval.SuiteConfig[eval.TrialSample[referenceInput, referenceEvidence]]{
 		Assessments: []eval.Assessment[eval.TrialSample[referenceInput, referenceEvidence]]{

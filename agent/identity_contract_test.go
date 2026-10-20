@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func valid(value any) bool {
@@ -161,9 +162,9 @@ func TestZeroIdentitiesAreUnusable(t *testing.T) {
 	}
 }
 
-func schemaFor(t *testing.T, raw string) agent.Schema {
+func schemaFor(t *testing.T, raw string) jsonschema.Schema {
 	t.Helper()
-	schema, err := agent.ParseSchema(json.RawMessage(raw))
+	schema, err := jsonschema.Parse(json.RawMessage(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +254,8 @@ func TestNewDescriptorRejectsAnIncompleteContract(t *testing.T) {
 	cases := map[string]func(agent.DescriptorConfig) agent.DescriptorConfig{
 		"missing name":          func(c agent.DescriptorConfig) agent.DescriptorConfig { c.Name = ""; return c },
 		"unqualified name":      func(c agent.DescriptorConfig) agent.DescriptorConfig { c.Name = "Scope Test"; return c },
-		"missing input schema":  func(c agent.DescriptorConfig) agent.DescriptorConfig { c.InputSchema = agent.Schema{}; return c },
-		"missing output schema": func(c agent.DescriptorConfig) agent.DescriptorConfig { c.OutputSchema = agent.Schema{}; return c },
+		"missing input schema":  func(c agent.DescriptorConfig) agent.DescriptorConfig { c.InputSchema = jsonschema.Schema{}; return c },
+		"missing output schema": func(c agent.DescriptorConfig) agent.DescriptorConfig { c.OutputSchema = jsonschema.Schema{}; return c },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

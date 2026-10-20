@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // resolverTestDefinition supplies the Descriptor a Deployment freezes. The
@@ -28,7 +29,7 @@ func (r resolverTestDefinition) Restore(context.Context, agent.ExecutionState) (
 
 func resolverTestDeployment(t *testing.T, name string) agent.Deployment {
 	t.Helper()
-	schema, err := agent.SchemaFor[definitionConformanceInput]()
+	schema, err := jsonschema.For[definitionConformanceInput]()
 	if err != nil {
 		t.Fatal(err)
 	}

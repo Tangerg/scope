@@ -7,6 +7,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Generic Tool-result validation cannot see the Delegate OutputSchema, so Restore
@@ -57,7 +58,7 @@ func TestRoundDelegateResultRestoreValidatesOutputContract(t *testing.T) {
 			if !errors.Is(restoreErr, ErrInvalidExecutionState) {
 				t.Fatalf("Restore accepted an invalid Delegate output: %v", restoreErr)
 			}
-			if test.wantSchema && !errors.Is(restoreErr, agent.ErrSchemaValidation) {
+			if test.wantSchema && !errors.Is(restoreErr, jsonschema.ErrValidation) {
 				t.Fatalf("schema cause lost: %v", restoreErr)
 			}
 		})

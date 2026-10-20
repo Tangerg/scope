@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type definitionConformanceInput struct {
@@ -25,7 +26,7 @@ type definitionConformanceDefinition struct {
 
 func newDefinitionConformanceFixture(t *testing.T) *definitionConformanceDefinition {
 	t.Helper()
-	schema, err := agent.SchemaFor[definitionConformanceInput]()
+	schema, err := jsonschema.For[definitionConformanceInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +287,7 @@ type rejectingDefinition struct {
 
 func newRejectingDefinition(t *testing.T, err error) *rejectingDefinition {
 	t.Helper()
-	schema, schemaErr := agent.SchemaFor[definitionConformanceInput]()
+	schema, schemaErr := jsonschema.For[definitionConformanceInput]()
 	if schemaErr != nil {
 		t.Fatal(schemaErr)
 	}

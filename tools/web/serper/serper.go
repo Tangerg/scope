@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tangerg/scope/tools/web/internal/googletbs"
+
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -56,7 +58,7 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 		Q:           request.QueryWithSiteOperators(),
 		Num:         request.MaxResults,
 		Autocorrect: true,
-		Tbs:         recencyToTbs(request.Recency),
+		Tbs:         googletbs.FromRecency(request.Recency),
 	}
 }
 
@@ -100,32 +102,6 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	return raw.toSearchResponse(prepared.Query), nil
 }
 
-// Google tbs (to-be-searched) query-date-range codes selected by web.Recency.
-const (
-	tbsPastHour  = "qdr:h"
-	tbsPastDay   = "qdr:d"
-	tbsPastWeek  = "qdr:w"
-	tbsPastMonth = "qdr:m"
-	tbsPastYear  = "qdr:y"
-)
-
-func recencyToTbs(r web.Recency) string {
-	switch r {
-	case web.RecencyHour:
-		return tbsPastHour
-	case web.RecencyDay:
-		return tbsPastDay
-	case web.RecencyWeek:
-		return tbsPastWeek
-	case web.RecencyMonth:
-		return tbsPastMonth
-	case web.RecencyYear:
-		return tbsPastYear
-	}
-	return ""
-}
-
-// parseDate returns the zero time for relative dates such as "2 days ago".
 func parseDate(s string) time.Time {
 	for _, layout := range []string{"Jan 2, 2006", time.DateOnly, time.RFC3339} {
 		if t, err := time.Parse(layout, s); err == nil {

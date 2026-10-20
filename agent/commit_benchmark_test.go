@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Each admission starts from the same paused tree so retained history does not
@@ -126,11 +128,11 @@ func benchmarkSignalCommitTree(b *testing.B, processCount int, limits TreeLimits
 		}
 		children[index] = childTestSpec(key, childDeployment.DeploymentRef(), childInput)
 	}
-	schema, err := SchemaFor[executionReplayBenchmarkState]()
+	schema, err := jsonschema.For[executionReplayBenchmarkState]()
 	if err != nil {
 		b.Fatal(err)
 	}
-	signalSchema, err := SchemaFor[engineTestInput]()
+	signalSchema, err := jsonschema.For[engineTestInput]()
 	if err != nil {
 		b.Fatal(err)
 	}

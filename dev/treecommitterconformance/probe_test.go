@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type probeValue struct {
@@ -146,7 +147,7 @@ func (probeDispatcher) Policy(agent.Effect) agent.EffectPolicy {
 }
 
 func probeDeployment(dispatcher probeDispatcher) (agent.Deployment, error) {
-	schema, err := agent.SchemaFor[probeValue]()
+	schema, err := jsonschema.For[probeValue]()
 	if err != nil {
 		return agent.Deployment{}, err
 	}

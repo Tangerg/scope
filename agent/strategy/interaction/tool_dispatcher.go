@@ -67,12 +67,15 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 	}
 	call := envelope.ToolCall.Invocation
 	resume := envelope.ToolCall.Resume
+	var continuation *tool.Continuation
 	if resume != nil {
-		ctx = withToolInputContinuation(ctx, ToolInputContinuation{
-			state: resume.InputRequest.continuationState, response: resume.InputResponse,
-		})
+		input, resumeErr := resume.InputRequest.Continuation(resume.InputResponse)
+		if resumeErr != nil {
+			return failedSettlement(resumeErr)
+		}
+		continuation = &input
 	}
-	prepared := t.prepareToolCall(call.Call)
+	prepared := t.prepareToolCall(call.Call, continuation)
 	if prepared.defect != nil {
 		// A validator defect is settled before Tool.Call runs, as a definite
 		// failure that propagates to the parent, never a model-visible result.
@@ -123,7 +126,7 @@ func (t *toolDispatcher) callTool(
 ) (
 	result chat.ToolResult,
 	advertisedToolNames []string,
-	required *toolInputRequest,
+	required *tool.InputRequest,
 	rejected bool,
 	err error,
 ) {
@@ -176,7 +179,7 @@ func (t *toolDispatcher) callTool(
 	return result, names, nil, false, nil
 }
 
-func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
+func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, continuation *tool.Continuation) preparedToolCall {
 	prepared := preparedToolCall{call: call}
 	binding, found := t.bindings[call.Name]
 	if !found {
@@ -185,7 +188,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall) preparedToolCall {
 		return prepared
 	}
 	prepared.binding = binding
-	invocation, err := binding.Contract().Prepare(call)
+	invocation, err := binding.Contract().Prepare(call, continuation)
 	if err != nil {
 		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
 			prepared.defect = err

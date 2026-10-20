@@ -1,26 +1,20 @@
 package agent
 
+import (
+	"fmt"
+	"regexp"
+)
+
 const maxQualifiedNameBytes = 128
 
 // QualifiedName is a lowercase dotted identifier carried on the wire. Its value
 // is validated by ValidQualifiedName; JSONSchemaPattern projects that same rule
-// for schema generation, guarded against drift by TestQualifiedNamePattern.
+// for schema generation from the same compiled grammar.
 type QualifiedName string
 
-func (QualifiedName) JSONSchemaPattern() string { return `^[a-z][a-z0-9._-]{0,127}$` }
+func (QualifiedName) JSONSchemaPattern() string { return qualifiedNamePattern.String() }
 
-// ValidQualifiedName checks a 1–128 byte name beginning with a lowercase ASCII
-// letter and followed only by lowercase letters, digits, dots, underscores or hyphens.
-func ValidQualifiedName(name string) bool {
-	if len(name) == 0 || len(name) > maxQualifiedNameBytes || name[0] < 'a' || name[0] > 'z' {
-		return false
-	}
-	for index := 1; index < len(name); index++ {
-		character := name[index]
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
+var qualifiedNamePattern = regexp.MustCompile(fmt.Sprintf(`^[a-z][a-z0-9._-]{0,%d}$`, maxQualifiedNameBytes-1))
+
+// ValidQualifiedName checks the lowercase ASCII name grammar and byte bound.
+func ValidQualifiedName(name string) bool { return qualifiedNamePattern.MatchString(name) }

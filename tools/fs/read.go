@@ -64,7 +64,7 @@ func (r *ReadTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bo
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return r.typed.Call(ctx, invocation)
 }
 

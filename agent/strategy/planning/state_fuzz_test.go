@@ -8,10 +8,11 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func FuzzExecutionStateRestore(f *testing.F) {
-	inputSchema, err := agent.SchemaFor[struct{}]()
+	inputSchema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		f.Fatal(err)
 	}

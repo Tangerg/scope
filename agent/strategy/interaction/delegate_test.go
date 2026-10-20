@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -521,8 +522,8 @@ type pausingDelegateExecution struct {
 
 func pausingDelegateDeployment(t *testing.T) agent.Deployment {
 	t.Helper()
-	inputSchema, _ := agent.SchemaFor[delegateRequest]()
-	outputSchema, _ := agent.SchemaFor[delegateResponse]()
+	inputSchema, _ := jsonschema.For[delegateRequest]()
+	outputSchema, _ := jsonschema.For[delegateResponse]()
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name: "interaction.pausing_delegate_worker", Description: "Pause once and then return the delegated value.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,

@@ -44,7 +44,9 @@ func (e EffectBoundaryKind) String() string {
 
 // EffectBoundary binds an Effect fact to its prospective tree so a Host cannot
 // acknowledge dispatch or settlement independently of recovery state. External
-// dispatch uses a pending permission followed by settlement. Tree-local child
+// dispatch and child admission use a pending permission followed by settlement.
+// The permission freezes the child proposal before Host admission can act.
+// Tree-local child
 // controls settle directly, atomically with the recipient's mailbox or intent;
 // they perform no external I/O requiring a pending dispatch permission.
 //

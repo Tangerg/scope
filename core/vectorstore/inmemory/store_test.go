@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
@@ -607,5 +608,50 @@ func TestStoreOwnsEmbeddingDimensions(t *testing.T) {
 	}
 	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err != nil || scores != 1 {
 		t.Fatalf("search after clear: %v, scores=%d", err, scores)
+	}
+}
+
+type checkedCancellation struct {
+	context.Context
+	checked chan struct{}
+	once    sync.Once
+}
+
+func (c *checkedCancellation) Err() error {
+	err := c.Context.Err()
+	c.once.Do(func() { close(c.checked) })
+	return err
+}
+
+func TestDeleteIDsCanceledWhileWaitingForMutationLock(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: func([]float64, []float64) vectorstore.Score { close(entered); <-release; return 1 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}}}); err != nil {
+		t.Fatal(err)
+	}
+	searched := make(chan error, 1)
+	go func() { _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "one"}); searched <- err }()
+	<-entered
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	checked := &checkedCancellation{Context: ctx, checked: make(chan struct{})}
+	deleted := make(chan error, 1)
+	go func() { deleted <- store.DeleteIDs(checked, []string{"one"}) }()
+	<-checked.checked
+	cancel()
+	unblock()
+	if err := <-searched; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-deleted; !errors.Is(err, context.Canceled) {
+		t.Fatalf("delete after lock wait=%v", err)
+	}
+	if store.Len() != 1 {
+		t.Fatal("canceled deletion removed the record")
 	}
 }

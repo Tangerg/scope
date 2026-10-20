@@ -1,5 +1,5 @@
 // Package skills exposes an Agent Skills
-// [github.com/Tangerg/scope/skills.ResourceSource] as three model-callable
+// [Source] as three model-callable
 // tools for progressive disclosure:
 //
 //   - list_skills: every skill's name and description

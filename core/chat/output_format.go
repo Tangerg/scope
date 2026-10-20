@@ -132,7 +132,6 @@ func (o OutputFormat) MarshalJSON() ([]byte, error) {
 	if err := o.Validate(); err != nil {
 		return nil, err
 	}
-	type wireOutputFormat OutputFormat
 	return jsonv2.Marshal(wireOutputFormat(o), jsonv2.Deterministic(true))
 }
 
@@ -140,7 +139,6 @@ func (o *OutputFormat) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidOutputFormat)
 	}
-	type wireOutputFormat OutputFormat
 	var decoded wireOutputFormat
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidOutputFormat, err)
@@ -152,3 +150,7 @@ func (o *OutputFormat) UnmarshalJSON(data []byte) error {
 	*o = candidate
 	return nil
 }
+
+type wireOutputFormat OutputFormat
+
+func (OutputFormat) JSONSchemaAlias() any { return wireOutputFormat{} }

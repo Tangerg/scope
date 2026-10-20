@@ -30,6 +30,22 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestUppercaseRestoreHonorsCancellation(t *testing.T) {
+	deployment, err := newUppercaseDeployment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := agent.ParseExecutionState(uppercaseStateKind, []byte(`{"text":"x","done":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := deployment.Definition().Restore(ctx, state); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Restore error=%v", err)
+	}
+}
+
 type compositionFixture struct {
 	local       agent.Deployment
 	model       agent.Deployment

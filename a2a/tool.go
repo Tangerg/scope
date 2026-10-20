@@ -85,7 +85,7 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	return r.concurrencyPolicy
 }
 
-func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out corechat.ToolOutput, err error) {
+func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out toolcontract.Result, err error) {
 	ctx, span := a2aTracer.Start(ctx, "a2a.agent.call "+r.definition.Name,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attribute.String(attrAgentName, r.definition.Name)),
@@ -99,21 +99,21 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	input, err := parseCallArguments(invocation.Arguments())
 	if err != nil {
-		return corechat.ToolOutput{}, inputFailure(fmt.Errorf("a2a: decode arguments for agent %q: %w", r.definition.Name, err))
+		return toolcontract.Result{}, inputFailure(fmt.Errorf("a2a: decode arguments for agent %q: %w", r.definition.Name, err))
 	}
 
 	projection := textProjection{}
 	req := &sdka2a.SendMessageRequest{Message: projection.userMessage(input.Message)}
 	result, err := r.client.SendMessage(ctx, req)
 	if err != nil {
-		return corechat.ToolOutput{}, fmt.Errorf("a2a: call agent %q: %w", r.definition.Name, err)
+		return toolcontract.Result{}, fmt.Errorf("a2a: call agent %q: %w", r.definition.Name, err)
 	}
 
 	text, err := projection.result(result)
 	if err != nil {
-		return corechat.ToolOutput{}, fmt.Errorf("a2a: result from agent %q: %w", r.definition.Name, err)
+		return toolcontract.Result{}, fmt.Errorf("a2a: result from agent %q: %w", r.definition.Name, err)
 	}
-	return corechat.NewTextToolOutput(text), nil
+	return toolcontract.Result{Output: corechat.NewTextToolOutput(text)}, nil
 }
 
 func parseCallArguments(arguments []byte) (callArguments, error) {

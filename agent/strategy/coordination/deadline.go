@@ -8,6 +8,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const deadlineStateKind = "coordination.deadline"
@@ -25,7 +26,7 @@ type DeadlineConfig struct {
 type Deadline struct{ descriptor agent.Descriptor }
 
 func NewDeadline(config DeadlineConfig) (*Deadline, error) {
-	schema, err := agent.SchemaFor[time.Time]()
+	schema, err := jsonschema.For[time.Time]()
 	if err != nil {
 		return nil, err
 	}
@@ -143,16 +144,23 @@ func (d *deadlineExecution) acceptTimer(signals []agent.Signal) (agent.Transitio
 	if err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
-	if settlement.Status() != agent.SettlementStatusSucceeded {
-		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, "timer returned before its deadline")
+	payload, err := agent.ParsePayload(settlement.Payload())
+	if err != nil {
+		return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
+	}
+	if settlement.Status() == agent.SettlementStatusFailed {
+		diagnostic, decodeErr := payload.Decode[string]()
+		if decodeErr != nil || !agent.ValidDiagnostic(diagnostic) {
+			return agent.Transition{}, fmt.Errorf("%w: invalid timer failure diagnostic", ErrInvalidProtocol)
+		}
+		failure, failureErr := stepfail.Failure(agent.FailureKindExternal, failureCodeDeadlineInterrupted, diagnostic)
 		if failureErr != nil {
 			return agent.Transition{}, failureErr
 		}
 		return agent.Fail(1, failure)
 	}
-	payload, err := agent.ParsePayload(settlement.Payload())
-	if err != nil {
-		return agent.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
+	if settlement.Status() != agent.SettlementStatusSucceeded {
+		return agent.Transition{}, fmt.Errorf("%w: timer requires a definite settlement", ErrInvalidProtocol)
 	}
 	if _, err = payload.Decode[timerReached](); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)

@@ -85,10 +85,7 @@ func (s SearchOptions) Validate() error {
 }
 
 func (s SearchOptions) EffectiveMode() SearchMode {
-	if s.Mode == "" {
-		return SearchModeSemantic
-	}
-	return s.Mode
+	return SearchMode(s.Mode.String())
 }
 
 // RequireMode rejects a valid request mode before provider I/O when the store

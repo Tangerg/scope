@@ -14,6 +14,29 @@ type wirePerson struct {
 	Age  int    `json:"age"`
 }
 
+type opaqueEncoding struct{}
+
+func (opaqueEncoding) MarshalJSON() ([]byte, error) { return []byte(`{"value":true}`), nil }
+
+func TestForRejectsUnmodeledCustomEncoding(t *testing.T) {
+	for name, derive := range map[string]func() error{
+		"schema": func() error { _, err := jsonschema.For[jsonschema.Schema](); return err },
+		"opaque": func() error { _, err := jsonschema.For[opaqueEncoding](); return err },
+		"nested": func() error {
+			_, err := jsonschema.For[struct {
+				Value opaqueEncoding `json:"value"`
+			}]()
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := derive(); !errors.Is(err, jsonschema.ErrInvalid) {
+				t.Fatalf("For error=%v", err)
+			}
+		})
+	}
+}
+
 func personSchema(t *testing.T) jsonschema.Schema {
 	t.Helper()
 	schema, err := jsonschema.For[wirePerson]()
@@ -188,5 +211,20 @@ func TestForEncodesByteSlicesAsNullableBase64(t *testing.T) {
 	}
 	if err := schema.Validate([]byte(`{"data":[104,105]}`)); err == nil {
 		t.Fatal("Validate accepted a byte array instead of base64")
+	}
+}
+
+func TestSchemaValidationSeparatesSchemaAndValueFailures(t *testing.T) {
+	if err := (jsonschema.Schema{}).Validate([]byte(`1`)); !errors.Is(err, jsonschema.ErrInvalid) {
+		t.Fatalf("zero schema error = %v", err)
+	}
+	schema, err := jsonschema.For[int]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{`"one"`, `{`, `1 2`, `{"a":1,"a":2}`} {
+		if err := schema.Validate([]byte(raw)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Fatalf("Validate(%q) error = %v", raw, err)
+		}
 	}
 }

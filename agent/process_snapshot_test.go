@@ -661,3 +661,23 @@ func TestSnapshotFinishRequiresItsTerminationAndTime(t *testing.T) {
 		}
 	}
 }
+
+func TestTreeSnapshotCanonicalizesPendingSignalObjects(t *testing.T) {
+	wire := controlValue(preparedEngineTestSnapshot(t).wire())
+	id := controlValue(ParseSignalID("signal:canonical-object"))
+	signal := controlValue(NewSignal(id, WaitID{}, []byte(`{"a":1,"z":2}`)))
+	wire.Mailbox.Signals = append(wire.Mailbox.Signals, newSignalRecord(signal).wire())
+	snapshot := controlValue(newProcessSnapshot(wire))
+	tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(), ProcessSnapshots: []ProcessSnapshot{snapshot}}))
+	reordered := bytes.Replace(tree.JSON(), []byte(`{"a":1,"z":2}`), []byte(`{"z":2,"a":1}`), 1)
+	if bytes.Equal(reordered, tree.JSON()) {
+		t.Fatal("fixture did not reorder pending payload")
+	}
+	parsed, err := ParseTreeSnapshot(reordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Digest() != tree.Digest() || !bytes.Equal(parsed.JSON(), tree.JSON()) {
+		t.Fatal("pending payload object order changed canonical tree identity")
+	}
+}

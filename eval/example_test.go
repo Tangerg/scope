@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/eval"
 )
 
@@ -22,7 +24,7 @@ func ExampleExperiment_Run() {
 		}
 		return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "non_empty", Verdict: verdict}}, nil
 	})
-	suite, err := eval.NewSuite(eval.SuiteConfig[string]{Assessments: []eval.Assessment[string]{{ID: "non_empty", Evaluator: evaluator}}})
+	suite, err := eval.NewSuite(eval.SuiteConfig[string]{Assessments: []eval.Assessment[string]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "non_empty", Evaluator: evaluator}))}})
 	if err != nil {
 		panic(err)
 	}
@@ -93,7 +95,7 @@ func ExampleSuite_Run() {
 	// A gate determines acceptance without contributing a score. The Suite
 	// preserves the quality Composite's score under its own metric identity.
 	suite, err := eval.NewSuite(eval.SuiteConfig[string]{
-		Assessments: []eval.Assessment[string]{{ID: "quality", Evaluator: scored}, {ID: "safety", Evaluator: safety}},
+		Assessments: []eval.Assessment[string]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "quality", Evaluator: scored})), lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "safety", Evaluator: safety}))},
 	})
 	if err != nil {
 		panic(err)

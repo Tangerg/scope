@@ -193,7 +193,6 @@ func (p Part) MarshalJSON() ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	type wirePart Part
 	return jsonv2.Marshal(wirePart(p), jsonv2.Deterministic(true))
 }
 
@@ -201,7 +200,6 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidPart)
 	}
-	type wirePart Part
 	var decoded wirePart
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidPart, err)
@@ -223,3 +221,7 @@ func (p Part) validatePayload(actual, required partPayload, validate func() erro
 	}
 	return nil
 }
+
+type wirePart Part
+
+func (Part) JSONSchemaAlias() any { return wirePart{} }

@@ -12,6 +12,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestWaitingForkTreeRestoresWithoutDuplicateChildren(t *testing.T) {
@@ -333,8 +334,8 @@ type pausingBranchDefinition struct {
 
 func newPausingBranchDeployment(t *testing.T, branch string) agent.Deployment {
 	t.Helper()
-	inputSchema, _ := agent.SchemaFor[forkInput]()
-	outputSchema, _ := agent.SchemaFor[branchOutput]()
+	inputSchema, _ := jsonschema.For[forkInput]()
+	outputSchema, _ := jsonschema.For[branchOutput]()
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
 		Name:        "test.workflow.pausing_" + branch,
 		Description: "Pause one managed branch before producing its result.",

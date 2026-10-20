@@ -16,8 +16,8 @@ type stubTool struct {
 }
 
 func (s *stubTool) Definition() chat.ToolDefinition { return s.definition }
-func (s *stubTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
-	return s.result.Clone(), nil
+func (s *stubTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{Output: s.result.Clone()}, nil
 }
 
 func newStubTool(name string) *stubTool {
@@ -41,12 +41,12 @@ func TestRegistryResolveAndDefinitions(t *testing.T) {
 	if !ok {
 		t.Fatal("Resolve(alpha) did not find registered tool")
 	}
-	invocation, err := value.Contract().Prepare(chat.ToolCall{ID: "call", Name: "alpha", Arguments: `{}`})
+	invocation, err := value.Contract().Prepare(chat.ToolCall{ID: "call", Name: "alpha", Arguments: `{}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, err := value.Call(t.Context(), invocation)
-	if err != nil || mustText(t, result) != "alpha result" {
+	if err != nil || mustText(t, result.Output) != "alpha result" {
 		t.Fatalf("Call = %#v, %v", result, err)
 	}
 	if _, ok := registry.Resolve("missing"); ok {

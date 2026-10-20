@@ -28,25 +28,25 @@ type losingReportTool struct {
 	confirmed chan confirmedToolCall
 }
 
-func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (chat.ToolOutput, error) {
+func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
 	output, err := l.Tool.Call(ctx, input)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Result{}, err
 	}
 	invocation, ok := interaction.ToolInvocationFromContext(ctx)
 	if !ok {
-		return chat.ToolOutput{}, errors.New("missing Tool invocation")
+		return tool.Result{}, errors.New("missing Tool invocation")
 	}
 	reference, ok := invocation.Reference()
 	if !ok {
-		return chat.ToolOutput{}, errors.New("missing Tool parent reference")
+		return tool.Result{}, errors.New("missing Tool parent reference")
 	}
 	if reference.ModelCallSequence() == lostToolRound {
 		select {
-		case l.confirmed <- confirmedToolCall{EffectID: invocation.EffectID(), Output: output.Clone()}:
-			return chat.ToolOutput{}, errors.New("confirmed report response was lost")
+		case l.confirmed <- confirmedToolCall{EffectID: invocation.EffectID(), Output: output.Output.Clone()}:
+			return tool.Result{}, errors.New("confirmed report response was lost")
 		case <-ctx.Done():
-			return chat.ToolOutput{}, ctx.Err()
+			return tool.Result{}, ctx.Err()
 		}
 	}
 	return output, nil

@@ -75,7 +75,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executable.Definition().Name, Arguments: `{"message":"hello"}`})
+	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executable.Definition().Name, Arguments: `{"message":"hello"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

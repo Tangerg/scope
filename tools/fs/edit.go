@@ -55,7 +55,7 @@ func (e *EditTool) Definition() chat.ToolDefinition {
 	return e.typed.Definition()
 }
 
-func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return e.typed.Call(ctx, invocation)
 }
 

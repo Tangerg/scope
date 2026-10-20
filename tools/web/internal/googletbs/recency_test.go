@@ -1,4 +1,4 @@
-package serper
+package googletbs
 
 import (
 	"testing"
@@ -22,8 +22,8 @@ func TestRecencyMappingMatchesSerperTBS(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := recencyToTbs(test.recency); got != test.want {
-				t.Fatalf("recencyToTbs(%q) = %q, want %q", test.recency, got, test.want)
+			if got := FromRecency(test.recency); got != test.want {
+				t.Fatalf("FromRecency(%q) = %q, want %q", test.recency, got, test.want)
 			}
 		})
 	}

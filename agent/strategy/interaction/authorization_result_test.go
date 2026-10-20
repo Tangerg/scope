@@ -41,7 +41,7 @@ func TestExplicitRefusalCommitsExactPublicOutputBeforeModelContinuation(t *testi
 				Details: json.RawMessage(`{"permitted":false}`),
 			}
 			public := &callbackTool{name: "inspect", call: func(ctx context.Context, arguments string) (string, error) {
-				invocation, prepareErr := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "inspect", Arguments: arguments})
+				invocation, prepareErr := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "inspect", Arguments: arguments}, nil)
 				if prepareErr != nil {
 					return "", prepareErr
 				}

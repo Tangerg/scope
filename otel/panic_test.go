@@ -96,7 +96,7 @@ func (p panickingCapability) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{Name: "panic", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
-func (p panickingCapability) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (p panickingCapability) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	panic(p.value)
 }
 

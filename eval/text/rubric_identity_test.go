@@ -3,6 +3,8 @@ package text_test
 import (
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/eval"
 	texteval "github.com/Tangerg/scope/eval/text"
@@ -29,11 +31,11 @@ func TestComparisonSeparatesDifferentRubrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	leftSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{{ID: "relevance", Evaluator: left}}})
+	leftSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[texteval.AnswerRelevanceSample]{ID: "relevance", Evaluator: left}))}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{{ID: "relevance", Evaluator: right}}})
+	rightSuite, err := eval.NewSuite(eval.SuiteConfig[texteval.AnswerRelevanceSample]{Assessments: []eval.Assessment[texteval.AnswerRelevanceSample]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[texteval.AnswerRelevanceSample]{ID: "relevance", Evaluator: right}))}})
 	if err != nil {
 		t.Fatal(err)
 	}

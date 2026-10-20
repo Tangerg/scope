@@ -13,18 +13,30 @@ import (
 
 var ErrNilStream = errors.New("history: middleware: nil stream sequence")
 
+// MiddlewareConfig binds history to one explicit partition. Calls that do not
+// use history should use the undecorated model.
+type MiddlewareConfig struct {
+	Store          ReadWriter
+	ConversationID ConversationID
+}
+
 // Middleware replays and persists history around synchronous and streaming
 // chat capabilities. It is immutable and as safe for concurrent use as its
 // Store, but it does not serialize Read/model/Write turns of one conversation.
+// Its zero value is invalid; construct it with NewMiddleware.
 type Middleware struct {
-	store ReadWriter
+	store          ReadWriter
+	conversationID ConversationID
 }
 
-func NewMiddleware(store ReadWriter) (Middleware, error) {
-	if lo.IsNil(store) {
+func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
+	if lo.IsNil(config.Store) {
 		return Middleware{}, ErrNilStore
 	}
-	return Middleware{store: store}, nil
+	if err := config.ConversationID.Validate(); err != nil {
+		return Middleware{}, err
+	}
+	return Middleware{store: config.Store, conversationID: config.ConversationID}, nil
 }
 
 // Call is a [chat.CallMiddleware]. The response result is the canonical
@@ -32,12 +44,7 @@ func NewMiddleware(store ReadWriter) (Middleware, error) {
 // responses before applying the history retention policy.
 func (m Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
-		conversationID, bound := ConversationIDFromContext(ctx)
-		if !bound {
-			return next.Call(ctx, request)
-		}
-
-		prepared, fresh, err := m.prepare(ctx, conversationID, request)
+		prepared, fresh, err := m.prepare(ctx, request)
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +59,7 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 		if !persist {
 			return response, nil
 		}
-		if err := m.persist(ctx, conversationID, fresh, assistant); err != nil {
+		if err := m.persist(ctx, fresh, assistant); err != nil {
 			return response, err
 		}
 		return response, nil
@@ -76,13 +83,7 @@ func (m Middleware) stream(
 	request *chat.Request,
 	yield func(*chat.ResponseDelta, error) bool,
 ) {
-	conversationID, bound := ConversationIDFromContext(ctx)
-	if !bound {
-		m.forward(next.Stream(ctx, request), yield)
-		return
-	}
-
-	prepared, fresh, err := m.prepare(ctx, conversationID, request)
+	prepared, fresh, err := m.prepare(ctx, request)
 	if err != nil {
 		yield(nil, err)
 		return
@@ -107,7 +108,7 @@ func (m Middleware) stream(
 	if !persist {
 		return
 	}
-	if err := m.persist(ctx, conversationID, fresh, assistant); err != nil {
+	if err := m.persist(ctx, fresh, assistant); err != nil {
 		yield(nil, err)
 	}
 }
@@ -143,17 +144,13 @@ func (h *historyStream) stop(response *chat.ResponseDelta, err error) bool {
 
 func (m Middleware) prepare(
 	ctx context.Context,
-	conversationID ConversationID,
 	request *chat.Request,
 ) (*chat.Request, []chat.Message, error) {
-	if err := conversationID.Validate(); err != nil {
-		return nil, nil, err
-	}
 	prepared, err := m.snapshotRequest(request)
 	if err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: prepare request: %w", err)
 	}
-	stored, err := m.store.Read(ctx, conversationID)
+	stored, err := m.store.Read(ctx, m.conversationID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: read history: %w", err)
 	}
@@ -184,21 +181,20 @@ func (m Middleware) prepare(
 
 func (m Middleware) persist(
 	ctx context.Context,
-	conversationID ConversationID,
 	fresh []chat.Message,
 	assistant chat.Message,
 ) error {
 	messages := make([]chat.Message, 0, len(fresh)+1)
 	messages = append(messages, fresh...)
 	messages = append(messages, assistant)
-	outcome, err := m.store.Write(ctx, conversationID, messages...)
+	outcome, err := m.store.Write(ctx, m.conversationID, messages...)
 	if invalid := outcome.ValidateFor(len(messages), err); invalid != nil {
 		err = errors.Join(err, invalid)
 		// Contradictory adapter facts cannot authorize a retry of any message.
 		outcome = WriteOutcome{Uncertain: len(messages) > 0}
 	}
 	if err != nil {
-		failure := &CommitError{conversationID: conversationID, messages: messages, outcome: outcome, cause: err}
+		failure := &CommitError{conversationID: m.conversationID, messages: messages, outcome: outcome, cause: err}
 		failure.messages = failure.Messages()
 		return failure
 	}
@@ -225,14 +221,6 @@ func (m Middleware) persistableAssistant(response *chat.Response) (chat.Message,
 		}
 	}
 	return *response.Output.Message, true
-}
-
-func (m Middleware) forward(sequence iter.Seq2[*chat.ResponseDelta, error], yield func(*chat.ResponseDelta, error) bool) {
-	if sequence == nil {
-		yield(nil, ErrNilStream)
-		return
-	}
-	sequence(yield)
 }
 
 type historyMessages []chat.Message

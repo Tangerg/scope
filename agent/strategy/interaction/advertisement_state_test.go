@@ -98,22 +98,22 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 	for _, outcome := range []string{"success", "error", "input", "panic"} {
 		t.Run(outcome, func(t *testing.T) {
 			var saved context.Context
-			executable, err := tool.NewFunc(tool.FuncConfig{Name: "active", Description: "Close the call capability."}, func(ctx context.Context, _ struct{}) (string, error) {
+			executable, err := newContinuingTool(tool.FuncConfig{Name: "active", Description: "Close the call capability."}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 				saved = ctx
 				accepted := make(chan error, 1)
 				go func() { accepted <- AdvertiseTools(ctx, "deferred") }()
 				if err := <-accepted; err != nil {
-					return "", err
+					return tool.Result{}, err
 				}
 				switch outcome {
 				case "error":
-					return "", errors.New("unknown outcome")
+					return tool.Result{}, errors.New("unknown outcome")
 				case "input":
-					return "", RequireToolInput([]byte(`"continue?"`), []byte(`{"type":"boolean"}`), []byte(`null`))
+					return waitingInput([]byte(`"continue?"`), []byte(`{"type":"boolean"}`), []byte(`null`))
 				case "panic":
 					panic("unknown outcome")
 				default:
-					return "done", nil
+					return tool.Result{Output: chat.NewTextToolOutput("done")}, nil
 				}
 			})
 			if err != nil {
@@ -124,7 +124,7 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 			if err := dispatcher.bindTool(executable, false); err != nil {
 				t.Fatal(err)
 			}
-			prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`})
+			prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`}, nil)
 			_, names, required, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
 			if saved == nil {
 				t.Fatal("Tool was not called")

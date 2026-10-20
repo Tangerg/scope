@@ -775,3 +775,23 @@ func TestLocalExecutor_GrepRequiresRipgrep(t *testing.T) {
 		t.Fatalf("Grep error = %v, want ErrRipgrepUnavailable", err)
 	}
 }
+
+func TestGrepRejectsInvalidFileGlobIndependentlyOfDirectoryContents(t *testing.T) {
+	for _, contents := range []string{"empty", "file", "directory"} {
+		t.Run(contents, func(t *testing.T) {
+			root := t.TempDir()
+			if contents == "file" {
+				writeTemp(t, root, "a.txt", "needle")
+			}
+			if contents == "directory" {
+				if err := os.Mkdir(filepath.Join(root, "child"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := mustLocalExecutor(t, root).Grep(t.Context(), GrepRequest{Pattern: "needle", FileGlob: "["})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("invalid glob admission=%v", err)
+			}
+		})
+	}
+}

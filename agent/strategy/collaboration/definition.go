@@ -7,6 +7,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const stateKind = "collaboration"
@@ -36,11 +37,11 @@ type childBinding struct {
 }
 
 func (c childBinding) validateCoordinatorContract() error {
-	inputSchema, err := agent.SchemaFor[Turn]()
+	inputSchema, err := jsonschema.For[Turn]()
 	if err != nil {
 		return err
 	}
-	outputSchema, err := agent.SchemaFor[Decision]()
+	outputSchema, err := jsonschema.For[Decision]()
 	if err != nil {
 		return err
 	}
@@ -58,7 +59,7 @@ func (c childBinding) spec(key agent.ChildKey, input agent.Payload) agent.ChildS
 
 // DefinitionConfig binds the coordinator, permitted workers, schemas, and
 // finite collaboration bounds. Coordinator must accept Turn and return Decision
-// with exactly their SchemaFor contracts. It may itself be any Strategy.
+// with exactly their core/jsonschema.For contracts. It may itself be any Strategy.
 // MaxTasks counts all attempts, including rejected starts. MaxConcurrentTasks
 // counts admitted tasks until their drained outcomes have been observed.
 // The Deployment configuration digest must cover every field; the coordinator
@@ -68,8 +69,8 @@ type DefinitionConfig struct {
 	Description  string
 	Coordinator  WorkerConfig
 	Workers      []WorkerConfig
-	StateSchema  agent.Schema
-	OutputSchema agent.Schema
+	StateSchema  jsonschema.Schema
+	OutputSchema jsonschema.Schema
 	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
 	MaxTurns agent.Quota
 	// MaxTasks is unlimited by default; a finite zero forbids worker starts.

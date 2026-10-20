@@ -38,7 +38,7 @@ func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	// the remote agent is called; the zero client is never reached.
 	invocation, err := binding.Contract().Prepare(corechat.ToolCall{
 		ID: "call-1", Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Prepare rejected blank message before Call: %v", err)
 	}

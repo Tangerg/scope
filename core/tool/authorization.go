@@ -84,19 +84,19 @@ func (g Guard) Definition() chat.ToolDefinition {
 	return g.definition.Clone()
 }
 
-func (g Guard) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput, error) {
+func (g Guard) Call(ctx context.Context, invocation Invocation) (Result, error) {
 	if lo.IsNil(g.tool) || lo.IsNil(g.authorizer) {
-		return chat.ToolOutput{}, fmt.Errorf("%w: authorization guard is zero", ErrInvalidTool)
+		return Result{}, fmt.Errorf("%w: authorization guard is zero", ErrInvalidTool)
 	}
 	if err := ctx.Err(); err != nil {
-		return chat.ToolOutput{}, err
+		return Result{}, err
 	}
 	allowed, err := g.authorizer.Authorize(ctx, Authorization{definition: g.definition, arguments: invocation.arguments})
 	if err != nil {
-		return chat.ToolOutput{}, errors.Join(ctx.Err(), &AuthorizationError{name: g.definition.Name, cause: err})
+		return Result{}, errors.Join(ctx.Err(), &AuthorizationError{name: g.definition.Name, cause: err})
 	}
 	if err := ctx.Err(); err != nil {
-		return chat.ToolOutput{}, err
+		return Result{}, err
 	}
 	if !allowed {
 		failure, err := NewFailure(FailureConfig{
@@ -104,9 +104,9 @@ func (g Guard) Call(ctx context.Context, invocation Invocation) (chat.ToolOutput
 			Output: chat.NewTextToolOutput(fmt.Sprintf("error: tool %q is not authorized", g.definition.Name)),
 		})
 		if err != nil {
-			return chat.ToolOutput{}, err
+			return Result{}, err
 		}
-		return chat.ToolOutput{}, failure
+		return Result{}, failure
 	}
 	return g.tool.Call(ctx, invocation)
 }

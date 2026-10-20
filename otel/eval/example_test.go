@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/samber/lo"
+
 	coreeval "github.com/Tangerg/scope/eval"
 	oteleval "github.com/Tangerg/scope/otel/eval"
 )
@@ -29,16 +31,16 @@ func ExampleMiddleware_Wrap() {
 		Decision: &coreeval.Decision{Policy: "correctness", Verdict: coreeval.VerdictPass},
 		Score:    &score,
 	}
-	assessment, err := middleware.Wrap(coreeval.Assessment[string]{
+	assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
 		ID: "correctness",
 		Evaluator: coreeval.EvaluatorFunc[string](func(context.Context, string) (coreeval.Report, error) {
 			return report, nil
 		}),
-	})
+	})))
 	if err != nil {
 		panic(err)
 	}
-	got, err := assessment.Evaluator.Evaluate(context.Background(), "the answer under test")
+	got, err := assessment.Evaluate(context.Background(), "the answer under test")
 	if err != nil {
 		panic(err)
 	}

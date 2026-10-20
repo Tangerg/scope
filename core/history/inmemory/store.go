@@ -40,6 +40,9 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return history.WriteOutcome{}, err
+	}
 	if s.messages == nil {
 		s.messages = make(map[history.ConversationID][]chat.Message)
 	}
@@ -56,6 +59,10 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	}
 
 	s.mu.RLock()
+	if err := ctx.Err(); err != nil {
+		s.mu.RUnlock()
+		return nil, err
+	}
 	stored := slices.Clone(s.messages[conversationID])
 	s.mu.RUnlock()
 	if len(stored) == 0 {
@@ -73,6 +80,9 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	delete(s.messages, conversationID)
 	return nil
 }
@@ -82,6 +92,10 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 		return nil, err
 	}
 	s.mu.RLock()
+	if err := ctx.Err(); err != nil {
+		s.mu.RUnlock()
+		return nil, err
+	}
 	ids := make([]history.ConversationID, 0, len(s.messages))
 	for conversationID := range s.messages {
 		ids = append(ids, conversationID)

@@ -24,34 +24,64 @@ func (a AssessmentID) Validate() error {
 	return nil
 }
 
-// Assessment binds a declared identity to the one atomic evaluation call.
-type Assessment[T any] struct {
+type AssessmentConfig[T any] struct {
 	ID        AssessmentID
 	Evaluator Evaluator[T]
 }
 
+// Assessment binds identity and execution immutably. Reconfiguration creates a
+// new binding; decorators and suites consume the complete binding.
+type Assessment[T any] struct {
+	id        AssessmentID
+	evaluator Evaluator[T]
+}
+
+func NewAssessment[T any](config AssessmentConfig[T]) (Assessment[T], error) {
+	assessment := Assessment[T]{id: config.ID, evaluator: config.Evaluator}
+	if err := assessment.Validate(); err != nil {
+		return Assessment[T]{}, err
+	}
+	return assessment, nil
+}
+
+func (a Assessment[T]) ID() AssessmentID { return a.id }
+
+func (a Assessment[T]) Evaluate(ctx context.Context, subject T) (Report, error) {
+	if err := a.Validate(); err != nil {
+		return Report{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
+	report, err := a.evaluator.Evaluate(ctx, subject)
+	if err == nil {
+		err = report.Validate()
+	}
+	if err != nil {
+		return Report{}, err
+	}
+	return report, nil
+}
+
 func (a Assessment[T]) Validate() error {
-	if err := a.ID.Validate(); err != nil {
+	if err := a.id.Validate(); err != nil {
 		return err
 	}
-	if lo.IsNil(a.Evaluator) {
-		return fmt.Errorf("%w: assessment %q evaluator is nil", ErrInvalidAssessment, a.ID)
+	if lo.IsNil(a.evaluator) {
+		return fmt.Errorf("%w: assessment %q evaluator is nil", ErrInvalidAssessment, a.id)
 	}
 	return nil
 }
 
 func (a Assessment[T]) run(ctx context.Context, subject T) AssessmentResult {
 	if err := ctx.Err(); err != nil {
-		return AssessmentResult{ID: a.ID, Err: errors.Join(ErrNotEvaluated, err)}
+		return AssessmentResult{ID: a.id, Err: errors.Join(ErrNotEvaluated, err)}
 	}
-	report, err := a.Evaluator.Evaluate(ctx, subject)
-	if err == nil {
-		err = report.Validate()
-	}
+	report, err := a.Evaluate(ctx, subject)
 	if err != nil {
-		return AssessmentResult{ID: a.ID, Err: err}
+		return AssessmentResult{ID: a.id, Err: err}
 	}
-	return AssessmentResult{ID: a.ID, Report: &report}
+	return AssessmentResult{ID: a.id, Report: &report}
 }
 
 // AssessmentStatus describes execution, independently of a quality verdict.

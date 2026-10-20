@@ -91,7 +91,6 @@ func (o Options) MarshalJSON() ([]byte, error) {
 	if err := o.Validate(); err != nil {
 		return nil, err
 	}
-	type wireOptions Options
 	return jsonv2.Marshal(wireOptions(o))
 }
 
@@ -99,7 +98,6 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: options receiver is nil", ErrInvalidOptions)
 	}
-	type wireOptions Options
 	var decoded wireOptions
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode options: %w", ErrInvalidOptions, err)
@@ -146,7 +144,6 @@ func (r Request) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireRequest Request
 	return jsonv2.Marshal(wireRequest(r))
 }
 
@@ -154,7 +151,6 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: request receiver is nil", ErrInvalidRequest)
 	}
-	type wireRequest Request
 	var decoded wireRequest
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode request: %w", ErrInvalidRequest, err)
@@ -166,3 +162,11 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	*r = candidate
 	return nil
 }
+
+type wireOptions Options
+
+func (Options) JSONSchemaAlias() any { return wireOptions{} }
+
+type wireRequest Request
+
+func (Request) JSONSchemaAlias() any { return wireRequest{} }

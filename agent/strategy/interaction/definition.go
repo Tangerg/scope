@@ -8,6 +8,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/internal/restore"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const executionStateKind = "interaction"
@@ -103,15 +104,15 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 }
 
 func newDescriptor(name, description string) (agent.Descriptor, error) {
-	inputSchema, err := agent.SchemaFor[Input]()
+	inputSchema, err := jsonschema.For[Input]()
 	if err != nil {
 		return agent.Descriptor{}, fmt.Errorf("%w: input schema: %w", ErrInvalidDefinitionConfig, err)
 	}
-	outputSchema, err := agent.SchemaFor[Output]()
+	outputSchema, err := jsonschema.For[Output]()
 	if err != nil {
 		return agent.Descriptor{}, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
 	}
-	signalSchema, err := agent.SchemaFor[steerSignal]()
+	signalSchema, err := jsonschema.For[steerSignal]()
 	if err != nil {
 		return agent.Descriptor{}, fmt.Errorf("%w: signal schema: %w", ErrInvalidDefinitionConfig, err)
 	}

@@ -97,8 +97,10 @@ func NewSteerSignal(id agent.SignalID, messages ...chat.Message) (agent.SignalRe
 	return agent.NewSignalRequest(id, agent.WaitID{}, payload)
 }
 
+const minimumSteeringMessages = 1
+
 func validateSteeringMessages(messages []chat.Message) error {
-	if len(messages) == 0 {
+	if len(messages) < minimumSteeringMessages {
 		return fmt.Errorf("%w: at least one message is required", ErrInvalidSteer)
 	}
 	for index := range messages {

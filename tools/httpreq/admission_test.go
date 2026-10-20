@@ -42,7 +42,7 @@ func callHTTPTool(t *testing.T, transport countingTransport, arguments string) e
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "http_request", Arguments: arguments})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "http_request", Arguments: arguments}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

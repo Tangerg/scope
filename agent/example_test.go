@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func ExampleNewDescriptor() {
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		panic(err)
 	}

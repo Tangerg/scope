@@ -38,16 +38,14 @@ func (t ToolContent) MarshalJSON() ([]byte, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
-	type wire ToolContent
-	return jsonv2.Marshal(wire(t), jsonv2.Deterministic(true))
+	return jsonv2.Marshal(wireToolContent(t), jsonv2.Deterministic(true))
 }
 
 func (t *ToolContent) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return fmt.Errorf("%w: nil content receiver", ErrInvalidToolOutput)
 	}
-	type wire ToolContent
-	var decoded wire
+	var decoded wireToolContent
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode content: %w", ErrInvalidToolOutput, err)
 	}
@@ -58,3 +56,7 @@ func (t *ToolContent) UnmarshalJSON(data []byte) error {
 	*t = candidate
 	return nil
 }
+
+type wireToolContent ToolContent
+
+func (ToolContent) JSONSchemaAlias() any { return wireToolContent{} }

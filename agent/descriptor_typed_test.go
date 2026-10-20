@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type typedCount struct {
@@ -98,7 +100,7 @@ func TestInvalidDescriptorRejectsTypedEdges(t *testing.T) {
 
 func newTypedFixtureDefinition[T any](t *testing.T, name string) *typedFixtureDefinition {
 	t.Helper()
-	schema, err := SchemaFor[T]()
+	schema, err := jsonschema.For[T]()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,10 +42,10 @@ func NewSuite[T any](config SuiteConfig[T]) (*Suite[T], error) {
 		if err := assessment.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidEvaluatorConfig, err)
 		}
-		if _, exists := seen[assessment.ID]; exists {
-			return nil, fmt.Errorf("%w: duplicate assessment %q", ErrInvalidEvaluatorConfig, assessment.ID)
+		if _, exists := seen[assessment.ID()]; exists {
+			return nil, fmt.Errorf("%w: duplicate assessment %q", ErrInvalidEvaluatorConfig, assessment.ID())
 		}
-		seen[assessment.ID] = struct{}{}
+		seen[assessment.ID()] = struct{}{}
 	}
 	policy, err := config.ErrorPolicy.normalize()
 	if err != nil {
@@ -82,7 +82,7 @@ func (s *Suite[T]) Run(ctx context.Context, subject T) (SuiteResult, error) {
 		group.Go(func() error {
 			result.Results[index] = assessment.run(groupContext, subject)
 			if s.errorPolicy == ErrorFailFast && result.Results[index].Err != nil {
-				return fmt.Errorf("eval: assessment %q: %w", assessment.ID, result.Results[index].Err)
+				return fmt.Errorf("eval: assessment %q: %w", assessment.ID(), result.Results[index].Err)
 			}
 			return nil
 		})
@@ -102,7 +102,7 @@ func (s *Suite[T]) Run(ctx context.Context, subject T) (SuiteResult, error) {
 func (s *Suite[T]) unevaluated(err error) SuiteResult {
 	result := SuiteResult{Results: make([]AssessmentResult, len(s.assessments))}
 	for index, assessment := range s.assessments {
-		result.Results[index] = AssessmentResult{ID: assessment.ID, Err: errors.Join(ErrNotEvaluated, err)}
+		result.Results[index] = AssessmentResult{ID: assessment.ID(), Err: errors.Join(ErrNotEvaluated, err)}
 	}
 	return result
 }

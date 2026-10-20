@@ -280,9 +280,9 @@ func (c contentOutputTool) Definition() chat.ToolDefinition {
 	return chat.ToolDefinition{Name: "content", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
-func (c contentOutputTool) Call(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+func (c contentOutputTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	if c.err != nil {
-		return chat.ToolOutput{}, c.err
+		return tool.Result{}, c.err
 	}
-	return c.output.Clone(), nil
+	return tool.Result{Output: c.output.Clone()}, nil
 }

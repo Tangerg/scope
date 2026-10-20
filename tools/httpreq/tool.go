@@ -49,7 +49,7 @@ const description = `Execute a single HTTP request and return the response.
 - For body with JSON content, pass a JSON-encoded string as "body" and set Content-Type via "headers".
 - Use this for arbitrary REST/JSON APIs. Prefer the dedicated web_search / web_fetch tools for general web pages.`
 
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return t.inner.Call(ctx, invocation)
 }
 

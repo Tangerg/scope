@@ -14,11 +14,12 @@ func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments
 	}
 	invocation, err := binding.Contract().Prepare(chat.ToolCall{
 		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	})
+	}, nil)
 	if err != nil {
 		return chat.ToolOutput{}, err
 	}
-	return binding.Call(ctx, invocation)
+	result, err := binding.Call(ctx, invocation)
+	return result.Output, err
 }
 
 func testOutputText(output chat.ToolOutput) string {

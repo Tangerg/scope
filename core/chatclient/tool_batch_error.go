@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 // ToolBatchError preserves the original request, complete model proposal,
@@ -11,10 +12,11 @@ import (
 // have not been rolled back and later calls were not executed. The cause may be
 // a tool.Failure with acknowledged partial effects. It assigns no retry policy.
 type ToolBatchError struct {
-	completed []chat.ToolResult
-	request   *chat.Request
-	proposal  *chat.Response
-	cause     error
+	completed    []chat.ToolResult
+	request      *chat.Request
+	proposal     *chat.Response
+	cause        error
+	inputRequest *tool.InputRequest
 }
 
 func (t *ToolBatchError) Error() string {
@@ -22,6 +24,15 @@ func (t *ToolBatchError) Error() string {
 }
 
 func (t *ToolBatchError) Unwrap() error { return t.cause }
+
+// InputRequest retains a Tool checkpoint when this synchronous batch cannot
+// continue it. It belongs to FailedCall and does not imply a completed ToolResult.
+func (t *ToolBatchError) InputRequest() (tool.InputRequest, bool) {
+	if t.inputRequest == nil {
+		return tool.InputRequest{}, false
+	}
+	return *t.inputRequest, true
+}
 
 // Completed returns independently owned successful results in execution order.
 func (t *ToolBatchError) Completed() []chat.ToolResult {

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestEngineStartsSameDeploymentChildWithStableRelation(t *testing.T) {
@@ -733,15 +735,15 @@ func newChildTestDeployment(t testing.TB) Deployment {
 
 func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) Deployment {
 	t.Helper()
-	inputSchema, err := SchemaFor[childTestInput]()
+	inputSchema, err := jsonschema.For[childTestInput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputSchema, err := SchemaFor[childTestOutput]()
+	outputSchema, err := jsonschema.For[childTestOutput]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signalSchema, err := ParseSchema([]byte("true"))
+	signalSchema, err := jsonschema.Parse([]byte("true"))
 	if err != nil {
 		t.Fatal(err)
 	}

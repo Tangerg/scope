@@ -9,8 +9,8 @@
 // interfaces.
 // The reference implementation lives in core/history/inmemory.
 //
-// Conversation IDs are runtime scope carried with [WithConversationID], not
-// serialized request metadata. Middleware binds that scope to model calls.
+// MiddlewareConfig freezes one validated ConversationID at construction. The
+// Host selects the partition by assembling the appropriate model binding.
 //
 // Writes preserve message order within one call. Conversation listing is an
 // optional capability and returns unique IDs in lexical order. Concurrent

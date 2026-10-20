@@ -8,6 +8,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {
@@ -36,7 +37,7 @@ func deadlineBinding(t testing.TB, dispatcher agent.Dispatcher) agent.Deployment
 
 func inputGate(t testing.TB) *coordination.InputGate {
 	t.Helper()
-	schema, err := agent.SchemaFor[string]()
+	schema, err := jsonschema.For[string]()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // A paused receiver permits next-boundary input without consuming it. Its pure
@@ -16,7 +17,7 @@ import (
 type pausedDefinition struct{ descriptor agent.Descriptor }
 
 func pausedWorker() agent.Deployment {
-	schema := require(agent.SchemaFor[string]())
+	schema := require(jsonschema.For[string]())
 	return binding(&pausedDefinition{descriptor: require(agent.NewDescriptor(agent.DescriptorConfig{Name: "test.paused", Description: "Pause before consuming a signal.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema}))})
 }
 func (p *pausedDefinition) Descriptor() agent.Descriptor { return p.descriptor }

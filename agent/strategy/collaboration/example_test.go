@@ -13,6 +13,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // The deterministic local model exercises the same interaction Dispatcher a
@@ -20,7 +21,7 @@ import (
 // typed-output adaptation; collaboration only consumes Turn and Decision.
 func ExampleDefinition() {
 	ctx := context.Background()
-	textSchema := exampleValue(agent.SchemaFor[string]())
+	textSchema := exampleValue(jsonschema.For[string]())
 	modelDefinition := exampleValue(interaction.NewDefinition(interaction.DefinitionConfig{
 		Name: "example.decision_model", Description: "Choose the next collaboration action.", MaxModelCalls: agent.NewQuota(1),
 	}))

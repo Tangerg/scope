@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const (
@@ -103,11 +104,11 @@ type textOutput struct {
 type uppercaseDefinition struct{ descriptor agent.Descriptor }
 
 func newUppercaseDeployment() (agent.Deployment, error) {
-	inputSchema, err := agent.SchemaFor[textInput]()
+	inputSchema, err := jsonschema.For[textInput]()
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	outputSchema, err := agent.SchemaFor[textOutput]()
+	outputSchema, err := jsonschema.For[textOutput]()
 	if err != nil {
 		return agent.Deployment{}, err
 	}
@@ -141,6 +142,9 @@ func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error
 }
 
 func (*uppercaseDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	execution, err := state.Decode[uppercaseExecution](uppercaseStateKind)
 	if err != nil {
 		return nil, err
@@ -218,11 +222,11 @@ func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, 
 	if !local.Valid() || !model.Valid() {
 		return agent.Deployment{}, agent.ErrInvalidDeployment
 	}
-	inputSchema, err := agent.SchemaFor[compositionInput]()
+	inputSchema, err := jsonschema.For[compositionInput]()
 	if err != nil {
 		return agent.Deployment{}, err
 	}
-	outputSchema, err := agent.SchemaFor[compositionOutput]()
+	outputSchema, err := jsonschema.For[compositionOutput]()
 	if err != nil {
 		return agent.Deployment{}, err
 	}

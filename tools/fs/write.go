@@ -50,7 +50,7 @@ func (w *WriteTool) Definition() chat.ToolDefinition {
 	return w.typed.Definition()
 }
 
-func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (chat.ToolOutput, error) {
+func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return w.typed.Call(ctx, invocation)
 }
 

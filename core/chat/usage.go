@@ -75,7 +75,6 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	type wireUsage Usage
 	return jsonv2.Marshal(wireUsage(u), jsonv2.Deterministic(true))
 }
 
@@ -83,7 +82,6 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	if u == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidUsage)
 	}
-	type wireUsage Usage
 	var decoded wireUsage
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidUsage, err)
@@ -95,3 +93,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	*u = candidate
 	return nil
 }
+
+type wireUsage Usage
+
+func (Usage) JSONSchemaAlias() any { return wireUsage{} }

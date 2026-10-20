@@ -7,6 +7,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/core/tool"
+
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -63,7 +65,7 @@ func FuzzToolExecutionStateRestore(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	request, err := newToolInputRequest(json.RawMessage(`"confirm"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
+	request, err := newInputRequest(json.RawMessage(`"confirm"`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{}`))
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -138,7 +140,7 @@ func TestToolAndInteractionShareRejectionClassification(t *testing.T) {
 
 func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
-	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
+	request, err := newInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,16 +174,16 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	}
 }
 
-// toolInputRequestsEqual compares the private fields of two requests for tests.
-func toolInputRequestsEqual(a, b toolInputRequest) bool {
-	return bytes.Equal(a.prompt, b.prompt) &&
-		a.responseSchema.Equal(b.responseSchema) &&
-		bytes.Equal(a.continuationState, b.continuationState)
+// inputRequestsEqual compares the private fields of two requests for tests.
+func inputRequestsEqual(a, b tool.InputRequest) bool {
+	return bytes.Equal(a.Prompt(), b.Prompt()) &&
+		a.ResponseSchema().Equal(b.ResponseSchema()) &&
+		bytes.Equal(a.State(), b.State())
 }
 
 func TestToolInputWaitKeepsOnlyTheCurrentRequest(t *testing.T) {
 	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
-	request, err := newToolInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
+	request, err := newInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +195,7 @@ func TestToolInputWaitKeepsOnlyTheCurrentRequest(t *testing.T) {
 		if _, err := execution.openInputWait(request); err != nil {
 			t.Fatal(err)
 		}
-		if execution.state.Phase != toolAwaitingWaitOpen || execution.state.InputRequest == nil || !toolInputRequestsEqual(*execution.state.InputRequest, request) {
+		if execution.state.Phase != toolAwaitingWaitOpen || execution.state.InputRequest == nil || !inputRequestsEqual(*execution.state.InputRequest, request) {
 			t.Fatalf("state after openInputWait = %#v", execution.state)
 		}
 		if _, err := execution.request(0, toolDispatchRequest{Invocation: call}); err != nil {

@@ -229,7 +229,7 @@ func TestAgentCardLimitDoesNotBoundRPCResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`})
+	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestAgentCardLimitDoesNotBoundRPCResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, present := output.Text()
+	text, present := output.Output.Text()
 	if !present || text != answer {
 		t.Fatalf("RPC output = %q, present=%t", text, present)
 	}
