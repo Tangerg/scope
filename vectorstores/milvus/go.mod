@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/milvus
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.53.0
+	github.com/Tangerg/scope/core v0.54.0
 	github.com/milvus-io/milvus-proto/go-api/v3 v3.0.3
 	github.com/milvus-io/milvus/client/v3 v3.0.0
 	github.com/samber/lo v1.53.0
@@ -13,7 +13,9 @@ require (
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.29.0 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bits-and-blooms/bitset v1.26.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cockroachdb/errors v1.14.0 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20241215232642-bb51bb14a506 // indirect
@@ -22,9 +24,12 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
+	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
+	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pingcap/errors v0.11.5-0.20241219054535-6b8c588c3122 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect

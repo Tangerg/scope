@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.53.0 h1:EuYWp0IQGTVe1Q4JGSE3RZWKLfi67IByCAVJPoiKpJE=
-github.com/Tangerg/scope/core v0.53.0/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
+github.com/Tangerg/scope/core v0.54.0 h1:P7xGuvUSo/e29xgN48/2W4tSuWZGZt8gs87ZWqJA+KI=
+github.com/Tangerg/scope/core v0.54.0/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
 github.com/aws/aws-sdk-go-v2 v1.47.3 h1:HRoT/MkNi3bjO5xF4dCzLzvVmkvRGHj3/cLINDnJejk=
 github.com/aws/aws-sdk-go-v2 v1.47.3/go.mod h1:xSl+OSI5ZUw6bSMupWc218zE5Pl+65MCCu3ySWFY99A=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22 h1:oiEmPz/YMMeh/JvAE8xSxNCIsvWE6lpFe4ZPlyFykQI=

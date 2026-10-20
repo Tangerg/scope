@@ -3,12 +3,14 @@ module github.com/Tangerg/scope/vectorstores/couchbase
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.53.0
+	github.com/Tangerg/scope/core v0.54.0
 	github.com/couchbase/gocb/v2 v2.13.0
 	github.com/samber/lo v1.53.0
 )
 
 require (
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/couchbase/gocbcore/v10 v10.10.0 // indirect
 	github.com/couchbase/gocbcoreps v0.1.5-0.20261005161736-7de374b343fa // indirect
@@ -19,6 +21,9 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/invopop/jsonschema v0.14.0 // indirect
+	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect

@@ -1,5 +1,5 @@
-github.com/Tangerg/scope/core v0.53.0 h1:EuYWp0IQGTVe1Q4JGSE3RZWKLfi67IByCAVJPoiKpJE=
-github.com/Tangerg/scope/core v0.53.0/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
+github.com/Tangerg/scope/core v0.54.0 h1:P7xGuvUSo/e29xgN48/2W4tSuWZGZt8gs87ZWqJA+KI=
+github.com/Tangerg/scope/core v0.54.0/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
 github.com/dlclark/regexp2/v2 v2.8.4 h1:yfDDXTn4oxyLDC10/ieOBNDCCdIVWS9WbT6ddVXsPKI=
 github.com/dlclark/regexp2/v2 v2.8.4/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/tiktoken-go/tokenizer v0.8.1 h1:4obDoB6/dhdBt9xMweX4nww5cjdOq/nYF4ecwPq2+mg=

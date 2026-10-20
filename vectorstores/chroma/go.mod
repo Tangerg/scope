@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/chroma
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.53.0
+	github.com/Tangerg/scope/core v0.54.0
 	github.com/amikos-tech/chroma-go v0.4.1
 	github.com/samber/lo v1.53.0
 )
@@ -19,6 +19,8 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.33.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.4 // indirect
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/containerd/log v0.2.0 // indirect
 	github.com/creasty/defaults v1.11.0 // indirect
 	github.com/docker/go-connections v0.8.2 // indirect
@@ -29,6 +31,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.5 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
@@ -37,6 +40,8 @@ require (
 	github.com/moby/moby/client v0.6.2 // indirect
 	github.com/moby/sys/userns v0.2.1 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
+	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260916203055-22a1a467d9f0 // indirect
 	github.com/testcontainers/testcontainers-go v0.44.0 // indirect

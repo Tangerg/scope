@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/weaviate
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.53.0
+	github.com/Tangerg/scope/core v0.54.0
 	github.com/go-openapi/strfmt v0.27.3
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.53.0
@@ -12,6 +12,8 @@ require (
 )
 
 require (
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -37,7 +39,10 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.29.2 // indirect
 	github.com/go-openapi/validate v1.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
+	github.com/pb33f/go-yaml v0.1.1 // indirect
+	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/objx v0.8.0 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
