@@ -4,8 +4,8 @@ cloud.google.com/go/auth/oauth2adapt v0.2.3 h1:MlxF+Pd3OmSudg/b1yZ5lJwoXCEaeedAg
 cloud.google.com/go/auth/oauth2adapt v0.2.3/go.mod h1:tMQXOfZzFuNuUxOypHlQEXgdfX5cuhwU+ffUuXRJE8I=
 cloud.google.com/go/compute/metadata v0.5.0 h1:Zr0eK8JbFv6+Wi4ilXAR8FJ3wyNdpxHKJNPos6LTZOY=
 cloud.google.com/go/compute/metadata v0.5.0/go.mod h1:aHnloV2TPI38yx4s9+wAZhHykWvVCfu7hQbF+9CWoiY=
-github.com/Tangerg/scope/core v0.54.0 h1:P7xGuvUSo/e29xgN48/2W4tSuWZGZt8gs87ZWqJA+KI=
-github.com/Tangerg/scope/core v0.54.0/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
+github.com/Tangerg/scope/core v0.54.1 h1:50HMdUOvh08iN5wEzNlqp+J8C/09jGukqhrjveHU3bE=
+github.com/Tangerg/scope/core v0.54.1/go.mod h1:kfflWSuYDA24gIZigac+XmgKDDo19YfzzjnDr4XdtIo=
 github.com/anthropics/anthropic-sdk-go v1.81.0 h1:3WAxA6xMSSHKExnFN3t/qIwJUC8l6zQFTmwVGl3QWy0=
 github.com/anthropics/anthropic-sdk-go v1.81.0/go.mod h1:GThfYqPJoaQ/6pmibCI98Cr4y5su2FXMUHn3NrSSnIc=
 github.com/aws/aws-sdk-go-v2 v1.38.0 h1:UCRQ5mlqcFk9HJDIqENSLR3wiG1VTWlyUfLDEvY7RxU=
