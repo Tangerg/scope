@@ -106,6 +106,9 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.HTTPClient != nil {
 		*apiClient = *config.HTTPClient
 	}
+	if apiClient.Transport == nil {
+		apiClient.Transport = http.DefaultTransport
+	}
 	client := resty.NewWithClient(apiClient)
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
 	parsedBaseURL, err := url.Parse(baseURL)
@@ -128,6 +131,9 @@ func (a *api) downloadHTTPClient(source *http.Client) *http.Client {
 	client := &http.Client{}
 	if source != nil {
 		*client = *source
+	}
+	if client.Transport == nil {
+		client.Transport = http.DefaultTransport
 	}
 	previous := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
