@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/models/ollama
 go 1.27.0
 
 require (
-	github.com/Tangerg/scope/core v0.54.0
-	github.com/Tangerg/scope/models/protocol/openai v0.54.0
+	github.com/Tangerg/scope/core v0.54.1
+	github.com/Tangerg/scope/models/protocol/openai v0.54.1
 )
 
 require (
