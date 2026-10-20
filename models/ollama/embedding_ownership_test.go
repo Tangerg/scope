@@ -27,7 +27,7 @@ func TestEmbeddingNativeFieldsCannotOwnCoreInputs(t *testing.T) {
 }
 
 func TestEmbeddingKeepsProviderOnlyOptions(t *testing.T) {
-	request := &embedding.Request{Texts: []string{"hello"}, Options: embedding.Options{Dimensions: new(int64(8))}}
+	request := &embedding.Request{Texts: []string{"hello"}, Options: embedding.Options{Model: "embedding-model", Dimensions: new(int64(8))}}
 	if err := request.Options.Extensions.Set(EmbeddingRequestExtensionKey, json.RawMessage(`{"truncate":false,"keep_alive":"5m","options":{"num_ctx":4096}}`)); err != nil {
 		t.Fatal(err)
 	}

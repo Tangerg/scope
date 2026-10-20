@@ -1,8 +1,11 @@
 package ollama_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/Tangerg/scope/core/modeltest"
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/models/ollama"
@@ -50,5 +53,21 @@ func TestEmbeddingModel_Call_Mock(t *testing.T) {
 	}
 	if len(out.Outputs) != 2 {
 		t.Fatalf("got %d outputs; want 2", len(out.Outputs))
+	}
+}
+
+func TestEmbeddingValidatesDefaultDimensions(t *testing.T) {
+	server := modeltest.JSONServer(http.StatusOK, `{"model":"nomic-embed-text","embeddings":[[1,2]]}`)
+	defer server.Close()
+	model, err := ollama.NewEmbeddingModel(t.Context(), ollama.EmbeddingModelConfig{BaseURL: server.URL, DefaultOptions: embedding.Options{Model: "nomic-embed-text", Dimensions: new(int64(3))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := embedding.NewRequest([]string{"text"})
+	if _, err := model.Call(t.Context(), request); !errors.Is(err, embedding.ErrInvalidResponse) {
+		t.Fatalf("default dimensions ignored: %v", err)
+	}
+	if request.Options.Dimensions != nil {
+		t.Fatal("Call mutated dimensions")
 	}
 }

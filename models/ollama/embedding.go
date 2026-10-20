@@ -57,10 +57,7 @@ func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*Embeddi
 }
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRequest, error) {
-	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
-	if err != nil {
-		return nil, err
-	}
+	effectiveOptions := req.Options
 
 	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](EmbeddingRequestExtensionKey)
 	if err != nil {
@@ -136,6 +133,12 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	if err = req.Validate(); err != nil {
 		return nil, err
 	}
+	effective := *req
+	effective.Options, err = e.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	req = &effective
 	defer func() {
 		if err == nil {
 			err = response.ValidateFor(req)

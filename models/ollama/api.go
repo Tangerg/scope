@@ -1,10 +1,10 @@
 package ollama
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -83,17 +83,19 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 		return nativeResponseError(response, body)
 	}
 
-	decoder := jsontext.NewDecoder(response.Body)
-	for {
-		var frame nativeChatResponse
-		if err := jsonv2.UnmarshalDecode(decoder, &frame); err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return fmt.Errorf("ollama: decode native chat stream: %w", err)
-		}
-		if len(frame.raw) > maxNativeStreamFrameBytes {
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 4096), maxNativeStreamFrameBytes+2)
+	for scanner.Scan() {
+		raw := scanner.Bytes()
+		if len(raw) > maxNativeStreamFrameBytes {
 			return fmt.Errorf("ollama: native stream frame exceeds %d bytes", maxNativeStreamFrameBytes)
+		}
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+		var frame nativeChatResponse
+		if err := jsonv2.Unmarshal(raw, &frame); err != nil {
+			return fmt.Errorf("ollama: decode native chat stream: %w", err)
 		}
 		if frame.Error != "" {
 			return errors.New(frame.Error)
@@ -102,6 +104,10 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 			return err
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("ollama: read native chat frame (maximum %d bytes): %w", maxNativeStreamFrameBytes, err)
+	}
+	return nil
 }
 
 func (a *api) embed(ctx context.Context, req *nativeEmbedRequest) (*nativeEmbedResponse, error) {
