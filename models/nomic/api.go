@@ -35,7 +35,11 @@ func newAPI(config apiConfig) (*api, error) {
 
 	var client *resty.Client
 	if config.HTTPClient != nil {
-		client = resty.NewWithClient(config.HTTPClient)
+		ownedClient := *config.HTTPClient
+		if ownedClient.Transport == nil {
+			ownedClient.Transport = http.DefaultTransport
+		}
+		client = resty.NewWithClient(&ownedClient)
 	} else {
 		client = resty.New()
 	}
