@@ -91,3 +91,44 @@ func TestSpeechCapabilitiesAreSeparate(t *testing.T) {
 		t.Fatal("streaming synthesis exposes independent unary protocol")
 	}
 }
+
+func TestStreamCompletesEveryStartedSnippet(t *testing.T) {
+	first := `{"type":"audio","audio":"UE5H","audio_format":"mp3","chunk_index":0,"generation_id":"g1","request_id":"r1","snippet_id":"s1","is_last_chunk":false}`
+	final := strings.Replace(strings.Replace(first, `"chunk_index":0`, `"chunk_index":1`, 1), `"is_last_chunk":false`, `"is_last_chunk":true`, 1)
+	second := strings.Replace(strings.Replace(final, `"snippet_id":"s1"`, `"snippet_id":"s2"`, 1), `"chunk_index":1`, `"chunk_index":0`, 1)
+	for _, sample := range []struct {
+		name, body string
+		chunks     int
+		fail       bool
+	}{
+		{"truncated", first + "\n", 1, true},
+		{"two snippets", first + "\n" + final + "\n" + second + "\n", 3, false},
+		{"after final", first + "\n" + final + "\n" + final + "\n", 2, true},
+		{"duplicate index", first + "\n" + first + "\n", 1, true},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			server := modeltest.JSONServer(http.StatusOK, sample.body)
+			defer server.Close()
+			model, err := hume.NewStreamingSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speech.Options{Model: hume.ModelOctave2, Voice: "voice"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := speech.NewRequest("text")
+			chunks, failures := 0, 0
+			for response, err := range model.Stream(t.Context(), request) {
+				if err != nil {
+					failures++
+				} else if response != nil {
+					chunks++
+				}
+			}
+			want := 0
+			if sample.fail {
+				want = 1
+			}
+			if chunks != sample.chunks || failures != want {
+				t.Fatalf("chunks=%d errors=%d", chunks, failures)
+			}
+		})
+	}
+}
