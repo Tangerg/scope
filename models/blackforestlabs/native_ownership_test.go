@@ -11,8 +11,8 @@ import (
 	"github.com/Tangerg/scope/models/blackforestlabs"
 )
 
-func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
-	for _, field := range []string{"prompt", "width", "height", "seed", "output_format"} {
+func TestImageRejectsUnsupportedNativeFieldsBeforeIO(t *testing.T) {
+	for _, field := range []string{"prompt", "width", "height", "seed", "output_format", "unknown_field"} {
 		for _, defaults := range []bool{false, true} {
 			t.Run(field+map[bool]string{false: "/request", true: "/defaults"}[defaults], func(t *testing.T) {
 				requests := 0
@@ -44,7 +44,11 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by Core") || requests != 0 {
+				reason := "owned by Core"
+				if field == "unknown_field" {
+					reason = "unknown"
+				}
+				if err == nil || !strings.Contains(err.Error(), reason) || requests != 0 {
 					t.Fatalf("native field accepted: requests=%d err=%v", requests, err)
 				}
 			})

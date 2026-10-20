@@ -2,6 +2,8 @@ package blackforestlabs
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -110,9 +112,15 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 		return "", nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")
 	}
 
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
+	raw, found, decodeErr := effectiveOptions.Extensions.Decode[json.RawMessage](ImageRequestExtensionKey)
 	if decodeErr != nil {
 		return "", nil, decodeErr
+	}
+	var nativeFields map[string]json.RawMessage
+	if found {
+		if err := jsonv2.Unmarshal(raw, &nativeFields); err != nil {
+			return "", nil, err
+		}
 	}
 	for _, field := range []string{"prompt", "width", "height", "seed", "output_format"} {
 		if _, exists := nativeFields[field]; exists {
@@ -120,11 +128,15 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 		}
 	}
 
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[generateRequest](ImageRequestExtensionKey)
-	if err != nil {
-		return "", nil, err
+	apiReq := &generateRequest{}
+	if found {
+		if nativeFields == nil {
+			return "", nil, errors.New("blackforestlabs: image request extension must be an object")
+		}
+		if err := jsonv2.Unmarshal(raw, apiReq, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return "", nil, err
+		}
 	}
-	apiReq := &apiReqValue
 	apiReq.Prompt = req.Prompt
 	if effectiveOptions.Width != nil {
 		apiReq.Width = int(*effectiveOptions.Width)

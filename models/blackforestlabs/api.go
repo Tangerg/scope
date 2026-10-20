@@ -58,6 +58,9 @@ func (a *api) httpClient(source *http.Client) *http.Client {
 	if source != nil {
 		*client = *source
 	}
+	if client.Transport == nil {
+		client.Transport = http.DefaultTransport
+	}
 	previous := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if err := a.validateProviderURL(request.URL.String()); err != nil {
@@ -80,29 +83,31 @@ func (a *api) httpClient(source *http.Client) *http.Client {
 // GenerateRequest is the union of fields the various Flux endpoints
 // accept. Each Flux model (flux-pro-1.1, flux-pro-1.1-ultra,
 // flux-kontext-pro, ...) has its own endpoint path; all fields are
-// forwarded and the API rejects unknown ones.
+// admitted by the adapter and then validated by the selected model endpoint.
 type generateRequest struct {
-	Prompt           string `json:"prompt"`
-	ImagePrompt      string `json:"image_prompt,omitempty"`
-	InputImage       string `json:"input_image,omitempty"`
-	InputImage2      string `json:"input_image_2,omitempty"`
-	InputImage3      string `json:"input_image_3,omitempty"`
-	InputImage4      string `json:"input_image_4,omitempty"`
-	InputImage5      string `json:"input_image_5,omitempty"`
-	InputImage6      string `json:"input_image_6,omitempty"`
-	InputImage7      string `json:"input_image_7,omitempty"`
-	InputImage8      string `json:"input_image_8,omitempty"`
-	Width            int    `json:"width,omitzero"`
-	Height           int    `json:"height,omitzero"`
-	AspectRatio      string `json:"aspect_ratio,omitempty"`
-	PromptUpsampling bool   `json:"prompt_upsampling,omitzero"`
-	DisablePUP       bool   `json:"disable_pup,omitzero"`
-	Seed             *int64 `json:"seed,omitzero"`
-	SafetyTolerance  *int   `json:"safety_tolerance,omitzero"`
-	OutputFormat     string `json:"output_format,omitempty"`
-	Raw              bool   `json:"raw,omitzero"`
-	WebhookURL       string `json:"webhook_url,omitempty"`
-	WebhookSecret    string `json:"webhook_secret,omitempty"`
+	Steps            *int     `json:"steps,omitzero"`
+	Guidance         *float64 `json:"guidance,omitzero"`
+	Prompt           string   `json:"prompt"`
+	ImagePrompt      string   `json:"image_prompt,omitempty"`
+	InputImage       string   `json:"input_image,omitempty"`
+	InputImage2      string   `json:"input_image_2,omitempty"`
+	InputImage3      string   `json:"input_image_3,omitempty"`
+	InputImage4      string   `json:"input_image_4,omitempty"`
+	InputImage5      string   `json:"input_image_5,omitempty"`
+	InputImage6      string   `json:"input_image_6,omitempty"`
+	InputImage7      string   `json:"input_image_7,omitempty"`
+	InputImage8      string   `json:"input_image_8,omitempty"`
+	Width            int      `json:"width,omitzero"`
+	Height           int      `json:"height,omitzero"`
+	AspectRatio      string   `json:"aspect_ratio,omitempty"`
+	PromptUpsampling bool     `json:"prompt_upsampling,omitzero"`
+	DisablePUP       bool     `json:"disable_pup,omitzero"`
+	Seed             *int64   `json:"seed,omitzero"`
+	SafetyTolerance  *int     `json:"safety_tolerance,omitzero"`
+	OutputFormat     string   `json:"output_format,omitempty"`
+	Raw              bool     `json:"raw,omitzero"`
+	WebhookURL       string   `json:"webhook_url,omitempty"`
+	WebhookSecret    string   `json:"webhook_secret,omitempty"`
 }
 
 // AsyncResponse is the body of any POST /v1/<model> call — it returns a
