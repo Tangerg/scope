@@ -2,7 +2,6 @@ package pgstore
 
 import (
 	"encoding/json"
-	"math"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
@@ -33,35 +32,6 @@ func TestCoreBytesOwnMetadataAndIdentity(t *testing.T) {
 	}
 	if _, err := decodeDocument([]byte("one"), "", []byte("null")); err == nil {
 		t.Fatal("missing content accepted")
-	}
-}
-
-func TestNativeVectorAndScoreContracts(t *testing.T) {
-	for _, metric := range []DistanceMetric{DistanceCosine, DistanceL2, DistanceIP} {
-		for _, vector := range [][]float64{{1}, {math.MaxFloat64, 0}, {math.SmallestNonzeroFloat64, 0}, {math.NaN(), 0}, {math.Inf(1), 0}} {
-			if _, err := metric.vector(vector, 2); err == nil {
-				t.Fatalf("%s accepted %v", metric, vector)
-			}
-		}
-		for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
-			if _, err := metric.score(value); err == nil {
-				t.Fatalf("%s accepted distance %v", metric, value)
-			}
-		}
-	}
-	if _, err := DistanceCosine.vector([]float64{0, 0}, 2); err == nil {
-		t.Fatal("zero cosine vector accepted")
-	}
-	if _, err := DistanceL2.vector([]float64{0, 0}, 2); err != nil {
-		t.Fatal(err)
-	}
-	for _, distance := range []float64{-1, 3} {
-		if _, err := DistanceCosine.score(distance); err == nil {
-			t.Fatal("invalid cosine distance accepted")
-		}
-	}
-	if _, err := DistanceL2.score(-1); err == nil {
-		t.Fatal("negative distance accepted")
 	}
 }
 

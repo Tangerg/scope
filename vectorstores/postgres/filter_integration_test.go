@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/vectorstores/postgres"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Tangerg/scope/core/document"
@@ -86,12 +88,12 @@ func newNativeFixture(t *testing.T, backend string, metric string) *nativeFixtur
 		f.store, err = pgvector.NewStore(t.Context(), pgvector.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
 			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2,
-			IndexType: pgvector.IndexNone, InitializeSchema: true, DistanceMetric: pgvector.DistanceMetric(metric),
+			IndexType: pgvector.IndexNone, InitializeSchema: true, DistanceMetric: postgres.DistanceMetric(metric),
 		})
 	case "cockroachdb":
 		f.store, err = cockroachdb.NewStore(t.Context(), cockroachdb.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
-			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2, InitializeSchema: true, DistanceMetric: cockroachdb.DistanceMetric(metric),
+			EmbeddingModel: model, DocumentBatcher: nativeBatcher{}, Dimensions: 2, InitializeSchema: true, DistanceMetric: postgres.DistanceMetric(metric),
 		})
 	default:
 		t.Fatalf("unknown test backend %q", backend)

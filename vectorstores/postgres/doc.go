@@ -1,4 +1,5 @@
-// Package postgres is the module entry for the pgvector and cockroachdb backends.
+// Package postgres owns the pgwire distance metric shared by the pgvector and
+// cockroachdb backends.
 // Their public constructors select native resources; one private pgwire engine
 // owns execution, transaction lifetime, and conversion to the Core contracts.
 //

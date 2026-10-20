@@ -5,8 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
+
+	"github.com/Tangerg/scope/vectorstores/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,68 +22,6 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-type DistanceMetric string
-
-const (
-	DistanceCosine DistanceMetric = "cosine"
-	DistanceL2     DistanceMetric = "l2"
-	DistanceIP     DistanceMetric = "ip"
-)
-
-func (d DistanceMetric) Valid() bool {
-	return d == DistanceCosine || d == DistanceL2 || d == DistanceIP
-}
-func (d DistanceMetric) String() string { return string(d) }
-func (d DistanceMetric) operator() string {
-	switch d {
-	case DistanceCosine:
-		return "<=>"
-	case DistanceL2:
-		return "<->"
-	case DistanceIP:
-		return "<#>"
-	}
-	panic("invalid constructed distance metric")
-}
-func (d DistanceMetric) score(value float64) (vectorstore.Score, error) {
-	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0, errors.New("pgstore: non-finite native distance")
-	}
-	switch d {
-	case DistanceCosine:
-		if value < 0 || value > 2 {
-			return 0, errors.New("pgstore: cosine distance is outside [0,2]")
-		}
-		return vectorstore.ScoreFromCosineDistance(value), nil
-	case DistanceL2:
-		if value < 0 {
-			return 0, errors.New("pgstore: negative Euclidean distance")
-		}
-		return vectorstore.ScoreFromDistance(value), nil
-	case DistanceIP:
-		return vectorstore.ScoreFromNegativeInnerProductDistance(value), nil
-	}
-	return 0, errors.New("pgstore: invalid native distance metric")
-}
-func (d DistanceMetric) vector(values []float64, width int) (pgvec.Vector, error) {
-	if len(values) != width || width <= 0 {
-		return pgvec.Vector{}, errors.New("pgstore: vector dimensions disagree with native schema")
-	}
-	narrowed := embedding.Float32Vector(values)
-	nonzero := false
-	for index, value := range values {
-		converted := float64(narrowed[index])
-		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsInf(converted, 0) || (value != 0 && converted == 0) {
-			return pgvec.Vector{}, errors.New("pgstore: vector is not representable in float32")
-		}
-		nonzero = nonzero || converted != 0
-	}
-	if d == DistanceCosine && !nonzero {
-		return pgvec.Vector{}, errors.New("pgstore: cosine requires a nonzero float32 vector")
-	}
-	return pgvec.NewVector(narrowed), nil
-}
-
 type Config struct {
 	Provider        string
 	Pool            *pgxpool.Pool
@@ -91,7 +30,7 @@ type Config struct {
 	MetadataColumn  string
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
-	DistanceMetric  DistanceMetric
+	DistanceMetric  postgres.DistanceMetric
 }
 
 type Store struct {
@@ -102,7 +41,7 @@ type Store struct {
 	metadataName    string
 	embeddingClient embeddingclient.Client
 	documentBatcher vectorstore.Batcher
-	distanceMetric  DistanceMetric
+	distanceMetric  postgres.DistanceMetric
 }
 
 func New(ctx context.Context, config Config) (Store, error) {
@@ -169,7 +108,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 			if err != nil {
 				return err
 			}
-			vector, err := s.distanceMetric.vector(vectors[index], width)
+			vector, err := s.distanceMetric.Vector(vectors[index], width)
 			if err != nil {
 				return err
 			}
@@ -231,11 +170,11 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	queryVector, err := s.distanceMetric.vector(vector, width)
+	queryVector, err := s.distanceMetric.Vector(vector, width)
 	if err != nil {
 		return nil, err
 	}
-	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $2 AS distance FROM %s WHERE id=ANY($1) ORDER BY distance,id LIMIT $3", s.metadataColumn, s.distanceMetric.operator(), s.fullTable)
+	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $2 AS distance FROM %s WHERE id=ANY($1) ORDER BY distance,id LIMIT $3", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable)
 	rows, err := transaction.Query(ctx, statement, ids, queryVector, request.Options.ResultLimit())
 	if err != nil {
 		return nil, err
@@ -257,7 +196,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if err = s.validateNativeVector(vector, width); err != nil {
 			return nil, err
 		}
-		score, scoreErr := s.distanceMetric.score(distance)
+		score, scoreErr := s.distanceMetric.Score(distance)
 		if scoreErr != nil {
 			return nil, scoreErr
 		}
@@ -446,7 +385,7 @@ func (s *Store) validateNativeVector(vector pgvec.Vector, width int) error {
 	for index, value := range vector.Slice() {
 		values[index] = float64(value)
 	}
-	_, err := s.distanceMetric.vector(values, width)
+	_, err := s.distanceMetric.Vector(values, width)
 	return err
 }
 

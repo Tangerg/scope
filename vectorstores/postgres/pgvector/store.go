@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tangerg/scope/vectorstores/postgres"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -26,30 +28,6 @@ const (
 	DefaultMetadataColumn = "metadata"
 	DefaultIndexSuffix    = "_embedding_idx"
 )
-
-type DistanceMetric string
-
-const (
-	// DistanceCosine uses cosine distance (`<=>` and vector_cosine_ops).
-	DistanceCosine DistanceMetric = "cosine"
-
-	// DistanceL2 uses Euclidean distance (`<->` and vector_l2_ops).
-	DistanceL2 DistanceMetric = "l2"
-
-	// DistanceIP uses negative inner product (`<#>` and vector_ip_ops).
-	DistanceIP DistanceMetric = "ip"
-)
-
-func (d DistanceMetric) Valid() bool {
-	switch d {
-	case DistanceCosine, DistanceL2, DistanceIP:
-		return true
-	default:
-		return false
-	}
-}
-
-func (d DistanceMetric) String() string { return string(d) }
 
 type IndexType string
 
@@ -80,7 +58,7 @@ type StoreConfig struct {
 	DocumentBatcher vectorstore.Batcher
 	// Dimensions seeds only a newly created native column; existing native width is authoritative.
 	Dimensions       int
-	DistanceMetric   DistanceMetric
+	DistanceMetric   postgres.DistanceMetric
 	IndexType        IndexType
 	InitializeSchema bool
 }
@@ -132,7 +110,7 @@ func (s *StoreConfig) applyDefaults() {
 	if s.IndexName == "" {
 		s.IndexName = s.TableName + DefaultIndexSuffix
 	}
-	s.DistanceMetric = cmp.Or(s.DistanceMetric, DistanceCosine)
+	s.DistanceMetric = cmp.Or(s.DistanceMetric, postgres.DistanceCosine)
 	s.IndexType = cmp.Or(s.IndexType, IndexHNSW)
 }
 
@@ -164,7 +142,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		MetadataColumn:  config.MetadataColumn,
 		EmbeddingModel:  config.EmbeddingModel,
 		DocumentBatcher: config.DocumentBatcher,
-		DistanceMetric:  pgstore.DistanceMetric(config.DistanceMetric),
+		DistanceMetric:  config.DistanceMetric,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pgvector.NewStore: %w", err)
@@ -196,7 +174,7 @@ func initialize(ctx context.Context, config StoreConfig) error {
 		statements = append(statements, fmt.Sprintf(
 			`CREATE INDEX IF NOT EXISTS %s ON %s.%s USING %s (embedding %s)`,
 			pgx.Identifier{config.IndexName}.Sanitize(), pgx.Identifier{config.SchemaName}.Sanitize(), pgx.Identifier{config.TableName}.Sanitize(), config.IndexType,
-			config.DistanceMetric.indexOpClass(),
+			config.DistanceMetric.IndexOpClass(),
 		))
 	}
 
@@ -207,19 +185,6 @@ func initialize(ctx context.Context, config StoreConfig) error {
 		}
 	}
 	return nil
-}
-
-func (d DistanceMetric) indexOpClass() string {
-	switch d {
-	case DistanceL2:
-		return "vector_l2_ops"
-	case DistanceIP:
-		return "vector_ip_ops"
-	case DistanceCosine:
-		fallthrough
-	default:
-		return "vector_cosine_ops"
-	}
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {

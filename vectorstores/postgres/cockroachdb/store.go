@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/vectorstores/postgres"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -26,40 +28,6 @@ const (
 	DefaultIndexSuffix    = "_embedding_idx"
 )
 
-type DistanceMetric string
-
-// The metric is a closed vocabulary because score direction and threshold
-// semantics depend on it: the same raw number means "near" under one metric and
-// "far" under another, so an unrecognized value must be rejected rather than
-// guessed.
-const (
-	DistanceCosine DistanceMetric = "cosine"
-	DistanceL2     DistanceMetric = "l2"
-	DistanceIP     DistanceMetric = "ip"
-)
-
-func (d DistanceMetric) Valid() bool {
-	switch d {
-	case DistanceCosine, DistanceL2, DistanceIP:
-		return true
-	default:
-		return false
-	}
-}
-
-func (d DistanceMetric) String() string { return string(d) }
-
-func (d DistanceMetric) indexOpClass() string {
-	switch d {
-	case DistanceL2:
-		return "vector_l2_ops"
-	case DistanceIP:
-		return "vector_ip_ops"
-	default:
-		return "vector_cosine_ops"
-	}
-}
-
 type StoreConfig struct {
 	Pool            *pgxpool.Pool
 	SchemaName      string
@@ -70,7 +38,7 @@ type StoreConfig struct {
 	DocumentBatcher vectorstore.Batcher
 	// Dimensions seeds only a newly created native column; existing native width is authoritative.
 	Dimensions       int
-	DistanceMetric   DistanceMetric
+	DistanceMetric   postgres.DistanceMetric
 	InitializeSchema bool
 }
 
@@ -81,7 +49,7 @@ func (s *StoreConfig) applyDefaults() {
 	if s.IndexName == "" {
 		s.IndexName = s.TableName + DefaultIndexSuffix
 	}
-	s.DistanceMetric = cmp.Or(s.DistanceMetric, DistanceCosine)
+	s.DistanceMetric = cmp.Or(s.DistanceMetric, postgres.DistanceCosine)
 }
 
 func (s StoreConfig) Validate() error {
@@ -149,7 +117,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		MetadataColumn:  config.MetadataColumn,
 		EmbeddingModel:  config.EmbeddingModel,
 		DocumentBatcher: config.DocumentBatcher,
-		DistanceMetric:  pgstore.DistanceMetric(config.DistanceMetric),
+		DistanceMetric:  config.DistanceMetric,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cockroachdb.NewStore: %w", err)
@@ -176,7 +144,7 @@ func initialize(ctx context.Context, config StoreConfig) error {
 		%s BYTES NOT NULL,
 		embedding VECTOR(%d) NOT NULL,
 		VECTOR INDEX %s (embedding %s)
-	)`, fullTable, pgx.Identifier{config.MetadataColumn}.Sanitize(), dimensions, pgx.Identifier{config.IndexName}.Sanitize(), config.DistanceMetric.indexOpClass())
+	)`, fullTable, pgx.Identifier{config.MetadataColumn}.Sanitize(), dimensions, pgx.Identifier{config.IndexName}.Sanitize(), config.DistanceMetric.IndexOpClass())
 	if _, err := config.Pool.Exec(ctx, statement); err != nil {
 		return fmt.Errorf("create table %s: %w", fullTable, err)
 	}

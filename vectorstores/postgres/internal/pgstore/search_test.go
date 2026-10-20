@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/vectorstores/postgres"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Tangerg/scope/core/embedding"
@@ -27,7 +29,7 @@ func TestConstructionPreservesClosedNativePoolError(t *testing.T) {
 		t.Fatal("closed pool acquired a connection")
 	}
 	called := false
-	_, err = pgstore.New(t.Context(), pgstore.Config{Provider: "test", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", DistanceMetric: pgstore.DistanceCosine, DocumentBatcher: singleDocumentBatcher{}, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+	_, err = pgstore.New(t.Context(), pgstore.Config{Provider: "test", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", DistanceMetric: postgres.DistanceCosine, DocumentBatcher: singleDocumentBatcher{}, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 		called = true
 		return nil, errors.New("unexpected embedding")
 	})})

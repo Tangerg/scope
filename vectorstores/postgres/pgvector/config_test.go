@@ -3,6 +3,8 @@ package pgvector
 import (
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/vectorstores/postgres"
 )
 
 // TestStoreConfigRejectsAnUnusableConfiguration keeps a store from being
@@ -12,7 +14,7 @@ func TestStoreConfigRejectsAnUnusableConfiguration(t *testing.T) {
 	cases := map[string]StoreConfig{
 		"missing pool":        {},
 		"negative dimensions": {Dimensions: -1},
-		"unknown metric":      {DistanceMetric: DistanceMetric("manhattan")},
+		"unknown metric":      {DistanceMetric: postgres.DistanceMetric("manhattan")},
 		"unknown index":       {IndexType: IndexType("btree")},
 	}
 	for name, config := range cases {

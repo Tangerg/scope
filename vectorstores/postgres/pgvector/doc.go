@@ -9,7 +9,8 @@
 // bytes. Recreate former text-ID/JSONB tables and reindex authoritative documents.
 // No compatibility adapter or automatic schema change is provided.
 //
-// DistanceCosine selects <=>, DistanceL2 selects <->, and DistanceIP selects <#>.
+// postgres.DistanceCosine selects <=>, postgres.DistanceL2 selects <->, and
+// postgres.DistanceIP selects <#>.
 // IndexHNSW and IndexIVFFlat create native indexes with the selected opclass;
 // IndexNone uses native exact scanning. DistanceMetric is a query choice. It does
 // not override native schema or index configuration.
