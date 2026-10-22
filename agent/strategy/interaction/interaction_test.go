@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -121,7 +122,7 @@ func TestManagedInteractionPreservesUnknownModelOutcomes(t *testing.T) {
 		cause    error
 	}{
 		"canceled": {cause: context.Canceled}, "deadline": {cause: context.DeadlineExceeded},
-		"host":    {cause: interaction.HostFailure(errors.New("boundary unavailable"))},
+		"host":    {cause: errors.New("boundary unavailable")},
 		"network": {cause: errors.New("connection lost")}, "nil response": {}, "invalid response": {response: &chat.Response{}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -176,7 +177,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		authorization bool
 	}{
 		{name: "transport failure", cause: errors.New("response lost after execution")},
-		{name: "host failure", cause: interaction.HostFailure(errors.New("tool boundary unavailable"))},
+		{name: "host failure", cause: errors.New("tool boundary unavailable")},
 		{name: "cancellation", cause: context.Canceled},
 		{name: "deadline", cause: context.DeadlineExceeded},
 		{name: "panic", panics: true},
@@ -184,7 +185,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "authorization failed", cause: errors.New("private policy failure"), authorization: true},
 		{name: "authorization nested refusal", cause: privateOutcome, authorization: true},
 		{name: "authorization canceled refusal", cause: errors.Join(context.DeadlineExceeded, privateOutcome), authorization: true},
-		{name: "authorization host failure", cause: interaction.HostFailure(privateOutcome), authorization: true},
+		{name: "authorization wrapped refusal", cause: fmt.Errorf("policy backend: %w", privateOutcome), authorization: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			type input struct{}

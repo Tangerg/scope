@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -26,17 +25,11 @@ func modelToolResult(call chat.ToolCall, outcome tool.Result, cause error) (chat
 			return chat.ToolResult{ID: call.ID, Name: call.Name, Output: outcome.Output.Clone()}, nil, false, nil
 		}
 	}
-	if errors.Is(cause, ErrHostFailure) {
-		return chat.ToolResult{}, nil, false, cause
-	}
 	if failure, ok := errors.AsType[*tool.Failure](cause); ok {
 		if err := failure.Validate(); err != nil {
 			return chat.ToolResult{}, nil, false, err
 		}
 		return chat.ToolResult{ID: call.ID, Name: call.Name, Output: failure.Output(), IsError: true}, nil, failure.Kind() == tool.FailureKindRejected, nil
-	}
-	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
-		return chat.ToolResult{}, nil, false, cause
 	}
 	return chat.ToolResult{}, nil, false, cause
 }

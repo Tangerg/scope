@@ -57,6 +57,3 @@ var (
 // Effect remains unknown. Oversize replacement context is rejected before calling
 // the model and settles as a definite host failure.
 var ErrModelResponseTooLarge = errors.New("interaction: model response exceeds byte limit")
-
-// ErrHostFailure separates host infrastructure failure from model or tool behavior.
-var ErrHostFailure = errors.New("interaction: host failure")

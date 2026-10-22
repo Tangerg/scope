@@ -49,7 +49,7 @@ func TestModelToolResultPolicy(t *testing.T) {
 	}
 
 	controlCauses := []error{
-		HostFailure(errors.New("projection unavailable")),
+		errors.New("projection unavailable"),
 		context.Canceled,
 		context.DeadlineExceeded,
 	}
@@ -92,10 +92,14 @@ func TestModelToolResultPreservesDefiniteFailureCauses(t *testing.T) {
 		if err != nil || required != nil || !reflect.DeepEqual(result, chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: output}) {
 			t.Fatalf("cause %v: result=%+v required=%v error=%v", cause, result, required, err)
 		}
-		for _, conflicting := range []error{HostFailure(failure), errors.Join(failure, ErrHostFailure)} {
-			result, required, _, err := modelToolResult(call, tool.Result{Output: output}, conflicting)
-			if !errors.Is(err, ErrHostFailure) || required != nil || !reflect.DeepEqual(result, chat.ToolResult{}) {
-				t.Fatalf("host failure: result=%+v required=%v error=%v", result, required, err)
+		for _, wrapped := range []error{
+			fmt.Errorf("host diagnostic: %w", failure),
+			errors.Join(errors.New("host diagnostic"), failure),
+			errors.Join(cause, failure),
+		} {
+			result, required, _, err := modelToolResult(call, tool.Result{Output: output}, wrapped)
+			if err != nil || required != nil || !reflect.DeepEqual(result, chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: output}) {
+				t.Fatalf("diagnostic overrode definite failure: result=%+v required=%v error=%v", result, required, err)
 			}
 		}
 	}
@@ -105,7 +109,7 @@ func TestModelToolResultKeepsDiagnosticCausesOutOfControlFlow(t *testing.T) {
 	call := chat.ToolCall{ID: "call", Name: "feedback", Arguments: `{}`}
 	output := chat.NewTextToolOutput("current call refused")
 	for _, cause := range []error{
-		context.Canceled, context.DeadlineExceeded, HostFailure(errors.New("nested host failure")),
+		context.Canceled, context.DeadlineExceeded, errors.New("nested host failure"),
 	} {
 		failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: output, Cause: cause})
 		if err != nil {

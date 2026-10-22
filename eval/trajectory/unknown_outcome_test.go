@@ -15,14 +15,14 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-func TestRecorderPreservesHostFailureAsUnknownToolOutcome(t *testing.T) {
+func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 	recorder := &trajectory.Recorder{}
 	callError, err := tool.NewCallError(tool.CallErrorConfig{Cause: errors.New("tool boundary unavailable"), Evidence: chat.NewTextToolOutput("partial observation")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	process, engine := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{
-		failure: interaction.HostFailure(callError),
+		failure: callError,
 	}, 2)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()

@@ -48,8 +48,9 @@
 // Completed siblings retain their settlements when another call remains
 // unknown or waits for input. A valid tool.Failure produces its model-visible
 // error ToolResult and disposition; its Cause cannot turn it into
-// cancellation, input, or host control. HostFailure, ordinary errors, invalid
-// output, cancellation, deadlines, and a panic from Tool.Call leave the Tool
+// cancellation, input, or host control. Transparent wrappers and joined
+// diagnostics preserve that outcome. Ordinary errors, invalid output,
+// cancellation, deadlines, and a panic from Tool.Call leave the Tool
 // Effect unknown until the Host settles it; terminating the Process retains
 // those identities without establishing that external work failed. A panic from
 // a tool's input validator is instead a definite failure classified before
