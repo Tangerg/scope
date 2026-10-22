@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/samber/lo"
 
@@ -91,11 +90,9 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 	for _, policy := range []contextPolicy{{ID: unchangedContextPolicy}, {ID: duplicateOutputPolicyID, Reducer: duplicateToolOutputReducer{}}} {
 		trial, trialErr := eval.NewTrial(eval.TrialConfig[contextTask, trajectory.Trajectory]{Suite: suite,
 			Target: eval.TargetFunc[contextTask, trajectory.Trajectory](func(ctx context.Context, task contextTask) (eval.Execution[trajectory.Trajectory], error) {
-				runContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-				defer cancel()
 				// Policy identity belongs to deployment configuration, not fixture
 				// identity: both runs still grade the same inputs and references.
-				recorded, runErr := runTask(runContext, task, policy)
+				recorded, runErr := runTask(ctx, task, policy)
 				if runErr != nil {
 					return eval.Execution[trajectory.Trajectory]{}, runErr
 				}

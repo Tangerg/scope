@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/agenttest"
@@ -89,8 +88,7 @@ func (c *contextProbe) Requests() []*chat.Request {
 }
 
 func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
+	ctx := t.Context()
 	task := contextTasks()[2]
 	confirmed := make(chan confirmedToolCall, 1)
 	before := &trajectory.Recorder{}
