@@ -199,7 +199,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 	}
 
 	output := transcription.Output{Text: "keep"}
-	if err := jsonv2.Unmarshal([]byte(`{"metadata":{"":1}}`), &output); !errors.Is(err, transcription.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"text":"","metadata":{"":1}}`), &output); !errors.Is(err, transcription.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
 	if output.Text != "keep" {

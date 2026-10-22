@@ -197,6 +197,7 @@ func (s *SearchRequest) UnmarshalJSON(data []byte) error {
 }
 
 // SearchResult keeps query-relative relevance separate from the indexed document.
+// JSON requires an explicit numeric score, including zero.
 type SearchResult struct {
 	Document *document.Document `json:"document"`
 	Score    Score              `json:"score"`
@@ -241,12 +242,17 @@ func (s *SearchResult) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: search result receiver is nil", ErrInvalidResponse)
 	}
-	type wireSearchResult SearchResult
-	var decoded wireSearchResult
+	var decoded struct {
+		Document *document.Document `json:"document"`
+		Score    *Score             `json:"score"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search result: %w", ErrInvalidResponse, err)
 	}
-	candidate := SearchResult(decoded)
+	if decoded.Score == nil {
+		return fmt.Errorf("%w: search result requires score", ErrInvalidResponse)
+	}
+	candidate := SearchResult{Document: decoded.Document, Score: *decoded.Score}
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
@@ -254,6 +260,8 @@ func (s *SearchResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// SearchResponse reports a completed search. JSON requires a results array;
+// an explicit empty array reports no matches.
 type SearchResponse struct {
 	Results []*SearchResult `json:"results"`
 }
@@ -297,6 +305,9 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	var decoded wireSearchResponse
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search response: %w", ErrInvalidResponse, err)
+	}
+	if decoded.Results == nil {
+		return fmt.Errorf("%w: search response requires results", ErrInvalidResponse)
 	}
 	candidate := SearchResponse(decoded)
 	if err := candidate.Validate(); err != nil {

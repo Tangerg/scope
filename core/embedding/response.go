@@ -13,6 +13,7 @@ import (
 )
 
 type Output struct {
+	// Embedding contains reported numeric coordinates; JSON null is not a zero coordinate.
 	Embedding []float64 `json:"embedding"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
@@ -57,12 +58,20 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output receiver is nil", ErrInvalidResponse)
 	}
-	type wireOutput Output
-	var decoded wireOutput
+	var decoded struct {
+		Embedding []*float64   `json:"embedding"`
+		Metadata  metadata.Map `json:"metadata,omitzero"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
 	}
-	candidate := Output(decoded)
+	candidate := Output{Embedding: make([]float64, len(decoded.Embedding)), Metadata: decoded.Metadata}
+	for index, coordinate := range decoded.Embedding {
+		if coordinate == nil {
+			return fmt.Errorf("%w: embedding[%d] must not be null", ErrInvalidResponse, index)
+		}
+		candidate.Embedding[index] = *coordinate
+	}
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
@@ -71,6 +80,8 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 }
 
 // Usage contains input tokens only; provider totals map to InputTokens.
+// JSON requires input_tokens even when zero; unreported usage belongs to a nil
+// ResponseMetadata.Usage.
 type Usage struct {
 	InputTokens int64 `json:"input_tokens"`
 }
@@ -94,12 +105,16 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	if u == nil {
 		return fmt.Errorf("%w: usage receiver is nil", ErrInvalidResponse)
 	}
-	type wireUsage Usage
-	var decoded wireUsage
+	var decoded struct {
+		InputTokens *int64 `json:"input_tokens"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode usage: %w", ErrInvalidResponse, err)
 	}
-	candidate := Usage(decoded)
+	if decoded.InputTokens == nil {
+		return fmt.Errorf("%w: usage requires input_tokens", ErrInvalidResponse)
+	}
+	candidate := Usage{InputTokens: *decoded.InputTokens}
 	if err := candidate.validate(); err != nil {
 		return err
 	}

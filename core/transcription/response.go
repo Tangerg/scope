@@ -12,7 +12,8 @@ import (
 )
 
 type Output struct {
-	// Text may be empty for partial or silent segments.
+	// Text may be empty for partial or silent segments. JSON must still include
+	// the string so missing output cannot be interpreted as silence.
 	Text string `json:"text"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
@@ -52,12 +53,17 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output receiver is nil", ErrInvalidResponse)
 	}
-	type wireOutput Output
-	var decoded wireOutput
+	var decoded struct {
+		Text     *string      `json:"text"`
+		Metadata metadata.Map `json:"metadata,omitzero"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
 	}
-	candidate := Output(decoded)
+	if decoded.Text == nil {
+		return fmt.Errorf("%w: output requires text", ErrInvalidResponse)
+	}
+	candidate := Output{Text: *decoded.Text, Metadata: decoded.Metadata}
 	if err := candidate.Validate(); err != nil {
 		return err
 	}

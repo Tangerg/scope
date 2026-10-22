@@ -85,7 +85,7 @@ func TestJSONBoundaries(t *testing.T) {
 	}
 
 	verdict := moderation.Verdict{Score: 0.25}
-	if err := jsonv2.Unmarshal([]byte(`{"score":2}`), &verdict); !errors.Is(err, moderation.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`{"flagged":false,"score":2}`), &verdict); !errors.Is(err, moderation.ErrInvalidResponse) {
 		t.Fatalf("Unmarshal Verdict error = %v", err)
 	}
 	if verdict.Score != 0.25 {

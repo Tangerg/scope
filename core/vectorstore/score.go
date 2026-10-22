@@ -13,6 +13,7 @@ const (
 
 // Score is a provider-neutral, query-relative relevance value in [0, 1]. Scores
 // preserve ordering but are not comparable across providers or search modes.
+// Its JSON value must be a number.
 type Score float64
 
 func (s Score) Float64() float64 { return float64(s) }
@@ -39,11 +40,14 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: score receiver is nil", ErrInvalidScore)
 	}
 	type wireScore Score
-	var decoded wireScore
+	var decoded *wireScore
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode score: %w", ErrInvalidScore, err)
 	}
-	candidate := Score(decoded)
+	if decoded == nil {
+		return fmt.Errorf("%w: score must not be null", ErrInvalidScore)
+	}
+	candidate := Score(*decoded)
 	if err := candidate.Validate(); err != nil {
 		return err
 	}

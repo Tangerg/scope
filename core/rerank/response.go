@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Score is a normalized relevance value in [0, 1].
+// Score is a normalized relevance value in [0, 1]. Its JSON value must be a number.
 type Score float64
 
 func (s Score) Float64() float64 { return float64(s) }
@@ -36,11 +36,14 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: score receiver is nil", ErrInvalidResponse)
 	}
 	type wireScore Score
-	var decoded wireScore
+	var decoded *wireScore
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode score: %w", ErrInvalidResponse, err)
 	}
-	candidate := Score(decoded)
+	if decoded == nil {
+		return fmt.Errorf("%w: score must not be null", ErrInvalidResponse)
+	}
+	candidate := Score(*decoded)
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
@@ -49,6 +52,7 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 }
 
 // Result relates one input document index to its normalized relevance.
+// JSON requires both fields; neither may be absent or null.
 type Result struct {
 	Index int   `json:"index"`
 	Score Score `json:"score"`
@@ -87,12 +91,17 @@ func (r *Result) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: result receiver is nil", ErrInvalidResponse)
 	}
-	type wireResult Result
-	var decoded wireResult
+	var decoded struct {
+		Index *int   `json:"index"`
+		Score *Score `json:"score"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode result: %w", ErrInvalidResponse, err)
 	}
-	candidate := Result(decoded)
+	if decoded.Index == nil || decoded.Score == nil {
+		return fmt.Errorf("%w: result requires index and score", ErrInvalidResponse)
+	}
+	candidate := Result{Index: *decoded.Index, Score: *decoded.Score}
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
@@ -100,6 +109,8 @@ func (r *Result) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Usage records a reported input token count. JSON requires input_tokens even
+// when zero; unreported usage belongs to a nil ResponseMetadata.Usage.
 type Usage struct {
 	InputTokens int64 `json:"input_tokens"`
 }
@@ -123,12 +134,16 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	if u == nil {
 		return fmt.Errorf("%w: usage receiver is nil", ErrInvalidResponse)
 	}
-	type wireUsage Usage
-	var decoded wireUsage
+	var decoded struct {
+		InputTokens *int64 `json:"input_tokens"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode usage: %w", ErrInvalidResponse, err)
 	}
-	candidate := Usage(decoded)
+	if decoded.InputTokens == nil {
+		return fmt.Errorf("%w: usage requires input_tokens", ErrInvalidResponse)
+	}
+	candidate := Usage{InputTokens: *decoded.InputTokens}
 	if err := candidate.validate(); err != nil {
 		return err
 	}

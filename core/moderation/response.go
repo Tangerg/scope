@@ -16,7 +16,8 @@ import (
 )
 
 // Verdict is one moderation dimension's outcome — a flagged bit plus a
-// confidence score in [0, 1].
+// confidence score in [0, 1]. JSON requires both fields, including explicit
+// false and zero values, so an absent result cannot become an unflagged verdict.
 type Verdict struct {
 	Flagged bool `json:"flagged"`
 
@@ -42,12 +43,17 @@ func (v *Verdict) UnmarshalJSON(data []byte) error {
 	if v == nil {
 		return fmt.Errorf("%w: verdict receiver is nil", ErrInvalidResponse)
 	}
-	type wireVerdict Verdict
-	var decoded wireVerdict
+	var decoded struct {
+		Flagged *bool    `json:"flagged"`
+		Score   *float64 `json:"score"`
+	}
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode verdict: %w", ErrInvalidResponse, err)
 	}
-	candidate := Verdict(decoded)
+	if decoded.Flagged == nil || decoded.Score == nil {
+		return fmt.Errorf("%w: verdict requires flagged and score", ErrInvalidResponse)
+	}
+	candidate := Verdict{Flagged: *decoded.Flagged, Score: *decoded.Score}
 	if err := candidate.validate(); err != nil {
 		return err
 	}
