@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/historystores/cosmosdb
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0

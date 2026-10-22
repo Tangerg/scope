@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/otel/agent
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/Tangerg/scope/agent v0.54.1

@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/mcp
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.3

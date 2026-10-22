@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/skills
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/adrg/frontmatter v0.2.0

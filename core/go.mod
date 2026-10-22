@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/core
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/invopop/jsonschema v0.14.0
