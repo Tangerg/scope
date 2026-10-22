@@ -4,12 +4,12 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.3
-	github.com/Tangerg/scope/agent v0.54.1
-	github.com/Tangerg/scope/core v0.54.1
-	github.com/Tangerg/scope/eval v0.54.1
-	github.com/Tangerg/scope/eval/trajectory v0.54.1
-	github.com/Tangerg/scope/mcp v0.54.1
-	github.com/Tangerg/scope/tools v0.54.1
+	github.com/Tangerg/scope/agent v0.55.0
+	github.com/Tangerg/scope/core v0.55.0
+	github.com/Tangerg/scope/eval v0.55.0
+	github.com/Tangerg/scope/eval/trajectory v0.55.0
+	github.com/Tangerg/scope/mcp v0.55.0
+	github.com/Tangerg/scope/tools v0.55.0
 	github.com/samber/lo v1.53.0
 )
 
