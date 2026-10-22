@@ -160,7 +160,7 @@ func pendingSteerTestState(t testing.TB) executionState {
 		t.Fatal(err)
 	}
 	return executionState{
-		WorkingContext: &chat.Request{Messages: []chat.Message{
+		WorkingContext: &Input{Messages: []chat.Message{
 			chat.NewUserMessage(chat.NewTextPart("initial")),
 		}},
 		ModelCallCount: 1,

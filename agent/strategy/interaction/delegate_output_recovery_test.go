@@ -15,14 +15,14 @@ import (
 // structurally invalid output passes and only fails on a later Step or re-Restore.
 func TestRoundDelegateResultRestoreValidatesOutputContract(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
-	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
+	request := &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
 	call := chat.ToolCall{ID: "call_fuzz", Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}
 
 	roundState := func(output chat.ToolOutput) executionState {
 		return executionState{
-			WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
 				Disposition: ResultSucceeded, Output: output,
 			}}},

@@ -27,9 +27,9 @@ const (
 )
 
 // executionState is the complete Strategy-owned recovery state. WorkingContext
-// is self-sufficient for the next model call; ToolRound owns each pending round.
+// owns messages and options; the Deployment owns Tools. ToolRound owns each pending round.
 type executionState struct {
-	WorkingContext      *chat.Request    `json:"working_context"`
+	WorkingContext      *Input           `json:"working_context"`
 	ModelCallCount      uint64           `json:"model_call_count" jsonwire:"required"`
 	AdvertisedToolNames []string         `json:"advertised_tool_names,omitempty"`
 	ToolRound           *toolCallRound   `json:"tool_round,omitzero"`
@@ -155,9 +155,6 @@ func (e executionState) validateEnvelope() error {
 	if err := e.WorkingContext.Validate(); err != nil {
 		return fmt.Errorf("%w: WorkingContext: %w", ErrInvalidExecutionState, err)
 	}
-	if len(e.WorkingContext.Tools) != 0 {
-		return fmt.Errorf("%w: executable tool definitions do not belong in WorkingContext", ErrInvalidExecutionState)
-	}
 	if err := validateAdvertisedToolNames(e.AdvertisedToolNames); err != nil {
 		return fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
 	}
@@ -234,7 +231,7 @@ func (e executionState) activeChildCalls(ctx context.Context) ([]chat.ToolCall, 
 }
 
 func (e *executionState) replaceModelContext(messages []chat.Message) error {
-	effective := e.WorkingContext.Clone()
+	effective := e.WorkingContext.clone()
 	effective.Messages = cloneMessages(messages)
 	if err := effective.Validate(); err != nil {
 		return fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, err)
@@ -246,7 +243,7 @@ func (e *executionState) replaceModelContext(messages []chat.Message) error {
 // appendToContext keeps WorkingContext a valid model request: messages join
 // it only when the extended request still validates.
 func (e *executionState) appendToContext(purpose string, messages ...chat.Message) error {
-	request := e.WorkingContext.Clone()
+	request := e.WorkingContext.clone()
 	request.Messages = append(request.Messages, cloneMessages(messages)...)
 	if err := request.Validate(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrInvalidExecutionState, purpose, err)

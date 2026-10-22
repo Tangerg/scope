@@ -7,6 +7,9 @@
 // model I/O. A ToolSet binds ordinary executable Tools to a separate child
 // Deployment that the Definition binds; its scheduling retains only frozen
 // input validators and classifiers, never executable Tools or their backends.
+// Working context and model-call Effects carry only messages and options;
+// the Dispatcher projects executable Tool definitions from the Deployment.
+// Persisted requests that declare tools or tool_choice are rejected.
 // Hosts cover declaration identity in deployment digests. Direct model calls
 // remain available through package chatclient without an Interaction or Engine.
 //

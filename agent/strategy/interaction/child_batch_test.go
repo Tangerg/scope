@@ -317,7 +317,7 @@ func childBatchTestExecution(t testing.TB, kind childCallKind, stage phase) *exe
 	}
 	state := executionState{
 		ModelCallCount: 1,
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
+		WorkingContext: &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}},
 		ToolRound: &toolCallRound{Response: &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}},
 			ChildBatch: batch},
 	}

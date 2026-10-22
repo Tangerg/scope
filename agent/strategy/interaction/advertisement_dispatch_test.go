@@ -15,7 +15,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 			definition := advertisementTestDefinition(t)
 			state, err := (executionState{
 				AdvertisedToolNames: []string{"first", "second"},
-				WorkingContext:      &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}},
+				WorkingContext:      &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}},
 			}).snapshot()
 			if err != nil {
 				t.Fatal(err)

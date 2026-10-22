@@ -43,7 +43,7 @@ func (e effectEnvelope) operation() operation {
 
 type modelCall struct {
 	ModelCallSequence     uint64           `json:"model_call_sequence"`
-	Request               chat.Request     `json:"request"`
+	Request               Input            `json:"request"`
 	AdvertisedToolNames   []string         `json:"advertised_tool_names,omitempty"`
 	AppliedSteerSignalIDs []agent.SignalID `json:"applied_steer_signal_ids,omitempty"`
 }
@@ -157,7 +157,7 @@ type toolDispatchResult struct {
 }
 
 func newModelEffect(
-	request *chat.Request,
+	request *Input,
 	modelCallSequence uint64,
 	advertisedToolNames []string,
 	appliedSteerSignalIDs []agent.SignalID,
@@ -169,7 +169,7 @@ func newModelEffect(
 	envelope := effectEnvelope{
 		ModelCall: &modelCall{
 			ModelCallSequence:     modelCallSequence,
-			Request:               *request.Clone(),
+			Request:               *request.clone(),
 			AdvertisedToolNames:   slices.Clone(advertisedToolNames),
 			AppliedSteerSignalIDs: slices.Clone(appliedSteerSignalIDs),
 		},

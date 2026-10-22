@@ -191,13 +191,9 @@ func (d *Definition) Start(input agent.Payload) (agent.Execution, error) {
 	if err := decoded.Validate(); err != nil {
 		return nil, err
 	}
-	request := &chat.Request{
-		Messages: cloneMessages(decoded.Messages),
-		Options:  decoded.Options.Clone(),
-	}
 	return &execution{
 		definition: d,
-		state:      executionState{WorkingContext: request},
+		state:      executionState{WorkingContext: decoded.clone()},
 	}, nil
 }
 

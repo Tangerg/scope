@@ -15,7 +15,7 @@ import (
 
 func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
-	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
+	request := &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("validate"))}}
 	validOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "valid"})
 	wrongOutput, _ := agent.EncodePayload(struct {
 		Other string `json:"other"`
@@ -57,7 +57,7 @@ func TestArtifactStateRestoreRejectsInvalidProvenanceAndValue(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			state := executionState{
-				WorkingContext: request.Clone(), ModelCallCount: 2,
+				WorkingContext: request.clone(), ModelCallCount: 2,
 				ArtifactRecords: test.artifacts,
 			}
 			payload, err := jsonv2.Marshal(state)
@@ -103,7 +103,7 @@ func TestArtifactIdentitySurvivesRestoreWithoutCallHistory(t *testing.T) {
 	}
 	state := executionState{
 		ModelCallCount: 3,
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
+		WorkingContext: &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced context"))}},
 		ArtifactRecords: []artifactRecord{
 			{ModelCallSequence: 1, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},
 			{ModelCallSequence: 2, ToolCallID: "reused", DelegateName: "delegate_fuzz", Output: output},

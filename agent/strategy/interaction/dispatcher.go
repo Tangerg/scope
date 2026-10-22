@@ -125,7 +125,7 @@ func (d *Dispatcher) dispatchModel(
 	call *modelCall,
 	emit agent.DeltaEmitter,
 ) (agent.Settlement, error) {
-	modelRequest := call.Request.Clone()
+	modelRequest := call.Request.request()
 	definitions, err := d.modelDefinitions(call.AdvertisedToolNames)
 	if err != nil {
 		return failedSettlement(err)
@@ -199,7 +199,7 @@ func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *ch
 	if err != nil {
 		return agent.Settlement{}, err
 	}
-	effective := envelope.ModelCall.Request.Clone()
+	effective := envelope.ModelCall.Request.request()
 	effective.Tools, effective.Messages = definitions, cloneMessages(messages)
 	if validateErr := effective.Validate(); validateErr != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: effective model request: %w", ErrInvalidProtocol, validateErr)

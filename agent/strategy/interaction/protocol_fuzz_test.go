@@ -22,7 +22,7 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		{
 			ModelCall: &modelCall{
 				ModelCallSequence: 1,
-				Request: chat.Request{Messages: []chat.Message{
+				Request: Input{Messages: []chat.Message{
 					chat.NewUserMessage(chat.NewTextPart("hello")),
 				}},
 				AdvertisedToolNames: []string{"ask"}, AppliedSteerSignalIDs: []agent.SignalID{signalID},

@@ -19,7 +19,7 @@ func TestUnlimitedModelCallSequencePreservesIdentityAcrossNumericBoundaries(t *t
 	}
 	execution := &execution{definition: definition, state: executionState{
 		ModelCallCount: math.MaxUint32,
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}},
+		WorkingContext: &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}},
 	}}
 	transition, err := execution.requestModel(0, nil)
 	if err != nil || len(transition.Effects()) != 1 || execution.state.ModelCallCount != uint64(math.MaxUint32)+1 {
@@ -40,7 +40,7 @@ func TestUnlimitedModelCallSequencePreservesIdentityAcrossNumericBoundaries(t *t
 }
 
 func TestToolDispatcherSettlesLocalProtocolRejections(t *testing.T) {
-	model, err := newModelEffect(&chat.Request{
+	model, err := newModelEffect(&Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))},
 	}, 1, nil, nil)
 	if err != nil {

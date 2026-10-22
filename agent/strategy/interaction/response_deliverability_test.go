@@ -19,7 +19,7 @@ func TestCompleteFailsDefinitelyWhenFinalOutputExceedsDeliverableSize(t *testing
 		t.Fatal(err)
 	}
 	execution := &execution{definition: definition, state: executionState{
-		WorkingContext: &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("go"))}},
+		WorkingContext: &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("go"))}},
 		ModelCallCount: 1,
 	}}
 

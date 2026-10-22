@@ -98,7 +98,7 @@ func TestRestoreValidatesFinishReasonInPendingRound(t *testing.T) {
 
 func TestRestoreKeepsCompletionWithoutItsOutput(t *testing.T) {
 	definition := fuzzInteractionDefinition(t)
-	context := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}}
+	context := &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}}
 	for _, test := range []struct {
 		name  string
 		state executionState
@@ -190,7 +190,7 @@ func fuzzInteractionDefinition(f testing.TB) *Definition {
 
 func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.ExecutionState {
 	f.Helper()
-	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz"))}}
+	request := &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz"))}}
 	call := chat.ToolCall{ID: "call_fuzz", Name: "delegate_fuzz", Arguments: `{"task":"check"}`}
 	message := chat.NewAssistantMessage(chat.NewToolCallPart(call))
 	response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}
@@ -200,18 +200,18 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 	artifactOutput, _ := agent.EncodePayload(fuzzDelegateOutput{Result: "settled"})
 	states := []executionState{
 		{
-			WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(), Results: []toolCallResult{{
 				Disposition: ResultRejected, Output: chat.NewTextToolOutput("worker unavailable"),
 			}}},
 		},
 		{
-			WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.clone(), ModelCallCount: 1,
 			ToolRound: &toolCallRound{Response: response.Clone(),
 				ChildBatch: &childCallBatch{Kind: childCallsDelegate, Invocations: []*childInvocationState{{}}}},
 		},
 		{
-			WorkingContext: request.Clone(), ModelCallCount: 1,
+			WorkingContext: request.clone(), ModelCallCount: 1,
 			PendingSteer: &steerBatch{
 				Messages:  []chat.Message{chat.NewUserMessage(chat.NewTextPart("fuzz steer"))},
 				SignalIDs: []agent.SignalID{steerSignalID},
@@ -221,7 +221,7 @@ func fuzzInteractionStates(f testing.TB, definition *Definition) []agent.Executi
 			}}}},
 		},
 		{
-			WorkingContext: request.Clone(), ModelCallCount: 2,
+			WorkingContext: request.clone(), ModelCallCount: 2,
 			ArtifactRecords: []artifactRecord{{
 				ModelCallSequence: 1, ToolCallID: "call_settled",
 				DelegateName: "delegate_fuzz", Output: artifactOutput,

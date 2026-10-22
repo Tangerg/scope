@@ -214,7 +214,7 @@ func (e *execution) finishOrRetry(
 	decision := CompletionDecision{Accepted: true}
 	if e.definition.completionValidator != nil {
 		candidate := CompletionCandidate{
-			workingContext: e.state.WorkingContext.Clone(),
+			workingContext: e.state.WorkingContext.request(),
 			output:         output.clone(),
 			artifacts:      newArtifacts(e.state.ArtifactRecords),
 		}
