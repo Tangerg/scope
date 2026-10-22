@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/neo4j
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.54.1
+	github.com/Tangerg/scope/core v0.55.0
 	github.com/neo4j/neo4j-go-driver/v6 v6.3.0
 	github.com/samber/lo v1.53.0
 )

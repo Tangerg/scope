@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/historystores/cassandra
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.54.1
+	github.com/Tangerg/scope/core v0.55.0
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/samber/lo v1.53.0
 )
