@@ -104,10 +104,50 @@ func TestOutputFormatDecodeBoundaries(t *testing.T) {
 	}
 }
 
+// TestOutputFormatDecodePublic covers the public Decode entry a managed caller
+// uses on an already-obtained response, so it shares one structured-output rule
+// with Client.Output instead of a weaker bare unmarshal.
+func TestOutputFormatDecodePublic(t *testing.T) {
+	format := JSON[recipe]()
+	want := recipe{Name: "tea", Steps: []string{"boil", "steep"}}
+
+	got, err := format.Decode(responseWithText(t, `{"name":"tea","steps":["boil","steep"]}`))
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("Decode complete = (%#v, %v), want %#v", got, err, want)
+	}
+
+	// Decode guards the zero-value format, which the private decodeResponse does not.
+	if _, err := (OutputFormat[recipe]{}).Decode(responseWithText(t, `{"name":"tea","steps":[]}`)); !errors.Is(err, ErrInvalidOutputFormat) {
+		t.Fatalf("zero format Decode error = %v", err)
+	}
+
+	if _, err := format.Decode(nil); !errors.Is(err, ErrInvalidOutput) {
+		t.Fatalf("nil response Decode error = %v", err)
+	}
+
+	// A refusal is not a completed result even when its text would parse as T.
+	refusal := responseWithParts(t, chat.FinishReasonRefusal, chat.NewRefusalPart(`{"name":"tea","steps":[]}`))
+	if _, err := format.Decode(refusal); !errors.Is(err, ErrInvalidOutput) {
+		t.Fatalf("refusal Decode error = %v", err)
+	}
+
+	// A non-stop finish reason is rejected even when the text is valid JSON.
+	truncated := responseWithParts(t, chat.FinishReasonLength, chat.NewTextPart(`{"name":"tea","steps":[]}`))
+	var completion *OutputCompletionError
+	if _, err := format.Decode(truncated); !errors.As(err, &completion) || completion.FinishReason != chat.FinishReasonLength {
+		t.Fatalf("truncated Decode error = %v", err)
+	}
+}
+
 func responseWithText(t *testing.T, text string) *chat.Response {
 	t.Helper()
-	message := chat.NewAssistantMessage(chat.NewTextPart(text))
-	response, err := chat.NewResponse(&chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}, &chat.ResponseMetadata{})
+	return responseWithParts(t, chat.FinishReasonStop, chat.NewTextPart(text))
+}
+
+func responseWithParts(t *testing.T, finish chat.FinishReason, parts ...chat.Part) *chat.Response {
+	t.Helper()
+	message := chat.NewAssistantMessage(parts...)
+	response, err := chat.NewResponse(&chat.Output{Message: &message, FinishReason: finish}, &chat.ResponseMetadata{})
 	if err != nil {
 		t.Fatal(err)
 	}

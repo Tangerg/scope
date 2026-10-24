@@ -34,7 +34,8 @@ var (
 )
 
 // OutputFormat couples a provider-neutral request contract with the decoder
-// for its complete response. Pass one to [Client.Output].
+// for its complete response. Pass one to [Client.Output], or call its Decode on
+// a response obtained elsewhere so every caller shares one decode rule.
 type OutputFormat[T any] struct {
 	contract chat.OutputFormat
 	decoder  func([]byte) (T, error)
@@ -92,6 +93,20 @@ func (o OutputFormat[T]) validate() error {
 		return fmt.Errorf("%w: nil decoder", ErrInvalidOutputFormat)
 	}
 	return nil
+}
+
+// Decode applies this format's completion contract to an already-obtained
+// response and decodes it into T without any model call. It enforces the same
+// finish-reason, refusal, unsupported-part, schema, and strict-JSON rules as
+// [Client.Output]. Callers that obtain a response elsewhere, such as a managed
+// Agent that already ran the model, decode it here so direct and managed paths
+// share one structured-output rule instead of reimplementing a weaker one.
+func (o OutputFormat[T]) Decode(response *chat.Response) (T, error) {
+	var zero T
+	if err := o.validate(); err != nil {
+		return zero, err
+	}
+	return o.decodeResponse(response, nil)
 }
 
 func (o OutputFormat[T]) decodeResponse(response *chat.Response, responseErr error) (T, error) {
