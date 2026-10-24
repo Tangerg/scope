@@ -275,20 +275,27 @@ func requireValueReceiver(typeOf, iface reflect.Type, method string) {
 	}
 }
 
+// stringConstraint derives the vocabulary a named string type owns. Enum and
+// pattern live in an intersection so field tags written onto the outer schema can
+// only narrow the owned set, never widen or replace it, mirroring integer bounds.
+// A type that owns both an enum and a pattern contributes both; neither is dropped.
 func stringConstraint(value any) *reflection.Schema {
-	switch constraint := value.(type) {
-	case Enumerator:
-		members := constraint.JSONSchemaEnum()
+	var owned []*reflection.Schema
+	if enumerator, ok := value.(Enumerator); ok {
+		members := enumerator.JSONSchemaEnum()
 		enum := make([]any, len(members))
 		for index, member := range members {
 			enum[index] = member
 		}
-		return &reflection.Schema{Type: "string", Enum: enum}
-	case Patterned:
-		return &reflection.Schema{Type: "string", Pattern: constraint.JSONSchemaPattern()}
-	default:
+		owned = append(owned, &reflection.Schema{Enum: enum})
+	}
+	if patterned, ok := value.(Patterned); ok {
+		owned = append(owned, &reflection.Schema{Pattern: patterned.JSONSchemaPattern()})
+	}
+	if owned == nil {
 		return nil
 	}
+	return &reflection.Schema{Type: "string", AllOf: owned}
 }
 
 func qualifiedTypeName(typeOf reflect.Type) string {

@@ -44,6 +44,48 @@ func TestForDerivesStringConstraintsFromTheType(t *testing.T) {
 	}
 }
 
+type enumAndPatternFixture string
+
+func (enumAndPatternFixture) JSONSchemaEnum() []string  { return []string{"alpha", "BAD"} }
+func (enumAndPatternFixture) JSONSchemaPattern() string { return "^[a-z]+$" }
+
+func TestForKeepsFieldTagsFromWideningTypeOwnedStringConstraints(t *testing.T) {
+	type widened struct {
+		Mode enumFixture    `json:"mode" jsonschema:"enum=gamma"`
+		Name patternFixture `json:"name" jsonschema:"pattern=.*"`
+	}
+	widenedSchema, err := jsonschema.For[widened]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A field tag cannot admit a value the owning type forbids: "gamma" is outside
+	// the type enum and "NO" violates the type pattern regardless of the tags.
+	for _, document := range []string{`{"mode":"gamma","name":"ok"}`, `{"mode":"alpha","name":"NO"}`} {
+		if validationErr := widenedSchema.Validate([]byte(document)); validationErr == nil {
+			t.Errorf("%s widened a type-owned constraint through a field tag", document)
+		}
+	}
+
+	type composed struct {
+		Value enumAndPatternFixture `json:"value"`
+	}
+	combined, err := jsonschema.For[composed]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validationErr := combined.Validate([]byte(`{"value":"alpha"}`)); validationErr != nil {
+		t.Fatalf("value satisfying both enum and pattern rejected: %v", validationErr)
+	}
+	// A type owning both an enum and a pattern applies both; neither is dropped.
+	// "BAD" is enumerated but violates the pattern, so the pattern must still reject it.
+	if validationErr := combined.Validate([]byte(`{"value":"BAD"}`)); validationErr == nil {
+		t.Fatal("type-owned pattern was dropped when the type also owns an enum")
+	}
+	if validationErr := combined.Validate([]byte(`{"value":"gamma"}`)); validationErr == nil {
+		t.Fatal("type-owned enum was dropped when the type also owns a pattern")
+	}
+}
+
 func TestValidateRequiresStrictJSONAndPreservesNumbers(t *testing.T) {
 	schema, err := jsonschema.Parse([]byte(`true`))
 	if err != nil {
