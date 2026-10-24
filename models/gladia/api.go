@@ -129,12 +129,12 @@ type transcriptionResult struct {
 	Status transcriptionStatus `json:"status"`
 	Result struct {
 		Transcription struct {
-			FullTranscript string   `json:"full_transcript"`
-			Languages      []string `json:"languages,omitzero"`
-			Utterances     []any    `json:"utterances,omitzero"`
+			FullTranscript string            `json:"full_transcript"`
+			Languages      []string          `json:"languages,omitzero"`
+			Utterances     []json.RawMessage `json:"utterances,omitzero"`
 		} `json:"transcription"`
-		Translation   any `json:"translation,omitzero"`
-		Summarization any `json:"summarization,omitzero"`
+		Translation   json.RawMessage `json:"translation,omitzero"`
+		Summarization json.RawMessage `json:"summarization,omitzero"`
 	} `json:"result"`
 	ErrorCode string                     `json:"error_code,omitempty"`
 	Raw       map[string]json.RawMessage `json:"-"`

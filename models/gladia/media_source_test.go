@@ -15,6 +15,38 @@ import (
 	"github.com/Tangerg/scope/models/gladia"
 )
 
+func TestTranscriptionPreservesResponseUtteranceIntegerPrecision(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			fmt.Fprint(w, `{"id":"job-1"}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"job-1","status":"done","result":{"transcription":{"full_transcript":"ok","utterances":[{"offset":9007199254740993}]}}}`)
+	}))
+	defer server.Close()
+	opts := transcription.Options{Model: gladia.ModelSolaria1}
+	model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio, err := media.NewURI("audio/mpeg", "https://example.test/audio.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := model.Call(t.Context(), &transcription.Request{Audio: audio})
+	if err != nil {
+		t.Fatal(err)
+	}
+	utterances, found, err := result.Output.Metadata.Decode[json.RawMessage]("gladia/utterances")
+	if err != nil || !found {
+		t.Fatalf("surfaced utterances found=%v error=%v", found, err)
+	}
+	if !strings.Contains(string(utterances), "9007199254740993") || strings.Contains(string(utterances), "9007199254740992") {
+		t.Fatalf("surfaced utterances lost integer precision: %s", utterances)
+	}
+}
+
 func TestTranscriptionPreservesNativeMetadataIntegerPrecision(t *testing.T) {
 	var captured string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

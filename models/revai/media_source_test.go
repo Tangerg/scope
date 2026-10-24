@@ -34,7 +34,7 @@ func TestTranscriptionPreservesNativeIntegerPrecision(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: revai.ModelMachine}
-	if err := opts.Extensions.Set(revai.RequestExtensionKey, json.RawMessage(`{"notification_config":{"external_id":9007199254740993}}`)); err != nil {
+	if err := opts.Extensions.Set(revai.RequestExtensionKey, json.RawMessage(`{"notification_config":{"external_id":9007199254740993},"custom_vocabularies":[{"id":9007199254740993}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})

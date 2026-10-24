@@ -81,13 +81,13 @@ type jobOptions struct {
 	Speakers             map[string]json.RawMessage `json:"speakers,omitzero"`
 	DiarizationType      string                     `json:"diarization_type,omitempty"`
 	CustomVocabularyID   string                     `json:"custom_vocabulary_id,omitempty"`
-	CustomVocabularies   []any                      `json:"custom_vocabularies,omitzero"`
+	CustomVocabularies   []json.RawMessage          `json:"custom_vocabularies,omitzero"`
 	Language             string                     `json:"language,omitempty"`
 	Transcriber          string                     `json:"transcriber,omitempty"`
 	VerbatimMode         bool                       `json:"verbatim,omitzero"`
 	RushMode             bool                       `json:"rush,omitzero"`
 	TestMode             bool                       `json:"test_mode,omitzero"`
-	SegmentsToTranscribe []any                      `json:"segments_to_transcribe,omitzero"`
+	SegmentsToTranscribe []json.RawMessage          `json:"segments_to_transcribe,omitzero"`
 }
 
 type sourceConfig struct {
