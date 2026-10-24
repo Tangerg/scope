@@ -3,6 +3,7 @@ package deepgram
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -163,7 +164,7 @@ type listenResponse struct {
 			Transcript string  `json:"transcript"`
 		} `json:"utterances,omitempty"`
 	} `json:"results"`
-	Raw map[string]any `json:"-"`
+	Raw map[string]json.RawMessage `json:"-"`
 }
 
 func (a *api) listen(ctx context.Context, audio []byte, contentType string, params *listenParams) (*listenResponse, error) {

@@ -2,6 +2,8 @@ package hume_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +12,34 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/hume"
 )
+
+func TestSpeechPreservesNativeContextIntegerPrecision(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("FAKE-MP3"))
+	body := `{"generations":[{"generation_id":"g1","audio":"` + audioB64 + `","duration":1.0,"file_size":8,"snippets":[],"encoding":{"format":"mp3","sample_rate":44100}}]}`
+	var captured string
+	srv := modeltest.JSONServer(http.StatusOK, body, func(r *http.Request) {
+		if raw, err := io.ReadAll(r.Body); err == nil {
+			captured = string(raw)
+		}
+	})
+	t.Cleanup(srv.Close)
+
+	opts := speech.Options{Model: hume.ModelOctave2, Voice: "test-voice"}
+	if err := opts.Extensions.Set(hume.SpeechRequestExtensionKey, json.RawMessage(`{"context":{"external_id":9007199254740993}}`)); err != nil {
+		t.Fatal(err)
+	}
+	m, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test-key", DefaultOptions: opts, BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := speech.NewRequest("hello")
+	if _, err := m.Call(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(captured, "9007199254740993") || strings.Contains(captured, "9007199254740992") {
+		t.Fatalf("serialized request lost integer precision: %s", captured)
+	}
+}
 
 func TestSpeechModel_Call_Mock(t *testing.T) {
 	audioB64 := base64.StdEncoding.EncodeToString([]byte("FAKE-MP3"))

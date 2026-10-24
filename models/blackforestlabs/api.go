@@ -3,6 +3,7 @@ package blackforestlabs
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -145,11 +146,11 @@ const (
 
 // PollResult is the body of GET /v1/get_result?id=...
 type pollResult struct {
-	ID       string         `json:"id"`
-	Status   pollStatus     `json:"status"`
-	Progress *float64       `json:"progress,omitzero"`
-	Details  map[string]any `json:"details,omitempty"`
-	Preview  map[string]any `json:"preview,omitempty"`
+	ID       string                     `json:"id"`
+	Status   pollStatus                 `json:"status"`
+	Progress *float64                   `json:"progress,omitzero"`
+	Details  map[string]json.RawMessage `json:"details,omitempty"`
+	Preview  map[string]json.RawMessage `json:"preview,omitempty"`
 	Result   struct {
 		Sample   string `json:"sample"`
 		Prompt   string `json:"prompt"`

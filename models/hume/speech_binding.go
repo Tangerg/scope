@@ -2,6 +2,8 @@ package hume
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -109,9 +111,15 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 			return nil, errors.New("hume: speech: output_format must be mp3, wav, or pcm")
 		}
 		if body.Format == nil {
-			body.Format = map[string]any{}
+			body.Format = map[string]json.RawMessage{}
 		}
-		body.Format["type"] = effectiveOptions.OutputFormat
+		// Encode the Core-owned format type as its own JSON token so the native
+		// format subtree stays a lossless representation alongside caller values.
+		encodedFormat, err := jsonv2.Marshal(effectiveOptions.OutputFormat)
+		if err != nil {
+			return nil, fmt.Errorf("hume: speech: encode output_format: %w", err)
+		}
+		body.Format["type"] = encodedFormat
 	}
 	if body.Version == ModelOctave2 && body.Utterances[0].Voice == nil {
 		return nil, errors.New("hume: speech: Octave 2 requires Options.Voice")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -67,26 +68,26 @@ func newAPI(config apiConfig) (*api, error) {
 }
 
 type jobOptions struct {
-	SourceConfig         *sourceConfig  `json:"source_config,omitzero"`
-	Metadata             string         `json:"metadata,omitempty"`
-	CallbackURL          string         `json:"callback_url,omitempty"`
-	NotificationConfig   map[string]any `json:"notification_config,omitzero"`
-	SkipDiarization      bool           `json:"skip_diarization,omitzero"`
-	SkipPunctuation      bool           `json:"skip_punctuation,omitzero"`
-	RemoveDisfluencies   bool           `json:"remove_disfluencies,omitzero"`
-	RemoveAtmospherics   bool           `json:"remove_atmospherics,omitzero"`
-	FilterProfanity      bool           `json:"filter_profanity,omitzero"`
-	SpeakerChannelsCount int            `json:"speaker_channels_count,omitzero"`
-	Speakers             map[string]any `json:"speakers,omitzero"`
-	DiarizationType      string         `json:"diarization_type,omitempty"`
-	CustomVocabularyID   string         `json:"custom_vocabulary_id,omitempty"`
-	CustomVocabularies   []any          `json:"custom_vocabularies,omitzero"`
-	Language             string         `json:"language,omitempty"`
-	Transcriber          string         `json:"transcriber,omitempty"`
-	VerbatimMode         bool           `json:"verbatim,omitzero"`
-	RushMode             bool           `json:"rush,omitzero"`
-	TestMode             bool           `json:"test_mode,omitzero"`
-	SegmentsToTranscribe []any          `json:"segments_to_transcribe,omitzero"`
+	SourceConfig         *sourceConfig              `json:"source_config,omitzero"`
+	Metadata             string                     `json:"metadata,omitempty"`
+	CallbackURL          string                     `json:"callback_url,omitempty"`
+	NotificationConfig   map[string]json.RawMessage `json:"notification_config,omitzero"`
+	SkipDiarization      bool                       `json:"skip_diarization,omitzero"`
+	SkipPunctuation      bool                       `json:"skip_punctuation,omitzero"`
+	RemoveDisfluencies   bool                       `json:"remove_disfluencies,omitzero"`
+	RemoveAtmospherics   bool                       `json:"remove_atmospherics,omitzero"`
+	FilterProfanity      bool                       `json:"filter_profanity,omitzero"`
+	SpeakerChannelsCount int                        `json:"speaker_channels_count,omitzero"`
+	Speakers             map[string]json.RawMessage `json:"speakers,omitzero"`
+	DiarizationType      string                     `json:"diarization_type,omitempty"`
+	CustomVocabularyID   string                     `json:"custom_vocabulary_id,omitempty"`
+	CustomVocabularies   []any                      `json:"custom_vocabularies,omitzero"`
+	Language             string                     `json:"language,omitempty"`
+	Transcriber          string                     `json:"transcriber,omitempty"`
+	VerbatimMode         bool                       `json:"verbatim,omitzero"`
+	RushMode             bool                       `json:"rush,omitzero"`
+	TestMode             bool                       `json:"test_mode,omitzero"`
+	SegmentsToTranscribe []any                      `json:"segments_to_transcribe,omitzero"`
 }
 
 type sourceConfig struct {

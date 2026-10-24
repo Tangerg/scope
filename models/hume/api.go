@@ -79,16 +79,16 @@ type utterance struct {
 // SplitUtterances controls whether the response includes per-utterance
 // timing.
 type ttsRequest struct {
-	Utterances            []utterance    `json:"utterances"`
-	Context               map[string]any `json:"context,omitzero"`
-	Format                map[string]any `json:"format,omitzero"`
-	IncludeTimestampTypes []string       `json:"include_timestamp_types,omitempty"`
-	NumGenerations        int            `json:"num_generations,omitzero"`
-	SplitUtterances       *bool          `json:"split_utterances,omitzero"`
-	StripHeaders          *bool          `json:"strip_headers,omitzero"`
-	Temperature           *float64       `json:"temperature,omitzero"`
-	Version               string         `json:"version,omitempty"`
-	InstantMode           *bool          `json:"instant_mode,omitzero"`
+	Utterances            []utterance                `json:"utterances"`
+	Context               map[string]json.RawMessage `json:"context,omitzero"`
+	Format                map[string]json.RawMessage `json:"format,omitzero"`
+	IncludeTimestampTypes []string                   `json:"include_timestamp_types,omitempty"`
+	NumGenerations        int                        `json:"num_generations,omitzero"`
+	SplitUtterances       *bool                      `json:"split_utterances,omitzero"`
+	StripHeaders          *bool                      `json:"strip_headers,omitzero"`
+	Temperature           *float64                   `json:"temperature,omitzero"`
+	Version               string                     `json:"version,omitempty"`
+	InstantMode           *bool                      `json:"instant_mode,omitzero"`
 }
 
 // ttsResponse is the JSON envelope. Generations[0].Audio is the

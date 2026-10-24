@@ -3,6 +3,7 @@ package assemblyai
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -54,36 +55,36 @@ type uploadResponse struct {
 }
 
 type transcriptRequest struct {
-	AudioURL                    string         `json:"audio_url"`
-	SpeechModels                []string       `json:"speech_models"`
-	LanguageCode                string         `json:"language_code,omitempty"`
-	LanguageCodes               []string       `json:"language_codes,omitzero"`
-	LanguageDetection           *bool          `json:"language_detection,omitzero"`
-	LanguageConfidenceThreshold *float64       `json:"language_confidence_threshold,omitzero"`
-	Punctuate                   *bool          `json:"punctuate,omitzero"`
-	FormatText                  *bool          `json:"format_text,omitzero"`
-	SpeakerLabels               *bool          `json:"speaker_labels,omitzero"`
-	SpeakersExpected            *int           `json:"speakers_expected,omitzero"`
-	SentimentAnalysis           *bool          `json:"sentiment_analysis,omitzero"`
-	EntityDetection             *bool          `json:"entity_detection,omitzero"`
-	IABCategories               *bool          `json:"iab_categories,omitzero"`
-	AutoHighlights              *bool          `json:"auto_highlights,omitzero"`
-	ContentSafety               *bool          `json:"content_safety,omitzero"`
-	ContentSafetyConfidence     *int           `json:"content_safety_confidence,omitzero"`
-	Disfluencies                *bool          `json:"disfluencies,omitzero"`
-	FilterProfanity             *bool          `json:"filter_profanity,omitzero"`
-	Multichannel                *bool          `json:"multichannel,omitzero"`
-	Prompt                      string         `json:"prompt,omitempty"`
-	KeytermsPrompt              []string       `json:"keyterms_prompt,omitzero"`
-	Domain                      string         `json:"domain,omitempty"`
-	RedactPII                   *bool          `json:"redact_pii,omitzero"`
-	RedactPIIPolicies           []string       `json:"redact_pii_policies,omitzero"`
-	SpeechThreshold             *float64       `json:"speech_threshold,omitzero"`
-	AudioStartFrom              *int           `json:"audio_start_from,omitzero"`
-	AudioEndAt                  *int           `json:"audio_end_at,omitzero"`
-	WebhookURL                  string         `json:"webhook_url,omitempty"`
-	WebhookAuthHeaderName       string         `json:"webhook_auth_header_name,omitempty"`
-	SpeechUnderstanding         map[string]any `json:"speech_understanding,omitzero"`
+	AudioURL                    string                     `json:"audio_url"`
+	SpeechModels                []string                   `json:"speech_models"`
+	LanguageCode                string                     `json:"language_code,omitempty"`
+	LanguageCodes               []string                   `json:"language_codes,omitzero"`
+	LanguageDetection           *bool                      `json:"language_detection,omitzero"`
+	LanguageConfidenceThreshold *float64                   `json:"language_confidence_threshold,omitzero"`
+	Punctuate                   *bool                      `json:"punctuate,omitzero"`
+	FormatText                  *bool                      `json:"format_text,omitzero"`
+	SpeakerLabels               *bool                      `json:"speaker_labels,omitzero"`
+	SpeakersExpected            *int                       `json:"speakers_expected,omitzero"`
+	SentimentAnalysis           *bool                      `json:"sentiment_analysis,omitzero"`
+	EntityDetection             *bool                      `json:"entity_detection,omitzero"`
+	IABCategories               *bool                      `json:"iab_categories,omitzero"`
+	AutoHighlights              *bool                      `json:"auto_highlights,omitzero"`
+	ContentSafety               *bool                      `json:"content_safety,omitzero"`
+	ContentSafetyConfidence     *int                       `json:"content_safety_confidence,omitzero"`
+	Disfluencies                *bool                      `json:"disfluencies,omitzero"`
+	FilterProfanity             *bool                      `json:"filter_profanity,omitzero"`
+	Multichannel                *bool                      `json:"multichannel,omitzero"`
+	Prompt                      string                     `json:"prompt,omitempty"`
+	KeytermsPrompt              []string                   `json:"keyterms_prompt,omitzero"`
+	Domain                      string                     `json:"domain,omitempty"`
+	RedactPII                   *bool                      `json:"redact_pii,omitzero"`
+	RedactPIIPolicies           []string                   `json:"redact_pii_policies,omitzero"`
+	SpeechThreshold             *float64                   `json:"speech_threshold,omitzero"`
+	AudioStartFrom              *int                       `json:"audio_start_from,omitzero"`
+	AudioEndAt                  *int                       `json:"audio_end_at,omitzero"`
+	WebhookURL                  string                     `json:"webhook_url,omitempty"`
+	WebhookAuthHeaderName       string                     `json:"webhook_auth_header_name,omitempty"`
+	SpeechUnderstanding         map[string]json.RawMessage `json:"speech_understanding,omitzero"`
 }
 
 func (t *transcriptRequest) validate() error {
@@ -142,7 +143,7 @@ type transcriptResponse struct {
 		Confidence float64 `json:"confidence"`
 		Speaker    string  `json:"speaker"`
 	} `json:"words"`
-	Raw map[string]any `json:"-"`
+	Raw map[string]json.RawMessage `json:"-"`
 }
 
 func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error) {
