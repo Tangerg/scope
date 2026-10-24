@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	promptVariableContext    = "Context"
 	promptVariableCandidates = "Candidates"
 	promptVariableHistory    = "History"
 	promptVariableNumber     = "Number"

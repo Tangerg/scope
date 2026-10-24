@@ -93,6 +93,39 @@ func TestContextualAugmenter_RendersDocsAsContext(t *testing.T) {
 	}
 }
 
+func TestContextualAugmenterCitesOnlyEvidenceInThePrompt(t *testing.T) {
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidates rag.Candidates
+	for _, text := range []string{"alpha evidence", "beta evidence", "gamma evidence"} {
+		doc, documentErr := document.NewDocument(text, nil)
+		if documentErr != nil {
+			t.Fatal(documentErr)
+		}
+		candidates = append(candidates, candidate(doc))
+	}
+	augmentation, err := augmenter.Augment(t.Context(), mustQuery(t, "what happened?"), candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	citations := augmentation.Citations()
+	if len(citations) != len(candidates) {
+		t.Fatalf("citations=%d, want %d", len(citations), len(candidates))
+	}
+	// The augmenter owns final assembly, so a citation can never claim evidence or a
+	// marker the prompt omits.
+	for index, cited := range citations {
+		if !strings.Contains(augmentation.Text(), cited.Document.Text) {
+			t.Fatalf("citation %s claims evidence missing from the prompt: %q", rag.CitationMarker(index), cited.Document.Text)
+		}
+		if !strings.Contains(augmentation.Text(), rag.CitationMarker(index)) {
+			t.Fatalf("citation marker %s is missing from the prompt", rag.CitationMarker(index))
+		}
+	}
+}
+
 func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
 	aug, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
 	if err != nil {
@@ -194,16 +227,12 @@ func (c contextBytesCounter) CountText(_ context.Context, text string) (int, err
 }
 
 func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
-	prompt, parseErr := chatclient.ParseTemplate("{{.Context}}\n{{.Query}}")
-	if parseErr != nil {
-		t.Fatal(parseErr)
-	}
 	for _, contents := range [][]string{
 		{strings.Repeat("oversized", 100), "tiny"},
 		{"tiny", strings.Repeat("oversized", 100), "small"},
 	} {
 		augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-			MaxContextTokens: 128, TokenCounter: contextBytesCounter{}, PromptTemplate: prompt,
+			MaxContextTokens: 128, TokenCounter: contextBytesCounter{},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -230,7 +259,12 @@ func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
 		if strings.Contains(augmentation.Text(), "oversized") {
 			t.Fatalf("oversized candidate was retained: %q", augmentation.Text())
 		}
-		encoded := strings.TrimSuffix(augmentation.Text(), "\nquestion")
+		// The evidence block the augmenter wrote is the single source of citations.
+		sections := strings.Split(augmentation.Text(), "\n---------------------\n")
+		if len(sections) != 3 {
+			t.Fatalf("prompt lost its structural evidence block: %q", augmentation.Text())
+		}
+		encoded := sections[1]
 		var evidence []struct{ Citation, Content string }
 		if decodeErr := jsonv2.Unmarshal([]byte(encoded), &evidence); decodeErr != nil {
 			t.Fatal(decodeErr)
@@ -345,12 +379,6 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 	model := newFakeChatModel(t, "")
 
 	for name, build := range map[string]func() error{
-		"contextual augmenter": func() error {
-			_, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-				PromptTemplate: prompt,
-			})
-			return err
-		},
 		"multi-query expander": func() error {
 			_, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 				Model:          model,
