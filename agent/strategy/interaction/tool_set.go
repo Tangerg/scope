@@ -21,7 +21,15 @@ type ToolSetConfig struct {
 	Tools         []tool.Tool
 	DeferredTools []tool.Tool
 	// Observer receives exact Tool call facts. Nil disables observation.
-	Observer             ToolObserver
+	Observer ToolObserver
+	// DecorateDispatcher optionally wraps the Tool child's Dispatcher once, at
+	// construction, before the Deployment is frozen. It lets a Host observe or
+	// augment the full Dispatch boundary of every Tool call, which ToolObserver
+	// and per-Tool wrappers cannot reach. The wrapper must delegate to the
+	// supplied Dispatcher and preserve its Settlement, Policy, and replay
+	// semantics; recovery through SettleToolResult uses the undecorated Dispatcher.
+	// The decoration is behavior, so the Host must fold it into the digests below.
+	DecorateDispatcher   func(agent.Dispatcher) (agent.Dispatcher, error)
 	ImplementationDigest agent.Digest
 	ConfigurationDigest  agent.Digest
 }
@@ -66,8 +74,20 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if err != nil {
 		return ToolSet{}, fmt.Errorf("%w: %w", ErrInvalidToolSet, err)
 	}
+	// Live dispatch runs through the decorated Dispatcher; the ToolSet keeps the
+	// original so manifest scheduling and SettleToolResult recovery bypass it.
+	deployed := agent.Dispatcher(dispatcher)
+	if config.DecorateDispatcher != nil {
+		deployed, err = config.DecorateDispatcher(dispatcher)
+		if err != nil {
+			return ToolSet{}, fmt.Errorf("%w: decorate dispatcher: %w", ErrInvalidToolSet, err)
+		}
+		if lo.IsNil(deployed) {
+			return ToolSet{}, fmt.Errorf("%w: DecorateDispatcher returned a nil Dispatcher", ErrInvalidToolSet)
+		}
+	}
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
+		Definition: definition, Dispatcher: deployed,
 		ImplementationDigest: config.ImplementationDigest, ConfigurationDigest: config.ConfigurationDigest,
 	})
 	if err != nil {
