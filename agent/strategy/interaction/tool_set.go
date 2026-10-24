@@ -50,11 +50,11 @@ func (t ToolSet) manifest() toolManifest {
 	return t.dispatcher.manifest
 }
 
-func (c ToolSetConfig) validate() error {
+func (t ToolSetConfig) validate() error {
 	switch {
-	case len(c.Tools)+len(c.DeferredTools) == 0:
+	case len(t.Tools)+len(t.DeferredTools) == 0:
 		return fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
-	case c.Observer != nil && lo.IsNil(c.Observer):
+	case t.Observer != nil && lo.IsNil(t.Observer):
 		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidToolSet)
 	}
 	return nil

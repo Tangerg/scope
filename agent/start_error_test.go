@@ -13,12 +13,12 @@ type lostAckStartCommitter struct {
 	*MemoryTreeCommitter
 }
 
-func (c *lostAckStartCommitter) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
+func (l *lostAckStartCommitter) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
 	if checkpoint.Kind() == TreeCheckpointKindStart {
-		_ = c.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
+		_ = l.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 		return errors.New("lost acknowledgment")
 	}
-	return c.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
+	return l.MemoryTreeCommitter.CommitCheckpoint(ctx, checkpoint)
 }
 
 func TestStartReportsReconcilableIdentityWhenInitialCommitIsUnacknowledged(t *testing.T) {

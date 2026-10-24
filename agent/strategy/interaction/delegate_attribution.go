@@ -24,33 +24,33 @@ type DelegateAttribution struct {
 }
 
 // ModelCallSequence returns the one-based model call that requested the child.
-func (a DelegateAttribution) ModelCallSequence() uint64 {
-	return a.modelCallSequence
+func (d DelegateAttribution) ModelCallSequence() uint64 {
+	return d.modelCallSequence
 }
 
 // ToolCallIndex returns the zero-based ToolCall position in the model response.
-func (a DelegateAttribution) ToolCallIndex() uint32 { return a.toolCallIndex }
+func (d DelegateAttribution) ToolCallIndex() uint32 { return d.toolCallIndex }
 
-func (a DelegateAttribution) ToolCall() chat.ToolCall { return a.toolCall }
+func (d DelegateAttribution) ToolCall() chat.ToolCall { return d.toolCall }
 
 // ChildKey derives the child's key from the ToolCall that requested it.
-func (a DelegateAttribution) ChildKey() agent.ChildKey {
-	key, _ := DelegateChildKey(a.modelCallSequence, a.toolCall)
+func (d DelegateAttribution) ChildKey() agent.ChildKey {
+	key, _ := DelegateChildKey(d.modelCallSequence, d.toolCall)
 	return key
 }
 
-func (a DelegateAttribution) ProcessID() agent.ProcessID { return a.processID }
+func (d DelegateAttribution) ProcessID() agent.ProcessID { return d.processID }
 
-func (a DelegateAttribution) Reference() (ToolCallRef, bool) {
-	if !a.Valid() {
+func (d DelegateAttribution) Reference() (ToolCallRef, bool) {
+	if !d.Valid() {
 		return ToolCallRef{}, false
 	}
-	return ToolCallRef{processID: a.parentProcessID, modelCallSequence: a.modelCallSequence, toolCallIndex: a.toolCallIndex}, true
+	return ToolCallRef{processID: d.parentProcessID, modelCallSequence: d.modelCallSequence, toolCallIndex: d.toolCallIndex}, true
 }
 
-func (a DelegateAttribution) Valid() bool {
-	return a.modelCallSequence != 0 && a.toolCall.Validate() == nil &&
-		a.processID.Valid() && a.parentProcessID.Valid()
+func (d DelegateAttribution) Valid() bool {
+	return d.modelCallSequence != 0 && d.toolCall.Validate() == nil &&
+		d.processID.Valid() && d.parentProcessID.Valid()
 }
 
 // DelegateAttributions interprets only Interaction-owned committed state and

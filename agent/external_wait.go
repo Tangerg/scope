@@ -46,19 +46,19 @@ func NewExternalWaitSpec(config ExternalWaitSpecConfig) (ExternalWaitSpec, error
 	}, nil
 }
 
-func (s ExternalWaitSpec) Key() WaitKey { return s.key }
+func (e ExternalWaitSpec) Key() WaitKey { return e.key }
 
-func (s ExternalWaitSpec) Valid() bool { return s.key.Valid() }
+func (e ExternalWaitSpec) Valid() bool { return e.key.Valid() }
 
 // admits reports whether signal satisfies this wait's acceptance contract. A
 // failure is an admission rejection: the wait stays open for a later answer.
-func (s ExternalWaitSpec) admits(signal Signal) error {
-	if s.answerSchema.Valid() {
-		if err := s.answerSchema.Validate(signal.payload); err != nil {
+func (e ExternalWaitSpec) admits(signal Signal) error {
+	if e.answerSchema.Valid() {
+		if err := e.answerSchema.Validate(signal.payload); err != nil {
 			return fmt.Errorf("%w: answer schema: %w", ErrSignalRejected, err)
 		}
 	}
-	if s.answerIsOutput {
+	if e.answerIsOutput {
 		if _, err := EncodePayload(signal); err != nil {
 			return fmt.Errorf("%w: answer is not deliverable: %w", ErrSignalRejected, err)
 		}
@@ -72,18 +72,18 @@ type externalWaitSpecWire struct {
 	AnswerIsOutput bool            `json:"answer_is_output,omitzero"`
 }
 
-func (s ExternalWaitSpec) wire() externalWaitSpecWire {
-	wire := externalWaitSpecWire{Key: s.key, AnswerIsOutput: s.answerIsOutput}
-	if s.answerSchema.Valid() {
-		wire.AnswerSchema = s.answerSchema.JSON()
+func (e ExternalWaitSpec) wire() externalWaitSpecWire {
+	wire := externalWaitSpecWire{Key: e.key, AnswerIsOutput: e.answerIsOutput}
+	if e.answerSchema.Valid() {
+		wire.AnswerSchema = e.answerSchema.JSON()
 	}
 	return wire
 }
 
-func (w externalWaitSpecWire) value() (ExternalWaitSpec, error) {
-	config := ExternalWaitSpecConfig{Key: w.Key, AnswerIsOutput: w.AnswerIsOutput}
-	if len(w.AnswerSchema) > 0 {
-		schema, err := jsonschema.Parse(w.AnswerSchema)
+func (e externalWaitSpecWire) value() (ExternalWaitSpec, error) {
+	config := ExternalWaitSpecConfig{Key: e.Key, AnswerIsOutput: e.AnswerIsOutput}
+	if len(e.AnswerSchema) > 0 {
+		schema, err := jsonschema.Parse(e.AnswerSchema)
 		if err != nil {
 			return ExternalWaitSpec{}, fmt.Errorf("%w: answer schema: %w", ErrInvalidExternalWait, err)
 		}

@@ -29,8 +29,8 @@ func (c countingToolDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
 
 type probeThenStopModel struct{ calls atomic.Int32 }
 
-func (m *probeThenStopModel) Call(context.Context, *chat.Request) (*chat.Response, error) {
-	if m.calls.Add(1) == 1 {
+func (p *probeThenStopModel) Call(context.Context, *chat.Request) (*chat.Response, error) {
+	if p.calls.Add(1) == 1 {
 		return toolBatchResponse(chat.ToolCall{ID: "call_probe", Name: "probe", Arguments: "{}"}), nil
 	}
 	return textResponse("done"), nil

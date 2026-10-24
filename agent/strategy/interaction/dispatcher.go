@@ -59,17 +59,17 @@ func (d *Dispatcher) ObservationFailures() ObservationFailures {
 	return d.observationFailures.snapshot()
 }
 
-func (c DispatcherConfig) validate() error {
+func (d DispatcherConfig) validate() error {
 	switch {
-	case (c.Model == nil) == (c.Streamer == nil):
+	case (d.Model == nil) == (d.Streamer == nil):
 		return fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
-	case lo.IsNil(c.Model) && lo.IsNil(c.Streamer):
+	case lo.IsNil(d.Model) && lo.IsNil(d.Streamer):
 		return fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
-	case c.Observer != nil && lo.IsNil(c.Observer):
+	case d.Observer != nil && lo.IsNil(d.Observer):
 		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
-	case c.ModelContextReducer != nil && lo.IsNil(c.ModelContextReducer):
+	case d.ModelContextReducer != nil && lo.IsNil(d.ModelContextReducer):
 		return fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
-	case c.MaxResponseBytes < 0 || c.MaxResponseBytes > agent.MaxPayloadBytes:
+	case d.MaxResponseBytes < 0 || d.MaxResponseBytes > agent.MaxPayloadBytes:
 		return fmt.Errorf("%w: MaxResponseBytes must be between 0 and %d", ErrInvalidDispatcherConfig, agent.MaxPayloadBytes)
 	}
 	return nil
