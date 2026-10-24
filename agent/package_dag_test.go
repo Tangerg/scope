@@ -111,7 +111,8 @@ func internalPackagePath(importPath string) (string, bool) {
 }
 
 // The guard follows ownership roles so a new private protocol package does not
-// require an inventory exception. Concrete Strategies compose through Agent.
+// require an inventory exception. Strategies never import one another; the role
+// composition tier is the one sanctioned exception that composes them directly.
 func allowedAgentDependency(source, dependency string) bool {
 	// Shared internal codecs and diagnostics are below the kernel and Strategies;
 	// conformance instrumentation instead depends on the public test contracts.
@@ -135,6 +136,14 @@ func allowedAgentDependency(source, dependency string) bool {
 	}
 	if isPackageOrChild(source, "strategy/internal") {
 		return isPackageOrChild(dependency, "strategy/internal")
+	}
+	if isPackageOrChild(source, "strategy/role") {
+		// role is the sanctioned composition tier: it may compose the specific
+		// strategies it adapts, unlike the strategies, which never import one another.
+		return isPackageOrChild(dependency, "strategy/role") ||
+			isPackageOrChild(dependency, "strategy/interaction") ||
+			isPackageOrChild(dependency, "strategy/workflow") ||
+			isPackageOrChild(dependency, "strategy/internal")
 	}
 	if strings.HasPrefix(source, "strategy/") {
 		owner, _, _ := strings.Cut(strings.TrimPrefix(source, "strategy/"), "/")
@@ -163,6 +172,10 @@ func TestAgentDependencyOwnershipRules(t *testing.T) {
 		{"strategy/internal/newprotocol", ".", true},
 		{"strategy/internal/newprotocol", "strategy/workflow", false},
 		{"strategy/workflow", "strategy/planning", false},
+		{"strategy/role", "strategy/interaction", true},
+		{"strategy/role", "strategy/workflow", true},
+		{"strategy/role", ".", true},
+		{"strategy/role", "strategy/planning", false},
 		{"strategy/planning/goap", "strategy/planning", true},
 		{"strategy/interaction", "agenttest", false},
 		{"messaging", "strategy/collaboration", false},
