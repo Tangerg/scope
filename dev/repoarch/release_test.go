@@ -101,9 +101,21 @@ func TestReleasePublishesNotesFromVerifiedModuleTags(t *testing.T) {
 				t.Fatalf("notes must derive each module's own tagged commit:\n%s", data)
 			}
 			calls := fixture.calls(t)
-			if !strings.Contains(calls, "staged-cache "+filepath.Join(fixture.root, "cache")+"\n") ||
+			if strings.Contains(calls, "staged-cache "+filepath.Join(fixture.root, "cache")+"\n") ||
 				strings.Contains(calls, "cleanup-cache "+filepath.Join(fixture.root, "cache")+"\n") {
-				t.Fatalf("staging must reuse the borrowed Go cache without cleaning it:\n%s", calls)
+				t.Fatalf("release must not use or clean the borrowed module cache:\n%s", calls)
+			}
+			var staged bool
+			for line := range strings.SplitSeq(calls, "\n") {
+				if path, found := strings.CutPrefix(line, "staged-cache "); found {
+					if !strings.HasPrefix(path, "/tmp/scope-release.") || !strings.HasSuffix(path, "/staged-modcache") {
+						t.Fatalf("staging did not use the release's isolated module cache: %s", path)
+					}
+					staged = true
+				}
+			}
+			if !staged {
+				t.Fatal("release did not verify its tagged source archives")
 			}
 			if cacheMarker, readErr := os.ReadFile(filepath.Join(fixture.root, "cache", "borrowed")); readErr != nil || string(cacheMarker) != "preserve" {
 				t.Fatalf("borrowed module cache was modified: %v", readErr)

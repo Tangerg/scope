@@ -20,8 +20,10 @@ cleanup() {
   if [[ -n "${release_temporary_dir:-}" &&
     "$release_temporary_dir" == /tmp/scope-release.* &&
     -d "$release_temporary_dir" ]]; then
-    local cache=$release_temporary_dir/published-modcache
-    [[ ! -d "$cache" ]] || env GOWORK=off GOMODCACHE="$cache" go clean -modcache
+    local cache
+    for cache in "$release_temporary_dir/staged-modcache" "$release_temporary_dir/published-modcache"; do
+      [[ ! -d "$cache" ]] || env GOWORK=off GOMODCACHE="$cache" go clean -modcache
+    done
     rm -rf -- "$release_temporary_dir"
   fi
 }
@@ -79,7 +81,7 @@ release_module_table=$release_temporary_dir/modules.tsv
 release_edge_table=$release_temporary_dir/edges.tsv
 release_plan=$release_temporary_dir/plan.tsv
 release_remote_tags=$release_temporary_dir/remote-tags.tsv
-release_existing_modcache=$(go env GOMODCACHE)
+release_staged_modcache=$release_temporary_dir/staged-modcache
 release_existing_proxy=$(go env GOPROXY)
 release_published_modcache=$release_temporary_dir/published-modcache
 : >"$release_edge_table"
@@ -204,7 +206,7 @@ remote_tag_commit() {
 release_env() {
   env \
     GOWORK="$release_root/go.work" \
-    GOMODCACHE="$release_existing_modcache" \
+    GOMODCACHE="$release_staged_modcache" \
     GONOPROXY=github.com/Tangerg/scope \
     GONOSUMDB=github.com/Tangerg/scope \
     GOPROXY="$release_existing_proxy" \
