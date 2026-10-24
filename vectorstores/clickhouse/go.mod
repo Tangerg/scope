@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/Tangerg/scope/core v0.55.0
+	github.com/Tangerg/scope/core v0.56.0
 	github.com/samber/lo v1.53.0
 )
 
