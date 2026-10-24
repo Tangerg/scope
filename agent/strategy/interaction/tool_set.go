@@ -50,12 +50,19 @@ func (t ToolSet) manifest() toolManifest {
 	return t.dispatcher.manifest
 }
 
-func NewToolSet(config ToolSetConfig) (ToolSet, error) {
-	if len(config.Tools)+len(config.DeferredTools) == 0 {
-		return ToolSet{}, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
+func (c ToolSetConfig) validate() error {
+	switch {
+	case len(c.Tools)+len(c.DeferredTools) == 0:
+		return fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
+	case c.Observer != nil && lo.IsNil(c.Observer):
+		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidToolSet)
 	}
-	if config.Observer != nil && lo.IsNil(config.Observer) {
-		return ToolSet{}, fmt.Errorf("%w: Observer is typed nil", ErrInvalidToolSet)
+	return nil
+}
+
+func NewToolSet(config ToolSetConfig) (ToolSet, error) {
+	if err := config.validate(); err != nil {
+		return ToolSet{}, err
 	}
 	dispatcher := newToolDispatcher(config.Observer)
 	for index, executable := range config.Tools {

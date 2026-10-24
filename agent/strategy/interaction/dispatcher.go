@@ -59,24 +59,28 @@ func (d *Dispatcher) ObservationFailures() ObservationFailures {
 	return d.observationFailures.snapshot()
 }
 
+func (c DispatcherConfig) validate() error {
+	switch {
+	case (c.Model == nil) == (c.Streamer == nil):
+		return fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
+	case lo.IsNil(c.Model) && lo.IsNil(c.Streamer):
+		return fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
+	case c.Observer != nil && lo.IsNil(c.Observer):
+		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
+	case c.ModelContextReducer != nil && lo.IsNil(c.ModelContextReducer):
+		return fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
+	case c.MaxResponseBytes < 0 || c.MaxResponseBytes > agent.MaxPayloadBytes:
+		return fmt.Errorf("%w: MaxResponseBytes must be between 0 and %d", ErrInvalidDispatcherConfig, agent.MaxPayloadBytes)
+	}
+	return nil
+}
+
 func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
 	if !definition.valid() {
 		return nil, fmt.Errorf("%w: Definition is required", ErrInvalidDispatcherConfig)
 	}
-	if (config.Model == nil) == (config.Streamer == nil) {
-		return nil, fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
-	}
-	if lo.IsNil(config.Model) && lo.IsNil(config.Streamer) {
-		return nil, fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
-	}
-	if config.Observer != nil && lo.IsNil(config.Observer) {
-		return nil, fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
-	}
-	if config.ModelContextReducer != nil && lo.IsNil(config.ModelContextReducer) {
-		return nil, fmt.Errorf("%w: ModelContextReducer is typed nil", ErrInvalidDispatcherConfig)
-	}
-	if config.MaxResponseBytes < 0 || config.MaxResponseBytes > agent.MaxPayloadBytes {
-		return nil, fmt.Errorf("%w: MaxResponseBytes must be between 0 and %d", ErrInvalidDispatcherConfig, agent.MaxPayloadBytes)
+	if err := config.validate(); err != nil {
+		return nil, err
 	}
 	limit := cmp.Or(config.MaxResponseBytes, agent.MaxPayloadBytes)
 	dispatcher := &Dispatcher{
