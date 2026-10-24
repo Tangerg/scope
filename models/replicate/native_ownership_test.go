@@ -1,6 +1,8 @@
 package replicate_test
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,34 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/replicate"
 )
+
+func TestImagePreservesNativeInputIntegerPrecision(t *testing.T) {
+	var captured string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			captured = string(body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","status":"failed","error":"stop"}`))
+	}))
+	defer server.Close()
+
+	opts := image.Options{Model: "owner/model"}
+	if err := opts.Extensions.Set(replicate.ImageRequestExtensionKey, json.RawMessage(`{"input":{"secondary_seed":9007199254740993}}`)); err != nil {
+		t.Fatal(err)
+	}
+	schema := replicate.ImageInputSchema{PromptKey: "prompt", OutputKind: replicate.FileOutputURI}
+	model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Call fails on the stubbed prediction; only the serialized request matters.
+	_, _ = model.Call(t.Context(), &image.Request{Prompt: "hello"})
+	if !strings.Contains(captured, "9007199254740993") || strings.Contains(captured, "9007199254740992") {
+		t.Fatalf("serialized request lost integer precision: %s", captured)
+	}
+}
 
 func TestImageRejectsBoundNativeInputBeforeIO(t *testing.T) {
 	for _, field := range []string{"prompt", "negative", "width", "height", "seed", "format"} {

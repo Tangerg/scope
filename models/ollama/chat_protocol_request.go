@@ -61,36 +61,54 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 		return nil, err
 	}
 	if apiReq.Options == nil {
-		apiReq.Options = make(map[string]any)
+		apiReq.Options = make(map[string]json.RawMessage)
+	}
+	// Core-owned options are merged into the same open map that carries the caller's
+	// native extension values. Encoding each to its own JSON token keeps the map a
+	// lossless representation, so an extension integer never rounds through float64.
+	var optionErr error
+	setOption := func(key string, value any) {
+		if optionErr != nil {
+			return
+		}
+		encoded, err := jsonv2.Marshal(value)
+		if err != nil {
+			optionErr = fmt.Errorf("ollama: encode options.%s: %w", key, err)
+			return
+		}
+		apiReq.Options[key] = encoded
 	}
 	if options.FrequencyPenalty != nil {
-		apiReq.Options["frequency_penalty"] = float32(*options.FrequencyPenalty)
+		setOption("frequency_penalty", float32(*options.FrequencyPenalty))
 	}
 	if options.MaxOutputTokens != nil {
 		value, err := protocolInt("max_tokens", *options.MaxOutputTokens)
 		if err != nil {
 			return nil, err
 		}
-		apiReq.Options["num_predict"] = value
+		setOption("num_predict", value)
 	}
 	if options.PresencePenalty != nil {
-		apiReq.Options["presence_penalty"] = float32(*options.PresencePenalty)
+		setOption("presence_penalty", float32(*options.PresencePenalty))
 	}
 	if len(options.Stop) > 0 {
-		apiReq.Options["stop"] = slices.Clone(options.Stop)
+		setOption("stop", slices.Clone(options.Stop))
 	}
 	if options.Temperature != nil {
-		apiReq.Options["temperature"] = float32(*options.Temperature)
+		setOption("temperature", float32(*options.Temperature))
 	}
 	if options.TopK != nil {
 		value, err := protocolInt("top_k", *options.TopK)
 		if err != nil {
 			return nil, err
 		}
-		apiReq.Options["top_k"] = value
+		setOption("top_k", value)
 	}
 	if options.TopP != nil {
-		apiReq.Options["top_p"] = float32(*options.TopP)
+		setOption("top_p", float32(*options.TopP))
+	}
+	if optionErr != nil {
+		return nil, optionErr
 	}
 	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > 20 {
 		return nil, errors.New("ollama: top_logprobs must be between 0 and 20")

@@ -3,6 +3,7 @@ package replicate
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -201,9 +202,24 @@ func (a *api) validateOutputURL(value *url.URL) error {
 // prediction endpoints. createPrediction derives version exclusively from the
 // model id so endpoint routing and the immutable version cannot disagree.
 type predictionRequest struct {
-	Input               map[string]any `json:"input"`
-	Webhook             string         `json:"webhook,omitempty"`
-	WebhookEventsFilter []string       `json:"webhook_events_filter,omitzero"`
+	Input               map[string]json.RawMessage `json:"input"`
+	Webhook             string                     `json:"webhook,omitempty"`
+	WebhookEventsFilter []string                   `json:"webhook_events_filter,omitzero"`
+}
+
+// setInput encodes a Core-owned value as its own JSON token and stores it in the
+// native input map. Keeping each value as raw JSON makes the open input subtree a
+// lossless representation, so a large integer never rounds through float64.
+func (p *predictionRequest) setInput(key string, value any) error {
+	raw, err := jsonv2.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("replicate: encode input %q: %w", key, err)
+	}
+	if p.Input == nil {
+		p.Input = map[string]json.RawMessage{}
+	}
+	p.Input[key] = raw
+	return nil
 }
 
 func (p predictionRequest) validate() error {
@@ -238,10 +254,10 @@ func (p predictionRequest) validate() error {
 }
 
 type predictionRequestBody struct {
-	Input               map[string]any `json:"input"`
-	Version             string         `json:"version,omitempty"`
-	Webhook             string         `json:"webhook,omitempty"`
-	WebhookEventsFilter []string       `json:"webhook_events_filter,omitzero"`
+	Input               map[string]json.RawMessage `json:"input"`
+	Version             string                     `json:"version,omitempty"`
+	Webhook             string                     `json:"webhook,omitempty"`
+	WebhookEventsFilter []string                   `json:"webhook_events_filter,omitzero"`
 }
 
 // predictionStatus enumerates the six statuses Replicate's prediction

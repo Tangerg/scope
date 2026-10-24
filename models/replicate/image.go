@@ -283,28 +283,34 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 			}
 		}
 	}
-	if apiReq.Input == nil {
-		apiReq.Input = map[string]any{}
+	var inputErr error
+	setInput := func(key string, value any) {
+		if inputErr == nil {
+			inputErr = apiReq.setInput(key, value)
+		}
 	}
-	apiReq.Input[i.inputSchema.PromptKey] = req.Prompt
+	setInput(i.inputSchema.PromptKey, req.Prompt)
 	if effectiveOptions.NegativePrompt != "" {
-		apiReq.Input[i.inputSchema.NegativePromptKey] = effectiveOptions.NegativePrompt
+		setInput(i.inputSchema.NegativePromptKey, effectiveOptions.NegativePrompt)
 	}
 	if effectiveOptions.Width != nil {
-		apiReq.Input[i.inputSchema.WidthKey] = *effectiveOptions.Width
+		setInput(i.inputSchema.WidthKey, *effectiveOptions.Width)
 	}
 	if effectiveOptions.Height != nil {
-		apiReq.Input[i.inputSchema.HeightKey] = *effectiveOptions.Height
+		setInput(i.inputSchema.HeightKey, *effectiveOptions.Height)
 	}
 	if effectiveOptions.Seed != nil {
-		apiReq.Input[i.inputSchema.SeedKey] = *effectiveOptions.Seed
+		setInput(i.inputSchema.SeedKey, *effectiveOptions.Seed)
 	}
 	if effectiveOptions.OutputFormat != "" {
 		value, supported := i.inputSchema.OutputFormats[effectiveOptions.OutputFormat]
 		if !supported {
 			return image.Options{}, nil, fmt.Errorf("replicate: image: model %q does not support output format %q", i.model, effectiveOptions.OutputFormat)
 		}
-		apiReq.Input[i.inputSchema.OutputFormatKey] = value
+		setInput(i.inputSchema.OutputFormatKey, value)
+	}
+	if inputErr != nil {
+		return image.Options{}, nil, inputErr
 	}
 	return effectiveOptions, apiReq, nil
 }

@@ -155,19 +155,19 @@ type nativeToolFunction struct {
 }
 
 type nativeChatRequest struct {
-	Model           string            `json:"model"`
-	Messages        []nativeMessage   `json:"messages"`
-	Stream          *bool             `json:"stream,omitzero"`
-	Format          json.RawMessage   `json:"format,omitzero"`
-	KeepAlive       *nativeDuration   `json:"keep_alive,omitzero"`
-	Tools           nativeTools       `json:"tools,omitempty"`
-	Options         map[string]any    `json:"options"`
-	Think           *nativeThinkValue `json:"think,omitzero"`
-	Truncate        *bool             `json:"truncate,omitzero"`
-	Shift           *bool             `json:"shift,omitzero"`
-	DebugRenderOnly bool              `json:"_debug_render_only,omitzero"`
-	Logprobs        bool              `json:"logprobs,omitzero"`
-	TopLogprobs     int               `json:"top_logprobs,omitzero"`
+	Model           string                     `json:"model"`
+	Messages        []nativeMessage            `json:"messages"`
+	Stream          *bool                      `json:"stream,omitzero"`
+	Format          json.RawMessage            `json:"format,omitzero"`
+	KeepAlive       *nativeDuration            `json:"keep_alive,omitzero"`
+	Tools           nativeTools                `json:"tools,omitempty"`
+	Options         map[string]json.RawMessage `json:"options"`
+	Think           *nativeThinkValue          `json:"think,omitzero"`
+	Truncate        *bool                      `json:"truncate,omitzero"`
+	Shift           *bool                      `json:"shift,omitzero"`
+	DebugRenderOnly bool                       `json:"_debug_render_only,omitzero"`
+	Logprobs        bool                       `json:"logprobs,omitzero"`
+	TopLogprobs     int                        `json:"top_logprobs,omitzero"`
 }
 
 type nativeMetrics struct {
@@ -251,12 +251,12 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 }
 
 type nativeEmbedRequest struct {
-	Model      string          `json:"model"`
-	Input      any             `json:"input"`
-	KeepAlive  *nativeDuration `json:"keep_alive,omitzero"`
-	Truncate   *bool           `json:"truncate,omitzero"`
-	Dimensions int             `json:"dimensions,omitzero"`
-	Options    map[string]any  `json:"options"`
+	Model      string                     `json:"model"`
+	Input      any                        `json:"input"`
+	KeepAlive  *nativeDuration            `json:"keep_alive,omitzero"`
+	Truncate   *bool                      `json:"truncate,omitzero"`
+	Dimensions int                        `json:"dimensions,omitzero"`
+	Options    map[string]json.RawMessage `json:"options"`
 }
 
 type nativeEmbedResponse struct {

@@ -3,6 +3,7 @@ package prodia
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -51,8 +52,23 @@ func newAPI(config apiConfig) (*api, error) {
 // — typical values: "inference.flux.dev.txt2img.v1", "inference.flux.schnell.txt2img.v1",
 // "inference.sd1.5.txt2img.v1", "inference.sdxl.txt2img.v1".
 type jobRequest struct {
-	Type   string         `json:"type"`
-	Config map[string]any `json:"config"`
+	Type   string                     `json:"type"`
+	Config map[string]json.RawMessage `json:"config"`
+}
+
+// setConfig encodes a Core-owned value as its own JSON token and stores it in the
+// native config map. Keeping each value as raw JSON makes the open config subtree a
+// lossless representation, so a large integer never rounds through float64.
+func (j *jobRequest) setConfig(field string, value any) error {
+	raw, err := jsonv2.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("prodia: encode config %q: %w", field, err)
+	}
+	if j.Config == nil {
+		j.Config = map[string]json.RawMessage{}
+	}
+	j.Config[field] = raw
+	return nil
 }
 
 // job submits a job and returns the raw image bytes when status is 200.

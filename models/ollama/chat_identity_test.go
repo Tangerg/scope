@@ -1,11 +1,26 @@
 package ollama
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
+
+func TestChatPreservesExtensionIntegerPrecision(t *testing.T) {
+	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hi"))}}
+	if err := request.Options.Extensions.Set(RequestExtensionKey, json.RawMessage(`{"options":{"seed":9007199254740993}}`)); err != nil {
+		t.Fatal(err)
+	}
+	apiReq, err := mapProtocolRequest(corechat.Options{Model: "qwen3:8b"}, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(apiReq.Options["seed"]); got != "9007199254740993" {
+		t.Fatalf("seed = %s; extension integer beyond float64 precision was corrupted", got)
+	}
+}
 
 func TestToolReplayPreservesCurrentCoreIdentity(t *testing.T) {
 	for _, nativeID := range []string{"", "ollama/generated/native", "native-call"} {

@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/sse"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 // Namespacing preserves provider-specific data without promoting it into the
@@ -33,11 +34,13 @@ const (
 // ChatRequestOptions exposes Mistral-specific Chat Completions parameters that
 // have no provider-neutral Core equivalent. Store it under RequestExtensionKey.
 type ChatRequestOptions struct {
-	RandomSeed     *int64            `json:"random_seed,omitzero"`
-	SafePrompt     *bool             `json:"safe_prompt,omitzero"`
-	PromptCacheKey string            `json:"prompt_cache_key,omitempty"`
-	Metadata       map[string]any    `json:"metadata,omitempty"`
-	Guardrails     []json.RawMessage `json:"guardrails,omitempty"`
+	RandomSeed     *int64 `json:"random_seed,omitzero"`
+	SafePrompt     *bool  `json:"safe_prompt,omitzero"`
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	// Metadata is an open JSON subtree; metadata.Map keeps each value as raw JSON so
+	// an identifier beyond float64 precision survives the round trip to the wire.
+	Metadata   metadata.Map      `json:"metadata,omitempty"`
+	Guardrails []json.RawMessage `json:"guardrails,omitempty"`
 }
 
 func (c ChatRequestOptions) Validate() error {

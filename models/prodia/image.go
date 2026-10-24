@@ -81,26 +81,32 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if !strings.Contains(apiReq.Type, ".txt2img.") {
 		return nil, errors.New("prodia: image model requires a text-to-image job type containing .txt2img")
 	}
-	if apiReq.Config == nil {
-		apiReq.Config = map[string]any{}
-	}
 	for _, field := range []string{"prompt", "negative_prompt", "width", "height", "seed"} {
 		if _, exists := apiReq.Config[field]; exists {
 			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
 		}
 	}
-	apiReq.Config["prompt"] = req.Prompt
+	var configErr error
+	setConfig := func(field string, value any) {
+		if configErr == nil {
+			configErr = apiReq.setConfig(field, value)
+		}
+	}
+	setConfig("prompt", req.Prompt)
 	if effectiveOptions.NegativePrompt != "" {
-		apiReq.Config["negative_prompt"] = effectiveOptions.NegativePrompt
+		setConfig("negative_prompt", effectiveOptions.NegativePrompt)
 	}
 	if effectiveOptions.Width != nil {
-		apiReq.Config["width"] = *effectiveOptions.Width
+		setConfig("width", *effectiveOptions.Width)
 	}
 	if effectiveOptions.Height != nil {
-		apiReq.Config["height"] = *effectiveOptions.Height
+		setConfig("height", *effectiveOptions.Height)
 	}
 	if effectiveOptions.Seed != nil {
-		apiReq.Config["seed"] = *effectiveOptions.Seed
+		setConfig("seed", *effectiveOptions.Seed)
+	}
+	if configErr != nil {
+		return nil, configErr
 	}
 
 	accept := effectiveOptions.OutputFormat

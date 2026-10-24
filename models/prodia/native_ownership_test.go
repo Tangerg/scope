@@ -1,6 +1,8 @@
 package prodia_test
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,36 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/prodia"
 )
+
+func TestImagePreservesNativeConfigIntegerPrecision(t *testing.T) {
+	var captured string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		captured = string(body)
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("PNG"))
+	}))
+	defer server.Close()
+
+	options := image.Options{Model: "inference.flux.dev.txt2img.v1"}
+	if err := options.Extensions.Set(prodia.ImageRequestExtensionKey, json.RawMessage(`{"config":{"clip_skip_seed":9007199254740993}}`)); err != nil {
+		t.Fatal(err)
+	}
+	model, err := prodia.NewImageModel(t.Context(), prodia.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := image.NewRequest("hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.Call(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(captured, "9007199254740993") || strings.Contains(captured, "9007199254740992") {
+		t.Fatalf("serialized request lost integer precision: %s", captured)
+	}
+}
 
 func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 	for _, field := range []string{"type", "config.prompt", "config.negative_prompt", "config.width", "config.height", "config.seed"} {

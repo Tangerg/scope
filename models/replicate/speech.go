@@ -182,16 +182,21 @@ func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *pred
 			}
 		}
 	}
-	if apiReq.Input == nil {
-		apiReq.Input = map[string]any{}
+	var inputErr error
+	setInput := func(key string, value any) {
+		if inputErr == nil {
+			inputErr = apiReq.setInput(key, value)
+		}
 	}
-
-	apiReq.Input[s.inputSchema.TextKey] = req.Text
+	setInput(s.inputSchema.TextKey, req.Text)
 	if effectiveOptions.Voice != "" {
-		apiReq.Input[s.inputSchema.VoiceKey] = effectiveOptions.Voice
+		setInput(s.inputSchema.VoiceKey, effectiveOptions.Voice)
 	}
 	if effectiveOptions.Speed > 0 {
-		apiReq.Input[s.inputSchema.SpeedKey] = effectiveOptions.Speed
+		setInput(s.inputSchema.SpeedKey, effectiveOptions.Speed)
+	}
+	if inputErr != nil {
+		return speech.Options{}, nil, inputErr
 	}
 	if s.inputSchema.VoiceRequired && effectiveOptions.Voice == "" {
 		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model %q requires Options.Voice", s.model)

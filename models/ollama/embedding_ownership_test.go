@@ -39,7 +39,22 @@ func TestEmbeddingKeepsProviderOnlyOptions(t *testing.T) {
 	if inputs, ok := params.Input.([]string); !ok || len(inputs) != 1 || inputs[0] != "hello" {
 		t.Fatalf("embedding input = %#v", params.Input)
 	}
-	if params.Model != "embedding-model" || params.Dimensions != 8 || params.Truncate == nil || *params.Truncate || params.KeepAlive == nil || params.Options["num_ctx"] != float64(4096) {
+	if params.Model != "embedding-model" || params.Dimensions != 8 || params.Truncate == nil || *params.Truncate || params.KeepAlive == nil || string(params.Options["num_ctx"]) != "4096" {
 		t.Fatalf("embedding wire request = %#v", params)
+	}
+}
+
+func TestEmbeddingPreservesExtensionIntegerPrecision(t *testing.T) {
+	request := &embedding.Request{Texts: []string{"hello"}, Options: embedding.Options{Model: "embedding-model"}}
+	if err := request.Options.Extensions.Set(EmbeddingRequestExtensionKey, json.RawMessage(`{"options":{"num_ctx":9007199254740993}}`)); err != nil {
+		t.Fatal(err)
+	}
+	model := &EmbeddingModel{defaultOptions: embedding.Options{Model: "embedding-model"}}
+	params, err := model.buildAPIRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(params.Options["num_ctx"]); got != "9007199254740993" {
+		t.Fatalf("num_ctx = %s; extension integer beyond float64 precision was corrupted", got)
 	}
 }
