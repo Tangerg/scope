@@ -94,11 +94,12 @@ func (s signalRecord) wire() signalRecordWire {
 	return wire
 }
 
-// waitRecord owns one wait's lifecycle. A child wait also owns the spec the
-// Engine evaluates against tree membership; its key is the spec's key.
+// waitRecord owns one wait's lifecycle. Each wait owns the spec its answers are
+// evaluated against: a child wait against tree membership, an external wait
+// against its Host-answer acceptance contract. Its key is the spec's key.
 type waitRecord struct {
-	externalKey WaitKey
-	child       *ChildWaitSpec
+	external *ExternalWaitSpec
+	child    *ChildWaitSpec
 	// answer is the index of the record that answered the wait. The mailbox
 	// cursor owns consumption, so the wait closes when the cursor passes it.
 	answer *uint64
@@ -108,11 +109,18 @@ func newChildWaitRecord(spec ChildWaitSpec) waitRecord {
 	return waitRecord{child: new(spec.clone())}
 }
 
+func newExternalWaitRecord(spec ExternalWaitSpec) waitRecord {
+	return waitRecord{external: &spec}
+}
+
 func (w waitRecord) key() WaitKey {
 	if w.child != nil {
 		return w.child.Key
 	}
-	return w.externalKey
+	if w.external != nil {
+		return w.external.key
+	}
+	return WaitKey{}
 }
 
 func (w waitRecord) kind() WaitKind {
@@ -131,7 +139,7 @@ func (w waitRecord) openingWire() *waitOpeningWire {
 	if w.child != nil {
 		return &waitOpeningWire{Spec: new(w.child.wire())}
 	}
-	return &waitOpeningWire{Key: new(w.externalKey)}
+	return &waitOpeningWire{External: new(w.external.wire())}
 }
 
 // signalMailbox has reference semantics. candidate must clone it before any
@@ -223,11 +231,14 @@ func (s *signalMailbox) acceptRecord(record signalRecord) {
 
 // openWait opens a Host-answered wait; its opening Signal only acknowledges
 // the minted WaitID.
-func (s *signalMailbox) openWait(key WaitKey, signal Signal) error {
+func (s *signalMailbox) openWait(spec ExternalWaitSpec, signal Signal) error {
+	if !spec.Valid() {
+		return fmt.Errorf("%w: %w", errWaitState, ErrInvalidExternalWait)
+	}
 	if !bytes.Equal(waitOpenedPayload(), signal.payload) {
 		return fmt.Errorf("%w: wait opening Signal must be its acknowledgement", errWaitState)
 	}
-	return s.openSettledWait(waitRecord{externalKey: key}, signal)
+	return s.openSettledWait(newExternalWaitRecord(spec), signal)
 }
 
 // openChildWait opens an Engine-answered wait over spec, which the persisted
@@ -399,19 +410,21 @@ func (s signalRecordWire) content(consumed bool) (json.RawMessage, Digest, error
 }
 
 // waitOpeningWire records the only wait facts the Signal history cannot
-// derive: an external wait's key, or a child wait's complete spec. Exactly one
-// is present, and it determines the wait's kind. Whether a wait is answered or
-// closed is replayed from the answers that follow its opening and from the
-// Process status, never stored.
+// derive: an external wait's acceptance contract, or a child wait's complete
+// spec. Exactly one is present, and it determines the wait's kind. Whether a wait
+// is answered or closed is replayed from the answers that follow its opening and
+// from the Process status, never stored.
 type waitOpeningWire struct {
-	Key  *WaitKey           `json:"key,omitzero"`
-	Spec *childWaitSpecWire `json:"spec,omitzero"`
+	External *externalWaitSpecWire `json:"external,omitzero"`
+	Spec     *childWaitSpecWire    `json:"spec,omitzero"`
 }
 
 func (w waitOpeningWire) clone() waitOpeningWire {
 	var clone waitOpeningWire
-	if w.Key != nil {
-		clone.Key = new(*w.Key)
+	if w.External != nil {
+		external := *w.External
+		external.AnswerSchema = slices.Clone(w.External.AnswerSchema)
+		clone.External = &external
 	}
 	if w.Spec != nil {
 		spec := *w.Spec
@@ -423,16 +436,20 @@ func (w waitOpeningWire) clone() waitOpeningWire {
 
 func (w waitOpeningWire) wait() (waitRecord, error) {
 	switch {
-	case w.Key != nil && w.Spec == nil:
-		return waitRecord{externalKey: *w.Key}, nil
-	case w.Key == nil && w.Spec != nil:
+	case w.External != nil && w.Spec == nil:
+		spec, err := w.External.value()
+		if err != nil {
+			return waitRecord{}, fmt.Errorf("%w: %w", errWaitState, err)
+		}
+		return newExternalWaitRecord(spec), nil
+	case w.External == nil && w.Spec != nil:
 		spec, err := w.Spec.value()
 		if err != nil {
 			return waitRecord{}, fmt.Errorf("%w: %w", errWaitState, err)
 		}
 		return newChildWaitRecord(spec), nil
 	default:
-		return waitRecord{}, fmt.Errorf("%w: wait opening needs exactly one of key and spec", errWaitState)
+		return waitRecord{}, fmt.Errorf("%w: wait opening needs exactly one of external and spec", errWaitState)
 	}
 }
 
@@ -703,6 +720,15 @@ func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, si
 			// A duplicate does not excuse a conflict or unauthorized address later
 			// in the batch. Nothing is applied unless every entry passes preflight.
 			continue
+		}
+		// An external wait owns the acceptance contract for its Host answers, and
+		// only live admission has the answer payload to check it against: replay
+		// trusts the already-validated history. A rejected answer never advances the
+		// wait, so it stays open for a valid one.
+		if wait, ok := s.waits[record.waitID]; ok && wait.external != nil {
+			if err := wait.external.admits(signal); err != nil {
+				return nil, err
+			}
 		}
 		if waitID := record.waitID; waitID.Valid() {
 			if _, alreadyAnswered := answered[waitID]; alreadyAnswered {

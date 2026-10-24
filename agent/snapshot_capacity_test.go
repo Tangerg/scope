@@ -196,8 +196,8 @@ func TestLocalWaitSettlementsAddNoSnapshotBytes(t *testing.T) {
 	limits := admissionTestLimits()
 	limits.MaxProcessSnapshotBytes = NewQuota(4 << 20)
 
-	first := controlValue(NewWaitEffect(controlValue(ParseWaitKey("first"))))
-	second := controlValue(NewWaitEffect(controlValue(ParseWaitKey("second"))))
+	first := controlValue(NewWaitEffect(externalWaitSpecFor(controlValue(ParseWaitKey("first")))))
+	second := controlValue(NewWaitEffect(externalWaitSpecFor(controlValue(ParseWaitKey("second")))))
 	transition := controlValue(Continue(0, first, second))
 	if failure := prepareTestStep(process, limits, stepJobResult{transition: transition, candidate: process.execution, candidateState: largeState}); failure != nil {
 		t.Fatalf("preparing local waits exceeded capacity: %v", failure.cause)

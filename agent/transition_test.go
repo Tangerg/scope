@@ -114,7 +114,7 @@ func TestFailureStrictRoundTrip(t *testing.T) {
 
 func FuzzTransitionJSONRoundTrip(f *testing.F) {
 	f.Add([]byte(`{"consumed_signals":1,"continue":[{"target":"dispatcher","payload":{"operation":"model"}}]}`))
-	f.Add([]byte(`{"consumed_signals":0,"continue":[{"target":"framework","payload":{"operation":"wait","key":"approval","signal_payload":{"kind":"wait_id"}}}]}`))
+	f.Add([]byte(`{"consumed_signals":0,"continue":[{"target":"framework","payload":{"operation":"wait","spec":{"key":"approval"}}}]}`))
 	f.Add([]byte(`{"consumed_signals":1,"wait":"wait:1"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var transition Transition

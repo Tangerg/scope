@@ -20,7 +20,7 @@ func TestInterruptedBatchRetainsItsSettledPrefixAndUnstartedStructuralEffects(t 
 			t.Fatal(err)
 		}
 		waitKey, _ := ParseWaitKey("unopened")
-		wait, err := NewWaitEffect(waitKey)
+		wait, err := NewWaitEffect(externalWaitSpecFor(waitKey))
 		if err != nil {
 			t.Fatal(err)
 		}

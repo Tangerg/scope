@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -137,83 +136,117 @@ func TestInputGateDefinitionConformance(t *testing.T) {
 	conformancetest.CheckRestoreCancellation(t, config.Definition, state)
 }
 
-func TestInputGateDoesNotCommitAnInvalidOrCanceledAnswer(t *testing.T) {
-	for _, cancel := range []bool{false, true} {
-		name := "invalid-schema"
-		if cancel {
-			name = "canceled-candidate"
+func TestInputGateRejectsInvalidAnswerAtAdmissionAndKeepsWaitOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := inputGate(t)
+		deployment := bind(t, gate, nil)
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Run(name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				gate := inputGate(t)
-				var definition agent.Definition = gate
-				var probe *heldStepDefinition
-				payload := []byte(`123`)
-				if cancel {
-					payload = []byte(`"answer"`)
-					probe = &heldStepDefinition{
-						Definition: gate, entered: make(chan agent.Signal, 1), release: make(chan struct{}),
-						matches: func(signal agent.Signal) bool { return string(signal.Payload()) == `"answer"` },
-					}
-					defer close(probe.release)
-					definition = probe
-				}
-				deployment := bind(t, definition, nil)
-				engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
-				if err != nil {
-					t.Fatal(err)
-				}
-				process, err := engine.Start(t.Context(), deployment, encodedInput(t, "request"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				synctest.Wait()
-				waitID, present := inspect(t, engine, process).Snapshot.WaitID()
-				if !present {
-					t.Fatal("input gate did not open its wait")
-				}
-				id, idErr := agent.ParseSignalID("signal:uncommitted-answer")
-				if idErr != nil {
-					t.Fatal(idErr)
-				}
-				request, requestErr := agent.NewSignalRequest(id, waitID, payload)
-				if requestErr != nil {
-					t.Fatal(requestErr)
-				}
-				if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); deliveryErr != nil || !accepted {
-					t.Fatalf("answer admission accepted=%t error=%v", accepted, deliveryErr)
-				}
-				want := agent.StatusFailed
-				if cancel {
-					<-probe.entered
-					if cancelErr := process.RequestCancellation(t.Context(), "cancel before answer adoption"); cancelErr != nil {
-						t.Fatal(cancelErr)
-					}
-					want = agent.StatusCanceled
-				}
-				if joinErr := process.Join(t.Context()); joinErr != nil {
-					t.Fatal(joinErr)
-				}
-				final := result(t, process)
-				if final.Termination().Status() != want || final.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 2}) {
-					t.Fatalf("uncommitted answer changed gate progress: status=%s usage=%+v", final.Termination().Status(), final.Usage())
-				}
-				if _, present := final.Termination().Output(); present {
-					t.Fatal("an uncommitted answer escaped through Output")
-				}
-				if !cancel {
-					failure, failed := final.Termination().Failure()
-					if !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "coordination.protocol.invalid" || final.Termination().Cause() != agent.TerminationCauseContractFailure {
-						t.Fatalf("answer schema failure = %+v", failure)
-					}
-					if count := strings.Count(failure.Message(), coordination.ErrInvalidProtocol.Error()); count != 1 {
-						t.Fatalf("answer schema diagnostic repeats its classification %d times: %q", count, failure.Message())
-					}
-				}
-				closeEngine(t, engine)
-			})
-		})
-	}
+		process, err := engine.Start(t.Context(), deployment, encodedInput(t, "request"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		waitID, present := inspect(t, engine, process).Snapshot.WaitID()
+		if !present {
+			t.Fatal("input gate did not open its wait")
+		}
+
+		// A schema-invalid answer is rejected at admission, so it never advances the
+		// wait or fails the Process: the mailbox owns the wait's acceptance contract.
+		badID, badErr := agent.ParseSignalID("signal:invalid-answer")
+		if badErr != nil {
+			t.Fatal(badErr)
+		}
+		bad, badReqErr := agent.NewSignalRequest(badID, waitID, []byte(`123`))
+		if badReqErr != nil {
+			t.Fatal(badReqErr)
+		}
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), bad); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+			t.Fatalf("invalid answer admission accepted=%t error=%v", accepted, deliveryErr)
+		}
+		synctest.Wait()
+		if _, stillOpen := inspect(t, engine, process).Snapshot.WaitID(); !stillOpen {
+			t.Fatal("rejected answer closed the wait")
+		}
+
+		// The same wait still accepts a valid answer, which completes the gate.
+		goodID, goodErr := agent.ParseSignalID("signal:valid-answer")
+		if goodErr != nil {
+			t.Fatal(goodErr)
+		}
+		good, goodReqErr := agent.NewSignalRequest(goodID, waitID, []byte(`"answer"`))
+		if goodReqErr != nil {
+			t.Fatal(goodReqErr)
+		}
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), good); deliveryErr != nil || !accepted {
+			t.Fatalf("valid answer admission accepted=%t error=%v", accepted, deliveryErr)
+		}
+		if joinErr := process.Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
+		final := result(t, process)
+		if final.Termination().Status() != agent.StatusCompleted {
+			t.Fatalf("valid answer did not complete the gate: status=%s", final.Termination().Status())
+		}
+		if _, present := final.Termination().Output(); !present {
+			t.Fatal("completed gate returned no output")
+		}
+		closeEngine(t, engine)
+	})
+}
+
+func TestInputGateDoesNotCommitACanceledAnswer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := inputGate(t)
+		probe := &heldStepDefinition{
+			Definition: gate, entered: make(chan agent.Signal, 1), release: make(chan struct{}),
+			matches: func(signal agent.Signal) bool { return string(signal.Payload()) == `"answer"` },
+		}
+		defer close(probe.release)
+		deployment := bind(t, probe, nil)
+		engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := engine.Start(t.Context(), deployment, encodedInput(t, "request"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		waitID, present := inspect(t, engine, process).Snapshot.WaitID()
+		if !present {
+			t.Fatal("input gate did not open its wait")
+		}
+		id, idErr := agent.ParseSignalID("signal:uncommitted-answer")
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		request, requestErr := agent.NewSignalRequest(id, waitID, []byte(`"answer"`))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); deliveryErr != nil || !accepted {
+			t.Fatalf("answer admission accepted=%t error=%v", accepted, deliveryErr)
+		}
+		<-probe.entered
+		if cancelErr := process.RequestCancellation(t.Context(), "cancel before answer adoption"); cancelErr != nil {
+			t.Fatal(cancelErr)
+		}
+		if joinErr := process.Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
+		final := result(t, process)
+		if final.Termination().Status() != agent.StatusCanceled || final.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 2}) {
+			t.Fatalf("uncommitted answer changed gate progress: status=%s usage=%+v", final.Termination().Status(), final.Usage())
+		}
+		if _, present := final.Termination().Output(); present {
+			t.Fatal("an uncommitted answer escaped through Output")
+		}
+		closeEngine(t, engine)
+	})
 }
 
 func TestInputGateRejectsMissingAnswerSchema(t *testing.T) {

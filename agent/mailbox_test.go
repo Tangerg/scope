@@ -150,7 +150,7 @@ func TestMailboxRoutesWaitAnswersAndHandlesEarlyArrival(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
-	if err := mailbox.openWait(key, opened); err != nil {
+	if err := mailbox.openWait(externalWaitSpecFor(key), opened); err != nil {
 		t.Fatal(err)
 	}
 	answerID, _ := ParseSignalID("signal:answer")
@@ -206,7 +206,7 @@ func TestMailboxSnapshotRestoresDeduplicationCursorAndWaitFacts(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
-	if err := mailbox.openWait(key, opened); err != nil {
+	if err := mailbox.openWait(externalWaitSpecFor(key), opened); err != nil {
 		t.Fatal(err)
 	}
 	answer := mustMailboxSignal(t, "signal:answer", waitID, json.RawMessage(`{"approved":true}`))
@@ -250,7 +250,7 @@ func TestMailboxWaitOpenedSignalDoesNotAnswerOrCloseWait(t *testing.T) {
 	key, _ := ParseWaitKey("approval:1")
 	waitID, _ := ParseWaitID("wait:1")
 	opened := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
-	if err := mailbox.openWait(key, opened); err != nil {
+	if err := mailbox.openWait(externalWaitSpecFor(key), opened); err != nil {
 		t.Fatal(err)
 	}
 	if err := mailbox.commit(1); err != nil {
@@ -310,13 +310,13 @@ func TestMailboxRejectsUnknownWaitAuthorityAtomically(t *testing.T) {
 	if mailbox.acceptedCount() != 0 || len(mailbox.waits) != 0 {
 		t.Fatal("invalid wait authority changed mailbox")
 	}
-	if err := mailbox.openWait(key, opening); err != nil {
+	if err := mailbox.openWait(externalWaitSpecFor(key), opening); err != nil {
 		t.Fatal(err)
 	}
 	spec := testChildWaitSpec(t, "authority").wire()
 	for name, opens := range map[string]waitOpeningWire{
 		"neither": {},
-		"both":    {Key: &key, Spec: &spec},
+		"both":    {External: &externalWaitSpecWire{Key: key}, Spec: &spec},
 	} {
 		wire := mailbox.wire()
 		wire.Signals[0].Opens = &opens
@@ -366,7 +366,7 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 				if kind == WaitKindChildren {
 					spec := testChildWaitSpec(t, "reusable")
 					openTestChildWait(t, &mailbox, id, spec)
-				} else if err := mailbox.openWait(key, controlValue(NewSignal(id.openingSignalID(), id, waitOpenedPayload()))); err != nil {
+				} else if err := mailbox.openWait(externalWaitSpecFor(key), controlValue(NewSignal(id.openingSignalID(), id, waitOpenedPayload()))); err != nil {
 					t.Fatal(err)
 				}
 				mailbox = restoredMailbox(t, mailbox)

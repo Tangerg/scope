@@ -393,7 +393,7 @@ func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
 	case "ready":
 		e.state.Phase = "wait_id"
 		key, _ := ParseWaitKey("approval")
-		effect, err := NewWaitEffect(key)
+		effect, err := NewWaitEffect(externalWaitSpecFor(key))
 		if err != nil {
 			return Transition{}, err
 		}

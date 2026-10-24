@@ -237,7 +237,14 @@ func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transiti
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewWaitEffect(key)
+	// The input response is the Tool's resume input, not this wait's output, and it
+	// is validated against the request's response schema both client-side and when
+	// the continuation is built, so the wait carries no admission schema here.
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}

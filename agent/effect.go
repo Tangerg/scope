@@ -56,13 +56,14 @@ func NewDispatcherEffect(payload json.RawMessage) (Effect, error) {
 }
 
 // NewWaitEffect creates the Framework Effect that asks the Engine to mint one
-// WaitID for key. ParseWaitOpened reads the minted WaitID from the Signal that
-// acknowledges it; the Execution keeps whatever the wait is about.
-func NewWaitEffect(key WaitKey) (Effect, error) {
-	if !key.Valid() {
-		return Effect{}, fmt.Errorf("%w: wait key: %w", ErrInvalidEffect, ErrInvalidIdentity)
+// WaitID for the spec's key and to enforce the spec's acceptance contract on
+// every external answer. ParseWaitOpened reads the minted WaitID from the Signal
+// that acknowledges it; the Execution keeps whatever the wait is about.
+func NewWaitEffect(spec ExternalWaitSpec) (Effect, error) {
+	if !spec.Valid() {
+		return Effect{}, fmt.Errorf("%w: wait spec: %w", ErrInvalidEffect, ErrInvalidExternalWait)
 	}
-	return newFrameworkEffect(waitRequestWire{Operation: frameworkOperationWait, Key: key})
+	return newFrameworkEffect(waitRequestWire{Operation: frameworkOperationWait, Spec: spec.wire()})
 }
 
 // ParseWaitOpened returns the WaitID that a NewWaitEffect settlement Signal
@@ -164,16 +165,20 @@ const (
 
 type waitRequestWire struct {
 	Operation frameworkOperationKind `json:"operation"`
-	Key       WaitKey                `json:"key"`
+	Spec      externalWaitSpecWire   `json:"spec"`
 }
 
-func decodeWaitRequestPayload(payload json.RawMessage) (WaitKey, error) {
+func decodeWaitRequestPayload(payload json.RawMessage) (ExternalWaitSpec, error) {
 	wire, err := jsonwire.Decode[waitRequestWire](payload)
 	if err != nil {
-		return WaitKey{}, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
+		return ExternalWaitSpec{}, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
 	}
-	if wire.Operation != frameworkOperationWait || !wire.Key.Valid() {
-		return WaitKey{}, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
+	if wire.Operation != frameworkOperationWait {
+		return ExternalWaitSpec{}, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
 	}
-	return wire.Key, nil
+	spec, err := wire.Spec.value()
+	if err != nil {
+		return ExternalWaitSpec{}, fmt.Errorf("%w: %w", ErrInvalidEffect, err)
+	}
+	return spec, nil
 }

@@ -27,7 +27,7 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 				open := func() error { return mailbox.openChildWait(spec, opening) }
 				if test.external {
 					opening = controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
-					open = func() error { return mailbox.openWait(spec.Key, opening) }
+					open = func() error { return mailbox.openWait(externalWaitSpecFor(spec.Key), opening) }
 				}
 				if err := open(); err != nil {
 					t.Fatal(err)

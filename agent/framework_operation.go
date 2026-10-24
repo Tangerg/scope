@@ -35,8 +35,8 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 	}
 	switch header.Operation {
 	case frameworkOperationWait:
-		key, err := decodeWaitRequestPayload(payload)
-		return waitOperation{key: key}, err
+		spec, err := decodeWaitRequestPayload(payload)
+		return waitOperation{spec: spec}, err
 	case frameworkOperationWaitChildren:
 		spec, err := decodeChildWaitEffect(payload)
 		return childWaitOperation{spec: spec}, err
@@ -51,7 +51,7 @@ func decodeFrameworkOperation(payload json.RawMessage) (frameworkOperation, erro
 	}
 }
 
-type waitOperation struct{ key WaitKey }
+type waitOperation struct{ spec ExternalWaitSpec }
 
 // A wait settles locally the moment it begins, so it never fails.
 func (waitOperation) settlement(_ EffectID, failure Failure) (Settlement, error) {
@@ -72,7 +72,7 @@ func (w waitOperation) apply(finalization *preparedStepFinalization, record prep
 	if err != nil {
 		return err
 	}
-	return finalization.mailbox.openWait(w.key, signal)
+	return finalization.mailbox.openWait(w.spec, signal)
 }
 
 func (w waitOperation) validateTree(*treeSnapshotValidation, ProcessID, preparedEffect) error {

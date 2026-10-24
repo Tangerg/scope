@@ -17,6 +17,12 @@ func controlValue[T any](value T, err error) T {
 	return value
 }
 
+// externalWaitSpecFor builds a key-only acceptance contract for tests that need
+// a plain external wait without an answer schema.
+func externalWaitSpecFor(key WaitKey) ExternalWaitSpec {
+	return ExternalWaitSpec{key: key}
+}
+
 func TestChildControlSettlementsKeepOnlyAdmissionFacts(t *testing.T) {
 	child := newProcessID()
 	signal := controlValue(NewSignalRequest(controlValue(ParseSignalID("signal:receipt")), WaitID{}, []byte(`"inspect"`)))
@@ -173,7 +179,7 @@ func TestSignalRequestWireSchemaAndOpeningIdentity(t *testing.T) {
 	}
 	mailbox := newSignalMailbox()
 	signal := controlValue(NewSignal(wait.openingSignalID(), wait, waitOpenedPayload()))
-	if err := mailbox.openWait(controlValue(ParseWaitKey("answer")), signal); err != nil {
+	if err := mailbox.openWait(externalWaitSpecFor(controlValue(ParseWaitKey("answer"))), signal); err != nil {
 		t.Fatal(err)
 	}
 	if accepted, err := mailbox.enqueue(StatusWaiting, signal, signalSourceExternal); accepted || !errors.Is(err, ErrSignalRejected) {

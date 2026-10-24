@@ -139,20 +139,15 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 	return ctx.Err()
 }
 
-// acceptsAnswer validates that a signal addresses this gate's open wait and
-// satisfies the answer schema. Its one caller, acceptAnswer, classifies a
-// failure as a protocol violation.
-func (i inputGateState) acceptsAnswer(definition *InputGate, signal agent.Signal) error {
+// acceptsAnswer confirms that a signal addresses this gate's open wait. The
+// answer schema and the deliverable-output capacity are the wait's acceptance
+// contract, enforced by the mailbox at admission, so this Step trusts the
+// admitted answer rather than revalidating it. Its one caller, acceptAnswer,
+// classifies a failure as a protocol violation.
+func (i inputGateState) acceptsAnswer(signal agent.Signal) error {
 	waitID, addressed := signal.WaitID()
 	if !signal.Valid() || signal.EngineOwned() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
 		return errors.New("answer does not address the input gate")
-	}
-	payload, err := agent.ParsePayload(signal.Payload())
-	if err != nil {
-		return err
-	}
-	if err := definition.answerSchema.Validate(payload.JSON()); err != nil {
-		return fmt.Errorf("answer schema: %w", err)
 	}
 	return nil
 }
@@ -186,7 +181,18 @@ func (i *inputGateExecution) open(signals []agent.Signal) (agent.Transition, err
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewWaitEffect(key)
+	// The wait owns the answer contract so the mailbox rejects a schema-invalid or
+	// undeliverable answer at admission and keeps the wait open; AnswerIsOutput
+	// closes the accept/deliver gap for the Signal this gate returns verbatim.
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{
+		Key:            key,
+		AnswerSchema:   i.definition.answerSchema,
+		AnswerIsOutput: true,
+	})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -211,7 +217,7 @@ func (i *inputGateExecution) acceptAnswer(signals []agent.Signal) (agent.Transit
 		return agent.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
 	}
 	answer := signals[0]
-	if err := i.state.acceptsAnswer(i.definition, answer); err != nil {
+	if err := i.state.acceptsAnswer(answer); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
 	}
 	output, err := agent.EncodePayload(answer)

@@ -152,7 +152,7 @@ func newWaitingSnapshotTree(t testing.TB, count int) *treeRuntime {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := child.mailbox.openWait(waitKey, signal); err != nil {
+		if err := child.mailbox.openWait(externalWaitSpecFor(waitKey), signal); err != nil {
 			t.Fatal(err)
 		}
 		child.currentWaitID = waitID

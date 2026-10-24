@@ -154,7 +154,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wait, err := NewWaitEffect(key)
+			wait, err := NewWaitEffect(externalWaitSpecFor(key))
 			if err != nil {
 				t.Fatal(err)
 			}

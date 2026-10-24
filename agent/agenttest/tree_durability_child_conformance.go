@@ -443,7 +443,11 @@ func (c *crashTreeExecution) openChildWait(signals []agent.Signal) (agent.Transi
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	effect, err := agent.NewWaitEffect(key)
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key})
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	effect, err := agent.NewWaitEffect(spec)
 	if err != nil {
 		return agent.Transition{}, err
 	}

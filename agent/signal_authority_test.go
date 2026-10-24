@@ -58,7 +58,7 @@ func TestSignalAuthorityFollowsIdentityFacts(t *testing.T) {
 		}
 	}
 	opening := newSignalRecord(mustMailboxSignal(t, "signal:caller", waitID, []byte(`null`))).wire()
-	opening.Opens = &waitOpeningWire{Key: new(controlValue(ParseWaitKey("authority")))}
+	opening.Opens = &waitOpeningWire{External: new(externalWaitSpecWire{Key: controlValue(ParseWaitKey("authority"))})}
 	if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{opening}}); err == nil {
 		t.Fatal("restoration accepted a Host identity opening a wait")
 	}
