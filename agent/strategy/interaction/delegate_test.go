@@ -276,7 +276,7 @@ func captureWaitingDelegateTree(
 		t.Fatalf("Delegate tree exposes Tool input: %v %v", pending, err)
 	}
 	rootSnapshot := rootProcessSnapshot(tree)
-	assertActiveDelegateChild(t, rootSnapshot, childID)
+	assertDelegateAttribution(t, rootSnapshot, childID)
 	t.Cleanup(func() { retireTestWriter(t, engine, root) })
 	return tree, childID
 }
@@ -290,21 +290,21 @@ func rootProcessSnapshot(tree agent.TreeSnapshot) agent.ProcessSnapshot {
 	return agent.ProcessSnapshot{}
 }
 
-func assertActiveDelegateChild(t *testing.T, rootSnapshot agent.ProcessSnapshot, childID agent.ProcessID) {
+func assertDelegateAttribution(t *testing.T, rootSnapshot agent.ProcessSnapshot, childID agent.ProcessID) {
 	t.Helper()
-	activeChildren, found, err := interaction.ActiveDelegateChildren(rootSnapshot)
-	if err != nil || !found || len(activeChildren) != 1 {
-		t.Fatalf("active Delegate children = %#v, found = %t, error = %v", activeChildren, found, err)
+	attributions, found, err := interaction.DelegateAttributions(rootSnapshot)
+	if err != nil || !found || len(attributions) != 1 {
+		t.Fatalf("delegate attributions = %#v, found = %t, error = %v", attributions, found, err)
 	}
-	activeChild := activeChildren[0]
-	reference, attributed := activeChild.Reference()
+	attribution := attributions[0]
+	reference, attributed := attribution.Reference()
 	if !attributed || reference.ProcessID() != rootSnapshot.Relation().ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
-		t.Fatalf("active Delegate reference=%v, present=%v", reference, attributed)
+		t.Fatalf("delegate attribution reference=%v, present=%v", reference, attributed)
 	}
-	if !activeChild.Valid() || activeChild.ModelCallSequence() != 1 ||
-		activeChild.ToolCallIndex() != 0 || activeChild.ToolCall().ID != "call_paused" ||
-		activeChild.ChildKey().String() == "" || activeChild.ProcessID() != childID {
-		t.Fatalf("active Delegate child = %#v", activeChild)
+	if !attribution.Valid() || attribution.ModelCallSequence() != 1 ||
+		attribution.ToolCallIndex() != 0 || attribution.ToolCall().ID != "call_paused" ||
+		attribution.ChildKey().String() == "" || attribution.ProcessID() != childID {
+		t.Fatalf("delegate attribution = %#v", attribution)
 	}
 }
 

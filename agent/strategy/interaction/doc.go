@@ -68,7 +68,7 @@
 // [SettledResults] projects exact known results from the authoritative tree;
 // it has no storage or acknowledgment role. [ToolCallRef] correlates one
 // logical call across [ToolInvocation.Reference], [RoundResults.Reference],
-// and [ActiveDelegateChild.Reference]; its ProcessID is the requesting
+// and [DelegateAttribution.Reference]; its ProcessID is the requesting
 // Interaction, not the Tool child. A Tool child's reference comes only from the
 // [ToolChildKey] its parent gave it, so a ToolSet run as a root or under any
 // other ChildKey has none.

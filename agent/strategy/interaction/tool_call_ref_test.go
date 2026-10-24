@@ -77,8 +77,8 @@ func TestReferenceQueriesRejectAbsentAttribution(t *testing.T) {
 	if reference, present := round.Reference(0); present || reference.Valid() {
 		t.Fatal("zero results invented a logical call")
 	}
-	var child interaction.ActiveDelegateChild
-	if reference, present := child.Reference(); present || reference.Valid() {
+	var attribution interaction.DelegateAttribution
+	if reference, present := attribution.Reference(); present || reference.Valid() {
 		t.Fatal("zero delegate invented a logical call")
 	}
 }
