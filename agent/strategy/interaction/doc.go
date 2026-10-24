@@ -1,11 +1,8 @@
 // Package interaction provides the model-directed execution Strategy for the
-// Agent Framework: the reusable model-and-tool loop that a role needing a
-// model-decides-then-acts cycle (researcher, coder, reviewer, planner,
-// coordinator) configures rather than reimplements. Higher strategies — workflow,
-// collaboration, planning, coordination — compose it through exact Deployments
-// and child Processes instead of copying its loop, and pair it with deterministic
-// building blocks that have no reason to carry a chat protocol. Input and Output
-// reuse core/chat values.
+// Agent Framework: the reusable model-and-tool loop that model-driven roles
+// configure rather than reimplement, and that higher strategies compose through
+// exact Deployments and child Processes rather than copy. Input and Output reuse
+// core/chat values.
 //
 // A Definition binds immutable model/Tool behavior, exact managed Delegates,
 // and an optional pure completion validator. Each execution owns its

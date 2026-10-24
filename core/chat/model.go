@@ -7,11 +7,10 @@ import (
 )
 
 // ErrNotExecuted marks a Call or Stream error as a definite non-execution: the
-// provider operation did not run, so the error is a known failure, not an
-// uncertain outcome. Middleware that rejects before delegating wraps its error
-// with it; a consumer that must tell a definite failure from an unknown outcome,
-// such as a managed Agent deciding whether to reconcile, checks it with errors.Is.
-// An unmarked error keeps the safe default: the operation may have executed.
+// provider operation did not run. Middleware that rejects before delegating wraps
+// its error with it so a consumer can settle a definite failure rather than
+// reconcile an unknown; an unmarked error keeps the safe default that the
+// operation may have executed.
 var ErrNotExecuted = errors.New("chat: model operation not executed")
 
 // Model performs a complete provider-neutral exchange; streaming is a separate capability.
