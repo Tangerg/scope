@@ -13,6 +13,14 @@ var ErrInvalidWriteOutcome = errors.New("history: invalid write outcome")
 // means additional messages after that prefix may have been stored; the caller
 // must reconcile them before retrying. Otherwise all remaining messages are
 // confirmed unwritten. All messages may be accepted even if ancillary work fails.
+//
+// Reconciling an uncertain suffix is not something Reader can complete on its
+// own: a stored message with identical content from a concurrent append is
+// indistinguishable, and a change in message count does not prove whether this
+// attempt committed. These interfaces intentionally carry no stable append
+// identity, so exact automatic reconciliation requires backend-specific
+// evidence, such as a store that assigns durable append identities; this
+// contract does not provide it.
 type WriteOutcome struct {
 	Accepted  int
 	Uncertain bool
