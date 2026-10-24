@@ -3,79 +3,45 @@ package interaction
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
-	"sync"
 
-	"github.com/Tangerg/scope/agent"
+	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/core/tool"
 )
 
-type toolAdvertisementContextKey struct{}
-
-// AdvertiseTools stages already-bound deferred Tools for model visibility from
-// the next model call onward. The change commits only if the current Tool call
-// succeeds. It never adds executable authority. Names must be exact deferred
-// Tool names; repeated names are idempotent.
-// A nil ctx is invalid and panics; a context without an active Tool call returns
-// ErrToolAdvertisementUnavailable.
-func AdvertiseTools(ctx context.Context, names ...string) error {
-	ctx = agent.RequireContext(ctx)
-	advertiser, present := ctx.Value(toolAdvertisementContextKey{}).(*toolAdvertiser)
-	if !present || advertiser == nil {
-		return ErrToolAdvertisementUnavailable
-	}
-	return advertiser.advertise(names)
+// AdvertisingTool is a Tool that reveals already-bound deferred Tools to the
+// model after it runs under an Interaction. When a managed call settles with a
+// successful result, the Interaction calls AdvertiseDeferred with that call's
+// invocation and result and makes the returned deferred Tool names visible from
+// the next model call onward. The capability lives in the Tool's type, not in
+// the call context: a Tool that does not implement it never advertises, the same
+// Tool run outside an Interaction has no advertising authority, and a rejected,
+// failed, or input-pending call never reaches AdvertiseDeferred, so its
+// declaration cannot commit. Advertising adds visibility only, never executable
+// authority. Names must be exact deferred Tool names; the Interaction normalizes
+// order and duplicates and rejects any name that is not a bound deferred Tool.
+type AdvertisingTool interface {
+	AdvertiseDeferred(ctx context.Context, invocation tool.Invocation, result tool.Result) ([]string, error)
 }
 
-type toolAdvertiser struct {
-	mu       sync.Mutex
-	manifest toolManifest
-	seen     map[string]struct{}
-	names    []string
-	closed   bool
-}
-
-func newToolAdvertiser(manifest toolManifest) *toolAdvertiser {
-	return &toolAdvertiser{
-		manifest: manifest,
-		seen:     make(map[string]struct{}),
-	}
-}
-
-func (t *toolAdvertiser) advertise(names []string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.closed {
-		return ErrToolAdvertisementUnavailable
-	}
-	if len(names) == 0 {
-		return fmt.Errorf("%w: at least one Tool name is required", ErrInvalidToolAdvertisement)
-	}
-	for _, name := range names {
-		// Bound deferred names are valid Tool names, so membership covers shape.
-		if !t.manifest.deferred(name) {
-			return fmt.Errorf("%w: tool %q is not deferred", ErrInvalidToolAdvertisement, name)
+// advertisingCapability resolves the AdvertisingTool capability through the
+// Tool's wrapping chain. A capability-detection panic is an internal fault, not
+// a model-visible result, so it is classified and returned as an error.
+func advertisingCapability(executable tool.Tool) (advertiser AdvertisingTool, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			advertiser = nil
+			err = &agent.CallbackPanicError{Operation: "AdvertisingTool capability", Value: recovered}
 		}
+	}()
+	capability, found, err := tool.Capability[AdvertisingTool](executable)
+	if err != nil {
+		return nil, fmt.Errorf("advertising capability: %w", err)
 	}
-	for _, name := range names {
-		if _, duplicate := t.seen[name]; duplicate {
-			continue
-		}
-		t.seen[name] = struct{}{}
-		t.names = append(t.names, name)
+	if !found {
+		return nil, nil
 	}
-	return nil
-}
-
-func (t *toolAdvertiser) close() []string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.closed = true
-	return slices.Clone(t.names)
-}
-
-func withToolAdvertiser(ctx context.Context, advertiser *toolAdvertiser) context.Context {
-	return context.WithValue(ctx, toolAdvertisementContextKey{}, advertiser)
+	return capability, nil
 }
 
 func validateAdvertisedToolNames(names []string) error {

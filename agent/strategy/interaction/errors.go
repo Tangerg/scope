@@ -10,17 +10,16 @@ import (
 // and Tool control flow rather than Steps, so they carry no Failure
 // classification.
 var (
-	ErrInvalidResult                = errors.New("interaction: invalid result")
-	ErrToolAdvertisementUnavailable = errors.New("interaction: tool advertisement unavailable")
-	ErrInvalidToolAdvertisement     = errors.New("interaction: invalid tool advertisement")
-	ErrInvalidPendingToolInput      = errors.New("interaction: invalid pending tool input")
-	ErrInvalidDefinitionConfig      = errors.New("interaction: invalid definition configuration")
-	ErrInvalidDispatcherConfig      = errors.New("interaction: invalid dispatcher configuration")
-	ErrInvalidToolSet               = errors.New("interaction: invalid tool set")
-	ErrInvalidToolCallRef           = errors.New("interaction: invalid tool call reference")
-	ErrInvalidDelegate              = errors.New("interaction: invalid delegate")
-	ErrInvalidArtifact              = errors.New("interaction: invalid artifact")
-	ErrInvalidInput                 = errors.New("interaction: invalid input")
+	ErrInvalidResult            = errors.New("interaction: invalid result")
+	ErrInvalidToolAdvertisement = errors.New("interaction: invalid tool advertisement")
+	ErrInvalidPendingToolInput  = errors.New("interaction: invalid pending tool input")
+	ErrInvalidDefinitionConfig  = errors.New("interaction: invalid definition configuration")
+	ErrInvalidDispatcherConfig  = errors.New("interaction: invalid dispatcher configuration")
+	ErrInvalidToolSet           = errors.New("interaction: invalid tool set")
+	ErrInvalidToolCallRef       = errors.New("interaction: invalid tool call reference")
+	ErrInvalidDelegate          = errors.New("interaction: invalid delegate")
+	ErrInvalidArtifact          = errors.New("interaction: invalid artifact")
+	ErrInvalidInput             = errors.New("interaction: invalid input")
 )
 
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping

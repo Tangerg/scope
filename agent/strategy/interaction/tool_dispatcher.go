@@ -36,9 +36,12 @@ func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, adve
 }
 
 // toolDispatcher executes bound Tools. Its manifest is the one index of each
-// Tool's scheduling policy; the ToolSet shares it with the Interaction.
+// Tool's scheduling policy; the ToolSet shares it with the Interaction. The
+// executable Tools and their advertising capability stay here, never in the
+// manifest, which the Interaction retains without executables.
 type toolDispatcher struct {
 	bindings            map[string]tool.Binding
+	advertisers         map[string]AdvertisingTool
 	manifest            toolManifest
 	observer            ToolObserver
 	observationFailures observationFailureCounters
@@ -46,9 +49,10 @@ type toolDispatcher struct {
 
 func newToolDispatcher(observer ToolObserver) *toolDispatcher {
 	return &toolDispatcher{
-		bindings: make(map[string]tool.Binding),
-		manifest: toolManifest{entries: make(map[string]toolManifestEntry)},
-		observer: observer,
+		bindings:    make(map[string]tool.Binding),
+		advertisers: make(map[string]AdvertisingTool),
+		manifest:    toolManifest{entries: make(map[string]toolManifestEntry)},
+		observer:    observer,
 	}
 }
 
@@ -109,7 +113,14 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
+	advertiser, err := advertisingCapability(executable)
+	if err != nil {
+		return err
+	}
 	t.bindings[definition.Name] = binding
+	if advertiser != nil {
+		t.advertisers[definition.Name] = advertiser
+	}
 	t.manifest.entries[definition.Name] = toolManifestEntry{
 		contract: binding.Contract(), deferred: deferred, direct: direct, concurrent: concurrent,
 	}
@@ -152,11 +163,8 @@ func (t *toolDispatcher) callTool(
 		t.observeToolSettled(ctx, invocation, settlement)
 	}()
 	binding := prepared.binding
-	advertiser := newToolAdvertiser(t.manifest)
 	ctx = withToolInvocation(ctx, invocation)
-	ctx = withToolAdvertiser(ctx, advertiser)
 	defer func() {
-		advertiser.close()
 		if recovered := recover(); recovered != nil {
 			result = chat.ToolResult{}
 			advertisedToolNames = nil
@@ -165,7 +173,6 @@ func (t *toolDispatcher) callTool(
 		}
 	}()
 	output, err := binding.Call(ctx, prepared.invocation)
-	names := advertiser.close()
 	result, required, rejected, err = modelToolResult(call, output, err)
 	if err != nil {
 		return chat.ToolResult{}, nil, nil, false, err
@@ -176,7 +183,39 @@ func (t *toolDispatcher) callTool(
 	if result.IsError {
 		return result, nil, nil, rejected, nil
 	}
+	names, err := t.adviseDeferred(ctx, call.Name, prepared.invocation, output)
+	if err != nil {
+		return chat.ToolResult{}, nil, nil, false, err
+	}
 	return result, names, nil, false, nil
+}
+
+// adviseDeferred collects the deferred Tool names a successful call reveals.
+// Because it runs only after a successful result, a rejected, failed, or
+// input-pending call can never commit a declaration. The returned names must be
+// bound deferred Tools; a declaration of anything else is a Tool defect.
+func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
+	advertiser, found := t.advertisers[name]
+	if !found {
+		return nil, nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			names = nil
+			err = &agent.CallbackPanicError{Operation: "AdvertisingTool.AdvertiseDeferred", Value: recovered}
+		}
+	}()
+	declared, err := advertiser.AdvertiseDeferred(ctx, invocation, output)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToolAdvertisement, err)
+	}
+	if len(declared) == 0 {
+		return nil, nil
+	}
+	if err := t.manifest.validateAdvertisements(declared); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToolAdvertisement, err)
+	}
+	return declared, nil
 }
 
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, continuation *tool.Continuation) preparedToolCall {

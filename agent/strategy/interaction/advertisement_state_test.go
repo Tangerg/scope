@@ -94,17 +94,41 @@ func advertisementTestDefinition(t testing.TB) *Definition {
 	return definition
 }
 
-func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
+// advertisingTestTool pairs a continuing Call with an explicit deferred-Tool
+// declaration, so the advertisement is a typed result of the call rather than an
+// ambient context effect.
+type advertisingTestTool struct {
+	tool.Tool
+	declare []string
+}
+
+func (a *advertisingTestTool) AdvertiseDeferred(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+	return a.declare, nil
+}
+
+func TestAdvertisementRejectsNonDeferredDeclaration(t *testing.T) {
+	inner, err := newContinuingTool(tool.FuncConfig{Name: "active", Description: "Exercise the advertising boundary."}, func(context.Context, tool.Invocation) (tool.Result, error) {
+		return tool.Result{Output: chat.NewTextToolOutput("done")}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := &advertisingTestTool{Tool: inner, declare: []string{"unknown"}}
+	dispatcher := newToolDispatcher(nil)
+	if err := dispatcher.bindTool(executable, false); err != nil {
+		t.Fatal(err)
+	}
+	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`}, nil)
+	_, names, _, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
+	if !errors.Is(callErr, ErrInvalidToolAdvertisement) || len(names) != 0 {
+		t.Fatalf("non-deferred declaration: names=%v err=%v", names, callErr)
+	}
+}
+
+func TestAdvertisementCommitsOnlyForASuccessfulCall(t *testing.T) {
 	for _, outcome := range []string{"success", "error", "input", "panic"} {
 		t.Run(outcome, func(t *testing.T) {
-			var saved context.Context
-			executable, err := newContinuingTool(tool.FuncConfig{Name: "active", Description: "Close the call capability."}, func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
-				saved = ctx
-				accepted := make(chan error, 1)
-				go func() { accepted <- AdvertiseTools(ctx, "deferred") }()
-				if err := <-accepted; err != nil {
-					return tool.Result{}, err
-				}
+			inner, err := newContinuingTool(tool.FuncConfig{Name: "active", Description: "Exercise the advertising boundary."}, func(_ context.Context, _ tool.Invocation) (tool.Result, error) {
 				switch outcome {
 				case "error":
 					return tool.Result{}, errors.New("unknown outcome")
@@ -119,6 +143,7 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			executable := &advertisingTestTool{Tool: inner, declare: []string{"deferred"}}
 			dispatcher := newToolDispatcher(nil)
 			dispatcher.manifest.entries["deferred"] = toolManifestEntry{deferred: true}
 			if err := dispatcher.bindTool(executable, false); err != nil {
@@ -126,12 +151,6 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 			}
 			prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`}, nil)
 			_, names, required, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
-			if saved == nil {
-				t.Fatal("Tool was not called")
-			}
-			if err := AdvertiseTools(saved, "deferred"); !errors.Is(err, ErrToolAdvertisementUnavailable) {
-				t.Fatalf("closed capability returned %v", err)
-			}
 			switch outcome {
 			case "success":
 				if callErr != nil || !slices.Equal(names, []string{"deferred"}) {
@@ -147,28 +166,5 @@ func TestToolAdvertisementClosesOnEveryCallExit(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestToolAdvertisementCloseIsAtomicWithAdmission(t *testing.T) {
-	for range 100 {
-		advertiser := newToolAdvertiser(toolManifest{entries: map[string]toolManifestEntry{"deferred": {deferred: true}}})
-		ctx := withToolAdvertiser(t.Context(), advertiser)
-		start := make(chan struct{})
-		accepted := make(chan error, 1)
-		go func() { <-start; accepted <- AdvertiseTools(ctx, "deferred") }()
-		close(start)
-		names := advertiser.close()
-		err := <-accepted
-		if err == nil {
-			if !slices.Equal(names, []string{"deferred"}) {
-				t.Fatalf("successful admission lost at close: %v", names)
-			}
-		} else if !errors.Is(err, ErrToolAdvertisementUnavailable) || len(names) != 0 {
-			t.Fatalf("closed admission: names=%v error=%v", names, err)
-		}
-		if err := AdvertiseTools(ctx, "deferred"); !errors.Is(err, ErrToolAdvertisementUnavailable) {
-			t.Fatalf("late admission: %v", err)
-		}
 	}
 }

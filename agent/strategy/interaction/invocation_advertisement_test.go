@@ -20,16 +20,14 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	model := &attributionModel{}
 	var capture attributionCapture
 	discover := &callbackTool{
-		name: "discover",
+		name:      "discover",
+		advertise: []string{"lookup"},
 		continuing: func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 			invocation, found := interaction.ToolInvocationFromContext(ctx)
 			if !found {
 				return tool.Result{}, errors.New("Tool invocation attribution is missing")
 			}
 			capture.addTool(invocation)
-			if err := interaction.AdvertiseTools(ctx, "lookup", "lookup"); err != nil {
-				return tool.Result{}, err
-			}
 			return tool.Result{Output: chat.NewTextToolOutput("lookup is available")}, nil
 		},
 	}
@@ -115,71 +113,11 @@ func TestContextQueriesTreatNilAsAbsent(t *testing.T) {
 
 }
 
-func TestAdvertiseToolsRejectsNilContext(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("nil context became unavailable Tool authority")
-		}
-	}()
-	var nilContext context.Context
-	_ = interaction.AdvertiseTools(nilContext, "hidden")
-}
-
-func TestAdvertiseToolsRejectsUnavailableAndInvalidNames(t *testing.T) {
-	if err := interaction.AdvertiseTools(context.Background(), "hidden"); !errors.Is(err, interaction.ErrToolAdvertisementUnavailable) {
-		t.Fatalf("outside invocation error = %v", err)
-	}
-
-	errorsSeen := make(chan []error, 1)
-	validate := &callbackTool{
-		name: "validate",
-		call: func(ctx context.Context, _ string) (string, error) {
-			errorsSeen <- []error{
-				interaction.AdvertiseTools(ctx),
-				interaction.AdvertiseTools(ctx, ""),
-				interaction.AdvertiseTools(ctx, " hidden"),
-				interaction.AdvertiseTools(ctx, "validate"),
-				interaction.AdvertiseTools(ctx, "unknown"),
-			}
-			if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
-				return "", err
-			}
-			return "validated", nil
-		},
-	}
-	hidden := &callbackTool{name: "hidden", call: func(context.Context, string) (string, error) {
-		return "hidden", nil
-	}}
-	model := &manifestScriptModel{scripts: []manifestScript{
-		{wantTools: []string{"validate"}, response: toolCallResponse(chat.ToolCall{ID: "call_validate", Name: "validate", Arguments: `{}`})},
-		{wantTools: []string{"validate", "hidden"}, response: textResponse("done")},
-	}}
-	deployment := newDeferredDeployment(t, model, []tool.Tool{validate}, []tool.Tool{hidden}, 0)
-	process, engine := startDeferredInteraction(t, deployment)
-	result, err := process.Await(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
-		t.Fatal(err)
-	}
-	if result.Termination().Status() != agent.StatusCompleted {
-		t.Fatalf("status = %s, termination = %#v", result.Termination().Status(), result.Termination())
-	}
-	for index, err := range <-errorsSeen {
-		if !errors.Is(err, interaction.ErrInvalidToolAdvertisement) {
-			t.Fatalf("invalid advertisement %d error = %v", index, err)
-		}
-	}
-}
-
 func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
 	failing := &callbackTool{
-		name: "failing",
+		name:      "failing",
+		advertise: []string{"hidden"},
 		call: func(ctx context.Context, _ string) (string, error) {
-			if err := interaction.AdvertiseTools(ctx, "hidden"); err != nil {
-				return "", err
-			}
 			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("business failure"), Output: chat.NewTextToolOutput("business failure")})
 			if err != nil {
 				t.Fatal(err)
@@ -220,22 +158,19 @@ func (i *invalidOutputTool) Call(ctx context.Context, invocation tool.Invocation
 
 func TestToolInputCheckpointKeepsOnlyCompletedToolAdvertisements(t *testing.T) {
 	prefix := &callbackTool{
-		name: "prefix",
+		name:      "prefix",
+		advertise: []string{"prefix_hidden"},
 		call: func(ctx context.Context, _ string) (string, error) {
-			if err := interaction.AdvertiseTools(ctx, "prefix_hidden"); err != nil {
-				return "", err
-			}
 			return "prefix complete", nil
 		},
 	}
+	// waiting is still pending at the input checkpoint, so it has completed no call
+	// and can commit no advertisement; only prefix's survives.
 	waiting := &callbackTool{
 		name: "waiting",
 		continuing: func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
 			if _, resumed := callInput.Continuation(); resumed {
 				return tool.Result{Output: chat.NewTextToolOutput("continued")}, nil
-			}
-			if err := interaction.AdvertiseTools(ctx, "waiting_hidden"); err != nil {
-				return tool.Result{}, err
 			}
 			return waitingInput(
 				json.RawMessage(`"continue?"`),
@@ -296,32 +231,28 @@ func TestParallelAdvertisementsCommitInModelToolCallOrder(t *testing.T) {
 	secondRelease := make(chan struct{})
 	invocations := make(chan interaction.ToolInvocation, 2)
 	first := &scheduledTool{
-		name: "first",
+		name:      "first",
+		advertise: []string{"first_hidden"},
 		call: func(ctx context.Context, _ string) (string, error) {
 			invocation, found := interaction.ToolInvocationFromContext(ctx)
 			if !found {
 				return "", errors.New("first Tool invocation attribution is missing")
 			}
 			invocations <- invocation
-			if err := interaction.AdvertiseTools(ctx, "first_hidden"); err != nil {
-				return "", err
-			}
 			close(firstStarted)
 			<-firstRelease
 			return "first result", nil
 		},
 	}
 	second := &scheduledTool{
-		name: "second",
+		name:      "second",
+		advertise: []string{"second_hidden"},
 		call: func(ctx context.Context, _ string) (string, error) {
 			invocation, found := interaction.ToolInvocationFromContext(ctx)
 			if !found {
 				return "", errors.New("second Tool invocation attribution is missing")
 			}
 			invocations <- invocation
-			if err := interaction.AdvertiseTools(ctx, "second_hidden"); err != nil {
-				return "", err
-			}
 			close(secondStarted)
 			<-secondRelease
 			close(secondFinished)
@@ -516,6 +447,7 @@ type callbackTool struct {
 	continuing func(context.Context, tool.Invocation) (tool.Result, error)
 	name       string
 	call       func(context.Context, string) (string, error)
+	advertise  []string
 }
 
 func (c *callbackTool) Definition() chat.ToolDefinition {
@@ -531,6 +463,12 @@ func (c *callbackTool) Call(ctx context.Context, invocation tool.Invocation) (to
 	}
 	result, err := c.call(ctx, string(invocation.Arguments()))
 	return tool.Result{Output: chat.NewTextToolOutput(result)}, err
+}
+
+// AdvertiseDeferred declares the deferred Tools this Tool reveals on a successful
+// call, as an explicit typed result rather than an ambient context effect.
+func (c *callbackTool) AdvertiseDeferred(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+	return c.advertise, nil
 }
 
 func successfulCallback(context.Context, string) (string, error) { return "done", nil }

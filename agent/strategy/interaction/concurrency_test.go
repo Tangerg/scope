@@ -310,6 +310,7 @@ type scheduledTool struct {
 	name       string
 	key        string
 	call       func(context.Context, string) (string, error)
+	advertise  []string
 }
 
 func (s *scheduledTool) Definition() chat.ToolDefinition {
@@ -327,6 +328,10 @@ func (s *scheduledTool) Call(ctx context.Context, invocation tool.Invocation) (t
 func (s *scheduledTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	key := s.key
 	return func(tool.Invocation) (string, bool) { return key, true }
+}
+
+func (s *scheduledTool) AdvertiseDeferred(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+	return s.advertise, nil
 }
 
 type exclusiveTool struct {
