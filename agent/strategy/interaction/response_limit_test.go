@@ -255,6 +255,31 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 	}
 }
 
+func TestNotExecutedModelErrorSettlesDefiniteFailureNotUnknown(t *testing.T) {
+	// A model error that reports a definite non-execution — such as a safeguard
+	// input rejection before provider I/O — settles as a definite failure, not an
+	// unknown outcome that would demand reconciliation.
+	notExecuted := dispatchLimitedResponse(t, interaction.DispatcherConfig{
+		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return nil, fmt.Errorf("%w: rejected before the provider", chat.ErrNotExecuted)
+		}),
+	})
+	if notExecuted.err != nil || notExecuted.settlement.Status() != agent.SettlementStatusFailed {
+		t.Fatalf("not-executed outcome = %+v, want a definite failed settlement", notExecuted)
+	}
+
+	// A plain model error keeps the safe default: the outcome is unknown, so
+	// Dispatch returns an error rather than a settlement.
+	unknown := dispatchLimitedResponse(t, interaction.DispatcherConfig{
+		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return nil, errors.New("ambiguous provider failure")
+		}),
+	})
+	if unknown.err == nil {
+		t.Fatalf("plain model error outcome = %+v, want an unknown outcome (non-nil error)", unknown)
+	}
+}
+
 type responseMutatingObserver struct{ calls atomic.Int32 }
 
 func (*responseMutatingObserver) OnModelStarted(context.Context, interaction.ModelInvocation, *chat.Request) {

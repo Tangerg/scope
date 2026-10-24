@@ -2,15 +2,27 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"iter"
 )
+
+// ErrNotExecuted marks a Call or Stream error as a definite non-execution: the
+// provider operation did not run and left no pending work, so its outcome is a
+// known failure rather than an uncertain one. Middleware that rejects a request
+// before delegating to the next model wraps its error with ErrNotExecuted. A
+// consumer that must distinguish a definite failure from an unknown outcome, such
+// as a managed Agent deciding whether an operation needs reconciliation, tests
+// for it with errors.Is. An error that does not wrap it keeps the safe default:
+// the operation may have executed and its outcome is unknown.
+var ErrNotExecuted = errors.New("chat: model operation not executed")
 
 // Model performs a complete provider-neutral exchange; streaming is a separate capability.
 type Model interface {
 	// Call performs one complete model exchange. It must reject an invalid
 	// request before provider I/O, must not retain or mutate request, and
 	// transfers ownership of the returned response to the caller. Context
-	// cancellation remains identifiable through errors.Is.
+	// cancellation remains identifiable through errors.Is. An error that wraps
+	// [ErrNotExecuted] additionally promises the provider operation did not run.
 	Call(ctx context.Context, request *Request) (*Response, error)
 }
 

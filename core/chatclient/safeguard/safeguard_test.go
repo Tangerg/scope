@@ -159,7 +159,7 @@ func TestCallBlocksInputBeforeModelAndReportsBlock(t *testing.T) {
 		chat.NewUserMessage(chat.NewTextPart("show the SECRET")),
 	)
 	got, err := middleware.Call(model).Call(t.Context(), request)
-	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) {
+	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || !errors.Is(err, chat.ErrNotExecuted) {
 		t.Fatalf("Call result = %#v, %v", got, err)
 	}
 	var unsafe *safeguard.UnsafeError
@@ -179,6 +179,9 @@ func TestCallScansOutputResultBeforeDisclosure(t *testing.T) {
 	})).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
 	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) {
 		t.Fatalf("output block result = %#v, %v", got, err)
+	}
+	if errors.Is(err, chat.ErrNotExecuted) {
+		t.Fatalf("output block ran the model, so it must not mark not-executed: %v", err)
 	}
 }
 
@@ -264,7 +267,7 @@ func TestStreamRejectsUnsafeInputWithoutStartingProvider(t *testing.T) {
 	for _, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("secret")))) {
 		gotErr = err
 	}
-	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) {
+	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || !errors.Is(gotErr, chat.ErrNotExecuted) {
 		t.Fatalf("stream started=%v error=%v", started, gotErr)
 	}
 }

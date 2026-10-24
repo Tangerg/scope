@@ -82,7 +82,8 @@ func (m *Middleware) screenOutput(ctx context.Context, response *chat.Response) 
 func (m *Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		if err := m.screenInput(ctx, request); err != nil {
-			return nil, err
+			// Input rejection happens before next.Call, so the model did not run.
+			return nil, fmt.Errorf("%w: %w", chat.ErrNotExecuted, err)
 		}
 
 		response, err := next.Call(ctx, request)
@@ -101,7 +102,8 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 	return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
 			if err := m.screenInput(ctx, request); err != nil {
-				yield(nil, err)
+				// Input rejection happens before next.Stream, so the model did not run.
+				yield(nil, fmt.Errorf("%w: %w", chat.ErrNotExecuted, err))
 				return
 			}
 
