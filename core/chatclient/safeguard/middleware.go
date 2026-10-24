@@ -87,7 +87,7 @@ func (m *Middleware) Call(next chat.Model) chat.Model {
 
 		response, err := next.Call(ctx, request)
 		if screeningErr := m.screenOutput(ctx, response); screeningErr != nil {
-			return nil, errors.Join(err, screeningErr)
+			return nil, errors.Join(err, fmt.Errorf("%w: %w", chat.ErrDefiniteFailure, screeningErr))
 		}
 		return response, err
 	})
@@ -135,7 +135,7 @@ func (s *safeguardStream) consume(chunk *chat.ResponseDelta, streamErr error) bo
 		return s.stop(fmt.Errorf("safeguard: accumulate stream: %w", err))
 	}
 	if err := s.middleware.screen(s.ctx, ScopeOutput, s.accumulator.Text()); err != nil {
-		return s.stop(err)
+		return s.stop(fmt.Errorf("%w: %w", chat.ErrDefiniteFailure, err))
 	}
 	if !s.yield(chunk, nil) {
 		s.stopped = true

@@ -159,7 +159,7 @@ func TestCallBlocksInputBeforeModelAndReportsBlock(t *testing.T) {
 		chat.NewUserMessage(chat.NewTextPart("show the SECRET")),
 	)
 	got, err := middleware.Call(model).Call(t.Context(), request)
-	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || !errors.Is(err, chat.ErrNotExecuted) {
+	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || !errors.Is(err, chat.ErrNotExecuted) || !errors.Is(err, chat.ErrDefiniteFailure) {
 		t.Fatalf("Call result = %#v, %v", got, err)
 	}
 	var unsafe *safeguard.UnsafeError
@@ -177,7 +177,7 @@ func TestCallScansOutputResultBeforeDisclosure(t *testing.T) {
 	got, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return modelResponse, nil
 	})).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
-	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) {
+	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || !errors.Is(err, chat.ErrDefiniteFailure) {
 		t.Fatalf("output block result = %#v, %v", got, err)
 	}
 	if errors.Is(err, chat.ErrNotExecuted) {
@@ -251,7 +251,7 @@ func TestStreamDetectsMatchesSplitAcrossChunksBeforeYieldingTrigger(t *testing.T
 		}
 		texts = append(texts, response.Text())
 	}
-	if !closed || !reflect.DeepEqual(texts, []string{"se"}) || !errors.Is(gotErr, safeguard.ErrUnsafeContent) {
+	if !closed || !reflect.DeepEqual(texts, []string{"se"}) || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || !errors.Is(gotErr, chat.ErrDefiniteFailure) || errors.Is(gotErr, chat.ErrNotExecuted) {
 		t.Fatalf("stream result closed=%v texts=%v error=%v", closed, texts, gotErr)
 	}
 }
@@ -267,7 +267,7 @@ func TestStreamRejectsUnsafeInputWithoutStartingProvider(t *testing.T) {
 	for _, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("secret")))) {
 		gotErr = err
 	}
-	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || !errors.Is(gotErr, chat.ErrNotExecuted) {
+	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || !errors.Is(gotErr, chat.ErrNotExecuted) || !errors.Is(gotErr, chat.ErrDefiniteFailure) {
 		t.Fatalf("stream started=%v error=%v", started, gotErr)
 	}
 }

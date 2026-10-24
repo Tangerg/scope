@@ -255,14 +255,17 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 	}
 }
 
-func TestNotExecutedModelErrorSettlesDefiniteFailureNotUnknown(t *testing.T) {
-	notExecuted := dispatchLimitedResponse(t, interaction.DispatcherConfig{
-		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-			return nil, fmt.Errorf("%w: rejected before the provider", chat.ErrNotExecuted)
-		}),
-	})
-	if notExecuted.err != nil || notExecuted.settlement.Status() != agent.SettlementStatusFailed {
-		t.Fatalf("not-executed outcome = %+v, want a definite failed settlement", notExecuted)
+func TestDefiniteFailureModelErrorSettlesFailedNotUnknown(t *testing.T) {
+	for _, definite := range []error{
+		fmt.Errorf("%w: rejected before the provider", chat.ErrNotExecuted),
+		fmt.Errorf("%w: output rejected after the provider ran", chat.ErrDefiniteFailure),
+	} {
+		got := dispatchLimitedResponse(t, interaction.DispatcherConfig{
+			Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, definite }),
+		})
+		if got.err != nil || got.settlement.Status() != agent.SettlementStatusFailed {
+			t.Fatalf("definite failure %v outcome = %+v, want a definite failed settlement", definite, got)
+		}
 	}
 
 	unknown := dispatchLimitedResponse(t, interaction.DispatcherConfig{

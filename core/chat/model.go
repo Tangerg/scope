@@ -3,15 +3,22 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 )
 
-// ErrNotExecuted marks a Call or Stream error as a definite non-execution: the
-// provider operation did not run. Middleware that rejects before delegating wraps
-// its error with it so a consumer can settle a definite failure rather than
-// reconcile an unknown; an unmarked error keeps the safe default that the
-// operation may have executed.
-var ErrNotExecuted = errors.New("chat: model operation not executed")
+// ErrDefiniteFailure marks a Call or Stream error as a known, terminal failure
+// rather than an uncertain outcome, so a consumer settles it as a definite failure
+// instead of reconciling an unknown. Only a boundary that holds the execution
+// evidence wraps it; an unmarked error keeps the safe default that the operation
+// may have executed and its outcome is unknown.
+var ErrDefiniteFailure = errors.New("chat: definite model failure")
+
+// ErrNotExecuted is the definite failure in which the provider operation did not
+// run. Middleware that rejects a request before delegating wraps its error with
+// it; a failure after the model ran, such as a rejected output, wraps
+// ErrDefiniteFailure without claiming non-execution.
+var ErrNotExecuted = fmt.Errorf("%w: operation not executed", ErrDefiniteFailure)
 
 // Model performs a complete provider-neutral exchange; streaming is a separate capability.
 type Model interface {

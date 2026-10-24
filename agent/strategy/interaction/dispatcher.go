@@ -178,8 +178,8 @@ func (d *Dispatcher) dispatchModel(
 	}
 	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
-		if errors.Is(err, chat.ErrNotExecuted) {
-			// A proven non-execution is a definite failure, not an unknown to reconcile.
+		if errors.Is(err, chat.ErrDefiniteFailure) {
+			// A definite failure settles as Failed, not an unknown to reconcile.
 			return failedSettlement(err)
 		}
 		return agent.Settlement{}, err
@@ -270,7 +270,7 @@ func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvo
 	}()
 	response, err = d.callModel(ctx, request, emit, remainingBytes)
 	if err != nil {
-		if errors.Is(err, chat.ErrNotExecuted) {
+		if errors.Is(err, chat.ErrDefiniteFailure) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("interaction: model outcome unknown: %w", err)
