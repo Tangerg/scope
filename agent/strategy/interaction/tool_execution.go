@@ -237,10 +237,18 @@ func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transiti
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	// The input response is the Tool's resume input, not this wait's output, and it
-	// is validated against the request's response schema both client-side and when
-	// the continuation is built, so the wait carries no admission schema here.
-	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key})
+	// The admitted answer is the input-response envelope the continuation consumes.
+	// The wait validates it against the request's response schema at admission, so
+	// the mailbox rejects a schema-invalid answer and keeps the wait open like the
+	// input gate; the answer is the Tool's resume input, never this wait's output.
+	answerSchema, err := jsonschema.Parse([]byte(fmt.Sprintf(
+		`{"type":"object","properties":{"input_response":%s},"required":["input_response"],"additionalProperties":false}`,
+		request.ResponseSchema().JSON(),
+	)))
+	if err != nil {
+		return agent.Transition{}, err
+	}
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key, AnswerSchema: answerSchema})
 	if err != nil {
 		return agent.Transition{}, err
 	}

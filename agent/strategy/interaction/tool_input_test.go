@@ -317,28 +317,33 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, deliveryErr := toolProcess.DeliverSignals(ctx, signal); deliveryErr != nil || !accepted {
+	accepted, deliveryErr := toolProcess.DeliverSignals(ctx, signal)
+	if response != value {
+		// The wait owns the response schema, so a schema-invalid answer is rejected
+		// at admission and keeps the wait open; a valid answer then still completes.
+		if accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+			t.Fatalf("invalid answer accepted=%t error=%v", accepted, deliveryErr)
+		}
+		validID, parseErr := agent.ParseSignalID("signal:valid-answer")
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		valid, validErr := interaction.NewToolInputResponseSignal(validID, pending.WaitID(), json.RawMessage(value))
+		if validErr != nil {
+			t.Fatal(validErr)
+		}
+		if a, e := toolProcess.DeliverSignals(ctx, valid); e != nil || !a {
+			t.Fatalf("valid answer after rejection accepted=%t error=%v", a, e)
+		}
+	} else if deliveryErr != nil || !accepted {
 		t.Fatalf("response accepted=%t error=%v", accepted, deliveryErr)
 	}
 	result, err := process.Await(ctx)
-	wantStatus := agent.StatusCompleted
-	if response != value {
-		wantStatus = agent.StatusFailed
-	}
-	if err != nil || result.Termination().Status() != wantStatus {
+	if err != nil || result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("result status=%s error=%v", result.Termination().Status(), err)
 	}
-	select {
-	case continuation := <-resumed:
-		if response != value {
-			t.Fatal("tool resumed with an invalid response")
-		}
-		if string(continuation.State()) != value || string(continuation.Response()) != value {
-			t.Fatalf("resumed state=%s response=%s", continuation.State(), continuation.Response())
-		}
-	default:
-		if response == value {
-			t.Fatal("tool did not resume")
-		}
+	continuation := <-resumed
+	if string(continuation.State()) != value || string(continuation.Response()) != value {
+		t.Fatalf("resumed state=%s response=%s", continuation.State(), continuation.Response())
 	}
 }
