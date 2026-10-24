@@ -270,7 +270,16 @@ func (e *Engine) Start(ctx context.Context, deployment Deployment, input Payload
 		return nil, captureErr
 	}
 	if err := runtime.writer.commitStart(ctx, baseSnapshot); err != nil {
-		return nil, err
+		// The initial checkpoint was attempted but not acknowledged. Surface the
+		// allocated root and attempted-head identity so the Host can reconcile; an
+		// attempted head is never presented as an acknowledged one.
+		return nil, &StartError{
+			rootID:      relation.RootID(),
+			incarnation: runtime.writer.incarnation(),
+			sequence:    1,
+			digest:      baseSnapshot.Digest(),
+			err:         err,
+		}
 	}
 
 	e.publishProcessStart(handle)
