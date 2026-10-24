@@ -161,11 +161,7 @@ func (t *toolExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		}
 		return t.acceptResult(envelope)
 	case toolWaitingInput:
-		envelope, err := decodeSignal(signal.Payload())
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		return t.acceptInputResponse(signal, envelope)
+		return t.acceptInputResponse(signal)
 	default:
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
@@ -180,14 +176,14 @@ func (t *toolExecution) acceptWaitOpened(signal agent.Signal) (agent.Transition,
 	return agent.Wait(1, waitID)
 }
 
-func (t *toolExecution) acceptInputResponse(signal agent.Signal, envelope signalEnvelope) (agent.Transition, error) {
+func (t *toolExecution) acceptInputResponse(signal agent.Signal) (agent.Transition, error) {
 	waitID, addressed := signal.WaitID()
-	if envelope.operation() != operationInputResponse || !addressed || waitID != *t.state.WaitID {
+	if !signal.Valid() || signal.EngineOwned() || !addressed || waitID != *t.state.WaitID {
 		return agent.Transition{}, ErrInvalidExecutionState
 	}
 	return t.request(1, toolDispatchRequest{
 		Invocation: t.state.Call,
-		Resume:     &toolResume{InputRequest: *t.state.InputRequest, InputResponse: envelope.InputResponse},
+		Resume:     &toolResume{InputRequest: *t.state.InputRequest, InputResponse: signal.Payload()},
 	})
 }
 
@@ -237,18 +233,9 @@ func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transiti
 	if err != nil {
 		return agent.Transition{}, err
 	}
-	// The admitted answer is the input-response envelope the continuation consumes.
-	// The wait validates it against the request's response schema at admission, so
-	// the mailbox rejects a schema-invalid answer and keeps the wait open like the
-	// input gate; the answer is the Tool's resume input, never this wait's output.
-	answerSchema, err := jsonschema.Parse([]byte(fmt.Sprintf(
-		`{"type":"object","properties":{"input_response":%s},"required":["input_response"],"additionalProperties":false}`,
-		request.ResponseSchema().JSON(),
-	)))
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key, AnswerSchema: answerSchema})
+	// The mailbox admits the same response the continuation consumes. Keeping
+	// its Schema intact preserves local references, anchors and resource IDs.
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key, AnswerSchema: request.ResponseSchema()})
 	if err != nil {
 		return agent.Transition{}, err
 	}

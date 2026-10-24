@@ -82,8 +82,10 @@
 // [NewSteerSignal] steering accepted during model or child work applies before
 // the next model call, after the current result batch; it never preempts a
 // model request or answers a Tool input wait. Tool answers address the Tool
-// child's wait through [PendingToolInputs]. A parent Strategy delivers the
-// same SignalRequest through agent.NewChildSignalEffect. Unsupported envelopes
-// are rejected before admission; semantic protocol violations discard the Step
+// child's wait through [PendingToolInputs]. The answer payload is the original
+// response JSON, validated against the unchanged response Schema by that wait;
+// schema resources and local references retain their original scope. A parent
+// Strategy delivers the same SignalRequest through agent.NewChildSignalEffect.
+// Unsupported envelopes are rejected before admission; semantic protocol violations discard the Step
 // with a contract Failure, and a Step error never consumes input.
 package interaction

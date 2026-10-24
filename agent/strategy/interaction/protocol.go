@@ -17,10 +17,9 @@ import (
 type operation string
 
 const (
-	operationModelCall     operation = "model_call"
-	operationToolCall      operation = "tool_call"
-	operationInputResponse operation = "input_response"
-	operationSteer         operation = "steer"
+	operationModelCall operation = "model_call"
+	operationToolCall  operation = "tool_call"
+	operationSteer     operation = "steer"
 )
 
 // effectEnvelope carries exactly one request; the member present names its
@@ -76,10 +75,9 @@ type toolResume struct {
 // signalEnvelope carries exactly one result or input; the member present
 // names its operation.
 type signalEnvelope struct {
-	ModelResult   *modelCallResult    `json:"model_result,omitzero"`
-	ToolResult    *toolDispatchResult `json:"tool_result,omitzero"`
-	InputResponse json.RawMessage     `json:"input_response,omitzero"`
-	Steer         *steerInput         `json:"steer,omitzero"`
+	ModelResult *modelCallResult    `json:"model_result,omitzero"`
+	ToolResult  *toolDispatchResult `json:"tool_result,omitzero"`
+	Steer       *steerInput         `json:"steer,omitzero"`
 }
 
 // modelCallResult is a successful model call's settlement payload. The
@@ -241,8 +239,6 @@ func (s signalEnvelope) operation() operation {
 		return operationModelCall
 	case s.ToolResult != nil:
 		return operationToolCall
-	case len(s.InputResponse) != 0:
-		return operationInputResponse
 	case s.Steer != nil:
 		return operationSteer
 	default:
@@ -256,8 +252,6 @@ func (s signalEnvelope) validate() error {
 		return s.validateModelResult()
 	case operationToolCall:
 		return s.validateToolResult()
-	case operationInputResponse:
-		return s.validateInputResponse()
 	case operationSteer:
 		return s.validateSteer()
 	default:
@@ -266,14 +260,14 @@ func (s signalEnvelope) validate() error {
 }
 
 func (s signalEnvelope) validateModelResult() error {
-	if s.ModelResult == nil || s.ToolResult != nil || len(s.InputResponse) != 0 || s.Steer != nil {
+	if s.ModelResult == nil || s.ToolResult != nil || s.Steer != nil {
 		return fmt.Errorf("%w: model_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return s.ModelResult.validate()
 }
 
 func (s signalEnvelope) validateToolResult() error {
-	if s.ModelResult != nil || s.ToolResult == nil || len(s.InputResponse) != 0 || s.Steer != nil {
+	if s.ModelResult != nil || s.ToolResult == nil || s.Steer != nil {
 		return fmt.Errorf("%w: tool_result signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return s.ToolResult.validate()
@@ -335,18 +329,8 @@ func (t toolCallResult) validateCall(call chat.ToolCall) error {
 	return nil
 }
 
-func (s signalEnvelope) validateInputResponse() error {
-	if s.ModelResult != nil || s.ToolResult != nil || len(s.InputResponse) == 0 || s.Steer != nil {
-		return fmt.Errorf("%w: input_response signal has an invalid payload set", ErrInvalidProtocol)
-	}
-	if _, err := parseToolInputJSON(s.InputResponse); err != nil {
-		return fmt.Errorf("%w: input_response: %w", ErrInvalidProtocol, err)
-	}
-	return nil
-}
-
 func (s signalEnvelope) validateSteer() error {
-	if s.ModelResult != nil || s.ToolResult != nil || len(s.InputResponse) != 0 || s.Steer == nil {
+	if s.ModelResult != nil || s.ToolResult != nil || s.Steer == nil {
 		return fmt.Errorf("%w: steer signal has an invalid payload set", ErrInvalidProtocol)
 	}
 	return validateSteeringMessages(s.Steer.Messages)

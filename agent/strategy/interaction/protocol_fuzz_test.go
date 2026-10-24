@@ -84,7 +84,6 @@ func FuzzInteractionSignalProtocol(f *testing.F) {
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: result.Output, AdvertisedToolNames: []string{"ask"}}}},
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
 		{ToolResult: &toolDispatchResult{InputRequest: &request}},
-		{InputResponse: json.RawMessage(`{"answer":9007199254740993}`)},
 		{Steer: &steerInput{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("continue"))}}},
 	} {
 		encoded, err := jsonv2.Marshal(signal, jsonv2.Deterministic(true))
@@ -136,16 +135,24 @@ func fuzzToolInputRequest(f *testing.F) tool.InputRequest {
 }
 
 func TestInputResponseRequiresPresentJSON(t *testing.T) {
-	if _, err := decodeSignal([]byte(`{}`)); err == nil {
+	id, err := agent.ParseSignalID("signal:answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, err := agent.ParseWaitID("wait:answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewToolInputResponseSignal(id, waitID, nil); err == nil {
 		t.Fatal("accepted a missing answer")
 	}
 	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
-		signal, err := decodeSignal([]byte(`{"input_response":` + raw + `}`))
+		signal, err := NewToolInputResponseSignal(id, waitID, json.RawMessage(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(signal.InputResponse) != raw {
-			t.Fatalf("answer = %s, want %s", signal.InputResponse, raw)
+		if string(signal.Payload()) != raw {
+			t.Fatalf("answer = %s, want %s", signal.Payload(), raw)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -10,8 +9,9 @@ import (
 )
 
 // NewToolInputResponseSignal validates JSON and addresses the exact wait.
-// Execution checks the authoritative response schema; PendingToolInput.ResponseSignal
-// also validates that schema locally.
+// Its payload is the response JSON itself, so the wait enforces the original
+// response Schema without rebasing references or changing its resource scope.
+// PendingToolInput.ResponseSignal also validates that Schema locally.
 func NewToolInputResponseSignal(
 	id agent.SignalID,
 	waitID agent.WaitID,
@@ -24,13 +24,7 @@ func NewToolInputResponseSignal(
 	if err != nil {
 		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", tool.ErrInvalidInputRequest, err)
 	}
-	payload, err := jsonv2.Marshal(signalEnvelope{
-		InputResponse: input.JSON(),
-	}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agent.SignalRequest{}, err
-	}
-	return agent.NewSignalRequest(id, waitID, payload)
+	return agent.NewSignalRequest(id, waitID, input.JSON())
 }
 
 func parseToolInputJSON(data json.RawMessage) (agent.Payload, error) {

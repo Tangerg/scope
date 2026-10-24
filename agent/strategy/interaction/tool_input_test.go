@@ -14,6 +14,7 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -230,14 +231,59 @@ func TestToolInputResponsePreservesNumbersAcrossRestore(t *testing.T) {
 		{name: "facade", facade: true, response: "9007199254740993"},
 		{name: "invalid primitive response", response: "9007199254740992"},
 	} {
-		t.Run(sample.name, func(t *testing.T) { testNumericToolInputRestore(t, sample.facade, sample.response) })
+		t.Run(sample.name, func(t *testing.T) {
+			testToolInputRestore(t, sample.facade, `{"const":9007199254740993}`, "9007199254740993", "9007199254740992", sample.response)
+		})
 	}
 }
 
-func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
+func TestToolInputResponsePreservesSchemaResourcesAcrossRestore(t *testing.T) {
+	type answerValue struct {
+		Text string `json:"text"`
+	}
+	type answer struct {
+		Nested answerValue `json:"nested"`
+	}
+	derived, err := jsonschema.For[answer]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sample := range []struct {
+		name, schema, value, invalid string
+	}{
+		{name: "derived definitions", schema: string(derived.JSON()), value: `{"nested":{"text":"valid"}}`, invalid: `{"nested":{"text":1}}`},
+		{name: "recursive definition", schema: `{"$defs":{"node":{"type":"object","properties":{"value":{"type":"integer"},"next":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/node"}]}},"required":["value","next"],"additionalProperties":false}},"$ref":"#/$defs/node"}`, value: `{"value":9007199254740993,"next":{"value":1,"next":null}}`, invalid: `{"value":"bad","next":null}`},
+		{name: "resource anchor", schema: `{"$id":"urn:answer:root","$defs":{"value":{"$anchor":"answer","const":"valid"}},"$ref":"#answer"}`, value: `"valid"`, invalid: `"invalid"`},
+		{name: "input_response business member", schema: `{"type":"object","properties":{"input_response":{"const":"valid"}},"required":["input_response"],"additionalProperties":false}`, value: `{"input_response":"valid"}`, invalid: `{"input_response":"invalid"}`},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			for _, facade := range []bool{false, true} {
+				t.Run(fmt.Sprintf("facade=%t", facade), func(t *testing.T) {
+					testToolInputRestore(t, facade, sample.schema, sample.value, sample.invalid, sample.value)
+				})
+			}
+			t.Run("reject then accept", func(t *testing.T) {
+				testToolInputRestore(t, false, sample.schema, sample.value, sample.invalid, sample.invalid)
+			})
+		})
+	}
+}
+
+func testToolInputRestore(t *testing.T, facade bool, schema, value, invalid, response string) {
 	t.Helper()
-	const value = "9007199254740993"
-	const schema = `{"const":9007199254740993}`
+	compiled, err := jsonschema.Parse([]byte(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema = string(compiled.JSON())
+	normalize := func(raw string) string {
+		payload, parseErr := agent.ParsePayload([]byte(raw))
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		return string(payload.JSON())
+	}
+	value, response = normalize(value), normalize(response)
 	resumed := make(chan tool.Continuation, 1)
 	executable, err := newContinuingTool(tool.FuncConfig{
 		Name: "confirm_number", Description: "Confirm an exact numeric value.",
@@ -305,7 +351,7 @@ func testNumericToolInputRestore(t *testing.T, facade bool, response string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, responseErr := pending.ResponseSignal(id, json.RawMessage(`9007199254740992`)); !errors.Is(responseErr, tool.ErrInvalidInputRequest) {
+	if _, responseErr := pending.ResponseSignal(id, json.RawMessage(invalid)); !errors.Is(responseErr, tool.ErrInvalidInputRequest) {
 		t.Fatalf("adjacent integer validation error=%v", responseErr)
 	}
 	var signal agent.SignalRequest
