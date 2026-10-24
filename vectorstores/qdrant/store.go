@@ -54,10 +54,10 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err = schema.read(info); err != nil {
 		return nil, err
 	}
+	// Construction verifies connectivity, the concrete collection, and schema
+	// compatibility; it does not audit every record. Full-source integrity is an
+	// explicit maintenance concern, not an implicit cost of opening the store.
 	store := &Store{client: config.Client, embeddingClient: model, documentBatcher: config.DocumentBatcher, collectionName: config.CollectionName, schema: schema}
-	if _, err = store.selectMetadata(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -119,12 +119,20 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	selected, err := s.selectMetadata(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	// Without a predicate there is nothing to pre-select, so the native query alone
+	// computes the result: an unfiltered Search no longer enumerates and validates
+	// the whole collection, and a stored record outside the ranked result cannot
+	// fail it. A filtered Search still reads the source because Core filter.Match
+	// owns predicate semantics the native query cannot express.
+	var selected []string
+	if request.Options.Filter != nil {
+		selected, err = s.selectMetadata(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

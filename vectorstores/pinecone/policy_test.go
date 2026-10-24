@@ -120,7 +120,7 @@ func (o *observedClient) Index(params pineconesdk.NewIndexConnParams, options ..
 }
 
 func TestConstructionUsesNativeSDKPolicyAndOwnsOnlyOpenedConnection(t *testing.T) {
-	for _, failure := range []string{"", "list denied", "open error", "nil connection"} {
+	for _, failure := range []string{"", "open error", "nil connection"} {
 		t.Run(failure, func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {

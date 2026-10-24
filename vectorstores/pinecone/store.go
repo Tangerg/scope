@@ -65,10 +65,10 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if index == nil {
 		return nil, errors.New("pinecone: native client returned no data connection")
 	}
+	// Construction verifies connectivity and schema compatibility; it does not
+	// audit every record. Full-source integrity is an explicit maintenance concern,
+	// not an implicit cost of opening the store.
 	store := &Store{index: index, schema: schema, embeddingClient: model, documentBatcher: config.DocumentBatcher}
-	if _, err = store.selectMetadata(ctx, nil); err != nil {
-		return nil, errors.Join(err, index.Close())
-	}
 	return store, nil
 }
 
@@ -140,12 +140,19 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	values, err := s.selectMetadata(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(values) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	// Without a predicate the native query alone computes the result, so an
+	// unfiltered Search neither lists-and-fetches the whole namespace nor validates
+	// records outside the ranked result. A filtered Search still reads the source
+	// because Core filter.Match owns predicate semantics the native query lacks.
+	var values []string
+	if request.Options.Filter != nil {
+		values, err = s.selectMetadata(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(values) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

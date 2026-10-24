@@ -360,6 +360,10 @@ func (s *SearchResponse) Documents() []*document.Document {
 // Searcher retrieves documents ranked by query relevance in descending order.
 type Searcher interface {
 	// Search returns a response honoring the mode, semantic score threshold,
-	// metadata filter, and result cap owned by [SearchRequest.Options].
+	// metadata filter, and result cap owned by [SearchRequest.Options]. It
+	// validates the request, the records it reads to compute the result, and the
+	// response; it is not a full-source integrity audit and must not fail because
+	// of a stored record that no result or predicate requires it to read. Keeping
+	// every record valid belongs to the write boundary and to explicit maintenance.
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 }

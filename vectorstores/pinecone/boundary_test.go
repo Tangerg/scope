@@ -93,7 +93,10 @@ func TestSelectionFailuresNeverPublishDeletionOrQuery(t *testing.T) {
 				}
 				return page, nil
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+			// A filtered Search exercises the selection path; its failures must prevent
+			// the query. An unfiltered Search no longer selects, so it cannot be used
+			// to drive these cases.
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "a")}})
 			if err == nil || response != nil || len(native.queries) != 0 {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
@@ -157,14 +160,17 @@ func TestSearchRequestAndEmptyResultContracts(t *testing.T) {
 	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: MaxTopK + 1}}); response != nil || !errors.Is(err, vectorstore.ErrInvalidOptions) {
 		t.Fatalf("TopK: %v, %v", response, err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
-	if err != nil || response == nil || len(response.Results) != 0 || len(native.queries) != 0 {
-		t.Fatalf("empty namespace: %v, %v", response, err)
-	}
-	installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
+	// An unfiltered Search issues the native query directly instead of listing the
+	// namespace first, so it runs exactly one query and returns no results when the
+	// namespace is empty.
 	native.query = func(*pineconesdk.QueryByVectorValuesRequest) (*pineconesdk.QueryVectorsResponse, error) {
 		return &pineconesdk.QueryVectorsResponse{Namespace: native.Namespace()}, nil
 	}
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+	if err != nil || response == nil || len(response.Results) != 0 || len(native.queries) != 1 {
+		t.Fatalf("empty namespace: %v, %v", response, err)
+	}
+	installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
 	if response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"}); err != nil || response == nil || len(response.Results) != 0 {
 		t.Fatalf("empty query: %v, %v", response, err)
 	}
@@ -173,7 +179,8 @@ func TestSearchRequestAndEmptyResultContracts(t *testing.T) {
 	native.list = func(*pineconesdk.ListVectorsRequest) (*pineconesdk.ListVectorsResponse, error) {
 		return nil, context.Cause(canceled)
 	}
-	if response, err = store.Search(canceled, &vectorstore.SearchRequest{Query: "q"}); response != nil || !errors.Is(err, context.Canceled) {
+	// A filtered Search reaches the selection path that observes cancellation.
+	if response, err = store.Search(canceled, &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "a")}}); response != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled: %v, %v", response, err)
 	}
 }

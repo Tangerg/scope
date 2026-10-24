@@ -21,16 +21,19 @@
 // Native record IDs and namespaces must be ASCII without NUL, at most 512
 // characters; IDs must be nonempty. Identity is preserved without escaping.
 //
-// Construction and every search read the complete namespace through native list
-// and fetch. Every source record must satisfy the current schema, including
-// records outside a predicate or relevance threshold. Core filter.Match alone
-// decides predicate membership. Filtered searches query native metadata_json
-// string membership in bounded groups; both filtered and unfiltered searches use
-// native ranking. Groups merge by raw native scores before TopK and Core score
-// normalization. Cosine uses Core cosine normalization, dotproduct uses Core
-// inner-product normalization, and Euclidean uses Core distance normalization.
-// Scores, dimensions and complete native records are validated before returning
-// any results. The adapter supports semantic search only.
+// An unfiltered search issues the native query alone; it neither lists-and-fetches
+// the namespace nor validates records outside the ranked result, so a record no
+// result requires cannot fail it. A filtered search still reads the namespace
+// through native list and fetch, because Core filter.Match owns predicate
+// semantics the native query lacks; records a predicate selects are validated and
+// query native metadata_json string membership in bounded groups. Keeping every
+// record valid belongs to the write boundary and to explicit maintenance, not to
+// an ordinary search. Both paths use native ranking; groups merge by raw native
+// scores before TopK and Core score normalization. Cosine uses Core cosine
+// normalization, dotproduct uses Core inner-product normalization, and Euclidean
+// uses Core distance normalization. Scores, dimensions and complete native
+// records are validated before returning any results. The adapter supports
+// semantic search only.
 //
 // DeleteWhere first completes Core selection, then issues native conditional
 // deletions by the selected complete metadata_json strings. The native deletion

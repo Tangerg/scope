@@ -21,15 +21,19 @@
 // protobuf dense representation without a legacy vector-data fallback.
 // Documents containing media are rejected before indexing I/O.
 //
-// Construction and every Search scroll the complete collection with payload and
-// vectors, requiring every record to satisfy the current schema even outside a
-// predicate or score threshold. Core filter.Match alone decides membership.
-// Filtered queries constrain native metadata_json string membership in bounded
-// groups. Both search paths use native ranking, merge raw native scores before
-// TopK, and then apply Core normalization and MinScore. There is no inverse score
-// formula or native relevance threshold hiding malformed results. The adapter
-// supports semantic search only. Full scans require O(N) reads and identity and
-// metadata tracking; query merging holds up to O(groups * TopK) hits.
+// An unfiltered Search issues the native query alone: it neither enumerates the
+// collection nor validates records outside the ranked result, so a stored record
+// a result never includes cannot fail it. A filtered Search still scrolls the
+// collection with payload and vectors, because Core filter.Match owns predicate
+// semantics the native query cannot express; records a predicate selects are
+// validated and constrain native metadata_json string membership in bounded
+// groups. Keeping every record valid is the write boundary's and an explicit
+// maintenance scan's concern, not an ordinary Search. Both paths use native
+// ranking, merge raw native scores before TopK, then apply Core normalization and
+// MinScore. There is no inverse score formula or native relevance threshold
+// hiding malformed results. The adapter supports semantic search only. A filtered
+// scan requires O(N) reads and identity and metadata tracking; query merging
+// holds up to O(groups * TopK) hits.
 //
 // DeleteWhere completes Core selection, then deletes through native payload
 // conditions on the selected metadata_json values. A point with a different
