@@ -263,11 +263,7 @@ func decodeBriefing(result agent.Result) (briefOutput, error) {
 	if output.ModelResponse == nil {
 		return briefOutput{}, errors.New("MCP briefing completed with direct tool results instead of a model response")
 	}
-	var brief briefOutput
-	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &brief); err != nil {
-		return briefOutput{}, fmt.Errorf("decode model response as brief: %w", err)
-	}
-	return brief, nil
+	return chatclient.JSON[briefOutput]().Decode(output.ModelResponse)
 }
 
 func buildMCPServer() (*sdkmcp.Server, error) {

@@ -283,10 +283,7 @@ func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, er
 	if output.ModelResponse == nil {
 		return zero, errors.New("interaction did not return a model response")
 	}
-	if err := jsonv2.Unmarshal([]byte(output.ModelResponse.Text()), &zero, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return zero, fmt.Errorf("decode model JSON: %w", err)
-	}
-	return zero, nil
+	return chatclient.JSON[T]().Decode(output.ModelResponse)
 }
 
 func decodeCompleted[T any](result agent.Result) (T, error) {
