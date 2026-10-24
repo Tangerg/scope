@@ -117,7 +117,13 @@ func (s *snippetStream) accept(event ttsStreamEvent) error {
 	return nil
 }
 
+// complete reports whether the stream delivered a well-formed generation. A clean
+// EOF is success only when at least one snippet arrived and every started snippet
+// reached its final chunk; an empty body carries no completion evidence and fails.
 func (s *snippetStream) complete() error {
+	if len(s.snippets) == 0 {
+		return errors.New("hume: stream ended before any audio snippet arrived")
+	}
 	for _, progress := range s.snippets {
 		if !progress.finished {
 			return errors.New("hume: stream ended before every snippet completed")

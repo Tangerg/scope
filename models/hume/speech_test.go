@@ -101,6 +101,7 @@ func TestStreamCompletesEveryStartedSnippet(t *testing.T) {
 		chunks     int
 		fail       bool
 	}{
+		{"empty", "", 0, true},
 		{"truncated", first + "\n", 1, true},
 		{"two snippets", first + "\n" + final + "\n" + second + "\n", 3, false},
 		{"after final", first + "\n" + final + "\n" + final + "\n", 2, true},
