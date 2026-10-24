@@ -77,13 +77,19 @@ func (m *Middleware) screenOutput(ctx context.Context, response *chat.Response) 
 	return m.screen(ctx, ScopeOutput, response.Output.Text())
 }
 
+// notExecuted marks an input-screening failure: the model has not run, so a
+// consumer settles a definite failure instead of an unknown. Output screening
+// must not use it, because by then the model has already run.
+func notExecuted(err error) error {
+	return fmt.Errorf("%w: %w", chat.ErrNotExecuted, err)
+}
+
 // Call is a [chat.CallMiddleware]. Input is screened before the model runs;
 // output is screened before a response becomes visible to the caller.
 func (m *Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		if err := m.screenInput(ctx, request); err != nil {
-			// Input rejection happens before next.Call, so the model did not run.
-			return nil, fmt.Errorf("%w: %w", chat.ErrNotExecuted, err)
+			return nil, notExecuted(err)
 		}
 
 		response, err := next.Call(ctx, request)
@@ -102,8 +108,7 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 	return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
 			if err := m.screenInput(ctx, request); err != nil {
-				// Input rejection happens before next.Stream, so the model did not run.
-				yield(nil, fmt.Errorf("%w: %w", chat.ErrNotExecuted, err))
+				yield(nil, notExecuted(err))
 				return
 			}
 

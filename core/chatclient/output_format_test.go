@@ -104,9 +104,6 @@ func TestOutputFormatDecodeBoundaries(t *testing.T) {
 	}
 }
 
-// TestOutputFormatDecodePublic covers the public Decode entry a managed caller
-// uses on an already-obtained response, so it shares one structured-output rule
-// with Client.Output instead of a weaker bare unmarshal.
 func TestOutputFormatDecodePublic(t *testing.T) {
 	format := JSON[recipe]()
 	want := recipe{Name: "tea", Steps: []string{"boil", "steep"}}
@@ -116,7 +113,6 @@ func TestOutputFormatDecodePublic(t *testing.T) {
 		t.Fatalf("Decode complete = (%#v, %v), want %#v", got, err, want)
 	}
 
-	// Decode guards the zero-value format, which the private decodeResponse does not.
 	if _, err := (OutputFormat[recipe]{}).Decode(responseWithText(t, `{"name":"tea","steps":[]}`)); !errors.Is(err, ErrInvalidOutputFormat) {
 		t.Fatalf("zero format Decode error = %v", err)
 	}
@@ -125,13 +121,11 @@ func TestOutputFormatDecodePublic(t *testing.T) {
 		t.Fatalf("nil response Decode error = %v", err)
 	}
 
-	// A refusal is not a completed result even when its text would parse as T.
 	refusal := responseWithParts(t, chat.FinishReasonRefusal, chat.NewRefusalPart(`{"name":"tea","steps":[]}`))
 	if _, err := format.Decode(refusal); !errors.Is(err, ErrInvalidOutput) {
 		t.Fatalf("refusal Decode error = %v", err)
 	}
 
-	// A non-stop finish reason is rejected even when the text is valid JSON.
 	truncated := responseWithParts(t, chat.FinishReasonLength, chat.NewTextPart(`{"name":"tea","steps":[]}`))
 	var completion *OutputCompletionError
 	if _, err := format.Decode(truncated); !errors.As(err, &completion) || completion.FinishReason != chat.FinishReasonLength {

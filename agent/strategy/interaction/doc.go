@@ -22,7 +22,9 @@
 // Model-call and child work quotas default to unlimited; a finite zero
 // MaxModelCalls is rejected at construction. Model boundary errors, including
 // nil or structurally invalid responses, leave the Effect Unknown and require
-// explicit Host resolution. A structurally valid response that violates
+// explicit Host resolution; an error that wraps [chat.ErrNotExecuted] instead
+// settles a definite failure, because the model provably did not run. A
+// structurally valid response that violates
 // Interaction constraints terminates with external /
 // interaction.model.invalid_response without retrying the model or committing
 // the rejected Step. Model preparation errors settle as definite host failures

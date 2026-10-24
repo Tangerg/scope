@@ -13,8 +13,6 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-// countingToolDispatcher is a transparent decorator that records how many live
-// dispatches run through it while preserving the wrapped settlement and Policy.
 type countingToolDispatcher struct {
 	next       agent.Dispatcher
 	dispatches *atomic.Int32
@@ -76,8 +74,6 @@ func TestToolSetDecorateDispatcherWrapsLiveDispatch(t *testing.T) {
 	if result.Termination().Status() != agent.StatusCompleted {
 		t.Fatalf("status = %s", result.Termination().Status())
 	}
-	// Construction wraps the Tool dispatcher once; the wrapper then sits on the
-	// live Tool-call dispatch path.
 	if constructions.Load() != 1 || dispatches.Load() < 1 {
 		t.Fatalf("decorator constructions=%d dispatches=%d, want one construction and a wrapped dispatch", constructions.Load(), dispatches.Load())
 	}

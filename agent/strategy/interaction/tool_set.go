@@ -22,13 +22,11 @@ type ToolSetConfig struct {
 	DeferredTools []tool.Tool
 	// Observer receives exact Tool call facts. Nil disables observation.
 	Observer ToolObserver
-	// DecorateDispatcher optionally wraps the Tool child's Dispatcher once, at
-	// construction, before the Deployment is frozen. It lets a Host observe or
-	// augment the full Dispatch boundary of every Tool call, which ToolObserver
-	// and per-Tool wrappers cannot reach. The wrapper must delegate to the
-	// supplied Dispatcher and preserve its Settlement, Policy, and replay
-	// semantics; recovery through SettleToolResult uses the undecorated Dispatcher.
-	// The decoration is behavior, so the Host must fold it into the digests below.
+	// DecorateDispatcher optionally wraps the Tool child's Dispatcher once at
+	// construction, reaching the full Dispatch boundary that ToolObserver and
+	// per-Tool wrappers cannot. The wrapper must delegate and preserve the
+	// Settlement, Policy, and replay semantics; SettleToolResult recovery uses the
+	// undecorated Dispatcher, and the Host folds the decoration into the digests.
 	DecorateDispatcher   func(agent.Dispatcher) (agent.Dispatcher, error)
 	ImplementationDigest agent.Digest
 	ConfigurationDigest  agent.Digest
@@ -74,8 +72,8 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if err != nil {
 		return ToolSet{}, fmt.Errorf("%w: %w", ErrInvalidToolSet, err)
 	}
-	// Live dispatch runs through the decorated Dispatcher; the ToolSet keeps the
-	// original so manifest scheduling and SettleToolResult recovery bypass it.
+	// The ToolSet keeps the original Dispatcher so manifest scheduling and
+	// SettleToolResult recovery bypass any decorator.
 	deployed := agent.Dispatcher(dispatcher)
 	if config.DecorateDispatcher != nil {
 		deployed, err = config.DecorateDispatcher(dispatcher)

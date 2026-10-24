@@ -95,12 +95,10 @@ func (o OutputFormat[T]) validate() error {
 	return nil
 }
 
-// Decode applies this format's completion contract to an already-obtained
-// response and decodes it into T without any model call. It enforces the same
-// finish-reason, refusal, unsupported-part, schema, and strict-JSON rules as
-// [Client.Output]. Callers that obtain a response elsewhere, such as a managed
-// Agent that already ran the model, decode it here so direct and managed paths
-// share one structured-output rule instead of reimplementing a weaker one.
+// Decode decodes an already-obtained response into T under the same rule as
+// [Client.Output], without a model call, so a caller that already holds a
+// response, such as a managed Agent, reuses one structured-output rule instead
+// of a weaker copy.
 func (o OutputFormat[T]) Decode(response *chat.Response) (T, error) {
 	var zero T
 	if err := o.validate(); err != nil {
