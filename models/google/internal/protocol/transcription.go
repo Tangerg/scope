@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -109,20 +111,42 @@ func (t *TranscriptionModel) buildTranscriptionResponse(apiResp *genai.GenerateC
 		return nil, fmt.Errorf("google: transcription: %w: candidate has no content", transcription.ErrInvalidResponse)
 	}
 
+	if apiResp.SDKHTTPResponse == nil {
+		return nil, fmt.Errorf("%w: google: transcription has no native response", transcription.ErrInvalidResponse)
+	}
+	var native struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text    json.RawMessage `json:"text"`
+					Thought bool            `json:"thought"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := jsonv2.Unmarshal([]byte(apiResp.SDKHTTPResponse.Body), &native); err != nil {
+		return nil, fmt.Errorf("%w: google: transcription native response: %w", transcription.ErrInvalidResponse, err)
+	}
 	var text strings.Builder
-	for _, part := range apiResp.Candidates[0].Content.Parts {
-		if part == nil {
-			return nil, fmt.Errorf("google: transcription: %w: nil content part", transcription.ErrInvalidResponse)
+	reported := false
+	for _, candidate := range native.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.Thought || len(part.Text) == 0 {
+				continue
+			}
+			var content *string
+			if err := jsonv2.Unmarshal(part.Text, &content); err != nil {
+				return nil, fmt.Errorf("%w: google: transcript text: %w", transcription.ErrInvalidResponse, err)
+			}
+			if content == nil {
+				return nil, fmt.Errorf("%w: google: transcript text must not be null", transcription.ErrInvalidResponse)
+			}
+			reported = true
+			text.WriteString(*content)
 		}
-		// Skip thought-flagged parts: Gemini 2.5 may emit reasoning
-		// before producing the transcript; reasoning text must not be
-		// pasted into the output.
-		if part.Thought {
-			continue
-		}
-		if part.Text != "" {
-			text.WriteString(part.Text)
-		}
+	}
+	if !reported {
+		return nil, fmt.Errorf("%w: google: response contains no transcript", transcription.ErrInvalidResponse)
 	}
 
 	output, err := transcription.NewOutput(text.String(), nil)

@@ -58,9 +58,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		alpha = new(*config.HybridAlpha)
 	}
 	store := &Store{client: config.Client, embeddingClient: model, documentBatcher: config.DocumentBatcher, className: config.ClassName, schema: schema, hybridAlpha: alpha}
-	if _, _, err = store.selectDocuments(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -213,6 +210,9 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate)
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -227,12 +227,16 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	selected, dimensions, err := s.selectDocuments(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	var selected []string
+	dimensions := 0
+	if request.Options.Filter != nil {
+		selected, dimensions, err = s.selectDocuments(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -242,6 +246,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
+	dimensions = len(query)
 	mode := request.Options.EffectiveMode()
 	relevance := additionalDistance
 	if mode == vectorstore.SearchModeHybrid {

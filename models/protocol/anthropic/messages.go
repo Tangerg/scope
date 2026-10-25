@@ -133,7 +133,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := m.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
 			return
 		}
 		stream := m.api.chatCompletionStream(ctx, params)

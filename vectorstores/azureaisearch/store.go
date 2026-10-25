@@ -147,9 +147,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = store.selectIDs(ctx, nil); err != nil {
-		return nil, fmt.Errorf("azureaisearch: verify stored records: %w", err)
-	}
 	return store, nil
 }
 
@@ -310,6 +307,9 @@ type rankedResult struct {
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -327,12 +327,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	ids, err := s.selectIDs(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(ids) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	var ids []string
+	if request.Options.Filter != nil {
+		ids, err = s.selectIDs(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -345,7 +348,9 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	body := map[string]any{
 		"count": false, "top": request.Options.ResultLimit(), "select": s.selectedFields(), "vectorFilterMode": "preFilter",
 		"vectorQueries": []any{map[string]any{"kind": "vector", "vector": queryVector, "k": request.Options.ResultLimit(), "fields": s.embeddingField}},
-		"filter":        "search.in(" + s.idField + ", '" + strings.Join(ids, ",") + "', ',')",
+	}
+	if ids != nil {
+		body["filter"] = "search.in(" + s.idField + ", '" + strings.Join(ids, ",") + "', ',')"
 	}
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		body["search"] = request.Query
@@ -355,7 +360,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > min(len(ids), request.Options.ResultLimit()) {
+	if len(rows) > request.Options.ResultLimit() || ids != nil && len(rows) > len(ids) {
 		return nil, errors.New("azureaisearch: query returned excess records")
 	}
 	expected := make(map[string]struct{}, len(ids))
@@ -369,7 +374,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		if _, exists := expected[doc.ID]; !exists {
+		if _, exists := expected[doc.ID]; ids != nil && !exists {
 			return nil, fmt.Errorf("azureaisearch: query returned unexpected document %q", doc.ID)
 		}
 		if _, duplicate := seen[doc.ID]; duplicate {

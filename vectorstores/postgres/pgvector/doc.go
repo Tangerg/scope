@@ -18,10 +18,11 @@
 // Core filter.Match selects metadata in a serializable source snapshot. Predicate
 // deletion holds native row locks through commit. Index prepares every vector and
 // commits the whole request atomically; conflicts and native failures are errors.
-// Search ranks selected binary IDs with native distance, validates rows before
-// MinScore, and rejects hybrid mode. Content cannot contain NUL; binary identity
-// and encoded metadata can. These full-source reads favor Core semantics over
-// SQL metadata indexes. See the parent postgres package for shared guarantees.
+// Unfiltered Search ranks directly with native distance. Filtered Search ranks
+// the selected binary IDs; its full-source read preserves Core semantics rather
+// than using SQL metadata indexes. Both validate returned rows before MinScore
+// and reject hybrid mode. Content cannot contain NUL; binary identity and encoded
+// metadata can. See the parent postgres package for shared guarantees.
 //
 // Native extension contracts: https://github.com/pgvector/pgvector.
 package pgvector

@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -24,17 +25,78 @@ type ModelObserver interface {
 	OnModelSettled(ctx context.Context, invocation ModelInvocation, settlement ModelSettlement)
 }
 
-// ModelSettlement describes a physical model call, not durable Effect
-// settlement. Response is a detached validated response; without one, no
-// complete response was established and Failure is a bounded diagnostic,
-// never proof that the provider did no work or consumed no tokens.
-type ModelSettlement struct {
-	Response *chat.Response
-	Failure  string
+// ModelOutcome classifies evidence at the physical model boundary. Unobserved
+// belongs only to a recording missing its settlement callback; it is never an
+// emitted ModelSettlement. Failed does not establish whether tokens were used.
+type ModelOutcome string
+
+const (
+	ModelOutcomeInvalid     ModelOutcome = ""
+	ModelOutcomeSucceeded   ModelOutcome = "succeeded"
+	ModelOutcomeFailed      ModelOutcome = "failed"
+	ModelOutcomeNotExecuted ModelOutcome = "not_executed"
+	ModelOutcomeUnknown     ModelOutcome = "unknown"
+	ModelOutcomeUnobserved  ModelOutcome = "unobserved"
+)
+
+func (m ModelOutcome) Valid() bool {
+	switch m {
+	case ModelOutcomeSucceeded, ModelOutcomeFailed, ModelOutcomeNotExecuted, ModelOutcomeUnknown, ModelOutcomeUnobserved:
+		return true
+	default:
+		return false
+	}
 }
 
-// Unknown reports a call that established no complete response.
-func (m ModelSettlement) Unknown() bool { return m.Response == nil }
+// ModelSettlement describes a physical model call, not durable Effect
+// settlement. Outcome is the authoritative classification; Response and Failure
+// carry only its evidence. A validated response survives a later durable
+// admission failure. Only NotExecuted establishes that no provider work ran.
+type ModelSettlement struct {
+	Outcome  ModelOutcome   `json:"outcome"`
+	Response *chat.Response `json:"response,omitzero"`
+	Failure  string         `json:"failure,omitzero"`
+}
+
+func (m ModelSettlement) Validate() error {
+	if m.Failure != "" && !agent.ValidDiagnostic(m.Failure) {
+		return fmt.Errorf("%w: failure must be a bounded diagnostic", ErrInvalidModelSettlement)
+	}
+	switch m.Outcome {
+	case ModelOutcomeSucceeded:
+		if m.Response == nil || m.Failure != "" {
+			return fmt.Errorf("%w: success requires only a response", ErrInvalidModelSettlement)
+		}
+		if err := m.Response.Validate(); err != nil {
+			return fmt.Errorf("%w: response: %w", ErrInvalidModelSettlement, err)
+		}
+	case ModelOutcomeFailed, ModelOutcomeNotExecuted:
+		if m.Response != nil || m.Failure == "" {
+			return fmt.Errorf("%w: definite failure requires only a diagnostic", ErrInvalidModelSettlement)
+		}
+	case ModelOutcomeUnknown:
+		if m.Response != nil {
+			return fmt.Errorf("%w: unknown outcome cannot carry a complete response", ErrInvalidModelSettlement)
+		}
+	default:
+		return fmt.Errorf("%w: a settlement must establish an observed outcome", ErrInvalidModelSettlement)
+	}
+	return nil
+}
+
+func newModelSettlement(response *chat.Response, cause error) ModelSettlement {
+	if cause == nil {
+		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: response}
+	}
+	outcome := ModelOutcomeUnknown
+	switch {
+	case errors.Is(cause, chat.ErrNotExecuted):
+		outcome = ModelOutcomeNotExecuted
+	case errors.Is(cause, chat.ErrDefiniteFailure):
+		outcome = ModelOutcomeFailed
+	}
+	return ModelSettlement{Outcome: outcome, Failure: agent.NormalizeDiagnostic(cause.Error())}
+}
 
 // ToolObserver receives exact Tool-call facts. Callbacks are observational,
 // must return in bounded time, and have their panics isolated. Tool children

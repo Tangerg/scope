@@ -163,7 +163,7 @@ func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	record := fixture.rows["one"]
 	record.MetadataJSON = ""
 	fixture.rows["one"] = record
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}}); err == nil || response != nil || len(fixture.groups) != 0 {
+	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
 		t.Fatalf("malformed record reached native ranking: %#v, %v", response, err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {

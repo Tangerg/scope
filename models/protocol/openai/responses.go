@@ -2,13 +2,16 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"net/http"
 	"slices"
 
 	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 
@@ -56,6 +59,7 @@ const (
 type Responses struct {
 	api      *api
 	defaults corechat.Options
+	dialect  ResponsesDialect
 }
 
 var (
@@ -63,7 +67,17 @@ var (
 	_ corechat.Streamer = (*Responses)(nil)
 )
 
-func NewResponses(_ context.Context, config ResponsesConfig) (*Responses, error) {
+func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, error) {
+	return NewCompatibleResponses(ctx, config, ResponsesDialect{Provider: "openai"})
+}
+
+// NewCompatibleResponses shares the Responses event lifecycle with a provider
+// that explicitly implements it. Provider wrappers expose only supported
+// optional capabilities such as model discovery or input-token counting.
+func NewCompatibleResponses(_ context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
+	if err := dialect.Validate(); err != nil {
+		return nil, err
+	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -71,7 +85,7 @@ func NewResponses(_ context.Context, config ResponsesConfig) (*Responses, error)
 	if err != nil {
 		return nil, err
 	}
-	return &Responses{api: api, defaults: config.DefaultOptions.Clone()}, nil
+	return &Responses{api: api, defaults: config.DefaultOptions.Clone(), dialect: dialect}, nil
 }
 
 // ListModels returns the model IDs visible to this binding in provider order.
@@ -125,7 +139,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := r.buildResponsesRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
 			return
 		}
 		stream, err := r.api.responseNewStream(ctx, params)
@@ -135,17 +149,30 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 		}
 		defer stream.Close()
 
-		state := newResponsesStreamState()
+		state := newResponsesStreamState(r.dialect.Provider + "/responses_response")
 		var terminal *corechat.ResponseDelta
 		for stream.Next() {
+			if terminal != nil {
+				yield(nil, fmt.Errorf("%w: openai responses: event after terminal response", corechat.ErrInvalidResponse))
+				return
+			}
 			response, include, mapErr := state.addEvent(stream.Current())
 			if mapErr != nil {
 				yield(nil, mapErr)
 				return
 			}
-			if terminal != nil {
-				yield(nil, fmt.Errorf("%w: openai responses: event after terminal response", corechat.ErrInvalidResponse))
-				return
+			if r.dialect.PreserveStreamEvents {
+				if response == nil {
+					response = &corechat.ResponseDelta{}
+				}
+				if response.Metadata == nil {
+					response.Metadata = &corechat.ResponseMetadata{}
+				}
+				if err := response.Metadata.Extra.Set(r.dialect.Provider+"/responses_stream_event", json.RawMessage(stream.Current().RawJSON())); err != nil {
+					yield(nil, err)
+					return
+				}
+				include = true
 			}
 			if !include {
 				continue
@@ -184,12 +211,16 @@ func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.Res
 	resolvedRequest := *req
 	resolvedRequest.Options = options
 	req = &resolvedRequest
-	if extensionErr := rejectCoreOwnedResponsesExtension(req.Options.Extensions); extensionErr != nil {
+	extensionKey := r.dialect.Provider + "/responses_request"
+	if extensionErr := rejectCoreOwnedResponsesExtension(req.Options.Extensions, extensionKey); extensionErr != nil {
 		return nil, extensionErr
 	}
-	params, found, err := req.Options.Extensions.Decode[responses.ResponseNewParams](ResponsesRequestExtensionKey)
+	params, found, err := req.Options.Extensions.Decode[responses.ResponseNewParams](extensionKey)
 	if err != nil {
-		return nil, fmt.Errorf("openai responses: extension %q: %w", ResponsesRequestExtensionKey, err)
+		return nil, fmt.Errorf("openai responses: extension %q: %w", extensionKey, err)
+	}
+	if found && r.dialect.DisableRawRequestExtension {
+		return nil, fmt.Errorf("%s: raw Responses request extension is not supported", r.dialect.Provider)
 	}
 	if !found {
 		params = responses.ResponseNewParams{}
@@ -249,6 +280,39 @@ func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.Res
 	params.Tools, err = mapResponsesTools(req.Tools)
 	if err != nil {
 		return nil, err
+	}
+	if r.dialect.PrepareRequest != nil {
+		compatible := &CompatibleResponsesRequest{extraFields: maps.Clone(params.ExtraFields())}
+		for _, include := range params.Include {
+			compatible.Include = append(compatible.Include, string(include))
+		}
+		if params.Store.Valid() {
+			compatible.Store = new(params.Store.Value)
+		}
+		if err := r.dialect.PrepareRequest(req, compatible); err != nil {
+			return nil, err
+		}
+		if err := compatible.Validate(); err != nil {
+			return nil, err
+		}
+		params.Include = nil
+		for _, include := range compatible.Include {
+			params.Include = append(params.Include, responses.ResponseIncludable(include))
+		}
+		params.Store = param.Opt[bool]{}
+		if compatible.Store != nil {
+			params.Store = openaisdk.Bool(*compatible.Store)
+		}
+		for _, raw := range compatible.BuiltInTools {
+			params.Tools = append(params.Tools, param.Override[responses.ToolUnionParam](raw))
+		}
+		if compatible.BuiltInTools != nil {
+			if compatible.extraFields == nil {
+				compatible.extraFields = make(map[string]any)
+			}
+			compatible.extraFields["tools"] = params.Tools
+		}
+		params.SetExtraFields(compatible.extraFields)
 	}
 	return &params, nil
 }

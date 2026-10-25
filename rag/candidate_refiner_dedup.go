@@ -4,19 +4,20 @@ import (
 	"context"
 )
 
-var _ Refiner = deduper{}
+var _ Refiner = Deduplicator{}
 
-type deduper struct{}
+// Deduplicator is a stateless refiner; its zero value is ready to use.
+type Deduplicator struct{}
 
 // Dedup returns a [Refiner] that keeps the highest-scoring candidate for each
 // non-empty [document.Document.ID]. Document identities retain first-seen
 // order, and equal scores retain the first candidate. Documents without an ID
 // remain distinct because the framework cannot prove they are duplicates.
-func Dedup() Refiner {
-	return deduper{}
+func Dedup() Deduplicator {
+	return Deduplicator{}
 }
 
-func (d deduper) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
+func (d Deduplicator) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

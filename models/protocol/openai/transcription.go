@@ -94,6 +94,9 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 }
 
 func (t *TranscriptionModel) buildTranscriptionResponse(resp *openai.AudioTranscriptionNewResponseUnion) (*transcription.Response, error) {
+	if resp == nil || !resp.JSON.Text.Valid() {
+		return nil, fmt.Errorf("%w: openai: transcription requires text", transcription.ErrInvalidResponse)
+	}
 	output, err := transcription.NewOutput(resp.Text, nil)
 	if err != nil {
 		return nil, err

@@ -43,7 +43,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		client = http.DefaultClient
 	}
 	store := &Store{endpoint: strings.TrimRight(cmp.Or(config.Endpoint, DefaultEndpoint), "/"), apiKey: config.APIKey, corpusKey: config.CorpusKey, documentBatcher: config.DocumentBatcher, httpClient: client, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
-	if _, err := store.selectDocuments(ctx, nil); err != nil {
+	if err := store.readCorpus(ctx); err != nil {
 		return nil, err
 	}
 	return store, nil
@@ -212,6 +212,9 @@ func (s *Store) readCorpus(ctx context.Context) error {
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -226,12 +229,17 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	selected, err := s.selectDocuments(ctx, request.Options.Filter)
-	if err != nil {
+	var selected []*document.Document
+	if request.Options.Filter != nil {
+		selected, err = s.selectDocuments(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
+	} else if err = s.readCorpus(ctx); err != nil {
 		return nil, err
-	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{}, nil
 	}
 	groups := []identitySelection{{}}
 	if request.Options.Filter != nil {
@@ -253,9 +261,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 					Type string `json:"type"`
 				} `json:"reranker"`
 			} `json:"search"`
-			Generation struct {
-				Enabled bool `json:"enabled"`
-			} `json:"generation"`
 			StreamResponse            bool `json:"stream_response"`
 			SaveHistory               bool `json:"save_history"`
 			IntelligentQueryRewriting bool `json:"intelligent_query_rewriting"`

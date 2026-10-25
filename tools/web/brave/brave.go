@@ -106,7 +106,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("brave: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query), nil
+	return raw.toSearchResponse(prepared.Query)
 }
 
 func recencyToFreshness(r web.Recency) string {
@@ -123,13 +123,13 @@ func recencyToFreshness(r web.Recency) string {
 	return ""
 }
 
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
 	var results []*web.SearchResult
 	if s.Web != nil {
 		results = make([]*web.SearchResult, 0, len(s.Web.Results))
-		for _, searchResult := range s.Web.Results {
+		for index, searchResult := range s.Web.Results {
 			if searchResult == nil {
-				continue
+				return nil, fmt.Errorf("brave: %w: result %d is null", web.ErrInvalidSearchResponse, index)
 			}
 			results = append(results, &web.SearchResult{
 				Title:         searchResult.Title,
@@ -139,7 +139,11 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			})
 		}
 	}
-	return &web.SearchResponse{Query: query, Results: results}
+	response := &web.SearchResponse{Query: query, Results: results}
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("brave: %w", err)
+	}
+	return response, nil
 }
 
 func parseAge(s string) time.Time {

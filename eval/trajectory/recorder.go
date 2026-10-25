@@ -65,18 +65,23 @@ func (r *recordedEvidence) startModel(invocation interaction.ModelInvocation, re
 		ProcessID: identity.processID, TreeIncarnationID: identity.incarnation,
 		EffectID: identity.effectID, AttemptID: identity.attemptID, StepSequence: invocation.StepSequence(),
 		CallSequence: invocation.ModelCallSequence(), Request: request.Clone(),
+		Outcome: interaction.ModelOutcomeUnobserved,
 	}
 }
 
 func (r *recordedEvidence) settleModel(invocation interaction.ModelInvocation, settlement interaction.ModelSettlement) {
 	identity := modelAttempt(invocation)
 	call, exists := r.models[identity]
-	if !exists || call.Outcome() != ModelOutcomeUnobserved {
+	if !exists || call.Outcome != interaction.ModelOutcomeUnobserved {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
-	call.Response, call.Unknown, call.Failure = settlement.Response.Clone(), settlement.Unknown(), settlement.Failure
-	if call.Outcome() == ModelOutcomeUnobserved || call.Validate() != nil {
+	if settlement.Validate() != nil {
+		incrementGap(&r.gaps.DroppedCallObservations)
+		return
+	}
+	call.Response, call.Outcome, call.Failure = settlement.Response.Clone(), settlement.Outcome, settlement.Failure
+	if call.Validate() != nil {
 		incrementGap(&r.gaps.DroppedCallObservations)
 		return
 	}
@@ -126,7 +131,7 @@ func (r *recordedEvidence) calls() ([]ModelCall, []ToolCall) {
 	}
 	var models []ModelCall
 	for _, call := range r.models {
-		if r.retain(observed, call.ProcessID, call.Outcome() != ModelOutcomeUnobserved) {
+		if r.retain(observed, call.ProcessID, call.Outcome != interaction.ModelOutcomeUnobserved) {
 			models = append(models, call)
 		}
 	}

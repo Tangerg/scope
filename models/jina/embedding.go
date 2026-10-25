@@ -99,17 +99,25 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 // Response is built, naming the text that went unanswered.
 func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResults int) (*embedding.Response, error) {
 	outputs := make([]*embedding.Output, expectedResults)
-	for _, item := range apiResp.Data {
-		if err := embedding.PlaceOutput(outputs, int(item.Index), item.Embedding, nil); err != nil {
+	for position, item := range apiResp.Data {
+		if item.Index == nil {
+			return nil, fmt.Errorf("%w: jina: embedding result %d requires index", embedding.ErrInvalidResponse, position)
+		}
+		values := make([]float64, len(item.Embedding))
+		for coordinate, value := range item.Embedding {
+			if value == nil {
+				return nil, fmt.Errorf("%w: jina: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, position, coordinate)
+			}
+			values[coordinate] = *value
+		}
+		if err := embedding.PlaceOutput(outputs, int(*item.Index), values, nil); err != nil {
 			return nil, fmt.Errorf("jina: embedding response: %w", err)
 		}
 	}
 
-	meta := &embedding.ResponseMetadata{
-		Model: apiResp.Model,
-		Usage: &embedding.Usage{
-			InputTokens: apiResp.Usage.PromptTokens,
-		},
+	meta := &embedding.ResponseMetadata{Model: apiResp.Model}
+	if apiResp.Usage.PromptTokens != nil {
+		meta.Usage = &embedding.Usage{InputTokens: *apiResp.Usage.PromptTokens}
 	}
 
 	return embedding.NewResponse(outputs, meta)

@@ -83,8 +83,9 @@ func TestCurrentSourceCannotHideCorruptionBehindPredicate(t *testing.T) {
 		if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "two", Text: "new"}}}); err == nil || fixture.writes != writes || len(fixture.deletes) != deletes {
 			t.Fatal("corrupt source allowed mutation")
 		}
-		if _, err = NewStore(t.Context(), StoreConfig{Endpoint: fixture.url, APIKey: "isolated", CorpusKey: "corpus", DocumentBatcher: testBatcher{}}); err == nil {
-			t.Fatal("constructor accepted an invalid native source")
+		listed := fixture.listed
+		if _, err = NewStore(t.Context(), StoreConfig{Endpoint: fixture.url, APIKey: "isolated", CorpusKey: "corpus", DocumentBatcher: testBatcher{}}); err != nil || fixture.listed != listed {
+			t.Fatalf("construction read stored documents: %v", err)
 		}
 	}
 }
@@ -130,7 +131,7 @@ func TestNativePagesFollowOpaqueKeysAndRejectRepetition(t *testing.T) {
 	store, fixture := indexedNativeStore(t, []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})
 	fixture.pages = []string{`{"documents":[{"id":"one"}],"metadata":{"page_key":"k1"}}`, `{"documents":[],"metadata":{"page_key":"k2"}}`, `{"documents":[{"id":"two"}],"metadata":{}}`}
 	fixture.listed = 0
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 2}})
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 2, Filter: filter.IsNull("absent")}})
 	if err != nil || len(response.Results) != 2 || fixture.listed != 3 {
 		t.Fatalf("response=%v pages=%d err=%v", response, fixture.listed, err)
 	}
@@ -140,7 +141,7 @@ func TestNativePagesFollowOpaqueKeysAndRejectRepetition(t *testing.T) {
 		{`{"documents":null}`}, {`{}`},
 	} {
 		fixture.pages, fixture.listed = pages, 0
-		response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+		response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 		if err == nil || response != nil {
 			t.Fatalf("invalid native page became success: %v %v", response, err)
 		}

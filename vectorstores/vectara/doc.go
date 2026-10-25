@@ -13,13 +13,13 @@
 // filter types. Media, multiple parts, separate context, tables, and images are
 // unsupported and rejected. Native IDs remain the sole stored identity.
 //
-// NewStore, Index, and Search enumerate the complete native corpus, using opaque
-// page keys until no key remains, and retrieve every full document by ID. Repeated
-// cursors or IDs and malformed records fail, including documents that a predicate
-// or MinScore would exclude. Construction requires document read permissions and
-// reports an inaccessible or invalid corpus immediately. The full scan costs
-// one policy request, one listing request per page, and one retrieval request per
-// document; retained data is proportional to the selected source documents.
+// NewStore validates the native corpus policy without enumerating documents.
+// Unfiltered Search issues native ranking directly after checking that policy.
+// Index and filtered Search enumerate the corpus with opaque page keys and read
+// each full document by ID. Repeated cursors or IDs and malformed scanned records
+// fail. Enumeration requires document read permissions and costs one listing call
+// per page plus one retrieval per document, with retained data proportional to
+// the selected documents.
 //
 // # Search
 //
@@ -31,8 +31,8 @@
 // must have a current text result shape, unique identity, complete metadata, and
 // unchanged Core membership. Any error returns no partial response.
 //
-// Requests disable lexical interpolation, reranking, query rewriting, generation,
-// streaming, and saved history. Vectara's bounded semantic relevance [-1,1] maps
+// Requests disable lexical interpolation, reranking, query rewriting, streaming,
+// and saved history. The generation object is omitted to disable summarization. Vectara's bounded semantic relevance [-1,1] maps
 // linearly to Core [0,1]; non-finite or out-of-range values are errors. Native text
 // parts are explicitly supplied by Index, each mapping directly to a search result;
 // the adapter does not rely on server-side chunking or return snippets as documents.

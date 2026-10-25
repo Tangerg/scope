@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -18,15 +19,16 @@ func TestCallOutcomesProjectTheirSettlementFacts(t *testing.T) {
 	model := recorded.ModelCalls()[0]
 	response := model.Response
 	model.Response = nil
-	if model.Outcome() != trajectory.ModelOutcomeUnobserved || model.Validate() != nil {
+	model.Outcome = interaction.ModelOutcomeUnobserved
+	if model.Validate() != nil {
 		t.Fatal("an absent model settlement became a result")
 	}
-	model.Unknown = true
-	if model.Outcome() != trajectory.ModelOutcomeUnknown || model.Validate() != nil {
+	model.Outcome = interaction.ModelOutcomeUnknown
+	if model.Validate() != nil {
 		t.Fatal("explicit model uncertainty was lost")
 	}
 	model.Response = response
-	if model.Outcome() != trajectory.ModelOutcomeInvalid || model.Validate() == nil {
+	if model.Validate() == nil {
 		t.Fatal("accepted a model response alongside uncertainty")
 	}
 
@@ -62,7 +64,7 @@ func TestCallOutcomesProjectTheirSettlementFacts(t *testing.T) {
 	}
 }
 
-func TestTrajectoryWireRejectsStoredCallOutcome(t *testing.T) {
+func TestTrajectoryWireUsesOnlyCurrentModelOutcome(t *testing.T) {
 	recorder := new(trajectory.Recorder)
 	process := runRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{})
 	recorded, err := recorder.Take(t.Context(), process, nil)
@@ -73,30 +75,48 @@ func TestTrajectoryWireRejectsStoredCallOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, collection := range []string{"model_calls", "tool_calls"} {
-		var wire map[string]json.RawMessage
-		if decodeErr := jsonv2.Unmarshal(encoded, &wire); decodeErr != nil {
-			t.Fatal(decodeErr)
-		}
-		var calls []map[string]json.RawMessage
-		if decodeErr := jsonv2.Unmarshal(wire[collection], &calls); decodeErr != nil {
-			t.Fatal(decodeErr)
-		}
-		if _, exists := calls[0]["outcome"]; exists {
-			t.Fatal("current wire stores a second outcome owner")
-		}
-		calls[0]["outcome"] = json.RawMessage(`"succeeded"`)
-		wire[collection], err = jsonv2.Marshal(calls)
-		if err != nil {
-			t.Fatal(err)
-		}
-		legacy, err := jsonv2.Marshal(wire)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var decoded trajectory.Trajectory
-		if decodeErr := jsonv2.Unmarshal(legacy, &decoded); decodeErr == nil {
-			t.Fatalf("accepted a stored %s outcome", collection)
-		}
+	for _, mutation := range []string{"missing model outcome", "old model unknown", "invalid model outcome", "competing model evidence", "redundant tool outcome"} {
+		t.Run(mutation, func(t *testing.T) {
+			collection := "model_calls"
+			if mutation == "redundant tool outcome" {
+				collection = "tool_calls"
+			}
+			var wire map[string]json.RawMessage
+			if decodeErr := jsonv2.Unmarshal(encoded, &wire); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			var calls []map[string]json.RawMessage
+			if decodeErr := jsonv2.Unmarshal(wire[collection], &calls); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if collection == "model_calls" && string(calls[0]["outcome"]) != `"succeeded"` {
+				t.Fatal("model wire omitted its authoritative outcome")
+			}
+			switch mutation {
+			case "missing model outcome":
+				delete(calls[0], "outcome")
+			case "old model unknown":
+				calls[0]["unknown"] = json.RawMessage(`false`)
+			case "invalid model outcome":
+				calls[0]["outcome"] = json.RawMessage(`"invalid"`)
+			case "competing model evidence":
+				calls[0]["outcome"] = json.RawMessage(`"not_executed"`)
+				calls[0]["failure"] = json.RawMessage(`"not dispatched"`)
+			case "redundant tool outcome":
+				calls[0]["outcome"] = json.RawMessage(`"succeeded"`)
+			}
+			wire[collection], err = jsonv2.Marshal(calls)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invalid, err := jsonv2.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded trajectory.Trajectory
+			if decodeErr := jsonv2.Unmarshal(invalid, &decoded); decodeErr == nil {
+				t.Fatalf("accepted %s", mutation)
+			}
+		})
 	}
 }

@@ -197,8 +197,10 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*tra
 
 func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transcription.Response, error) {
 	var outputMetadata metadata.Map
-	if err := outputMetadata.Set("assemblyai/confidence", apiResp.Confidence); err != nil {
-		return nil, err
+	if apiResp.Confidence != nil {
+		if err := outputMetadata.Set("assemblyai/confidence", *apiResp.Confidence); err != nil {
+			return nil, err
+		}
 	}
 	if apiResp.LanguageCode != "" {
 		if err := outputMetadata.Set("assemblyai/language_code", apiResp.LanguageCode); err != nil {
@@ -216,7 +218,10 @@ func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transc
 		}
 	}
 
-	output, err := transcription.NewOutput(apiResp.Text, outputMetadata)
+	if apiResp.Text == nil {
+		return nil, fmt.Errorf("%w: assemblyai: transcription requires text", transcription.ErrInvalidResponse)
+	}
+	output, err := transcription.NewOutput(*apiResp.Text, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -225,8 +230,10 @@ func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transc
 	if err := meta.Extra.Set("assemblyai/transcript_id", apiResp.ID); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("assemblyai/audio_duration_seconds", apiResp.AudioDuration); err != nil {
-		return nil, err
+	if apiResp.AudioDuration != nil {
+		if err := meta.Extra.Set("assemblyai/audio_duration_seconds", *apiResp.AudioDuration); err != nil {
+			return nil, err
+		}
 	}
 	if err := meta.Extra.Set(ResponseExtensionKey, apiResp.Raw); err != nil {
 		return nil, err

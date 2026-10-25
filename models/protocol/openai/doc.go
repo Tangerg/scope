@@ -2,10 +2,10 @@
 // compatible provider endpoints.
 //
 // A nonempty Config BaseURL overrides OPENAI_BASE_URL; an absent environment
-// value uses the SDK production endpoint. Both supplied URL sources are checked
-// during construction because the SDK applies its environment options before
-// explicit options: malformed environment options can otherwise fail only
-// when a request starts.
+// value uses the SDK production endpoint. Construction validates and freezes
+// only that effective URL. Official SDK service constructors apply the binding's
+// explicit credentials, endpoint, headers, and HTTP client without inheriting
+// unrelated SDK environment settings.
 //
 // Modalities exposed:
 //
@@ -62,10 +62,8 @@
 // through [NewCompatibleChatCompletions] and select one typed [Dialect]. This
 // keeps provider-only fields such as reasoning_content out of OpenAI's native
 // behavior while sharing the standard wire mapping.
-// Moderation categories are named one field at a time, because the SDK types
-// them as a struct rather than a map. A category OpenAI adds would arrive as
-// a field nobody reads and a flagged input would come back unflagged for it,
-// so a test reads the JSON names off ModerationCategories by reflection and
-// requires the response to report exactly that set — silence is the failure
-// mode here, and it is the one place silence is the whole problem.
+// Moderation reads the native category flags and scores before the SDK's scalar
+// fields can erase absence. Each reported category needs both a flag and score;
+// future category names are retained. Slash and hyphen normalization must not
+// collide, and missing flags never become false.
 package openai

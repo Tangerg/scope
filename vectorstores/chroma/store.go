@@ -72,7 +72,7 @@ type Store struct {
 	space           v2.Space
 }
 
-func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
+func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -93,9 +93,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{collection: config.Collection, embeddingClient: client, documentBatcher: config.DocumentBatcher, space: space}
-	if _, err = store.selectIDs(ctx, nil); err != nil {
-		return nil, fmt.Errorf("chroma: verify stored records: %w", err)
-	}
 	return store, nil
 }
 
@@ -263,6 +260,9 @@ func distanceScore(space v2.Space, distance float64) (vectorstore.Score, error) 
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -277,12 +277,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	candidates, err := s.selectIDs(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(candidates) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	var candidates []v2.DocumentID
+	if request.Options.Filter != nil {
+		candidates, err = s.selectIDs(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(candidates) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -292,7 +295,11 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if _, err = validateVector(queryVector); err != nil {
 		return nil, err
 	}
-	result, queryErr := s.collection.Query(ctx, v2.WithIDs(candidates...), v2.WithQueryEmbeddings(chromaEmbed.NewEmbeddingFromFloat32(queryVector)), v2.WithNResults(request.Options.ResultLimit()), v2.WithInclude(v2.IncludeDocuments, v2.IncludeMetadatas, v2.IncludeEmbeddings, v2.IncludeDistances))
+	options := []v2.QueryOption{v2.WithQueryEmbeddings(chromaEmbed.NewEmbeddingFromFloat32(queryVector)), v2.WithNResults(request.Options.ResultLimit()), v2.WithInclude(v2.IncludeDocuments, v2.IncludeMetadatas, v2.IncludeEmbeddings, v2.IncludeDistances)}
+	if candidates != nil {
+		options = append(options, v2.WithIDs(candidates...))
+	}
+	result, queryErr := s.collection.Query(ctx, options...)
 	if queryErr != nil {
 		return nil, nativeFailure(ctx, "query candidates", queryErr)
 	}
@@ -326,13 +333,13 @@ func (s *Store) decodeQuery(result v2.QueryResult, expected []v2.DocumentID, lim
 	if len(ids) != 1 || len(texts) != 1 || len(facts) != 1 || len(vectors) != 1 || len(distances) != 1 {
 		return nil, errors.New("chroma: query must return one complete result group")
 	}
-	if len(ids[0]) > min(len(expected), limit) || len(texts[0]) != len(ids[0]) || len(facts[0]) != len(ids[0]) || len(vectors[0]) != len(ids[0]) || len(distances[0]) != len(ids[0]) {
+	if len(ids[0]) > limit || expected != nil && len(ids[0]) > len(expected) || len(texts[0]) != len(ids[0]) || len(facts[0]) != len(ids[0]) || len(vectors[0]) != len(ids[0]) || len(distances[0]) != len(ids[0]) {
 		return nil, errors.New("chroma: query returned inconsistent columns or excess results")
 	}
 	seen := make(map[v2.DocumentID]struct{}, len(expected))
 	var ranked []rankedResult
 	for i, id := range ids[0] {
-		if !slices.Contains(expected, id) {
+		if expected != nil && !slices.Contains(expected, id) {
 			return nil, fmt.Errorf("chroma: query returned unexpected document %q", id)
 		}
 		if _, exists := seen[id]; exists {

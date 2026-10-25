@@ -50,7 +50,7 @@ func TestAdvertisedToolNamesSurviveExecutionStateRestore(t *testing.T) {
 
 func TestRestoreRejectsInvalidAdvertisements(t *testing.T) {
 	definition := advertisementTestDefinition(t)
-	for _, names := range [][]string{{"first", "first"}, {"unknown"}, {"initial"}, {" first"}, {""}} {
+	for _, names := range [][]string{{"first", "first"}, {"second", "first"}, {"unknown"}, {"initial"}, {" first"}, {""}} {
 		state := executionState{WorkingContext: &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("restore"))}},
 			AdvertisedToolNames: names,
 		}
@@ -99,11 +99,45 @@ func advertisementTestDefinition(t testing.TB) *Definition {
 // ambient context effect.
 type advertisingTestTool struct {
 	tool.Tool
-	declare []string
+	declare    []string
+	failure    error
+	panicValue any
 }
 
 func (a *advertisingTestTool) AdvertiseDeferred(context.Context, tool.Invocation, tool.Result) ([]string, error) {
-	return a.declare, nil
+	if a.panicValue != nil {
+		panic(a.panicValue)
+	}
+	return a.declare, a.failure
+}
+
+func TestAdvertisementNormalizesLiveDeclarations(t *testing.T) {
+	inner, err := tool.NewFunc(tool.FuncConfig{Name: "active", Description: "Reveal a deferred Tool set."},
+		func(context.Context, struct{}) (string, error) { return "completed", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared := []string{"second", "first", "second", "first"}
+	executable := &advertisingTestTool{Tool: inner, declare: declared}
+	dispatcher := newToolDispatcher(nil)
+	for _, name := range []string{"first", "second"} {
+		dispatcher.manifest.entries[name] = toolManifestEntry{deferred: true}
+	}
+	if bindErr := dispatcher.bindTool(executable, false); bindErr != nil {
+		t.Fatal(bindErr)
+	}
+	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`}, nil)
+	result, names, _, _, err := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
+	if err != nil || !slices.Equal(names, []string{"first", "second"}) || result.Output.Content[0].Text != "completed" {
+		t.Fatalf("live declaration: names=%v result=%v error=%v", names, result, err)
+	}
+	if !slices.Equal(declared, []string{"second", "first", "second", "first"}) {
+		t.Fatal("normalization mutated Tool-owned declaration")
+	}
+	merged, err := dispatcher.manifest.mergeAdvertisements([]string{"second"}, []string{"first", "second"})
+	if err != nil || !slices.Equal(merged, []string{"first", "second"}) {
+		t.Fatalf("merged declaration: %v, %v", merged, err)
+	}
 }
 
 func TestAdvertisementRejectsNonDeferredDeclaration(t *testing.T) {
@@ -119,9 +153,9 @@ func TestAdvertisementRejectsNonDeferredDeclaration(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "call", Name: "active", Arguments: `{}`}, nil)
-	_, names, _, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
-	if !errors.Is(callErr, ErrInvalidToolAdvertisement) || len(names) != 0 {
-		t.Fatalf("non-deferred declaration: names=%v err=%v", names, callErr)
+	result, names, _, _, callErr := dispatcher.callTool(t.Context(), agent.EffectRequest{}, prepared)
+	if !errors.Is(callErr, ErrInvalidToolAdvertisement) || len(names) != 0 || result.ID != "call" || result.Output.Content[0].Text != "done" {
+		t.Fatalf("non-deferred declaration lost completed call: result=%v names=%v err=%v", result, names, callErr)
 	}
 }
 

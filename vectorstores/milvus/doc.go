@@ -9,8 +9,8 @@
 // dynamic fields, default values, partition keys and embedding functions. The
 // vector field requires exactly one finished COSINE, IP or L2 index. Every
 // operation reads the collection's native capacities, dimension and index
-// metric; no Scope configuration overrides them. Construction also reads and
-// validates all current rows. It performs no embedding call.
+// metric; no Scope configuration overrides them. Construction reads policy
+// without enumerating stored rows or calling the embedding model.
 //
 // Current records. metadata contains one complete Core JSON value encoded as a
 // string, retaining nil separately from an empty object, exact numbers, nested
@@ -27,8 +27,9 @@
 // them. This full scan requires work proportional to the collection size and is
 // not a transaction-wide snapshot under concurrent writes.
 //
-// Search. Only semantic mode is supported. Core selects identities before
-// embedding; bounded groups are sent to native ANN searches with strong
+// Search. Only semantic mode is supported. An unfiltered request goes directly
+// to native ANN search. A predicate selects identities before embedding;
+// bounded groups are sent to native ANN searches with strong
 // consistency and the current native metric. Native raw scores determine global
 // TopK before conversion to Core's score scale. COSINE is similarity in [-1, 1],
 // IP is an unbounded inner product, and L2 is squared distance. Every hit is

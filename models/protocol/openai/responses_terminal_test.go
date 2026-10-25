@@ -27,7 +27,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 		{name: "unknown incomplete reason", status: "incomplete", detail: `"incomplete_details":{"reason":"unknown"},`, want: chat.FinishReasonOther},
 		{name: "partial tool call", status: "incomplete", detail: `"incomplete_details":{"reason":"max_output_tokens"},`, output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{"}`, want: chat.FinishReasonLength},
 		{name: "refusal and tool call", status: "completed", output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"declined"}]}`, want: chat.FinishReasonRefusal},
-		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "openai responses: failed: server_error: generation failed"},
+		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "chat: definite model failure: openai responses: failed: server_error: generation failed"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,6 +57,11 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 				}
 				if response != nil || terminal != nil {
 					t.Fatal("failed response exposed a successful result")
+				}
+				for _, err := range []error{callErr, streamErr} {
+					if !errors.Is(err, chat.ErrDefiniteFailure) || errors.Is(err, chat.ErrNotExecuted) {
+						t.Fatalf("native failure lost execution evidence: %v", err)
+					}
 				}
 				return
 			}
@@ -138,6 +143,9 @@ func TestResponsesStreamRejectsErrorAndPrematureEOF(t *testing.T) {
 			}
 			if test.name != "error event" && !errors.Is(got, chat.ErrInvalidResponse) {
 				t.Fatalf("error = %v, want ErrInvalidResponse", got)
+			}
+			if errors.Is(got, chat.ErrDefiniteFailure) {
+				t.Fatalf("stream without a known terminal status claimed definite failure: %v", got)
 			}
 		})
 	}

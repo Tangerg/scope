@@ -217,7 +217,7 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 		}
 		return []float64{1e10, 0}
 	})
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[128].ID {
 		t.Fatalf("native rank changed: %v %v", response, err)
 	}
@@ -230,7 +230,7 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 	service.queryHook = func(response *milvuspb.QueryResults) {
 		response.FieldsData[0].GetScalars().GetStringData().Data[0] = docs[0].ID
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 	if err == nil || response != nil {
 		t.Fatalf("nonadvancing native source accepted: %v %v", response, err)
 	}

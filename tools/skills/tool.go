@@ -2,10 +2,9 @@ package skills
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/samber/lo"
 
@@ -14,36 +13,41 @@ import (
 	skillsrc "github.com/Tangerg/scope/skills"
 )
 
+type ListSkillsRequest struct {
+	Cursor *Cursor `json:"cursor,omitzero" jsonschema_description:"Echo next_cursor from the preceding page; omit to start a new listing."`
+}
+
 // LoadSkillRequest uses an exact name; it does not search or broaden the selection.
 type LoadSkillRequest struct {
-	Name string `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact skill name returned by list_skills or already known from the prompt."`
+	Cursor *Cursor `json:"cursor,omitzero" jsonschema_description:"Echo next_cursor to continue this exact skill; omit to start."`
+	Name   string  `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact skill name returned by list_skills or already known from the prompt."`
 }
 
 // Resource reads remain confined to the named skill.
 type ReadSkillResourceRequest struct {
-	Name string `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact name of the skill whose instructions referenced the resource."`
-	Path string `json:"path" jsonschema:"minLength=1" jsonschema_description:"Resource path relative to the skill directory, such as references/REFERENCE.md or scripts/run.py."`
+	Cursor *Cursor `json:"cursor,omitzero" jsonschema_description:"Echo next_cursor to continue this exact resource; omit to start."`
+	Name   string  `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact name of the skill whose instructions referenced the resource."`
+	Path   string  `json:"path" jsonschema:"minLength=1" jsonschema_description:"Resource path relative to the skill directory, such as references/REFERENCE.md or scripts/run.py."`
 }
 
 type toolSet struct {
-	source         Source
-	maxOutputBytes int64
+	source           Source
+	maxOutputBytes   int64
+	maxResourceBytes int64
 }
 
 const (
 	DefaultMaxOutputBytes = int64(256 * 1024)
-	minimumMaxOutputBytes = int64(len(summariesOpen + summariesTruncated + summariesClose))
+	minimumMaxOutputBytes = int64(160)
 	maximumMaxOutputBytes = int64(^uint(0)>>1) - 1
-	truncationMarker      = "\n\n[output truncated]"
-
-	summariesOpen      = "<available_skills>"
-	summariesClose     = "\n</available_skills>"
-	summariesTruncated = "\n  <truncated>true</truncated>"
 )
 
-// Config bounds model-visible content independently of repository storage limits.
+// Config bounds each serialized JSON page independently of resource reads.
+// MaxResourceBytes bounds a complete resource snapshot; larger files fail instead
+// of silently losing their suffix. Zero fields select the package defaults.
 type Config struct {
-	MaxOutputBytes int64
+	MaxOutputBytes   int64
+	MaxResourceBytes int64
 }
 
 // Source provides the operations exposed by the three skill Tools. List and Load
@@ -73,11 +77,18 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 			maximumMaxOutputBytes,
 		)
 	}
-	set := &toolSet{source: source, maxOutputBytes: maxOutputBytes}
+	maxResourceBytes := config.MaxResourceBytes
+	if maxResourceBytes == 0 {
+		maxResourceBytes = skillsrc.DefaultMaxResourceBytes
+	}
+	if maxResourceBytes < 1 || maxResourceBytes > maximumMaxOutputBytes {
+		return nil, fmt.Errorf("%w: maximum resource bytes must be positive and safely bounded", skillsrc.ErrInvalidLimit)
+	}
+	set := &toolSet{source: source, maxOutputBytes: maxOutputBytes, maxResourceBytes: maxResourceBytes}
 	list, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
 			Name: "list_skills",
-			Description: "List every skill visible to the current workspace as a name and description. " +
+			Description: "List a page of visible skill names and descriptions. Echo next_cursor until absent to finish discovery. " +
 				"Use this when a relevant skill may exist but its exact name is unknown. Load a matching skill with load_skill before following it.",
 		},
 		set.list,
@@ -88,7 +99,7 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	load, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
 			Name: "load_skill",
-			Description: "Load the complete instructions for one exact skill name. Call this when the task matches that skill's description, " +
+			Description: "Read instructions for one exact skill name. Echo next_cursor until absent and concatenate content before following the instructions. Call this when the task matches that skill's description, " +
 				"then follow the returned instructions. Use read_skill_resource only for a bundled file referenced by those instructions.",
 		},
 		set.load,
@@ -99,7 +110,7 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	readResource, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
 			Name: "read_skill_resource",
-			Description: "Read one bundled resource referenced by a loaded skill. The path is relative to that skill's directory. " +
+			Description: "Read a page of one bundled resource referenced by a loaded skill. Echo next_cursor until absent and concatenate content to read the complete file. The path is relative to that skill's directory. " +
 				"This returns the resource as UTF-8 text only and never executes scripts; a resource that is not valid UTF-8 is rejected rather than returned as binary.",
 		},
 		set.readResource,
@@ -110,38 +121,78 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	return []toolcontract.Tool{list, load, readResource}, nil
 }
 
-func (t *toolSet) list(ctx context.Context, _ struct{}) (string, error) {
+func (t *toolSet) list(ctx context.Context, request ListSkillsRequest) (ListPage, error) {
+	if err := request.Cursor.validate(); err != nil {
+		return ListPage{}, inputFailure(err)
+	}
 	summaries, err := t.source.List(ctx)
 	if err != nil {
-		return "", err
+		return ListPage{}, err
 	}
-	return renderSummaries(summaries, t.maxOutputBytes), nil
+	encoded, err := jsonv2.Marshal(summaries)
+	if err != nil {
+		return ListPage{}, err
+	}
+	snapshot := contentSnapshot("list", "", "", encoded)
+	start, err := request.Cursor.start(snapshot, len(summaries))
+	if err != nil {
+		return ListPage{}, inputFailure(err)
+	}
+	page, err := boundedPage(len(summaries)-start, t.maxOutputBytes, func(count int) ListPage {
+		end := start + count
+		page := ListPage{Skills: summaries[start:end]}
+		if end < len(summaries) {
+			page.NextCursor = &Cursor{Offset: end, Snapshot: snapshot}
+		}
+		return page
+	})
+	if err != nil {
+		return ListPage{}, inputFailure(err)
+	}
+	return page, nil
 }
 
-func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (string, error) {
+func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (TextPage, error) {
 	if err := skillsrc.ValidateName(request.Name); err != nil {
-		return "", inputFailure(err)
+		return TextPage{}, inputFailure(err)
+	}
+	if err := request.Cursor.validate(); err != nil {
+		return TextPage{}, inputFailure(err)
 	}
 	skill, err := t.source.Load(ctx, request.Name)
 	if err != nil {
-		return "", err
+		return TextPage{}, err
 	}
-	return boundedText(skill.Instructions, false, t.maxOutputBytes), nil
-}
-
-func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceRequest) (string, error) {
-	if err := skillsrc.ValidateResourceRequest(request.Name, request.Path); err != nil {
-		return "", inputFailure(err)
-	}
-	data, truncated, err := skillsrc.ReadResource(ctx, t.source, request.Name, request.Path, t.maxOutputBytes)
+	page, err := textPage("load", request.Name, "", skill.Instructions, request.Cursor, t.maxOutputBytes)
 	if err != nil {
-		return "", err
+		return TextPage{}, inputFailure(err)
 	}
-	return boundedText(string(data), truncated, t.maxOutputBytes), nil
+	return page, nil
 }
 
-// inputFailure reports a resource request rejected before any source I/O as a
-// definite, model-visible Tool failure rather than an uncertain error.
+func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceRequest) (TextPage, error) {
+	if err := skillsrc.ValidateResourceRequest(request.Name, request.Path); err != nil {
+		return TextPage{}, inputFailure(err)
+	}
+	if err := request.Cursor.validate(); err != nil {
+		return TextPage{}, inputFailure(err)
+	}
+	data, truncated, err := skillsrc.ReadResource(ctx, t.source, request.Name, request.Path, t.maxResourceBytes)
+	if err != nil {
+		return TextPage{}, err
+	}
+	if truncated {
+		return TextPage{}, inputFailure(fmt.Errorf("%w: resource exceeds %d bytes", skillsrc.ErrInvalidLimit, t.maxResourceBytes))
+	}
+	page, err := textPage("resource", request.Name, request.Path, string(data), request.Cursor, t.maxOutputBytes)
+	if err != nil {
+		return TextPage{}, inputFailure(err)
+	}
+	return page, nil
+}
+
+// inputFailure reports rejected requests and unreadable pages as definite,
+// model-visible failures. These read-only tools have no uncertain external effect.
 func inputFailure(cause error) error {
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
 		Kind:   toolcontract.FailureKindFailed,
@@ -152,39 +203,4 @@ func inputFailure(cause error) error {
 		return errors.Join(cause, err)
 	}
 	return failure
-}
-
-var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
-
-func renderSummaries(summaries []skillsrc.Summary, maxBytes int64) string {
-	var b strings.Builder
-	b.WriteString(summariesOpen)
-	for index, summary := range summaries {
-		entry := "\n  <skill>\n    <name>" + xmlEscaper.Replace(summary.Name) +
-			"</name>\n    <description>" + xmlEscaper.Replace(summary.Description) +
-			"</description>\n  </skill>"
-		// Only a non-final entry must leave room for the truncation marker.
-		reserved := len(summariesClose)
-		if index < len(summaries)-1 {
-			reserved += len(summariesTruncated)
-		}
-		if int64(b.Len()+len(entry)+reserved) > maxBytes {
-			b.WriteString(summariesTruncated)
-			break
-		}
-		b.WriteString(entry)
-	}
-	b.WriteString(summariesClose)
-	return b.String()
-}
-
-func boundedText(value string, truncated bool, maxBytes int64) string {
-	if !truncated && int64(len(value)) <= maxBytes {
-		return value
-	}
-	end := min(len(value), int(maxBytes)-len(truncationMarker))
-	for end > 0 && end < len(value) && !utf8.RuneStart(value[end]) {
-		end--
-	}
-	return value[:end] + truncationMarker
 }

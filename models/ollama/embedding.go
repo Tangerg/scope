@@ -106,7 +106,10 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, expectedRes
 	for index, vec := range apiResp.Embeddings {
 		values := make([]float64, len(vec))
 		for i, value := range vec {
-			values[i] = float64(value)
+			if value == nil {
+				return nil, fmt.Errorf("%w: ollama: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, i)
+			}
+			values[i] = *value
 		}
 		if err := embedding.PlaceOutput(outputs, index, values, nil); err != nil {
 			return nil, fmt.Errorf("ollama: embed response: %w", err)
@@ -116,14 +119,24 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, expectedRes
 	meta := &embedding.ResponseMetadata{
 		Model: apiResp.Model,
 	}
-	if err := meta.Extra.Set("ollama/total_duration_ns", apiResp.TotalDuration); err != nil {
-		return nil, err
+	if apiResp.TotalDuration != nil {
+		if err := meta.Extra.Set("ollama/total_duration_ns", *apiResp.TotalDuration); err != nil {
+			return nil, err
+		}
 	}
-	if err := meta.Extra.Set("ollama/load_duration_ns", apiResp.LoadDuration); err != nil {
-		return nil, err
+	if apiResp.LoadDuration != nil {
+		if err := meta.Extra.Set("ollama/load_duration_ns", *apiResp.LoadDuration); err != nil {
+			return nil, err
+		}
 	}
-	if err := meta.Extra.Set("ollama/prompt_eval_count", apiResp.PromptEvalCount); err != nil {
-		return nil, err
+	if apiResp.PromptEvalCount != nil {
+		if err := meta.Extra.Set("ollama/prompt_eval_count", *apiResp.PromptEvalCount); err != nil {
+			return nil, err
+		}
+	}
+
+	if apiResp.PromptEvalCount != nil {
+		meta.Usage = &embedding.Usage{InputTokens: *apiResp.PromptEvalCount}
 	}
 
 	return embedding.NewResponse(outputs, meta)

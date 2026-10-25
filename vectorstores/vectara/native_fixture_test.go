@@ -3,6 +3,7 @@ package vectara
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
@@ -160,18 +161,16 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 					Type string `json:"type"`
 				} `json:"reranker"`
 			} `json:"search"`
-			Generation struct {
-				Enabled bool `json:"enabled"`
-			} `json:"generation"`
-			Stream  bool `json:"stream_response"`
-			History bool `json:"save_history"`
-			Rewrite bool `json:"intelligent_query_rewriting"`
+			Generation json.RawMessage `json:"generation"`
+			Stream     bool            `json:"stream_response"`
+			History    bool            `json:"save_history"`
+			Rewrite    bool            `json:"intelligent_query_rewriting"`
 		}
 		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
 			n.t.Error(err)
 			return
 		}
-		if body.Search.Reranker.Type != "none" || body.Search.Lexical != 0 || body.Generation.Enabled || body.Stream || body.History || body.Rewrite {
+		if body.Search.Reranker.Type != "none" || body.Search.Lexical != 0 || len(body.Generation) != 0 || body.Stream || body.History || body.Rewrite {
 			n.t.Error("native query left the Core semantic contract")
 		}
 		var ids []string

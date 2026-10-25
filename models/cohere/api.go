@@ -37,9 +37,11 @@ func newAPI(config apiConfig) (*api, error) {
 	if config.BaseURL != "" {
 		options = append(options, option.WithBaseURL(config.BaseURL))
 	}
-	if config.HTTPClient != nil {
-		options = append(options, option.WithHTTPClient(config.HTTPClient))
+	httpClient := config.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
 	}
+	options = append(options, option.WithHTTPClient(&apiHTTPClient{client: httpClient}))
 	reqOpts := coherecore.NewRequestOptions(options...)
 
 	return &api{v2: cohereclientv2.NewClient(reqOpts)}, nil

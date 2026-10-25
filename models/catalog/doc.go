@@ -45,5 +45,9 @@
 // responsibilities: models.dev decides which models exist and supplies every
 // field except the reasoning effort ladder, and catwalk supplies that ladder.
 // Regeneration is a repository change, which is why a lookup performs no I/O;
-// scripts/update-model-catalog.sh performs it.
+// scripts/update-model-catalog.sh performs it. Providers without a matching
+// current upstream catalog are omitted. In particular, Perplexity Agent API
+// model IDs come from that binding's ListModels method; the retired Sonar
+// catalog is not a description of Agent API models. Metadata from another
+// provider is not evidence of the same model's pricing or capabilities here.
 package catalog

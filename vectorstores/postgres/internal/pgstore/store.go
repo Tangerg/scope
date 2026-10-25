@@ -129,6 +129,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("%s.Store.Search: %w", s.provider, err)
@@ -154,17 +157,20 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	records, err := s.readSource(ctx, transaction, width, false)
-	if err != nil {
-		return nil, err
-	}
-	ids, err := selectIDs(records, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
 	response = &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}
-	if len(ids) == 0 {
-		return response, nil
+	var ids [][]byte
+	if request.Options.Filter != nil {
+		records, readErr := s.readSource(ctx, transaction, width, false)
+		if readErr != nil {
+			return nil, readErr
+		}
+		ids, err = selectIDs(records, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return response, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -174,8 +180,14 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $2 AS distance FROM %s WHERE id=ANY($1) ORDER BY distance,id LIMIT $3", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable)
-	rows, err := transaction.Query(ctx, statement, ids, queryVector, request.Options.ResultLimit())
+	where := ""
+	arguments := []any{queryVector, request.Options.ResultLimit()}
+	if ids != nil {
+		where = " WHERE id=ANY($3)"
+		arguments = append(arguments, ids)
+	}
+	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $1 AS distance FROM %s%s ORDER BY distance,id LIMIT $2", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable, where)
+	rows, err := transaction.Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, err
 	}

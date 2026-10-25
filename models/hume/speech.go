@@ -94,11 +94,15 @@ func (s *SpeechModel) buildResponse(apiResp *ttsResponse, model string) (*speech
 		if setErr := outputMetadata.Set(metadataEncodingFormat, g.Encoding.Format); setErr != nil {
 			return nil, setErr
 		}
-		if setErr := outputMetadata.Set(metadataSampleRate, g.Encoding.SampleRate); setErr != nil {
-			return nil, setErr
+		if g.Encoding.SampleRate != nil {
+			if setErr := outputMetadata.Set(metadataSampleRate, *g.Encoding.SampleRate); setErr != nil {
+				return nil, setErr
+			}
 		}
-		if setErr := outputMetadata.Set(metadataDurationSeconds, g.Duration); setErr != nil {
-			return nil, setErr
+		if g.Duration != nil {
+			if setErr := outputMetadata.Set(metadataDurationSeconds, *g.Duration); setErr != nil {
+				return nil, setErr
+			}
 		}
 		if setErr := outputMetadata.Set(metadataGenerationID, g.ID); setErr != nil {
 			return nil, setErr

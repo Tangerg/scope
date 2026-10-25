@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -26,8 +27,9 @@ const (
 )
 
 // Execution is the target's receipt for one invocation. A nil Output means no
-// candidate; a present empty candidate is not nil. Objects the output references
-// stay borrowed read-only, like Case.Subject.
+// candidate; a present empty candidate is not nil. A present JSON null is valid
+// only when O's codec preserves null. Objects the output references stay borrowed
+// read-only, like Case.Subject.
 type Execution[O any] struct {
 	Status   ExecutionStatus `json:"status"`
 	Output   *O              `json:"output,omitzero"`
@@ -88,12 +90,21 @@ func (e *Execution[O]) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecution, err)
 	}
 	candidate := Execution[O]{Status: decoded.Status, Reason: decoded.Reason, Metadata: decoded.Metadata}
-	// A present JSON null can be the candidate when O is nullable. Decoding
-	// directly into *O would erase its presence and turn it into no candidate.
+	// Decode into O without losing the outer presence bit. The codec must also
+	// preserve null; Go's default scalar decoder otherwise invents a zero value.
 	if decoded.Output != nil {
 		candidate.Output = new(O)
 		if err := jsonv2.Unmarshal(decoded.Output, candidate.Output, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return fmt.Errorf("%w: decode output: %w", ErrInvalidExecution, err)
+		}
+		if bytes.Equal(bytes.TrimSpace(decoded.Output), []byte("null")) {
+			encoded, err := jsonv2.Marshal(candidate.Output)
+			if err != nil {
+				return fmt.Errorf("%w: encode null output: %w", ErrInvalidExecution, err)
+			}
+			if !bytes.Equal(bytes.TrimSpace(encoded), []byte("null")) {
+				return fmt.Errorf("%w: output codec cannot preserve null", ErrInvalidExecution)
+			}
 		}
 	}
 	if err := candidate.Validate(); err != nil {

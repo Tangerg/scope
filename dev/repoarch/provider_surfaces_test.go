@@ -80,8 +80,9 @@ func TestCoreOwnedChatOptionSymbolsAreStillCoreOwned(t *testing.T) {
 	}
 }
 
-// Exact shared wire implementations need no forwarding wrapper. Private
-// protocol wrappers remain necessary for Go internal visibility.
+// Exact shared wire implementations need no forwarding wrapper. A provider
+// that supports fewer capabilities must hide unsupported protocol methods.
+// Private protocol wrappers remain necessary for Go internal visibility.
 func TestSharedProtocolsAreReturnedWithoutDelegatingWrappers(t *testing.T) {
 	t.Parallel()
 
@@ -99,7 +100,7 @@ func TestSharedProtocolsAreReturnedWithoutDelegatingWrappers(t *testing.T) {
 				continue
 			}
 			for _, specification := range general.Specs {
-				checkSharedProtocolType(t, fset, path, protocols, specification)
+				checkSharedProtocolType(t, fset, path, file, protocols, specification)
 			}
 		}
 	})
@@ -109,6 +110,7 @@ func checkSharedProtocolType(
 	t *testing.T,
 	fset *token.FileSet,
 	path string,
+	file *ast.File,
 	protocols map[string]struct{},
 	specification ast.Spec,
 ) {
@@ -126,7 +128,54 @@ func checkSharedProtocolType(
 		!pointsToImportedSelector(field.Type, protocols) {
 		return
 	}
+	if narrowsProtocolCapabilities(t, path, file, typeSpec.Name.Name, field.Type) {
+		return
+	}
 	t.Errorf("%s:%d %s is a behaviorless shared-protocol wrapper; return the protocol model directly", filepath.ToSlash(path), fset.Position(typeSpec.Pos()).Line, typeSpec.Name.Name)
+}
+
+func narrowsProtocolCapabilities(t *testing.T, path string, file *ast.File, typeName string, fieldType ast.Expr) bool {
+	t.Helper()
+	selector := fieldType.(*ast.StarExpr).X.(*ast.SelectorExpr)
+	qualifier := selector.X.(*ast.Ident).Name
+	packageNames := loadPackageNames(t)
+	for _, specification := range file.Imports {
+		if importedName(t, path, specification, packageNames) != qualifier {
+			continue
+		}
+		importPath := importPathOf(t, path, specification)
+		if !isSharedProtocolImport(importPath) {
+			return false
+		}
+		directory := filepath.Join(modelsRoot(t), strings.TrimPrefix(importPath, modelsImportPrefix))
+		available := exportedReceiverMethods(parseImmediateProductionFiles(t, directory), selector.Sel.Name)
+		// Receiver locality is separately enforced; this file owns every method.
+		exposed := exportedReceiverMethods([]*ast.File{file}, typeName)
+		if len(exposed) == 0 || len(exposed) >= len(available) {
+			return false
+		}
+		for name := range exposed {
+			if _, exists := available[name]; !exists {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func exportedReceiverMethods(files []*ast.File, typeName string) map[string]struct{} {
+	methods := make(map[string]struct{})
+	for _, file := range files {
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && function.Recv != nil && len(function.Recv.List) == 1 &&
+				function.Name.IsExported() && receiverTypeName(function.Recv.List[0].Type) == typeName {
+				methods[function.Name.Name] = struct{}{}
+			}
+		}
+	}
+	return methods
 }
 
 func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {

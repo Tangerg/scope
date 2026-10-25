@@ -1,7 +1,7 @@
 // Package elasticsearch implements the Core vector-store capabilities using
 // a borrowed native Elasticsearch SDK client. The host provisions the concrete
 // index and owns the client, credentials, topology, retries, timeouts and lifetime.
-// [NewStore] reads the native mapping and settings and validates current records;
+// [NewStore] validates the native mapping and settings without reading documents;
 // it never creates or modifies an index. The native index owns dimensions,
 // similarity, vector index tuning and result-window policy. Native KNN also owns
 // its candidate defaults; Scope does not reproduce a candidate multiplier.
@@ -33,13 +33,13 @@
 // transaction is claimed. Every bulk acknowledgment must identify the requested
 // operation, index and document, with a valid status and no hidden failure.
 //
-// Search reads a complete native scroll snapshot before KNN retrieval. Every
-// record is validated, and Core filter.Match alone decides metadata membership.
-// Filtered KNN queries use bounded native ID selections, then merge native ranks
-// before TopK and the Core score threshold. This costs O(N) source reads and
-// document-ID bookkeeping. Enumeration and later KNN retrieval are separate
-// requests; returned membership is revalidated and no cross-request snapshot is
-// promised. Native TopK limits are checked before I/O.
+// Unfiltered Search issues native KNN directly and validates every returned hit.
+// Filtered Search reads a complete scroll snapshot, and Core filter.Match alone
+// selects metadata membership. Bounded native ID selections restrict KNN; native
+// ranks are merged before TopK and the Core score threshold. Only predicate
+// enumeration costs O(N) source reads and ID bookkeeping. Enumeration and ranking
+// are separate requests; returned membership is revalidated without promising a
+// cross-request snapshot. Native TopK limits are checked before I/O.
 //
 // Timeout, failed or missing shard acknowledgments, malformed records, repeated
 // identities, truncated pages, missing concurrency tokens and unreadable hits

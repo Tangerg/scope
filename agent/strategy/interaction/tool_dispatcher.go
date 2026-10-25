@@ -86,10 +86,13 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request agent.EffectReque
 		return failedSettlement(errToolInputValidatorDefect)
 	}
 	result, advertised, required, rejected, err := t.callTool(ctx, request, prepared)
-	if err != nil {
+	if err != nil && result.ID == "" {
 		return agent.Settlement{}, err
 	}
 	outcome := toolDispatchResult{Completion: prepared.completion(result, rejected, advertised)}
+	if err != nil {
+		outcome.AdvertisementFailure = agent.NormalizeDiagnostic(err.Error())
+	}
 	if required != nil {
 		outcome = toolDispatchResult{InputRequest: required}
 	}
@@ -185,7 +188,7 @@ func (t *toolDispatcher) callTool(
 	}
 	names, err := t.adviseDeferred(ctx, call.Name, prepared.invocation, output)
 	if err != nil {
-		return chat.ToolResult{}, nil, nil, false, err
+		return result, nil, nil, false, err
 	}
 	return result, names, nil, false, nil
 }
@@ -212,10 +215,11 @@ func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invoca
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	if err := t.manifest.validateAdvertisements(declared); err != nil {
+	canonical, err := t.manifest.normalizeAdvertisements(declared)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidToolAdvertisement, err)
 	}
-	return declared, nil
+	return canonical, nil
 }
 
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, continuation *tool.Continuation) preparedToolCall {

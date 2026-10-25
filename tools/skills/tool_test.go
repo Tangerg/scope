@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"io/fs"
 	"strings"
@@ -88,7 +89,7 @@ func TestListSkills(t *testing.T) {
 		t.Fatalf("list_skills: %v", err)
 	}
 	out := testOutputText(output)
-	if !strings.Contains(out, "<name>pdf-processing</name>") || !strings.Contains(out, "<name>data-analysis</name>") {
+	if !strings.Contains(out, `"name":"pdf-processing"`) || !strings.Contains(out, `"name":"data-analysis"`) {
 		t.Errorf("list output missing skills:\n%s", out)
 	}
 }
@@ -110,59 +111,12 @@ func TestReadSkillResource(t *testing.T) {
 		t.Fatalf("read_skill_resource: %v", err)
 	}
 	out := testOutputText(output)
-	if out != "detailed reference" {
+	var page TextPage
+	if err := jsonv2.Unmarshal([]byte(out), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Content != "detailed reference" || page.NextCursor != nil {
 		t.Errorf("resource content = %q", out)
-	}
-}
-
-func TestSkillToolsBoundModelFacingContent(t *testing.T) {
-	const maxOutputBytes = int64(68)
-	tools := newToolsWithConfig(t, Config{MaxOutputBytes: maxOutputBytes})
-
-	loadedOutput, err := invokeTestTool(t.Context(), tools["load_skill"], `{"name":"pdf-processing"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded := testOutputText(loadedOutput)
-	if int64(len(loaded)) > maxOutputBytes || !strings.HasSuffix(loaded, "[output truncated]") || !strings.HasPrefix(loaded, "# PDF") {
-		t.Fatalf("bounded skill output = %q", loaded)
-	}
-
-	resourceOutput, err := invokeTestTool(t.Context(), tools["read_skill_resource"], `{"name":"pdf-processing","path":"references/LONG.md"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resource := testOutputText(resourceOutput)
-	if int64(len(resource)) > maxOutputBytes || !strings.HasSuffix(resource, "[output truncated]") {
-		t.Fatalf("bounded resource output = %q", resource)
-	}
-
-	listedOutput, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listed := testOutputText(listedOutput)
-	if !strings.Contains(listed, "<truncated>true</truncated>") {
-		t.Fatalf("bounded list output = %q", listed)
-	}
-	if int64(len(listed)) > maxOutputBytes {
-		t.Fatalf("list output length = %d, want <= %d", len(listed), maxOutputBytes)
-	}
-}
-
-func TestListSkillsKeepsCompleteListThatFitsExactly(t *testing.T) {
-	completeOutput, err := invokeTestTool(t.Context(), newTools(t)["list_skills"], `{}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	complete := testOutputText(completeOutput)
-	tools := newToolsWithConfig(t, Config{MaxOutputBytes: int64(len(complete))})
-	boundedOutput, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bounded := testOutputText(boundedOutput); bounded != complete {
-		t.Fatalf("list output at exact limit = %q, want %q", bounded, complete)
 	}
 }
 

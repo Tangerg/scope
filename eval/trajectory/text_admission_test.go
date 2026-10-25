@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -16,7 +17,7 @@ func TestRecordedCallsRejectUnencodableFailureDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := recorded.ModelCalls()[0]
-	model.Response, model.Unknown, model.Failure = nil, true, "\xff"
+	model.Response, model.Outcome, model.Failure = nil, interaction.ModelOutcomeUnknown, "\xff"
 	if validationErr := model.Validate(); !errors.Is(validationErr, trajectory.ErrInvalidTrajectory) {
 		t.Fatalf("model Validate() = %v", validationErr)
 	}

@@ -1,5 +1,5 @@
 // Package neo4j is a history Store backed by Neo4j via the official
-// Go driver (v5).
+// Go driver (v6).
 //
 // Storage model:
 //

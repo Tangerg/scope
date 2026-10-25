@@ -81,9 +81,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if !vectorFound {
 		return nil, fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
 	}
-	if _, err = store.matchingRecords(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -227,6 +224,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -241,12 +241,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	records, err := s.matchingRecords(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+	var records map[string]string
+	if request.Options.Filter != nil {
+		records, err = s.matchingRecords(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(records) == 0 {
+			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

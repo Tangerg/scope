@@ -1,23 +1,15 @@
-// Package perplexity wraps Perplexity's OpenAI-compatible Sonar API.
-// Every Sonar model runs an online retrieval step before answering;
-// the response includes citations + search results.
+// Package perplexity implements Perplexity's Agent API using the official
+// OpenAI Responses SDK integration at https://api.perplexity.ai/v1/responses.
 //
-// Perplexity-specific knobs are exposed as [RequestOptions] through
-// [RequestExtensionKey]:
+// Configure one model through chat.Options.Model. Effort-only selection and the
+// native models fallback chain are outside this single-model binding. The
+// optional RequestOptions extension selects agent effort, step budget, retrieval storage, and native
+// built-in tools. Model reasoning effort, output format, and custom function
+// tools remain owned by Core. Complete native terminal output, including search
+// results and costs, is preserved under ResponseExtensionKey.
 //
-//   - "search_mode" ("web" / "academic"), "search_domain_filter",
-//     "search_recency_filter" steer the underlying web search.
-//   - "return_images" / "return_related_questions" toggle extra
-//     response fields.
-//   - "web_search_options" controls per-call search behavior
-//     (search context size, user location, etc.).
-//
-// Response extras (citations, search_results, images, related_questions,
-// detailed usage, and costs) are preserved from the exact provider JSON in
-// the namespaced Core response extension.
-//
-// See https://docs.perplexity.ai/ for the full API reference.
-// Core Options.ReasoningEffort is the only request control for reasoning
-// intensity. Native request extensions reject that field and other unknown
-// fields instead of accepting a second configuration source.
+// Sonar Chat Completions support ended on September 27, 2026. This package has
+// no Sonar endpoint or parameter conversion. See
+// https://docs.perplexity.ai/docs/agent-api/openai-compatibility and
+// https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar/overview.
 package perplexity

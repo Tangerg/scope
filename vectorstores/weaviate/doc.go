@@ -7,7 +7,7 @@
 // and exactly two text properties: content with searchable word tokenization,
 // and metadata with filterable field tokenization. Its native index owns cosine,
 // dot, l2-squared, hamming, or manhattan distance. These requirements are checked
-// against the actual schema. NewStore also validates every existing source object.
+// against the actual schema without enumerating stored objects.
 //
 // Native UUIDs are the sole document identities. Index and DeleteIDs require
 // lowercase hyphenated UUIDs and reject aliases before embedding or mutation.
@@ -16,22 +16,23 @@
 // invalid metadata, missing vectors, and inconsistent vector widths fail reads.
 // Media documents are rejected before indexing I/O.
 //
-// Weaviate does not expose a schema-level vector dimension. Each operation derives
-// a read-only width from the complete current source. Index prepares every model
-// batch and finite FLOAT32 vector before publishing one native batch. An empty
-// collection provides no width, including one whose previous objects were deleted;
-// the native index may reject a prepared batch against its retained dimension.
-// Native batch errors may leave accepted objects stored. Every submitted UUID must
-// have exactly one SUCCESS acknowledgment; missing or partial acknowledgments fail.
+// Weaviate does not expose a schema-level vector dimension. Index derives a
+// read-only width from the complete current source and prepares every model batch
+// and finite FLOAT32 vector before publishing one native batch. Unfiltered Search
+// lets the native index validate query dimensions and checks returned vectors
+// against the query width. An empty collection provides no stored width, including
+// one whose previous objects were deleted; the native index may reject a prepared
+// batch against its retained dimension. Native batch errors may leave accepted
+// objects stored. Every submitted UUID must have exactly one SUCCESS
+// acknowledgment; missing or partial acknowledgments fail.
 //
 // # Search and filtering
 //
-// Every Search enumerates the complete native source with vectors
-// through REST after cursors. Core filter.Match is the sole metadata predicate
-// evaluator. No projection or native metadata DSL can advance filtering semantics.
-// Enumeration follows short pages until an empty page and rejects malformed
-// records even when a predicate or MinScore would exclude them. This costs a full
-// scan per operation and memory proportional to the selected UUIDs.
+// Unfiltered Search performs native ranking without enumerating objects. Filtered
+// Search enumerates the complete source with vectors through REST after cursors.
+// Core filter.Match alone selects membership. Enumeration follows short pages
+// until an empty page and validates the records needed for that predicate. Only
+// filtered search incurs a full scan and memory proportional to selected UUIDs.
 //
 // Semantic search uses native nearVector. Selected UUIDs are queried in bounded
 // groups; raw native distance determines global TopK, independently of Core scores.

@@ -196,15 +196,22 @@ func (p *protocolFixture) serveHTTP(writer http.ResponseWriter, request *http.Re
 			p.query(writer, body)
 			return
 		}
-		const prefix = "search.in(id, '"
-		const suffix = "', ',')"
-		if !strings.HasPrefix(filterText, prefix) || !strings.HasSuffix(filterText, suffix) {
-			p.t.Errorf("query carried a metadata compiler instead of IDs: %q", filterText)
-		}
-		selected := strings.Split(strings.TrimSuffix(strings.TrimPrefix(filterText, prefix), suffix), ",")
-		for _, id := range selected {
-			if _, exists := p.rows[id]; exists {
+		if filterText == "" {
+			for id := range p.rows {
 				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+		} else {
+			const prefix = "search.in(id, '"
+			const suffix = "', ',')"
+			if !strings.HasPrefix(filterText, prefix) || !strings.HasSuffix(filterText, suffix) {
+				p.t.Errorf("query carried a metadata compiler instead of IDs: %q", filterText)
+			}
+			selected := strings.Split(strings.TrimSuffix(strings.TrimPrefix(filterText, prefix), suffix), ",")
+			for _, id := range selected {
+				if _, exists := p.rows[id]; exists {
+					ids = append(ids, id)
+				}
 			}
 		}
 		top, _, _ := body.Decode[int]("top")

@@ -159,12 +159,8 @@ func (e *EmbeddingModel) buildResponse(apiResp *cohere.EmbedByTypeResponse, expe
 	}
 
 	meta := &embedding.ResponseMetadata{}
-	if apiResp.Meta != nil && apiResp.Meta.BilledUnits != nil {
-		usage := new(embedding.Usage)
-		if v := apiResp.Meta.BilledUnits.InputTokens; v != nil {
-			usage.InputTokens = int64(*v)
-		}
-		meta.Usage = usage
+	if apiResp.Meta != nil && apiResp.Meta.BilledUnits != nil && apiResp.Meta.BilledUnits.InputTokens != nil {
+		meta.Usage = &embedding.Usage{InputTokens: int64(*apiResp.Meta.BilledUnits.InputTokens)}
 	}
 
 	return embedding.NewResponse(outputs, meta)

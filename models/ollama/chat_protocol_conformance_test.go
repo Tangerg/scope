@@ -418,7 +418,7 @@ func writeProtocolChatStream(writer http.ResponseWriter) {
 		`{"model":"qwen3:8b","message":{"role":"assistant","thinking":"inspect colors"},"done":false}`,
 		`{"model":"qwen3:8b","message":{"role":"assistant","content":"It is a blue square."},"done":false}`,
 		`{"model":"qwen3:8b","message":{"role":"assistant","images":["aW1hZ2U="]},"done":false}`,
-		`{"model":"qwen3:8b","message":{"role":"assistant","tool_calls":[{"function":{"name":"inspect","arguments":{"detail":true}}}]},"done":false}`,
+		`{"model":"qwen3:8b","message":{"role":"assistant","tool_calls":[{"function":{"index":0,"name":"inspect","arguments":{"detail":true}}}]},"done":false}`,
 		`{"model":"qwen3:8b","created_at":"2026-07-14T12:00:00Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":1250000000,"load_duration":100000000,"prompt_eval_count":11,"prompt_eval_duration":300000000,"eval_count":5,"eval_duration":700000000,"future_field":{"kept":true}}`,
 	}
 	for _, chunk := range chunks {
@@ -426,4 +426,4 @@ func writeProtocolChatStream(writer http.ResponseWriter) {
 	}
 }
 
-const protocolChatResponseJSON = `{"model":"qwen3:8b","created_at":"2026-07-14T12:00:00Z","message":{"role":"assistant","thinking":"inspect colors","content":"It is a blue square.","images":["aW1hZ2U="],"tool_calls":[{"function":{"name":"inspect","arguments":{"detail":true}}}]},"done":true,"done_reason":"stop","total_duration":1250000000,"load_duration":100000000,"prompt_eval_count":11,"prompt_eval_duration":300000000,"eval_count":5,"eval_duration":700000000,"future_field":{"kept":true}}`
+const protocolChatResponseJSON = `{"model":"qwen3:8b","created_at":"2026-07-14T12:00:00Z","message":{"role":"assistant","thinking":"inspect colors","content":"It is a blue square.","images":["aW1hZ2U="],"tool_calls":[{"function":{"index":0,"name":"inspect","arguments":{"detail":true}}}]},"done":true,"done_reason":"stop","total_duration":1250000000,"load_duration":100000000,"prompt_eval_count":11,"prompt_eval_duration":300000000,"eval_count":5,"eval_duration":700000000,"future_field":{"kept":true}}`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -235,27 +236,12 @@ func (t *transcriptionRequest) validate() error {
 
 // TranscriptionResponse models /v1/speech-to-text JSON output.
 type transcriptionResponse struct {
-	LanguageCode        string                `json:"language_code"`
-	LanguageProbability float64               `json:"language_probability"`
-	Text                string                `json:"text"`
-	Words               []transcriptionWord   `json:"words"`
-	Entities            []transcriptionEntity `json:"entities,omitempty"`
-}
-
-type transcriptionWord struct {
-	Text         string  `json:"text"`
-	Type         string  `json:"type"`
-	Start        float64 `json:"start"`
-	End          float64 `json:"end"`
-	SpeakerID    string  `json:"speaker_id,omitempty"`
-	ChannelIndex *int    `json:"channel_index,omitzero"`
-}
-
-type transcriptionEntity struct {
-	Text       string `json:"text"`
-	EntityType string `json:"entity_type"`
-	StartChar  int    `json:"start_char"`
-	EndChar    int    `json:"end_char"`
+	LanguageCode        string                     `json:"language_code"`
+	LanguageProbability *float64                   `json:"language_probability"`
+	Text                *string                    `json:"text"`
+	Words               []json.RawMessage          `json:"words"`
+	Entities            []json.RawMessage          `json:"entities"`
+	Raw                 map[string]json.RawMessage `json:"-"`
 }
 
 func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, req *transcriptionRequest) (*transcriptionResponse, error) {
@@ -279,6 +265,9 @@ func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, 
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("elevenlabs: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
+		return nil, fmt.Errorf("elevenlabs: decode response facts: %w", err)
 	}
 	return &out, nil
 }

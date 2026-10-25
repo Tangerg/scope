@@ -152,6 +152,9 @@ func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
 type toolDispatchResult struct {
 	Completion   *toolCallResult    `json:"completion,omitzero"`
 	InputRequest *tool.InputRequest `json:"input_request,omitzero"`
+	// The external call completed before this local projection failed. Keeping
+	// both facts lets Step stop the child without inventing external uncertainty.
+	AdvertisementFailure string `json:"advertisement_failure,omitzero"`
 }
 
 func newModelEffect(
@@ -287,6 +290,10 @@ func (t toolDispatchResult) settlement() (agent.Settlement, error) {
 func (t toolDispatchResult) validate() error {
 	if (t.Completion == nil) == (t.InputRequest == nil) {
 		return fmt.Errorf("%w: Tool dispatch requires one result or input request", ErrInvalidProtocol)
+	}
+	if t.AdvertisementFailure != "" && (!agent.ValidDiagnostic(t.AdvertisementFailure) ||
+		t.Completion == nil || t.Completion.Disposition != ResultSucceeded || len(t.Completion.AdvertisedToolNames) != 0) {
+		return fmt.Errorf("%w: advertisement failure requires a completed Tool and no declaration", ErrInvalidProtocol)
 	}
 	if t.InputRequest != nil {
 		if !t.InputRequest.Valid() {

@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -17,10 +18,9 @@ func TestSearch(t *testing.T) {
 		name    string
 		allowed []string
 		blocked []string
-		query   string
 	}{
-		{name: "allowed union", allowed: []string{"example.com", "example.org"}, query: "scope (site:example.com OR site:example.org)"},
-		{name: "blocked domain", blocked: []string{"blocked.example"}, query: "scope -site:blocked.example"},
+		{name: "allowed union", allowed: []string{"example.com", "example.org"}},
+		{name: "blocked domain", blocked: []string{"blocked.example"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,15 +31,18 @@ func TestSearch(t *testing.T) {
 					t.Errorf("Authorization = %q", got)
 				}
 				var body struct {
-					Query string `json:"query"`
-					Limit int    `json:"limit"`
-					Tbs   string `json:"tbs"`
+					Query          string   `json:"query"`
+					Limit          int      `json:"limit"`
+					Tbs            string   `json:"tbs"`
+					IncludeDomains []string `json:"includeDomains"`
+					ExcludeDomains []string `json:"excludeDomains"`
 				}
 				if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 					t.Errorf("decode body: %v", err)
 					return
 				}
-				if body.Query != test.query || body.Limit != 20 || body.Tbs != "qdr:w" {
+				if body.Query != "scope" || body.Limit != 20 || body.Tbs != "qdr:w" ||
+					!slices.Equal(body.IncludeDomains, test.allowed) || !slices.Equal(body.ExcludeDomains, test.blocked) {
 					t.Errorf("body = %#v", body)
 				}
 				w.Header().Set("Content-Type", "application/json")

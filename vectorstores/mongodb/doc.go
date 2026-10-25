@@ -21,9 +21,9 @@
 // metadata never becomes BSON fields or an independent numeric representation.
 // Media documents are rejected before model or mutation IO.
 //
-// Construction and every Search enumerate the complete collection, validating
-// all current records even outside a predicate or MinScore. Core filter.Match
-// alone owns membership. Filtered $vectorSearch queries use bounded selected
+// Unfiltered Search uses $vectorSearch directly. A predicate requires complete
+// collection enumeration and strict validation before Core filter.Match selects
+// membership. Filtered $vectorSearch queries use bounded selected
 // identity groups and verify each returned identity and current metadata. Both
 // paths use native ranking and native [0,1] scores, merge before TopK, and apply
 // MinScore after strict hit validation. Scores are never clamped or recomputed.

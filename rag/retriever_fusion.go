@@ -43,7 +43,7 @@ type FusionRetrieverConfig struct {
 // retrievers commonly use incomparable score scales. Every retriever must
 // succeed; the first failure cancels the remaining retrievals and is returned
 // without partial results.
-func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (Retriever, error) {
+func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever) (*FusionRetriever, error) {
 	fusion, err := config.Fusion.normalize()
 	if err != nil {
 		return nil, err
@@ -62,27 +62,32 @@ func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever)
 		}
 	}
 
-	return reciprocalRankFusion{fusion: fusion, maxConcurrentRetrievals: concurrency, retrievers: owned}, nil
+	return &FusionRetriever{fusion: fusion, maxConcurrentRetrievals: concurrency, retrievers: owned}, nil
 }
 
-type reciprocalRankFusion struct {
+// FusionRetriever owns an admitted, detached set of rank-fusion inputs.
+// Construct it with ReciprocalRankFusion; its zero value is invalid.
+type FusionRetriever struct {
 	fusion                  ReciprocalRankFusionConfig
 	maxConcurrentRetrievals int
 	retrievers              []Retriever
 }
 
-func (r reciprocalRankFusion) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+func (f *FusionRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+	if f == nil || len(f.retrievers) == 0 {
+		return nil, ErrNilRetriever
+	}
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
-	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", r.retrievers, "retriever", r.maxConcurrentRetrievals,
+	rankings, err := parallelResults(ctx, "rag.ReciprocalRankFusion", f.retrievers, "retriever", f.maxConcurrentRetrievals,
 		func(ctx context.Context, _ int, retriever Retriever) (Candidates, error) {
 			return retrieve(ctx, query, retriever.Retrieve)
 		})
 	if err != nil {
 		return nil, err
 	}
-	return fuseRankings(ctx, rankings, r.fusion.RankConstant)
+	return fuseRankings(ctx, rankings, f.fusion.RankConstant)
 }
 
 func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) (Candidates, error) {

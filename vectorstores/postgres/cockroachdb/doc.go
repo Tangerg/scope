@@ -14,8 +14,9 @@
 // filter.Match alone selects metadata in a serializable source snapshot. Native
 // row locks protect predicate deletion until commit; Index prepares all vectors
 // and commits its whole request atomically. Serialization and native errors remain
-// errors without Scope retries. Search validates native rows before MinScore and
-// rejects hybrid mode. Content cannot contain NUL; binary IDs and encoded metadata
-// can. These full-source reads favor Core semantics over SQL metadata indexes.
+// errors without Scope retries. Unfiltered Search ranks directly with native
+// distance. Only filtered Search reads the complete source for Core selection.
+// Both validate returned rows before MinScore and reject hybrid mode. Content
+// cannot contain NUL; binary IDs and encoded metadata can.
 // See the parent postgres package for the shared execution contract.
 package cockroachdb

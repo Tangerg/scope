@@ -19,7 +19,7 @@ func TestToolCompletionPreservesProviderOutcome(t *testing.T) {
 	} {
 		t.Run(tc.reason, func(t *testing.T) {
 			var native nativeChatResponse
-			if err := jsonv2.Unmarshal([]byte(`{"model":"test","message":{"role":"assistant","tool_calls":[{"function":{"name":"inspect","arguments":{}}}]},"done":true}`), &native); err != nil {
+			if err := jsonv2.Unmarshal([]byte(`{"model":"test","message":{"role":"assistant","tool_calls":[{"function":{"index":0,"name":"inspect","arguments":{}}}]},"done":true}`), &native); err != nil {
 				t.Fatal(err)
 			}
 			native.DoneReason = tc.reason

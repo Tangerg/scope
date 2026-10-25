@@ -101,6 +101,9 @@ type snippetProgress struct {
 type snippetStream struct{ snippets map[string]snippetProgress }
 
 func (s *snippetStream) accept(event ttsStreamEvent) error {
+	if event.ChunkIndex == nil || event.IsLastChunk == nil {
+		return fmt.Errorf("%w: hume: streamed audio requires chunk_index and is_last_chunk", speech.ErrInvalidResponse)
+	}
 	if event.SnippetID == "" || event.GenerationID == "" || event.RequestID == "" {
 		return errors.New("hume: streamed audio is missing snippet identity")
 	}
@@ -108,11 +111,11 @@ func (s *snippetStream) accept(event ttsStreamEvent) error {
 	if !exists {
 		progress.generation, progress.request = event.GenerationID, event.RequestID
 	}
-	if progress.finished || progress.generation != event.GenerationID || progress.request != event.RequestID || event.ChunkIndex != progress.next {
+	if progress.finished || progress.generation != event.GenerationID || progress.request != event.RequestID || *event.ChunkIndex != progress.next {
 		return errors.New("hume: streamed snippet has inconsistent identity, order or completion")
 	}
 	progress.next++
-	progress.finished = event.IsLastChunk
+	progress.finished = *event.IsLastChunk
 	s.snippets[event.SnippetID] = progress
 	return nil
 }

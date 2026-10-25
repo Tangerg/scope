@@ -176,9 +176,6 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 		audio = append(audio, chunk.Output.Audio...)
 		response = chunk
 	}
-	if response == nil {
-		return nil, fmt.Errorf("deepgram: %w: speech stream returned no audio", speech.ErrInvalidResponse)
-	}
 	response.Output.Audio = audio
 	return response, nil
 }
@@ -201,6 +198,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		}
 		defer body.Close()
 
+		received := false
 		for chunk, err := range readAudioChunks(body) {
 			if err != nil {
 				yield(nil, err)
@@ -211,9 +209,13 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 				yield(nil, err)
 				return
 			}
+			received = true
 			if !yield(out, nil) {
 				return
 			}
+		}
+		if !received {
+			yield(nil, fmt.Errorf("deepgram: %w: speech stream returned no audio", speech.ErrInvalidResponse))
 		}
 	}
 }

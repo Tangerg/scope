@@ -107,7 +107,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		if setErr := outputMetadata.Set("elevenlabs/language_code", apiResp.LanguageCode); setErr != nil {
 			return nil, setErr
 		}
-		if setErr := outputMetadata.Set("elevenlabs/language_probability", apiResp.LanguageProbability); setErr != nil {
+	}
+	if apiResp.LanguageProbability != nil {
+		if setErr := outputMetadata.Set("elevenlabs/language_probability", *apiResp.LanguageProbability); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -122,13 +124,16 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		}
 	}
 
-	output, err := transcription.NewOutput(apiResp.Text, outputMetadata)
+	if apiResp.Text == nil {
+		return nil, fmt.Errorf("%w: elevenlabs: transcription requires text", transcription.ErrInvalidResponse)
+	}
+	output, err := transcription.NewOutput(*apiResp.Text, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
 
 	responseMetadata := &transcription.ResponseMetadata{Model: apiReq.ModelID}
-	if err := responseMetadata.Extra.Set(TranscriptionResponseExtensionKey, apiResp); err != nil {
+	if err := responseMetadata.Extra.Set(TranscriptionResponseExtensionKey, apiResp.Raw); err != nil {
 		return nil, err
 	}
 	return transcription.NewResponse(output, responseMetadata)

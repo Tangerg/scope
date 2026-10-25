@@ -131,11 +131,12 @@ func (t ToolSet) SettleToolResult(request agent.EffectRequest, output chat.ToolO
 	if prepared.rejection != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery call is not admitted by its binding", ErrInvalidProtocol)
 	}
-	if err := t.manifest().validateAdvertisements(advertisedToolNames); err != nil {
+	canonical, err := t.manifest().normalizeAdvertisements(advertisedToolNames)
+	if err != nil {
 		return agent.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}
 	result := chat.ToolResult{ID: call.ID, Name: call.Name, Output: output, IsError: disposition != ResultSucceeded}
-	completion := prepared.completion(result, disposition == ResultRejected, advertisedToolNames)
+	completion := prepared.completion(result, disposition == ResultRejected, canonical)
 	if err := completion.validateCall(call); err != nil {
 		return agent.Settlement{}, err
 	}
@@ -175,19 +176,20 @@ func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string
 	if err := t.validateAdvertisements(additions); err != nil {
 		return nil, err
 	}
-	merged := slices.Clone(current)
-	seen := make(map[string]struct{}, len(current))
-	for _, name := range current {
-		seen[name] = struct{}{}
+	merged := append(slices.Clone(current), additions...)
+	slices.Sort(merged)
+	return slices.Compact(merged), nil
+}
+
+// Live declarations describe a set; persisted state must already be canonical.
+func (t toolManifest) normalizeAdvertisements(names []string) ([]string, error) {
+	canonical := slices.Clone(names)
+	slices.Sort(canonical)
+	canonical = slices.Compact(canonical)
+	if err := t.validateAdvertisements(canonical); err != nil {
+		return nil, err
 	}
-	for _, name := range additions {
-		if _, duplicate := seen[name]; duplicate {
-			continue
-		}
-		seen[name] = struct{}{}
-		merged = append(merged, name)
-	}
-	return merged, nil
+	return canonical, nil
 }
 
 func (t toolManifest) validateAdvertisements(names []string) error {

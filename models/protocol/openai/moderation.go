@@ -2,9 +2,11 @@ package openai
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 
@@ -90,59 +92,31 @@ func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResp
 	outputs := make([]*moderation.Output, 0, len(resp.Results))
 
 	for _, item := range resp.Results {
-		cats := moderation.Categories{
-			"harassment": {
-				Flagged: item.Categories.Harassment,
-				Score:   item.CategoryScores.Harassment,
-			},
-			"harassment_threatening": {
-				Flagged: item.Categories.HarassmentThreatening,
-				Score:   item.CategoryScores.HarassmentThreatening,
-			},
-			"hate": {
-				Flagged: item.Categories.Hate,
-				Score:   item.CategoryScores.Hate,
-			},
-			"hate_threatening": {
-				Flagged: item.Categories.HateThreatening,
-				Score:   item.CategoryScores.HateThreatening,
-			},
-			"illicit": {
-				Flagged: item.Categories.Illicit,
-				Score:   item.CategoryScores.Illicit,
-			},
-			"illicit_violent": {
-				Flagged: item.Categories.IllicitViolent,
-				Score:   item.CategoryScores.IllicitViolent,
-			},
-			"self_harm": {
-				Flagged: item.Categories.SelfHarm,
-				Score:   item.CategoryScores.SelfHarm,
-			},
-			"self_harm_instructions": {
-				Flagged: item.Categories.SelfHarmInstructions,
-				Score:   item.CategoryScores.SelfHarmInstructions,
-			},
-			"self_harm_intent": {
-				Flagged: item.Categories.SelfHarmIntent,
-				Score:   item.CategoryScores.SelfHarmIntent,
-			},
-			"sexual": {
-				Flagged: item.Categories.Sexual,
-				Score:   item.CategoryScores.Sexual,
-			},
-			"sexual_minors": {
-				Flagged: item.Categories.SexualMinors,
-				Score:   item.CategoryScores.SexualMinors,
-			},
-			"violence": {
-				Flagged: item.Categories.Violence,
-				Score:   item.CategoryScores.Violence,
-			},
-			"violence_graphic": {
-				Flagged: item.Categories.ViolenceGraphic,
-				Score:   item.CategoryScores.ViolenceGraphic,
-			},
+		if !item.JSON.Categories.Valid() || !item.JSON.CategoryScores.Valid() {
+			return nil, fmt.Errorf("%w: openai: moderation requires categories and category_scores", moderation.ErrInvalidResponse)
+		}
+		var flags map[string]*bool
+		if err := jsonv2.Unmarshal([]byte(item.JSON.Categories.Raw()), &flags); err != nil {
+			return nil, fmt.Errorf("%w: openai: decode moderation categories: %w", moderation.ErrInvalidResponse, err)
+		}
+		var scores map[string]*float64
+		if err := jsonv2.Unmarshal([]byte(item.JSON.CategoryScores.Raw()), &scores); err != nil {
+			return nil, fmt.Errorf("%w: openai: decode moderation scores: %w", moderation.ErrInvalidResponse, err)
+		}
+		if len(flags) != len(scores) {
+			return nil, fmt.Errorf("%w: openai: category flags and scores do not match", moderation.ErrInvalidResponse)
+		}
+		cats := make(moderation.Categories, len(flags))
+		for category, flagged := range flags {
+			score := scores[category]
+			if flagged == nil || score == nil {
+				return nil, fmt.Errorf("%w: openai: category %q requires a flag and score", moderation.ErrInvalidResponse, category)
+			}
+			name := strings.ReplaceAll(strings.ReplaceAll(category, "/", "_"), "-", "_")
+			if _, exists := cats[name]; exists {
+				return nil, fmt.Errorf("%w: openai: category %q collides after normalization", moderation.ErrInvalidResponse, category)
+			}
+			cats[name] = moderation.Verdict{Flagged: *flagged, Score: *score}
 		}
 
 		output, err := moderation.NewOutput(cats, nil)

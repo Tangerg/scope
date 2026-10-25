@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -34,51 +35,18 @@ func (t ToolOutcome) Valid() bool {
 	}
 }
 
-// ModelOutcome distinguishes a validated response from an unknown provider
-// outcome and from a missing observation of the outcome.
-type ModelOutcome string
-
-const (
-	ModelOutcomeInvalid    ModelOutcome = ""
-	ModelOutcomeSucceeded  ModelOutcome = "succeeded"
-	ModelOutcomeUnknown    ModelOutcome = "unknown"
-	ModelOutcomeUnobserved ModelOutcome = "unobserved"
-)
-
-func (m ModelOutcome) Valid() bool {
-	return m == ModelOutcomeSucceeded || m == ModelOutcomeUnknown || m == ModelOutcomeUnobserved
-}
-
 // ModelCall is one physical model boundary attributed to an Agent Process Step.
 type ModelCall struct {
-	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
-	EffectID          agent.EffectID          `json:"effect_id"`
-	AttemptID         agent.EffectAttemptID   `json:"attempt_id"`
-	ProcessID         agent.ProcessID         `json:"process_id"`
-	StepSequence      uint64                  `json:"step_sequence"`
-	CallSequence      uint64                  `json:"call_sequence"`
-	Request           *chat.Request           `json:"request"`
-	Response          *chat.Response          `json:"response,omitzero"`
-	Unknown           bool                    `json:"unknown,omitzero"`
-	Failure           string                  `json:"failure,omitempty"`
-}
-
-// Outcome derives completion from the response or explicit uncertainty.
-// Without either, the settlement was not observed. Competing facts are invalid.
-func (m ModelCall) Outcome() ModelOutcome {
-	if m.Response != nil {
-		if m.Unknown || m.Failure != "" {
-			return ModelOutcomeInvalid
-		}
-		return ModelOutcomeSucceeded
-	}
-	if m.Unknown {
-		return ModelOutcomeUnknown
-	}
-	if m.Failure != "" {
-		return ModelOutcomeInvalid
-	}
-	return ModelOutcomeUnobserved
+	TreeIncarnationID agent.TreeIncarnationID  `json:"tree_incarnation_id,omitzero"`
+	EffectID          agent.EffectID           `json:"effect_id"`
+	AttemptID         agent.EffectAttemptID    `json:"attempt_id"`
+	ProcessID         agent.ProcessID          `json:"process_id"`
+	StepSequence      uint64                   `json:"step_sequence"`
+	CallSequence      uint64                   `json:"call_sequence"`
+	Request           *chat.Request            `json:"request"`
+	Response          *chat.Response           `json:"response,omitzero"`
+	Outcome           interaction.ModelOutcome `json:"outcome"`
+	Failure           string                   `json:"failure,omitempty"`
 }
 
 func (m ModelCall) Clone() ModelCall {
@@ -98,17 +66,15 @@ func (m ModelCall) Validate() error {
 }
 
 func (m ModelCall) validateSettlement() error {
-	if !utf8.ValidString(m.Failure) {
-		return fmt.Errorf("%w: model failure must be valid UTF-8", ErrInvalidTrajectory)
-	}
-	if m.Outcome() == ModelOutcomeInvalid || m.Failure != strings.TrimSpace(m.Failure) {
-		return fmt.Errorf("%w: invalid model outcome", ErrInvalidTrajectory)
-	}
-	if m.Response == nil {
+	if m.Outcome == interaction.ModelOutcomeUnobserved {
+		if m.Response != nil || m.Failure != "" {
+			return fmt.Errorf("%w: unobserved model call cannot carry settlement evidence", ErrInvalidTrajectory)
+		}
 		return nil
 	}
-	if err := m.Response.Validate(); err != nil {
-		return fmt.Errorf("%w: model response: %w", ErrInvalidTrajectory, err)
+	settlement := interaction.ModelSettlement{Outcome: m.Outcome, Response: m.Response, Failure: m.Failure}
+	if err := settlement.Validate(); err != nil {
+		return fmt.Errorf("%w: model settlement: %w", ErrInvalidTrajectory, err)
 	}
 	return nil
 }

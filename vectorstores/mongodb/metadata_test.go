@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 func TestCoreMetadataIsOneJSONStringThroughNativeBSON(t *testing.T) {
@@ -51,7 +52,7 @@ func TestCurrentSchemaRejectsLegacyAndMalformedRecordsOutsideFilter(t *testing.T
 			t.Fatal(err)
 		}
 		collection.records = append(collection.records, raw)
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 1}})
+		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.IsNull("absent")}})
 		if err == nil || response != nil {
 			t.Fatalf("invalid source became success: %v %v", response, err)
 		}

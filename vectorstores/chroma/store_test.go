@@ -124,7 +124,7 @@ func TestPublicConstructionOwnsNoNativeLifecycle(t *testing.T) {
 		if _, unsupported := any(store).(vectorstore.FilterDeleter); unsupported {
 			t.Fatal("store advertises non-atomic filter deletion")
 		}
-		if *calls != 0 || b.gets != 1 {
+		if *calls != 0 || b.gets != 0 {
 			t.Fatalf("model=%d native reads=%d", *calls, b.gets)
 		}
 	}
@@ -146,8 +146,13 @@ func TestPublicConstructionOwnsNoNativeLifecycle(t *testing.T) {
 	config, b, _ = boundaryConfig(t, v2.SpaceL2)
 	b.rows = oneRecord(`null`)
 	b.rows.Metadatas[0] = v2.NewDocumentMetadata(v2.NewStringAttribute("old", "value"))
-	if _, err := NewStore(t.Context(), config); err == nil {
-		t.Fatal("accepted old metadata schema")
+	store, err := NewStore(t.Context(), config)
+	if err != nil || b.gets != 0 {
+		t.Fatalf("construction read source records: %v", err)
+	}
+	b.query = queryRecords(b.rows, 0)
+	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); err == nil || response != nil {
+		t.Fatal("accepted old metadata schema in a returned record")
 	}
 }
 
@@ -233,7 +238,7 @@ func TestFailuresProduceNoResponseOrDeletion(t *testing.T) {
 		b.rows = oneRecord(`null`)
 		b.query = queryRecords(b.rows, 1)
 		change(b.query)
-		response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{MinScore: 1}})
+		response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.IsNull("absent")}})
 		if response != nil || err == nil {
 			t.Fatalf("invalid response=%v err=%v", response, err)
 		}
@@ -247,7 +252,8 @@ func TestFailuresProduceNoResponseOrDeletion(t *testing.T) {
 		t.Fatal(response, err)
 	}
 	b.getErr = failure
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+	b.queryErr = nil
+	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 	if response != nil || !errors.Is(err, failure) {
 		t.Fatal(response, err)
 	}

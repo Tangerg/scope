@@ -103,11 +103,14 @@ type searchResponse struct {
 	Results []*searchResult `json:"results"`
 }
 
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
+	if s.Results == nil {
+		return nil, fmt.Errorf("exa: %w: response is missing results", web.ErrInvalidSearchResponse)
+	}
 	results := make([]*web.SearchResult, 0, len(s.Results))
-	for _, searchResult := range s.Results {
+	for index, searchResult := range s.Results {
 		if searchResult == nil {
-			continue
+			return nil, fmt.Errorf("exa: %w: result %d is null", web.ErrInvalidSearchResponse, index)
 		}
 		results = append(results, &web.SearchResult{
 			Title:         searchResult.Title,
@@ -118,7 +121,11 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			PublishedTime: parseDate(searchResult.PublishedDate),
 		})
 	}
-	return &web.SearchResponse{Query: query, Results: results}
+	response := &web.SearchResponse{Query: query, Results: results}
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("exa: %w", err)
+	}
+	return response, nil
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -131,7 +138,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("exa: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query), nil
+	return raw.toSearchResponse(prepared.Query)
 }
 
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {

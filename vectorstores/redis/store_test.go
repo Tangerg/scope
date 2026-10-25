@@ -375,7 +375,7 @@ func TestReadRejectsMissingFactsAndInvalidNativeDistances(t *testing.T) {
 				delete(fixture.rows, "embedding:one")
 				fixture.rows["embedding: "] = fields
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 			if err == nil || response != nil || len(fixture.queries) != 0 {
 				t.Fatalf("corrupt record succeeded: %#v, %v", response, err)
 			}

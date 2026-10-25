@@ -140,7 +140,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := c.buildRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
 			return
 		}
 

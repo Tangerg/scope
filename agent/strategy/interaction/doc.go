@@ -26,6 +26,10 @@
 // interaction.model.invalid_response without retrying the model or committing
 // the rejected Step. Model preparation errors settle as definite host failures
 // before external work begins.
+// ModelObserver retains the physical outcome as succeeded, failed, not_executed,
+// or unknown independently of durable settlement. Only not_executed proves that
+// the provider performed no work. An unobserved outcome belongs to recordings
+// missing a callback and is never emitted by the Dispatcher.
 //
 // Only FinishReasonToolCalls admits Tool and Delegate execution.
 // Length-truncated calls receive model-visible feedback for another model
@@ -69,6 +73,11 @@
 // [agent.TreeSnapshot.EffectRequest], and submit them through
 // agent.Process.ResolveUnknownEffect. Model context receives complete results
 // in original call order.
+// AdvertisingTool projects a successful result through a pure callback. Live
+// declarations are sorted and deduplicated; persisted declarations must already
+// be canonical. An invalid declaration or callback failure retains the completed
+// Tool result and then fails the child with a contract Failure. It never makes
+// known external work unknown or permits replay.
 //
 // [SettledResults] projects exact known results from the authoritative tree;
 // it has no storage or acknowledgment role. [ToolCallRef] correlates one
@@ -84,7 +93,9 @@
 // model request or answers a Tool input wait. Tool answers address the Tool
 // child's wait through [PendingToolInputs]. The answer payload is the original
 // response JSON, validated against the unchanged response Schema by that wait;
-// schema resources and local references retain their original scope. A parent
+// its canonical bytes must also fit tool.MaxInputBytes. Both constraints persist
+// in the wait's opening contract, and a rejected answer leaves that wait open.
+// Schema resources and local references retain their original scope. A parent
 // Strategy delivers the same SignalRequest through agent.NewChildSignalEffect.
 // Unsupported envelopes are rejected before admission; semantic protocol violations discard the Step
 // with a contract Failure, and a Step error never consumes input.

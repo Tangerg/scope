@@ -1,11 +1,12 @@
 // Package anthropic implements the Anthropic Messages wire protocol reused by
 // native and compatible provider endpoints inside the models module.
 //
-// A nonempty Config BaseURL overrides ANTHROPIC_BASE_URL; an absent environment
-// value uses the SDK production endpoint. Both supplied URL sources are checked
-// during construction because the SDK applies its environment options before
-// explicit options: malformed environment options can otherwise fail only
-// when a request starts.
+// A nonempty Config BaseURL overrides ANTHROPIC_BASE_URL; when both are absent,
+// the SDK production endpoint applies. Construction validates and freezes the
+// selected URL. The SDK does not reload environment credentials, endpoints, or
+// headers: APIKey, Headers, and HTTPClient belong to this binding. A nil HTTPClient
+// uses http.DefaultClient; the host supplies any additional transport policy.
+// The SDK still owns its version header and retry policy.
 //
 // Constructors:
 //

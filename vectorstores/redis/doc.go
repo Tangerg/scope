@@ -17,7 +17,7 @@
 // expanded metadata representation. Metadata keys may have any Core-supported
 // name, including the HASH field names. Null and empty metadata remain distinct,
 // and JSON numbers retain their exact values. Media documents are rejected.
-// Construction and search reject invalid or extra fields, malformed metadata,
+// Search rejects invalid or extra returned fields, malformed metadata,
 // wrong vector dimensions, nonfinite FLOAT32 values and zero cosine vectors.
 // Existing deployments must provision this current native schema and reindex
 // their source documents; there is no legacy read path or schema conversion.
@@ -27,13 +27,13 @@
 // removing superseded fields. A native I/O failure may leave earlier records
 // published; the operation does not claim cross-record transactionality.
 //
-// Search scans the complete namespace before vector retrieval, validating every
-// current record. Core filter.Match alone decides metadata membership. Filtered
-// queries restrict native KNN retrieval with bounded INKEYS groups, then merge
-// their native distances before applying the Core TopK and score threshold.
-// No metadata keys or values enter native query syntax. Scanning costs O(N)
-// record reads and key bookkeeping. Native ClusterClient enumeration visits
-// every master; Ring is rejected because it cannot guarantee complete scanning.
+// Construction validates FT.INFO without reading records. Unfiltered Search
+// issues native KNN directly. Filtered Search scans the complete namespace and
+// Core filter.Match alone selects metadata membership. Bounded INKEYS groups
+// restrict KNN; native distances are merged before TopK and the Core score
+// threshold. No metadata keys or values enter query syntax. Only predicate scans
+// cost O(N) record reads and key bookkeeping. Native ClusterClient enumeration
+// visits every master; Ring cannot guarantee complete scanning and is rejected.
 // Enumeration and indexing visibility do not provide a database snapshot.
 //
 // Search rejects native warnings, malformed envelopes, incomplete hit counts,

@@ -20,7 +20,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-func TestConstructorBindsNativeSchemaAndValidatesEveryRecord(t *testing.T) {
+func TestConstructorBindsNativeSchemaAndSearchValidatesReturnedRecords(t *testing.T) {
 	for _, metric := range []string{"cosine", "euclidean"} {
 		t.Run(metric, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
@@ -67,6 +67,23 @@ func TestConstructorBindsNativeSchemaAndValidatesEveryRecord(t *testing.T) {
 				return constantEmbeddingModel().Call(ctx, request)
 			})
 			store, err := NewStore(t.Context(), config)
+			switch test {
+			case "legacy record", "key projection", "vector width", "bad Core JSON":
+				if err != nil || calls != 0 || !slices.Equal(fixture.paths, []string{"/GetIndex"}) {
+					t.Fatalf("construction read stored vectors: %v", err)
+				}
+				options := vectorstore.SearchOptions{}
+				if test == "vector width" {
+					// QueryVectors returns no vector data. A predicate's ListVectors
+					// source read is the boundary that receives this malformed width.
+					options.Filter = filter.IsNull("absent")
+				}
+				response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+				if searchErr == nil || response != nil {
+					t.Fatalf("invalid returned vector accepted: %v, %v", response, searchErr)
+				}
+				return
+			}
 			if err == nil || store != nil || calls != 0 {
 				t.Fatalf("unbound store = %v, %v, model calls=%d", store, err, calls)
 			}
@@ -246,7 +263,11 @@ func TestInvalidOptionsAndNativeFailuresReturnNoResponse(t *testing.T) {
 	}
 	for _, path := range []string{"/ListVectors", "/QueryVectors"} {
 		fixture.status[path] = 403
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+		options := vectorstore.SearchOptions{}
+		if path == "/ListVectors" {
+			options.Filter = filter.IsNull("absent")
+		}
+		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
 		if err == nil || response != nil {
 			t.Fatal("native failure became success")
 		}

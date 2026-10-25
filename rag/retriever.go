@@ -32,19 +32,25 @@ func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates,
 	return candidates, nil
 }
 
-// composedRetriever owns the public entry boundary. Its pipeline checks each
+// PipelineRetriever owns the public entry boundary. Its pipeline checks each
 // external stage result before passing it onward, so returning that same result
-// does not require another candidate traversal.
-type composedRetriever func(context.Context, Query) (Candidates, error)
+// does not require another candidate traversal. Construct it with
+// WithTransformers, WithExpander, or WithRefiners; its zero value is invalid.
+type PipelineRetriever struct {
+	run func(context.Context, Query) (Candidates, error)
+}
 
-func (c composedRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+func (p *PipelineRetriever) Retrieve(ctx context.Context, query Query) (Candidates, error) {
+	if p == nil || p.run == nil {
+		return nil, ErrNilRetriever
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
-	candidates, err := c(ctx, query)
+	candidates, err := p.run(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +62,7 @@ func (c composedRetriever) Retrieve(ctx context.Context, query Query) (Candidate
 
 // WithTransformers returns a [Retriever] that rewrites the query through
 // transformers before calling next.
-func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, error) {
+func WithTransformers(next Retriever, transformers ...Transformer) (*PipelineRetriever, error) {
 	if lo.IsNil(next) {
 		return nil, ErrNilRetriever
 	}
@@ -67,7 +73,7 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 		}
 	}
 
-	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
+	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
 		current := query
 		for i, transformer := range owned {
 			transformed, err := transform(ctx, transformer, current)
@@ -77,7 +83,7 @@ func WithTransformers(next Retriever, transformers ...Transformer) (Retriever, e
 			current = transformed
 		}
 		return retrieve(ctx, current, next.Retrieve)
-	}), nil
+	}}, nil
 }
 
 type ExpansionConfig struct {
@@ -93,7 +99,7 @@ type ExpansionConfig struct {
 // the configured concurrency bound and combines rankings with reciprocal-rank
 // fusion. Every query must succeed; the first failure cancels the remaining
 // retrievals and is returned. Raw scores never cross query boundaries.
-func WithExpander(config ExpansionConfig) (Retriever, error) {
+func WithExpander(config ExpansionConfig) (*PipelineRetriever, error) {
 	if lo.IsNil(config.Retriever) {
 		return nil, ErrNilRetriever
 	}
@@ -110,7 +116,7 @@ func WithExpander(config ExpansionConfig) (Retriever, error) {
 		return nil, err
 	}
 
-	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
+	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
 		queries, err := expand(ctx, config.Expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
@@ -123,12 +129,12 @@ func WithExpander(config ExpansionConfig) (Retriever, error) {
 			return nil, err
 		}
 		return fuseRankings(ctx, rankings, fusion.RankConstant)
-	}), nil
+	}}, nil
 }
 
 // WithRefiners returns a [Retriever] that calls next and then applies
 // refiners to the returned documents in order.
-func WithRefiners(next Retriever, refiners ...Refiner) (Retriever, error) {
+func WithRefiners(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
 	if lo.IsNil(next) {
 		return nil, ErrNilRetriever
 	}
@@ -139,7 +145,7 @@ func WithRefiners(next Retriever, refiners ...Refiner) (Retriever, error) {
 		}
 	}
 
-	return composedRetriever(func(ctx context.Context, query Query) (Candidates, error) {
+	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
 		docs, err := retrieve(ctx, query, next.Retrieve)
 		if err != nil {
 			return nil, err
@@ -151,7 +157,7 @@ func WithRefiners(next Retriever, refiners ...Refiner) (Retriever, error) {
 			}
 		}
 		return docs, nil
-	}), nil
+	}}, nil
 }
 
 func transform(ctx context.Context, transformer Transformer, query Query) (Query, error) {

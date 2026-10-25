@@ -101,7 +101,7 @@ func (n *nativeJSONObject) UnmarshalJSON(data []byte) error {
 
 func (n nativeJSONObject) MarshalJSON() ([]byte, error) {
 	if len(n.raw) == 0 {
-		return []byte("{}"), nil
+		return nil, errors.New("ollama: native JSON object is absent")
 	}
 	return n.raw, nil
 }
@@ -135,7 +135,7 @@ type nativeToolCall struct {
 }
 
 type nativeToolCallFunction struct {
-	Index     int              `json:"index"`
+	Index     *int             `json:"index"`
 	Name      string           `json:"name"`
 	Arguments nativeJSONObject `json:"arguments"`
 }
@@ -260,9 +260,9 @@ type nativeEmbedRequest struct {
 }
 
 type nativeEmbedResponse struct {
-	Model           string      `json:"model"`
-	Embeddings      [][]float32 `json:"embeddings"`
-	TotalDuration   int64       `json:"total_duration,omitzero"`
-	LoadDuration    int64       `json:"load_duration,omitzero"`
-	PromptEvalCount int         `json:"prompt_eval_count,omitzero"`
+	Model           string       `json:"model"`
+	Embeddings      [][]*float64 `json:"embeddings"`
+	TotalDuration   *int64       `json:"total_duration,omitzero"`
+	LoadDuration    *int64       `json:"load_duration,omitzero"`
+	PromptEvalCount *int64       `json:"prompt_eval_count,omitzero"`
 }

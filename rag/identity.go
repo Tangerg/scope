@@ -4,7 +4,7 @@ import "context"
 
 // IdentityAugmenter preserves the query text when retrieval evidence is needed
 // without prompt augmentation.
-func IdentityAugmenter() Augmenter {
+func IdentityAugmenter() AugmenterFunc {
 	return AugmenterFunc(func(ctx context.Context, query Query, candidates Candidates) (Augmentation, error) {
 		if err := ctx.Err(); err != nil {
 			return Augmentation{}, err

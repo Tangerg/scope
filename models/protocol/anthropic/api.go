@@ -30,31 +30,21 @@ func (a apiConfig) requestOptions() ([]option.RequestOption, error) {
 	if a.APIKey == "" {
 		return nil, errors.New("anthropic: APIKey is required")
 	}
-	environmentURL, environmentPresent := os.LookupEnv("ANTHROPIC_BASE_URL")
-	for _, source := range []struct {
-		name    string
-		value   string
-		present bool
-	}{
-		{"BaseURL", a.BaseURL, a.BaseURL != ""},
-		{"ANTHROPIC_BASE_URL", environmentURL, environmentPresent},
-	} {
-		if !source.present {
-			continue
-		}
-		endpoint, err := url.Parse(source.value)
+	baseURL, source, present := a.BaseURL, "BaseURL", a.BaseURL != ""
+	if !present {
+		baseURL, present = os.LookupEnv("ANTHROPIC_BASE_URL")
+		source = "ANTHROPIC_BASE_URL"
+	}
+	if present {
+		endpoint, err := url.Parse(baseURL)
 		if err != nil {
-			return nil, fmt.Errorf("anthropic: %s: %w", source.name, err)
+			return nil, fmt.Errorf("anthropic: %s: %w", source, err)
 		}
 		if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" {
-			return nil, fmt.Errorf("anthropic: %s must be an absolute HTTP or HTTPS URL with a host", source.name)
+			return nil, fmt.Errorf("anthropic: %s must be an absolute HTTP or HTTPS URL with a host", source)
 		}
 	}
-	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
-	baseURL := a.BaseURL
-	if baseURL == "" && environmentPresent {
-		baseURL = environmentURL
-	}
+	options := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithAPIKey(a.APIKey)}
 	if baseURL != "" {
 		options = append(options, option.WithBaseURL(baseURL))
 	}

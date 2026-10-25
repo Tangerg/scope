@@ -199,13 +199,13 @@ func mapImageResponse(value *media.Media, async *asyncResponse, final *pollResul
 	if setErr := outputMetadata.Set("blackforestlabs/output_url", final.Result.Sample); setErr != nil {
 		return nil, setErr
 	}
-	if final.Result.Seed != 0 {
-		if setErr := outputMetadata.Set("blackforestlabs/seed", final.Result.Seed); setErr != nil {
+	if final.Result.Seed != nil {
+		if setErr := outputMetadata.Set("blackforestlabs/seed", *final.Result.Seed); setErr != nil {
 			return nil, setErr
 		}
 	}
-	if final.Result.Duration != 0 {
-		if setErr := outputMetadata.Set("blackforestlabs/duration_ms", final.Result.Duration); setErr != nil {
+	if final.Result.Duration != nil {
+		if setErr := outputMetadata.Set("blackforestlabs/duration_ms", *final.Result.Duration); setErr != nil {
 			return nil, setErr
 		}
 	}

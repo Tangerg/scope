@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,8 +100,22 @@ func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingR
 	}
 
 	outputs := make([]*embedding.Output, expectedResults)
-	for _, item := range apiResp.Data {
-		if err := embedding.PlaceOutput(outputs, int(item.Index), item.Embedding, nil); err != nil {
+	for position, item := range apiResp.Data {
+		if !item.JSON.Index.Valid() || !item.JSON.Embedding.Valid() {
+			return nil, fmt.Errorf("%w: openai: embedding result %d requires index and embedding", embedding.ErrInvalidResponse, position)
+		}
+		var coordinates []*float64
+		if err := jsonv2.Unmarshal([]byte(item.JSON.Embedding.Raw()), &coordinates); err != nil {
+			return nil, fmt.Errorf("%w: openai: embedding result %d: %w", embedding.ErrInvalidResponse, position, err)
+		}
+		values := make([]float64, len(coordinates))
+		for coordinate, value := range coordinates {
+			if value == nil {
+				return nil, fmt.Errorf("%w: openai: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, position, coordinate)
+			}
+			values[coordinate] = *value
+		}
+		if err := embedding.PlaceOutput(outputs, int(item.Index), values, nil); err != nil {
 			return nil, fmt.Errorf("openai: embeddings response: %w", err)
 		}
 	}

@@ -30,7 +30,7 @@ func (progressTool) Call(ctx context.Context, _ toolcontract.Invocation) (toolco
 	total := 3.0
 	for i := range 3 {
 		if err := mcp.ReportProgress(ctx, float64(i+1), &total, "step"); err != nil &&
-			!errors.Is(err, mcp.ErrNoServerSession) {
+			!errors.Is(err, mcp.ErrNoProgressReporter) {
 			return toolcontract.Result{}, err
 		}
 	}
@@ -84,7 +84,5 @@ func TestNotifyHelpers_Progress(t *testing.T) {
 func TestNotifyHelpers_NoSessionReturnsSentinel(t *testing.T) {
 	ctx := t.Context()
 	err := mcp.ReportProgress(ctx, 1, nil, "no session")
-	assert.ErrorIs(t, err, mcp.ErrNoServerSession)
-	_, err = mcp.Elicit(ctx, sdkmcp.ElicitParams{Message: "x"})
-	assert.ErrorIs(t, err, mcp.ErrNoServerSession)
+	assert.ErrorIs(t, err, mcp.ErrNoProgressReporter)
 }

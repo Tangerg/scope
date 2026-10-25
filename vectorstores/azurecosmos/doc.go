@@ -25,14 +25,14 @@
 // can leave earlier upserts committed; this capability is not a transaction over
 // the complete request and adds no retry or compensating deletion.
 //
-// Construction and Search validate every item in the bound partition. Search
-// evaluates Core predicates using filter.Match before embedding or TopK, retains
-// only selected IDs and ETags, and projects IDs into native parameterized IN
-// clauses in groups of at most 100. Unfiltered search uses the same native vector
-// ranking operation. No provider predicate compiler or local distance algorithm
-// exists. Every ranked page is validated before MinScore or TopK is applied.
-// Raw native similarity orders cosine and dot product; raw distance orders
-// Euclidean results. Bytewise ID resolves ties before Core score projection.
+// Construction validates the native container policy without reading its items.
+// Unfiltered Search issues native VectorDistance ranking directly. A filtered
+// Search evaluates Core predicates before embedding or TopK, retains selected IDs
+// and ETags, and projects IDs into parameterized IN clauses in groups of at most
+// 100. No provider predicate compiler or local distance algorithm exists. Every
+// ranked page is validated before MinScore or TopK is applied. Raw native
+// similarity orders cosine and dot product; raw distance orders Euclidean results.
+// Bytewise ID resolves ties before Core score projection.
 //
 // Repeated IDs or continuation tokens, corrupt later items, invalid scores,
 // changed predicate membership and native errors return no partial response.

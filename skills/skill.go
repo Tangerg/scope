@@ -80,8 +80,8 @@ func (s *Skill) matchDirectoryName(name string) error {
 
 // Summary supports discovery without loading a skill's instructions.
 type Summary struct {
-	Name        string
-	Description string
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 func (s Summary) Validate() error {

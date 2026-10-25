@@ -48,6 +48,11 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	// generates.
 	dialect := openai.ReasoningDialect("groq")
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	// Groq's json_schema mode does not support streaming. Call aggregates the
+	// same stream, so this adapter cannot promise that native output format.
+	dialect.NativeOutputFormat = func(format corechat.OutputFormatType) bool {
+		return format != corechat.OutputFormatJSONSchema
+	}
 	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("groq: construct OpenAI-compatible chat: %w", err)

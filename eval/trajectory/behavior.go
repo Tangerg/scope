@@ -60,11 +60,11 @@ func (b behaviorEvent) compare(other behaviorEvent) int {
 }
 
 type behaviorModel struct {
-	ProcessPath string                 `json:"process_path"`
-	Step        uint64                 `json:"step"`
-	Sequence    uint64                 `json:"sequence"`
-	Outcome     ModelOutcome           `json:"outcome"`
-	ToolCalls   []behaviorToolDecision `json:"tool_calls,omitempty"`
+	ProcessPath string                   `json:"process_path"`
+	Step        uint64                   `json:"step"`
+	Sequence    uint64                   `json:"sequence"`
+	Outcome     interaction.ModelOutcome `json:"outcome"`
+	ToolCalls   []behaviorToolDecision   `json:"tool_calls,omitempty"`
 }
 
 type behaviorToolDecision struct {
@@ -73,7 +73,7 @@ type behaviorToolDecision struct {
 }
 
 func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
-	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome()}
+	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome}
 	for _, decision := range call.toolDecisions() {
 		arguments, err := canonicalArguments(decision.Arguments)
 		if err != nil {

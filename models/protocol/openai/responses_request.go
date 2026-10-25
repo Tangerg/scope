@@ -30,40 +30,40 @@ func projectResponsesInputTokenCount(params *responses.ResponseNewParams) (*resp
 	return &projected, nil
 }
 
-func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions) error {
-	fields, found, err := extensions.Decode[map[string]json.RawMessage](ResponsesRequestExtensionKey)
+func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions, extensionKey string) error {
+	fields, found, err := extensions.Decode[map[string]json.RawMessage](extensionKey)
 	if err != nil {
-		return fmt.Errorf("openai responses: extension %q: %w", ResponsesRequestExtensionKey, err)
+		return fmt.Errorf("openai responses: extension %q: %w", extensionKey, err)
 	}
 	if !found {
 		return nil
 	}
 	for _, field := range []string{"model", "input", "tools", "max_output_tokens", "temperature", "top_p", "stream"} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q is owned by Core", ResponsesRequestExtensionKey, field)
+			return fmt.Errorf("openai responses: extension %q field %q is owned by Core", extensionKey, field)
 		}
 	}
 	for _, field := range []string{"parallel_tool_calls", "tool_choice"} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q is owned by options.tool_choice", ResponsesRequestExtensionKey, field)
+			return fmt.Errorf("openai responses: extension %q field %q is owned by options.tool_choice", extensionKey, field)
 		}
 	}
 	if raw, exists := fields["reasoning"]; exists {
 		var reasoningFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &reasoningFields); err != nil {
-			return fmt.Errorf("openai responses: extension %q field %q: %w", ResponsesRequestExtensionKey, "reasoning", err)
+			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, "reasoning", err)
 		}
 		if _, exists := reasoningFields["effort"]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.effort is owned by options.reasoning_effort", ResponsesRequestExtensionKey, "reasoning")
+			return fmt.Errorf("openai responses: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, "reasoning")
 		}
 	}
 	if raw, exists := fields["text"]; exists {
 		var textFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &textFields); err != nil {
-			return fmt.Errorf("openai responses: extension %q field %q: %w", ResponsesRequestExtensionKey, "text", err)
+			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, "text", err)
 		}
 		if _, exists := textFields["format"]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.format is owned by options.output_format", ResponsesRequestExtensionKey, "text")
+			return fmt.Errorf("openai responses: extension %q field %q.format is owned by options.output_format", extensionKey, "text")
 		}
 	}
 	return nil

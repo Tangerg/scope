@@ -16,4 +16,7 @@
 // reasoning model actually generates.
 //
 // See https://console.groq.com/docs/ for the full API reference.
+// JSON Schema output is unsupported because Groq excludes streaming from that
+// mode; Call and Stream share the streaming exchange. JSON object mode remains
+// available through the Core output format.
 package groq

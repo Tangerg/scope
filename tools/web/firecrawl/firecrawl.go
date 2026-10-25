@@ -50,16 +50,20 @@ func NewClient(config Config) (*Client, error) {
 }
 
 type searchRequest struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitzero"`
-	Tbs   string `json:"tbs,omitempty"`
+	Query          string   `json:"query"`
+	Limit          int      `json:"limit,omitzero"`
+	Tbs            string   `json:"tbs,omitempty"`
+	IncludeDomains []string `json:"includeDomains,omitempty"`
+	ExcludeDomains []string `json:"excludeDomains,omitempty"`
 }
 
 func newSearchRequest(request *web.SearchRequest) *searchRequest {
 	return &searchRequest{
-		Query: request.QueryWithSiteOperators(),
-		Limit: cmp.Or(request.MaxResults, defaultSearchResultCount),
-		Tbs:   googletbs.FromRecency(request.Recency),
+		Query:          request.Query,
+		Limit:          cmp.Or(request.MaxResults, defaultSearchResultCount),
+		Tbs:            googletbs.FromRecency(request.Recency),
+		IncludeDomains: request.AllowedDomains,
+		ExcludeDomains: request.BlockedDomains,
 	}
 }
 
@@ -74,15 +78,18 @@ type searchResponseData struct {
 }
 
 type searchResponse struct {
-	Success bool               `json:"success"`
-	Data    searchResponseData `json:"data"`
+	Success bool                `json:"success"`
+	Data    *searchResponseData `json:"data"`
 }
 
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
+	if s.Data == nil {
+		return nil, fmt.Errorf("firecrawl: %w: response is missing data", web.ErrInvalidSearchResponse)
+	}
 	results := make([]*web.SearchResult, 0, len(s.Data.Web))
-	for _, searchResult := range s.Data.Web {
+	for index, searchResult := range s.Data.Web {
 		if searchResult == nil {
-			continue
+			return nil, fmt.Errorf("firecrawl: %w: result %d is null", web.ErrInvalidSearchResponse, index)
 		}
 		results = append(results, &web.SearchResult{
 			Title:   searchResult.Title,
@@ -90,7 +97,11 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			Snippet: searchResult.Description,
 		})
 	}
-	return &web.SearchResponse{Query: query, Results: results}
+	response := &web.SearchResponse{Query: query, Results: results}
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("firecrawl: %w", err)
+	}
+	return response, nil
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -107,7 +118,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if !raw.Success {
 		return nil, fmt.Errorf("firecrawl: search response reported failure: %s", response.String())
 	}
-	return raw.toSearchResponse(prepared.Query), nil
+	return raw.toSearchResponse(prepared.Query)
 }
 
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {

@@ -47,9 +47,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err = store.bind(ctx); err != nil {
 		return nil, err
 	}
-	if _, err = store.selectDocuments(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -142,6 +139,9 @@ func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -160,12 +160,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	selected, err := s.selectDocuments(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	var selected []selectedDocument
+	if request.Options.Filter != nil {
+		selected, err = s.selectDocuments(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

@@ -20,7 +20,7 @@ func controlValue[T any](value T, err error) T {
 // externalWaitSpecFor builds a key-only acceptance contract for tests that need
 // a plain external wait without an answer schema.
 func externalWaitSpecFor(key WaitKey) ExternalWaitSpec {
-	return ExternalWaitSpec{key: key}
+	return controlValue(NewExternalWaitSpec(ExternalWaitSpecConfig{Key: key}))
 }
 
 func TestChildControlSettlementsKeepOnlyAdmissionFacts(t *testing.T) {

@@ -68,13 +68,13 @@ type embeddingRequest struct {
 type embeddingResponse struct {
 	Object string `json:"object"`
 	Data   []struct {
-		Object    string    `json:"object"`
-		Embedding []float64 `json:"embedding"`
-		Index     int64     `json:"index"`
+		Object    string     `json:"object"`
+		Embedding []*float64 `json:"embedding"`
+		Index     *int64     `json:"index"`
 	} `json:"data"`
 	Model string `json:"model"`
 	Usage struct {
-		TotalTokens int64 `json:"total_tokens"`
+		TotalTokens *int64 `json:"total_tokens"`
 	} `json:"usage"`
 }
 
@@ -90,12 +90,12 @@ type rerankRequest struct {
 type rerankResponse struct {
 	Object string `json:"object"`
 	Data   []struct {
-		Index          int     `json:"index"`
-		RelevanceScore float64 `json:"relevance_score"`
+		Index          *int     `json:"index"`
+		RelevanceScore *float64 `json:"relevance_score"`
 	} `json:"data"`
 	Model string `json:"model"`
 	Usage struct {
-		TotalTokens int64 `json:"total_tokens"`
+		TotalTokens *int64 `json:"total_tokens"`
 	} `json:"usage"`
 }
 

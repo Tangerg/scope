@@ -154,8 +154,8 @@ type pollResult struct {
 	Result   struct {
 		Sample   string `json:"sample"`
 		Prompt   string `json:"prompt"`
-		Seed     int64  `json:"seed"`
-		Duration int64  `json:"duration"`
+		Seed     *int64 `json:"seed,omitzero"`
+		Duration *int64 `json:"duration,omitzero"`
 	} `json:"result"`
 }
 

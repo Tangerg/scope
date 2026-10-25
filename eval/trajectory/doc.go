@@ -8,6 +8,11 @@
 // RootUsage and TreeUsage have distinct scopes. Unknown token accounting or
 // elapsed time cannot satisfy an upper bound. Cross-restart history remains a
 // fragment for historical comparisons; raw wall-clock order is not causal.
+// Model calls retain interaction.ModelOutcome as their one outcome vocabulary.
+// A missing settlement observation remains unobserved, separate from a provider
+// outcome reported as unknown. NotExecuted proves zero provider token use;
+// Failed without usage evidence leaves token accounting incomplete. A valid
+// physical response remains recorded even when its durable settlement fails.
 //
 // The checked reference-task example composes Interaction, a structured Tool
 // input wait, one isolated business write, and reconciliation of a lost response.

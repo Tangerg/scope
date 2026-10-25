@@ -3,7 +3,7 @@ package together
 const (
 	Provider = "Together"
 
-	BaseURL = "https://api.together.xyz/v1"
+	BaseURL = "https://api.together.ai/v1"
 )
 
 // A representative slice of Together's current serverless catalog. See

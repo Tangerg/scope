@@ -5,8 +5,8 @@
 //
 // StoreConfig contains Collection, EmbeddingModel and DocumentBatcher. The
 // native #embedding schema must contain an enabled vector index with an
-// explicit cosine, l2 or ip space. Construction reads that schema and verifies
-// every stored record. Collection metadata and a second metric configuration
+// explicit cosine, l2 or ip space. Construction validates only that schema.
+// Collection metadata and a second metric configuration
 // never select scoring. Chroma 1.5.5 exercises this contract in native tests.
 // A native SDK collection satisfies Collection directly:
 //
@@ -24,15 +24,14 @@
 // predicate membership and type errors. Unknown native metadata fields and
 // malformed records fail the current contract. Media fails before indexing I/O.
 //
-// Search enumerates the observed collection with paginated Get operations and
-// validates every record before query embedding, relevance caps or thresholds.
-// Get is exhaustive; an ANN query never enumerates a predicate. Search limits
-// native Query to the selected IDs and requests up to TopK candidates. ANN
-// remains approximate and may omit eligible records. Native responses must
-// contain consistent columns, unique eligible IDs and valid records and scores.
-// Core rechecks membership on current query records. Pagination and query calls
-// do not form a collection snapshot: newly inserted records are outside the
-// observed set, and replacements or removals can change returned candidates.
+// Unfiltered Search calls native Query directly. Filtered Search enumerates the
+// observed collection with paginated Get operations and lets Core select eligible
+// IDs before native ranking. An ANN query cannot enumerate a predicate. Query
+// requests up to TopK candidates and remains approximate. All returned columns,
+// identities, records and scores are validated; filtered membership is rechecked.
+// Pagination and query calls do not form a collection snapshot: newly inserted
+// records are outside a filtered observed set, and replacements or removals can
+// change returned candidates.
 //
 // Native distances determine ordering, with document ID byte order for ties
 // among returned candidates. Core converts cosine, squared L2 or

@@ -158,7 +158,7 @@ func (n *nativeService) Search(_ context.Context, request *milvuspb.SearchReques
 	if n.beforeSearch != nil {
 		n.beforeSearch()
 	}
-	if request.Dsl != "id in {ids}" || request.ConsistencyLevel != commonpb.ConsistencyLevel_Strong {
+	if (request.Dsl != "" && request.Dsl != "id in {ids}") || request.ConsistencyLevel != commonpb.ConsistencyLevel_Strong {
 		return nil, errors.New("fixture: query must use native identities and strong consistency")
 	}
 	ids := request.ExprTemplateValues["ids"].GetArrayVal().GetStringData().GetData()
@@ -188,7 +188,7 @@ func (n *nativeService) Search(_ context.Context, request *milvuspb.SearchReques
 	}
 	var ranked []scored
 	for _, record := range n.records {
-		if !slices.Contains(ids, record.id) {
+		if request.Dsl != "" && !slices.Contains(ids, record.id) {
 			continue
 		}
 		score := record.vector[0]*query[0] + record.vector[1]*query[1]

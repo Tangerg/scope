@@ -37,6 +37,11 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 				t.Fatal(err)
 			}
 			owned := adapter.interactionsHTTP.GetClient()
+			sdkClient := adapter.client.ClientConfig().HTTPClient
+			if sdkClient == host || sdkClient == owned || sdkClient.Timeout != host.Timeout || sdkClient.Jar != jar {
+				t.Fatal("SDK client lost host policy or shares mutable transport slot")
+			}
+
 			if owned == host || owned.Transport != router || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
 				t.Fatal("constructor changed or failed to preserve borrowed HTTP configuration")
 			}

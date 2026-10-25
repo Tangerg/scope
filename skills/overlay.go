@@ -21,27 +21,29 @@ import (
 //
 // Nil and typed-nil sources are dropped; an empty overlay lists nothing and
 // reports every skill as not found.
-func Overlay(sources ...ResourceSource) ResourceSource {
+func Overlay(sources ...ResourceSource) *OverlaySource {
 	kept := make([]ResourceSource, 0, len(sources))
 	for _, s := range sources {
 		if !lo.IsNil(s) {
 			kept = append(kept, s)
 		}
 	}
-	return &overlaySource{sources: kept}
+	return &OverlaySource{sources: kept}
 }
 
-type overlaySource struct {
+// OverlaySource owns the ordered sources admitted by Overlay. Its zero value
+// is an empty source.
+type OverlaySource struct {
 	sources []ResourceSource
 }
 
-var _ Source = (*overlaySource)(nil)
-var _ ResourceSource = (*overlaySource)(nil)
+var _ Source = (*OverlaySource)(nil)
+var _ ResourceSource = (*OverlaySource)(nil)
 
 // List preserves level-one discovery. It reuses listed summaries and checks
 // only higher-precedence sources that omitted a name, because those sources
 // may own a malformed bundle. Full-document validation remains with Load.
-func (o *overlaySource) List(ctx context.Context) ([]Summary, error) {
+func (o *OverlaySource) List(ctx context.Context) ([]Summary, error) {
 	listed, err := o.listFirstSeen(ctx)
 	if err != nil {
 		return nil, err
@@ -63,7 +65,7 @@ type listedSummary struct {
 	sourceIndex int
 }
 
-func (o *overlaySource) listFirstSeen(ctx context.Context) (map[string]listedSummary, error) {
+func (o *OverlaySource) listFirstSeen(ctx context.Context) (map[string]listedSummary, error) {
 	if err := contextError(ctx, "list"); err != nil {
 		return nil, err
 	}
@@ -91,14 +93,14 @@ func (o *overlaySource) listFirstSeen(ctx context.Context) (map[string]listedSum
 	return listed, nil
 }
 
-func (o *overlaySource) ownedSummary(ctx context.Context, listed listedSummary) (Summary, error) {
+func (o *OverlaySource) ownedSummary(ctx context.Context, listed listedSummary) (Summary, error) {
 	if err := contextError(ctx, "list"); err != nil {
 		return Summary{}, err
 	}
 	if listed.sourceIndex == 0 {
 		return listed.summary, nil
 	}
-	higher := overlaySource{sources: o.sources[:listed.sourceIndex]}
+	higher := OverlaySource{sources: o.sources[:listed.sourceIndex]}
 	owned, err := higher.Lookup(ctx, listed.summary.Name)
 	if ctxErr := contextError(ctx, "list"); ctxErr != nil {
 		return Summary{}, errors.Join(err, ctxErr)
@@ -113,7 +115,7 @@ func (o *overlaySource) ownedSummary(ctx context.Context, listed listedSummary) 
 	}
 }
 
-func (o *overlaySource) Lookup(ctx context.Context, name string) (Summary, error) {
+func (o *OverlaySource) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err := ValidateName(name); err != nil {
 		return Summary{}, err
 	}
@@ -138,7 +140,7 @@ func (o *overlaySource) Lookup(ctx context.Context, name string) (Summary, error
 
 // Load returns immediately on a malformed skill so a broken higher-precedence
 // copy is not masked by a lower one.
-func (o *overlaySource) Load(ctx context.Context, name string) (*Skill, error) {
+func (o *OverlaySource) Load(ctx context.Context, name string) (*Skill, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
@@ -161,7 +163,7 @@ func (o *overlaySource) Load(ctx context.Context, name string) (*Skill, error) {
 	})
 }
 
-func (o *overlaySource) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
+func (o *OverlaySource) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
@@ -177,7 +179,7 @@ func (o *overlaySource) OpenResource(ctx context.Context, name, resource string)
 
 // resolve only falls through when the skill itself is absent. A missing file
 // never allows a lower-precedence source to supply part of the winning bundle.
-func (o *overlaySource) resolve[T any](ctx context.Context, name, operation string, lookup func(ResourceSource) (T, error)) (T, error) {
+func (o *OverlaySource) resolve[T any](ctx context.Context, name, operation string, lookup func(ResourceSource) (T, error)) (T, error) {
 	var zero T
 	if err := contextError(ctx, operation); err != nil {
 		return zero, err

@@ -3,8 +3,8 @@
 //
 // The host provisions one dedicated index and injects an authenticated HTTP
 // client. Authentication, token refresh, transport timeouts, retries and client
-// lifecycle belong to the host. Construction reads the actual index schema and
-// validates existing records without calling the embedding model. The bound
+// lifecycle belong to the host. Construction validates the actual index schema
+// without enumerating stored records or calling the embedding model. The bound
 // schema must remain unchanged for the lifetime of a Store.
 //
 // The current schema has exactly four retrievable fields, named by StoreConfig:
@@ -27,15 +27,15 @@
 // transaction across actions: a later transport or document failure can leave
 // earlier successful writes applied. Index visibility remains asynchronous.
 //
-// Search scans full stored records with ordered ID ranges until an empty page.
-// Every record is decoded and checked by Core before embedding, ANN, TopK or
-// threshold selection. Only Core-selected IDs enter the native search.in filter,
-// with vectorFilterMode=preFilter. Semantic search supplies a vector; hybrid
-// search adds lexical evidence from the content field and retains Azure's native
-// fusion. ANN recall remains native and TopK cannot exceed 1000. Current returned
-// records are validated and checked by Core again. Native continuation parameters
+// Unfiltered Search issues native vector or hybrid ranking directly and validates
+// every returned record. Filtered Search scans stored records with ordered ID
+// ranges until an empty page, and Core alone selects metadata membership before
+// ANN or TopK. Selected IDs enter search.in with vectorFilterMode=preFilter.
+// Semantic search supplies a vector; hybrid search adds lexical evidence from
+// the content field and retains native fusion. TopK cannot exceed 1000.
+// Returned filtered membership is rechecked. Native continuation parameters
 // advance paging while the configured endpoint retains credential authority.
-// Repeated continuation requests, duplicate or unexpected IDs, invalid records
+// Repeated continuations, duplicate or unexpected IDs, invalid returned records
 // and invalid native scores fail with no response.
 //
 // Native score order is retained before threshold selection, including when Core

@@ -172,7 +172,7 @@ func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	record := fixture.rows["one"]
 	record.MetadataJSON = ""
 	fixture.rows["one"] = record
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}}); err == nil || response != nil || len(fixture.groups) != 0 {
+	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
 		t.Fatalf("malformed record reached native ranking: %#v, %v", response, err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {
@@ -229,6 +229,17 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 				fixture.scanReply = page
 			}
 			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{size: 1}})
+			switch fault {
+			case "missing metadata", "missing content", "shadow source", "missing cursor", "wrong total", "scroll shard missing":
+				if err != nil {
+					t.Fatalf("construction enumerated source records: %v", err)
+				}
+				response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
+				if searchErr == nil || response != nil {
+					t.Fatalf("invalid predicate source accepted: %#v, %v", response, searchErr)
+				}
+				return
+			}
 			if err == nil || store != nil {
 				t.Fatalf("bad namespace accepted: %#v, %v", store, err)
 			}

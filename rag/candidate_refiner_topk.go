@@ -5,25 +5,29 @@ import (
 	"errors"
 )
 
-var _ Refiner = topKRefiner{}
+var _ Refiner = (*TopKRefiner)(nil)
 
-type topKRefiner struct {
+// TopKRefiner retains the bound admitted by TopK. Its zero value is invalid.
+type TopKRefiner struct {
 	topK int
 }
 
 // TopK returns a [Refiner] that stably sorts candidates by descending score and
 // returns at most topK candidates. topK must be positive. Use [Dedup] before
 // TopK when unique document identities are required.
-func TopK(topK int) (Refiner, error) {
+func TopK(topK int) (*TopKRefiner, error) {
 	if topK < 1 {
 		return nil, errors.New("rag: top K must be positive")
 	}
-	return topKRefiner{topK: topK}, nil
+	return &TopKRefiner{topK: topK}, nil
 }
 
-func (t topKRefiner) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
+func (t *TopKRefiner) Refine(ctx context.Context, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if t == nil || t.topK < 1 {
+		return nil, errors.New("rag: top K must be positive")
 	}
 	if err := query.Validate(); err != nil {
 		return nil, err

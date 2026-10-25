@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	agent "github.com/Tangerg/scope/agent"
@@ -20,6 +21,9 @@ import (
 // declaration cannot commit. Advertising adds visibility only, never executable
 // authority. Names must be exact deferred Tool names; the Interaction normalizes
 // order and duplicates and rejects any name that is not a bound deferred Tool.
+// AdvertiseDeferred is a bounded, deterministic, side-effect-free projection of
+// invocation and result. External work belongs in Tool.Call. A declaration
+// defect fails the Tool child without retracting its already completed call.
 type AdvertisingTool interface {
 	AdvertiseDeferred(ctx context.Context, invocation tool.Invocation, result tool.Result) ([]string, error)
 }
@@ -54,6 +58,9 @@ func validateAdvertisedToolNames(names []string) error {
 			return fmt.Errorf("advertised Tool name %q is duplicated", name)
 		}
 		seen[name] = struct{}{}
+	}
+	if !slices.IsSorted(names) {
+		return fmt.Errorf("advertised Tool names are not in canonical order")
 	}
 	return nil
 }

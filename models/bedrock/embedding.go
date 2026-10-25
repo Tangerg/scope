@@ -216,8 +216,8 @@ type titanEmbeddingRequest struct {
 }
 
 type titanEmbeddingResponse struct {
-	Embedding           []float64 `json:"embedding"`
-	InputTextTokenCount int64     `json:"inputTextTokenCount"`
+	Embedding           []*float64 `json:"embedding"`
+	InputTextTokenCount *int64     `json:"inputTextTokenCount"`
 }
 
 func (e *EmbeddingModel) embedTitan(
@@ -280,11 +280,22 @@ func (e *EmbeddingModel) embedTitan(
 		if len(response.Embedding) == 0 {
 			return nil, fmt.Errorf("bedrock: Titan embedding response %d has no float embedding", index)
 		}
-		if response.InputTextTokenCount < 0 {
-			return nil, fmt.Errorf("bedrock: Titan embedding response %d has negative inputTextTokenCount", index)
+		values := make([]float64, len(response.Embedding))
+		for coordinate, value := range response.Embedding {
+			if value == nil {
+				return nil, fmt.Errorf("%w: bedrock: Titan embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
+			}
+			values[coordinate] = *value
 		}
-		batch.vectors = append(batch.vectors, response.Embedding)
-		batch.inputTokens += response.InputTextTokenCount
+		if response.InputTextTokenCount == nil {
+			batch.hasUsage = false
+		} else {
+			if *response.InputTextTokenCount < 0 {
+				return nil, fmt.Errorf("bedrock: Titan embedding response %d has negative inputTextTokenCount", index)
+			}
+			batch.inputTokens += *response.InputTextTokenCount
+		}
+		batch.vectors = append(batch.vectors, values)
 		batch.responseBodies = append(batch.responseBodies, bytes.Clone(responseBody))
 	}
 	return batch, nil
@@ -393,26 +404,38 @@ func validateDimensions(model string, dimensions *int64, allowed ...int64) error
 }
 
 func decodeCohereFloatEmbeddings(raw json.RawMessage) ([][]float64, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
 		return nil, errors.New("bedrock: Cohere embedding response has no embeddings")
 	}
-	var vectors [][]float64
-	if err := jsonv2.Unmarshal(raw, &vectors); err == nil {
-		if len(vectors) == 0 {
-			return nil, errors.New("bedrock: Cohere embedding response has no float embeddings")
+	var coordinates [][]*float64
+	if trimmed[0] == '[' {
+		if err := jsonv2.Unmarshal(raw, &coordinates); err != nil {
+			return nil, fmt.Errorf("%w: bedrock: decode Cohere embeddings: %w", embedding.ErrInvalidResponse, err)
 		}
-		return vectors, nil
+	} else {
+		var byType struct {
+			Float [][]*float64 `json:"float"`
+		}
+		if err := jsonv2.Unmarshal(raw, &byType); err != nil {
+			return nil, fmt.Errorf("%w: bedrock: decode Cohere float embeddings: %w", embedding.ErrInvalidResponse, err)
+		}
+		coordinates = byType.Float
 	}
-	var byType struct {
-		Float [][]float64 `json:"float"`
-	}
-	if err := jsonv2.Unmarshal(raw, &byType); err != nil {
-		return nil, fmt.Errorf("bedrock: decode Cohere float embeddings: %w", err)
-	}
-	if len(byType.Float) == 0 {
+	if len(coordinates) == 0 {
 		return nil, errors.New("bedrock: Cohere embedding response has no float embeddings")
 	}
-	return byType.Float, nil
+	vectors := make([][]float64, len(coordinates))
+	for index, vector := range coordinates {
+		vectors[index] = make([]float64, len(vector))
+		for coordinate, value := range vector {
+			if value == nil {
+				return nil, fmt.Errorf("%w: bedrock: Cohere embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
+			}
+			vectors[index][coordinate] = *value
+		}
+	}
+	return vectors, nil
 }
 
 func (e *EmbeddingModel) invokeEmbedding(ctx context.Context, modelID string, body []byte) ([]byte, error) {

@@ -78,7 +78,9 @@ const (
 // providerMap maps a models.dev provider id to our config/provider name
 // (the adapter's Provider const, lowercased — Lookup matches case-folded).
 // OpenAI-compat and managed delegators keep their own name: vertexai is
-// sourced from google-vertex, zhipu from zhipuai.
+// sourced from google-vertex, zhipu from zhipuai. Perplexity's models.dev entry
+// describes the retired Sonar API, not the current Agent API; do not import its
+// identities or copy other providers' prices and capabilities into that binding.
 var providerMap = map[string]string{
 	"anthropic":      "anthropic",
 	"openai":         "openai",
@@ -98,7 +100,6 @@ var providerMap = map[string]string{
 	"moonshotai":     "moonshot",
 	"ollama-cloud":   "ollama",
 	"openrouter":     "openrouter",
-	"perplexity":     "perplexity",
 	"togetherai":     "together",
 	"xiaomi":         "xiaomi",
 }

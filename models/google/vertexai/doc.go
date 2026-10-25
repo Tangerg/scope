@@ -24,6 +24,8 @@
 // Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Embedding extensions use SDK camelCase fields and reject native
 // outputDimensionality; Core embedding.Options.Dimensions owns that value.
+// Embedding responses retain the exact native JSON. Optional token, truncation,
+// and billing metadata is projected only when reported, including zero and false.
 //
 // API keys are not used. Authenticate locally with Application Default
 // Credentials or provide an authenticated HTTP client; production workloads

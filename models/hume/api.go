@@ -99,10 +99,10 @@ type ttsResponse struct {
 		Audio    string `json:"audio"`
 		Encoding struct {
 			Format     string `json:"format"`
-			SampleRate int    `json:"sample_rate"`
+			SampleRate *int   `json:"sample_rate,omitzero"`
 		} `json:"encoding"`
-		Duration float64         `json:"duration"`
-		FileSize int64           `json:"file_size"`
+		Duration *float64        `json:"duration,omitzero"`
+		FileSize *int64          `json:"file_size,omitzero"`
 		Snippets json.RawMessage `json:"snippets,omitzero"`
 	} `json:"generations"`
 	RequestID string `json:"request_id"`
@@ -114,9 +114,9 @@ type ttsStreamEvent struct {
 	Type            string          `json:"type"`
 	Audio           string          `json:"audio,omitempty"`
 	AudioFormat     string          `json:"audio_format,omitempty"`
-	ChunkIndex      int64           `json:"chunk_index,omitzero"`
+	ChunkIndex      *int64          `json:"chunk_index,omitzero"`
 	GenerationID    string          `json:"generation_id,omitempty"`
-	IsLastChunk     bool            `json:"is_last_chunk,omitzero"`
+	IsLastChunk     *bool           `json:"is_last_chunk,omitzero"`
 	RequestID       string          `json:"request_id,omitempty"`
 	Snippet         json.RawMessage `json:"snippet,omitzero"`
 	SnippetID       string          `json:"snippet_id,omitempty"`

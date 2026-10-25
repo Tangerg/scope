@@ -14,6 +14,7 @@ import (
 	"time"
 
 	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -335,6 +336,9 @@ func (t Trajectory) TotalTokens() (int64, error) {
 	}
 	var total int64
 	for _, call := range t.modelCalls {
+		if call.Outcome == interaction.ModelOutcomeNotExecuted {
+			continue
+		}
 		if call.Response == nil || call.Response.Metadata == nil || call.Response.Metadata.Usage == nil {
 			return 0, fmt.Errorf("%w: model token accounting is absent", ErrIncompleteRecording)
 		}
@@ -735,7 +739,7 @@ type classifiedAttempt struct {
 func (t Trajectory) semanticCalls() []semanticCall {
 	calls := make([]semanticCall, 0, len(t.modelCalls)+len(t.toolCalls))
 	for _, call := range t.modelCalls {
-		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome() == ModelOutcomeUnobserved})
+		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome == interaction.ModelOutcomeUnobserved})
 	}
 	for _, call := range t.toolCalls {
 		calls = append(calls, semanticCall{effectRoleTool, call.attempt(), call.StepSequence, call.Outcome() == ToolOutcomeUnobserved})

@@ -34,7 +34,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 
 func TestResponsesMapsCoreReasoningEffortAndTokenProjection(t *testing.T) {
 	request := validReasoningRequest(t, "xhigh")
-	model := &Responses{api: &api{}, defaults: corechat.Options{Model: "gpt-5"}}
+	model := &Responses{api: &api{}, defaults: corechat.Options{Model: "gpt-5"}, dialect: ResponsesDialect{Provider: "openai"}}
 	params, err := model.buildResponsesRequest(request)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestResponsesMapsCoreReasoningEffortAndTokenProjection(t *testing.T) {
 
 func TestReasoningEffortRejectsUnknownProviderValue(t *testing.T) {
 	request := validReasoningRequest(t, "turbo")
-	model := &Responses{api: &api{}, defaults: corechat.Options{Model: "gpt-5"}}
+	model := &Responses{api: &api{}, defaults: corechat.Options{Model: "gpt-5"}, dialect: ResponsesDialect{Provider: "openai"}}
 	if _, err := model.buildResponsesRequest(request); err == nil || !strings.Contains(err.Error(), "unsupported value") {
 		t.Fatalf("error = %v", err)
 	}

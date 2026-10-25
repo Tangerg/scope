@@ -147,7 +147,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		wireRequest, err := c.buildRequest(request, true)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
 			return
 		}
 		body, err := c.api.chatCompletionStream(ctx, wireRequest)

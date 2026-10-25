@@ -95,11 +95,17 @@ func TestNativeRESTPreservesExactCoreMetadata(t *testing.T) {
 			if err = expected.UnmarshalJSON([]byte(source)); err != nil {
 				t.Fatal(err)
 			}
+			if expected == nil {
+				expected = make(metadata.Map)
+			}
+			if err = expected.Set(SourceDocumentIDMetadataKey, "source"); err != nil {
+				t.Fatal(err)
+			}
 			got := response.Results[0].Document.Metadata
-			if !expected.Equal(got) || (expected == nil) != (got == nil) {
+			if !expected.Equal(got) {
 				t.Fatalf("native metadata = %v, want %v", got, expected)
 			}
-			if len(got) != 0 {
+			if len(got) > 1 {
 				values, decodeErr := got.Values()
 				if decodeErr != nil {
 					t.Fatal(decodeErr)
@@ -152,7 +158,7 @@ func TestPagingOwnsCompletionAndPreflightBeforeTopK(t *testing.T) {
 			}
 			response, err := fixture.store().Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
 			if test == "short pages" || test == "empty advancing page" {
-				if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "two" {
+				if err != nil || len(response.Results) != 1 || string(response.Results[0].Document.Metadata[SourceDocumentIDMetadataKey]) != `"two"` {
 					t.Fatalf("native pages = %v, %v", response, err)
 				}
 				fixture.mu.Lock()
@@ -171,7 +177,7 @@ func TestSearchRanksNativeScoresBeforeClampingAndThreshold(t *testing.T) {
 	page := fmt.Sprintf(`{"retrievalResults":[%s,%s,%s]}`, resultJSON("lower", 2), resultJSON("higher", 3), resultJSON("negative", -3))
 	fixture := newProtocolFixture(t, page)
 	response, err := fixture.store().Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1}})
-	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "higher" || response.Results[0].Score != 1 {
+	if err != nil || len(response.Results) != 1 || string(response.Results[0].Document.Metadata[SourceDocumentIDMetadataKey]) != `"higher"` || response.Results[0].Score != 1 {
 		t.Fatalf("native rank = %v, %v", response, err)
 	}
 }
@@ -276,12 +282,9 @@ func TestNativeSourceIdentityAndInvalidRecords(t *testing.T) {
 				if err = expected.UnmarshalJSON([]byte(test.location)); err != nil {
 					t.Fatal(err)
 				}
-				canonical, encodeErr := expected.MarshalJSON()
-				if encodeErr != nil {
-					t.Fatal(encodeErr)
-				}
-				if response.Results[0].Document.ID != string(canonical) {
-					t.Fatalf("native identity changed: %q, want %s", response.Results[0].Document.ID, canonical)
+				got, present, decodeErr := response.Results[0].Document.Metadata.Decode[metadata.Map](SourceLocationMetadataKey)
+				if decodeErr != nil || !present || !expected.Equal(got) {
+					t.Fatalf("native provenance changed: %v, want %v; %v", got, expected, decodeErr)
 				}
 			}
 		})

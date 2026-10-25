@@ -1,7 +1,7 @@
 // Package opensearch implements the Core vector-store capabilities using a
 // borrowed native OpenSearch SDK client. The host provisions the concrete index
 // and owns authentication, topology, retries, timeouts and client lifetime.
-// [NewStore] reads native mapping and settings and validates current records;
+// [NewStore] validates native mapping and settings without reading documents;
 // it never creates or changes an index. Native mapping owns vector dimensions,
 // space, engine, method and encoding; native KNN owns candidate tuning.
 //
@@ -44,13 +44,13 @@
 // no cross-record transaction is claimed. Every bulk acknowledgment must
 // identify the requested operation, concrete index and document without failure.
 //
-// Search reads a complete scroll snapshot before native KNN. Every record is
-// validated and Core filter.Match alone decides metadata membership. Filtered
-// KNN uses bounded native ID selections and merges ranks before TopK and the
-// Core score threshold. Enumeration costs O(N) source reads and ID bookkeeping.
-// Enumeration and retrieval are separate requests; returned membership is
-// revalidated and no cross-request snapshot is promised. Native TopK and result
-// window limits are checked before I/O.
+// Unfiltered Search issues native KNN directly and validates every returned hit.
+// Filtered Search reads a complete scroll snapshot, and Core filter.Match alone
+// selects metadata membership. Bounded native ID selections restrict KNN; native
+// ranks are merged before TopK and the Core score threshold. Only predicate
+// enumeration costs O(N) source reads and ID bookkeeping. Enumeration and ranking
+// are separate requests; returned membership is revalidated without promising a
+// cross-request snapshot. Native TopK limits are checked before I/O.
 //
 // Timeout, early termination, failed or missing shard acknowledgments,
 // malformed records, repeated identities, incomplete pages, missing concurrency

@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"google.golang.org/genai"
+
+	corechat "github.com/Tangerg/scope/core/chat"
 )
 
 const maxGenerationEventBytes = 256 << 20
@@ -109,7 +111,13 @@ func (g *GenerationClient) GenerateContentStream(ctx context.Context, model stri
 	}
 }
 
-func (g *GenerationClient) request(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig, streaming bool) (*http.Response, context.CancelFunc, error) {
+func (g *GenerationClient) request(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig, streaming bool) (_ *http.Response, _ context.CancelFunc, err error) {
+	dispatched := false
+	defer func() {
+		if err != nil && !dispatched {
+			err = fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err)
+		}
+	}()
 	if config == nil {
 		config = &genai.GenerateContentConfig{}
 	}
@@ -117,13 +125,13 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 		return nil, nil, errors.New("google: automatic continuation is unsupported; each call owns one native generation")
 	}
 	if config.HTTPOptions != nil {
-		raw, err := jsonv2.Marshal(config.HTTPOptions, jsonv2.OmitZeroStructFields(true))
-		if err != nil {
-			return nil, nil, err
+		raw, marshalErr := jsonv2.Marshal(config.HTTPOptions, jsonv2.OmitZeroStructFields(true))
+		if marshalErr != nil {
+			return nil, nil, marshalErr
 		}
 		var fields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
-			return nil, nil, err
+		if decodeErr := jsonv2.Unmarshal(raw, &fields); decodeErr != nil {
+			return nil, nil, decodeErr
 		}
 		for field := range fields {
 			if field != "headers" && field != "timeout" {
@@ -156,7 +164,6 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 	// The SDK's configuration conversion decodes open JSON through float64.
 	// Keep the Core-owned schema outside that conversion.
 	generation.ResponseJsonSchema = nil
-	var err error
 	request.GenerationConfig, err = generation.ToGenerationConfig(g.config.Backend)
 	if err != nil {
 		return nil, nil, err
@@ -192,6 +199,7 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 	if g.config.APIKey != "" {
 		httpRequest.Header.Set("x-goog-api-key", g.config.APIKey)
 	}
+	dispatched = true
 	response, err := g.config.HTTPClient.Do(httpRequest)
 	if err != nil {
 		cancel()
@@ -280,7 +288,7 @@ func (g *GenerationClient) decode(raw []byte, headers http.Header) (*genai.Gener
 	if err := validateGenerationObjects(reflect.ValueOf(wire.generationResponse)); err != nil {
 		return nil, err
 	}
-	wire.SDKHTTPResponse = &genai.HTTPResponse{Headers: headers.Clone()}
+	wire.SDKHTTPResponse = &genai.HTTPResponse{Headers: headers.Clone(), Body: string(raw)}
 	response := genai.GenerateContentResponse(wire.generationResponse)
 	return &response, nil
 }

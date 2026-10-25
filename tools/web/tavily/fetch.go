@@ -16,7 +16,7 @@ type fetchRequest struct {
 }
 
 type fetchResult struct {
-	RawContent string `json:"raw_content"`
+	RawContent *string `json:"raw_content"`
 }
 
 type failedFetchResult struct {
@@ -30,7 +30,10 @@ type fetchResponse struct {
 
 func (f *fetchResponse) content() (string, error) {
 	if len(f.Results) > 0 && f.Results[0] != nil {
-		return f.Results[0].RawContent, nil
+		if f.Results[0].RawContent == nil {
+			return "", fmt.Errorf("tavily: %w: fetched result is missing raw_content", web.ErrInvalidFetchResponse)
+		}
+		return *f.Results[0].RawContent, nil
 	}
 	if len(f.FailedResults) > 0 && f.FailedResults[0] != nil {
 		return "", fmt.Errorf("tavily: fetch response reported failure: %s", f.FailedResults[0].Error)

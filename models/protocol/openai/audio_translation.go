@@ -115,6 +115,9 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 		return nil, err
 	}
 
+	if !apiResp.JSON.Text.Valid() {
+		return nil, fmt.Errorf("%w: openai: translation requires text", transcription.ErrInvalidResponse)
+	}
 	output, err := transcription.NewOutput(apiResp.Text, nil)
 	if err != nil {
 		return nil, err

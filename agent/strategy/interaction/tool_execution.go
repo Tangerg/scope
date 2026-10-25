@@ -218,6 +218,9 @@ func (t *toolExecution) acceptResult(envelope signalEnvelope) (agent.Transition,
 	if err := result.validateCall(t.state.Call.Call); err != nil {
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
+	if outcome.AdvertisementFailure != "" {
+		return stepfail.Transition(1, agent.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
+	}
 	output, err := agent.EncodePayload(result)
 	if err != nil {
 		return agent.Transition{}, err
@@ -235,7 +238,9 @@ func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transiti
 	}
 	// The mailbox admits the same response the continuation consumes. Keeping
 	// its Schema intact preserves local references, anchors and resource IDs.
-	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{Key: key, AnswerSchema: request.ResponseSchema()})
+	spec, err := agent.NewExternalWaitSpec(agent.ExternalWaitSpecConfig{
+		Key: key, AnswerSchema: request.ResponseSchema(), MaxAnswerBytes: tool.MaxInputBytes,
+	})
 	if err != nil {
 		return agent.Transition{}, err
 	}
@@ -249,3 +254,5 @@ func (t *toolExecution) openInputWait(request tool.InputRequest) (agent.Transiti
 }
 
 var _ agent.Definition = (*toolDefinition)(nil)
+
+const failureCodeInteractionToolAdvertisementInvalid = "interaction.tool.advertisement_invalid"

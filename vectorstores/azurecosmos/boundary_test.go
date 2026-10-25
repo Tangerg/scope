@@ -49,7 +49,7 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 			}
 		})
 	}
-	for _, fault := range []string{"identity", "partition", "partition kind", "policy", "path", "duplicate", "datatype", "dimensions", "metric", "legacy record"} {
+	for _, fault := range []string{"identity", "partition", "partition kind", "policy", "path", "duplicate", "datatype", "dimensions", "metric"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
 			policy := fixture.properties["vectorEmbeddingPolicy"].(map[string]any)["vectorEmbeddings"].([]any)[0].(map[string]any)
@@ -72,8 +72,6 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 				policy["dimensions"] = 0
 			case "metric":
 				policy["distanceFunction"] = "unknown"
-			case "legacy record":
-				fixture.records["old"] = json.RawMessage(`{"id":"old","content":"old","partition_key":"library","metadata":{},"embedding":[1,0],"_etag":"old"}`)
 			}
 			calls := 0
 			model := embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
@@ -84,7 +82,7 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 			if err == nil || store != nil || calls != 0 {
 				t.Fatalf("NewStore = %v, %v; model calls = %d", store, err, calls)
 			}
-			if fault != "legacy record" && !errors.Is(err, ErrIncompatibleContainer) {
+			if !errors.Is(err, ErrIncompatibleContainer) {
 				t.Fatalf("native policy error lost identity: %v", err)
 			}
 		})

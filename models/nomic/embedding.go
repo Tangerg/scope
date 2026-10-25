@@ -95,16 +95,21 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, expectedResults int) (*embedding.Response, error) {
 	outputs := make([]*embedding.Output, expectedResults)
 	for index, vec := range apiResp.Embeddings {
-		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
+		values := make([]float64, len(vec))
+		for coordinate, value := range vec {
+			if value == nil {
+				return nil, fmt.Errorf("%w: nomic: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
+			}
+			values[coordinate] = *value
+		}
+		if err := embedding.PlaceOutput(outputs, index, values, nil); err != nil {
 			return nil, fmt.Errorf("nomic: embedding response: %w", err)
 		}
 	}
 
-	meta := &embedding.ResponseMetadata{
-		Model: apiResp.Model,
-		Usage: &embedding.Usage{
-			InputTokens: apiResp.Usage.PromptTokens,
-		},
+	meta := &embedding.ResponseMetadata{Model: apiResp.Model}
+	if apiResp.Usage.PromptTokens != nil {
+		meta.Usage = &embedding.Usage{InputTokens: *apiResp.Usage.PromptTokens}
 	}
 
 	return embedding.NewResponse(outputs, meta)

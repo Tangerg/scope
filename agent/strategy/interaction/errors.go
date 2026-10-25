@@ -11,6 +11,7 @@ import (
 // classification.
 var (
 	ErrInvalidResult            = errors.New("interaction: invalid result")
+	ErrInvalidModelSettlement   = errors.New("interaction: invalid model settlement")
 	ErrInvalidToolAdvertisement = errors.New("interaction: invalid tool advertisement")
 	ErrInvalidPendingToolInput  = errors.New("interaction: invalid pending tool input")
 	ErrInvalidDefinitionConfig  = errors.New("interaction: invalid definition configuration")

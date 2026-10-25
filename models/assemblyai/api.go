@@ -120,30 +120,17 @@ const (
 )
 
 type transcriptResponse struct {
-	ID                 string           `json:"id"`
-	Status             transcriptStatus `json:"status"`
-	Text               string           `json:"text"`
-	Confidence         float64          `json:"confidence"`
-	AudioDuration      int64            `json:"audio_duration"`
-	LanguageCode       string           `json:"language_code"`
-	LanguageConfidence float64          `json:"language_confidence"`
-	SpeechModelUsed    string           `json:"speech_model_used"`
-	Error              string           `json:"error"`
-	Utterances         []struct {
-		Start      int64   `json:"start"`
-		End        int64   `json:"end"`
-		Speaker    string  `json:"speaker"`
-		Text       string  `json:"text"`
-		Confidence float64 `json:"confidence"`
-	} `json:"utterances"`
-	Words []struct {
-		Text       string  `json:"text"`
-		Start      int64   `json:"start"`
-		End        int64   `json:"end"`
-		Confidence float64 `json:"confidence"`
-		Speaker    string  `json:"speaker"`
-	} `json:"words"`
-	Raw map[string]json.RawMessage `json:"-"`
+	ID              string                     `json:"id"`
+	Status          transcriptStatus           `json:"status"`
+	Text            *string                    `json:"text"`
+	Confidence      *float64                   `json:"confidence"`
+	AudioDuration   *float64                   `json:"audio_duration"`
+	LanguageCode    string                     `json:"language_code"`
+	SpeechModelUsed string                     `json:"speech_model_used"`
+	Error           string                     `json:"error"`
+	Utterances      []json.RawMessage          `json:"utterances"`
+	Words           []json.RawMessage          `json:"words"`
+	Raw             map[string]json.RawMessage `json:"-"`
 }
 
 func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error) {

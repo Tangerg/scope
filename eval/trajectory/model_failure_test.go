@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"iter"
 	"testing"
 	"testing/synctest"
@@ -20,7 +21,9 @@ func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config int
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Observer = recorder
+	if config.Observer == nil {
+		config.Observer = recorder
+	}
 	dispatcher, err := interaction.NewDispatcher(definition, config)
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +55,127 @@ func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config int
 		t.Fatal(err)
 	}
 	return process, engine, dispatcher
+}
+
+func TestDefiniteModelOutcomesPreserveClassificationAndTokenEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		cause      error
+		outcome    interaction.ModelOutcome
+		knownUsage bool
+	}{
+		{name: "not executed", cause: chat.ErrNotExecuted, outcome: interaction.ModelOutcomeNotExecuted, knownUsage: true},
+		{name: "failed after dispatch", cause: chat.ErrDefiniteFailure, outcome: interaction.ModelOutcomeFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := new(trajectory.Recorder)
+			cause := fmt.Errorf("model rejected request: %w", test.cause)
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, cause })
+			process, engine, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, agent.NewMemoryTreeCommitter(), false)
+			result, err := process.Await(t.Context())
+			if err != nil || result.Termination().Status() != agent.StatusFailed {
+				t.Fatalf("definite failure=%v error=%v", result.Termination(), err)
+			}
+			snapshot, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, state := range snapshot.ProcessSnapshots() {
+				if len(state.UnknownEffectIDs()) != 0 {
+					t.Fatal("definite model outcome requires reconciliation")
+				}
+			}
+			recorded, err := recorder.Take(t.Context(), process, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := recorded.ModelCalls()
+			if len(calls) != 1 || calls[0].Outcome != test.outcome || calls[0].Response != nil || calls[0].Failure != cause.Error() {
+				t.Fatalf("model evidence=%+v, want %s", calls, test.outcome)
+			}
+			finished := false
+			for _, event := range recorded.Events() {
+				if fact, ok := event.EffectFinished(); ok && fact.AttemptID() == calls[0].AttemptID {
+					finished = fact.SettlementStatus() == agent.SettlementStatusFailed
+				}
+			}
+			if !finished {
+				t.Fatal("durable effect classification differs from definite model evidence")
+			}
+			config := trajectoryConfig(recorded)
+			config.Coverage = interactionCoverage(config.Events)
+			recorded, err = trajectory.New(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if coverageErr := recorded.CheckCoverage(); coverageErr != nil {
+				t.Fatal(coverageErr)
+			}
+			tokens, tokenErr := recorded.TotalTokens()
+			if test.knownUsage {
+				if tokenErr != nil || tokens != 0 {
+					t.Fatalf("unexecuted model token evidence=%d, %v", tokens, tokenErr)
+				}
+			} else if !errors.Is(tokenErr, trajectory.ErrIncompleteRecording) {
+				t.Fatalf("a definite failure without accounting proved token usage: %d, %v", tokens, tokenErr)
+			}
+			data, err := jsonv2.Marshal(recorded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored trajectory.Trajectory
+			if err := jsonv2.Unmarshal(data, &restored); err != nil || restored.ModelCalls()[0].Outcome != test.outcome {
+				t.Fatalf("model outcome did not survive the current wire: %v", err)
+			}
+		})
+	}
+}
+
+type incompleteModelObserver struct {
+	recorder *trajectory.Recorder
+	invalid  bool
+}
+
+func (i incompleteModelObserver) OnModelStarted(ctx context.Context, invocation interaction.ModelInvocation, request *chat.Request) {
+	i.recorder.OnModelStarted(ctx, invocation, request)
+}
+
+func (i incompleteModelObserver) OnModelSettled(ctx context.Context, invocation interaction.ModelInvocation, _ interaction.ModelSettlement) {
+	if i.invalid {
+		i.recorder.OnModelSettled(ctx, invocation, interaction.ModelSettlement{Outcome: interaction.ModelOutcomeUnobserved})
+	}
+}
+
+func TestMissingOrInvalidModelObservationStaysUnobserved(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid=%t", invalid), func(t *testing.T) {
+			recorder := new(trajectory.Recorder)
+			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}, nil
+			})
+			process, _, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{
+				Model: model, Observer: incompleteModelObserver{recorder: recorder, invalid: invalid},
+			}, agent.NewMemoryTreeCommitter(), false)
+			recorded, err := recorder.Take(t.Context(), process, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := recorded.ModelCalls()
+			if len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnobserved || calls[0].Response != nil || calls[0].Failure != "" {
+				t.Fatalf("missing model settlement became observed evidence: %+v", calls)
+			}
+			var dropped uint64
+			if invalid {
+				dropped = 1
+			}
+			if gaps := recorded.Gaps(); gaps.UnpairedCalls != 1 || gaps.DroppedCallObservations != dropped {
+				t.Fatalf("model evidence gaps=%+v", gaps)
+			}
+			if _, err := recorded.TotalTokens(); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+				t.Fatalf("unobserved call proved token usage: %v", err)
+			}
+		})
+	}
 }
 
 func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
@@ -102,7 +226,7 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 					t.Fatal(err)
 				}
 				calls := recorded.ModelCalls()
-				if len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
+				if len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
 					t.Fatalf("failed model evidence = %+v", calls)
 				}
 				call := calls[0]
@@ -173,7 +297,7 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 		if recorded.Termination().Valid() || recorded.HistoryComplete() {
 			t.Fatal("runtime failure invented a committed root result")
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
 			t.Fatalf("observed response was retracted: %+v", calls)
 		}
 		stopped := false
@@ -248,7 +372,7 @@ func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T)
 			t.Fatalf("two attempts did not satisfy physical coverage: %v", digestErr)
 		}
 		for _, call := range recorded.ModelCalls() {
-			if call.AttemptID == firstID && call.Outcome() != trajectory.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome() != trajectory.ModelOutcomeSucceeded {
+			if call.AttemptID == firstID && call.Outcome != interaction.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome != interaction.ModelOutcomeSucceeded {
 				t.Fatal("replay overwrote the earlier Unknown")
 			}
 		}
@@ -301,7 +425,7 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome() != trajectory.ModelOutcomeUnknown {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnknown {
 			t.Fatalf("investigation rewrote physical history: %+v", calls)
 		}
 		resolved := false

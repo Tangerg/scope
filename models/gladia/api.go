@@ -129,7 +129,7 @@ type transcriptionResult struct {
 	Status transcriptionStatus `json:"status"`
 	Result struct {
 		Transcription struct {
-			FullTranscript string            `json:"full_transcript"`
+			FullTranscript *string           `json:"full_transcript"`
 			Languages      []string          `json:"languages,omitzero"`
 			Utterances     []json.RawMessage `json:"utterances,omitzero"`
 		} `json:"transcription"`

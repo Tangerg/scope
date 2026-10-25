@@ -83,8 +83,8 @@ type moderationResponse struct {
 	ID      string `json:"id"`
 	Model   string `json:"model"`
 	Results []struct {
-		Categories     map[string]bool    `json:"categories"`
-		CategoryScores map[string]float64 `json:"category_scores"`
+		Categories     map[string]*bool    `json:"categories"`
+		CategoryScores map[string]*float64 `json:"category_scores"`
 	} `json:"results"`
 }
 

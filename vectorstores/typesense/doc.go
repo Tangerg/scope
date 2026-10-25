@@ -18,15 +18,15 @@
 // Existing collections using raw IDs or object metadata must be replaced and
 // reindexed from their authoritative documents. There is no legacy decoder.
 //
-// Construction and search validate a complete JSONL document export. Core
-// filter.Match alone selects metadata membership; selected native keys restrict
-// the same native search operation before TopK. Returned keys and metadata must
-// still satisfy that membership. A malformed record, changed membership,
-// repeated hit, cutoff or incomplete page fails the whole search. These reads
-// are not an atomic snapshot; concurrent writers require host coordination.
-// Export permission is required even for unfiltered search. Every response,
-// including the complete export, must fit MaxResponseBytes, which defaults to
-// DefaultMaxResponseBytes. Hosts must size this explicit budget for their data.
+// Construction validates only the native collection schema. Unfiltered Search
+// issues native ranking directly. Filtered Search validates a complete JSONL
+// export and uses Core filter.Match to select the keys admitted to native ranking.
+// Returned keys and metadata must still satisfy that membership. Malformed
+// returned records, changed membership, repeated hits, cutoff or incomplete pages
+// fail the whole search. These reads are not an atomic snapshot. Only filtered
+// search needs export permission and source-sized reads. Every response, including
+// a filtered export, must fit MaxResponseBytes, which defaults to
+// DefaultMaxResponseBytes.
 //
 // Semantic search preserves native ANN ranking across pages of at most
 // MaxResultsPerPage and projects cosine distance through the Core score

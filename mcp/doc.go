@@ -17,6 +17,14 @@
 // must complete that exchange through the SDK. Successful structured results
 // are validated against the output schema frozen at discovery.
 //
+// Scope tools receive business input explicitly through tool.Invocation and
+// tool.Continuation. Register does not drive tool.InputRequest checkpoints.
+// A native MCP handler that needs user input returns SDK InputRequests and
+// resumes from InputResponses under the multi-round-trip protocol; it must
+// protect any RequestState it sends through the client. No context helper
+// grants elicitation or a server session. ReportProgress carries only the
+// request's progress observer, never business input or execution authority.
+//
 // Tool results and prompts share one content codec. [ContentMetadataKey]
 // carries MCP annotations, resource provenance, and presentation metadata
 // that Core has no field for, and Core metadata, citations, and media names,

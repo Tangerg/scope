@@ -51,11 +51,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{client: config.Client, embeddingClient: embeddings, documentBatcher: config.DocumentBatcher, collectionName: config.CollectionName}
-	policy, err := s.readPolicy(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if _, err = s.selectDocuments(ctx, policy, nil); err != nil {
+	if _, err := s.readPolicy(ctx); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -190,6 +186,9 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -204,13 +203,18 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	candidates, err := s.selectDocuments(ctx, policy, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
 	response := &vectorstore.SearchResponse{}
-	if len(candidates) == 0 {
-		return response, response.ValidateFor(request)
+	groups := [][]nativeRecord{nil}
+	if request.Options.Filter != nil {
+		var candidates []nativeRecord
+		candidates, err = s.selectDocuments(ctx, policy, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(candidates) == 0 {
+			return response, response.ValidateFor(request)
+		}
+		groups = slices.Collect(slices.Chunk(candidates, identityGroupSize))
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {
@@ -221,16 +225,22 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		return nil, err
 	}
 	var ranked []rankedDocument
-	for start := 0; start < len(candidates); start += identityGroupSize {
-		group := candidates[start:min(start+identityGroupSize, len(candidates))]
-		ids := make([]string, len(group))
-		for position, record := range group {
-			ids[position] = record.doc.ID
+	for _, group := range groups {
+		var ids []string
+		for _, record := range group {
+			ids = append(ids, record.doc.ID)
 		}
-		options := milvusclient.NewSearchOption(s.collectionName, min(limit, len(group)), []entity.Vector{entity.FloatVector(query)}).
+		queryLimit := limit
+		if group != nil {
+			queryLimit = min(limit, len(group))
+		}
+		options := milvusclient.NewSearchOption(s.collectionName, queryLimit, []entity.Vector{entity.FloatVector(query)}).
 			WithANNSField(fieldVector).WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).
-			WithFilter("id in {ids}").WithTemplateParam("ids", ids).WithConsistencyLevel(entity.ClStrong).
+			WithConsistencyLevel(entity.ClStrong).
 			WithSearchParam("metric_type", string(policy.metric))
+		if ids != nil {
+			options = options.WithFilter("id in {ids}").WithTemplateParam("ids", ids)
+		}
 		results, err := s.client.Search(ctx, options)
 		if err != nil {
 			return nil, err
@@ -243,7 +253,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		if err != nil {
 			return nil, err
 		}
-		if len(rows.Scores) != len(records) || len(records) > min(limit, len(group)) || len(records) != 0 && rows.IDs == nil || rows.IDs != nil && rows.IDs.Len() != len(records) {
+		if len(rows.Scores) != len(records) || len(records) > queryLimit || len(records) != 0 && rows.IDs == nil || rows.IDs != nil && rows.IDs.Len() != len(records) {
 			return nil, errors.New("milvus: search result shape is inconsistent")
 		}
 		seen := make(map[string]bool, len(records))
@@ -252,7 +262,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			if err != nil {
 				return nil, err
 			}
-			if nativeID != record.doc.ID || !slices.Contains(ids, record.doc.ID) || seen[record.doc.ID] {
+			if nativeID != record.doc.ID || ids != nil && !slices.Contains(ids, record.doc.ID) || seen[record.doc.ID] {
 				return nil, errors.New("milvus: search identity is inconsistent")
 			}
 			seen[record.doc.ID] = true

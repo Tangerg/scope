@@ -95,13 +95,19 @@ func (p *protocolResponseMapper) mapParts(message nativeMessage) ([]corechat.Par
 		if toolCall.Function.Name == "" {
 			return nil, fmt.Errorf("ollama: message.tool_calls[%d]: empty function name", i)
 		}
+		if len(toolCall.Function.Arguments.raw) == 0 {
+			return nil, fmt.Errorf("%w: ollama: message.tool_calls[%d] requires arguments", corechat.ErrInvalidResponse, i)
+		}
 		arguments, err := jsonv2.Marshal(toolCall.Function.Arguments)
 		if err != nil {
 			return nil, fmt.Errorf("ollama: message.tool_calls[%d].arguments: %w", i, err)
 		}
 		id := toolCall.ID
 		if id == "" {
-			id = fmt.Sprintf("%s%d", protocolGeneratedToolPrefix, toolCall.Function.Index)
+			if toolCall.Function.Index == nil || *toolCall.Function.Index < 0 {
+				return nil, fmt.Errorf("%w: ollama: message.tool_calls[%d] requires a nonnegative function index when no call id is reported", corechat.ErrInvalidResponse, i)
+			}
+			id = fmt.Sprintf("%s%d", protocolGeneratedToolPrefix, *toolCall.Function.Index)
 		}
 		parts = append(parts, corechat.NewToolCallPart(corechat.ToolCall{
 			ID:        id,

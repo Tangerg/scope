@@ -11,9 +11,12 @@
 //
 // Metadata is decoded directly from native JSON into Core metadata.Map. It never
 // passes through the SDK's generic document decoder, which converts JSON numbers
-// to float64 and can lose integer and decimal precision. Missing or null metadata
-// stays nil; an explicit empty object stays non-nil. Scope cannot recover facts
-// that the data source or Bedrock has already rounded before emitting JSON.
+// to float64 and can lose integer and decimal precision. Native attributes retain
+// their original keys and values. SourceDocumentIDMetadataKey and
+// SourceLocationMetadataKey add source provenance; native attributes using either
+// reserved key are rejected. The projected metadata is therefore non-nil even
+// when the source has no attributes. Scope cannot recover facts that the data
+// source or Bedrock has already rounded before emitting JSON.
 //
 // Core predicates are unsupported and fail with errors.ErrUnsupported before any
 // HTTP request. Retrieve cannot enumerate the complete knowledge base for Core's
@@ -32,9 +35,15 @@
 // invalid later chunk returns an error and no partial response.
 //
 // Only native TEXT chunks with finite scores and stable source identity fit this
-// contract. Document IDs come from documentId when present, otherwise from the
-// canonical active source location; an SQL query alone is not an identity. Several
-// chunks can share a source document ID and are retained as distinct matches.
+// contract. Document.ID identifies the evidence chunk, not its source document.
+// It is a SHA-256 digest of source documentId, source location, text, and native
+// metadata with recursively ordered JSON keys and exact numeric representations.
+// Native metadata is source-file metadata; query-relative scores and ordering
+// never participate in identity. Equal evidence remains stable across queries;
+// different chunks from one source cannot collapse during retrieval fusion.
+// The source must have documentId or an active source location; an SQL query alone
+// is not an identity. Missing native metadata and an empty object remain distinct
+// in the evidence identity even though both project no native attribute keys.
 // Native raw scores determine rank before clamping onto Core's [0,1] relevance
 // scale. Bedrock does not document a scale conversion, so clamping cannot make
 // these scores comparable across knowledge bases or ranking policies.

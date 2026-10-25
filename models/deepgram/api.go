@@ -132,37 +132,20 @@ func (l *listenParams) query() url.Values {
 }
 
 type listenResponse struct {
-	RequestID string `json:"request_id"`
-	Metadata  struct {
-		TransactionKey string   `json:"transaction_key"`
-		RequestID      string   `json:"request_id"`
-		Channels       int      `json:"channels"`
-		Duration       float64  `json:"duration"`
-		Models         []string `json:"models"`
-		Metadata       map[string]struct {
-			Name string `json:"name"`
-			Tier string `json:"tier"`
-		} `json:"model_info"`
+	Metadata struct {
+		RequestID string   `json:"request_id"`
+		Channels  *int     `json:"channels"`
+		Duration  *float64 `json:"duration"`
 	} `json:"metadata"`
 	Results struct {
 		Channels []struct {
 			Alternatives []struct {
-				Transcript string  `json:"transcript"`
-				Confidence float64 `json:"confidence"`
-				Words      []struct {
-					Word    string  `json:"word"`
-					Start   float64 `json:"start"`
-					End     float64 `json:"end"`
-					Speaker int     `json:"speaker,omitzero"`
-				} `json:"words"`
+				Transcript *string           `json:"transcript"`
+				Confidence *float64          `json:"confidence"`
+				Words      []json.RawMessage `json:"words"`
 			} `json:"alternatives"`
 		} `json:"channels"`
-		Utterances []struct {
-			Start      float64 `json:"start"`
-			End        float64 `json:"end"`
-			Speaker    int     `json:"speaker"`
-			Transcript string  `json:"transcript"`
-		} `json:"utterances,omitempty"`
+		Utterances []json.RawMessage `json:"utterances"`
 	} `json:"results"`
 	Raw map[string]json.RawMessage `json:"-"`
 }

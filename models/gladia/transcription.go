@@ -157,7 +157,10 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		}
 	}
 
-	output, err := transcription.NewOutput(final.Result.Transcription.FullTranscript, outputMetadata)
+	if final.Result.Transcription.FullTranscript == nil {
+		return nil, fmt.Errorf("%w: gladia: transcription requires full_transcript", transcription.ErrInvalidResponse)
+	}
+	output, err := transcription.NewOutput(*final.Result.Transcription.FullTranscript, outputMetadata)
 	if err != nil {
 		return nil, err
 	}

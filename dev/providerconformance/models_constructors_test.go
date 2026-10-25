@@ -122,8 +122,15 @@ func validateProviderConstructor(
 	if configType == "" {
 		return false
 	}
-	if parameterCount != 2 && (parameterCount != 3 || namedType(function.Type.Params.List[len(function.Type.Params.List)-1].Type) != "Dialect") {
-		t.Errorf("%s: constructor with config has %d parameters", name, parameterCount)
+	if parameterCount != 2 {
+		dialectType := namedType(function.Type.Params.List[len(function.Type.Params.List)-1].Type)
+		if parameterCount != 3 || dialectType != "Dialect" && dialectType != "ResponsesDialect" {
+			t.Errorf("%s: constructor with config has %d parameters", name, parameterCount)
+		} else if dialectType == "ResponsesDialect" {
+			if _, ok := validateReceivers[dialectType]; !ok {
+				t.Errorf("%s: %s does not own Validate", name, dialectType)
+			}
+		}
 	}
 	if !startsWithContext(function.Type.Params) {
 		t.Errorf("%s: only context.Context may precede config", name)

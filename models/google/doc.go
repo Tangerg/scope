@@ -24,6 +24,8 @@
 // Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Native embedding extensions also use SDK camelCase fields and reject
 // outputDimensionality; embedding.Options.Dimensions owns that value.
+// Embedding responses retain the exact native JSON. Optional token, truncation,
+// and billing metadata is projected only when reported, including zero and false.
 //
 // Constructors take a context because construction reaches the network. On the
 // Vertex AI backend with application default credentials, building the client

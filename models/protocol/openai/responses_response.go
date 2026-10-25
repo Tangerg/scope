@@ -10,7 +10,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDelta, error) {
+func responsesTerminalDelta(response *responses.Response, extensionKey string) (*corechat.ResponseDelta, error) {
 	if response == nil {
 		return nil, fmt.Errorf("%w: openai responses: nil response", corechat.ErrInvalidResponse)
 	}
@@ -24,7 +24,7 @@ func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDel
 	if response.CreatedAt > 0 {
 		metadata.CreatedAt = time.Unix(int64(response.CreatedAt), 0).UTC()
 	}
-	if err := metadata.Extra.Set(ResponsesResponseExtensionKey, json.RawMessage(response.RawJSON())); err != nil {
+	if err := metadata.Extra.Set(extensionKey, json.RawMessage(response.RawJSON())); err != nil {
 		return nil, fmt.Errorf("openai responses: preserve native response: %w", err)
 	}
 	delta := &corechat.ResponseDelta{FinishReason: finishReason, Metadata: metadata}
@@ -37,9 +37,9 @@ func responsesTerminalDelta(response *responses.Response) (*corechat.ResponseDel
 func responsesFinishReason(response *responses.Response) (corechat.FinishReason, error) {
 	switch response.Status {
 	case responses.ResponseStatusFailed:
-		return "", fmt.Errorf("openai responses: failed: %s: %s", response.Error.Code, response.Error.Message)
+		return "", fmt.Errorf("%w: openai responses: failed: %s: %s", corechat.ErrDefiniteFailure, response.Error.Code, response.Error.Message)
 	case responses.ResponseStatusCancelled:
-		return "", fmt.Errorf("openai responses: response was canceled")
+		return "", fmt.Errorf("%w: openai responses: response was canceled", corechat.ErrDefiniteFailure)
 	case responses.ResponseStatusIncomplete:
 		switch response.IncompleteDetails.Reason {
 		case responsesIncompleteMaxTokens:

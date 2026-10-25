@@ -76,9 +76,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = store.selectMatches(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -192,6 +189,9 @@ func (s *Store) publish(ctx context.Context, publication bulkPublication, operat
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -209,12 +209,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	matches, err := s.selectMatches(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(matches) == 0 {
-		return &vectorstore.SearchResponse{}, nil
+	var matches map[string]searchHit
+	if request.Options.Filter != nil {
+		matches, err = s.selectMatches(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) == 0 {
+			return &vectorstore.SearchResponse{}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

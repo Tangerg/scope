@@ -63,11 +63,11 @@ type embeddingRequest struct {
 }
 
 type embeddingResponse struct {
-	Embeddings [][]float64 `json:"embeddings"`
-	Model      string      `json:"model"`
+	Embeddings [][]*float64 `json:"embeddings"`
+	Model      string       `json:"model"`
 	Usage      struct {
-		PromptTokens int64 `json:"prompt_tokens"`
-		TotalTokens  int64 `json:"total_tokens"`
+		PromptTokens *int64 `json:"prompt_tokens"`
+		TotalTokens  *int64 `json:"total_tokens"`
 	} `json:"usage"`
 }
 

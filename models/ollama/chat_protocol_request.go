@@ -279,7 +279,7 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 			mapped.ToolCalls = append(mapped.ToolCalls, nativeToolCall{
 				ID: part.ToolCall.ID,
 				Function: nativeToolCallFunction{
-					Index:     len(mapped.ToolCalls),
+					Index:     new(len(mapped.ToolCalls)),
 					Name:      part.ToolCall.Name,
 					Arguments: arguments,
 				},

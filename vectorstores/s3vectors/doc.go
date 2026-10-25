@@ -6,8 +6,8 @@
 // type, dimensions and distance metric. StoreConfig has no competing dimension
 // or metric setting. Native non-filterable metadata keys must be exactly
 // scope_content and scope_metadata. The derived scope_id field stays filterable.
-// Construction validates every existing record without invoking the embedding
-// model; it therefore requires GetIndex, ListVectors and GetVectors permissions.
+// Construction requires only GetIndex and performs no document enumeration or
+// model invocation.
 //
 // Every native record has exactly three metadata strings: scope_content carries
 // text, scope_metadata carries the complete Core JSON object or null, and scope_id
@@ -24,21 +24,20 @@
 // 20 MiB request limits. Native publication is not atomic across calls: a service
 // failure can leave earlier prepared chunks stored. Scope adds no retry loop.
 //
-// Search scans all native records and evaluates Core predicates through
-// filter.Match before invoking the model or selecting TopK. It retains only
-// matching keys, then queries native ANN using scope_id/$in groups. Unfiltered
-// search uses the same native ranking operation. No local distance computation,
-// provider predicate compiler or second ranking algorithm exists. Scope follows
-// every native query continuation, validates all hits before thresholding and
-// truncation, and sorts raw native distance with bytewise ID ties before score
-// projection. TopK is bounded by the native limit of 10,000.
+// Unfiltered Search issues native QueryVectors directly. Filtered Search lists
+// records and evaluates Core predicates through filter.Match before invoking the
+// model or selecting TopK. It retains matching keys and restricts native ANN with
+// scope_id/$in groups. No local distance computation or provider predicate
+// compiler exists. Every returned hit is validated before thresholding and
+// truncation, and raw native distance determines rank with bytewise ID ties.
+// TopK is bounded by the native limit of 10,000.
 //
 // Cosine distance projects with Core ScoreFromCosineDistance; Euclidean distance
 // projects with ScoreFromDistance. Native query metrics must match the bound
 // index. Non-finite or invalid distances, repeated keys or tokens, corrupt current
 // records and changed predicate membership return errors and no partial response.
-// Search requires ListVectors, GetVectors and QueryVectors permissions and reads
-// the full index. Native listing and ANN calls provide no common snapshot; callers
+// Search requires QueryVectors and GetVectors; only filtered search additionally
+// requires ListVectors. Listing and ANN calls provide no common snapshot; callers
 // requiring a stable dataset must coordinate concurrent external writes.
 //
 // DeleteIDs validates and deduplicates all requested keys before any deletion,

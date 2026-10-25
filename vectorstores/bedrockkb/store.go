@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -27,6 +29,11 @@ const (
 	Provider                = "BedrockKnowledgeBase"
 	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
 	maximumResults          = 100
+
+	// SourceDocumentIDMetadataKey and SourceLocationMetadataKey reserve the
+	// native provenance independently of the returned chunk identity.
+	SourceDocumentIDMetadataKey = "bedrockkb_document_id"
+	SourceLocationMetadataKey   = "bedrockkb_location"
 )
 
 // StoreConfig binds the native Retrieve REST boundary. The host owns HTTP
@@ -226,67 +233,108 @@ func (r retrievalResult) match() (rankedResult, error) {
 	if r.Content == nil || r.Content.Type != types.RetrievalResultContentTypeText || r.Content.Text == nil || *r.Content.Text == "" {
 		return rankedResult{}, errors.New("bedrockkb: retrieval result has no native text content")
 	}
-	id := ""
+	if err := r.Metadata.Validate(); err != nil {
+		return rankedResult{}, err
+	}
+	for _, key := range []string{SourceDocumentIDMetadataKey, SourceLocationMetadataKey} {
+		if _, exists := r.Metadata[key]; exists {
+			return rankedResult{}, fmt.Errorf("bedrockkb: native metadata uses reserved provenance key %q", key)
+		}
+	}
+	location, err := r.sourceLocation()
+	if err != nil {
+		return rankedResult{}, err
+	}
+	identity, err := jsonv2.Marshal(struct {
+		DocumentID *string      `json:"documentId,omitzero"`
+		Location   metadata.Map `json:"location,omitzero"`
+		Text       string       `json:"text"`
+		Metadata   metadata.Map `json:"metadata"`
+	}{r.DocumentID, location, *r.Content.Text, r.Metadata})
+	if err != nil {
+		return rankedResult{}, err
+	}
+	// Native metadata is a source-file fact. Order its JSON keys recursively
+	// without rounding the exact numbers; query-relative scores never enter ID.
+	canonical := jsontext.Value(identity)
+	if err = canonical.Format(jsontext.ReorderRawObjects(true)); err != nil {
+		return rankedResult{}, err
+	}
+	id := fmt.Sprintf("bedrockkb:%x", sha256.Sum256(canonical))
+	facts := r.Metadata.Clone()
+	if facts == nil {
+		facts = make(metadata.Map)
+	}
 	if r.DocumentID != nil {
-		id = *r.DocumentID
-	}
-	if id == "" && len(r.Location) != 0 {
-		var location metadata.Map
-		if err := location.UnmarshalJSON(r.Location); err != nil {
+		if err = facts.Set(SourceDocumentIDMetadataKey, *r.DocumentID); err != nil {
 			return rankedResult{}, err
 		}
-		kind, _, err := location.Decode[string]("type")
-		if err != nil {
+	}
+	if location != nil {
+		if err = facts.Set(SourceLocationMetadataKey, location); err != nil {
 			return rankedResult{}, err
 		}
-		member, property := "", ""
-		switch types.RetrievalResultLocationType(kind) {
-		case types.RetrievalResultLocationTypeS3:
-			member, property = "s3Location", "uri"
-		case types.RetrievalResultLocationTypeWeb:
-			member, property = "webLocation", "url"
-		case types.RetrievalResultLocationTypeConfluence:
-			member, property = "confluenceLocation", "url"
-		case types.RetrievalResultLocationTypeSalesforce:
-			member, property = "salesforceLocation", "url"
-		case types.RetrievalResultLocationTypeSharepoint:
-			member, property = "sharePointLocation", "url"
-		case types.RetrievalResultLocationTypeKendra:
-			member, property = "kendraDocumentLocation", "uri"
-		case types.RetrievalResultLocationTypeCustom:
-			member, property = "customDocumentLocation", "id"
-		case types.RetrievalResultLocationTypeOnedrive:
-			member, property = "oneDriveLocation", "url"
-		case types.RetrievalResultLocationTypeGoogledrive:
-			member, property = "googleDriveLocation", "url"
-		}
-		if member != "" {
-			source, present, decodeErr := location.Decode[metadata.Map](member)
-			if decodeErr != nil {
-				return rankedResult{}, decodeErr
-			}
-			value, exists, decodeErr := source.Decode[string](property)
-			if decodeErr != nil {
-				return rankedResult{}, decodeErr
-			}
-			if present && exists && strings.TrimSpace(value) != "" {
-				encoded, encodeErr := jsonv2.Marshal(map[string]any{"type": kind, member: map[string]any{property: value}}, jsonv2.Deterministic(true))
-				if encodeErr != nil {
-					return rankedResult{}, encodeErr
-				}
-				id = string(encoded)
-			}
-		}
 	}
-	if id == "" {
-		return rankedResult{}, errors.New("bedrockkb: retrieval result has no stable native source identity")
-	}
-	doc := &document.Document{ID: id, Text: *r.Content.Text, Metadata: r.Metadata}
+	doc := &document.Document{ID: id, Text: *r.Content.Text, Metadata: facts}
 	result, err := vectorstore.NewSearchResult(doc, vectorstore.ScoreFromValue(*r.Score))
 	if err != nil {
 		return rankedResult{}, err
 	}
 	return rankedResult{result: result, rawScore: *r.Score}, nil
+}
+
+func (r retrievalResult) sourceLocation() (metadata.Map, error) {
+	var location metadata.Map
+	if len(r.Location) != 0 {
+		if err := location.UnmarshalJSON(r.Location); err != nil {
+			return nil, err
+		}
+	}
+	if r.DocumentID != nil {
+		if strings.TrimSpace(*r.DocumentID) == "" {
+			return nil, errors.New("bedrockkb: native document identity is empty")
+		}
+		return location, nil
+	}
+	kind, _, err := location.Decode[string]("type")
+	if err != nil {
+		return nil, err
+	}
+	member, property := "", ""
+	switch types.RetrievalResultLocationType(kind) {
+	case types.RetrievalResultLocationTypeS3:
+		member, property = "s3Location", "uri"
+	case types.RetrievalResultLocationTypeWeb:
+		member, property = "webLocation", "url"
+	case types.RetrievalResultLocationTypeConfluence:
+		member, property = "confluenceLocation", "url"
+	case types.RetrievalResultLocationTypeSalesforce:
+		member, property = "salesforceLocation", "url"
+	case types.RetrievalResultLocationTypeSharepoint:
+		member, property = "sharePointLocation", "url"
+	case types.RetrievalResultLocationTypeKendra:
+		member, property = "kendraDocumentLocation", "uri"
+	case types.RetrievalResultLocationTypeCustom:
+		member, property = "customDocumentLocation", "id"
+	case types.RetrievalResultLocationTypeOnedrive:
+		member, property = "oneDriveLocation", "url"
+	case types.RetrievalResultLocationTypeGoogledrive:
+		member, property = "googleDriveLocation", "url"
+	}
+	if member != "" {
+		source, present, decodeErr := location.Decode[metadata.Map](member)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		value, exists, decodeErr := source.Decode[string](property)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if present && exists && strings.TrimSpace(value) != "" {
+			return location, nil
+		}
+	}
+	return nil, errors.New("bedrockkb: retrieval result has no stable native source identity")
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {

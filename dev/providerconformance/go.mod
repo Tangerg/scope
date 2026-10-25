@@ -6,11 +6,16 @@ require (
 	github.com/Tangerg/scope/core v0.56.0
 	github.com/Tangerg/scope/models/anthropic v0.56.0
 	github.com/Tangerg/scope/models/assemblyai v0.56.0
+	github.com/Tangerg/scope/models/bedrock v0.56.0
 	github.com/Tangerg/scope/models/blackforestlabs v0.56.0
 	github.com/Tangerg/scope/models/gladia v0.56.0
 	github.com/Tangerg/scope/models/google v0.56.0
 	github.com/Tangerg/scope/models/luma v0.56.0
+	github.com/Tangerg/scope/models/mistral v0.56.0
+	github.com/Tangerg/scope/models/ollama v0.56.0
 	github.com/Tangerg/scope/models/openai v0.56.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.56.0
+	github.com/Tangerg/scope/models/protocol/openai v0.56.0
 	github.com/Tangerg/scope/models/replicate v0.56.0
 	github.com/Tangerg/scope/models/revai v0.56.0
 	github.com/Tangerg/scope/tools v0.56.0
@@ -20,9 +25,24 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Tangerg/scope/models/protocol/anthropic v0.56.0 // indirect
-	github.com/Tangerg/scope/models/protocol/openai v0.56.0 // indirect
+	github.com/Tangerg/sse v0.0.6 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.81.0 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.47.3 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.33.9 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.9 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.21 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.10.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.38.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4 // indirect
+	github.com/aws/smithy-go v1.28.5 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

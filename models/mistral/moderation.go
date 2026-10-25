@@ -3,6 +3,7 @@ package mistral
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/moderation"
@@ -78,7 +79,10 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (re
 
 	outputs := make([]*moderation.Output, 0, len(apiResp.Results))
 	for _, item := range apiResp.Results {
-		cats := mapMistralCategories(item.Categories, item.CategoryScores)
+		cats, err := m.mapCategories(item.Categories, item.CategoryScores)
+		if err != nil {
+			return nil, err
+		}
 		res, err := moderation.NewOutput(cats, nil)
 		if err != nil {
 			return nil, err
@@ -93,15 +97,17 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (re
 	return moderation.NewResponse(outputs, meta)
 }
 
-func mapMistralCategories(flags map[string]bool, scores map[string]float64) moderation.Categories {
-	categories := make(moderation.Categories, len(flags)+len(scores))
-	for category, score := range scores {
-		categories[category] = moderation.Verdict{Flagged: flags[category], Score: score}
+func (m *ModerationModel) mapCategories(flags map[string]*bool, scores map[string]*float64) (moderation.Categories, error) {
+	if len(flags) != len(scores) {
+		return nil, fmt.Errorf("%w: mistral: category flags and scores do not match", moderation.ErrInvalidResponse)
 	}
+	categories := make(moderation.Categories, len(flags))
 	for category, flagged := range flags {
-		if _, ok := categories[category]; !ok {
-			categories[category] = moderation.Verdict{Flagged: flagged}
+		score := scores[category]
+		if flagged == nil || score == nil {
+			return nil, fmt.Errorf("%w: mistral: category %q requires a flag and score", moderation.ErrInvalidResponse, category)
 		}
+		categories[category] = moderation.Verdict{Flagged: *flagged, Score: *score}
 	}
-	return categories
+	return categories, nil
 }

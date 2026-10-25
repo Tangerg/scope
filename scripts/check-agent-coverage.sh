@@ -27,6 +27,7 @@ coverage_budget=(
   "./messaging 88.6"
   "./strategy/planning 82.4"
   "./strategy/planning/goap 87.8"
+  "./strategy/role 87.5"
   "./strategy/workflow 79.0"
 )
 

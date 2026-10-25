@@ -83,9 +83,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{container: config.Container, partitionKey: config.PartitionKey, embeddingClient: client, documentBatcher: config.DocumentBatcher, schema: schema}
-	if _, err = store.selectItems(ctx, nil); err != nil {
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -205,6 +202,9 @@ type rankedResult struct {
 }
 
 func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err = request.Validate(); err != nil {
 		return nil, err
 	}
@@ -219,12 +219,15 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			response = nil
 		}
 	}()
-	selected, err := s.selectItems(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+	var selected []selectedItem
+	if request.Options.Filter != nil {
+		selected, err = s.selectItems(ctx, request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+		if len(selected) == 0 {
+			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+		}
 	}
 	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
 	if err != nil {

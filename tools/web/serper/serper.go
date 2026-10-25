@@ -73,11 +73,11 @@ type searchResponse struct {
 	Organic []*organicResult `json:"organic"`
 }
 
-func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
+func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
 	results := make([]*web.SearchResult, 0, len(s.Organic))
-	for _, searchResult := range s.Organic {
+	for index, searchResult := range s.Organic {
 		if searchResult == nil {
-			continue
+			return nil, fmt.Errorf("serper: %w: result %d is null", web.ErrInvalidSearchResponse, index)
 		}
 		results = append(results, &web.SearchResult{
 			Title:         searchResult.Title,
@@ -86,7 +86,11 @@ func (s *searchResponse) toSearchResponse(query string) *web.SearchResponse {
 			PublishedTime: parseDate(searchResult.Date),
 		})
 	}
-	return &web.SearchResponse{Query: query, Results: results}
+	response := &web.SearchResponse{Query: query, Results: results}
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("serper: %w", err)
+	}
+	return response, nil
 }
 
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
@@ -99,7 +103,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("serper: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query), nil
+	return raw.toSearchResponse(prepared.Query)
 }
 
 func parseDate(s string) time.Time {

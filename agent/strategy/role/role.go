@@ -34,6 +34,9 @@ type Config[I, O any] struct {
 	DecodeOutput func(context.Context, interaction.Output) (O, error)
 
 	Budget agent.Budget
+	// Capabilities is the explicit attenuated grant to the Interaction child.
+	// Its zero value grants no authority.
+	Capabilities agent.CapabilitySet
 
 	ImplementationDigest agent.Digest
 	ConfigurationDigest  agent.Digest
@@ -58,7 +61,9 @@ func New[I, O any](config Config[I, O]) (agent.Deployment, error) {
 		return agent.Deployment{}, err
 	}
 	buildInput, buildErr := workflow.Transform(stageBuildInput, config.BuildInput)
-	run, runErr := workflow.Call(workflow.CallConfig{ID: stageRun, Deployment: config.Interaction, Budget: config.Budget})
+	run, runErr := workflow.Call(workflow.CallConfig{
+		ID: stageRun, Deployment: config.Interaction, Budget: config.Budget, Capabilities: config.Capabilities,
+	})
 	decodeOutput, decodeErr := workflow.Transform(stageDecodeOutput, config.DecodeOutput)
 	if err := errors.Join(buildErr, runErr, decodeErr); err != nil {
 		return agent.Deployment{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)

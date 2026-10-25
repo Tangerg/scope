@@ -77,7 +77,7 @@ func TestSearchPreflightsEveryRecordBeforeEmbedding(t *testing.T) {
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if len(fixture.bodies) != 3 {
+	if len(fixture.bodies) != 2 {
 		t.Fatalf("scan bodies = %d", len(fixture.bodies))
 	}
 	for _, body := range fixture.bodies {
@@ -88,7 +88,7 @@ func TestSearchPreflightsEveryRecordBeforeEmbedding(t *testing.T) {
 			t.Fatal("invalid preflight reached ANN")
 		}
 	}
-	if string(fixture.bodies[2]["filter"]) != `"id gt 'a'"` {
+	if string(fixture.bodies[1]["filter"]) != `"id gt 'a'"` {
 		t.Fatalf("scan did not advance by native key: %v", fixture.bodies)
 	}
 }
@@ -322,7 +322,7 @@ func TestSearchContinuationAndCredentialOrigin(t *testing.T) {
 	}
 }
 
-func TestConstructionRejectsMalformedStoredFacts(t *testing.T) {
+func TestSearchRejectsMalformedReturnedFacts(t *testing.T) {
 	for _, test := range []string{"flat metadata", "null metadata column", "invalid JSON", "wrong vector width", "missing text", "unknown field", "invalid key"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
@@ -348,8 +348,12 @@ func TestConstructionRejectsMalformedStoredFacts(t *testing.T) {
 			}
 			fixture.mu.Unlock()
 			store, err := NewStore(t.Context(), fixture.config())
-			if err == nil || store != nil || fixture.modelCalls.Load() != 0 {
-				t.Fatalf("invalid persisted record accepted: %v, %v", store, err)
+			if err != nil || fixture.modelCalls.Load() != 0 || len(fixture.bodies) != 0 {
+				t.Fatalf("construction read stored records: %v, %v", store, err)
+			}
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+			if err == nil || response != nil {
+				t.Fatalf("invalid returned record accepted: %v, %v", response, err)
 			}
 		})
 	}
@@ -434,7 +438,7 @@ func TestScanRejectsRepeatedKeysAndTransportFailures(t *testing.T) {
 				}
 			}
 			fixture.mu.Unlock()
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 			if err == nil || response != nil || fixture.modelCalls.Load() != 0 {
 				t.Fatalf("invalid scan bypassed boundary = %v, %v", response, err)
 			}

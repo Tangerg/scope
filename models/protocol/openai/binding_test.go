@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/moderation"
@@ -97,6 +98,12 @@ func TestBindingValidatesEnvironmentURLBeforeIO(t *testing.T) {
 			transport := &bindingTransport{}
 			for _, explicitURL := range []string{"", "https://explicit.example.test"} {
 				model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}})
+				if explicitURL != "" {
+					if err != nil || model == nil {
+						t.Fatalf("explicit binding was affected by unused environment: model = %v, error = %v", model, err)
+					}
+					continue
+				}
 				if err == nil || model != nil || !strings.Contains(err.Error(), "OPENAI_BASE_URL") {
 					t.Fatalf("environment binding: model = %v, error = %v", model, err)
 				}
@@ -153,5 +160,43 @@ func TestBindingUsesSDKDefaultWhenEnvironmentIsAbsent(t *testing.T) {
 	}
 	if transport.requestURL != "https://api.openai.com/v1/models" || transport.calls != 1 {
 		t.Fatalf("default endpoint = %q, calls = %d", transport.requestURL, transport.calls)
+	}
+}
+
+func TestExplicitBindingExecutesWithInvalidUnusedEnvironment(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "%zz")
+	t.Setenv("OPENAI_API_KEY", "another-provider-key")
+	t.Setenv("OPENAI_ORG_ID", "another-provider-org")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer explicit-key" || request.Header.Get("OpenAI-Organization") != "" {
+			t.Errorf("ambient authentication leaked: headers=%v", request.Header)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		switch request.URL.Path {
+		case "/chat/completions":
+			io.WriteString(writer, "data: {\"id\":\"response-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		case "/responses":
+			io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"status\":\"completed\",\"output\":[]}}\n\n")
+		default:
+			t.Errorf("unexpected path=%s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	completions, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responses, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, model := range map[string]chat.Model{"completions": completions, "responses": responses} {
+		t.Run(name, func(t *testing.T) {
+			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))}}
+			response, err := model.Call(t.Context(), request)
+			if err != nil || response.Output.Message.Text() != "answer" {
+				t.Fatalf("response=%v error=%v", response, err)
+			}
+		})
 	}
 }

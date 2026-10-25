@@ -61,6 +61,7 @@ func (c ClientConfig) Validate() error {
 
 type api struct {
 	client           *genai.Client
+	transport        http.RoundTripper
 	generation       *GenerationClient
 	interactionsHTTP *resty.Client
 }
@@ -86,6 +87,10 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		Backend:    config.Backend,
 		HTTPClient: config.HTTPClient,
 	}
+	if config.HTTPClient != nil {
+		sdkClient := *config.HTTPClient
+		clientCfg.HTTPClient = &sdkClient
+	}
 	if config.Backend == 0 {
 		clientCfg.Backend = genai.BackendGeminiAPI
 	}
@@ -106,6 +111,12 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
+	sdkClient := client.ClientConfig().HTTPClient
+	transport := sdkClient.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	sdkClient.Transport = &nativeResponseTransport{next: transport}
 
 	interactionsHTTP := resty.New()
 	if config.HTTPClient != nil {
@@ -118,7 +129,7 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		SetHeader("x-goog-api-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
 
-	return &api{client: client, generation: NewGenerationClient(client), interactionsHTTP: interactionsHTTP}, nil
+	return &api{client: client, transport: transport, generation: NewGenerationClient(client), interactionsHTTP: interactionsHTTP}, nil
 }
 
 func (a *api) chatCompletion(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
@@ -129,8 +140,26 @@ func (a *api) chatCompletionStream(ctx context.Context, modelName string, conten
 	return a.wrapSequence(a.generation.GenerateContentStream(ctx, modelName, contents, config))
 }
 
-func (a *api) embedding(ctx context.Context, modelName string, contents []*genai.Content, config *genai.EmbedContentConfig) (*genai.EmbedContentResponse, error) {
-	return a.wrapResult(a.client.Models.EmbedContent(ctx, modelName, contents, config))
+func (a *api) embedding(ctx context.Context, modelName string, contents []*genai.Content, config *genai.EmbedContentConfig) (*nativeEmbeddingResponse, error) {
+	// Each call owns its raw response. Clone only SDK wiring; the host's HTTP
+	// policy and already-resolved authentication transport remain borrowed.
+	response := &nativeEmbeddingResponse{}
+	clientConfig := a.client.ClientConfig()
+	clientConfig.HTTPOptions.Headers = clientConfig.HTTPOptions.Headers.Clone()
+	httpClient := *clientConfig.HTTPClient
+	httpClient.Transport = &nativeResponseTransport{next: a.transport, embedding: response}
+	clientConfig.HTTPClient = &httpClient
+	if clientConfig.Backend == genai.BackendGeminiAPI {
+		clientConfig.Project, clientConfig.Location = "", ""
+	}
+	client, err := genai.NewClient(ctx, &clientConfig)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := client.Models.EmbedContent(ctx, modelName, contents, config); err != nil {
+		return nil, a.wrapError(err)
+	}
+	return response, nil
 }
 
 func (a *api) countTokens(ctx context.Context, modelName string, contents []*genai.Content, config *genai.CountTokensConfig) (*genai.CountTokensResponse, error) {

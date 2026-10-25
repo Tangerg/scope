@@ -3,6 +3,7 @@ package jina
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/rerank"
@@ -61,15 +62,18 @@ func (r *RerankModel) buildResponse(apiResponse *rerankResponse) (*rerank.Respon
 	}
 	results := make([]*rerank.Result, len(apiResponse.Results))
 	for position, item := range apiResponse.Results {
-		result, err := rerank.NewResult(item.Index, rerank.Score(item.RelevanceScore))
+		if item.Index == nil || item.RelevanceScore == nil {
+			return nil, fmt.Errorf("%w: jina: rerank result %d requires index and relevance_score", rerank.ErrInvalidResponse, position)
+		}
+		result, err := rerank.NewResult(*item.Index, rerank.Score(*item.RelevanceScore))
 		if err != nil {
 			return nil, err
 		}
 		results[position] = result
 	}
 	responseMetadata := &rerank.ResponseMetadata{Model: apiResponse.Model}
-	if apiResponse.Usage.TotalTokens > 0 {
-		responseMetadata.Usage = &rerank.Usage{InputTokens: apiResponse.Usage.TotalTokens}
+	if apiResponse.Usage.TotalTokens != nil {
+		responseMetadata.Usage = &rerank.Usage{InputTokens: *apiResponse.Usage.TotalTokens}
 	}
 	return rerank.NewResponse(results, responseMetadata)
 }

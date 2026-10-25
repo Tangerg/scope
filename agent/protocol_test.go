@@ -203,7 +203,7 @@ func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
 			}
 		})
 	}
-	framework := decode(`{"target":"framework","payload":{"operation":"wait","spec":{"key":"approval"}}}`)
+	framework := decode(`{"target":"framework","payload":{"operation":"wait","spec":{"key":"approval","max_answer_bytes":67108864}}}`)
 	dispatcher, err := NewDispatcherEffect(framework.Payload())
 	if err != nil {
 		t.Fatal(err)

@@ -18,6 +18,7 @@ func TestResponsesStreamCompletionWaitsForNativeBody(t *testing.T) {
 		{name: "clean end"},
 		{name: "late text", tail: []modeltest.AnthropicEvent{{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"msg_1","delta":"late"}`}}, invalidResponse: true},
 		{name: "duplicate completion", tail: []modeltest.AnthropicEvent{completed}, invalidResponse: true},
+		{name: "contradictory failure", tail: []modeltest.AnthropicEvent{{Event: "response.failed", Data: `{"type":"response.failed","response":{"id":"resp_1","model":"model","status":"failed","error":{"code":"server_error","message":"late failure"}}}`}}, invalidResponse: true},
 		{name: "native error", tail: []modeltest.AnthropicEvent{{Event: "error", Data: `{"type":"error","code":"tail_error","message":"late failure"}`}}},
 		{name: "malformed frame", tail: []modeltest.AnthropicEvent{{Event: "response.output_text.delta", Data: `{`}}},
 	} {
@@ -64,6 +65,9 @@ func TestResponsesStreamCompletionWaitsForNativeBody(t *testing.T) {
 				}
 				if text := accumulator.Text(); text != "answer" {
 					t.Fatalf("Stream text = %q, want partial answer", text)
+				}
+				if errors.Is(streamErr, corechat.ErrDefiniteFailure) {
+					t.Fatalf("contradictory or interrupted completion claimed definite failure: %v", streamErr)
 				}
 				return
 			}

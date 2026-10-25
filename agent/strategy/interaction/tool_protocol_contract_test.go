@@ -71,6 +71,39 @@ func TestToolProtocolRejectsSupersededAndIncompleteShapes(t *testing.T) {
 	}
 }
 
+func TestAdvertisementFailureWireRequiresKnownSuccessfulCompletion(t *testing.T) {
+	const completion = `{"disposition":"succeeded","output":{"content":[{"kind":"text","text":"completed write"}]}}`
+	const diagnostic = `"advertisement_failure":"invalid declaration"`
+	valid := `{"tool_result":{"completion":` + completion + `,` + diagnostic + `}}`
+	envelope, err := decodeSignal([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome := envelope.ToolResult
+	if outcome.Completion.Disposition != ResultSucceeded || outcome.Completion.Output.Content[0].Text != "completed write" || outcome.AdvertisementFailure != "invalid declaration" {
+		t.Fatalf("lost completion or local defect: %+v", outcome)
+	}
+	settlement, err := outcome.settlement()
+	if err != nil || settlement.Status() != agent.SettlementStatusSucceeded {
+		t.Fatalf("known completion settlement = %v, %v", settlement, err)
+	}
+	for name, result := range map[string]string{
+		"missing completion": `{` + diagnostic + `}`,
+		"input request":      `{"input_request":{"prompt":null,"response_schema":true,"continuation_state":null},` + diagnostic + `}`,
+		"failed call":        `{"completion":{"disposition":"failed","output":{}},` + diagnostic + `}`,
+		"with declaration":   `{"completion":{"disposition":"succeeded","output":{},"advertised_tool_names":["next"]},` + diagnostic + `}`,
+		"invalid diagnostic": `{"completion":` + completion + `,"advertisement_failure":" invalid "}`,
+		"unsorted names":     `{"completion":{"disposition":"succeeded","output":{},"advertised_tool_names":["second","first"]}}`,
+		"duplicate names":    `{"completion":{"disposition":"succeeded","output":{},"advertised_tool_names":["first","first"]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeSignal([]byte(`{"tool_result":` + result + `}`)); !errors.Is(err, ErrInvalidProtocol) {
+				t.Fatalf("accepted contradictory persisted facts: %s: %v", result, err)
+			}
+		})
+	}
+}
+
 func TestToolInputRequestJSONOwnsValidationAndIsolation(t *testing.T) {
 	request, err := newInputRequest(json.RawMessage(`{"id":9007199254740993}`), json.RawMessage(`{"type":"boolean"}`), json.RawMessage(`{"step":2}`))
 	if err != nil {

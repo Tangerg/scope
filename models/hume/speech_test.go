@@ -81,7 +81,7 @@ func TestSpeechModel_Stream_Mock(t *testing.T) {
 	second := base64.StdEncoding.EncodeToString([]byte("second"))
 	srv := modeltest.MuxServer(modeltest.Route{Method: "POST", Contains: "/tts/stream/json", Handle: func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-ndjson")
-		w.Write([]byte(`{"type":"audio","audio":"` + first + `","audio_format":"mp3","chunk_index":0,"generation_id":"g1","request_id":"r1","snippet_id":"s1","text":"hello"}` + "\n"))
+		w.Write([]byte(`{"type":"audio","audio":"` + first + `","audio_format":"mp3","chunk_index":0,"generation_id":"g1","request_id":"r1","snippet_id":"s1","text":"hello","is_last_chunk":false}` + "\n"))
 		w.Write([]byte(`{"type":"audio","audio":"` + second + `","audio_format":"mp3","chunk_index":1,"generation_id":"g1","request_id":"r1","snippet_id":"s1","text":"hello","is_last_chunk":true}` + "\n"))
 	}})
 	t.Cleanup(srv.Close)

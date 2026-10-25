@@ -111,7 +111,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 // local error: an extra embedding has nowhere to go, and an input the provider
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
-func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedContentResponse, expectedResults int) (*embedding.Response, error) {
+func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddingResponse, expectedResults int) (*embedding.Response, error) {
 	if apiResp == nil {
 		return nil, fmt.Errorf("%w: google: missing embedding response", embedding.ErrInvalidResponse)
 	}
@@ -122,15 +122,17 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedCon
 		}
 		values := make([]float64, len(item.Values))
 		for i, value := range item.Values {
-			values[i] = float64(value)
+			values[i] = *value
 		}
 
 		var outputMetadata metadata.Map
-		if item.Statistics != nil {
-			if err := outputMetadata.Set(protocolKey(e.provider, "token_count"), item.Statistics.TokenCount); err != nil {
+		if len(item.TokenCount) != 0 && string(item.TokenCount) != "null" {
+			if err := outputMetadata.Set(protocolKey(e.provider, "token_count"), item.TokenCount); err != nil {
 				return nil, err
 			}
-			if err := outputMetadata.Set(protocolKey(e.provider, "truncated"), item.Statistics.Truncated); err != nil {
+		}
+		if len(item.Truncated) != 0 && string(item.Truncated) != "null" {
+			if err := outputMetadata.Set(protocolKey(e.provider, "truncated"), item.Truncated); err != nil {
 				return nil, err
 			}
 		}
@@ -143,14 +145,11 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *genai.EmbedCon
 	meta := &embedding.ResponseMetadata{
 		Model: modelName,
 	}
-	if err := meta.Extra.Set(protocolKey(e.provider, "embedding_response"), apiResp); err != nil {
+	if err := meta.Extra.Set(protocolKey(e.provider, "embedding_response"), apiResp.Raw); err != nil {
 		return nil, err
 	}
-	if apiResp.Metadata != nil {
-		// Gemini does not report per-modality prompt tokens; surface the
-		// billable character count instead so callers can still cost the
-		// call.
-		if err := meta.Extra.Set(protocolKey(e.provider, "billable_character_count"), apiResp.Metadata.BillableCharacterCount); err != nil {
+	if len(apiResp.BillableCharacterCount) != 0 && string(apiResp.BillableCharacterCount) != "null" {
+		if err := meta.Extra.Set(protocolKey(e.provider, "billable_character_count"), apiResp.BillableCharacterCount); err != nil {
 			return nil, err
 		}
 	}

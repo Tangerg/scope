@@ -74,7 +74,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		modelName, contents, config, err := c.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
 			return
 		}
 		mapper := newProtocolResponseMapper(c.provider)

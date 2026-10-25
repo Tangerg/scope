@@ -26,6 +26,7 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 	doneItem := `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}`
 	start := responsesToolAdded(0, startItem)
 	arguments := responsesToolArguments(0, "fc_1", "{}")
+	argumentsDone := modeltest.AnthropicEvent{Event: "response.function_call_arguments.done", Data: `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{}"}`}
 	done := responsesToolDone(doneItem)
 	startWithoutItemID := responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":""}`)
 	initialArgumentsWithoutItemID := responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)
@@ -39,6 +40,9 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		terminalItem string
 	}{
 		{name: "valid fragments", events: []modeltest.AnthropicEvent{start, arguments, done}, valid: true},
+		{name: "arguments completion", events: []modeltest.AnthropicEvent{start, arguments, argumentsDone, done}, valid: true},
+		{name: "arguments after arguments completion", events: []modeltest.AnthropicEvent{start, arguments, argumentsDone, arguments, done}},
+		{name: "changed arguments completion", events: []modeltest.AnthropicEvent{start, arguments, {Event: "response.function_call_arguments.done", Data: `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{\"target\":\"other\"}"}`}, done}},
 		{name: "initial arguments", events: []modeltest.AnthropicEvent{responsesToolAdded(0, doneItem), done}, valid: true},
 		{name: "optional native item ID", events: []modeltest.AnthropicEvent{responsesToolAdded(0, `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`), responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, valid: true},
 		{name: "optional native item ID omitted on completion", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)}, terminalItem: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`, valid: true},
@@ -51,6 +55,11 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		{name: "partial tool truncation", events: []modeltest.AnthropicEvent{start, responsesToolArguments(0, "fc_1", "{")}, valid: true, incomplete: true},
 		{name: "changed terminal identity", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":"{}"}`},
 		{name: "changed terminal native item ID", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_2","call_id":"call_1","name":"lookup","arguments":"{}"}`},
+		{name: "changed terminal arguments", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"target\":\"other\"}"}`},
+		{name: "changed done arguments", events: []modeltest.AnthropicEvent{start, arguments, responsesToolDone(`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"target\":\"other\"}"}`)}},
+		{name: "missing initial arguments", events: []modeltest.AnthropicEvent{responsesToolAdded(0, `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup"}`), arguments, done}},
+		{name: "missing output index", events: []modeltest.AnthropicEvent{{Event: "response.output_item.added", Data: fmt.Sprintf(`{"type":"response.output_item.added","item":%s}`, startItem)}, arguments, done}},
+		{name: "null output index", events: []modeltest.AnthropicEvent{{Event: "response.output_item.added", Data: fmt.Sprintf(`{"type":"response.output_item.added","output_index":null,"item":%s}`, startItem)}, arguments, done}},
 		{name: "negative output index", events: []modeltest.AnthropicEvent{responsesToolAdded(-1, startItem)}},
 		{name: "duplicate start", events: []modeltest.AnthropicEvent{start, start, arguments, done}},
 		{name: "changed identity", events: []modeltest.AnthropicEvent{start, responsesToolAdded(0, `{"type":"function_call","id":"fc_1","call_id":"call_2","name":"delete","arguments":""}`), arguments, done}},

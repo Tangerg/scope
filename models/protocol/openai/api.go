@@ -31,31 +31,21 @@ func (a apiConfig) requestOptions() ([]option.RequestOption, error) {
 	if a.APIKey == "" {
 		return nil, errors.New("openai: APIKey is required")
 	}
-	environmentURL, environmentPresent := os.LookupEnv("OPENAI_BASE_URL")
-	for _, source := range []struct {
-		name    string
-		value   string
-		present bool
-	}{
-		{"BaseURL", a.BaseURL, a.BaseURL != ""},
-		{"OPENAI_BASE_URL", environmentURL, environmentPresent},
-	} {
-		if !source.present {
-			continue
-		}
-		endpoint, err := url.Parse(source.value)
+	baseURL, source, present := a.BaseURL, "BaseURL", a.BaseURL != ""
+	if !present {
+		baseURL, present = os.LookupEnv("OPENAI_BASE_URL")
+		source = "OPENAI_BASE_URL"
+	}
+	if present {
+		endpoint, err := url.Parse(baseURL)
 		if err != nil {
-			return nil, fmt.Errorf("openai: %s: %w", source.name, err)
+			return nil, fmt.Errorf("openai: %s: %w", source, err)
 		}
 		if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" {
-			return nil, fmt.Errorf("openai: %s must be an absolute HTTP or HTTPS URL with a host", source.name)
+			return nil, fmt.Errorf("openai: %s must be an absolute HTTP or HTTPS URL with a host", source)
 		}
 	}
-	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
-	baseURL := a.BaseURL
-	if baseURL == "" && environmentPresent {
-		baseURL = environmentURL
-	}
+	options := []option.RequestOption{option.WithEnvironmentProduction(), option.WithAPIKey(a.APIKey)}
 	if baseURL != "" {
 		options = append(options, option.WithBaseURL(baseURL))
 	}
@@ -71,7 +61,13 @@ func (a apiConfig) requestOptions() ([]option.RequestOption, error) {
 }
 
 type api struct {
-	client *openai.Client
+	chat        openai.ChatCompletionService
+	responses   responses.ResponseService
+	embeddings  openai.EmbeddingService
+	images      openai.ImageService
+	moderations openai.ModerationService
+	audio       openai.AudioService
+	models      openai.ModelService
 }
 
 func newAPI(config apiConfig) (*api, error) {
@@ -79,8 +75,14 @@ func newAPI(config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := openai.NewClient(options...)
-	return &api{client: &client}, nil
+	// Services apply explicit options without reloading SDK environment defaults.
+	// The selected binding must not inherit another provider's ambient settings.
+	return &api{
+		chat: openai.NewChatCompletionService(options...), responses: responses.NewResponseService(options...),
+		embeddings: openai.NewEmbeddingService(options...), images: openai.NewImageService(options...),
+		moderations: openai.NewModerationService(options...), audio: openai.NewAudioService(options...),
+		models: openai.NewModelService(options...),
+	}, nil
 }
 
 func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
@@ -88,7 +90,7 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 		return nil, errors.New("openai: model count and response byte limits must be positive")
 	}
 	budget := modelListResponseBudget{remaining: maxResponseBytes}
-	page, err := a.client.Models.List(ctx, option.WithMaxRetries(0), option.WithMiddleware(budget.read))
+	page, err := a.models.List(ctx, option.WithMaxRetries(0), option.WithMiddleware(budget.read))
 	if err != nil {
 		return nil, a.wrapError(err)
 	}
@@ -118,21 +120,21 @@ func (a *api) chatCompletionStream(ctx context.Context, req *openai.ChatCompleti
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.client.Chat.Completions.NewStreaming(ctx, *req, opts...), nil
+	return a.chat.NewStreaming(ctx, *req, opts...), nil
 }
 
 func (a *api) responseNewStream(ctx context.Context, req *responses.ResponseNewParams, opts ...option.RequestOption) (*ssestream.Stream[responses.ResponseStreamEventUnion], error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.client.Responses.NewStreaming(ctx, *req, opts...), nil
+	return a.responses.NewStreaming(ctx, *req, opts...), nil
 }
 
 func (a *api) responseInputTokensCount(ctx context.Context, req *responses.InputTokenCountParams, opts ...option.RequestOption) (*responses.InputTokenCountResponse, error) {
 	if req == nil {
 		return nil, errors.New("openai: input token count request must not be nil")
 	}
-	response, err := a.wrapResult(a.client.Responses.InputTokens.Count(ctx, *req, opts...))
+	response, err := a.wrapResult(a.responses.InputTokens.Count(ctx, *req, opts...))
 	if err != nil {
 		return nil, err
 	}
@@ -146,42 +148,42 @@ func (a *api) embedding(ctx context.Context, req *openai.EmbeddingNewParams, opt
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Embeddings.New(ctx, *req, opts...))
+	return a.wrapResult(a.embeddings.New(ctx, *req, opts...))
 }
 
 func (a *api) image(ctx context.Context, req *openai.ImageGenerateParams, opts ...option.RequestOption) (*openai.ImagesResponse, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Images.Generate(ctx, *req, opts...))
+	return a.wrapResult(a.images.Generate(ctx, *req, opts...))
 }
 
 func (a *api) moderation(ctx context.Context, req *openai.ModerationNewParams, opts ...option.RequestOption) (*openai.ModerationNewResponse, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Moderations.New(ctx, *req, opts...))
+	return a.wrapResult(a.moderations.New(ctx, *req, opts...))
 }
 
 func (a *api) speech(ctx context.Context, req *openai.AudioSpeechNewParams, opts ...option.RequestOption) (*http.Response, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Audio.Speech.New(ctx, *req, opts...))
+	return a.wrapResult(a.audio.Speech.New(ctx, *req, opts...))
 }
 
 func (a *api) transcription(ctx context.Context, req *openai.AudioTranscriptionNewParams, opts ...option.RequestOption) (*openai.AudioTranscriptionNewResponseUnion, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Audio.Transcriptions.New(ctx, *req, opts...))
+	return a.wrapResult(a.audio.Transcriptions.New(ctx, *req, opts...))
 }
 
 func (a *api) translation(ctx context.Context, req *openai.AudioTranslationNewParams, opts ...option.RequestOption) (*openai.Translation, error) {
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.client.Audio.Translations.New(ctx, *req, opts...))
+	return a.wrapResult(a.audio.Translations.New(ctx, *req, opts...))
 }
 
 func (*api) wrapError(err error) error {

@@ -120,17 +120,21 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 
 	if len(apiResp.Results.Channels) == 0 || len(apiResp.Results.Channels[0].Alternatives) == 0 {
-		return nil, errors.New("deepgram: response has no transcript alternatives")
+		return nil, fmt.Errorf("%w: deepgram: response has no transcript alternatives", transcription.ErrInvalidResponse)
 	}
 
 	alt := apiResp.Results.Channels[0].Alternatives[0]
 
 	var outputMetadata metadata.Map
-	if setErr := outputMetadata.Set("deepgram/confidence", alt.Confidence); setErr != nil {
-		return nil, setErr
+	if alt.Confidence != nil {
+		if setErr := outputMetadata.Set("deepgram/confidence", *alt.Confidence); setErr != nil {
+			return nil, setErr
+		}
 	}
-	if setErr := outputMetadata.Set("deepgram/words", alt.Words); setErr != nil {
-		return nil, setErr
+	if alt.Words != nil {
+		if setErr := outputMetadata.Set("deepgram/words", alt.Words); setErr != nil {
+			return nil, setErr
+		}
 	}
 	if len(apiResp.Results.Utterances) > 0 {
 		if setErr := outputMetadata.Set("deepgram/utterances", apiResp.Results.Utterances); setErr != nil {
@@ -138,7 +142,10 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		}
 	}
 
-	output, err := transcription.NewOutput(alt.Transcript, outputMetadata)
+	if alt.Transcript == nil {
+		return nil, fmt.Errorf("%w: deepgram: transcription requires transcript", transcription.ErrInvalidResponse)
+	}
+	output, err := transcription.NewOutput(*alt.Transcript, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -147,11 +154,15 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err := meta.Extra.Set("deepgram/request_id", apiResp.Metadata.RequestID); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("deepgram/duration_seconds", apiResp.Metadata.Duration); err != nil {
-		return nil, err
+	if apiResp.Metadata.Duration != nil {
+		if err := meta.Extra.Set("deepgram/duration_seconds", *apiResp.Metadata.Duration); err != nil {
+			return nil, err
+		}
 	}
-	if err := meta.Extra.Set("deepgram/channels", apiResp.Metadata.Channels); err != nil {
-		return nil, err
+	if apiResp.Metadata.Channels != nil {
+		if err := meta.Extra.Set("deepgram/channels", *apiResp.Metadata.Channels); err != nil {
+			return nil, err
+		}
 	}
 	if err := meta.Extra.Set(TranscriptionResponseExtensionKey, apiResp.Raw); err != nil {
 		return nil, err

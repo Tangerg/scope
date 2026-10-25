@@ -1,95 +1,51 @@
 package openai
 
 import (
-	"reflect"
-	"strings"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"testing"
 
 	openaisdk "github.com/openai/openai-go/v3"
+
+	"github.com/Tangerg/scope/core/moderation"
 )
 
-// The mapping names every moderation category one field at a time, so a
-// category OpenAI adds arrives as a field nobody reads and a flagged input
-// comes back unflagged for it — the failure would be silence, in the one place
-// where silence is the whole problem.
-//
-// The provider's set is a Go type here, so it can be asked directly. Every JSON
-// name the SDK declares on ModerationCategories must appear in the response
-// this builds, and nothing else may.
-func TestModerationCoversEverySDKCategory(t *testing.T) {
-	t.Parallel()
-
-	declared := sdkModerationCategoryNames(t)
-	mapped := builtModerationCategoryNames(t)
-
-	for _, name := range declared {
-		if _, found := mapped[name]; !found {
-			t.Errorf("SDK declares category %q and the mapping does not report it", name)
-		}
-	}
-	for name := range mapped {
-		if !containsName(declared, name) {
-			t.Errorf("the mapping reports category %q that the SDK does not declare", name)
-		}
-	}
-	if len(mapped) != len(declared) {
-		t.Fatalf("mapped %d categories, SDK declares %d", len(mapped), len(declared))
+func TestModerationRequiresReportedCategoryFacts(t *testing.T) {
+	for _, result := range []string{
+		`{}`,
+		`{"categories":{"self-harm":true,"self_harm":false},"category_scores":{"self-harm":0.9,"self_harm":0}}`,
+		`{"categories":{"hate":false}}`,
+		`{"category_scores":{"hate":0}}`,
+		`{"categories":{"hate":null},"category_scores":{"hate":0}}`,
+		`{"categories":{"hate":false},"category_scores":{"hate":null}}`,
+		`{"categories":{"hate":false},"category_scores":{"violence":0}}`,
+	} {
+		t.Run(result, func(t *testing.T) {
+			var native openaisdk.ModerationNewResponse
+			if err := jsonv2.Unmarshal([]byte(`{"results":[`+result+`]}`), &native); err != nil {
+				t.Fatal(err)
+			}
+			model := &ModerationModel{}
+			if response, err := model.buildModerationResponse(&native); !errors.Is(err, moderation.ErrInvalidResponse) {
+				t.Fatalf("response=%v error=%v", response, err)
+			}
+		})
 	}
 }
 
-// sdkModerationCategoryNames reads the JSON names off the SDK struct and
-// normalizes them the way the mapping does: OpenAI writes a subcategory as
-// "harassment/threatening" and "self-harm", while a Core category key uses
-// underscores throughout.
-func sdkModerationCategoryNames(t *testing.T) []string {
-	t.Helper()
-
-	structType := reflect.TypeOf(openaisdk.ModerationCategories{})
-	names := make([]string, 0, structType.NumField())
-	for index := range structType.NumField() {
-		field := structType.Field(index)
-		tag := field.Tag.Get("json")
-		name, _, _ := strings.Cut(tag, ",")
-		// The SDK carries response metadata in a field with no category name;
-		// it is not a category.
-		if name == "" || name == "-" {
-			continue
-		}
-		names = append(names, strings.ReplaceAll(strings.ReplaceAll(name, "/", "_"), "-", "_"))
+func TestModerationPreservesReportedCategorySet(t *testing.T) {
+	var native openaisdk.ModerationNewResponse
+	raw := `{"results":[{"categories":{"hate":false,"future/category":true},"category_scores":{"hate":0,"future/category":0.75}}]}`
+	if err := jsonv2.Unmarshal([]byte(raw), &native); err != nil {
+		t.Fatal(err)
 	}
-	if len(names) == 0 {
-		t.Fatal("read no category names off openaisdk.ModerationCategories")
-	}
-	return names
-}
-
-func builtModerationCategoryNames(t *testing.T) map[string]struct{} {
-	t.Helper()
-
 	model := &ModerationModel{}
-	response, err := model.buildModerationResponse(&openaisdk.ModerationNewResponse{
-		ID:      "modr-1",
-		Model:   "omni-moderation-latest",
-		Results: []openaisdk.Moderation{{}},
-	})
+	response, err := model.buildModerationResponse(&native)
 	if err != nil {
-		t.Fatalf("buildModerationResponse() = %v, want nil", err)
+		t.Fatal(err)
 	}
-	if len(response.Outputs) != 1 {
-		t.Fatalf("outputs = %d, want 1", len(response.Outputs))
+	categories := response.Outputs[0].Categories
+	if len(categories) != 2 || categories["hate"] != (moderation.Verdict{Flagged: false, Score: 0}) || categories["future_category"] != (moderation.Verdict{Flagged: true, Score: 0.75}) {
+		t.Fatalf("categories=%v", categories)
 	}
-	names := make(map[string]struct{}, len(response.Outputs[0].Categories))
-	for name := range response.Outputs[0].Categories {
-		names[name] = struct{}{}
-	}
-	return names
-}
-
-func containsName(names []string, name string) bool {
-	for _, candidate := range names {
-		if candidate == name {
-			return true
-		}
-	}
-	return false
 }

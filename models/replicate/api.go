@@ -282,19 +282,19 @@ const (
 // model-specific: image models usually return []string (URLs) or a single
 // string (URL); text models return []string (token chunks) or string.
 type predictionResponse struct {
-	ID          string           `json:"id"`
-	Model       string           `json:"model,omitempty"`
-	Version     string           `json:"version,omitempty"`
-	Status      predictionStatus `json:"status"`
-	Input       map[string]any   `json:"input,omitzero"`
-	Output      any              `json:"output,omitzero"`
-	Error       string           `json:"error,omitempty"`
-	Logs        string           `json:"logs,omitempty"`
-	CreatedAt   string           `json:"created_at,omitempty"`
-	StartedAt   string           `json:"started_at,omitempty"`
-	CompletedAt string           `json:"completed_at,omitempty"`
-	DataRemoved bool             `json:"data_removed,omitzero"`
-	Source      string           `json:"source,omitempty"`
+	ID          string                     `json:"id"`
+	Model       string                     `json:"model,omitempty"`
+	Version     string                     `json:"version,omitempty"`
+	Status      predictionStatus           `json:"status"`
+	Input       map[string]json.RawMessage `json:"input,omitzero"`
+	Output      any                        `json:"output,omitzero"`
+	Error       string                     `json:"error,omitempty"`
+	Logs        string                     `json:"logs,omitempty"`
+	CreatedAt   string                     `json:"created_at,omitempty"`
+	StartedAt   string                     `json:"started_at,omitempty"`
+	CompletedAt string                     `json:"completed_at,omitempty"`
+	DataRemoved bool                       `json:"data_removed,omitzero"`
+	Source      string                     `json:"source,omitempty"`
 	URLs        struct {
 		Get    string `json:"get"`
 		Cancel string `json:"cancel"`

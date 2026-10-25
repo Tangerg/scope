@@ -45,3 +45,11 @@ func TestProvider(t *testing.T) {
 		t.Fatal("Provider of unknown provider must report ok=false")
 	}
 }
+
+func TestCatalogDoesNotAdvertiseRetiredPerplexitySonar(t *testing.T) {
+	for _, id := range []string{"sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"} {
+		if _, found := catalog.Default.Lookup("perplexity", id); found {
+			t.Fatalf("retired Sonar model %q was advertised for the Agent API", id)
+		}
+	}
+}

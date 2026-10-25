@@ -66,7 +66,7 @@ func TestConstructionReadsNativePolicyAndRejectsInvalidIndexes(t *testing.T) {
 	}
 }
 
-func TestConstructionRejectsTypedNilAndCorruptCollection(t *testing.T) {
+func TestConstructionRejectsTypedNilWithoutReadingCollection(t *testing.T) {
 	config := StoreConfig{Collection: &filterCollection{policy: []any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}}, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}}
 	for _, mutate := range []func(*StoreConfig){
 		func(candidate *StoreConfig) { candidate.Collection = (*mongo.Collection)(nil) },
@@ -83,12 +83,12 @@ func TestConstructionRejectsTypedNilAndCorruptCollection(t *testing.T) {
 	}
 	collection := config.Collection.(*filterCollection)
 	collection.records = []bson.Raw{nativeRecord(t, "one", `{"key":1,"key":2}`)}
-	if store, err := NewStore(t.Context(), config); err == nil || store != nil {
-		t.Fatal("construction accepted corrupt current source")
+	if store, err := NewStore(t.Context(), config); err != nil || store == nil {
+		t.Fatalf("construction read stored documents: %v", err)
 	}
 	collection.records = nil
 	collection.enumerationErr = errors.New("native enumeration denied")
-	if store, err := NewStore(t.Context(), config); !errors.Is(err, collection.enumerationErr) || store != nil {
-		t.Fatalf("native denial became success: %v", err)
+	if store, err := NewStore(t.Context(), config); err != nil || store == nil {
+		t.Fatalf("construction required source read permission: %v", err)
 	}
 }
