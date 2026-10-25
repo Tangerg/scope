@@ -18,6 +18,7 @@ coverage_budget=(
   "./history 90.8"
   "./history/inmemory 100.0"
   "./history/storetest 86.2"
+  "./httpclient 96.4"
   "./image 97.3"
   "./internal/ptr 100.0"
   "./jsonschema 89.4"

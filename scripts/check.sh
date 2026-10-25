@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Workspace check runner, and the only declaration of the check set: CI runs
 # this default rather than naming checks itself, so a check cannot reach one
-# and miss the other. The specialized coverage gates in scripts stay separate.
+# and miss the other. Coverage budgets are dispatched to their owning scripts.
 #
 # Usage:
 #   scripts/check.sh                       # run the complete default set
@@ -48,7 +48,7 @@ if [[ -n "${MODULE:-}" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test race integration-compile bench tidy isolate lint vuln)
+  CHECKS=(build vet test race integration-compile bench tidy isolate lint coverage vuln)
 else
   CHECKS=("$@")
 fi
@@ -87,6 +87,14 @@ run_in_module() {
       (cd "$mod" && GOWORK=off go mod tidy -diff && GOWORK=off go test -count=1 ./...)
       ;;
     lint)  (cd "$mod" && golangci-lint run --allow-parallel-runners --config="$ROOT/.golangci.yml" ./...) ;;
+    coverage)
+      case "$mod" in
+        core) "$ROOT/scripts/check-core-coverage.sh" ;;
+        agent|examples) "$ROOT/scripts/check-agent-coverage.sh" ;;
+        historystores/*|models/*|vectorstores/*) "$ROOT/scripts/check-provider-coverage.sh" "$mod" ;;
+        *) echo "$mod: no separate statement-coverage budget" ;;
+      esac
+      ;;
     vuln)  "$ROOT/scripts/check-vulnerabilities.sh" "$mod" ;;
     *) echo "unknown check: $check" >&2; return 2 ;;
   esac

@@ -118,6 +118,55 @@ func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
 	if !invoked {
 		t.Error("CI no longer runs scripts/check.sh")
 	}
+	for _, script := range []string{"check-core-coverage.sh", "check-agent-coverage.sh", "check-provider-coverage.sh"} {
+		if strings.Contains(string(workflow), script) {
+			t.Errorf("CI restates the canonical coverage dispatch: %s", script)
+		}
+	}
+}
+
+func TestCoverageSelectionDelegatesToOwnerAndPreservesFailure(t *testing.T) {
+	t.Parallel()
+	for _, selected := range []struct{ module, gate string }{
+		{"core", "core"}, {"agent", "agent"}, {"examples", "agent"},
+		{"models/alibaba", "provider"}, {"historystores/redis", "provider"}, {"vectorstores/redis", "provider"},
+	} {
+		for _, subset := range []bool{false, true} {
+			for _, fail := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/subset=%t/fail=%t", selected.module, subset, fail), func(t *testing.T) {
+					fixture := newScriptFailureFixture(t, "check.sh")
+					fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' "+selected.module+"\n")
+					fixture.write(t, "scripts/module-packages.sh", "#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n")
+					fixture.write(t, "scripts/check-vulnerabilities.sh", "#!/usr/bin/env bash\nexit 0\n")
+					fixture.write(t, "bin/go", "#!/usr/bin/env bash\nexit 0\n")
+					fixture.write(t, "bin/golangci-lint", "#!/usr/bin/env bash\nexit 0\n")
+					fixture.write(t, selected.module+"/go.mod", "module example.test/consumer\n")
+					for _, gate := range []string{"core", "agent", "provider"} {
+						fixture.write(t, "scripts/check-"+gate+"-coverage.sh", `#!/usr/bin/env bash
+printf '%s\n' '`+gate+`' >> "$SCRIPT_CALLS"
+if [[ "$SCRIPT_COVERAGE_FAILURE" == 1 ]]; then echo coverage-budget-failed >&2; exit 23; fi
+`)
+					}
+					failure := "0"
+					if fail {
+						failure = "1"
+					}
+					fixture.env = append(fixture.env, "MODULE="+selected.module, "FAST=0", "SCRIPT_COVERAGE_FAILURE="+failure)
+					var args []string
+					if subset {
+						args = []string{"coverage"}
+					}
+					output, err := fixture.run(t, "check.sh", args...)
+					if fixture.calls(t) != selected.gate+"\n" || (err != nil) != fail {
+						t.Fatalf("coverage selection=%q error=%v output=%s", fixture.calls(t), err, output)
+					}
+					if fail && (!strings.Contains(output, selected.module+"/coverage") || strings.Contains(output, "all green")) {
+						t.Fatalf("coverage failure became success: %s", output)
+					}
+				})
+			}
+		}
+	}
 }
 
 func TestIsolationDetectsDependencySemanticDrift(t *testing.T) {

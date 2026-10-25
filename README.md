@@ -114,7 +114,7 @@ The examples module has no local replacements. From the repository root,
 `MODULE=examples scripts/check.sh isolate` checks module hygiene and every
 consumer's behavior against those published dependencies. The full default
 `scripts/check.sh` also checks workspace behavior, race detection, integration
-compilation, benchmarks, lint, and reachable vulnerabilities.
+compilation, benchmarks, lint, statement-coverage budgets, and reachable vulnerabilities.
 
 The offline recovery example uses memory storage and a simulated remote ledger.
 For real PostgreSQL transactions and independent-process failure, run

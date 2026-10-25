@@ -111,15 +111,3 @@ jobs:
         env:
           MODULE: ${{ matrix.module }}
         run: scripts/check.sh
-
-      - name: Core coverage budget
-        if: matrix.module == 'core'
-        run: scripts/check-core-coverage.sh
-
-      - name: Agent and managed consumer coverage budget
-        if: matrix.module == 'agent' || matrix.module == 'examples'
-        run: scripts/check-agent-coverage.sh
-
-      - name: Provider coverage budget
-        if: startsWith(matrix.module, 'models/') || startsWith(matrix.module, 'vectorstores/') || startsWith(matrix.module, 'historystores/')
-        run: scripts/check-provider-coverage.sh '${{ matrix.module }}'

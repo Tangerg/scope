@@ -114,59 +114,14 @@ func TestWorkspaceCoversEveryProductModule(t *testing.T) {
 	}
 }
 
-func TestCoverageGatesTargetTheirOwningModules(t *testing.T) {
+func TestAgentCoverageKeepsManagedConsumer(t *testing.T) {
 	t.Parallel()
-	root := repositoryRoot(t)
-	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(workflow)
-	if strings.Contains(text, "matrix.module == '.'") {
-		t.Error("CI targets the retired root module; Core-only gates must select matrix.module == 'core'")
-	}
-	for _, gate := range []struct {
-		name      string
-		condition string
-		command   string
-	}{
-		{name: "Core coverage budget", condition: "matrix.module == 'core'", command: "scripts/check-core-coverage.sh"},
-		{name: "Agent and managed consumer coverage budget", condition: "matrix.module == 'agent' || matrix.module == 'examples'", command: "scripts/check-agent-coverage.sh"},
-	} {
-		block, found := workflowStep(text, gate.name)
-		if !found {
-			t.Errorf("CI is missing %q", gate.name)
-			continue
-		}
-		var condition string
-		for line := range strings.Lines(block) {
-			if value, hasCondition := strings.CutPrefix(strings.TrimSpace(line), "if: "); hasCondition {
-				condition = value
-			}
-		}
-		if condition != gate.condition {
-			t.Errorf("CI gate %q condition=%q, want %q", gate.name, condition, gate.condition)
-		}
-		if !strings.Contains(block, "run: "+gate.command) {
-			t.Errorf("CI gate %q does not run %s", gate.name, gate.command)
-		}
-	}
-	script, err := os.ReadFile(filepath.Join(root, "scripts", "check-agent-coverage.sh"))
+	script, err := os.ReadFile(filepath.Join(repositoryRoot(t), "scripts", "check-agent-coverage.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(script), `"../examples/agent/direct_vs_managed `) {
 		t.Error("moved managed consumer lost its coverage budget")
-	}
-
-	block, found := workflowStep(text, "Provider coverage budget")
-	if !found {
-		t.Fatal("CI is missing Provider coverage budget")
-	}
-	for _, family := range []string{"models/", "vectorstores/", "historystores/"} {
-		if !strings.Contains(block, "startsWith(matrix.module, '"+family+"')") {
-			t.Errorf("CI provider coverage gate does not select %s modules", family)
-		}
 	}
 }
 
@@ -175,18 +130,6 @@ func goVersion(directive *modfile.Go) string {
 		return ""
 	}
 	return directive.Version
-}
-
-func workflowStep(workflow, name string) (string, bool) {
-	start := strings.Index(workflow, "- name: "+name)
-	if start < 0 {
-		return "", false
-	}
-	step := workflow[start:]
-	if next := strings.Index(step[1:], "\n      - name:"); next >= 0 {
-		step = step[:1+next]
-	}
-	return step, true
 }
 
 func TestProductModulesStayOutOfInternalDirectories(t *testing.T) {
