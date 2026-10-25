@@ -24,7 +24,11 @@ func TestHostOwnsSigV4Authentication(t *testing.T) {
 		writer.Write([]byte(`{"retrievalResults":[]}`))
 	}))
 	defer server.Close()
+	var credentialError error
 	credentials := aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
+		if credentialError != nil {
+			return aws.Credentials{}, credentialError
+		}
 		return aws.Credentials{AccessKeyID: "test-key", SecretAccessKey: "test-secret", SessionToken: "test-session"}, nil
 	})
 	client := &http.Client{Transport: exampleSigV4Transport{credentials: credentials, region: "us-east-1", signer: v4.NewSigner(), base: server.Client().Transport}}
@@ -36,10 +40,7 @@ func TestHostOwnsSigV4Authentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	credentialFailure := errors.New("credentials unavailable")
-	client.Transport = exampleSigV4Transport{
-		credentials: aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) { return aws.Credentials{}, credentialFailure }),
-		region:      "us-east-1", signer: v4.NewSigner(), base: server.Client().Transport,
-	}
+	credentialError = credentialFailure
 	if response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); response != nil || !errors.Is(searchErr, credentialFailure) {
 		t.Fatalf("credential failure became success: %v, %v", response, searchErr)
 	}

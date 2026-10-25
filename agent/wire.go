@@ -81,7 +81,7 @@ func (p Payload) IsZero() bool { return !p.Valid() }
 
 func (p Payload) Valid() bool { return len(p.data) > 0 }
 
-func (Payload) JSONSchemaAlias() any { return json.RawMessage{} }
+func (Payload) JSONSchemaModel() any { return json.RawMessage{} }
 
 func (p Payload) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {

@@ -224,4 +224,4 @@ func (p Part) validatePayload(actual, required partPayload, validate func() erro
 
 type wirePart Part
 
-func (Part) JSONSchemaAlias() any { return wirePart{} }
+func (Part) JSONSchemaModel() any { return wirePart{} }

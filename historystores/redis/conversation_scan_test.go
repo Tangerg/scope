@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"net"
 	"slices"
 	"testing"
 
@@ -122,72 +123,136 @@ func TestSortedIsNeverNil(t *testing.T) {
 	}
 }
 
-// Even an empty ring must not report a complete list: the SDK cannot expose
-// whether missing shards were removed or skipped as unavailable.
-func TestConversationsRejectsIncompleteRingEnumeration(t *testing.T) {
-	t.Parallel()
-
+func TestStoreRejectsImplicitKeyspaceEnumeration(t *testing.T) {
 	ring := goredis.NewRing(&goredis.RingOptions{Addrs: map[string]string{}})
 	t.Cleanup(func() { _ = ring.Close() })
-
-	store, err := NewStore(t.Context(), StoreConfig{Client: ring})
-	if err != nil {
-		t.Fatalf("NewStore() = %v, want nil", err)
-	}
-	ids, err := store.Conversations(t.Context())
-	if !errors.Is(err, errors.ErrUnsupported) {
-		t.Fatalf("Conversations() error = %v, want ErrUnsupported", err)
-	}
-	if ids != nil {
-		t.Fatalf("Conversations() = %v, want no partial result", ids)
+	if _, err := NewStore(t.Context(), StoreConfig{Client: ring}); err == nil {
+		t.Fatal("an SDK client alone must not imply complete keyspace coverage")
 	}
 }
 
-// singleNodeClient is a plain client for enumeration purposes: it answers SCAN
-// and nothing else, so the default branch is exercised without a server.
-type singleNodeClient struct {
-	goredis.UniversalClient
-	scanner *pagedScanner
+type scanHook struct{ scanner keyScanner }
+
+func (s scanHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+func (s scanHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+func (s scanHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, command goredis.Cmder) error {
+		scan, ok := command.(*goredis.ScanCmd)
+		if !ok {
+			return next(ctx, command)
+		}
+		keys, cursor, err := s.scanner.Scan(ctx, command.Args()[1].(uint64), "", 0).Result()
+		scan.SetVal(keys, cursor)
+		scan.SetErr(err)
+		return err
+	}
 }
 
-func (s *singleNodeClient) Scan(ctx context.Context, cursor uint64, match string, count int64) *goredis.ScanCmd {
-	return s.scanner.Scan(ctx, cursor, match, count)
+func scannedClient(t *testing.T, scanner keyScanner) *goredis.Client {
+	t.Helper()
+	client := goredis.NewClient(&goredis.Options{
+		Dialer: func(context.Context, string, string) (net.Conn, error) {
+			return nil, errors.New("unexpected network access")
+		},
+	})
+	client.AddHook(scanHook{scanner: scanner})
+	t.Cleanup(func() { _ = client.Close() })
+	return client
 }
 
-// A client that is neither a cluster nor a ring is scanned directly, which is
-// the case that always worked and has to keep working.
-func TestConversationsScansASingleClientDirectly(t *testing.T) {
-	t.Parallel()
+func singleNode(client *goredis.Client) func(context.Context, func(context.Context, *goredis.Client) error) error {
+	return func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+		return visit(ctx, client)
+	}
+}
 
-	client := &singleNodeClient{scanner: &pagedScanner{pages: [][]string{
+func TestConversationsScansTheConfiguredKeyspace(t *testing.T) {
+	scanner := &pagedScanner{pages: [][]string{
 		{DefaultKeyPrefix + "beta"},
 		{DefaultKeyPrefix + "alpha"},
-	}}}
-
-	store, err := NewStore(t.Context(), StoreConfig{Client: client})
+	}}
+	client := scannedClient(t, scanner)
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: singleNode(client)})
 	if err != nil {
-		t.Fatalf("NewStore() = %v, want nil", err)
+		t.Fatal(err)
 	}
 	ids, err := store.Conversations(t.Context())
 	if err != nil {
-		t.Fatalf("Conversations() = %v, want nil", err)
+		t.Fatal(err)
 	}
 	if !slices.Equal(ids, []history.ConversationID{"alpha", "beta"}) {
 		t.Fatalf("Conversations() = %v, want [alpha beta]", ids)
 	}
-	if want := []uint64{0, 17}; !slices.Equal(client.scanner.cursors, want) {
-		t.Fatalf("cursors = %v, want %v", client.scanner.cursors, want)
+	if want := []uint64{0, 17}; !slices.Equal(scanner.cursors, want) {
+		t.Fatalf("cursors = %v, want %v", scanner.cursors, want)
+	}
+}
+
+type decoratedCluster struct{ *goredis.ClusterClient }
+
+func TestDecoratedClusterKeepsCompleteEnumeration(t *testing.T) {
+	client := goredis.NewClusterClient(&goredis.ClusterOptions{
+		ClusterSlots: func(context.Context) ([]goredis.ClusterSlot, error) {
+			return []goredis.ClusterSlot{
+				{Start: 0, End: 8191, Nodes: []goredis.ClusterNode{{Addr: "alpha:6379"}}},
+				{Start: 8192, End: 16383, Nodes: []goredis.ClusterNode{{Addr: "beta:6379"}}},
+			}, nil
+		},
+		NewClient: func(options *goredis.Options) *goredis.Client {
+			node := goredis.NewClient(options)
+			node.AddHook(scanHook{scanner: &pagedScanner{pages: [][]string{{DefaultKeyPrefix + options.Addr}}}})
+			return node
+		},
+	})
+	t.Cleanup(func() { _ = client.Close() })
+	wrapped := &decoratedCluster{ClusterClient: client}
+	store, err := NewStore(t.Context(), StoreConfig{Client: wrapped, ScanNodes: wrapped.ForEachMaster})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := store.Conversations(t.Context())
+	if err != nil || !slices.Equal(ids, []history.ConversationID{"alpha:6379", "beta:6379"}) {
+		t.Fatalf("decorated cluster ids=%v error=%v", ids, err)
+	}
+}
+
+func TestConversationsRejectsPartialKeyspaceOnFailure(t *testing.T) {
+	client := scannedClient(t, &pagedScanner{pages: [][]string{{DefaultKeyPrefix + "first"}}})
+	cause := errors.New("second node unavailable")
+	store, err := NewStore(t.Context(), StoreConfig{
+		Client: client,
+		ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+			if err := visit(ctx, client); err != nil {
+				return err
+			}
+			return cause
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := store.Conversations(t.Context())
+	if ids != nil || !errors.Is(err, cause) {
+		t.Fatalf("ids=%v error=%v", ids, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	ids, err = store.Conversations(ctx)
+	if ids != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ids=%v error=%v", ids, err)
 	}
 }
 
 func TestConversationsRejectsMalformedStoredIdentities(t *testing.T) {
 	for _, id := range []string{"", " padded", "control\n", string([]byte{0xff})} {
 		t.Run(id, func(t *testing.T) {
-			client := &singleNodeClient{scanner: &pagedScanner{pages: [][]string{
+			client := scannedClient(t, &pagedScanner{pages: [][]string{
 				{DefaultKeyPrefix + "valid"},
 				{DefaultKeyPrefix + id},
-			}}}
-			store, err := NewStore(t.Context(), StoreConfig{Client: client})
+			}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: singleNode(client)})
 			if err != nil {
 				t.Fatal(err)
 			}

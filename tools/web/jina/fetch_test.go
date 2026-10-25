@@ -10,7 +10,7 @@ import (
 )
 
 func TestFetch(t *testing.T) {
-	if _, err := NewClient(Config{}); err == nil {
+	if _, err := NewClient(t.Context(), Config{}); err == nil {
 		t.Fatal("NewClient accepted an empty API key")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,11 +40,11 @@ func TestFetch(t *testing.T) {
 			t.Errorf("url = %q", body.URL)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"content":"example"}}`))
+		_, _ = w.Write([]byte(`{"data":{"text":"example"}}`))
 	}))
 	t.Cleanup(server.Close)
 
-	client, err := NewClient(Config{APIKey: "test-key", FetchBaseURL: server.URL, HTTPClient: server.Client()})
+	client, err := NewClient(t.Context(), Config{APIKey: "test-key", FetchBaseURL: server.URL, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestFetchRequiresContent(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		client, err := NewClient(Config{APIKey: "test-key", FetchBaseURL: server.URL, HTTPClient: server.Client()})
+		client, err := NewClient(t.Context(), Config{APIKey: "test-key", FetchBaseURL: server.URL, HTTPClient: server.Client()})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -13,6 +13,8 @@ import (
 	"strconv"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -34,29 +36,26 @@ type api struct {
 	maxResponseBytes int64
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("deepgram: HTTP client: %w", err)
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
-		SetHeader("Authorization", "Token "+config.APIKey).
+	client.SetBaseURL(baseURL).
+		SetHeader(headerAuthorization, authorizationTokenPrefix+config.APIKey).
 		SetResponseBodyLimit(int(config.MaxResponseBytes))
 
 	return &api{http: client, maxResponseBytes: config.MaxResponseBytes}, nil
 }
 
-// ListenParams holds current query-string options for Deepgram /listen.
 // Extra is available for newly released official query parameters that have
 // not yet acquired a typed field.
 type listenParams struct {
@@ -97,36 +96,31 @@ func (l *listenParams) query() url.Values {
 		}
 	}
 	setBool := func(k string, v *bool) {
-		if v == nil {
-			return
-		}
-		if *v {
-			q.Set(k, "true")
-		} else {
-			q.Set(k, "false")
+		if v != nil {
+			q.Set(k, strconv.FormatBool(*v))
 		}
 	}
-	setStr("model", l.Model)
-	setStr("language", l.Language)
-	setStr("tier", l.Tier)
-	setStr("version", l.Version)
-	setStr("summarize", l.Summarize)
-	setBool("punctuate", l.Punctuate)
-	setBool("smart_format", l.SmartFormat)
-	setBool("diarize", l.Diarize)
-	setBool("numerals", l.Numerals)
-	setBool("paragraphs", l.Paragraphs)
-	setBool("utterances", l.Utterances)
-	setBool("topics", l.Topics)
-	setBool("sentiment", l.Sentiment)
-	setBool("intents", l.Intents)
-	setBool("detect_entities", l.DetectEntities)
-	setBool("detect_language", l.DetectLanguage)
+	setStr(fieldModel, l.Model)
+	setStr(fieldLanguage, l.Language)
+	setStr(fieldTier, l.Tier)
+	setStr(fieldVersion, l.Version)
+	setStr(fieldSummarize, l.Summarize)
+	setBool(fieldPunctuate, l.Punctuate)
+	setBool(fieldSmartFormat, l.SmartFormat)
+	setBool(fieldDiarize, l.Diarize)
+	setBool(fieldNumerals, l.Numerals)
+	setBool(fieldParagraphs, l.Paragraphs)
+	setBool(fieldUtterances, l.Utterances)
+	setBool(fieldTopics, l.Topics)
+	setBool(fieldSentiment, l.Sentiment)
+	setBool(fieldIntents, l.Intents)
+	setBool(fieldDetectEntities, l.DetectEntities)
+	setBool(fieldDetectLanguage, l.DetectLanguage)
 	for _, r := range l.Redact {
-		q.Add("redact", r)
+		q.Add(fieldRedact, r)
 	}
 	for _, keyterm := range l.Keyterms {
-		q.Add("keyterm", keyterm)
+		q.Add(fieldKeyterm, keyterm)
 	}
 	return q
 }
@@ -158,11 +152,11 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 	var out listenResponse
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", cmp.Or(contentType, "application/octet-stream")).
+		SetHeader(headerContentType, cmp.Or(contentType, mediaTypeBinary)).
 		SetQueryParamsFromValues(params.query()).
 		SetBody(audio).
 		SetResult(&out).
-		Post("/listen")
+		Post(pathListen)
 	if err != nil {
 		return nil, fmt.Errorf("deepgram: request failed: %w", err)
 	}
@@ -175,8 +169,6 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 	return &out, nil
 }
 
-// SpeakParams holds the query-string knobs Deepgram /speak accepts.
-// See https://developers.deepgram.com/reference/text-to-speech-api.
 type speakParams struct {
 	Model      string     `json:"model,omitempty"`
 	Encoding   string     `json:"encoding,omitempty"`
@@ -198,27 +190,30 @@ func (s *speakParams) query() url.Values {
 		}
 	}
 	if s.Model != "" {
-		q.Set("model", s.Model)
+		q.Set(fieldModel, s.Model)
 	}
 	if s.Encoding != "" {
-		q.Set("encoding", s.Encoding)
+		q.Set(fieldEncoding, s.Encoding)
 	}
 	if s.Container != "" {
-		q.Set("container", s.Container)
+		q.Set(fieldContainer, s.Container)
 	}
 	if s.SampleRate > 0 {
-		q.Set("sample_rate", strconv.Itoa(s.SampleRate))
+		q.Set(fieldSampleRate, strconv.Itoa(s.SampleRate))
 	}
 	if s.BitRate > 0 {
-		q.Set("bit_rate", strconv.Itoa(s.BitRate))
+		q.Set(fieldBitRate, strconv.Itoa(s.BitRate))
 	}
 	if s.Speed > 0 {
-		q.Set("speed", strconv.FormatFloat(s.Speed, 'f', -1, 64))
+		q.Set(fieldSpeed, strconv.FormatFloat(s.Speed, 'f', -1, 64))
 	}
 	return q
 }
 
-// speakStream posts text to /speak and exposes the response body as it arrives.
+type speakRequest struct {
+	Text string `json:"text"`
+}
+
 func (a *api) speakStream(ctx context.Context, text string, params *speakParams) (io.ReadCloser, http.Header, error) {
 	if text == "" {
 		return nil, nil, errors.New("deepgram: speech text must not be empty")
@@ -226,12 +221,12 @@ func (a *api) speakStream(ctx context.Context, text string, params *speakParams)
 
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Accept", "audio/*").
+		SetHeader(headerContentType, mediaTypeJSON).
+		SetHeader(headerAccept, mediaTypeAudio).
 		SetQueryParamsFromValues(params.query()).
-		SetBody(map[string]string{"text": text}).
+		SetBody(speakRequest{Text: text}).
 		SetDoNotParseResponse(true).
-		Post("/speak")
+		Post(pathSpeak)
 	if err != nil {
 		return nil, nil, fmt.Errorf("deepgram: request failed: %w", err)
 	}

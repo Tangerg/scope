@@ -21,6 +21,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -39,7 +40,9 @@ const (
 // StoreConfig binds the native Retrieve REST boundary. The host owns HTTP
 // authentication, retries, timeouts and lifecycle; ingestion stays in Bedrock.
 type StoreConfig struct {
-	Endpoint                       string
+	Endpoint string
+	// HTTPClient settings are captured; the host retains its transport and jar.
+	// Requests remain within Endpoint's origin even when redirects are followed.
 	HTTPClient                     *http.Client
 	KnowledgeBaseID                string
 	MaxResponseBytes               int64
@@ -80,8 +83,12 @@ type Store struct {
 
 // NewStore performs no I/O. The host provisions the knowledge base and owns
 // native retrieval policy; Search is the only network operation.
-func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	if err != nil {
 		return nil, err
 	}
 	policy, err := config.nativePolicy()
@@ -97,7 +104,7 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		endpoint: strings.TrimRight(config.Endpoint, "/"), httpClient: config.HTTPClient, knowledgeBaseID: config.KnowledgeBaseID,
+		endpoint: strings.TrimRight(config.Endpoint, "/"), httpClient: ownedHTTP, knowledgeBaseID: config.KnowledgeBaseID,
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes), configuration: configuration,
 	}
 	return store, nil

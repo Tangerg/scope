@@ -72,13 +72,13 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			transport := &bindingTransport{}
 			client := &http.Client{Transport: transport}
-			for _, endpoint := range []string{"%", "/relative", "//example.test/path", "ftp://example.test", "https://", "https://:443", "https://example.test:bad", "https://example.test/\x00"} {
+			for _, endpoint := range []string{"%", "/relative", "//example.test/path", "ftp://example.test", "https://", "https://:443", "https://example.test:bad", "https://example.test/\x00", "https://user:pass@example.test/path"} {
 				missing, err := construct(endpoint, client)
 				if err == nil || !missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
 				}
 			}
-			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://user:pass@example.test/path#section"} {
+			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://example.test/path#section"} {
 				missing, err := construct(endpoint, client)
 				if err != nil || missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
@@ -176,7 +176,11 @@ func TestExplicitBindingExecutesWithInvalidUnusedEnvironment(t *testing.T) {
 		case "/chat/completions":
 			io.WriteString(writer, "data: {\"id\":\"response-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		case "/responses":
-			io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-1\",\"status\":\"completed\",\"output\":[]}}\n\n")
+			io.WriteString(writer, `data: {"type":"response.output_text.delta","item_id":"message-1","output_index":0,"content_index":0,"delta":"answer"}
+
+data: {"type":"response.completed","response":{"id":"response-1","status":"completed","output":[{"type":"message","id":"message-1","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}}
+
+`)
 		default:
 			t.Errorf("unexpected path=%s", request.URL.Path)
 		}

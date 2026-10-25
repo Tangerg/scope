@@ -39,7 +39,11 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLChina), HTTPClient: config.HTTPClient}, openai.ReasoningContentReplayDialect("alibaba"))
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "alibaba", Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways})
+	if err != nil {
+		return nil, fmt.Errorf("alibaba: configure reasoning dialect: %w", err)
+	}
+	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLChina), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("alibaba: construct OpenAI-compatible chat: %w", err)
 	}

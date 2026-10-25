@@ -61,11 +61,11 @@ type TranscriptionModel struct {
 	pollTimeout    time.Duration
 }
 
-func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}
@@ -92,18 +92,18 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"media_url", "language", "transcriber"} {
+	for _, field := range []string{fieldMediaURL, fieldLanguage, fieldTranscriber} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
 	}
-	if raw, exists := nativeFields["source_config"]; exists {
+	if raw, exists := nativeFields[fieldSourceConfig]; exists {
 		var sourceFields map[string]json.RawMessage
 		if decodeErr := jsonv2.Unmarshal(raw, &sourceFields); decodeErr != nil {
 			return nil, fmt.Errorf("revai: source_config: %w", decodeErr)
 		}
 		for field := range sourceFields {
-			if field != "auth_headers" {
+			if field != fieldAuthHeaders {
 				return nil, fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)
 			}
 		}
@@ -153,12 +153,12 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	var outputMetadata metadata.Map
 	if final.Language != "" {
-		if setErr := outputMetadata.Set("revai/language", final.Language); setErr != nil {
+		if setErr := outputMetadata.Set(metadataLanguage, final.Language); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if final.DurationSeconds > 0 {
-		if setErr := outputMetadata.Set("revai/duration_seconds", final.DurationSeconds); setErr != nil {
+		if setErr := outputMetadata.Set(metadataDurationSeconds, final.DurationSeconds); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -169,7 +169,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 
 	meta := &transcription.ResponseMetadata{Model: jobOpts.Transcriber}
-	if err := meta.Extra.Set("revai/job_id", final.ID); err != nil {
+	if err := meta.Extra.Set(metadataJobID, final.ID); err != nil {
 		return nil, err
 	}
 	if err := meta.Extra.Set(ResponseExtensionKey, final); err != nil {

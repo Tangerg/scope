@@ -9,13 +9,14 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
+const defaultActionCost = 1
+
 // CostFunc must be pure, deterministic, concurrency-safe, and bounded. A Planner
 // cannot interrupt a callback that does not return. Invalid costs fail the search.
 type CostFunc func(source WorldState) (float64, error)
 
-// FixedCost returns a CostFunc that always returns value. Validation occurs
-// when an Action evaluates the cost so the same error contract covers fixed and
-// dynamic costs.
+// FixedCost defers validation until an Action evaluates the cost so fixed and
+// dynamic costs share one error contract.
 func FixedCost(value float64) CostFunc {
 	return func(WorldState) (float64, error) { return value, nil }
 }
@@ -67,7 +68,7 @@ func NewAction(config ActionConfig) (Action, error) {
 	}
 	cost := config.Cost
 	if cost == nil {
-		cost = FixedCost(1)
+		cost = FixedCost(defaultActionCost)
 	}
 	action := Action{
 		name: config.Name, description: config.Description,

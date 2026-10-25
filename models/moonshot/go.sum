@@ -4,12 +4,6 @@ cloud.google.com/go/auth/oauth2adapt v0.2.3 h1:MlxF+Pd3OmSudg/b1yZ5lJwoXCEaeedAg
 cloud.google.com/go/auth/oauth2adapt v0.2.3/go.mod h1:tMQXOfZzFuNuUxOypHlQEXgdfX5cuhwU+ffUuXRJE8I=
 cloud.google.com/go/compute/metadata v0.5.0 h1:Zr0eK8JbFv6+Wi4ilXAR8FJ3wyNdpxHKJNPos6LTZOY=
 cloud.google.com/go/compute/metadata v0.5.0/go.mod h1:aHnloV2TPI38yx4s9+wAZhHykWvVCfu7hQbF+9CWoiY=
-github.com/Tangerg/scope/core v0.56.0 h1:2YJ1w9R/2zXW5AlJ6KZ80xMr861Z/avlhXbtSfvAJnE=
-github.com/Tangerg/scope/core v0.56.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/models/protocol/anthropic v0.56.0 h1:HfTEkIODwbH/S13q18HwnunIBjhq4KEXlJER8EQtCVw=
-github.com/Tangerg/scope/models/protocol/anthropic v0.56.0/go.mod h1:UeiLfa/l21P/ZqzQ59ho9PXHD+9huo2GZqfnORa5m5g=
-github.com/Tangerg/scope/models/protocol/openai v0.56.0 h1:oHmRlrbe6vgcd1IHlTKG3eoJss1UFXf0e8y/swzKAqU=
-github.com/Tangerg/scope/models/protocol/openai v0.56.0/go.mod h1:u83pw5UaX0l+VIq/bdnU1dx5FjP422UGckIGh0Sy4/Y=
 github.com/anthropics/anthropic-sdk-go v1.81.0 h1:3WAxA6xMSSHKExnFN3t/qIwJUC8l6zQFTmwVGl3QWy0=
 github.com/anthropics/anthropic-sdk-go v1.81.0/go.mod h1:GThfYqPJoaQ/6pmibCI98Cr4y5su2FXMUHn3NrSSnIc=
 github.com/aws/aws-sdk-go-v2 v1.47.1 h1:uOIZnp4PK3ZhKI0dNrJrhTEsLxbpXHTAJlwoS1pvAtw=

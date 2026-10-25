@@ -28,7 +28,6 @@ const (
 	defaultSearchResults  = 10
 	maximumSnippetRunes   = 300
 	snippetEllipsis       = "..."
-	mediaTypeJSON         = "application/json"
 	respondWithHeader     = "X-Respond-With"
 	respondWithoutContent = "no-content"
 	retainImagesHeader    = "X-Retain-Images"
@@ -42,7 +41,8 @@ type Config struct {
 	APIKey        string
 	SearchBaseURL string
 	FetchBaseURL  string
-	HTTPClient    *http.Client
+	// Each endpoint owns its origin restriction; the host retains the shared client.
+	HTTPClient *http.Client
 }
 
 type Client struct {
@@ -52,19 +52,24 @@ type Client struct {
 
 var _ web.Searcher = (*Client)(nil)
 
-func NewClient(config Config) (*Client, error) {
+func NewClient(ctx context.Context, config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("jina: API key is required")
 	}
+	searchHTTP, err := providerhttp.NewClient(ctx, providerhttp.Config{HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.SearchBaseURL, searchBaseURL)})
+	if err != nil {
+		return nil, fmt.Errorf("jina: search endpoint: %w", err)
+	}
+	fetchHTTP, err := providerhttp.NewClient(ctx, providerhttp.Config{HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.FetchBaseURL, fetchBaseURL)})
+	if err != nil {
+		return nil, fmt.Errorf("jina: fetch endpoint: %w", err)
+	}
 	return &Client{
-		searchHTTP: providerhttp.NewClient(config.HTTPClient, cmp.Or(config.SearchBaseURL, searchBaseURL)).
+		searchHTTP: searchHTTP.
 			SetAuthToken(config.APIKey).
-			SetHeader("Accept", mediaTypeJSON).
 			SetHeader(respondWithHeader, respondWithoutContent),
-		fetchHTTP: providerhttp.NewClient(config.HTTPClient, cmp.Or(config.FetchBaseURL, fetchBaseURL)).
+		fetchHTTP: fetchHTTP.
 			SetAuthToken(config.APIKey).
-			SetHeader("Content-Type", mediaTypeJSON).
-			SetHeader("Accept", mediaTypeJSON).
 			SetHeader(retainImagesHeader, retainNoImages),
 	}, nil
 }
@@ -120,7 +125,7 @@ type searchResponse struct {
 	Data []*searchResult `json:"data"`
 }
 
-func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
+func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.SearchResponse, error) {
 	if s.Data == nil {
 		return nil, fmt.Errorf("jina: %w: response is missing data", web.ErrInvalidSearchResponse)
 	}
@@ -136,8 +141,8 @@ func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, er
 			PublishedTime: parseDate(searchResult.Date),
 		})
 	}
-	response := &web.SearchResponse{Query: query, Results: results}
-	if err := response.Validate(); err != nil {
+	response := &web.SearchResponse{Query: request.Query, Results: results}
+	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("jina: %w", err)
 	}
 	return response, nil
@@ -160,7 +165,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, search.path(), &raw); err != nil {
 		return nil, fmt.Errorf("jina: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query)
+	return raw.toSearchResponse(prepared)
 }
 
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
@@ -175,10 +180,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
 		return nil, fmt.Errorf("jina: fetch request: %w", err)
 	}
-	if raw.Data.Content == nil {
-		return nil, errors.New("jina: fetch response contains no content")
-	}
-	return &web.FetchResponse{Content: *raw.Data.Content, Format: prepared.Format}, nil
+	return raw.toFetchResponse(prepared.Format)
 }
 
 func parseDate(s string) time.Time {

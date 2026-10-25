@@ -15,7 +15,7 @@ const utf8BOM = "\ufeff"
 
 func normalizeText(data []byte) (text string, hadBOM, hadCRLF bool) {
 	if bytes.HasPrefix(data, []byte(utf8BOM)) {
-		data = data[3:]
+		data = data[len(utf8BOM):]
 		hadBOM = true
 	}
 	if bytes.Contains(data, []byte("\r\n")) {

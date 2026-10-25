@@ -52,6 +52,10 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	reasoningDialect.PrepareRequest = prepareOpenAIRequest
 	reasoningDialect.DisableRawRequestExtension = true
 	reasoningDialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	reasoningDialect.IgnoredOptions = []openai.ChatOption{
+		openai.ChatOptionTemperature, openai.ChatOptionTopP,
+		openai.ChatOptionPresencePenalty, openai.ChatOptionFrequencyPenalty,
+	}
 	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntl), HTTPClient: config.HTTPClient},
 		reasoningDialect,
@@ -83,7 +87,7 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Message
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntlAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: "minimax"})
+	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntlAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: "minimax", PrepareRequest: prepareAnthropicRequest})
 	if err != nil {
 		return nil, fmt.Errorf("minimax: construct Anthropic-compatible chat: %w", err)
 	}

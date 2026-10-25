@@ -19,15 +19,17 @@
 // Model-call and child work quotas default to unlimited; a finite zero
 // MaxModelCalls is rejected at construction. Model boundary errors, including
 // nil or structurally invalid responses, leave the Effect Unknown and require
-// explicit Host resolution; an error that wraps [chat.ErrDefiniteFailure], such
-// as a safeguard input or output rejection, instead settles a definite failure. A
+// explicit Host resolution; [chat.ClassifyFailure] reads a scoped [chat.CallFailure],
+// such as a safeguard input or output rejection, to settle a definite failure. A
 // structurally valid response that violates
 // Interaction constraints terminates with external /
 // interaction.model.invalid_response without retrying the model or committing
 // the rejected Step. Model preparation errors settle as definite host failures
 // before external work begins.
-// ModelObserver retains the physical outcome as succeeded, failed, not_executed,
-// or unknown independently of durable settlement. Only not_executed proves that
+// ModelObserver retains the whole invocation outcome as succeeded, failed,
+// not_executed, or unknown independently of durable settlement. Valid generation
+// and usage survive failed or uncertain middleware postprocessing; a response
+// never establishes that postprocessing succeeded. Only not_executed proves that
 // the provider performed no work. An unobserved outcome belongs to recordings
 // missing a callback and is never emitted by the Dispatcher.
 //

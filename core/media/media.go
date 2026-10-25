@@ -228,4 +228,4 @@ func (m *Media) UnmarshalJSON(data []byte) error {
 
 type wireMedia Media
 
-func (Media) JSONSchemaAlias() any { return wireMedia{} }
+func (Media) JSONSchemaModel() any { return wireMedia{} }

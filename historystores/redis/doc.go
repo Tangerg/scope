@@ -9,17 +9,20 @@
 // whose command errors do not roll back successful commands. WriteOutcome
 // retains a confirmed append even if expiry refresh fails.
 //
-// Enumeration scans each Redis Cluster master to completion and merges the
-// results. Invalid stored conversation IDs return an error without a partial list.
-// A Ring supports Read, Write and Clear, but Conversations returns
-// errors.ErrUnsupported: the SDK's ForEachShard silently skips down shards and
-// exposes no complete current topology with which to verify coverage. Only
-// concrete go-redis multi-node clients can be recognized; a wrapper hiding one
-// behind [goredis.UniversalClient] must provide complete single-client SCAN
-// semantics for enumeration.
+// Enumeration requires an explicit complete keyspace traversal because a
+// decorated client's routing behavior cannot establish its topology. Each node
+// is scanned to completion with its own cursor. Concurrent writes can still
+// change membership during SCAN; complete coverage is not a linearizable snapshot.
+// Invalid stored conversation IDs and unavailable nodes fail without a partial list.
 //
-// Example:
+// For a cluster, set StoreConfig.ScanNodes to client.ForEachMaster. For a single
+// node, supply a traversal that visits that client:
 //
-//	client := goredis.NewUniversalClient(&goredis.UniversalOptions{...})
-//	store, _ := redis.NewStore(ctx, redis.StoreConfig{Client: client})
+//	client := goredis.NewClient(&goredis.Options{...})
+//	store, _ := redis.NewStore(ctx, redis.StoreConfig{
+//		Client: client,
+//		ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+//			return visit(ctx, client)
+//		},
+//	})
 package redis

@@ -40,11 +40,11 @@ type ModerationModel struct {
 	defaultOptions moderation.Options
 }
 
-func NewModerationModel(_ context.Context, config ModerationModelConfig) (*ModerationModel, error) {
+func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*ModerationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}

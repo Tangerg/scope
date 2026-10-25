@@ -11,7 +11,7 @@ import (
 )
 
 func TestSearch(t *testing.T) {
-	if _, err := NewClient(Config{}); err == nil {
+	if _, err := NewClient(t.Context(), Config{}); err == nil {
 		t.Fatal("NewClient accepted an empty API key")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +39,7 @@ func TestSearch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client, err := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	client, err := NewClient(t.Context(), Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestSearch(t *testing.T) {
 
 func TestFetchRequestsTextAndRequiresItsPresence(t *testing.T) {
 	for _, format := range []web.ContentFormat{"", web.FormatMarkdown, web.FormatHTML} {
-		for _, body := range []string{`{"results":[{}]}`, `{"results":[{"text":""}]}`, `{"results":[{"text":"content"}]}`} {
+		for _, body := range []string{`{"results":[{}]}`, `{"results":[{"url":"https://example.com","text":""}]}`, `{"results":[{"url":"https://example.com","text":"content"}]}`} {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request map[string]json.RawMessage
 				if err := jsonv2.UnmarshalRead(r.Body, &request); err != nil {
@@ -66,7 +66,7 @@ func TestFetchRequestsTextAndRequiresItsPresence(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(body))
 			}))
-			client, err := NewClient(Config{APIKey: "test", BaseURL: server.URL})
+			client, err := NewClient(t.Context(), Config{APIKey: "test", BaseURL: server.URL})
 			if err != nil {
 				t.Fatal(err)
 			}

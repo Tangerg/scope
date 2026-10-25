@@ -34,7 +34,7 @@ func TestRedirectCredentialBoundary(t *testing.T) {
 			}))
 			defer server.Close()
 			client := server.Client()
-			adapter, err := newAPI(apiConfig{APIKey: "sentinel", BaseURL: server.URL, HTTPClient: client})
+			adapter, err := newAPI(t.Context(), apiConfig{APIKey: "sentinel", BaseURL: server.URL, HTTPClient: client})
 			if err != nil {
 				t.Fatal(err)
 			}

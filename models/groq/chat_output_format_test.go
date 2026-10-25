@@ -25,7 +25,7 @@ func TestSchemaFormatIsRejectedBeforeStreaming(t *testing.T) {
 	}
 	request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("answer"))}, Options: chat.Options{OutputFormat: &format}}
 	_, err = model.Call(t.Context(), request)
-	if !errors.Is(err, chat.ErrUnsupportedOutputFormat) || !errors.Is(err, chat.ErrNotExecuted) || calls != 0 {
+	if !errors.Is(err, chat.ErrUnsupportedOutputFormat) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted || calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, calls)
 	}
 }

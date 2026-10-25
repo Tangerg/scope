@@ -23,14 +23,14 @@ func TestResponsesRejectsContradictoryTerminalFacts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{
 				{Event: "response.created", Data: `{"type":"response.created","response":{"id":"response-1","model":"model","created_at":1,"status":"in_progress"}}`},
-				{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","delta":"answer"}`},
+				{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","item_id":"message-1","output_index":0,"content_index":0,"delta":"answer"}`},
 				{Event: "response." + test.event, Data: fmt.Sprintf(`{"type":"response.%s","response":{%s,"status":%q,"output":[]}}`, test.event, test.identity, test.status)},
 			})
 			defer server.Close()
 			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))}}
 			model := newResponsesModel(t, server.URL, "model")
 			response, err := model.Call(t.Context(), request)
-			if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || errors.Is(err, chat.ErrDefiniteFailure) {
+			if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || chat.ClassifyFailure(err) != chat.CallFailureUnknown {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
 		})

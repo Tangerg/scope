@@ -159,7 +159,7 @@ type failureWire struct {
 	Message string      `json:"message"`
 }
 
-func (Failure) JSONSchemaAlias() any { return failureWire{} }
+func (Failure) JSONSchemaModel() any { return failureWire{} }
 
 func (f Failure) termination() Termination {
 	return Termination{failure: f}

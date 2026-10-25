@@ -210,7 +210,7 @@ func (d *Descriptor) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (Descriptor) JSONSchemaAlias() any { return descriptorContractWire{} }
+func (Descriptor) JSONSchemaModel() any { return descriptorContractWire{} }
 
 // descriptorContractWire carries the contract a Descriptor digest is computed
 // from; the digest itself is never encoded.

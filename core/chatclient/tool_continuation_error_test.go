@@ -3,12 +3,45 @@ package chatclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+func TestToolContinuationOwnsTheCompleteCallFailure(t *testing.T) {
+	for _, kind := range []chat.CallFailureKind{chat.CallFailureNotExecuted, chat.CallFailureFailed, chat.CallFailureUnknown} {
+		t.Run(string(kind), func(t *testing.T) {
+			cause := &chat.CallFailure{Kind: kind, Cause: errors.New("continuation failed")}
+			writes, calls := 0, 0
+			middleware, err := NewSingleBatchToolMiddleware(middlewareTool{name: "write", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+				writes++
+				return chat.NewTextToolOutput("committed"), nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				calls++
+				if calls == 1 {
+					return toolCallResponse(chat.ToolCall{ID: "write", Name: "write", Arguments: `{"value":"one"}`}), nil
+				}
+				return nil, fmt.Errorf("inner model: %w", cause)
+			}))
+			response, err := model.Call(t.Context(), textRequest("write"))
+			want := kind
+			if want == chat.CallFailureNotExecuted {
+				want = chat.CallFailureFailed
+			}
+			failure, found := errors.AsType[*ToolContinuationError](err)
+			if response != nil || chat.ClassifyFailure(err) != want || !errors.Is(err, cause) || !found || len(failure.Completed()) != 1 || writes != 1 || calls != 2 {
+				t.Fatalf("kind=%s error=%v writes=%d calls=%d", chat.ClassifyFailure(err), err, writes, calls)
+			}
+		})
+	}
+}
 
 func TestToolContinuationRetainsEffectsAndResumesOnlyModel(t *testing.T) {
 	cause := errors.New("model unavailable")

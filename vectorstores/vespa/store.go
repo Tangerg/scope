@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -42,9 +43,13 @@ type Store struct {
 
 // NewStore performs no I/O. The application package owns its schema and ranking
 // profile; Vespa exposes no standard schema API on the Document API endpoint.
-func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	if err != nil {
 		return nil, err
 	}
 	client, err := embeddingclient.New(config.EmbeddingModel)
@@ -54,7 +59,7 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	return &Store{endpoint: strings.TrimRight(config.Endpoint, "/"), schemaName: config.SchemaName, namespace: config.Namespace,
 		fields: schemaFields{content: config.ContentField, embedding: config.EmbeddingField}, queryTensorName: config.QueryTensorName,
 		rankingProfile: config.RankingProfile, embeddingClient: client, documentBatcher: config.DocumentBatcher,
-		httpClient: config.HTTPClient, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}, nil
+		httpClient: ownedHTTP, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}, nil
 }
 
 func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {

@@ -1,8 +1,11 @@
 package web_test
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/tools/web"
@@ -16,31 +19,40 @@ import (
 )
 
 type testProvider struct {
-	name      string
-	newClient func(baseURL string, client *http.Client) (web.Searcher, error)
+	name           string
+	searchEnvelope string
+	newClient      func(ctx context.Context, baseURL string, client *http.Client) (web.Searcher, error)
+}
+
+func (t testProvider) searchPayload(count int) string {
+	var records []string
+	for index := range count {
+		records = append(records, fmt.Sprintf(`{"url":"https://example.com/%d","link":"https://example.com/%d"}`, index, index))
+	}
+	return fmt.Sprintf(t.searchEnvelope, strings.Join(records, ","))
 }
 
 var testProviders = []testProvider{
-	{"brave", func(url string, client *http.Client) (web.Searcher, error) {
-		return brave.NewClient(brave.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"brave", `{"web":{"results":[%s]}}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return brave.NewClient(ctx, brave.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"exa", func(url string, client *http.Client) (web.Searcher, error) {
-		return exa.NewClient(exa.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"exa", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return exa.NewClient(ctx, exa.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"firecrawl", func(url string, client *http.Client) (web.Searcher, error) {
-		return firecrawl.NewClient(firecrawl.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"firecrawl", `{"success":true,"data":{"web":[%s]}}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return firecrawl.NewClient(ctx, firecrawl.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"jina", func(url string, client *http.Client) (web.Searcher, error) {
-		return jina.NewClient(jina.Config{APIKey: "test", SearchBaseURL: url, FetchBaseURL: url, HTTPClient: client})
+	{"jina", `{"data":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return jina.NewClient(ctx, jina.Config{APIKey: "test", SearchBaseURL: url, FetchBaseURL: url, HTTPClient: client})
 	}},
-	{"perplexity", func(url string, client *http.Client) (web.Searcher, error) {
-		return perplexity.NewClient(perplexity.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"perplexity", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return perplexity.NewClient(ctx, perplexity.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"serper", func(url string, client *http.Client) (web.Searcher, error) {
-		return serper.NewClient(serper.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"serper", `{"organic":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return serper.NewClient(ctx, serper.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"tavily", func(url string, client *http.Client) (web.Searcher, error) {
-		return tavily.NewClient(tavily.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
+	{"tavily", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+		return tavily.NewClient(ctx, tavily.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
 }
 
@@ -48,7 +60,7 @@ func newTestProvider(t *testing.T, provider testProvider, handler http.HandlerFu
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client, err := provider.newClient(server.URL, server.Client())
+	client, err := provider.newClient(t.Context(), server.URL, server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}

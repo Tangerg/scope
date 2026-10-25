@@ -46,7 +46,7 @@ func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*Search
 		}
 		return nil, fmt.Errorf("web: execute search: %w", err)
 	}
-	if validationErr := response.Validate(); validationErr != nil {
+	if validationErr := response.ValidateFor(prepared); validationErr != nil {
 		return nil, fmt.Errorf("web: validate search response: %w", validationErr)
 	}
 	return response, nil

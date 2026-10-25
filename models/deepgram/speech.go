@@ -55,12 +55,12 @@ type SpeechModel struct {
 	defaultOptions speech.Options
 }
 
-func NewSpeechModel(_ context.Context, config SpeechModelConfig) (*SpeechModel, error) {
+func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:           config.APIKey,
 		BaseURL:          config.BaseURL,
 		HTTPClient:       config.HTTPClient,
@@ -89,7 +89,7 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	if decodeErr != nil {
 		return "", nil, decodeErr
 	}
-	for _, field := range []string{"model", "encoding", "container", "speed", "text"} {
+	for _, field := range []string{fieldModel, fieldEncoding, fieldContainer, fieldSpeed, fieldText} {
 		if _, exists := nativeFields[field]; exists {
 			return "", nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
 		}
@@ -101,7 +101,7 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	if err != nil {
 		return "", nil, err
 	}
-	for _, field := range []string{"model", "encoding", "container", "sample_rate", "bit_rate", "speed", "text"} {
+	for _, field := range []string{fieldModel, fieldEncoding, fieldContainer, fieldSampleRate, fieldBitRate, fieldSpeed, fieldText} {
 		if _, exists := params.Extra[field]; exists {
 			return "", nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", SpeechRequestExtensionKey, field)
 		}
@@ -109,10 +109,10 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	params.Model = effectiveOptions.Model
 	if effectiveOptions.OutputFormat != "" {
 		switch effectiveOptions.OutputFormat {
-		case "wav":
-			params.Encoding = "linear16"
-			params.Container = "wav"
-		case "mp3", "flac", "aac", "opus", "mulaw", "alaw", "linear16":
+		case formatWAV:
+			params.Encoding = formatLINEAR16
+			params.Container = formatWAV
+		case formatMP3, formatFLAC, formatAAC, formatOPUS, formatMULAW, formatALAW, formatLINEAR16:
 			params.Encoding = effectiveOptions.OutputFormat
 		default:
 			return "", nil, fmt.Errorf("deepgram: speech: unsupported output format %q", effectiveOptions.OutputFormat)
@@ -123,7 +123,7 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	// Spanish. The wider documented bound is the one enforced; a per-language
 	// recommendation is guidance for the caller, not a limit of the API.
 	if effectiveOptions.Speed != 0 {
-		if effectiveOptions.Speed < 0.7 || effectiveOptions.Speed > 1.5 {
+		if effectiveOptions.Speed < minimumSpeechSpeed || effectiveOptions.Speed > maximumSpeechSpeed {
 			return "", nil, errors.New("deepgram: speech: speed must be between 0.7 and 1.5")
 		}
 		params.Speed = effectiveOptions.Speed
@@ -132,13 +132,19 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	return req.Text, params, nil
 }
 
+type speechResponseMetadata struct {
+	ContentType string `json:"content_type"`
+	ModelName   string `json:"model_name"`
+	RequestID   string `json:"request_id"`
+}
+
 func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Response, error) {
 	if len(audio) == 0 {
 		return nil, errors.New("deepgram: speech response contained no audio")
 	}
 	var outputMetadata metadata.Map
-	if ct := hdr.Get("Content-Type"); ct != "" {
-		if err := outputMetadata.Set("deepgram/mime_type", ct); err != nil {
+	if ct := hdr.Get(headerContentType); ct != "" {
+		if err := outputMetadata.Set(metadataMIMEType, ct); err != nil {
 			return nil, err
 		}
 	}
@@ -147,16 +153,16 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 	if err != nil {
 		return nil, err
 	}
-	meta := &speech.ResponseMetadata{Model: hdr.Get("dg-model-name")}
-	if requestID := hdr.Get("dg-request-id"); requestID != "" {
-		if err := meta.Extra.Set("deepgram/request_id", requestID); err != nil {
+	meta := &speech.ResponseMetadata{Model: hdr.Get(headerModelName)}
+	if requestID := hdr.Get(headerRequestID); requestID != "" {
+		if err := meta.Extra.Set(metadataRequestID, requestID); err != nil {
 			return nil, err
 		}
 	}
-	if err := meta.Extra.Set(SpeechResponseExtensionKey, map[string]string{
-		"content_type": hdr.Get("Content-Type"),
-		"model_name":   hdr.Get("dg-model-name"),
-		"request_id":   hdr.Get("dg-request-id"),
+	if err := meta.Extra.Set(SpeechResponseExtensionKey, speechResponseMetadata{
+		ContentType: hdr.Get(headerContentType),
+		ModelName:   hdr.Get(headerModelName),
+		RequestID:   hdr.Get(headerRequestID),
 	}); err != nil {
 		return nil, err
 	}

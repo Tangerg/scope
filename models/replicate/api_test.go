@@ -6,7 +6,7 @@ import (
 )
 
 func TestDownloadOutputRejectsUntrustedHost(t *testing.T) {
-	client, err := newAPI(apiConfig{APIKey: "test-key"})
+	client, err := newAPI(t.Context(), apiConfig{APIKey: "test-key"})
 	if err != nil {
 		t.Fatal(err)
 	}

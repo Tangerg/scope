@@ -69,11 +69,11 @@ type ImageModel struct {
 	maxOutputBytes int64
 }
 
-func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -156,11 +156,11 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		params.WebSearch = lumaagents.F(*options.WebSearch)
 	}
 	if effectiveOptions.OutputFormat != "" {
-		format := strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
+		format := strings.TrimPrefix(effectiveOptions.OutputFormat, mediaTypeImagePrefix)
 		switch format {
-		case "png":
+		case string(lumaagents.GenerationNewParamsOutputFormatPng):
 			params.OutputFormat = lumaagents.F(lumaagents.GenerationNewParamsOutputFormatPng)
-		case "jpeg", "jpg":
+		case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:
 			params.OutputFormat = lumaagents.F(lumaagents.GenerationNewParamsOutputFormatJpeg)
 		default:
 			return nil, fmt.Errorf("luma: output format %q is unsupported; use image/png or image/jpeg", effectiveOptions.OutputFormat)
@@ -213,7 +213,6 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, generationID string) (*l
 		case lumaagents.GenerationStateCompleted:
 			return generation, nil
 		case lumaagents.GenerationStateQueued, lumaagents.GenerationStateProcessing:
-			// The two states the SDK declares as still moving.
 		case lumaagents.GenerationStateFailed:
 			return nil, fmt.Errorf("luma: generation %q failed (%s): %s", generationID, generation.FailureCode, generation.FailureReason)
 		default:
@@ -250,7 +249,7 @@ func (i *ImageModel) mapResponse(ctx context.Context, generation *lumaagents.Gen
 			return nil, err
 		}
 		var outputMetadata metadata.Map
-		if setErr := outputMetadata.Set("luma/output", generationOutput); setErr != nil {
+		if setErr := outputMetadata.Set(metadataOutput, generationOutput); setErr != nil {
 			return nil, setErr
 		}
 		output, err := image.NewOutput(value, outputMetadata)
@@ -294,7 +293,7 @@ func (i *ImageModel) downloadOutput(ctx context.Context, rawURL string) ([]byte,
 		return nil, "", errors.New("download is empty")
 	}
 	mimeType := ""
-	contentType := strings.TrimSpace(response.Header.Get("Content-Type"))
+	contentType := strings.TrimSpace(response.Header.Get(headerContentType))
 	if contentType != "" {
 		mimeType, _, err = mime.ParseMediaType(contentType)
 		if err != nil {

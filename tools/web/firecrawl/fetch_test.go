@@ -11,7 +11,7 @@ import (
 )
 
 func TestFetch(t *testing.T) {
-	if _, err := NewClient(Config{}); err == nil {
+	if _, err := NewClient(t.Context(), Config{}); err == nil {
 		t.Fatal("NewClient accepted an empty API key")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func TestFetch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client, err := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	client, err := NewClient(t.Context(), Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}

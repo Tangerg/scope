@@ -102,6 +102,7 @@ func TestResponsesRejectsCoreOwnedExtensions(t *testing.T) {
 	}{
 		{"model", map[string]any{"model": "native-model"}},
 		{"input", map[string]any{"input": "native-input"}},
+		{"instructions", map[string]any{"instructions": "native-guidance"}},
 		{"tools", map[string]any{"tools": []any{}}},
 		{"max_output_tokens", map[string]any{"max_output_tokens": 222}},
 		{"temperature", map[string]any{"temperature": 0.25}},

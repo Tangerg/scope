@@ -11,7 +11,10 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-const toolChildKeyPrefix = "interaction.tool."
+const (
+	toolChildKeyPrefix     = "interaction.tool."
+	delegateChildKeyPrefix = "interaction.delegate.child."
+)
 
 // ToolChildKey names the Tool child Process that serves the ToolCall at
 // toolCallIndex in the response to modelCallSequence. The Engine keeps a
@@ -53,7 +56,6 @@ func toolCallRef(relation agent.ProcessRelation) (ToolCallRef, bool) {
 	return ToolCallRef{processID: parent, modelCallSequence: sequence, toolCallIndex: uint32(index)}, true
 }
 
-// DelegateChildKey correlates a Delegate ToolCall with its managed child Process.
 func DelegateChildKey(modelCallSequence uint64, toolCall chat.ToolCall) (agent.ChildKey, error) {
 	if modelCallSequence == 0 {
 		return agent.ChildKey{}, fmt.Errorf("%w: model call sequence is required", ErrInvalidDelegate)
@@ -67,5 +69,5 @@ func DelegateChildKey(modelCallSequence uint64, toolCall chat.ToolCall) (agent.C
 	hash.Write([]byte(toolCall.ID))
 	hash.Write([]byte{0})
 	hash.Write([]byte(toolCall.Name))
-	return agent.ParseChildKey("interaction.delegate.child." + hex.EncodeToString(hash.Sum(nil)))
+	return agent.ParseChildKey(delegateChildKeyPrefix + hex.EncodeToString(hash.Sum(nil)))
 }

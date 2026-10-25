@@ -63,12 +63,12 @@ type EmbeddingModel struct {
 	defaultOptions embedding.Options
 }
 
-func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}

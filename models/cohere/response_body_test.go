@@ -32,7 +32,7 @@ func TestNativeValidationKeepsSDKBodyOwnership(t *testing.T) {
 	body := &responseBodyProbe{Reader: bytes.NewReader([]byte(`{"embeddings":{"float":[[null,1]]}}`))}
 	transport := &responseTransportProbe{body: body}
 	host := &http.Client{Transport: transport}
-	api, err := newAPI(apiConfig{APIKey: "test", BaseURL: "https://provider.test", HTTPClient: host})
+	api, err := newAPI(t.Context(), apiConfig{APIKey: "test", BaseURL: "https://provider.test", HTTPClient: host})
 	if err != nil {
 		t.Fatal(err)
 	}

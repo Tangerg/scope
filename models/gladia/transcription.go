@@ -53,11 +53,11 @@ type TranscriptionModel struct {
 	pollTimeout    time.Duration
 }
 
-func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*tra
 		case transcriptionStatusQueued, transcriptionStatusProcessing:
 			// The two states Gladia documents as still moving.
 		case transcriptionStatusError:
-			return nil, fmt.Errorf("gladia: transcription failed: %s", resp.ErrorCode)
+			return nil, resp.failure()
 		default:
 			// Continuing to poll is only safe for a state known to advance, so
 			// an unrecognized one is reported rather than absorbed: an added

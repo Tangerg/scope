@@ -43,12 +43,12 @@ type TranscriptionModel struct {
 	defaultOptions transcription.Options
 }
 
-func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,

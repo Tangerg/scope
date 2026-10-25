@@ -38,7 +38,7 @@ func (c Capability) MarshalText() ([]byte, error) {
 	return []byte(c.name), nil
 }
 
-func (Capability) JSONSchemaAlias() any { return "" }
+func (Capability) JSONSchemaModel() any { return "" }
 
 func (c *Capability) UnmarshalText(text []byte) error {
 	if c == nil {
@@ -94,7 +94,7 @@ func (c CapabilitySet) MarshalJSON() ([]byte, error) {
 	return jsonv2.Marshal(c.values)
 }
 
-func (CapabilitySet) JSONSchemaAlias() any { return []Capability{} }
+func (CapabilitySet) JSONSchemaModel() any { return []Capability{} }
 
 // UnmarshalJSON rejects duplicate grants and null; ordering is normalized.
 // Construction accepts duplicates because its arguments describe a set.

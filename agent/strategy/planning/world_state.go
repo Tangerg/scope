@@ -145,4 +145,4 @@ type worldStateWire struct {
 	Conditions []Condition `json:"conditions" jsonwire:"required"`
 }
 
-func (WorldState) JSONSchemaAlias() any { return worldStateWire{} }
+func (WorldState) JSONSchemaModel() any { return worldStateWire{} }

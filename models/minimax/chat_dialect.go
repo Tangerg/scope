@@ -89,6 +89,21 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 	return nil
 }
 
+func prepareAnthropicRequest(source *corechat.Request, _ map[string]any) error {
+	switch {
+	case source.Options.Temperature != nil:
+		return errors.New("minimax: Messages ignores options.temperature")
+	case source.Options.TopP != nil:
+		return errors.New("minimax: Messages ignores options.top_p")
+	case source.Options.TopK != nil:
+		return errors.New("minimax: Messages ignores options.top_k")
+	case len(source.Options.Stop) != 0:
+		return errors.New("minimax: Messages ignores options.stop")
+	default:
+		return nil
+	}
+}
+
 func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return errors.New("minimax: nil ChatRequestOptions")

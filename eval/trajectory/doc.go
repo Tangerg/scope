@@ -10,9 +10,10 @@
 // fragment for historical comparisons; raw wall-clock order is not causal.
 // Model calls retain interaction.ModelOutcome as their one outcome vocabulary.
 // A missing settlement observation remains unobserved, separate from a provider
-// outcome reported as unknown. NotExecuted proves zero provider token use;
+// invocation reported as unknown. NotExecuted proves zero provider token use;
 // Failed without usage evidence leaves token accounting incomplete. A valid
-// physical response remains recorded even when its durable settlement fails.
+// response remains recorded even when middleware postprocessing or durable
+// settlement fails; that evidence does not turn the invocation into success.
 //
 // The checked reference-task example composes Interaction, a structured Tool
 // input wait, one isolated business write, and reconciliation of a lost response.

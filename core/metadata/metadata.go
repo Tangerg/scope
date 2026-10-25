@@ -206,4 +206,4 @@ func (wireMap) JSONSchema() *reflection.Schema {
 	}}
 }
 
-func (Map) JSONSchemaAlias() any { return wireMap{} }
+func (Map) JSONSchemaModel() any { return wireMap{} }

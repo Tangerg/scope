@@ -27,7 +27,7 @@ func TestWebRejectsUnencodableOwnedText(t *testing.T) {
 	} {
 		response := &SearchResponse{Query: "query", Results: []*SearchResult{{URL: "https://example.test"}}}
 		mutate(response)
-		if validationErr := response.Validate(); !errors.Is(validationErr, ErrInvalidSearchResponse) {
+		if validationErr := response.ValidateFor(&SearchRequest{Query: "query"}); !errors.Is(validationErr, ErrInvalidSearchResponse) {
 			t.Fatalf("Validate(%+v) = %v", response, validationErr)
 		}
 	}
@@ -54,7 +54,7 @@ func TestSearchPreservesTextAndPublishedInstant(t *testing.T) {
 	value := "来源\x00é"
 	published := time.Date(2026, 1, 1, 0, 0, 0, 123456789, time.FixedZone("minutes", 8*60*60))
 	response := SearchResponse{Query: value, Results: []*SearchResult{{URL: "https://example.test", Title: value, Snippet: value, Source: value, FaviconURL: value, PublishedTime: published}}}
-	if validationErr := response.Validate(); validationErr != nil {
+	if validationErr := response.ValidateFor(&SearchRequest{Query: value}); validationErr != nil {
 		t.Fatal(validationErr)
 	}
 	encoded, err := jsonv2.Marshal(response)

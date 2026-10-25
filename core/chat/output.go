@@ -162,8 +162,8 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 
 type wireOutputMetadata OutputMetadata
 
-func (OutputMetadata) JSONSchemaAlias() any { return wireOutputMetadata{} }
+func (OutputMetadata) JSONSchemaModel() any { return wireOutputMetadata{} }
 
 type wireOutput Output
 
-func (Output) JSONSchemaAlias() any { return wireOutput{} }
+func (Output) JSONSchemaModel() any { return wireOutput{} }

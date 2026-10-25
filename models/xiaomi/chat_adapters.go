@@ -42,7 +42,10 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.ReasoningContentToolReplayDialect("xiaomi")
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "xiaomi", Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayWithToolCalls})
+	if err != nil {
+		return nil, fmt.Errorf("xiaomi: configure reasoning dialect: %w", err)
+	}
 	dialect.PrepareRequest = prepareOpenAIRequest
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)

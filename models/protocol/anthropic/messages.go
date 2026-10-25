@@ -53,25 +53,25 @@ type Messages struct {
 	dialect  Dialect
 }
 
-func NewMessages(_ context.Context, config MessagesConfig) (*Messages, error) {
-	return newMessages(config, Dialect{
+func NewMessages(ctx context.Context, config MessagesConfig) (*Messages, error) {
+	return newMessages(ctx, config, Dialect{
 		Provider: protocolProvider, MaxTemperature: protocolMaximumTemperature,
 		RejectTopK: true, RejectTopP: true, NativeJSONSchema: true,
 	})
 }
 
-func NewCompatibleMessages(_ context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
-	return newMessages(config, dialect)
+func NewCompatibleMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
+	return newMessages(ctx, config, dialect)
 }
 
-func newMessages(config MessagesConfig, dialect Dialect) (*Messages, error) {
+func newMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	if dialect.Provider == "" || strings.TrimSpace(dialect.Provider) != dialect.Provider || strings.Contains(dialect.Provider, "/") {
 		return nil, errors.New("anthropic: dialect provider is required, must not contain '/', and must not have surrounding whitespace")
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -133,7 +133,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := m.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
+			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
 			return
 		}
 		stream := m.api.chatCompletionStream(ctx, params)

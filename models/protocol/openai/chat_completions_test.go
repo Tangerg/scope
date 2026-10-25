@@ -35,7 +35,7 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 			DefaultOptions: corechat.Options{Model: "gpt-default-must-be-overridden"},
 			BaseURL:        server.URL,
 		},
-		scopeopenai.ReasoningContentDialect("test"),
+		newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}),
 	)
 	if err != nil {
 		t.Fatalf("NewChatCompletions: %v", err)

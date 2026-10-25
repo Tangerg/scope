@@ -138,4 +138,4 @@ type signalWire struct {
 	Status  SettlementStatus `json:"status,omitzero"`
 }
 
-func (Signal) JSONSchemaAlias() any { return signalWire{} }
+func (Signal) JSONSchemaModel() any { return signalWire{} }

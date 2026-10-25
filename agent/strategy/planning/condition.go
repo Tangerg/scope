@@ -58,4 +58,4 @@ type conditionWire struct {
 	Truth Truth               `json:"truth"`
 }
 
-func (Condition) JSONSchemaAlias() any { return conditionWire{} }
+func (Condition) JSONSchemaModel() any { return conditionWire{} }

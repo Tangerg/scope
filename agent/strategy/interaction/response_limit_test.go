@@ -257,8 +257,8 @@ func TestResponseHostDiagnosticUsesIndependentBoundedBudget(t *testing.T) {
 
 func TestDefiniteFailureModelErrorSettlesFailedNotUnknown(t *testing.T) {
 	for _, definite := range []error{
-		fmt.Errorf("%w: rejected before the provider", chat.ErrNotExecuted),
-		fmt.Errorf("%w: output rejected after the provider ran", chat.ErrDefiniteFailure),
+		&chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("rejected before the provider")},
+		&chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("output rejected after the provider ran")},
 	} {
 		got := dispatchLimitedResponse(t, interaction.DispatcherConfig{
 			Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, definite }),

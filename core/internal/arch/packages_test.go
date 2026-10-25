@@ -13,6 +13,7 @@ var targetPublicPackages = map[string]struct{}{
 	"history":               {},
 	"history/inmemory":      {},
 	"history/storetest":     {},
+	"httpclient":            {},
 	"document":              {},
 	"embedding":             {},
 	"embeddingclient":       {},

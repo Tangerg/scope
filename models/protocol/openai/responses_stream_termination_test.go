@@ -66,7 +66,7 @@ func TestResponsesStreamCompletionWaitsForNativeBody(t *testing.T) {
 				if text := accumulator.Text(); text != "answer" {
 					t.Fatalf("Stream text = %q, want partial answer", text)
 				}
-				if errors.Is(streamErr, corechat.ErrDefiniteFailure) {
+				if corechat.ClassifyFailure(streamErr) != corechat.CallFailureUnknown {
 					t.Fatalf("contradictory or interrupted completion claimed definite failure: %v", streamErr)
 				}
 				return

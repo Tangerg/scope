@@ -32,8 +32,10 @@ const (
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
 // Brave's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
-	APIKey     string
-	BaseURL    string
+	APIKey  string
+	BaseURL string
+	// HTTPClient remains host-owned. Requests and redirects are restricted to
+	// BaseURL's origin, including when the host redirect policy changes a request.
 	HTTPClient *http.Client
 }
 
@@ -43,13 +45,15 @@ type Client struct {
 
 var _ web.Searcher = (*Client)(nil)
 
-func NewClient(config Config) (*Client, error) {
+func NewClient(ctx context.Context, config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("brave: API key is required")
 	}
-	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
-		SetHeader(subscriptionTokenHeader, config.APIKey).
-		SetHeader("Accept", "application/json")
+	transport, err := providerhttp.NewClient(ctx, providerhttp.Config{HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.BaseURL, baseURL)})
+	if err != nil {
+		return nil, fmt.Errorf("brave: %w", err)
+	}
+	transport.SetHeader(subscriptionTokenHeader, config.APIKey)
 	return &Client{http: transport}, nil
 }
 
@@ -106,7 +110,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("brave: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query)
+	return raw.toSearchResponse(prepared)
 }
 
 func recencyToFreshness(r web.Recency) string {
@@ -123,7 +127,7 @@ func recencyToFreshness(r web.Recency) string {
 	return ""
 }
 
-func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
+func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.SearchResponse, error) {
 	var results []*web.SearchResult
 	if s.Web != nil {
 		results = make([]*web.SearchResult, 0, len(s.Web.Results))
@@ -139,8 +143,8 @@ func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, er
 			})
 		}
 	}
-	response := &web.SearchResponse{Query: query, Results: results}
-	if err := response.Validate(); err != nil {
+	response := &web.SearchResponse{Query: request.Query, Results: results}
+	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("brave: %w", err)
 	}
 	return response, nil

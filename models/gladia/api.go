@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -30,21 +32,19 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, err
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
+	client.SetBaseURL(baseURL).
 		SetHeader("x-gladia-key", config.APIKey)
 	return &api{http: client}, nil
 }
@@ -136,8 +136,15 @@ type transcriptionResult struct {
 		Translation   json.RawMessage `json:"translation,omitzero"`
 		Summarization json.RawMessage `json:"summarization,omitzero"`
 	} `json:"result"`
-	ErrorCode string                     `json:"error_code,omitempty"`
+	ErrorCode *int                       `json:"error_code,omitzero"`
 	Raw       map[string]json.RawMessage `json:"-"`
+}
+
+func (t *transcriptionResult) failure() error {
+	if t.ErrorCode == nil {
+		return errors.New("gladia: transcription failed")
+	}
+	return fmt.Errorf("gladia: transcription failed with error code %d", *t.ErrorCode)
 }
 
 // upload posts raw audio bytes to /upload, returning a Gladia-hosted

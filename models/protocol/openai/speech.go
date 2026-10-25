@@ -59,12 +59,12 @@ type SpeechModel struct {
 	maxResponseBytes int64
 }
 
-func NewSpeechModel(_ context.Context, config SpeechModelConfig) (*SpeechModel, error) {
+func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,

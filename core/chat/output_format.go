@@ -153,4 +153,4 @@ func (o *OutputFormat) UnmarshalJSON(data []byte) error {
 
 type wireOutputFormat OutputFormat
 
-func (OutputFormat) JSONSchemaAlias() any { return wireOutputFormat{} }
+func (OutputFormat) JSONSchemaModel() any { return wireOutputFormat{} }

@@ -178,7 +178,8 @@ func (d *Dispatcher) dispatchModel(
 	}
 	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.maxResponseBytes-len(base.JSON()))
 	if err != nil {
-		if errors.Is(err, chat.ErrDefiniteFailure) {
+		kind := chat.ClassifyFailure(err)
+		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
 			// A definite failure settles as Failed, not an unknown to reconcile.
 			return failedSettlement(err)
 		}
@@ -265,17 +266,23 @@ func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvo
 		d.observeModelSettled(ctx, invocation, newModelSettlement(response, err))
 	}()
 	response, err = d.callModel(ctx, request, emit, remainingBytes)
-	if err != nil {
-		if errors.Is(err, chat.ErrDefiniteFailure) {
-			return nil, err
+	if response != nil {
+		if validateErr := response.Validate(); validateErr != nil {
+			return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: invalid model response: %w", errors.Join(err, validateErr))}
 		}
-		return nil, fmt.Errorf("interaction: model outcome unknown: %w", err)
+		if chat.ClassifyFailure(err) == chat.CallFailureNotExecuted {
+			err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: model response contradicts non-execution: %w", err)}
+		}
+	}
+	if err != nil {
+		kind := chat.ClassifyFailure(err)
+		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
+			return response, err
+		}
+		return response, fmt.Errorf("interaction: model outcome unknown: %w", err)
 	}
 	if response == nil {
 		return nil, errors.New("interaction: model outcome unknown: nil response")
-	}
-	if validateErr := response.Validate(); validateErr != nil {
-		return nil, fmt.Errorf("interaction: invalid model response: %w", validateErr)
 	}
 	return response, nil
 }
@@ -296,7 +303,10 @@ func (d *Dispatcher) callModel(
 	}
 	for delta, err := range sequence {
 		if err != nil {
-			return nil, err
+			// A terminal response can precede a middleware's failed postprocessing.
+			// Its evidence survives without turning the whole invocation into success.
+			response, _ := accumulator.Response()
+			return response, err
 		}
 		if delta == nil {
 			return nil, errors.New("model stream yielded a nil response Delta")

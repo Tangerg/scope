@@ -24,7 +24,10 @@
 // ErrInvalidRequest, and ErrInvalidResponse — so providers and integrations
 // classify failures identically. Chat extends that triple with its own protocol
 // errors because its wire additionally models tool calls, parts, and usage.
-// Classify with errors.Is; never match on message text.
+// Classify protocol errors with errors.Is; never match on message text. Chat's
+// CallFailure owns execution evidence for one complete invocation. Its
+// ClassifyFailure function preserves that scope across composed calls while
+// errors.Is and errors.As retain the underlying diagnostics.
 // JSON decoders reject unknown struct members before replacing the receiver,
 // including nested protocol values. Metadata, namespaced extensions, JSON
 // schemas, and tool-defined payloads retain their open data contracts.
@@ -55,6 +58,9 @@
 // without changing the SPI. Option defaults stay with the provider that owns
 // them. The chatclient/safeguard package screens input and output as
 // fail-closed middleware.
+// The httpclient package binds a borrowed HTTP client to its configured API
+// origin so credentials cannot cross that boundary through redirects. The Host
+// retains transport, retry, authentication, and resource-lifetime ownership.
 //
 // # Streaming
 //

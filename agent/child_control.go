@@ -84,7 +84,7 @@ func (c *ChildControlResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (ChildControlResult) JSONSchemaAlias() any { return childControlResultWire{} }
+func (ChildControlResult) JSONSchemaModel() any { return childControlResultWire{} }
 
 // ParseChildControlResult decodes an unaddressed Framework control settlement
 // carrying an Engine-owned Signal identity.

@@ -115,11 +115,11 @@ type Chat struct {
 	defaults corechat.Options
 }
 
-func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    cmp.Or(config.BaseURL, DefaultBaseURL),
 		HTTPClient: config.HTTPClient,
@@ -147,7 +147,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		wireRequest, err := c.buildRequest(request, true)
 		if err != nil {
-			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
+			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
 			return
 		}
 		body, err := c.api.chatCompletionStream(ctx, wireRequest)

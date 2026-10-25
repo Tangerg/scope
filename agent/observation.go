@@ -27,7 +27,6 @@ type EventListener interface {
 	OnEvent(ctx context.Context, event Event)
 }
 
-// EventListenerFunc adapts a plain function to EventListener.
 type EventListenerFunc func(ctx context.Context, event Event)
 
 func (e EventListenerFunc) OnEvent(ctx context.Context, event Event) {

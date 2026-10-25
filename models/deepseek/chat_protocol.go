@@ -45,7 +45,10 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.ReasoningContentReplayDialect("deepseek")
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "deepseek", Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways})
+	if err != nil {
+		return nil, fmt.Errorf("deepseek: configure reasoning dialect: %w", err)
+	}
 	dialect.NativeOutputFormat = func(formatType corechat.OutputFormatType) bool {
 		return formatType == corechat.OutputFormatText || formatType == corechat.OutputFormatJSON
 	}

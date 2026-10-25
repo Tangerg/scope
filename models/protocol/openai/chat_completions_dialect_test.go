@@ -22,11 +22,11 @@ type textReasoningDialectCase struct {
 
 func TestTextReasoningDialects(t *testing.T) {
 	tests := []textReasoningDialectCase{
-		{name: "reasoning_content output only", dialect: scopeopenai.ReasoningContentDialect("test"), responseField: "reasoning_content"},
-		{name: "reasoning_content full replay", dialect: scopeopenai.ReasoningContentReplayDialect("test"), responseField: "reasoning_content", wantReplayField: "reasoning_content"},
-		{name: "reasoning_content tool replay", dialect: scopeopenai.ReasoningContentToolReplayDialect("test"), responseField: "reasoning_content", wantReplayField: "reasoning_content", withToolCall: true},
-		{name: "reasoning output only", dialect: scopeopenai.ReasoningDialect("test"), responseField: "reasoning"},
-		{name: "reasoning full replay", dialect: scopeopenai.ReasoningReplayDialect("test"), responseField: "reasoning", wantReplayField: "reasoning"},
+		{name: "reasoning_content output only", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}), responseField: "reasoning_content"},
+		{name: "reasoning_content full replay", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayAlways}), responseField: "reasoning_content", wantReplayField: "reasoning_content"},
+		{name: "reasoning_content tool replay", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayWithToolCalls}), responseField: "reasoning_content", wantReplayField: "reasoning_content", withToolCall: true},
+		{name: "reasoning output only", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoning}, Replay: scopeopenai.TextReasoningReplayNever}), responseField: "reasoning"},
+		{name: "reasoning full replay", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoning}, Replay: scopeopenai.TextReasoningReplayAlways}), responseField: "reasoning", wantReplayField: "reasoning"},
 	}
 
 	for _, test := range tests {
@@ -186,4 +186,13 @@ func TestDialectRequiresAnExplicitTokenLimitField(t *testing.T) {
 	if scopeopenai.TokenLimitField("").Valid() {
 		t.Fatal("zero TokenLimitField is valid")
 	}
+}
+
+func newTextReasoningDialect(t *testing.T, config scopeopenai.TextReasoningConfig) scopeopenai.Dialect {
+	t.Helper()
+	dialect, err := scopeopenai.TextReasoningDialect(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dialect
 }

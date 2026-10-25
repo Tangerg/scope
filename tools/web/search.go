@@ -19,8 +19,11 @@ const (
 	maxSearchResults = 20
 	maxDomainFilters = 20
 	// DNS limits from RFC 1035, applied to the ASCII form of a domain.
-	maxDomainLength      = 253
-	maxDomainLabelLength = 63
+	maxDomainLength           = 253
+	maxDomainLabelLength      = 63
+	siteQueryOperator         = "site:"
+	negativeSiteQueryOperator = "-site:"
+	queryDisjunction          = " OR "
 )
 
 // Recency expresses a relative freshness window shared across backends.
@@ -99,7 +102,6 @@ func (s *SearchRequest) Validate() error {
 	return s.Recency.Validate()
 }
 
-// validateQuery checks the non-domain scalar fields.
 func (s *SearchRequest) validateQuery() error {
 	if !utf8.ValidString(s.Query) {
 		return ErrInvalidQuery
@@ -113,9 +115,6 @@ func (s *SearchRequest) validateQuery() error {
 	return nil
 }
 
-// normalizeFilters checks the domain lists' mutual exclusion and count and
-// returns both normalized exactly once; Validate discards the result and Prepare
-// keeps it.
 func (s *SearchRequest) normalizeFilters() (allowed, blocked []string, err error) {
 	if len(s.AllowedDomains) > 0 && len(s.BlockedDomains) > 0 {
 		return nil, nil, ErrDomainsBothSides
@@ -200,17 +199,17 @@ func (s *SearchRequest) QueryWithSiteOperators() string {
 	var allowed []string
 	for _, domain := range s.AllowedDomains {
 		if domain != "" {
-			allowed = append(allowed, "site:"+domain)
+			allowed = append(allowed, siteQueryOperator+domain)
 		}
 	}
 	if len(allowed) == 1 {
 		fmt.Fprintf(&b, " %s", allowed[0])
 	} else if len(allowed) > 1 {
-		fmt.Fprintf(&b, " (%s)", strings.Join(allowed, " OR "))
+		fmt.Fprintf(&b, " (%s)", strings.Join(allowed, queryDisjunction))
 	}
 	for _, domain := range s.BlockedDomains {
 		if domain != "" {
-			fmt.Fprintf(&b, " -site:%s", domain)
+			fmt.Fprintf(&b, " %s%s", negativeSiteQueryOperator, domain)
 		}
 	}
 	return b.String()
@@ -256,15 +255,19 @@ type SearchResponse struct {
 	Results []*SearchResult `json:"results"`
 }
 
-func (s *SearchResponse) Validate() error {
+func (s *SearchResponse) ValidateFor(request *SearchRequest) error {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return err
+	}
 	if s == nil {
 		return ErrMissingSearchResponse
 	}
-	if !utf8.ValidString(s.Query) {
-		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidSearchResponse)
+	if s.Query != prepared.Query {
+		return fmt.Errorf("%w: query differs from the prepared request", ErrInvalidSearchResponse)
 	}
-	if strings.TrimSpace(s.Query) == "" {
-		return fmt.Errorf("%w: query is blank", ErrInvalidSearchResponse)
+	if prepared.MaxResults > 0 && len(s.Results) > prepared.MaxResults {
+		return fmt.Errorf("%w: returned %d results, maximum is %d", ErrInvalidSearchResponse, len(s.Results), prepared.MaxResults)
 	}
 	for index, result := range s.Results {
 		if err := result.Validate(); err != nil {

@@ -14,7 +14,7 @@ func TestFetchRejectsUnsupportedPlainTextBeforeIO(t *testing.T) {
 		t.Error("unsupported format reached provider")
 	}))
 	t.Cleanup(server.Close)
-	client, err := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	client, err := NewClient(t.Context(), Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}

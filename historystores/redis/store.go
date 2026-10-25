@@ -21,6 +21,8 @@ import (
 // against one instance should override it rather than rely on this value.
 const DefaultKeyPrefix = "chat:history:"
 
+const historyAppendCommand = "rpush"
+
 var scanPatternEscaper = strings.NewReplacer(
 	`\`, `\\`,
 	`*`, `\*`,
@@ -29,8 +31,22 @@ var scanPatternEscaper = strings.NewReplacer(
 	`]`, `\]`,
 )
 
+type RedisClient interface {
+	Process(context.Context, goredis.Cmder) error
+	TxPipeline() goredis.Pipeliner
+	LRange(context.Context, string, int64, int64) *goredis.StringSliceCmd
+	Del(context.Context, ...string) *goredis.IntCmd
+}
+
 type StoreConfig struct {
-	Client goredis.UniversalClient
+	Client RedisClient
+
+	// ScanNodes must visit every authoritative node in Client's keyspace and
+	// return an error if any node cannot be visited. ClusterClient.ForEachMaster
+	// satisfies this contract, including when exposed by a decorator. Ring's
+	// ForEachShard does not: unavailable shards can be silently skipped.
+	// The host must bind Client and ScanNodes to the same logical Redis store.
+	ScanNodes func(context.Context, func(context.Context, *goredis.Client) error) error
 
 	KeyPrefix string
 
@@ -40,6 +56,9 @@ type StoreConfig struct {
 func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.Client) {
 		return errors.New("redis: client is required")
+	}
+	if s.ScanNodes == nil {
+		return errors.New("redis: complete keyspace node enumeration is required")
 	}
 	if s.TTL < 0 {
 		return errors.New("redis: TTL must not be negative")
@@ -57,19 +76,13 @@ var (
 // append and expiry refresh share one transaction so retention cannot lag a
 // successful write.
 type Store struct {
-	client    goredis.UniversalClient
+	client    RedisClient
+	scanNodes func(context.Context, func(context.Context, *goredis.Client) error) error
 	keyPrefix string
 	ttl       time.Duration
 }
 
-// NewStore performs no I/O. A Redis list needs no schema, and the only thing
-// this store assumes about the server — that its keys are namespaced under
-// KeyPrefix — is a fact about the store's own writes rather than something to
-// confirm.
-//
-// The context is still taken, because every store in this family is
-// constructed the same way and a caller should not have to remember which
-// backend happens to be checkable.
+// A Redis list needs no provisioned schema, so construction performs no I/O.
 func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -79,6 +92,7 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	}
 	return &Store{
 		client:    config.Client,
+		scanNodes: config.ScanNodes,
 		keyPrefix: config.KeyPrefix,
 		ttl:       config.TTL,
 	}, nil
@@ -104,7 +118,7 @@ func (s *Store) Write(ctx context.Context, conversationID history.ConversationID
 		return outcome, fmt.Errorf("redis: write: encode messages: %w", err)
 	}
 	arguments := make([]any, 2, len(encoded)+2)
-	arguments[0], arguments[1] = "rpush", s.key(conversationID)
+	arguments[0], arguments[1] = historyAppendCommand, s.key(conversationID)
 	for _, raw := range encoded {
 		arguments = append(arguments, raw)
 	}
@@ -171,18 +185,12 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	return nil
 }
 
-// keyScanner is the single Redis operation conversation enumeration needs. It
-// is declared here so the scan can run against the whole client or against one
-// node of a multi-node client, which is what makes the enumeration complete.
 type keyScanner interface {
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *goredis.ScanCmd
 }
 
-// SCAN may observe concurrent mutations and repeat keys, so results are
-// de-duplicated. Cluster masters are each scanned to completion with their own
-// cursor. Ring enumeration returns errors.ErrUnsupported because go-redis's
-// ForEachShard skips unavailable shards and does not expose the complete
-// current topology.
+// SCAN may observe concurrent mutations and repeat keys, so complete node
+// coverage does not imply a point-in-time snapshot. Results are de-duplicated.
 func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -194,25 +202,8 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 		ids:       make(map[history.ConversationID]struct{}),
 	}
 
-	// ForEachMaster runs concurrently and returns the first error, which is
-	// why the collector is guarded.
-	//
-	// Only go-redis's own multi-node types can be recognized. A caller who
-	// hands over some wrapper that hides a cluster behind UniversalClient gets
-	// the single-client scan, because nothing here can unwrap it; refusing
-	// every unrecognized implementation instead would reject the ordinary case,
-	// a tracing decorator over a plain client.
-	switch client := s.client.(type) {
-	case *goredis.ClusterClient:
-		if err := client.ForEachMaster(ctx, collector.scanNode); err != nil {
-			return nil, fmt.Errorf("redis: list conversations: scan cluster masters: %w", err)
-		}
-	case *goredis.Ring:
-		return nil, fmt.Errorf("redis: complete conversation enumeration for Ring clients: %w", errors.ErrUnsupported)
-	default:
-		if err := collector.scan(ctx, s.client); err != nil {
-			return nil, err
-		}
+	if err := s.scanNodes(ctx, collector.scanNode); err != nil {
+		return nil, fmt.Errorf("redis: list conversations: scan keyspace: %w", err)
 	}
 	return collector.sorted(), nil
 }
@@ -226,6 +217,9 @@ type conversationCollector struct {
 }
 
 func (c *conversationCollector) scanNode(ctx context.Context, node *goredis.Client) error {
+	if node == nil {
+		return errors.New("redis: keyspace enumeration supplied a nil node")
+	}
 	return c.scan(ctx, node)
 }
 

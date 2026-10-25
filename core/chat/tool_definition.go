@@ -100,4 +100,4 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 
 type wireToolDefinition ToolDefinition
 
-func (ToolDefinition) JSONSchemaAlias() any { return wireToolDefinition{} }
+func (ToolDefinition) JSONSchemaModel() any { return wireToolDefinition{} }

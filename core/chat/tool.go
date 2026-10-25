@@ -173,4 +173,4 @@ func (t ToolResult) Validate() error {
 
 type wireToolOutput ToolOutput
 
-func (ToolOutput) JSONSchemaAlias() any { return wireToolOutput{} }
+func (ToolOutput) JSONSchemaModel() any { return wireToolOutput{} }

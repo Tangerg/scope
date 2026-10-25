@@ -169,12 +169,12 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 
 type wireOutput Output
 
-func (Output) JSONSchemaAlias() any { return wireOutput{} }
+func (Output) JSONSchemaModel() any { return wireOutput{} }
 
 type wireResponseMetadata ResponseMetadata
 
-func (ResponseMetadata) JSONSchemaAlias() any { return wireResponseMetadata{} }
+func (ResponseMetadata) JSONSchemaModel() any { return wireResponseMetadata{} }
 
 type wireResponse Response
 
-func (Response) JSONSchemaAlias() any { return wireResponse{} }
+func (Response) JSONSchemaModel() any { return wireResponse{} }

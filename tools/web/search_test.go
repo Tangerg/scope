@@ -94,6 +94,34 @@ func TestSearchTool_Call_HappyPath(t *testing.T) {
 	}
 }
 
+func TestSearchResponseAdmissionOwnsQueryAndResultLimit(t *testing.T) {
+	request := &SearchRequest{Query: " scope ", MaxResults: 1}
+	response := &SearchResponse{Query: "scope", Results: []*SearchResult{{URL: "https://example.com/a"}}}
+	if err := response.ValidateFor(request); err != nil {
+		t.Fatal(err)
+	}
+	response.Query = "different"
+	if err := response.ValidateFor(request); !errors.Is(err, ErrInvalidSearchResponse) {
+		t.Fatalf("different query accepted: %v", err)
+	}
+	response.Query = "scope"
+	response.Results = append(response.Results, &SearchResult{URL: "https://example.com/b"})
+	if err := response.ValidateFor(request); !errors.Is(err, ErrInvalidSearchResponse) {
+		t.Fatalf("excess results accepted: %v", err)
+	}
+	tool, err := NewSearchTool(&fakeSearcher{resp: response})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeTestTool(t.Context(), tool, `{"query":"scope","max_results":1}`); !errors.Is(err, ErrInvalidSearchResponse) {
+		t.Fatalf("tool accepted excess results: %v", err)
+	}
+	request.MaxResults = 0
+	if err := response.ValidateFor(request); err != nil {
+		t.Fatalf("provider default rejected: %v", err)
+	}
+}
+
 func TestSearchTool_Call_EmptyQuery(t *testing.T) {
 	searcher := &fakeSearcher{}
 	tool, _ := NewSearchTool(searcher)
@@ -271,7 +299,7 @@ func TestSearchRecency_Validate(t *testing.T) {
 }
 
 func TestSearchTool_Call_DomainsForwarded(t *testing.T) {
-	searcher := &fakeSearcher{resp: &SearchResponse{Query: "q", Results: nil}}
+	searcher := &fakeSearcher{resp: &SearchResponse{Query: "x", Results: nil}}
 	tool, _ := NewSearchTool(searcher)
 	if _, err := invokeTestTool(t.Context(), tool,
 		`{"query":"x","allowed_domains":["github.com","stackoverflow.com"]}`); err != nil {

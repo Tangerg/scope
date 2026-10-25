@@ -197,6 +197,24 @@ func TestReleaseRequiresFinalDependencyGatesBeforePush(t *testing.T) {
 	}
 }
 
+func TestReleaseClearsDevelopmentGateSelectors(t *testing.T) {
+	t.Parallel()
+	fixture := newReleasePublicationFixture(t, "new", "")
+	fixture.env = append(fixture.env, "MODULE=core", "FAST=1")
+	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
+echo repository-gates >> "$SCRIPT_CALLS"
+if [[ -n "${MODULE+x}${FAST+x}" ]]; then
+  printf 'release-gates-inherited-selectors MODULE=%s FAST=%s\n' "${MODULE-}" "${FAST-}" >&2
+  exit 23
+fi
+echo complete-gate-environment >> "$SCRIPT_CALLS"
+`)
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err != nil || strings.Count(fixture.calls(t), "complete-gate-environment\n") != 1 {
+		t.Fatalf("release must always invoke the complete gate scope: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
 func TestReleasePreservesGitHubPublicationFailures(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"new", "resume", "existing"} {

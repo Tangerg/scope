@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,9 +38,9 @@ func responsesTerminalDelta(response *responses.Response, extensionKey string) (
 func responsesFinishReason(response *responses.Response) (corechat.FinishReason, error) {
 	switch response.Status {
 	case responses.ResponseStatusFailed:
-		return "", fmt.Errorf("%w: openai responses: failed: %s: %s", corechat.ErrDefiniteFailure, response.Error.Code, response.Error.Message)
+		return "", &corechat.CallFailure{Kind: corechat.CallFailureFailed, Cause: fmt.Errorf("openai responses: failed: %s: %s", response.Error.Code, response.Error.Message)}
 	case responses.ResponseStatusCancelled:
-		return "", fmt.Errorf("%w: openai responses: response was canceled", corechat.ErrDefiniteFailure)
+		return "", &corechat.CallFailure{Kind: corechat.CallFailureFailed, Cause: errors.New("openai responses: response was canceled")}
 	case responses.ResponseStatusIncomplete:
 		switch response.IncompleteDetails.Reason {
 		case responsesIncompleteMaxTokens:

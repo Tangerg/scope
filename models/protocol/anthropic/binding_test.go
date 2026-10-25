@@ -44,13 +44,13 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			transport := &bindingTransport{}
 			client := &http.Client{Transport: transport}
-			for _, endpoint := range []string{"%", "/relative", "//example.test/path", "ftp://example.test", "https://", "https://:443", "https://example.test:bad", "https://example.test/\x00"} {
+			for _, endpoint := range []string{"%", "/relative", "//example.test/path", "ftp://example.test", "https://", "https://:443", "https://example.test:bad", "https://example.test/\x00", "https://user:pass@example.test/path"} {
 				missing, err := construct(endpoint, client)
 				if err == nil || !missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
 				}
 			}
-			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://user:pass@example.test/path#section"} {
+			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://example.test/path#section"} {
 				missing, err := construct(endpoint, client)
 				if err != nil || missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)

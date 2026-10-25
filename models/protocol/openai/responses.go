@@ -6,14 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"maps"
 	"net/http"
-	"slices"
 
-	openaisdk "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -74,14 +69,14 @@ func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, erro
 // NewCompatibleResponses shares the Responses event lifecycle with a provider
 // that explicitly implements it. Provider wrappers expose only supported
 // optional capabilities such as model discovery or input-token counting.
-func NewCompatibleResponses(_ context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
+func NewCompatibleResponses(ctx context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
 	if err := dialect.Validate(); err != nil {
 		return nil, err
 	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient, Headers: config.Headers})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient, Headers: config.Headers})
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +134,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := r.buildResponsesRequest(req)
 		if err != nil {
-			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
+			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
 			return
 		}
 		stream, err := r.api.responseNewStream(ctx, params)
@@ -156,7 +151,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 				yield(nil, fmt.Errorf("%w: openai responses: event after terminal response", corechat.ErrInvalidResponse))
 				return
 			}
-			response, include, mapErr := state.addEvent(stream.Current())
+			response, mapErr := state.addEvent(stream.Current())
 			if mapErr != nil {
 				yield(nil, mapErr)
 				return
@@ -172,9 +167,8 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 					yield(nil, err)
 					return
 				}
-				include = true
 			}
-			if !include {
+			if response == nil {
 				continue
 			}
 			if response.FinishReason != "" {
@@ -201,118 +195,9 @@ func (r *Responses) buildResponsesRequest(req *corechat.Request) (*responses.Res
 	if r == nil || r.api == nil {
 		return nil, errors.New("openai responses: nil Responses")
 	}
-	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("openai responses: request: %w", err)
-	}
-	options, err := r.defaults.Resolve(req.Options)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: options: %w", err)
-	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
-	extensionKey := r.dialect.Provider + "/responses_request"
-	if extensionErr := rejectCoreOwnedResponsesExtension(req.Options.Extensions, extensionKey); extensionErr != nil {
-		return nil, extensionErr
-	}
-	params, found, err := req.Options.Extensions.Decode[responses.ResponseNewParams](extensionKey)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses: extension %q: %w", extensionKey, err)
-	}
-	if found && r.dialect.DisableRawRequestExtension {
-		return nil, fmt.Errorf("%s: raw Responses request extension is not supported", r.dialect.Provider)
-	}
-	if !found {
-		params = responses.ResponseNewParams{}
-	}
-
-	if options.Model == "" {
-		return nil, errors.New("openai responses: model is required in defaults or request options")
-	}
-	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil || len(options.Stop) != 0 {
-		return nil, errors.New("openai responses: frequency_penalty, presence_penalty, top_k, and stop are not supported")
-	}
-	params.Model = shared.ResponsesModel(options.Model)
-	if options.MaxOutputTokens != nil {
-		params.MaxOutputTokens = openaisdk.Int(*options.MaxOutputTokens)
-	}
-	if options.Temperature != nil {
-		params.Temperature = openaisdk.Float(*options.Temperature)
-	}
-	if options.TopP != nil {
-		params.TopP = openaisdk.Float(*options.TopP)
-	}
-	if req.ToolChoice != nil {
-		switch req.ToolChoice.Mode {
-		case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
-			params.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptions(req.ToolChoice.Mode))
-		case corechat.ToolChoiceNamed:
-			params.ToolChoice.OfFunctionTool = &responses.ToolChoiceFunctionParam{Name: req.ToolChoice.Name}
-		}
-		switch req.ToolChoice.Parallelism {
-		case corechat.ToolParallelismAllow:
-			params.ParallelToolCalls = openaisdk.Bool(true)
-		case corechat.ToolParallelismSingle:
-			params.ParallelToolCalls = openaisdk.Bool(false)
-		}
-	}
-	reasoningEffort, err := mapReasoningEffort(options.ReasoningEffort)
+	projection, err := newResponsesRequestProjection(req, r.defaults, r.dialect)
 	if err != nil {
 		return nil, err
 	}
-	params.Reasoning.Effort = reasoningEffort
-	if options.OutputFormat != nil {
-		format, mapResponsesOutputFormatErr := mapResponsesOutputFormat(options.OutputFormat)
-		if mapResponsesOutputFormatErr != nil {
-			return nil, mapResponsesOutputFormatErr
-		}
-		params.Text.Format = format
-	}
-	if !slices.Contains(params.Include, responses.ResponseIncludableReasoningEncryptedContent) {
-		params.Include = append(params.Include, responses.ResponseIncludableReasoningEncryptedContent)
-	}
-
-	items, err := mapResponsesInput(req.Messages)
-	if err != nil {
-		return nil, err
-	}
-	params.Input.OfInputItemList = items
-	params.Tools, err = mapResponsesTools(req.Tools)
-	if err != nil {
-		return nil, err
-	}
-	if r.dialect.PrepareRequest != nil {
-		compatible := &CompatibleResponsesRequest{extraFields: maps.Clone(params.ExtraFields())}
-		for _, include := range params.Include {
-			compatible.Include = append(compatible.Include, string(include))
-		}
-		if params.Store.Valid() {
-			compatible.Store = new(params.Store.Value)
-		}
-		if err := r.dialect.PrepareRequest(req, compatible); err != nil {
-			return nil, err
-		}
-		if err := compatible.Validate(); err != nil {
-			return nil, err
-		}
-		params.Include = nil
-		for _, include := range compatible.Include {
-			params.Include = append(params.Include, responses.ResponseIncludable(include))
-		}
-		params.Store = param.Opt[bool]{}
-		if compatible.Store != nil {
-			params.Store = openaisdk.Bool(*compatible.Store)
-		}
-		for _, raw := range compatible.BuiltInTools {
-			params.Tools = append(params.Tools, param.Override[responses.ToolUnionParam](raw))
-		}
-		if compatible.BuiltInTools != nil {
-			if compatible.extraFields == nil {
-				compatible.extraFields = make(map[string]any)
-			}
-			compatible.extraFields["tools"] = params.Tools
-		}
-		params.SetExtraFields(compatible.extraFields)
-	}
-	return &params, nil
+	return projection.project()
 }

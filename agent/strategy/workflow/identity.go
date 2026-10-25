@@ -8,16 +8,14 @@ import (
 	agent "github.com/Tangerg/scope/agent"
 )
 
-func workflowChildKey(parts ...string) (agent.ChildKey, error) {
-	return agent.ParseChildKey(workflowIdentity("child", parts...))
-}
+const workflowChildKeyPrefix = "workflow:child:"
 
-func workflowIdentity(kind string, parts ...string) string {
+func workflowChildKey(parts ...string) (agent.ChildKey, error) {
 	hash := sha256.New()
 	for _, part := range parts {
 		hash.Write([]byte(strconv.Itoa(len(part))))
 		hash.Write([]byte{':'})
 		hash.Write([]byte(part))
 	}
-	return "workflow:" + kind + ":" + hex.EncodeToString(hash.Sum(nil))
+	return agent.ParseChildKey(workflowChildKeyPrefix + hex.EncodeToString(hash.Sum(nil)))
 }

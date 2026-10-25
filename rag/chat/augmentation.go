@@ -215,7 +215,6 @@ func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.
 	return string(encoded), citations, nil
 }
 
-// evidence formats the candidate at index for the citation at position.
 func (c *ContextualAugmenter) evidence(index, position int, candidate rag.Candidate) (contextualEvidence, error) {
 	content, err := c.formatter.Format(candidate.Document)
 	if err != nil {

@@ -3,14 +3,18 @@ package agent
 import (
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Check executable vocabulary rather than prose explaining excluded concerns.
@@ -18,6 +22,7 @@ import (
 // field names establish vocabulary in addition to identifiers and imports.
 func agentOwnershipViolations(packagePath string, file *ast.File) []string {
 	var violations []string
+	contractMethods := make(map[*ast.Ident]bool)
 	check := func(value string) {
 		for _, word := range ownershipWords(value) {
 			switch strings.TrimSuffix(word, "s") {
@@ -44,8 +49,14 @@ func agentOwnershipViolations(packagePath string, file *ast.File) []string {
 		switch node := node.(type) {
 		case *ast.ImportSpec:
 			return false
+		case *ast.FuncDecl:
+			if coreSchemaContractMethod(node) {
+				contractMethods[node.Name] = true
+			}
 		case *ast.Ident:
-			check(node.Name)
+			if !contractMethods[node] {
+				check(node.Name)
+			}
 		case *ast.Field:
 			if node.Tag != nil {
 				tag, err := strconv.Unquote(node.Tag.Value)
@@ -73,6 +84,30 @@ func agentOwnershipViolations(packagePath string, file *ast.File) []string {
 	})
 	slices.Sort(violations)
 	return slices.Compact(violations)
+}
+
+// Lower-layer interfaces own the names of their required methods. Matching the
+// live signature keeps that ownership from exempting unrelated declarations.
+func coreSchemaContractMethod(declaration *ast.FuncDecl) bool {
+	if declaration.Recv == nil {
+		return false
+	}
+	method, exists := reflect.TypeFor[jsonschema.Modeler]().MethodByName(declaration.Name.Name)
+	if !exists {
+		return false
+	}
+
+	files := token.NewFileSet()
+	var source strings.Builder
+	if err := format.Node(&source, files, declaration.Type); err != nil {
+		return false
+	}
+	signature, err := types.Eval(files, nil, token.NoPos, source.String())
+	if err != nil {
+		return false
+	}
+	contract, err := types.Eval(files, nil, token.NoPos, method.Type.String())
+	return err == nil && types.Identical(signature.Type, contract.Type)
 }
 
 func ownershipWords(value string) []string {
@@ -103,6 +138,15 @@ func TestAgentOwnershipVocabularyRules(t *testing.T) {
 		{name: "constant", path: ".", source: `const operation = "model.call"`, want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
 		{name: "acronym", path: ".", source: "type HTTPModelResponse struct{}", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
 		{name: "private helper", path: "internal/protocol", source: "func invokeTool() {}", want: []string{`Strategy-owned vocabulary "tool" outside strategy packages`}},
+		{name: "core schema method", path: ".", source: "type State struct{}; func (State) JSONSchemaModel() any { return \"\" }"},
+		{name: "core schema equivalent signature", path: ".", source: "type State struct{}; func (*State) JSONSchemaModel() (value interface{}) { return nil }"},
+		{name: "core schema name with unrelated result", path: ".", source: "type State struct{}; func (State) JSONSchemaModel() string { return \"\" }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema name with unrelated parameters", path: ".", source: "type State struct{}; func (State) JSONSchemaModel(value any) any { return value }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema name as function", path: ".", source: "func JSONSchemaModel() any { return nil }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema name as field", path: ".", source: "type State struct { JSONSchemaModel any }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema result name", path: ".", source: "type State struct{}; func (State) JSONSchemaModel() (model any) { return nil }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema method body", path: ".", source: "type State struct{}; func (State) JSONSchemaModel() any { model := \"\"; return model }", want: []string{`Strategy-owned vocabulary "model" outside strategy packages`}},
+		{name: "core schema method with product import", path: ".", source: "import _ \"example.com/billing\"; type State struct{}; func (State) JSONSchemaModel() any { return nil }", want: []string{`Host-owned vocabulary "billing"`}},
 		{name: "aliased transport", path: "strategy/interaction", source: `import transport "net/http"`, want: []string{`Host-owned transport or storage import "net/http"`}},
 		{name: "blank storage", path: ".", source: `import _ "database/sql/driver"`, want: []string{`Host-owned transport or storage import "database/sql/driver"`}},
 		{name: "product import", path: ".", source: `import _ "example.com/billing"`, want: []string{`Host-owned vocabulary "billing"`}},

@@ -11,7 +11,7 @@ import (
 )
 
 func TestSearch(t *testing.T) {
-	if _, err := NewClient(Config{}); err == nil {
+	if _, err := NewClient(t.Context(), Config{}); err == nil {
 		t.Fatal("NewClient accepted an empty API key")
 	}
 	for _, test := range []struct {
@@ -50,7 +50,7 @@ func TestSearch(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			client, err := NewClient(Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			client, err := NewClient(t.Context(), Config{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestFetchDoesNotSubstituteMarkdownForHTML(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(sample.body))
 		}))
-		client, err := NewClient(Config{APIKey: "test", BaseURL: server.URL})
+		client, err := NewClient(t.Context(), Config{APIKey: "test", BaseURL: server.URL})
 		if err != nil {
 			t.Fatal(err)
 		}

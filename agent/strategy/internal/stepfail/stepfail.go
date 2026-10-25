@@ -12,7 +12,6 @@ func Failure(kind agent.FailureKind, code, message string) (agent.Failure, error
 	return agent.NewFailure(kind, code, agent.NormalizeDiagnostic(message))
 }
 
-// Transition ends a Step with the Failure that kind, code, and message classify.
 func Transition(consumedSignals uint32, kind agent.FailureKind, code, message string) (agent.Transition, error) {
 	failure, err := Failure(kind, code, message)
 	if err != nil {

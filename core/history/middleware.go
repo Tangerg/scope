@@ -46,7 +46,7 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		prepared, fresh, err := m.prepare(ctx, request)
 		if err != nil {
-			return nil, err
+			return nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err}
 		}
 		response, err := next.Call(ctx, prepared)
 		if err != nil {
@@ -85,7 +85,7 @@ func (m Middleware) stream(
 ) {
 	prepared, fresh, err := m.prepare(ctx, request)
 	if err != nil {
-		yield(nil, err)
+		yield(nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err})
 		return
 	}
 	sequence := next.Stream(ctx, prepared)
@@ -196,7 +196,11 @@ func (m Middleware) persist(
 	if err != nil {
 		failure := &CommitError{conversationID: m.conversationID, messages: messages, outcome: outcome, cause: err}
 		failure.messages = failure.Messages()
-		return failure
+		kind := chat.CallFailureFailed
+		if outcome.Uncertain {
+			kind = chat.CallFailureUnknown
+		}
+		return &chat.CallFailure{Kind: kind, Cause: failure}
 	}
 	return nil
 }

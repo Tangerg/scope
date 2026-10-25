@@ -1,7 +1,6 @@
 package providerconformance_test
 
 import (
-	"errors"
 	"net/http"
 	"testing"
 
@@ -48,7 +47,7 @@ func TestChatLocalRejectionPreservesNonExecutionEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = model.Call(t.Context(), nil)
-			if !errors.Is(err, chat.ErrNotExecuted) || !errors.Is(err, chat.ErrDefiniteFailure) || calls != 0 {
+			if chat.ClassifyFailure(err) != chat.CallFailureNotExecuted || calls != 0 {
 				t.Fatalf("error=%v provider calls=%d", err, calls)
 			}
 		})

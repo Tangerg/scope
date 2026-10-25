@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,104 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
+
+type failedAdvertisementTool struct {
+	tool.Tool
+	defect string
+}
+
+func (f failedAdvertisementTool) AdvertiseDeferred(context.Context, tool.Invocation, tool.Result) ([]string, error) {
+	switch f.defect {
+	case "error":
+		return nil, errors.New("advertisement failed after the write")
+	case "panic":
+		panic("advertisement failed after the write")
+	default:
+		return []string{"unbound"}, nil
+	}
+}
+
+func TestAdvertisementFailureRetainsCompletedResultInFinalRecoveryCut(t *testing.T) {
+	for _, defect := range []string{"error", "panic", "unbound"} {
+		t.Run(defect, func(t *testing.T) {
+			var writes, modelCalls atomic.Int32
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "write", Description: "Write one result."}, func(context.Context, struct{}) (string, error) {
+				writes.Add(1)
+				return "completed write", nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := chat.ToolCall{ID: "write-1", Name: "write", Arguments: `{}`}
+			deployment := configuredInteraction(t, interaction.DefinitionConfig{Name: "results.advertisement", Description: "Retain failed postprocessing evidence."}, interaction.DispatcherConfig{
+				Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+					modelCalls.Add(1)
+					return toolBatchResponse(call), nil
+				}),
+			}, interaction.ToolSetConfig{Tools: []tool.Tool{failedAdvertisementTool{Tool: executable, defect: defect}}})
+			store := agent.NewMemoryTreeCommitter()
+			engine := publicationEngine(t, deployment, store)
+			result, err := engine.Run(t.Context(), deployment.Deployment, interactionInput(t, "write"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure, failed := result.Termination().Failure()
+			if !failed || failure.Kind() != agent.FailureKindContract || failure.Code() != "interaction.tool.advertisement_invalid" {
+				t.Fatalf("postprocessing failure=%v", result.Termination())
+			}
+			head, found, err := store.LoadTree(t.Context(), result.ProcessID())
+			if err != nil || !found {
+				t.Fatalf("load final head: found=%v error=%v", found, err)
+			}
+			assertResult := func(snapshot agent.TreeSnapshot) interaction.RoundResults {
+				t.Helper()
+				for _, process := range snapshot.ProcessSnapshots() {
+					if len(process.UnknownEffectIDs()) != 0 {
+						t.Fatal("known completed write became unknown")
+					}
+				}
+				rounds, projectionErr := interaction.SettledResults(snapshot)
+				if projectionErr != nil || len(rounds) != 1 {
+					t.Fatalf("completed write missing: rounds=%d error=%v", len(rounds), projectionErr)
+				}
+				round := rounds[0]
+				entries := round.Entries()
+				reference, present := round.Reference(0)
+				if !round.Complete() || round.CallCount() != 1 || len(entries) != 1 || entries[0].Call != call ||
+					entries[0].Disposition != interaction.ResultSucceeded || publicationText(entries[0]) != "completed write" ||
+					!present || reference.ProcessID() != result.ProcessID() || reference.ModelCallSequence() != 1 || reference.ToolCallIndex() != 0 {
+					t.Fatalf("completed write changed: round=%+v entries=%+v reference=%v", round, entries, reference)
+				}
+				return round
+			}
+			original := assertResult(head)
+			head, err = agent.ParseTreeSnapshot(head.JSON())
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertResult(head)
+			recovered := publicationEngine(t, deployment, store)
+			process, err := recovered.RestoreTree(t.Context(), deployment.Deployment, head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := process.Await(t.Context())
+			if err != nil || restored.Termination().Status() != agent.StatusFailed {
+				t.Fatalf("restored termination=%v error=%v", restored.Termination(), err)
+			}
+			head, err = recovered.CaptureTree(t.Context(), result.ProcessID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if round := assertResult(head); round.Digest() != original.Digest() || !bytes.Equal(round.JSON(), original.JSON()) {
+				t.Fatal("restore changed exact completed result or attribution")
+			}
+			if writes.Load() != 1 || modelCalls.Load() != 1 {
+				t.Fatalf("failed postprocessing replayed work: writes=%d model calls=%d", writes.Load(), modelCalls.Load())
+			}
+		})
+	}
+}
 
 func TestSettledResultsReadsRecoveryFactsWithoutHistoryStorage(t *testing.T) {
 	store := agent.NewMemoryTreeCommitter()

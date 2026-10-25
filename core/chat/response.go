@@ -175,8 +175,8 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 
 type wireResponseMetadata ResponseMetadata
 
-func (ResponseMetadata) JSONSchemaAlias() any { return wireResponseMetadata{} }
+func (ResponseMetadata) JSONSchemaModel() any { return wireResponseMetadata{} }
 
 type wireResponse Response
 
-func (Response) JSONSchemaAlias() any { return wireResponse{} }
+func (Response) JSONSchemaModel() any { return wireResponse{} }

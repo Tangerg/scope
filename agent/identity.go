@@ -93,7 +93,7 @@ func (i identity) MarshalText() ([]byte, error) {
 	return []byte(i.value), nil
 }
 
-func (identity) JSONSchemaAlias() any { return "" }
+func (identity) JSONSchemaModel() any { return "" }
 
 // ProcessID is the stable identity of one Engine-owned Process.
 type ProcessID struct{ identity }

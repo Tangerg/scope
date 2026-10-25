@@ -13,7 +13,11 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
-const failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
+const (
+	failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
+	actionChildKeyPrefix                = "planning.action."
+	actionChildWaitKey                  = "planning.child"
+)
 
 type execution struct {
 	definition *Definition
@@ -250,7 +254,7 @@ func (e *execution) complete(ctx context.Context, consumedSignals uint32) (agent
 }
 
 func planningChildKey(action string, attempt uint64) (agent.ChildKey, error) {
-	return agent.ParseChildKey("planning.action." + planningIdentity(action, attempt))
+	return agent.ParseChildKey(actionChildKeyPrefix + planningIdentity(action, attempt))
 }
 
 // planningChildWaitKey is the mailbox slot for the single action child's wait.
@@ -258,7 +262,7 @@ func planningChildKey(action string, attempt uint64) (agent.ChildKey, error) {
 // next, so a fixed key never collides; WaitID, derived from the Effect, owns the
 // wait's identity.
 func planningChildWaitKey() (agent.WaitKey, error) {
-	return agent.ParseWaitKey("planning.child")
+	return agent.ParseWaitKey(actionChildWaitKey)
 }
 
 func planningIdentity(action string, attempt uint64) string {

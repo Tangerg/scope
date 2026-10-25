@@ -26,7 +26,7 @@ func newCollectionSchema(schema *api.CollectionResponse, name string) (collectio
 			return collectionSchema{}, fmt.Errorf("%w: duplicate field %s", ErrIncompatibleCollection, field.Name)
 		}
 		switch field.Name {
-		case "id", "content", "metadata", "embedding":
+		case fieldID, fieldContent, fieldMetadata, fieldEmbedding:
 		default:
 			return collectionSchema{}, fmt.Errorf("%w: unexpected field %s", ErrIncompatibleCollection, field.Name)
 		}
@@ -38,13 +38,13 @@ func newCollectionSchema(schema *api.CollectionResponse, name string) (collectio
 		}
 		fields[field.Name] = field
 	}
-	content, contentOK := fields["content"]
-	facts, factsOK := fields["metadata"]
-	vector, vectorOK := fields["embedding"]
-	if !contentOK || content.Type != "string" || (content.Index != nil && !*content.Index) || !factsOK || facts.Type != "string" || !vectorOK || vector.Type != "float[]" || vector.NumDim == nil || *vector.NumDim <= 0 || (vector.Index != nil && !*vector.Index) || (vector.VecDist != nil && *vector.VecDist != "cosine") {
+	content, contentOK := fields[fieldContent]
+	facts, factsOK := fields[fieldMetadata]
+	vector, vectorOK := fields[fieldEmbedding]
+	if !contentOK || content.Type != fieldTypeString || (content.Index != nil && !*content.Index) || !factsOK || facts.Type != fieldTypeString || !vectorOK || vector.Type != fieldTypeFloatArray || vector.NumDim == nil || *vector.NumDim <= 0 || (vector.Index != nil && !*vector.Index) || (vector.VecDist != nil && *vector.VecDist != distanceCosine) {
 		return collectionSchema{}, fmt.Errorf("%w: requires stored content and Core JSON strings plus an indexed cosine float[] embedding", ErrIncompatibleCollection)
 	}
-	if id, ok := fields["id"]; ok && id.Type != "string" {
+	if id, ok := fields[fieldID]; ok && id.Type != fieldTypeString {
 		return collectionSchema{}, fmt.Errorf("%w: id is not a string", ErrIncompatibleCollection)
 	}
 	return collectionSchema{dimensions: *vector.NumDim}, nil

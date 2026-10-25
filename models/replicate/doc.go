@@ -21,8 +21,10 @@
 // terminal state, validate the configured output schema, and copy ephemeral
 // output files before Replicate removes API prediction data.
 // Downloads allow the configured endpoint origin and HTTPS replicate.delivery
-// hosts on the standard port. Every redirect is checked; credentials are
-// removed across origins. A supplied HTTP client keeps its redirect policy.
+// hosts on the standard port. The final transport checks the URL and explicit
+// Host authority after the supplied redirect policy. Delivery requests carry
+// no credentials. A supplied HTTP client is copied; the host retains ownership
+// of its transport and cookie jar, and a typed-nil transport uses the default.
 //
 // Polling waits only on the two statuses the prediction lifecycle documents as
 // still running, "starting" and "processing". Every other status ends the call,

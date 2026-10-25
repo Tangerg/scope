@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -104,7 +103,7 @@ func TestAgentResponsesRejectsSonarAndDuplicateOwnersBeforeIO(t *testing.T) {
 				t.Fatal(setErr)
 			}
 			_, err = model.Call(t.Context(), request)
-			if !errors.Is(err, corechat.ErrNotExecuted) || calls != 0 {
+			if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || calls != 0 {
 				t.Fatalf("error=%v calls=%d", err, calls)
 			}
 		})
@@ -124,7 +123,7 @@ func TestAgentResponsesRequiresCoreModelBeforeIO(t *testing.T) {
 		t.Fatal(setErr)
 	}
 	_, err = model.Call(t.Context(), request)
-	if !errors.Is(err, corechat.ErrNotExecuted) || !strings.Contains(err.Error(), "model is required") || calls != 0 {
+	if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || !strings.Contains(err.Error(), "model is required") || calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, calls)
 	}
 }

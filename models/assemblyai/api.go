@@ -10,6 +10,8 @@ import (
 	"net/http"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -29,23 +31,21 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("assemblyai: HTTP client: %w", err)
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
-		SetHeader("Authorization", config.APIKey)
+	client.SetBaseURL(baseURL).
+		SetHeader(headerAuthorization, config.APIKey)
 
 	return &api{http: client}, nil
 }
@@ -102,14 +102,12 @@ func (t *transcriptRequest) validate() error {
 	if t.SpeechThreshold != nil && (*t.SpeechThreshold < 0 || *t.SpeechThreshold > 1) {
 		return fmt.Errorf("assemblyai: speech_threshold must be between 0 and 1, got %g", *t.SpeechThreshold)
 	}
-	if t.ContentSafetyConfidence != nil && (*t.ContentSafetyConfidence < 25 || *t.ContentSafetyConfidence > 100) {
+	if t.ContentSafetyConfidence != nil && (*t.ContentSafetyConfidence < minimumContentSafetyConfidence || *t.ContentSafetyConfidence > maximumContentSafetyConfidence) {
 		return fmt.Errorf("assemblyai: content_safety_confidence must be between 25 and 100, got %d", *t.ContentSafetyConfidence)
 	}
 	return nil
 }
 
-// transcriptStatus enumerates the four values AssemblyAI documents for
-// [transcriptResponse].Status. Only queued and processing are still moving.
 type transcriptStatus string
 
 const (
@@ -141,10 +139,10 @@ func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error)
 	var out uploadResponse
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", "application/octet-stream").
+		SetHeader(headerContentType, mediaTypeBinary).
 		SetBody(audio).
 		SetResult(&out).
-		Post("/upload")
+		Post(pathUpload)
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: upload failed: %w", err)
 	}
@@ -165,10 +163,10 @@ func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*tr
 	var out transcriptResponse
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", "application/json").
+		SetHeader(headerContentType, mediaTypeJSON).
 		SetBody(req).
 		SetResult(&out).
-		Post("/transcript")
+		Post(pathTranscript)
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: create transcript failed: %w", err)
 	}
@@ -189,7 +187,7 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetResult(&out).
-		Get("/transcript/" + id)
+		Get(pathTranscriptPrefix + id)
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: get transcript failed: %w", err)
 	}

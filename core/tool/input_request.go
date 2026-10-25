@@ -107,7 +107,7 @@ func (i InputRequest) Prompt() json.RawMessage           { return bytes.Clone(i.
 func (i InputRequest) ResponseSchema() jsonschema.Schema { return i.responseSchema }
 func (i InputRequest) State() json.RawMessage            { return bytes.Clone(i.continuationState) }
 
-func (InputRequest) JSONSchemaAlias() any { return inputRequestWire{} }
+func (InputRequest) JSONSchemaModel() any { return inputRequestWire{} }
 
 // Continuation is the immutable checkpoint and validated answer for one logical
 // call. Passing a context does not pass this business input.

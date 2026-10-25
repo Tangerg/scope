@@ -157,4 +157,4 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 
 type wireMessage Message
 
-func (Message) JSONSchemaAlias() any { return wireMessage{} }
+func (Message) JSONSchemaModel() any { return wireMessage{} }

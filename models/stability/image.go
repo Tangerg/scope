@@ -50,12 +50,12 @@ type ImageModel struct {
 	defaultOptions image.Options
 }
 
-func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -88,12 +88,12 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	if decodeErr != nil {
 		return "", nil, decodeErr
 	}
-	for _, field := range []string{"prompt", "negative_prompt", "seed", "output_format", "model"} {
+	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldSeed, fieldOutputFormat, fieldModel} {
 		if _, exists := nativeFields[field]; exists {
 			return "", nil, fmt.Errorf("stability: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
 	}
-	if _, exists := nativeFields["mode"]; exists {
+	if _, exists := nativeFields[fieldMode]; exists {
 		return "", nil, errors.New("stability: extension mode is managed by the image adapter")
 	}
 
@@ -117,10 +117,10 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		apiReq.Seed = effectiveOptions.Seed
 	}
 	if effectiveOptions.OutputFormat != "" {
-		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
+		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, mediaTypeImagePrefix)
 	}
 
-	// Force JSON mode to get FinishReason / Seed echoed back.
+	// Binary responses omit the verdict needed to reject filtered generations.
 	apiReq.Mode = ResponseModeJSON
 	if err := apiReq.validate(); err != nil {
 		return "", nil, err
@@ -129,8 +129,6 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	return endpoint, apiReq, nil
 }
 
-// checkFinishReason decides whether the envelope holds the requested image.
-//
 // A filtered generation still answers 200 with base64 bytes, and those bytes
 // are the classifier's stand-in — Stability's own guidance is to treat the
 // generation as failed. This is the reason the adapter forces JSON mode: the
@@ -165,9 +163,9 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 	if err != nil {
 		return nil, fmt.Errorf("stability: decode image: %w", err)
 	}
-	mimeType := "image/png"
+	mimeType := mediaTypePNG
 	if outputFormat != "" {
-		mimeType = "image/" + outputFormat
+		mimeType = mediaTypeImagePrefix + outputFormat
 	}
 	value, err := media.NewBytes(mimeType, data)
 	if err != nil {
@@ -176,15 +174,15 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 
 	var outputMetadata metadata.Map
 	if envelope.FinishReason != "" {
-		if setErr := outputMetadata.Set("stability/finish_reason", envelope.FinishReason); setErr != nil {
+		if setErr := outputMetadata.Set(metadataFinishReason, envelope.FinishReason); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if envelope.Seed != nil {
-		if *envelope.Seed < 0 || *envelope.Seed > 4294967294 {
+		if *envelope.Seed < 0 || *envelope.Seed > maximumSeed {
 			return nil, fmt.Errorf("stability: invalid response seed %d", *envelope.Seed)
 		}
-		if setErr := outputMetadata.Set("stability/seed", *envelope.Seed); setErr != nil {
+		if setErr := outputMetadata.Set(metadataSeed, *envelope.Seed); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -195,8 +193,8 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 	}
 
 	meta := &image.ResponseMetadata{}
-	if rid := hdr.Get("x-request-id"); rid != "" {
-		if err := meta.Extra.Set("stability/request_id", rid); err != nil {
+	if rid := hdr.Get(headerRequestID); rid != "" {
+		if err := meta.Extra.Set(metadataRequestID, rid); err != nil {
 			return nil, err
 		}
 	}

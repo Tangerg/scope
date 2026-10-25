@@ -20,6 +20,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -41,15 +42,17 @@ const (
 // StoreConfig binds an existing index. The host owns schema creation,
 // authentication, transport timeouts, retries and the HTTP client's lifecycle.
 type StoreConfig struct {
-	Endpoint         string
-	IndexName        string
-	APIVersion       string
-	IDField          string
-	ContentField     string
-	EmbeddingField   string
-	MetadataField    string
-	EmbeddingModel   embedding.Model
-	DocumentBatcher  vectorstore.Batcher
+	Endpoint        string
+	IndexName       string
+	APIVersion      string
+	IDField         string
+	ContentField    string
+	EmbeddingField  string
+	MetadataField   string
+	EmbeddingModel  embedding.Model
+	DocumentBatcher vectorstore.Batcher
+	// HTTPClient settings are captured; the host retains its transport and jar.
+	// Requests remain within Endpoint's origin even when redirects are followed.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
@@ -126,6 +129,10 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	if err != nil {
+		return nil, err
+	}
 	client, err := embeddingclient.New(config.EmbeddingModel)
 	if err != nil {
 		return nil, err
@@ -133,7 +140,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	store := &Store{
 		endpoint: strings.TrimRight(config.Endpoint, "/"), indexName: config.IndexName, apiVersion: config.APIVersion,
 		idField: config.IDField, contentField: config.ContentField, embeddingField: config.EmbeddingField, metadataField: config.MetadataField,
-		embeddingClient: client, documentBatcher: config.DocumentBatcher, httpClient: config.HTTPClient, maxResponseBytes: config.MaxResponseBytes,
+		embeddingClient: client, documentBatcher: config.DocumentBatcher, httpClient: ownedHTTP, maxResponseBytes: config.MaxResponseBytes,
 	}
 	raw, err := store.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(store.indexName), nil)
 	if err != nil {

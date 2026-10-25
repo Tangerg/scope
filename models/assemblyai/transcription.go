@@ -66,12 +66,12 @@ type TranscriptionModel struct {
 	pollTimeout    time.Duration
 }
 
-func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -109,7 +109,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"audio_url", "language_code"} {
+	for _, field := range []string{fieldAudioURL, fieldLanguageCode} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
@@ -155,9 +155,6 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return t.buildResponse(final)
 }
 
-// pollUntilDone re-fetches the transcript every [pollInterval] until
-// it reaches "completed" / "error", or the ctx / pollTimeout deadline
-// fires.
 func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*transcriptResponse, error) {
 	deadlineCtx, cancel := context.WithTimeout(ctx, t.pollTimeout)
 	defer cancel()
@@ -176,7 +173,6 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*tra
 		case statusCompleted:
 			return resp, nil
 		case statusQueued, statusProcessing:
-			// The two states AssemblyAI documents as still moving.
 		case statusErrored:
 			return nil, fmt.Errorf("assemblyai: transcription failed: %s", resp.Error)
 		default:
@@ -198,22 +194,22 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*tra
 func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transcription.Response, error) {
 	var outputMetadata metadata.Map
 	if apiResp.Confidence != nil {
-		if err := outputMetadata.Set("assemblyai/confidence", *apiResp.Confidence); err != nil {
+		if err := outputMetadata.Set(metadataConfidence, *apiResp.Confidence); err != nil {
 			return nil, err
 		}
 	}
 	if apiResp.LanguageCode != "" {
-		if err := outputMetadata.Set("assemblyai/language_code", apiResp.LanguageCode); err != nil {
+		if err := outputMetadata.Set(metadataLanguageCode, apiResp.LanguageCode); err != nil {
 			return nil, err
 		}
 	}
 	if len(apiResp.Utterances) > 0 {
-		if err := outputMetadata.Set("assemblyai/utterances", apiResp.Utterances); err != nil {
+		if err := outputMetadata.Set(metadataUtterances, apiResp.Utterances); err != nil {
 			return nil, err
 		}
 	}
 	if len(apiResp.Words) > 0 {
-		if err := outputMetadata.Set("assemblyai/words", apiResp.Words); err != nil {
+		if err := outputMetadata.Set(metadataWords, apiResp.Words); err != nil {
 			return nil, err
 		}
 	}
@@ -227,11 +223,11 @@ func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transc
 	}
 
 	meta := &transcription.ResponseMetadata{Model: apiResp.SpeechModelUsed}
-	if err := meta.Extra.Set("assemblyai/transcript_id", apiResp.ID); err != nil {
+	if err := meta.Extra.Set(metadataTranscriptID, apiResp.ID); err != nil {
 		return nil, err
 	}
 	if apiResp.AudioDuration != nil {
-		if err := meta.Extra.Set("assemblyai/audio_duration_seconds", *apiResp.AudioDuration); err != nil {
+		if err := meta.Extra.Set(metadataDurationSeconds, *apiResp.AudioDuration); err != nil {
 			return nil, err
 		}
 	}

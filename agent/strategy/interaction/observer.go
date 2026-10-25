@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -25,9 +24,9 @@ type ModelObserver interface {
 	OnModelSettled(ctx context.Context, invocation ModelInvocation, settlement ModelSettlement)
 }
 
-// ModelOutcome classifies evidence at the physical model boundary. Unobserved
-// belongs only to a recording missing its settlement callback; it is never an
-// emitted ModelSettlement. Failed does not establish whether tokens were used.
+// ModelOutcome belongs to the complete model invocation, including middleware.
+// Unobserved belongs only to a recording missing its settlement callback; it is
+// never an emitted ModelSettlement. Failed does not establish token use.
 type ModelOutcome string
 
 const (
@@ -48,10 +47,11 @@ func (m ModelOutcome) Valid() bool {
 	}
 }
 
-// ModelSettlement describes a physical model call, not durable Effect
-// settlement. Outcome is the authoritative classification; Response and Failure
-// carry only its evidence. A validated response survives a later durable
-// admission failure. Only NotExecuted establishes that no provider work ran.
+// ModelSettlement describes the model invocation, independently of durable
+// Effect settlement. Outcome belongs to that complete invocation. Response
+// retains validated generation even when postprocessing failed or is unknown;
+// its presence never proves middleware success. A later durable admission
+// failure cannot retract it. Only NotExecuted establishes no provider work ran.
 type ModelSettlement struct {
 	Outcome  ModelOutcome   `json:"outcome"`
 	Response *chat.Response `json:"response,omitzero"`
@@ -62,21 +62,27 @@ func (m ModelSettlement) Validate() error {
 	if m.Failure != "" && !agent.ValidDiagnostic(m.Failure) {
 		return fmt.Errorf("%w: failure must be a bounded diagnostic", ErrInvalidModelSettlement)
 	}
+	if m.Response != nil {
+		if err := m.Response.Validate(); err != nil {
+			return fmt.Errorf("%w: response: %w", ErrInvalidModelSettlement, err)
+		}
+	}
 	switch m.Outcome {
 	case ModelOutcomeSucceeded:
 		if m.Response == nil || m.Failure != "" {
 			return fmt.Errorf("%w: success requires only a response", ErrInvalidModelSettlement)
 		}
-		if err := m.Response.Validate(); err != nil {
-			return fmt.Errorf("%w: response: %w", ErrInvalidModelSettlement, err)
-		}
-	case ModelOutcomeFailed, ModelOutcomeNotExecuted:
+	case ModelOutcomeNotExecuted:
 		if m.Response != nil || m.Failure == "" {
-			return fmt.Errorf("%w: definite failure requires only a diagnostic", ErrInvalidModelSettlement)
+			return fmt.Errorf("%w: non-execution requires only a diagnostic", ErrInvalidModelSettlement)
+		}
+	case ModelOutcomeFailed:
+		if m.Failure == "" {
+			return fmt.Errorf("%w: failed invocation requires a diagnostic", ErrInvalidModelSettlement)
 		}
 	case ModelOutcomeUnknown:
-		if m.Response != nil {
-			return fmt.Errorf("%w: unknown outcome cannot carry a complete response", ErrInvalidModelSettlement)
+		if m.Response != nil && m.Failure == "" {
+			return fmt.Errorf("%w: known response with unknown invocation requires a diagnostic", ErrInvalidModelSettlement)
 		}
 	default:
 		return fmt.Errorf("%w: a settlement must establish an observed outcome", ErrInvalidModelSettlement)
@@ -89,13 +95,13 @@ func newModelSettlement(response *chat.Response, cause error) ModelSettlement {
 		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: response}
 	}
 	outcome := ModelOutcomeUnknown
-	switch {
-	case errors.Is(cause, chat.ErrNotExecuted):
+	switch chat.ClassifyFailure(cause) {
+	case chat.CallFailureNotExecuted:
 		outcome = ModelOutcomeNotExecuted
-	case errors.Is(cause, chat.ErrDefiniteFailure):
+	case chat.CallFailureFailed:
 		outcome = ModelOutcomeFailed
 	}
-	return ModelSettlement{Outcome: outcome, Failure: agent.NormalizeDiagnostic(cause.Error())}
+	return ModelSettlement{Outcome: outcome, Response: response, Failure: agent.NormalizeDiagnostic(cause.Error())}
 }
 
 // ToolObserver receives exact Tool-call facts. Callbacks are observational,

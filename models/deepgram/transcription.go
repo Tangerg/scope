@@ -52,12 +52,12 @@ type TranscriptionModel struct {
 	defaultOptions transcription.Options
 }
 
-func NewTranscriptionModel(_ context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
+func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:           config.APIKey,
 		BaseURL:          config.BaseURL,
 		HTTPClient:       config.HTTPClient,
@@ -85,7 +85,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"model", "language"} {
+	for _, field := range []string{fieldModel, fieldLanguage} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
 		}
@@ -96,14 +96,14 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []string{"model", "language", "tier", "version", "punctuate", "smart_format", "diarize", "numerals", "paragraphs", "utterances", "topics", "sentiment", "intents", "detect_entities", "detect_language", "summarize", "redact", "keyterm"} {
+	for _, field := range []string{fieldModel, fieldLanguage, fieldTier, fieldVersion, fieldPunctuate, fieldSmartFormat, fieldDiarize, fieldNumerals, fieldParagraphs, fieldUtterances, fieldTopics, fieldSentiment, fieldIntents, fieldDetectEntities, fieldDetectLanguage, fieldSummarize, fieldRedact, fieldKeyterm} {
 		if _, exists := params.Extra[field]; exists {
 			return nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", TranscriptionRequestExtensionKey, field)
 		}
 	}
 	params.Model = effectiveOptions.Model
 	params.Language = effectiveOptions.Language
-	if params.Summarize == "v1" {
+	if params.Summarize == summaryVersion1 {
 		return nil, errors.New("deepgram: summarize=v1 is deprecated; use true or v2")
 	}
 
@@ -127,17 +127,17 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	var outputMetadata metadata.Map
 	if alt.Confidence != nil {
-		if setErr := outputMetadata.Set("deepgram/confidence", *alt.Confidence); setErr != nil {
+		if setErr := outputMetadata.Set(metadataConfidence, *alt.Confidence); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if alt.Words != nil {
-		if setErr := outputMetadata.Set("deepgram/words", alt.Words); setErr != nil {
+		if setErr := outputMetadata.Set(metadataWords, alt.Words); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if len(apiResp.Results.Utterances) > 0 {
-		if setErr := outputMetadata.Set("deepgram/utterances", apiResp.Results.Utterances); setErr != nil {
+		if setErr := outputMetadata.Set(metadataUtterances, apiResp.Results.Utterances); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -151,16 +151,16 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 
 	meta := &transcription.ResponseMetadata{Model: params.Model}
-	if err := meta.Extra.Set("deepgram/request_id", apiResp.Metadata.RequestID); err != nil {
+	if err := meta.Extra.Set(metadataRequestID, apiResp.Metadata.RequestID); err != nil {
 		return nil, err
 	}
 	if apiResp.Metadata.Duration != nil {
-		if err := meta.Extra.Set("deepgram/duration_seconds", *apiResp.Metadata.Duration); err != nil {
+		if err := meta.Extra.Set(metadataDurationSeconds, *apiResp.Metadata.Duration); err != nil {
 			return nil, err
 		}
 	}
 	if apiResp.Metadata.Channels != nil {
-		if err := meta.Extra.Set("deepgram/channels", *apiResp.Metadata.Channels); err != nil {
+		if err := meta.Extra.Set(metadataChannels, *apiResp.Metadata.Channels); err != nil {
 			return nil, err
 		}
 	}

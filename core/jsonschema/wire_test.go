@@ -152,7 +152,7 @@ type brokenModeler struct{}
 
 type pointerModeler struct{}
 
-func (*pointerModeler) JSONSchemaAlias() any { return "" }
+func (*pointerModeler) JSONSchemaModel() any { return "" }
 
 func TestForRejectsPointerOnlyWireModelMethods(t *testing.T) {
 	if _, err := jsonschema.For[pointerModeler](); !errors.Is(err, jsonschema.ErrInvalid) {
@@ -160,7 +160,7 @@ func TestForRejectsPointerOnlyWireModelMethods(t *testing.T) {
 	}
 }
 
-func (brokenModeler) JSONSchemaAlias() any { return nil }
+func (brokenModeler) JSONSchemaModel() any { return nil }
 
 type brokenModelerHolder struct {
 	Value brokenModeler `json:"value"`
@@ -174,7 +174,7 @@ func TestForRejectsAModelerReturningNil(t *testing.T) {
 
 type underivableModeler struct{}
 
-func (underivableModeler) JSONSchemaAlias() any { return make(chan int) }
+func (underivableModeler) JSONSchemaModel() any { return make(chan int) }
 
 type underivableModelerHolder struct {
 	Value underivableModeler `json:"value"`

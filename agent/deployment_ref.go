@@ -116,7 +116,7 @@ type deploymentIdentityWire struct {
 	BindingsDigest       Digest `json:"bindings_digest"`
 }
 
-func (DeploymentRef) JSONSchemaAlias() any { return deploymentIdentityWire{} }
+func (DeploymentRef) JSONSchemaModel() any { return deploymentIdentityWire{} }
 
 func (d DeploymentRef) identityWire() deploymentIdentityWire {
 	return deploymentIdentityWire{

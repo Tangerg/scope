@@ -4,10 +4,13 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
 	lumaoption "github.com/lumalabs/luma-agents-go/option"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -23,20 +26,38 @@ func (a apiConfig) validate() error {
 	return nil
 }
 
+// The SDK's default client factory is private; an origin-bound client must
+// preserve its header wait limit without imposing a deadline on response bodies.
+func (a apiConfig) httpClient() *http.Client {
+	if a.HTTPClient != nil {
+		return a.HTTPClient
+	}
+	transport := http.DefaultTransport
+	if standard, ok := transport.(*http.Transport); ok && standard != nil {
+		owned := standard.Clone()
+		owned.ResponseHeaderTimeout = defaultResponseHeaderTimeout
+		transport = owned
+	}
+	return &http.Client{Transport: transport}
+}
+
 type api struct {
 	client *lumaagents.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.httpClient(), BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("luma: HTTP client: %w", err)
+	}
 	requestOptions := []lumaoption.RequestOption{
 		lumaoption.WithAuthToken(config.APIKey),
-		lumaoption.WithBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)),
-	}
-	if config.HTTPClient != nil {
-		requestOptions = append(requestOptions, lumaoption.WithHTTPClient(config.HTTPClient))
+		lumaoption.WithBaseURL(baseURL),
+		lumaoption.WithHTTPClient(boundClient),
 	}
 	return &api{client: lumaagents.NewClient(requestOptions...)}, nil
 }

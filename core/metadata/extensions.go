@@ -103,4 +103,4 @@ func validExtensionSegment(segment string) bool {
 	return true
 }
 
-func (Extensions) JSONSchemaAlias() any { return Map{} }
+func (Extensions) JSONSchemaModel() any { return Map{} }

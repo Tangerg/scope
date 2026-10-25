@@ -1,6 +1,8 @@
 package redis_test
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +12,12 @@ import (
 	"github.com/Tangerg/scope/historystores/redis"
 )
 
-func stubClient() goredis.UniversalClient {
+func stubClient() *goredis.Client {
 	return goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:0"})
+}
+
+func noEnumeration(context.Context, func(context.Context, *goredis.Client) error) error {
+	return errors.New("unexpected enumeration")
 }
 
 func TestNewStoreRequiresClient(t *testing.T) {
@@ -34,8 +40,9 @@ func TestNewStoreRequiresClient(t *testing.T) {
 
 func TestNewStoreRejectsNegativeTTL(t *testing.T) {
 	_, err := redis.NewStore(t.Context(), redis.StoreConfig{
-		Client: stubClient(),
-		TTL:    -1 * time.Second,
+		Client:    stubClient(),
+		ScanNodes: noEnumeration,
+		TTL:       -1 * time.Second,
 	})
 	if err == nil {
 		t.Fatal("expected error on negative TTL")
@@ -43,7 +50,13 @@ func TestNewStoreRejectsNegativeTTL(t *testing.T) {
 }
 
 func TestNewStoreDefaultsKeyPrefix(t *testing.T) {
-	if _, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: stubClient()}); err != nil {
+	if _, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: stubClient(), ScanNodes: noEnumeration}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewStoreRequiresCompleteKeyspaceCapability(t *testing.T) {
+	if _, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: stubClient()}); err == nil {
+		t.Fatal("client routing does not establish complete keyspace enumeration")
 	}
 }

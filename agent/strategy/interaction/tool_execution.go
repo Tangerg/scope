@@ -219,7 +219,9 @@ func (t *toolExecution) acceptResult(envelope signalEnvelope) (agent.Transition,
 		return agent.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	if outcome.AdvertisementFailure != "" {
-		return stepfail.Transition(1, agent.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
+		// Failed termination has no output owner. The mailbox must retain the
+		// completed call for recovery and result projection instead of consuming it.
+		return stepfail.Transition(0, agent.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
 	}
 	output, err := agent.EncodePayload(result)
 	if err != nil {

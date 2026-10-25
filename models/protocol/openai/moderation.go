@@ -46,12 +46,12 @@ type ModerationModel struct {
 	defaultOptions moderation.Options
 }
 
-func NewModerationModel(_ context.Context, config ModerationModelConfig) (*ModerationModel, error) {
+func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*ModerationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -89,6 +89,9 @@ func (m *ModerationModel) buildAPIModerationRequest(req *moderation.Request) (*o
 }
 
 func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResponse) (*moderation.Response, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("%w: openai: moderation response is null", moderation.ErrInvalidResponse)
+	}
 	outputs := make([]*moderation.Output, 0, len(resp.Results))
 
 	for _, item := range resp.Results {

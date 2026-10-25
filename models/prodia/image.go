@@ -43,11 +43,11 @@ type ImageModel struct {
 	defaultOptions image.Options
 }
 
-func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	for _, field := range []string{"type"} {
+	for _, field := range []string{fieldType} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
 		}
@@ -78,10 +78,10 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		return nil, err
 	}
 	apiReq.Type = effectiveOptions.Model
-	if !strings.Contains(apiReq.Type, ".txt2img.") {
+	if !strings.Contains(apiReq.Type, textToImageJobSegment) {
 		return nil, errors.New("prodia: image model requires a text-to-image job type containing .txt2img")
 	}
-	for _, field := range []string{"prompt", "negative_prompt", "width", "height", "seed"} {
+	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldWidth, fieldHeight, fieldSeed} {
 		if _, exists := apiReq.Config[field]; exists {
 			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
 		}
@@ -92,18 +92,18 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 			configErr = apiReq.setConfig(field, value)
 		}
 	}
-	setConfig("prompt", req.Prompt)
+	setConfig(fieldPrompt, req.Prompt)
 	if effectiveOptions.NegativePrompt != "" {
-		setConfig("negative_prompt", effectiveOptions.NegativePrompt)
+		setConfig(fieldNegativePrompt, effectiveOptions.NegativePrompt)
 	}
 	if effectiveOptions.Width != nil {
-		setConfig("width", *effectiveOptions.Width)
+		setConfig(fieldWidth, *effectiveOptions.Width)
 	}
 	if effectiveOptions.Height != nil {
-		setConfig("height", *effectiveOptions.Height)
+		setConfig(fieldHeight, *effectiveOptions.Height)
 	}
 	if effectiveOptions.Seed != nil {
-		setConfig("seed", *effectiveOptions.Seed)
+		setConfig(fieldSeed, *effectiveOptions.Seed)
 	}
 	if configErr != nil {
 		return nil, configErr
@@ -111,7 +111,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 
 	accept := effectiveOptions.OutputFormat
 	switch accept {
-	case "", "image/jpeg", "image/png", "image/webp":
+	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
 	default:
 		return nil, errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")
 	}
@@ -120,12 +120,12 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		return nil, err
 	}
 
-	mimeType := hdr.Get("Content-Type")
+	mimeType := hdr.Get(headerContentType)
 	if mimeType == "" {
 		mimeType = accept
 	}
 	if mimeType == "" {
-		mimeType = "application/octet-stream"
+		mimeType = mediaTypeBinary
 	}
 	value, err := media.NewBytes(mimeType, body)
 	if err != nil {
@@ -138,7 +138,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	}
 
 	metadata := &image.ResponseMetadata{}
-	if err := metadata.Extra.Set("prodia/job_type", apiReq.Type); err != nil {
+	if err := metadata.Extra.Set(metadataJobType, apiReq.Type); err != nil {
 		return nil, err
 	}
 	return image.NewResponse([]*image.Output{output}, metadata)

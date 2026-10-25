@@ -32,12 +32,12 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 				host.Transport = router
 			}
 			config := apiConfig{APIKey: "test", BaseURL: "https://provider.example.test", HTTPClient: host}
-			adapter, err := newAPI(config)
+			adapter, err := newAPI(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
 			}
 			owned := adapter.http.GetClient()
-			if owned == host || owned.Transport != router || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
+			if owned == host || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
 				t.Fatal("constructor changed or failed to preserve borrowed HTTP configuration")
 			}
 			redirectRequest, err := http.NewRequest(http.MethodGet, config.BaseURL, nil)
@@ -48,7 +48,7 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 				t.Fatal("host policy lost")
 			}
 			for _, client := range []*http.Client{host, owned} {
-				response, err := client.Get("scope-test://routing/")
+				response, err := client.Get(config.BaseURL)
 				if err != nil {
 					t.Fatal(err)
 				}

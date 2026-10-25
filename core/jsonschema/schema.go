@@ -3,28 +3,27 @@ package jsonschema
 
 import (
 	"bytes"
-	"encoding"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"reflect"
 	"strconv"
-	"strings"
-	"time"
 
 	reflection "github.com/invopop/jsonschema"
 	validation "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const (
-	maxDocumentBytes = 1 << 20
-	definitionPrefix = "#/$defs/"
-	resourceURL      = "urn:scope:json-schema"
+	maxDocumentBytes      = 1 << 20
+	definitionPrefix      = "#/$defs/"
+	resourceURL           = "urn:scope:json-schema"
+	schemaTypeNull        = "null"
+	schemaTypeString      = "string"
+	schemaTypeNumber      = "number"
+	schemaTypeInteger     = "integer"
+	base64ContentEncoding = "base64"
 )
 
 var (
@@ -34,12 +33,14 @@ var (
 
 // Modeler is implemented by values whose encoding/json/v2 representation is
 // described by a separate typed model. Implementations must use a value
-// receiver; nested and recursive models share one schema definition set.
+// receiver; nested and recursive models share one schema definition set. Each
+// domain type retains its own constraints, so sharing a wire model never couples
+// unrelated domain rules.
 type Modeler interface {
-	// JSONSchemaAlias returns a non-nil typed value whose encoding/json/v2 wire shape
+	// JSONSchemaModel returns a non-nil typed value whose encoding/json/v2 wire shape
 	// exactly matches the receiver's custom encoding. The concrete model type is
 	// part of the schema contract and must remain stable across calls.
-	JSONSchemaAlias() any
+	JSONSchemaModel() any
 }
 
 // Enumerator is implemented by named string types whose JSON value is one of a
@@ -71,38 +72,40 @@ type Constraints struct {
 	Properties map[string]Constraints
 }
 
-func (c Constraints) apply(schema *reflection.Schema) error {
+func (c Constraints) schema(shape *reflection.Schema, definitions reflection.Definitions) (*reflection.Schema, error) {
+	schema := &reflection.Schema{
+		MinLength: c.MinLength, MaxLength: c.MaxLength,
+		MinItems: c.MinItems, MaxItems: c.MaxItems,
+	}
 	if c.Minimum != nil {
 		schema.Minimum = json.Number(strconv.FormatFloat(*c.Minimum, 'g', -1, 64))
 	}
 	if c.Maximum != nil {
 		schema.Maximum = json.Number(strconv.FormatFloat(*c.Maximum, 'g', -1, 64))
 	}
-	if c.MinLength != nil {
-		schema.MinLength = c.MinLength
+	if len(c.Properties) == 0 {
+		return schema, nil
 	}
-	if c.MaxLength != nil {
-		schema.MaxLength = c.MaxLength
+	shape, err := constraintObjectShape(shape, definitions)
+	if err != nil {
+		return nil, err
 	}
-	if c.MinItems != nil {
-		schema.MinItems = c.MinItems
-	}
-	if c.MaxItems != nil {
-		schema.MaxItems = c.MaxItems
-	}
+	schema.Properties = reflection.NewProperties()
 	for name, constraint := range c.Properties {
-		if schema.Properties == nil {
-			return fmt.Errorf("constraint names unknown property %q", name)
+		if shape == nil || shape.Properties == nil {
+			return nil, fmt.Errorf("constraint names unknown property %q", name)
 		}
-		property, exists := schema.Properties.Get(name)
+		property, exists := shape.Properties.Get(name)
 		if !exists {
-			return fmt.Errorf("constraint names unknown property %q", name)
+			return nil, fmt.Errorf("constraint names unknown property %q", name)
 		}
-		if err := constraint.apply(property); err != nil {
-			return err
+		projected, err := constraint.schema(property, definitions)
+		if err != nil {
+			return nil, err
 		}
+		schema.Properties.Set(name, projected)
 	}
-	return nil
+	return schema, nil
 }
 
 // Schema is an immutable, compiled JSON Schema. Its zero value is invalid and
@@ -157,153 +160,6 @@ func Parse(raw []byte) (Schema, error) {
 		return Schema{}, fmt.Errorf("%w: compile: %w", ErrInvalid, err)
 	}
 	return Schema{raw: normalized, compiled: compiled}, nil
-}
-
-func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("unsupported type: %v", recovered)
-		}
-	}()
-	named := make(map[string]reflect.Type)
-	reflector := reflection.Reflector{
-		Anonymous: true,
-		Mapper:    reflectWireType,
-		Namer: func(typeOf reflect.Type) string {
-			name := qualifiedTypeName(typeOf)
-			named[name] = typeOf
-			return name
-		},
-	}
-	reflected := reflector.ReflectFromType(typeOf)
-	for name, definition := range reflected.Definitions {
-		if owner := named[name]; owner != nil && owner.Implements(reflect.TypeFor[Constrained]()) {
-			constraint := reflect.Zero(owner).Interface().(Constrained).JSONSchemaConstraints()
-			if err := constraint.apply(definition); err != nil {
-				return nil, err
-			}
-		}
-	}
-	name, referenced := strings.CutPrefix(reflected.Ref, definitionPrefix)
-	if !referenced {
-		return reflected, nil
-	}
-	root, exists := reflected.Definitions[name]
-	if !exists {
-		return nil, fmt.Errorf("root definition %q is missing", name)
-	}
-	expanded := *root
-	expanded.Version = reflected.Version
-	expanded.Definitions = reflected.Definitions
-	return &expanded, nil
-}
-
-func reflectWireType(typeOf reflect.Type) *reflection.Schema {
-	requireValueReceiver(typeOf, reflect.TypeFor[Modeler](), "JSONSchemaAlias")
-	requireValueReceiver(typeOf, reflect.TypeFor[Enumerator](), "JSONSchemaEnum")
-	requireValueReceiver(typeOf, reflect.TypeFor[Patterned](), "JSONSchemaPattern")
-	requireValueReceiver(typeOf, reflect.TypeFor[Constrained](), "JSONSchemaConstraints")
-	switch typeOf {
-	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP](), reflect.TypeFor[url.URL]():
-		return nil
-	case reflect.TypeFor[json.Number]():
-		return &reflection.Schema{Type: "number"}
-	}
-	stringModel := typeOf.Kind() == reflect.String && (typeOf.Implements(reflect.TypeFor[Enumerator]()) || typeOf.Implements(reflect.TypeFor[Patterned]()))
-	if !stringModel {
-		for _, codec := range []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[jsonv2.MarshalerTo](), reflect.TypeFor[encoding.TextMarshaler]()} {
-			if typeOf.Implements(codec) || reflect.PointerTo(typeOf).Implements(codec) {
-				panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaAlias", typeOf))
-			}
-		}
-
-	}
-	if typeOf == reflect.TypeFor[[]byte]() {
-		return &reflection.Schema{OneOf: []*reflection.Schema{
-			{Type: "null"},
-			{Type: "string", ContentEncoding: "base64"},
-		}}
-	}
-	var minimum, maximum string
-	switch typeOf.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		bound := int64(^uint64(0) >> (65 - typeOf.Bits()))
-		minimum = strconv.FormatInt(-bound-1, 10)
-		maximum = strconv.FormatInt(bound, 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		minimum = "0"
-		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
-	default:
-		value := reflect.Zero(typeOf).Interface()
-		if constraint, ok := value.(Constrained); ok && typeOf.Kind() != reflect.Struct {
-			definition := stringConstraint(value)
-			if definition == nil {
-				switch typeOf.Kind() {
-				case reflect.Float32, reflect.Float64:
-					definition = &reflection.Schema{Type: "number"}
-				case reflect.String:
-					definition = &reflection.Schema{Type: "string"}
-				default:
-					panic("constraints require a supported scalar or struct")
-				}
-			}
-			owned := &reflection.Schema{}
-			if err := constraint.JSONSchemaConstraints().apply(owned); err != nil {
-				panic(err)
-			}
-			definition.AllOf = append(definition.AllOf, owned)
-			return definition
-		}
-		return stringConstraint(value)
-	}
-	// The reflector writes field tags onto the outer schema. Keeping machine
-	// bounds in an intersection lets tags narrow them without widening the type.
-	definition := &reflection.Schema{Type: "integer", AllOf: []*reflection.Schema{{Minimum: json.Number(minimum), Maximum: json.Number(maximum)}}}
-	if owner, ok := reflect.Zero(typeOf).Interface().(Constrained); ok {
-		constraint := &reflection.Schema{}
-		if err := owner.JSONSchemaConstraints().apply(constraint); err != nil {
-			panic(err)
-		}
-		definition.AllOf = append(definition.AllOf, constraint)
-	}
-	return definition
-}
-
-func requireValueReceiver(typeOf, iface reflect.Type, method string) {
-	if !typeOf.Implements(iface) && reflect.PointerTo(typeOf).Implements(iface) {
-		panic(fmt.Sprintf("%v.%s requires a value receiver", typeOf, method))
-	}
-}
-
-// stringConstraint derives the vocabulary a named string type owns. Enum and
-// pattern live in an intersection so field tags written onto the outer schema can
-// only narrow the owned set, never widen or replace it, mirroring integer bounds.
-// A type that owns both an enum and a pattern contributes both; neither is dropped.
-func stringConstraint(value any) *reflection.Schema {
-	var owned []*reflection.Schema
-	if enumerator, ok := value.(Enumerator); ok {
-		members := enumerator.JSONSchemaEnum()
-		enum := make([]any, len(members))
-		for index, member := range members {
-			enum[index] = member
-		}
-		owned = append(owned, &reflection.Schema{Enum: enum})
-	}
-	if patterned, ok := value.(Patterned); ok {
-		owned = append(owned, &reflection.Schema{Pattern: patterned.JSONSchemaPattern()})
-	}
-	if owned == nil {
-		return nil
-	}
-	return &reflection.Schema{Type: "string", AllOf: owned}
-}
-
-func qualifiedTypeName(typeOf reflect.Type) string {
-	if typeOf.Name() == "" || typeOf.PkgPath() == "" {
-		return ""
-	}
-	packageName := base64.RawURLEncoding.EncodeToString([]byte(typeOf.PkgPath()))
-	return "go_" + packageName + "_" + typeOf.Name()
 }
 
 func normalize(raw []byte) (json.RawMessage, error) {

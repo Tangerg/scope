@@ -35,7 +35,8 @@ type StoreConfig struct {
 	APIKey          string
 	CorpusKey       string
 	DocumentBatcher vectorstore.Batcher
-	// HTTPClient owns transport and request lifetime; Scope never retries calls.
+	// HTTPClient remains host-owned. Scope snapshots client settings and
+	// restricts requests to Endpoint's origin while sharing its transport and jar.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }

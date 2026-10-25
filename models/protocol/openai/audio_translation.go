@@ -53,12 +53,12 @@ type AudioTranslationModel struct {
 	defaultOptions transcription.Options
 }
 
-func NewAudioTranslationModel(_ context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
+func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -115,7 +115,7 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 		return nil, err
 	}
 
-	if !apiResp.JSON.Text.Valid() {
+	if apiResp == nil || !apiResp.JSON.Text.Valid() {
 		return nil, fmt.Errorf("%w: openai: translation requires text", transcription.ErrInvalidResponse)
 	}
 	output, err := transcription.NewOutput(apiResp.Text, nil)

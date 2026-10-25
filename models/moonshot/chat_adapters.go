@@ -45,7 +45,10 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.ReasoningContentReplayDialect("moonshot")
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "moonshot", Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways})
+	if err != nil {
+		return nil, fmt.Errorf("moonshot: configure reasoning dialect: %w", err)
+	}
 	dialect.PrepareRequest = prepareOpenAIRequest
 	dialect.DisableRawRequestExtension = true
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens

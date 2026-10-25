@@ -9,107 +9,47 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-type responsesStreamTool struct {
-	itemID        string
-	callID        string
-	name          string
-	open          bool
-	arguments     []byte
-	argumentsDone bool
-}
-
 type responsesStreamState struct {
 	responseExtensionKey string
 	responseID           string
 	model                string
 	createdAt            time.Time
-	tools                map[int64]responsesStreamTool
+	tools                responsesStreamTools
+	content              responsesStreamContent
 	reasoning            map[string]responsesReasoningSegment
 }
 
 func newResponsesStreamState(extensionKey string) *responsesStreamState {
 	return &responsesStreamState{
 		responseExtensionKey: extensionKey,
-		tools:                make(map[int64]responsesStreamTool), reasoning: make(map[string]responsesReasoningSegment),
+		tools:                make(responsesStreamTools),
+		content:              make(responsesStreamContent),
+		reasoning:            make(map[string]responsesReasoningSegment),
 	}
 }
 
-func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion) (*corechat.ResponseDelta, bool, error) {
+func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion) (*corechat.ResponseDelta, error) {
+	var part *corechat.PartDelta
+	var err error
 	switch typed := event.AsAny().(type) {
 	case responses.ResponseCreatedEvent:
-		return nil, false, r.bindResponseIdentity(typed.Response)
+		return nil, r.bindResponseIdentity(typed.Response)
 	case responses.ResponseOutputItemAddedEvent:
-		if typed.Item.Type != responsesItemTypeFunctionCall {
-			return nil, false, nil
-		}
-		call := typed.Item.AsFunctionCall()
-		if !typed.JSON.OutputIndex.Valid() || typed.OutputIndex < 0 || call.CallID == "" || call.Name == "" || !call.JSON.Arguments.Valid() {
-			return nil, false, fmt.Errorf("openai responses: %w: function call lacks a valid index, call ID, or name", corechat.ErrInvalidResponse)
-		}
-		if _, exists := r.tools[typed.OutputIndex]; exists {
-			return nil, false, fmt.Errorf("openai responses: %w: tool item %d added twice", corechat.ErrInvalidResponse, typed.OutputIndex)
-		}
-		for _, other := range r.tools {
-			if other.callID == call.CallID {
-				return nil, false, fmt.Errorf("openai responses: %w: tool identity reused at output index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
-			}
-		}
-		tool, err := r.bindToolItemID(typed.OutputIndex, responsesStreamTool{callID: call.CallID, name: call.Name, arguments: []byte(call.Arguments), open: true}, call.ID)
-		if err != nil {
-			return nil, false, err
-		}
-		response, include, err := r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: call.CallID, Name: call.Name, Arguments: call.Arguments}))
-		if err == nil {
-			r.tools[typed.OutputIndex] = tool
-		}
-		return response, include, err
+		part, err = r.tools.add(typed)
 	case responses.ResponseTextDeltaEvent:
-		if typed.Delta == "" {
-			return nil, false, nil
-		}
-		return r.deltaResponse(corechat.NewTextDelta(typed.Delta))
+		part, err = r.content.addText(typed)
 	case responses.ResponseOutputTextAnnotationAddedEvent:
-		citation, include, err := responsesStreamCitation(typed.Annotation)
-		if err != nil || !include {
-			return nil, false, err
+		citation, include, citationErr := responsesStreamCitation(typed.Annotation)
+		if citationErr != nil || !include {
+			return nil, citationErr
 		}
 		return r.deltaResponse(corechat.NewCitationDelta(citation))
 	case responses.ResponseRefusalDeltaEvent:
-		if typed.Delta == "" {
-			return nil, false, nil
-		}
-		return r.deltaResponse(corechat.NewRefusalDelta(typed.Delta))
+		part, err = r.content.addRefusal(typed)
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
-		tool, exists := r.tools[typed.OutputIndex]
-		if !typed.JSON.OutputIndex.Valid() || !exists || !tool.open || tool.argumentsDone || typed.ItemID == "" {
-			return nil, false, fmt.Errorf("openai responses: %w: arguments delta for closed, unknown, or unidentified tool item %q at index %d", corechat.ErrInvalidResponse, typed.ItemID, typed.OutputIndex)
-		}
-		tool, err := r.bindToolItemID(typed.OutputIndex, tool, typed.ItemID)
-		if err != nil {
-			return nil, false, err
-		}
-		if typed.Delta == "" {
-			r.tools[typed.OutputIndex] = tool
-			return nil, false, nil
-		}
-		response, include, err := r.deltaResponse(corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: tool.callID, Name: tool.name, Arguments: typed.Delta}))
-		if err == nil {
-			tool.arguments = append(tool.arguments, typed.Delta...)
-			r.tools[typed.OutputIndex] = tool
-		}
-		return response, include, err
+		part, err = r.tools.appendArguments(typed)
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
-		tool, exists := r.tools[typed.OutputIndex]
-		if !typed.JSON.OutputIndex.Valid() || !typed.JSON.Arguments.Valid() || !exists || !tool.open || tool.argumentsDone || typed.ItemID == "" || string(tool.arguments) != typed.Arguments {
-			return nil, false, fmt.Errorf("%w: openai responses: arguments completion changed, duplicated, or omitted tool arguments", corechat.ErrInvalidResponse)
-		}
-		tool, err := r.bindToolItemID(typed.OutputIndex, tool, typed.ItemID)
-		if err != nil {
-			return nil, false, err
-		}
-		tool.argumentsDone = true
-		r.tools[typed.OutputIndex] = tool
-		return nil, false, nil
+		return nil, r.tools.finishArguments(typed)
 	case responses.ResponseReasoningTextDeltaEvent:
 		return r.reasoningDelta(typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
@@ -124,50 +64,13 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		})
 	case responses.ResponseContentPartAddedEvent:
 		if typed.Part.Type != responsesReasoningContentText {
-			return nil, false, nil
+			return nil, nil
 		}
 		return r.reasoningDelta(typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseOutputItemDoneEvent:
-		if typed.Item.Type == responsesItemTypeFunctionCall {
-			call := typed.Item.AsFunctionCall()
-			tool, exists := r.tools[typed.OutputIndex]
-			if !typed.JSON.OutputIndex.Valid() || !exists || !tool.open || !tool.matchesCall(call) {
-				return nil, false, fmt.Errorf("openai responses: %w: completion of closed, unknown, or changed tool item at index %d", corechat.ErrInvalidResponse, typed.OutputIndex)
-			}
-			tool, err := r.bindToolItemID(typed.OutputIndex, tool, call.ID)
-			if err != nil {
-				return nil, false, err
-			}
-			tool.open = false
-			r.tools[typed.OutputIndex] = tool
-			return nil, false, nil
-		}
-		if typed.Item.Type != responsesItemTypeReasoning {
-			return nil, false, nil
-		}
-		reasoning := typed.Item.AsReasoning()
-		state, err := completedResponsesReasoningState(reasoning)
-		if err != nil {
-			return nil, false, fmt.Errorf("openai responses: stream reasoning item: %w", err)
-		}
-		frame, err := encodeResponsesReasoningFrame(state)
-		if err != nil {
-			return nil, false, fmt.Errorf("openai responses: stream reasoning item: %w", err)
-		}
-		part := corechat.NewReasoningDelta("", frame)
-		if segment, exists := r.reasoning[reasoning.ID]; exists {
-			err = part.Metadata.Set(responsesReasoningIdentityKey, segment)
-		} else {
-			err = part.Metadata.Set(responsesReasoningIdentityKey, struct {
-				ItemID string `json:"item_id"`
-			}{ItemID: reasoning.ID})
-		}
-		if err != nil {
-			return nil, false, err
-		}
-		return r.deltaResponse(part)
+		return r.finishItem(typed)
 	case responses.ResponseCompletedEvent:
 		return r.terminalDelta(typed.Response, responses.ResponseStatusCompleted)
 	case responses.ResponseIncompleteEvent:
@@ -175,14 +78,42 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	case responses.ResponseFailedEvent:
 		return r.terminalDelta(typed.Response, responses.ResponseStatusFailed)
 	case responses.ResponseErrorEvent:
-		return nil, false, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
-	default:
-		return nil, false, nil
+		return nil, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
 	}
+	if err != nil || part == nil {
+		return nil, err
+	}
+	return r.deltaResponse(*part)
 }
 
-func (r responsesStreamTool) matchesCall(call responses.ResponseFunctionToolCall) bool {
-	return r.callID == call.CallID && r.name == call.Name && call.JSON.Arguments.Valid() && string(r.arguments) == call.Arguments
+func (r *responsesStreamState) finishItem(event responses.ResponseOutputItemDoneEvent) (*corechat.ResponseDelta, error) {
+	if event.Item.Type == responsesItemTypeFunctionCall {
+		return nil, r.tools.finishItem(event)
+	}
+	if event.Item.Type != responsesItemTypeReasoning {
+		return nil, nil
+	}
+	reasoning := event.Item.AsReasoning()
+	state, err := completedResponsesReasoningState(reasoning)
+	if err != nil {
+		return nil, fmt.Errorf("openai responses: stream reasoning item: %w", err)
+	}
+	frame, err := encodeResponsesReasoningFrame(state)
+	if err != nil {
+		return nil, fmt.Errorf("openai responses: stream reasoning item: %w", err)
+	}
+	part := corechat.NewReasoningDelta("", frame)
+	if segment, exists := r.reasoning[reasoning.ID]; exists {
+		err = part.Metadata.Set(responsesReasoningIdentityKey, segment)
+	} else {
+		err = part.Metadata.Set(responsesReasoningIdentityKey, struct {
+			ItemID string `json:"item_id"`
+		}{ItemID: reasoning.ID})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.deltaResponse(part)
 }
 
 func (r *responsesStreamState) bindResponseIdentity(response responses.Response) error {
@@ -208,81 +139,46 @@ func (r *responsesStreamState) bindResponseIdentity(response responses.Response)
 	return nil
 }
 
-func (r *responsesStreamState) terminalDelta(response responses.Response, status responses.ResponseStatus) (*corechat.ResponseDelta, bool, error) {
+func (r *responsesStreamState) terminalDelta(response responses.Response, status responses.ResponseStatus) (*corechat.ResponseDelta, error) {
 	if response.Status != status {
-		return nil, false, fmt.Errorf("%w: openai responses: response.%s carries status %q", corechat.ErrInvalidResponse, status, response.Status)
+		return nil, fmt.Errorf("%w: openai responses: response.%s carries status %q", corechat.ErrInvalidResponse, status, response.Status)
 	}
 	if err := r.bindResponseIdentity(response); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if status != responses.ResponseStatusFailed {
-		if err := r.validateTerminalTools(response); err != nil {
-			return nil, false, err
+		if err := r.tools.validateTerminal(response); err != nil {
+			return nil, err
+		}
+		if err := r.content.validateTerminal(response); err != nil {
+			return nil, err
 		}
 	}
-	delta, err := responsesTerminalDelta(&response, r.responseExtensionKey)
-	return delta, err == nil, err
+	return responsesTerminalDelta(&response, r.responseExtensionKey)
 }
 
-func (r *responsesStreamState) bindToolItemID(index int64, tool responsesStreamTool, itemID string) (responsesStreamTool, error) {
-	if itemID == "" || tool.itemID == itemID {
-		return tool, nil
-	}
-	if tool.itemID != "" {
-		return responsesStreamTool{}, fmt.Errorf("openai responses: %w: tool item %d changed native identity from %q to %q", corechat.ErrInvalidResponse, index, tool.itemID, itemID)
-	}
-	for otherIndex, other := range r.tools {
-		if otherIndex != index && other.itemID == itemID {
-			return responsesStreamTool{}, fmt.Errorf("openai responses: %w: native tool identity %q reused at output index %d", corechat.ErrInvalidResponse, itemID, index)
-		}
-	}
-	tool.itemID = itemID
-	return tool, nil
-}
-
-func (r *responsesStreamState) validateTerminalTools(response responses.Response) error {
-	for index, tool := range r.tools {
-		if response.Status == responses.ResponseStatusCompleted && tool.open {
-			return fmt.Errorf("openai responses: %w: tool item %d is still open at response.completed", corechat.ErrInvalidResponse, index)
-		}
-		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeFunctionCall {
-			return fmt.Errorf("openai responses: %w: terminal response omitted tool item at index %d", corechat.ErrInvalidResponse, index)
-		}
-		call := response.Output[index].AsFunctionCall()
-		if !tool.matchesCall(call) {
-			return fmt.Errorf("openai responses: %w: terminal response changed tool call identity at index %d", corechat.ErrInvalidResponse, index)
-		}
-		identified, err := r.bindToolItemID(index, tool, call.ID)
-		if err != nil {
-			return err
-		}
-		r.tools[index] = identified
-	}
-	return nil
-}
-
-func (r *responsesStreamState) reasoningDelta(text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, bool, error) {
+func (r *responsesStreamState) reasoningDelta(text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, error) {
 	frame, err := encodeResponsesReasoningFrame(responsesReasoningState{Segment: &segment})
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	part := corechat.NewReasoningDelta(text, frame)
 	if err := part.Metadata.Set(responsesReasoningIdentityKey, segment); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	r.reasoning[segment.ItemID] = segment
 	return r.deltaResponse(part)
 }
 
-func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, bool, error) {
+func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, error) {
 	response := &corechat.ResponseDelta{
 		Parts:    []corechat.PartDelta{part},
 		Metadata: &corechat.ResponseMetadata{ID: r.responseID, Model: r.model, CreatedAt: r.createdAt},
 	}
 	if err := response.Validate(); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return response, true, nil
+	return response, nil
 }
 
 func responsesStreamCitation(annotation responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion) (corechat.Citation, bool, error) {

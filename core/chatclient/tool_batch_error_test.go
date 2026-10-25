@@ -11,6 +11,25 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
+func TestToolBatchDoesNotClaimNestedModelNonExecution(t *testing.T) {
+	cause := &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("nested provider rejected the call")}
+	toolCalls := 0
+	middleware, err := NewSingleBatchToolMiddleware(middlewareTool{name: "write", call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) {
+		toolCalls++
+		return chat.ToolOutput{}, cause
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return toolCallResponse(chat.ToolCall{ID: "write", Name: "write", Arguments: `{"value":"one"}`}), nil
+	}))
+	response, err := model.Call(t.Context(), textRequest("write"))
+	if response != nil || toolCalls != 1 || chat.ClassifyFailure(err) != chat.CallFailureUnknown || !errors.Is(err, cause) {
+		t.Fatalf("nested failure escaped the Tool boundary: response=%v calls=%d error=%v", response, toolCalls, err)
+	}
+}
+
 func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 	for _, test := range []struct {
 		name          string

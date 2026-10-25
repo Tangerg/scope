@@ -3,22 +3,30 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.56.0
-	github.com/Tangerg/scope/models/anthropic v0.56.0
-	github.com/Tangerg/scope/models/assemblyai v0.56.0
-	github.com/Tangerg/scope/models/bedrock v0.56.0
-	github.com/Tangerg/scope/models/blackforestlabs v0.56.0
-	github.com/Tangerg/scope/models/gladia v0.56.0
-	github.com/Tangerg/scope/models/google v0.56.0
-	github.com/Tangerg/scope/models/luma v0.56.0
-	github.com/Tangerg/scope/models/mistral v0.56.0
-	github.com/Tangerg/scope/models/ollama v0.56.0
-	github.com/Tangerg/scope/models/openai v0.56.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.56.0
-	github.com/Tangerg/scope/models/protocol/openai v0.56.0
-	github.com/Tangerg/scope/models/replicate v0.56.0
-	github.com/Tangerg/scope/models/revai v0.56.0
-	github.com/Tangerg/scope/tools v0.56.0
+	github.com/Tangerg/scope/core v0.57.0
+	github.com/Tangerg/scope/models/anthropic v0.57.0
+	github.com/Tangerg/scope/models/assemblyai v0.57.0
+	github.com/Tangerg/scope/models/bedrock v0.57.0
+	github.com/Tangerg/scope/models/blackforestlabs v0.57.0
+	github.com/Tangerg/scope/models/cohere v0.57.0
+	github.com/Tangerg/scope/models/elevenlabs v0.57.0
+	github.com/Tangerg/scope/models/gladia v0.57.0
+	github.com/Tangerg/scope/models/google v0.57.0
+	github.com/Tangerg/scope/models/hume v0.57.0
+	github.com/Tangerg/scope/models/jina v0.57.0
+	github.com/Tangerg/scope/models/luma v0.57.0
+	github.com/Tangerg/scope/models/mistral v0.57.0
+	github.com/Tangerg/scope/models/nomic v0.57.0
+	github.com/Tangerg/scope/models/ollama v0.57.0
+	github.com/Tangerg/scope/models/openai v0.57.0
+	github.com/Tangerg/scope/models/openrouter v0.57.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.57.0
+	github.com/Tangerg/scope/models/protocol/openai v0.57.0
+	github.com/Tangerg/scope/models/replicate v0.57.0
+	github.com/Tangerg/scope/models/revai v0.57.0
+	github.com/Tangerg/scope/models/voyage v0.57.0
+	github.com/Tangerg/scope/models/xiaomi v0.57.0
+	github.com/Tangerg/scope/tools v0.57.0
 )
 
 require (
@@ -47,12 +55,14 @@ require (
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
+	github.com/cohere-ai/cohere-go/v2 v2.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect

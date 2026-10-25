@@ -57,7 +57,7 @@ func (t *ToolCallRef) UnmarshalText(text []byte) error {
 	return nil
 }
 
-func (ToolCallRef) JSONSchemaAlias() any { return "" }
+func (ToolCallRef) JSONSchemaModel() any { return "" }
 
 // ParseToolCallRef accepts only the canonical text encoding. Parsing restores a
 // reference, never an execution authority or a managed child identity.

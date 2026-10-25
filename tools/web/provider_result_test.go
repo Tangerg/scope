@@ -48,8 +48,8 @@ func TestTavilyFetchedContentRequiresPresence(t *testing.T) {
 		valid bool
 	}{
 		{`{"results":[{}]}`, false},
-		{`{"results":[{"raw_content":null}]}`, false},
-		{`{"results":[{"raw_content":""}]}`, true},
+		{`{"results":[{"url":"https://example.com","raw_content":null}]}`, false},
+		{`{"results":[{"url":"https://example.com","raw_content":""}]}`, true},
 	} {
 		t.Run(sample.body, func(t *testing.T) {
 			index := slices.IndexFunc(testProviders, func(provider testProvider) bool { return provider.name == "tavily" })

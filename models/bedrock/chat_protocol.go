@@ -126,7 +126,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		input, model, err := c.buildConverseStreamInput(req)
 		if err != nil {
-			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
+			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
 			return
 		}
 		stream, err := c.api.converseStream(ctx, input)

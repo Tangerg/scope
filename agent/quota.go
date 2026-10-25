@@ -69,7 +69,7 @@ func (q *Quota) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (Quota) JSONSchemaAlias() any { return quotaWire{} }
+func (Quota) JSONSchemaModel() any { return quotaWire{} }
 
 type quotaWire struct {
 	Maximum *uint64 `json:"maximum" jsonschema:"nullable"`

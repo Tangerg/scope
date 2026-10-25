@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -38,9 +39,9 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	client := config.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.Endpoint, DefaultEndpoint)})
+	if err != nil {
+		return nil, err
 	}
 	store := &Store{endpoint: strings.TrimRight(cmp.Or(config.Endpoint, DefaultEndpoint), "/"), apiKey: config.APIKey, corpusKey: config.CorpusKey, documentBatcher: config.DocumentBatcher, httpClient: client, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
 	if err := store.readCorpus(ctx); err != nil {

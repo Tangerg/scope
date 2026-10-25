@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -31,7 +33,7 @@ func (a apiConfig) validate() error {
 type api struct {
 	http     *resty.Client
 	download *resty.Client
-	baseURL  *url.URL
+	policy   outputPolicy
 	apiKey   string
 }
 
@@ -75,7 +77,6 @@ func (p predictionRunner) poll(ctx context.Context, id string) (*predictionRespo
 		case predictionStatusSucceeded:
 			return response, nil
 		case predictionStatusStarting, predictionStatusProcessing:
-			// The only two states Replicate documents as still running.
 		case predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
 			// Waiting out the poll deadline here would report a permanent
 			// provider verdict as a local timeout, and the caller's natural
@@ -99,103 +100,32 @@ func (p predictionRunner) poll(ctx context.Context, id string) (*predictionRespo
 	}
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	apiClient := &http.Client{}
-	if config.HTTPClient != nil {
-		*apiClient = *config.HTTPClient
-	}
-	if apiClient.Transport == nil {
-		apiClient.Transport = http.DefaultTransport
-	}
-	client := resty.NewWithClient(apiClient)
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
-	parsedBaseURL, err := url.Parse(baseURL)
-	if err != nil || (parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") || parsedBaseURL.Host == "" || parsedBaseURL.User != nil {
-		return nil, fmt.Errorf("replicate: invalid BaseURL %q", baseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("replicate: HTTP client: %w", err)
 	}
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("replicate: parse BaseURL: %w", err)
+	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey).
-		SetHeader("Content-Type", "application/json")
-	adapter := &api{http: client, baseURL: parsedBaseURL, apiKey: config.APIKey}
-	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient(config.HTTPClient))
+		SetHeader(headerContentType, mediaTypeJSON)
+	origin, err := httpclient.NewOrigin(ctx, parsedBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("replicate: output origin: %w", err)
+	}
+	adapter := &api{http: client, policy: outputPolicy{apiOrigin: origin}, apiKey: config.APIKey}
+	adapter.download = resty.NewWithClient(adapter.policy.client(config.HTTPClient))
 	return adapter, nil
-}
-
-// The borrowed client keeps its own redirect policy. Downloads validate each
-// destination and never forward credentials across origins, including ports.
-func (a *api) downloadHTTPClient(source *http.Client) *http.Client {
-	client := &http.Client{}
-	if source != nil {
-		*client = *source
-	}
-	if client.Transport == nil {
-		client.Transport = http.DefaultTransport
-	}
-	previous := client.CheckRedirect
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if err := a.validateOutputURL(request.URL); err != nil {
-			return err
-		}
-		if len(via) >= 10 {
-			return errors.New("replicate: stopped after 10 redirects")
-		}
-		if previous != nil {
-			if err := previous(request, via); err != nil {
-				return err
-			}
-		}
-		if err := a.validateOutputURL(request.URL); err != nil {
-			return err
-		}
-		if len(via) > 0 {
-			origin := via[len(via)-1].URL
-			if origin.Scheme == "https" && request.URL.Scheme != "https" {
-				return errors.New("replicate: HTTPS redirect downgrade is forbidden")
-			}
-			if !sameOrigin(origin, request.URL) {
-				request.Header.Del("Authorization")
-				request.Header.Del("Proxy-Authorization")
-				request.Header.Del("Cookie")
-			}
-		}
-		return nil
-	}
-	return client
-}
-
-func sameOrigin(left, right *url.URL) bool {
-	port := func(value *url.URL) string {
-		if value.Port() != "" {
-			return value.Port()
-		}
-		if value.Scheme == "https" {
-			return "443"
-		}
-		return "80"
-	}
-	return left.Scheme == right.Scheme && strings.EqualFold(left.Hostname(), right.Hostname()) && port(left) == port(right)
-}
-
-func (a *api) validateOutputURL(value *url.URL) error {
-	if value == nil || value.Host == "" || value.User != nil {
-		return errors.New("replicate: output URL must be absolute and contain no credentials")
-	}
-	if sameOrigin(value, a.baseURL) {
-		return nil
-	}
-	host := strings.ToLower(value.Hostname())
-	if host != "replicate.delivery" && !strings.HasSuffix(host, ".replicate.delivery") {
-		return fmt.Errorf("replicate: untrusted output host %q", host)
-	}
-	if value.Scheme != "https" || (value.Port() != "" && value.Port() != "443") {
-		return errors.New("replicate: output URL must use HTTPS on the standard port")
-	}
-	return nil
 }
 
 // predictionRequest contains the caller-controlled body fields shared by both
@@ -231,7 +161,7 @@ func (p predictionRequest) validate() error {
 	}
 	if p.Webhook != "" {
 		parsed, err := url.Parse(p.Webhook)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		if err != nil || parsed.Scheme != schemeHTTPS || parsed.Host == "" {
 			return fmt.Errorf("replicate: webhook must be an absolute HTTPS URL: %q", p.Webhook)
 		}
 	}
@@ -241,7 +171,7 @@ func (p predictionRequest) validate() error {
 	seenEvents := make(map[string]struct{}, len(p.WebhookEventsFilter))
 	for index, event := range p.WebhookEventsFilter {
 		switch event {
-		case "start", "output", "logs", "completed":
+		case webhookEventStart, webhookEventOutput, webhookEventLogs, webhookEventCompleted:
 		default:
 			return fmt.Errorf("replicate: webhook_events_filter[%d]: unsupported event %q", index, event)
 		}
@@ -362,14 +292,15 @@ func (a *api) createPrediction(ctx context.Context, modelID string, req *predict
 
 func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string, error) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, "", fmt.Errorf("replicate: invalid output URL %q", rawURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("replicate: parse output URL: %w", err)
 	}
-	if err = a.validateOutputURL(parsed); err != nil {
+	origin, err := a.policy.originFor(ctx, parsed)
+	if err != nil {
 		return nil, "", err
 	}
 	request := a.download.R().SetContext(ctx)
-	if sameOrigin(parsed, a.baseURL) {
+	if origin == a.policy.apiOrigin {
 		request.SetAuthToken(a.apiKey)
 	}
 	response, err := request.Get(rawURL)
@@ -382,7 +313,7 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("replicate: downloaded output is empty")
 	}
-	return response.Body(), response.Header().Get("Content-Type"), nil
+	return response.Body(), response.Header().Get(headerContentType), nil
 }
 
 // getPrediction polls a prediction's current state.
@@ -391,7 +322,7 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, errors.New("replicate: prediction id must not be empty")
 	}
 	var out predictionResponse
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get("/predictions/" + id)
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathPredictionPrefix + id)
 	if err != nil {
 		return nil, fmt.Errorf("replicate: poll failed: %w", err)
 	}

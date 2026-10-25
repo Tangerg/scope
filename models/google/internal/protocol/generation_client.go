@@ -115,7 +115,7 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 	dispatched := false
 	defer func() {
 		if err != nil && !dispatched {
-			err = fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err)
+			err = &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err}
 		}
 	}()
 	if config == nil {

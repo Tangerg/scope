@@ -204,7 +204,7 @@ remote_tag_commit() {
 }
 
 release_env() {
-  env \
+  env -u MODULE -u FAST \
     GOWORK="$release_root/go.work" \
     GOMODCACHE="$release_staged_modcache" \
     GONOPROXY=github.com/Tangerg/scope \

@@ -45,12 +45,12 @@ type EmbeddingModel struct {
 	defaultOptions embedding.Options
 }
 
-func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -92,6 +92,9 @@ func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*open
 // they arrive, and an input the provider never answered stays nil and fails
 // when the Response is built, naming the text that went unanswered.
 func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingResponse, expectedResults int) (*embedding.Response, error) {
+	if apiResp == nil {
+		return nil, fmt.Errorf("%w: openai: embedding response is null", embedding.ErrInvalidResponse)
+	}
 	meta := &embedding.ResponseMetadata{
 		Model: apiResp.Model,
 	}

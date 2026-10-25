@@ -51,8 +51,7 @@ func (c *CompatibleResponsesRequest) SetExtraField(name string, value any) error
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name {
 		return errors.New("openai responses: extra field name must be nonempty without surrounding whitespace")
 	}
-	switch name {
-	case "model", "input", "tools", "max_output_tokens", "temperature", "top_p", "stream", "parallel_tool_calls", "tool_choice", "reasoning", "text", "include", "store":
+	if responsesRequestField(name).typedOwner() {
 		return fmt.Errorf("openai responses: extra field %q already has a typed owner", name)
 	}
 	if c.extraFields == nil {

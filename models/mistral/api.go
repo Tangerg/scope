@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 const maximumErrorResponseBytes = 1 << 20
@@ -53,22 +55,20 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, err
 	}
+	client := resty.NewWithClient(boundClient)
 	client.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
 	client.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
 	client.
-		SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
+		SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey).
 		SetHeader("Content-Type", "application/json")
 	return &api{http: client}, nil

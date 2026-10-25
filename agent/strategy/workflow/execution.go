@@ -14,6 +14,12 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/internal/stepfail"
 )
 
+const (
+	singleBindingIdentityKind = "single"
+	singleChildWaitKey        = "workflow.child"
+	fanoutChildrenWaitKey     = "workflow.children"
+)
+
 type execution struct {
 	definition *Definition
 	state      executionState
@@ -196,10 +202,9 @@ func (e *execution) stage() Stage {
 }
 
 // singleBindingIdentity names the current single-child binding: its Stage,
-// selected case, and loop iteration. Its child and its wait key both derive
-// from it.
+// selected case, and loop iteration, so successive bindings cannot share a child.
 func (e *execution) singleBindingIdentity() []string {
-	return []string{"single", e.stage().id, e.state.SelectedCaseID, strconv.FormatUint(e.state.LoopIteration, 10)}
+	return []string{singleBindingIdentityKind, e.stage().id, e.state.SelectedCaseID, strconv.FormatUint(e.state.LoopIteration, 10)}
 }
 
 func (e *execution) childKey() (agent.ChildKey, error) {
@@ -210,7 +215,7 @@ func (e *execution) childKey() (agent.ChildKey, error) {
 // runs one bound child at a time and consumes its answer before the next, so a
 // fixed key never collides; WaitID owns the wait's identity.
 func (e *execution) waitKey() (agent.WaitKey, error) {
-	return agent.ParseWaitKey("workflow.child")
+	return agent.ParseWaitKey(singleChildWaitKey)
 }
 
 func (e *execution) finishLoopIteration(
@@ -420,7 +425,7 @@ func fanoutChildKey(stage Stage, index uint32) (agent.ChildKey, error) {
 // holds one fanout window wait at a time and consumes it before opening the next,
 // so a fixed key never collides; WaitID owns the wait's identity.
 func (e *execution) fanoutWaitKey() (agent.WaitKey, error) {
-	return agent.ParseWaitKey("workflow.children")
+	return agent.ParseWaitKey(fanoutChildrenWaitKey)
 }
 
 var _ agent.Execution = (*execution)(nil)

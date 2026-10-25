@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -197,7 +196,7 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 		payloads = append(payloads, payload.Bytes())
 	}
 	for i, payload := range payloads {
-		native, callErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert)}, "application/octet-stream", bytes.NewReader(payload))
+		native, callErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert)}, mediaTypeJSONL, bytes.NewReader(payload))
 		raw, readErr := s.readResponse(native, callErr)
 		if readErr != nil {
 			return readErr
@@ -290,113 +289,23 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
-	params := s.searchParameters(request, query)
-	allowed := make(map[string]struct{}, len(keys))
-	if request.Options.Filter != nil {
-		params.FilterBy = new(keyFilter(keys))
-		for _, key := range keys {
-			allowed[key] = struct{}{}
-		}
-	}
-	var results []*vectorstore.SearchResult
-	seen := make(map[string]struct{})
-	ranked := 0
-	total := -1
-	for page := 1; ; page++ {
-		params.Page = new(page)
-		body, encodeErr := jsonv2.Marshal(struct {
-			Searches []searchQuery `json:"searches"`
-		}{Searches: []searchQuery{*params}})
+	session := newSearchSession(s.schema, request.Options, *s.searchParameters(request, query), keys)
+	for {
+		body, encodeErr := session.requestBody()
 		if encodeErr != nil {
 			return nil, encodeErr
 		}
-		native, callErr := s.client.MultiSearchWithBody(ctx, nil, "application/json", bytes.NewReader(body))
+		native, callErr := s.client.MultiSearchWithBody(ctx, nil, mediaTypeJSON, bytes.NewReader(body))
 		raw, readErr := s.readResponse(native, callErr)
 		if readErr != nil {
 			return nil, readErr
 		}
-		var wire struct {
-			Results []struct {
-				Code   *int         `json:"code"`
-				Error  *string      `json:"error"`
-				Found  *int         `json:"found"`
-				Hits   *[]searchHit `json:"hits"`
-				Cutoff *bool        `json:"search_cutoff"`
-			} `json:"results"`
+		done, pageErr := session.admitPage(raw)
+		if pageErr != nil {
+			return nil, pageErr
 		}
-		if decodeErr := jsonv2.Unmarshal(raw, &wire); decodeErr != nil {
-			return nil, decodeErr
-		}
-		if len(wire.Results) != 1 {
-			return nil, errors.New("typesense: multi-search must return exactly one result")
-		}
-		output := wire.Results[0]
-		if output.Error != nil || (output.Code != nil && *output.Code >= 400) {
-			return nil, fmt.Errorf("typesense: native search failed: code %d: %s", lo.FromPtr(output.Code), lo.FromPtr(output.Error))
-		}
-		if output.Found == nil || *output.Found < 0 || output.Hits == nil || output.Cutoff == nil || *output.Cutoff {
-			return nil, errors.New("typesense: native search omitted a complete result count, hit array or cutoff acknowledgment")
-		}
-		if total == -1 {
-			total = *output.Found
-		} else if total != *output.Found {
-			return nil, errors.New("typesense: native result count changed during pagination")
-		}
-		for _, hit := range *output.Hits {
-			record, doc, decodeErr := s.schema.decodeDocument(hit.Document)
-			if decodeErr != nil {
-				return nil, decodeErr
-			}
-			if _, duplicate := seen[*record.ID]; duplicate {
-				return nil, errors.New("typesense: search repeated a native key")
-			}
-			seen[*record.ID] = struct{}{}
-			if request.Options.Filter != nil {
-				if _, member := allowed[*record.ID]; !member {
-					return nil, errors.New("typesense: native hit is outside Core membership")
-				}
-				values, valueErr := doc.Metadata.Values()
-				if valueErr != nil {
-					return nil, valueErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, values)
-				if matchErr != nil {
-					return nil, matchErr
-				}
-				if !matched {
-					return nil, errors.New("typesense: native hit changed Core membership during search")
-				}
-			}
-			score := vectorstore.Score(1 / float64(ranked+1))
-			if hit.VectorDistance != nil {
-				value := *hit.VectorDistance
-				if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 {
-					return nil, errors.New("typesense: native cosine distance is outside [0,2]")
-				}
-				if request.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
-					score = vectorstore.ScoreFromCosineDistance(value)
-				}
-			} else if request.Options.EffectiveMode() == vectorstore.SearchModeSemantic {
-				return nil, errors.New("typesense: semantic hit has no vector distance")
-			}
-			match, resultErr := vectorstore.NewSearchResult(doc, score)
-			if resultErr != nil {
-				return nil, resultErr
-			}
-			ranked++
-			if score >= request.Options.MinScore && ranked <= request.Options.ResultLimit() {
-				results = append(results, match)
-			}
-		}
-		expected := min(total, request.Options.ResultLimit())
-		if ranked > expected {
-			return nil, errors.New("typesense: native search returned more hits than its result budget")
-		}
-		if ranked == expected {
-			return &vectorstore.SearchResponse{Results: results}, nil
-		}
-		if len(*output.Hits) < *params.PerPage {
-			return nil, errors.New("typesense: native search ended before its reported result count")
+		if done {
+			return &vectorstore.SearchResponse{Results: session.results}, nil
 		}
 	}
 }
@@ -406,10 +315,10 @@ func (s *Store) searchParameters(request *vectorstore.SearchRequest, vector []fl
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		alpha = s.hybridAlpha
 	}
-	params := &searchQuery{MultiSearchCollectionParameters: api.MultiSearchCollectionParameters{Collection: new(s.collectionName), Q: new("*"), VectorQuery: new(formatVectorQuery(vector, request.Options.ResultLimit(), alpha)), PerPage: new(min(request.Options.ResultLimit(), MaxResultsPerPage))}}
+	params := &searchQuery{MultiSearchCollectionParameters: api.MultiSearchCollectionParameters{Collection: new(s.collectionName), Q: new(wildcardQuery), VectorQuery: new(formatVectorQuery(vector, request.Options.ResultLimit(), alpha)), PerPage: new(min(request.Options.ResultLimit(), MaxResultsPerPage))}}
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		params.Q = new(request.Query)
-		params.QueryBy = new("content")
+		params.QueryBy = new(fieldContent)
 	}
 	return params
 }
@@ -446,7 +355,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return nil
 }
 
-func keyFilter(keys []string) string { return "id:=[" + strings.Join(keys, ",") + "]" }
+func keyFilter(keys []string) string {
+	return fieldID + keyFilterOperator + strings.Join(keys, ",") + "]"
+}
 
 func validateImport(raw []byte, want int) error {
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
@@ -474,11 +385,6 @@ func validateImport(raw []byte, want int) error {
 	return nil
 }
 
-type searchHit struct {
-	Document       json.RawMessage `json:"document"`
-	VectorDistance *float64        `json:"vector_distance"`
-}
-
 type searchQuery struct {
 	api.MultiSearchCollectionParameters `json:",inline"`
 	EnableCurations                     bool `json:"enable_curations"`
@@ -486,17 +392,17 @@ type searchQuery struct {
 
 func formatVectorQuery(vector []float32, topK int, alpha *float32) string {
 	var query strings.Builder
-	query.WriteString("embedding:([")
+	query.WriteString(fieldEmbedding + vectorQueryStart)
 	for i, value := range vector {
 		if i > 0 {
 			query.WriteByte(',')
 		}
 		query.WriteString(strconv.FormatFloat(float64(value), 'g', -1, 32))
 	}
-	query.WriteString("], k: ")
+	query.WriteString(vectorQueryNeighbors)
 	query.WriteString(strconv.Itoa(topK))
 	if alpha != nil {
-		query.WriteString(", alpha: ")
+		query.WriteString(vectorQueryAlpha)
 		query.WriteString(strconv.FormatFloat(float64(*alpha), 'g', -1, 32))
 	}
 	query.WriteByte(')')

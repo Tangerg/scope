@@ -41,6 +41,6 @@ func TestResponses_BehaviorConformance(t *testing.T) {
 func writeResponsesBehaviorChunk(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/event-stream")
 	fmt.Fprint(writer, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"lifecycle\",\"model\":\"test-model\",\"status\":\"in_progress\"}}\n\n")
-	fmt.Fprint(writer, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ready\"}\n\n")
+	fmt.Fprint(writer, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"message-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ready\"}\n\n")
 	writer.(http.Flusher).Flush()
 }

@@ -34,7 +34,8 @@ type StoreConfig struct {
 	RankingProfile  string
 	EmbeddingModel  embedding.Model
 	DocumentBatcher vectorstore.Batcher
-	// HTTPClient owns authentication, transport policy, and connection lifetime.
+	// HTTPClient remains host-owned. Scope snapshots client settings and
+	// restricts requests to Endpoint's origin while sharing its transport and jar.
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }

@@ -165,8 +165,8 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 
 type wireOptions Options
 
-func (Options) JSONSchemaAlias() any { return wireOptions{} }
+func (Options) JSONSchemaModel() any { return wireOptions{} }
 
 type wireRequest Request
 
-func (Request) JSONSchemaAlias() any { return wireRequest{} }
+func (Request) JSONSchemaModel() any { return wireRequest{} }

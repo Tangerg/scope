@@ -285,7 +285,7 @@ func (c *ChildOutcome) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (ChildOutcome) JSONSchemaAlias() any { return childOutcomeWire{} }
+func (ChildOutcome) JSONSchemaModel() any { return childOutcomeWire{} }
 
 // ChildWaitSatisfied is one condition-satisfying, request-ordered child result
 // set. For any or quorum it includes every child at the requested boundary at

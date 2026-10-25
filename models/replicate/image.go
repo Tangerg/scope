@@ -155,7 +155,7 @@ func (i ImageInputSchema) Validate() error {
 		return errors.New("replicate: ImageInputSchema.OutputFormatKey requires OutputFormats")
 	}
 	for mimeType, value := range i.OutputFormats {
-		if !strings.HasPrefix(mimeType, "image/") || value == "" {
+		if !strings.HasPrefix(mimeType, mediaTypeImagePrefix) || value == "" {
 			return fmt.Errorf("replicate: ImageInputSchema.OutputFormats contains invalid mapping %q -> %q", mimeType, value)
 		}
 	}
@@ -176,19 +176,19 @@ func (i ImageInputSchema) Validate() error {
 func (i ImageInputSchema) validateOptions(options image.Options) error {
 	var unsupported []string
 	if options.Height != nil && i.HeightKey == "" {
-		unsupported = append(unsupported, "height")
+		unsupported = append(unsupported, fieldHeight)
 	}
 	if options.NegativePrompt != "" && i.NegativePromptKey == "" {
-		unsupported = append(unsupported, "negative_prompt")
+		unsupported = append(unsupported, fieldNegativePrompt)
 	}
 	if options.OutputFormat != "" && i.OutputFormatKey == "" {
-		unsupported = append(unsupported, "output_format")
+		unsupported = append(unsupported, fieldOutputFormat)
 	}
 	if options.Seed != nil && i.SeedKey == "" {
-		unsupported = append(unsupported, "seed")
+		unsupported = append(unsupported, fieldSeed)
 	}
 	if options.Width != nil && i.WidthKey == "" {
-		unsupported = append(unsupported, "width")
+		unsupported = append(unsupported, fieldWidth)
 	}
 	if len(unsupported) == 0 {
 		return nil
@@ -202,12 +202,12 @@ func (i ImageInputSchema) validateOptions(options image.Options) error {
 // them.
 func FluxSchnellImageInputSchema() ImageInputSchema {
 	return ImageInputSchema{
-		PromptKey:       "prompt",
-		OutputFormatKey: "output_format",
+		PromptKey:       fieldPrompt,
+		OutputFormatKey: fieldOutputFormat,
 		OutputFormats: map[string]string{
-			"image/jpeg": "jpg",
-			"image/png":  "png",
-			"image/webp": "webp",
+			mediaTypeJPEG: outputFormatJPG,
+			mediaTypePNG:  outputFormatPNG,
+			mediaTypeWebP: outputFormatWebP,
 		},
 		OutputKind: FileOutputURIList,
 	}
@@ -225,11 +225,11 @@ type ImageModel struct {
 	defaultOptions image.Options
 }
 
-func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -334,14 +334,14 @@ func (i *ImageModel) response(ctx context.Context, effectiveOptions image.Option
 		}
 		meta.CreatedAt = createdAt.UTC()
 	}
-	if err := meta.Extra.Set("replicate/model", effectiveOptions.Model); err != nil {
+	if err := meta.Extra.Set(metadataModel, effectiveOptions.Model); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("replicate/prediction_id", final.ID); err != nil {
+	if err := meta.Extra.Set(metadataPredictionID, final.ID); err != nil {
 		return nil, err
 	}
 	if final.Version != "" {
-		if err := meta.Extra.Set("replicate/version", final.Version); err != nil {
+		if err := meta.Extra.Set(metadataVersion, final.Version); err != nil {
 			return nil, err
 		}
 	}
@@ -377,11 +377,11 @@ func (i *ImageModel) downloadOutput(ctx context.Context, outputURL, fallbackMIME
 		return nil, err
 	}
 	var outputMetadata metadata.Map
-	if err := outputMetadata.Set("replicate/output_url", outputURL); err != nil {
+	if err := outputMetadata.Set(metadataOutputURL, outputURL); err != nil {
 		return nil, err
 	}
 	if milliseconds, present := final.predictTimeMilliseconds(); present {
-		if err := outputMetadata.Set("replicate/predict_time_ms", milliseconds); err != nil {
+		if err := outputMetadata.Set(metadataPredictTimeMilliseconds, milliseconds); err != nil {
 			return nil, err
 		}
 	}
@@ -391,7 +391,7 @@ func (i *ImageModel) downloadOutput(ctx context.Context, outputURL, fallbackMIME
 func outputMIMEType(contentType, fallback string) (string, error) {
 	contentType = strings.TrimSpace(contentType)
 	if contentType == "" {
-		return cmp.Or(fallback, "application/octet-stream"), nil
+		return cmp.Or(fallback, mediaTypeBinary), nil
 	}
 	mimeType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {

@@ -6,14 +6,91 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
 	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
+
+type failedModelHistory struct{}
+
+func (failedModelHistory) Read(context.Context, history.ConversationID) ([]chat.Message, error) {
+	return nil, nil
+}
+
+func (failedModelHistory) Write(context.Context, history.ConversationID, ...chat.Message) (history.WriteOutcome, error) {
+	return history.WriteOutcome{}, errors.New("history commit rejected")
+}
+
+func TestHistoryFailureRetainsGenerationAndUsageInTrajectoryJSON(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		name := "call"
+		if streaming {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: failedModelHistory{}, ConversationID: "recording"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			metadata := &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 17, OutputTokens: 11}}
+			config := interaction.DispatcherConfig{}
+			if streaming {
+				config.Streamer = middleware.Stream(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+					return func(yield func(*chat.ResponseDelta, error) bool) {
+						calls.Add(1)
+						yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("completed generation")}, FinishReason: chat.FinishReasonStop, Metadata: metadata}, nil)
+					}
+				}))
+			} else {
+				config.Model = middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+					calls.Add(1)
+					return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("completed generation"))), FinishReason: chat.FinishReasonStop}, Metadata: metadata}, nil
+				}))
+			}
+			recorder := new(trajectory.Recorder)
+			process, _, _ := startModelRecording(t, recorder, config, agent.NewMemoryTreeCommitter(), false)
+			result, err := process.Await(t.Context())
+			if err != nil || result.Termination().Status() != agent.StatusFailed {
+				t.Fatalf("history failure became success: %v, %v", result.Termination(), err)
+			}
+			recorded, err := recorder.Take(t.Context(), process, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configuration := trajectoryConfig(recorded)
+			configuration.Coverage = interactionCoverage(configuration.Events)
+			recorded, err = trajectory.New(configuration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := recorded.ModelCalls()
+			if len(observed) != 1 || observed[0].Outcome != interaction.ModelOutcomeFailed || observed[0].Response.Text() != "completed generation" || observed[0].Failure == "" {
+				t.Fatalf("generation and postprocessing evidence diverged: %+v", observed)
+			}
+			if tokens, accountingErr := recorded.TotalTokens(); accountingErr != nil || tokens != 28 {
+				t.Fatalf("known usage=%d error=%v", tokens, accountingErr)
+			}
+			data, err := jsonv2.Marshal(recorded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored trajectory.Trajectory
+			if err := jsonv2.Unmarshal(data, &restored); err != nil {
+				t.Fatal(err)
+			}
+			if tokens, err := restored.TotalTokens(); err != nil || tokens != 28 || restored.ModelCalls()[0].Outcome != interaction.ModelOutcomeFailed || calls.Load() != 1 {
+				t.Fatalf("restored usage=%d error=%v model calls=%d", tokens, err, calls.Load())
+			}
+		})
+	}
+}
 
 func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config interaction.DispatcherConfig, committer agent.TreeCommitter, replay bool) (*agent.Process, *agent.Engine, *interaction.Dispatcher) {
 	t.Helper()
@@ -64,8 +141,8 @@ func TestDefiniteModelOutcomesPreserveClassificationAndTokenEvidence(t *testing.
 		outcome    interaction.ModelOutcome
 		knownUsage bool
 	}{
-		{name: "not executed", cause: chat.ErrNotExecuted, outcome: interaction.ModelOutcomeNotExecuted, knownUsage: true},
-		{name: "failed after dispatch", cause: chat.ErrDefiniteFailure, outcome: interaction.ModelOutcomeFailed},
+		{name: "not executed", cause: &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("input rejected")}, outcome: interaction.ModelOutcomeNotExecuted, knownUsage: true},
+		{name: "failed after dispatch", cause: &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("output rejected")}, outcome: interaction.ModelOutcomeFailed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := new(trajectory.Recorder)

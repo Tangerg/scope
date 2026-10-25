@@ -20,13 +20,19 @@ const (
 	depthBasic               = "basic"
 	topicGeneral             = "general"
 	defaultSearchResultCount = 5
+	timeRangeDay             = "day"
+	timeRangeWeek            = "week"
+	timeRangeMonth           = "month"
+	timeRangeYear            = "year"
 )
 
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
 // Tavily's public endpoint and a nil HTTPClient selects a default client.
 type Config struct {
-	APIKey     string
-	BaseURL    string
+	APIKey  string
+	BaseURL string
+	// HTTPClient remains host-owned. Requests and redirects are restricted to
+	// BaseURL's origin, including when the host redirect policy changes a request.
 	HTTPClient *http.Client
 }
 
@@ -36,13 +42,15 @@ type Client struct {
 
 var _ web.Searcher = (*Client)(nil)
 
-func NewClient(config Config) (*Client, error) {
+func NewClient(ctx context.Context, config Config) (*Client, error) {
 	if config.APIKey == "" {
 		return nil, errors.New("tavily: API key is required")
 	}
-	transport := providerhttp.NewClient(config.HTTPClient, cmp.Or(config.BaseURL, baseURL)).
-		SetAuthToken(config.APIKey).
-		SetHeader("Content-Type", "application/json")
+	transport, err := providerhttp.NewClient(ctx, providerhttp.Config{HTTPClient: config.HTTPClient, BaseURL: cmp.Or(config.BaseURL, baseURL)})
+	if err != nil {
+		return nil, fmt.Errorf("tavily: %w", err)
+	}
+	transport.SetAuthToken(config.APIKey)
 	return &Client{http: transport}, nil
 }
 
@@ -81,7 +89,7 @@ type searchResponse struct {
 	Results []*searchResult `json:"results"`
 }
 
-func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, error) {
+func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.SearchResponse, error) {
 	if s.Results == nil {
 		return nil, fmt.Errorf("tavily: %w: response is missing results", web.ErrInvalidSearchResponse)
 	}
@@ -97,8 +105,8 @@ func (s *searchResponse) toSearchResponse(query string) (*web.SearchResponse, er
 			FaviconURL: searchResult.Favicon,
 		})
 	}
-	response := &web.SearchResponse{Query: query, Results: results}
-	if err := response.Validate(); err != nil {
+	response := &web.SearchResponse{Query: request.Query, Results: results}
+	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("tavily: %w", err)
 	}
 	return response, nil
@@ -117,7 +125,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: search request: %w", err)
 	}
-	return raw.toSearchResponse(prepared.Query)
+	return raw.toSearchResponse(prepared)
 }
 
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
@@ -138,7 +146,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if _, err = providerhttp.Execute(httpRequest, http.MethodPost, extractPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: fetch request: %w", err)
 	}
-	content, err := raw.content()
+	content, err := raw.content(prepared.URL)
 	if err != nil {
 		return nil, err
 	}
@@ -148,13 +156,13 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 func recencyToTimeRange(r web.Recency) string {
 	switch r {
 	case web.RecencyDay:
-		return "day"
+		return timeRangeDay
 	case web.RecencyWeek:
-		return "week"
+		return timeRangeWeek
 	case web.RecencyMonth:
-		return "month"
+		return timeRangeMonth
 	case web.RecencyYear:
-		return "year"
+		return timeRangeYear
 	}
 	return ""
 }

@@ -23,6 +23,12 @@ const (
 	AnthropicStreamEventExtensionKey = "openrouter/anthropic_stream_event"
 )
 
+const (
+	headerAuthorization   = "Authorization"
+	headerAnthropicAPIKey = "X-Api-Key"
+	bearerAuthPrefix      = "Bearer "
+)
+
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -93,10 +99,13 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Message
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	headers := providerHeaders(config.AppURL, config.AppTitle)
+	headers[headerAnthropicAPIKey] = nil
+	headers.Set(headerAuthorization, bearerAuthPrefix+config.APIKey)
 	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
-		BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient,
-		Headers: providerHeaders(config.AppURL, config.AppTitle),
+		BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient,
+		Headers: headers,
 	}, anthropic.Dialect{Provider: "openrouter"})
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct Anthropic-compatible chat: %w", err)

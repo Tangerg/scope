@@ -89,4 +89,4 @@ type signalRequestWire struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-func (SignalRequest) JSONSchemaAlias() any { return signalRequestWire{} }
+func (SignalRequest) JSONSchemaModel() any { return signalRequestWire{} }

@@ -96,4 +96,4 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 
 type wireUsage Usage
 
-func (Usage) JSONSchemaAlias() any { return wireUsage{} }
+func (Usage) JSONSchemaModel() any { return wireUsage{} }

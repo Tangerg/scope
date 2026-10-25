@@ -62,7 +62,7 @@ func TestConfiguredHeadersCanRemoveSDKDefault(t *testing.T) {
 			if removeDefault {
 				headers = http.Header{"X-Api-Key": nil, "Api-Key": []string{"test-key"}}
 			}
-			transport, err := newAPI(apiConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), Headers: headers})
+			transport, err := newAPI(t.Context(), apiConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), Headers: headers})
 			if err != nil {
 				t.Fatal(err)
 			}

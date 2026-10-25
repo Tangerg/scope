@@ -49,12 +49,12 @@ type ImageModel struct {
 	defaultOptions image.Options
 }
 
-func NewImageModel(_ context.Context, config ImageModelConfig) (*ImageModel, error) {
+func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -106,8 +106,8 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 }
 
 func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, mimeType string) (*image.Response, error) {
-	if len(resp.Data) == 0 {
-		return nil, errors.New("openai: image response has no data")
+	if resp == nil || len(resp.Data) == 0 {
+		return nil, fmt.Errorf("%w: openai: image response has no data", image.ErrInvalidResponse)
 	}
 
 	outputs := make([]*image.Output, 0, len(resp.Data))

@@ -62,7 +62,7 @@ func TestWriteOutcomePreservesAcknowledgedAppendWhenExpiryFails(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := writeClient{pipeline: &writePipeline{appendErr: test.appendErr, execErr: test.execErr}}
-			store, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: client, TTL: test.ttl})
+			store, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: client, ScanNodes: noEnumeration, TTL: test.ttl})
 			if err != nil {
 				t.Fatal(err)
 			}

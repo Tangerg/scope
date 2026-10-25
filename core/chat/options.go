@@ -194,4 +194,4 @@ func (o *Options) UnmarshalJSON(data []byte) error {
 
 type wireOptions Options
 
-func (Options) JSONSchemaAlias() any { return wireOptions{} }
+func (Options) JSONSchemaModel() any { return wireOptions{} }

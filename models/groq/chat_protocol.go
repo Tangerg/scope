@@ -41,12 +41,15 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	}
 	// Groq's API reference marks max_tokens "Deprecated in favor of
 	// max_completion_tokens", and its own text-generation guide passes the
-	// replacement. ReasoningDialect defaults to the legacy field, which is the
+	// replacement. The reasoning dialect defaults to the legacy field, which is the
 	// wrong half of that deprecation for a provider whose models reason: the
 	// replacement is documented as bounding reasoning tokens together with
 	// visible output, so it is the field that caps what this provider actually
 	// generates.
-	dialect := openai.ReasoningDialect("groq")
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "groq", Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever})
+	if err != nil {
+		return nil, fmt.Errorf("groq: configure reasoning dialect: %w", err)
+	}
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	// Groq's json_schema mode does not support streaming. Call aggregates the
 	// same stream, so this adapter cannot promise that native output format.

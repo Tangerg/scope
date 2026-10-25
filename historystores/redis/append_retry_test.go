@@ -130,7 +130,7 @@ func TestLostAppendReplyNeverRepeatsHistoryWrite(t *testing.T) {
 			peer := &historyPeer{}
 			client := goredis.NewClient(&goredis.Options{Dialer: peer.dial, Protocol: 2, DisableIdentity: true})
 			t.Cleanup(func() { _ = client.Close(); peer.workers.Wait() })
-			store, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: client, TTL: ttl})
+			store, err := redis.NewStore(t.Context(), redis.StoreConfig{Client: client, ScanNodes: noEnumeration, TTL: ttl})
 			if err != nil {
 				t.Fatal(err)
 			}

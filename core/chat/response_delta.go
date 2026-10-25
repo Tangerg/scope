@@ -289,8 +289,8 @@ func (r *ResponseDelta) UnmarshalJSON(data []byte) error {
 
 type wirePartDelta PartDelta
 
-func (PartDelta) JSONSchemaAlias() any { return wirePartDelta{} }
+func (PartDelta) JSONSchemaModel() any { return wirePartDelta{} }
 
 type wireResponseDelta ResponseDelta
 
-func (ResponseDelta) JSONSchemaAlias() any { return wireResponseDelta{} }
+func (ResponseDelta) JSONSchemaModel() any { return wireResponseDelta{} }

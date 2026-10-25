@@ -26,8 +26,8 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 		{name: "filtered", status: "incomplete", detail: `"incomplete_details":{"reason":"content_filter"},`, want: chat.FinishReasonContentFilter},
 		{name: "unknown incomplete reason", status: "incomplete", detail: `"incomplete_details":{"reason":"unknown"},`, want: chat.FinishReasonOther},
 		{name: "partial tool call", status: "incomplete", detail: `"incomplete_details":{"reason":"max_output_tokens"},`, output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{"}`, want: chat.FinishReasonLength},
-		{name: "refusal and tool call", status: "completed", output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"declined"}]}`, want: chat.FinishReasonRefusal},
-		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "chat: definite model failure: openai responses: failed: server_error: generation failed"},
+		{name: "refusal and tool call", status: "completed", output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},{"type":"message","id":"refusal-1","role":"assistant","content":[{"type":"refusal","refusal":"declined"}]}`, want: chat.FinishReasonRefusal},
+		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "chat: failed: openai responses: failed: server_error: generation failed"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -37,10 +37,16 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 				t.Fatal(err)
 			}
 			event := "response." + test.status
-			server := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{{Event: event, Data: fmt.Sprintf(`{"type":%q,"response":%s}`, event, body)}})
+			var events []modeltest.AnthropicEvent
+			if test.name == "refusal and tool call" {
+				item := `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"}`
+				events = append(events, responsesToolAdded(0, item), responsesToolDone(item), modeltest.AnthropicEvent{Event: "response.refusal.delta", Data: `{"type":"response.refusal.delta","item_id":"refusal-1","output_index":1,"content_index":0,"delta":"declined"}`})
+			}
+			events = append(events, modeltest.AnthropicEvent{Event: event, Data: fmt.Sprintf(`{"type":%q,"response":%s}`, event, body)})
+			server := modeltest.AnthropicSSEServer(events)
 			t.Cleanup(server.Close)
 			response, callErr := newResponsesModel(t, server.URL, "gpt-5").Call(t.Context(), request)
-			streamServer := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{{Event: event, Data: fmt.Sprintf(`{"type":%q,"response":%s}`, event, body)}})
+			streamServer := modeltest.AnthropicSSEServer(events)
 			t.Cleanup(streamServer.Close)
 			var terminal *chat.ResponseDelta
 			var streamErr error
@@ -59,7 +65,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 					t.Fatal("failed response exposed a successful result")
 				}
 				for _, err := range []error{callErr, streamErr} {
-					if !errors.Is(err, chat.ErrDefiniteFailure) || errors.Is(err, chat.ErrNotExecuted) {
+					if chat.ClassifyFailure(err) != chat.CallFailureFailed {
 						t.Fatalf("native failure lost execution evidence: %v", err)
 					}
 				}
@@ -118,7 +124,7 @@ func TestResponsesStreamRejectsErrorAndPrematureEOF(t *testing.T) {
 		wantError string
 	}{
 		{name: "empty EOF", wantError: "stream ended without a terminal response"},
-		{name: "partial EOF", events: []modeltest.AnthropicEvent{{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","delta":"partial"}`}}, wantError: "stream ended without a terminal response"},
+		{name: "partial EOF", events: []modeltest.AnthropicEvent{{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","item_id":"message-1","output_index":0,"content_index":0,"delta":"partial"}`}}, wantError: "stream ended without a terminal response"},
 		{name: "error event", events: []modeltest.AnthropicEvent{{Event: "error", Data: `{"type":"error","code":"server_error","message":"generation failed"}`}}, wantError: "server_error: generation failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,7 +150,7 @@ func TestResponsesStreamRejectsErrorAndPrematureEOF(t *testing.T) {
 			if test.name != "error event" && !errors.Is(got, chat.ErrInvalidResponse) {
 				t.Fatalf("error = %v, want ErrInvalidResponse", got)
 			}
-			if errors.Is(got, chat.ErrDefiniteFailure) {
+			if chat.ClassifyFailure(got) != chat.CallFailureUnknown {
 				t.Fatalf("stream without a known terminal status claimed definite failure: %v", got)
 			}
 		})

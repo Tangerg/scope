@@ -52,7 +52,7 @@ func TestOutputDownloadChecksEveryOrigin(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			transport := &downloadTransport{redirects: test.redirects}
-			adapter, err := newAPI(apiConfig{APIKey: "test-key", BaseURL: test.base, HTTPClient: &http.Client{Transport: transport}})
+			adapter, err := newAPI(t.Context(), apiConfig{APIKey: "test-key", BaseURL: test.base, HTTPClient: &http.Client{Transport: transport}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,7 +71,7 @@ func TestOutputDownloadRetainsBorrowedClientPolicy(t *testing.T) {
 	policyErr := errors.New("host redirect policy")
 	calls := 0
 	source := &http.Client{Transport: &downloadTransport{redirects: map[string]string{"https://api.replicate.com/start": "https://a.replicate.delivery/image"}}, CheckRedirect: func(request *http.Request, via []*http.Request) error { calls++; return policyErr }}
-	adapter, err := newAPI(apiConfig{APIKey: "test-key", HTTPClient: source})
+	adapter, err := newAPI(t.Context(), apiConfig{APIKey: "test-key", HTTPClient: source})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestOutputDownloadRetainsBorrowedClientPolicy(t *testing.T) {
 
 func TestConstructionDoesNotMutateBorrowedHTTPClient(t *testing.T) {
 	source := &http.Client{}
-	if _, err := newAPI(apiConfig{APIKey: "test-key", HTTPClient: source}); err != nil {
+	if _, err := newAPI(t.Context(), apiConfig{APIKey: "test-key", HTTPClient: source}); err != nil {
 		t.Fatal(err)
 	}
 	if source.Transport != nil || source.CheckRedirect != nil {

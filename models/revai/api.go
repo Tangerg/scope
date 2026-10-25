@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 const (
@@ -48,21 +50,19 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("revai: HTTP client: %w", err)
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
+	client.SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey)
 	return &api{http: client}, nil
 }
@@ -84,7 +84,7 @@ type jobOptions struct {
 	CustomVocabularies   []json.RawMessage          `json:"custom_vocabularies,omitzero"`
 	Language             string                     `json:"language,omitempty"`
 	Transcriber          string                     `json:"transcriber,omitempty"`
-	VerbatimMode         bool                       `json:"verbatim,omitzero"`
+	VerbatimMode         *bool                      `json:"verbatim,omitzero"`
 	RushMode             bool                       `json:"rush,omitzero"`
 	TestMode             bool                       `json:"test_mode,omitzero"`
 	SegmentsToTranscribe []json.RawMessage          `json:"segments_to_transcribe,omitzero"`
@@ -95,9 +95,6 @@ type sourceConfig struct {
 	AuthHeaders map[string]string `json:"auth_headers,omitzero"`
 }
 
-// Job is the body Rev returns for /jobs (and the poll body for
-// /jobs/{id}). Status moves through "in_progress" / "transcribed" /
-// "failed".
 type job struct {
 	ID              string    `json:"id"`
 	Status          jobStatus `json:"status"`
@@ -112,7 +109,7 @@ func (a *api) submitURL(ctx context.Context, opts jobOptions) (*job, error) {
 	var out job
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", mediaTypeJSON).
+		SetHeader(headerContentType, mediaTypeJSON).
 		SetBody(opts).
 		SetResult(&out).
 		Post(jobsPath)
@@ -162,13 +159,12 @@ func (a *api) getJob(ctx context.Context, id string) (*job, error) {
 	return &out, nil
 }
 
-// getTranscriptText fetches the plain-text transcript for a finished
-// job. Rev returns 404 until the job reaches "transcribed".
+// Rev returns 404 until the job reaches "transcribed".
 func (a *api) getTranscriptText(ctx context.Context, id string) (string, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Accept", mediaTypeText).
-		Get(jobsPath + "/" + id + "/transcript")
+		SetHeader(headerAccept, mediaTypeText).
+		Get(jobsPath + "/" + id + pathTranscriptSuffix)
 	if err != nil {
 		return "", fmt.Errorf("revai: transcript fetch failed: %w", err)
 	}

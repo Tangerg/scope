@@ -40,11 +40,11 @@ type RerankModel struct {
 	defaultOptions rerank.Options
 }
 
-func NewRerankModel(_ context.Context, config RerankModelConfig) (*RerankModel, error) {
+func NewRerankModel(ctx context.Context, config RerankModelConfig) (*RerankModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}

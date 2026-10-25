@@ -69,7 +69,7 @@ func writeChatBindingFixture(writer http.ResponseWriter, entry, text string, too
 			fmt.Fprintf(writer, "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"function_test\",\"delta\":%s}\n\n", encodedArguments)
 			fmt.Fprintf(writer, "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":%s}\n\n", item)
 		} else {
-			fmt.Fprintf(writer, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":%s}\n\n", encoded)
+			fmt.Fprintf(writer, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"message_test\",\"output_index\":0,\"content_index\":0,\"delta\":%s}\n\n", encoded)
 		}
 		fmt.Fprintf(writer, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture\",\"model\":\"test-model\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":7,\"output_tokens\":5,\"total_tokens\":12}}}\n\n", item)
 	case "anthropic-messages":

@@ -8,11 +8,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
+
+	"github.com/Tangerg/scope/core/httpclient"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
+)
+
+const (
+	defaultAPIBaseURL            = "https://api.openai.com/v1/"
+	defaultResponseHeaderTimeout = 10 * time.Minute
 )
 
 type apiConfig struct {
@@ -23,41 +31,65 @@ type apiConfig struct {
 }
 
 func (a apiConfig) validate() error {
-	_, err := a.requestOptions()
+	_, err := a.endpoint()
 	return err
 }
 
-func (a apiConfig) requestOptions() ([]option.RequestOption, error) {
+func (a apiConfig) endpoint() (string, error) {
 	if a.APIKey == "" {
-		return nil, errors.New("openai: APIKey is required")
+		return "", errors.New("openai: APIKey is required")
 	}
 	baseURL, source, present := a.BaseURL, "BaseURL", a.BaseURL != ""
 	if !present {
 		baseURL, present = os.LookupEnv("OPENAI_BASE_URL")
 		source = "OPENAI_BASE_URL"
 	}
-	if present {
-		endpoint, err := url.Parse(baseURL)
-		if err != nil {
-			return nil, fmt.Errorf("openai: %s: %w", source, err)
-		}
-		if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" {
-			return nil, fmt.Errorf("openai: %s must be an absolute HTTP or HTTPS URL with a host", source)
-		}
+	if !present {
+		baseURL = defaultAPIBaseURL
 	}
-	options := []option.RequestOption{option.WithEnvironmentProduction(), option.WithAPIKey(a.APIKey)}
-	if baseURL != "" {
-		options = append(options, option.WithBaseURL(baseURL))
+	endpoint, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
-	if a.HTTPClient != nil {
-		options = append(options, option.WithHTTPClient(a.HTTPClient))
+	if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil {
+		return "", fmt.Errorf("openai: %s must be an absolute HTTP or HTTPS URL with a host", source)
 	}
+
+	return baseURL, nil
+}
+
+func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, error) {
+	baseURL, err := a.endpoint()
+	if err != nil {
+		return nil, err
+	}
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: a.httpClient(), BaseURL: baseURL})
+	if err != nil {
+		return nil, err
+	}
+	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
+	options = append(options, option.WithBaseURL(baseURL), option.WithHTTPClient(client))
 	for name, values := range a.Headers {
 		for _, value := range values {
 			options = append(options, option.WithHeader(name, value))
 		}
 	}
 	return options, nil
+}
+
+// Direct service construction skips SDK defaults along with ambient settings.
+// Its header deadline must not become a deadline on long-lived response bodies.
+func (a apiConfig) httpClient() *http.Client {
+	if a.HTTPClient != nil {
+		return a.HTTPClient
+	}
+	transport := http.DefaultTransport
+	if standard, ok := transport.(*http.Transport); ok {
+		owned := standard.Clone()
+		owned.ResponseHeaderTimeout = defaultResponseHeaderTimeout
+		transport = owned
+	}
+	return &http.Client{Transport: transport}
 }
 
 type api struct {
@@ -70,8 +102,8 @@ type api struct {
 	models      openai.ModelService
 }
 
-func newAPI(config apiConfig) (*api, error) {
-	options, err := config.requestOptions()
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
+	options, err := config.requestOptions(ctx)
 	if err != nil {
 		return nil, err
 	}

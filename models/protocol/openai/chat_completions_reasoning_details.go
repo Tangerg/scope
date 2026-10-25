@@ -72,7 +72,7 @@ func ReasoningDetailsDialect(config ReasoningDetailsConfig) (Dialect, error) {
 	codec := reasoningDetailsCodec{config: config}
 	return Dialect{
 		Provider: config.Provider, TokenLimitField: TokenLimitMaxTokens,
-		request: codec, response: codec,
+		request: codec, response: func() responseDialect { return codec },
 	}, nil
 }
 

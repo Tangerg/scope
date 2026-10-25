@@ -78,6 +78,13 @@ func TestCommitErrorPreservesCompletedGenerationAndWriteFacts(t *testing.T) {
 			if !ok || !errors.Is(err, cause) || failure.ConversationID() != "conversation" || failure.Outcome() != outcome {
 				t.Fatalf("failure=%#v error=%v", failure, err)
 			}
+			kind := chat.CallFailureFailed
+			if outcome.Uncertain {
+				kind = chat.CallFailureUnknown
+			}
+			if got := chat.ClassifyFailure(err); got != kind {
+				t.Fatalf("history classification=%s want=%s", got, kind)
+			}
 			want := []chat.Message{chat.NewUserMessage(chat.NewTextPart("question")), chat.NewAssistantMessage(chat.NewTextPart("answer"))}
 			if !reflect.DeepEqual(failure.Messages(), want) {
 				t.Fatalf("messages = %#v", failure.Messages())

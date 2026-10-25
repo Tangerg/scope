@@ -1,15 +1,20 @@
 package cohere
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
+
+	"github.com/Tangerg/scope/core/httpclient"
 
 	cohere "github.com/cohere-ai/cohere-go/v2"
 	coherecore "github.com/cohere-ai/cohere-go/v2/core"
 	"github.com/cohere-ai/cohere-go/v2/option"
 	cohereclientv2 "github.com/cohere-ai/cohere-go/v2/v2"
 )
+
+const defaultBaseURL = "https://api.cohere.com"
 
 type apiConfig struct {
 	APIKey     string
@@ -28,20 +33,21 @@ type api struct {
 	v2 *cohereclientv2.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
-	options := []coherecore.RequestOption{option.WithToken(config.APIKey)}
-	if config.BaseURL != "" {
-		options = append(options, option.WithBaseURL(config.BaseURL))
+	baseURL := cmp.Or(config.BaseURL, defaultBaseURL)
+	source := config.HTTPClient
+	if source == nil {
+		source = http.DefaultClient
 	}
-	httpClient := config.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: source, BaseURL: baseURL})
+	if err != nil {
+		return nil, err
 	}
-	options = append(options, option.WithHTTPClient(&apiHTTPClient{client: httpClient}))
+	options := []coherecore.RequestOption{option.WithToken(config.APIKey), option.WithBaseURL(baseURL), option.WithHTTPClient(&apiHTTPClient{client: client})}
 	reqOpts := coherecore.NewRequestOptions(options...)
 
 	return &api{v2: cohereclientv2.NewClient(reqOpts)}, nil

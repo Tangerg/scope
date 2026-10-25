@@ -10,6 +10,8 @@ import (
 	"net/http"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -29,28 +31,23 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("prodia: HTTP client: %w", err)
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
-		SetHeader("Authorization", "Bearer "+config.APIKey)
+	client.SetBaseURL(baseURL).
+		SetHeader(headerAuthorization, authorizationBearerPrefix+config.APIKey)
 	return &api{http: client}, nil
 }
 
-// JobRequest mirrors POST /job. Prodia routes via a "type" discriminator
-// — typical values: "inference.flux.dev.txt2img.v1", "inference.flux.schnell.txt2img.v1",
-// "inference.sd1.5.txt2img.v1", "inference.sdxl.txt2img.v1".
 type jobRequest struct {
 	Type   string                     `json:"type"`
 	Config map[string]json.RawMessage `json:"config"`
@@ -71,20 +68,18 @@ func (j *jobRequest) setConfig(field string, value any) error {
 	return nil
 }
 
-// job submits a job and returns the raw image bytes when status is 200.
-// Prodia's v2 endpoint is sync — it blocks until the image is ready
-// (typically 1-5s) and returns the binary directly with content-type
-// image/jpeg or image/png.
+// Prodia's synchronous endpoint returns binary output when Accept selects an
+// image media type; the model's open config remains a lossless JSON subtree.
 func (a *api) job(ctx context.Context, req *jobRequest, accept string) ([]byte, http.Header, error) {
 	if req == nil {
 		return nil, nil, errors.New("prodia: request must not be nil")
 	}
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Accept", cmp.Or(accept, "image/*")).
+		SetHeader(headerContentType, mediaTypeJSON).
+		SetHeader(headerAccept, cmp.Or(accept, mediaTypeImage)).
 		SetBody(req).
-		Post("/job")
+		Post(pathJob)
 	if err != nil {
 		return nil, nil, fmt.Errorf("prodia: request failed: %w", err)
 	}

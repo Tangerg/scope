@@ -9,10 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
+
+const maximumDownloadRedirects = 10
 
 type apiConfig struct {
 	APIKey     string
@@ -30,55 +34,76 @@ func (a apiConfig) validate() error {
 type api struct {
 	http     *resty.Client
 	download *resty.Client
-	baseURL  *url.URL
+	urls     providerURLPolicy
+	client   http.Client
+	apiKey   string
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
 	parsedBaseURL, err := url.Parse(baseURL)
-	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" {
+	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL %q", baseURL)
 	}
-
-	adapter := &api{baseURL: parsedBaseURL}
-	adapter.http = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
-	adapter.download = resty.NewWithClient(adapter.httpClient(config.HTTPClient))
-	adapter.http.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
-		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	adapter.http.SetBaseURL(baseURL).
-		SetHeader("x-key", config.APIKey).
-		SetHeader("Content-Type", "application/json")
+	origin, err := httpclient.NewOrigin(ctx, parsedBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL: %w", err)
+	}
+	adapter := &api{urls: providerURLPolicy{configuredOrigin: origin}, apiKey: config.APIKey}
+	if config.HTTPClient != nil {
+		adapter.client = *config.HTTPClient
+	}
+	adapter.http, err = adapter.credentialedClient(ctx, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient())
 	return adapter, nil
 }
 
-func (a *api) httpClient(source *http.Client) *http.Client {
-	client := &http.Client{}
-	if source != nil {
-		*client = *source
+// BFL returns a regional polling_url. That URL authorizes its own request
+// origin; redirects must not expand the credential's destination further.
+func (a *api) credentialedClient(ctx context.Context, endpoint string) (*resty.Client, error) {
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: &a.client, BaseURL: endpoint})
+	if err != nil {
+		return nil, err
 	}
-	if client.Transport == nil {
-		client.Transport = http.DefaultTransport
+	return resty.NewWithClient(client).
+		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
+		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
+		SetBaseURL(endpoint).
+		SetHeader("x-key", a.apiKey).
+		SetHeader("Content-Type", "application/json"), nil
+}
+
+func (a *api) downloadHTTPClient() *http.Client {
+	client := a.client
+	transport := client.Transport
+	if lo.IsNil(transport) {
+		transport = http.DefaultTransport
 	}
+	client.Transport = &downloadTransport{next: transport, urls: a.urls}
 	previous := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if err := a.validateProviderURL(request.URL.String()); err != nil {
+		if previous != nil {
+			if err := previous(request, via); err != nil {
+				return err
+			}
+		} else if len(via) >= maximumDownloadRedirects {
+			return fmt.Errorf("blackforestlabs: stopped after %d redirects", maximumDownloadRedirects)
+		}
+		if err := a.urls.validateRequest(request); err != nil {
 			return err
 		}
-		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && request.URL.Scheme != "https" {
+		if len(via) > 0 && via[len(via)-1].URL.Scheme == providerSchemeHTTPS && request.URL.Scheme != providerSchemeHTTPS {
 			return errors.New("blackforestlabs: HTTPS redirect downgrade is forbidden")
-		}
-		if previous != nil {
-			return previous(request, via)
-		}
-		if len(via) >= 10 {
-			return errors.New("blackforestlabs: stopped after 10 redirects")
 		}
 		return nil
 	}
-	return client
+	return &client
 }
 
 // GenerateRequest is the union of fields the various Flux endpoints
@@ -178,11 +203,16 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 // getResult fetches the current task state through the exact polling URL
 // returned by the generation endpoint.
 func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, error) {
-	if err := a.validateProviderURL(pollingURL); err != nil {
+	endpoint, err := a.urls.parse(ctx, pollingURL)
+	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid polling URL: %w", err)
 	}
+	client, err := a.credentialedClient(ctx, endpoint.String())
+	if err != nil {
+		return nil, err
+	}
 	var out pollResult
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pollingURL)
+	resp, err := client.R().SetContext(ctx).SetResult(&out).Get(endpoint.String())
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: poll failed: %w", err)
 	}
@@ -195,10 +225,11 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 // downloadOutput retrieves a short-lived BFL delivery URL without forwarding
 // the x-key credential to the delivery host.
 func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, string, error) {
-	if err := a.validateProviderURL(outputURL); err != nil {
+	endpoint, err := a.urls.parse(ctx, outputURL)
+	if err != nil {
 		return nil, "", fmt.Errorf("blackforestlabs: invalid output URL: %w", err)
 	}
-	response, err := a.download.R().SetContext(ctx).Get(outputURL)
+	response, err := a.download.R().SetContext(ctx).Get(endpoint.String())
 	if err != nil {
 		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", err)
 	}
@@ -209,19 +240,4 @@ func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, str
 		return nil, "", errors.New("blackforestlabs: download output returned an empty body")
 	}
 	return response.Body(), response.Header().Get("Content-Type"), nil
-}
-
-func (a *api) validateProviderURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("URL must be absolute: %q", rawURL)
-	}
-	if strings.EqualFold(parsed.Host, a.baseURL.Host) && parsed.Scheme == a.baseURL.Scheme {
-		return nil
-	}
-	hostname := strings.ToLower(parsed.Hostname())
-	if parsed.Scheme != "https" || (hostname != "bfl.ai" && !strings.HasSuffix(hostname, ".bfl.ai")) {
-		return fmt.Errorf("URL host is not an official BFL endpoint: %q", rawURL)
-	}
-	return nil
 }

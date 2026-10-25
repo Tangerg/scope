@@ -52,7 +52,6 @@ func NewInputGate(config InputGateConfig) (*InputGate, error) {
 	return &InputGate{descriptor: descriptor, answerSchema: config.AnswerSchema}, nil
 }
 
-// ChildDeployments is empty: InputGate starts no children.
 func (*InputGate) ChildDeployments() []agent.Deployment { return nil }
 
 func (i *InputGate) Descriptor() agent.Descriptor {

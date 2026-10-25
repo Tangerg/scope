@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"google.golang.org/genai"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type ClientConfig struct {
@@ -76,13 +78,6 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		return nil, err
 	}
 
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		config.HTTPClient = &ownedClient
-	}
 	clientCfg := &genai.ClientConfig{
 		Backend:    config.Backend,
 		HTTPClient: config.HTTPClient,
@@ -111,21 +106,29 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	sdkClient := client.ClientConfig().HTTPClient
+	resolvedConfig := client.ClientConfig()
+	sdkClient := resolvedConfig.HTTPClient
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: sdkClient, BaseURL: resolvedConfig.HTTPOptions.BaseURL})
+	if err != nil {
+		return nil, err
+	}
+	*sdkClient = *boundClient
 	transport := sdkClient.Transport
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
 	sdkClient.Transport = &nativeResponseTransport{next: transport}
 
-	interactionsHTTP := resty.New()
-	if config.HTTPClient != nil {
-		interactionsHTTP = resty.NewWithClient(config.HTTPClient)
+	interactionsEndpoint := cmp.Or(config.BaseURL, DefaultBaseURL)
+	interactionsClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: interactionsEndpoint})
+	if err != nil {
+		return nil, err
 	}
+	interactionsHTTP := resty.NewWithClient(interactionsClient)
 	interactionsHTTP.
 		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
-		SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
+		SetBaseURL(interactionsEndpoint).
 		SetHeader("x-goog-api-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
 

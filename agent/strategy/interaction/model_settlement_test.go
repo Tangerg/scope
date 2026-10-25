@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -14,8 +13,8 @@ func TestModelSettlementKeepsDefiniteFailureEvidence(t *testing.T) {
 		cause   error
 		outcome ModelOutcome
 	}{
-		{name: "not executed", cause: fmt.Errorf("request rejected: %w", chat.ErrNotExecuted), outcome: ModelOutcomeNotExecuted},
-		{name: "definite failure", cause: fmt.Errorf("provider refused completion: %w", chat.ErrDefiniteFailure), outcome: ModelOutcomeFailed},
+		{name: "not executed", cause: &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("request rejected")}, outcome: ModelOutcomeNotExecuted},
+		{name: "definite failure", cause: &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("provider refused completion")}, outcome: ModelOutcomeFailed},
 		{name: "unknown", cause: errors.New("lost response"), outcome: ModelOutcomeUnknown},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -36,11 +35,14 @@ func TestModelSettlementRejectsCompetingOrMissingEvidence(t *testing.T) {
 	}{
 		{name: "response", settlement: ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: response}, valid: true},
 		{name: "unknown without diagnostic", settlement: ModelSettlement{Outcome: ModelOutcomeUnknown}, valid: true},
+		{name: "generation before failed postprocessing", settlement: ModelSettlement{Outcome: ModelOutcomeFailed, Response: response, Failure: "commit rejected"}, valid: true},
+		{name: "generation before uncertain postprocessing", settlement: ModelSettlement{Outcome: ModelOutcomeUnknown, Response: response, Failure: "commit unknown"}, valid: true},
 		{name: "missing outcome", settlement: ModelSettlement{Response: response}},
 		{name: "unobserved is not a settlement", settlement: ModelSettlement{Outcome: ModelOutcomeUnobserved}},
 		{name: "success without response", settlement: ModelSettlement{Outcome: ModelOutcomeSucceeded}},
 		{name: "success with failure", settlement: ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: response, Failure: "failed"}},
 		{name: "invalid response", settlement: ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: &chat.Response{}}},
+		{name: "invalid failure response", settlement: ModelSettlement{Outcome: ModelOutcomeFailed, Response: &chat.Response{}, Failure: "failed"}},
 		{name: "failure without diagnostic", settlement: ModelSettlement{Outcome: ModelOutcomeFailed}},
 		{name: "not executed with response", settlement: ModelSettlement{Outcome: ModelOutcomeNotExecuted, Response: response, Failure: "rejected"}},
 		{name: "unknown with response", settlement: ModelSettlement{Outcome: ModelOutcomeUnknown, Response: response}},

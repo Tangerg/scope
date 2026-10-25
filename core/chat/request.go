@@ -131,4 +131,4 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 
 type wireRequest Request
 
-func (Request) JSONSchemaAlias() any { return wireRequest{} }
+func (Request) JSONSchemaModel() any { return wireRequest{} }

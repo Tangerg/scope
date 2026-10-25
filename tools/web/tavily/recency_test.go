@@ -30,7 +30,7 @@ func TestRecencyMappingMatchesTavilyTimeRange(t *testing.T) {
 }
 
 func TestSearchRejectsUnsupportedHourBeforeIO(t *testing.T) {
-	client, err := NewClient(Config{APIKey: "test-key", BaseURL: "http://127.0.0.1:1"})
+	client, err := NewClient(t.Context(), Config{APIKey: "test-key", BaseURL: "http://127.0.0.1:1"})
 	if err != nil {
 		t.Fatal(err)
 	}

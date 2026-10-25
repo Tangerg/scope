@@ -86,13 +86,13 @@ func (s SpeechInputSchema) Validate() error {
 func (s SpeechInputSchema) validateOptions(options speech.Options) error {
 	var unsupported []string
 	if options.OutputFormat != "" {
-		unsupported = append(unsupported, "output_format")
+		unsupported = append(unsupported, fieldOutputFormat)
 	}
 	if options.Speed != 0 && s.SpeedKey == "" {
-		unsupported = append(unsupported, "speed")
+		unsupported = append(unsupported, fieldSpeed)
 	}
 	if options.Voice != "" && s.VoiceKey == "" {
-		unsupported = append(unsupported, "voice")
+		unsupported = append(unsupported, fieldVoice)
 	}
 	if len(unsupported) == 0 {
 		return nil
@@ -104,8 +104,8 @@ func (s SpeechInputSchema) validateOptions(options speech.Options) error {
 // [ModelXTTSV2] version.
 func XTTSV2SpeechInputSchema() SpeechInputSchema {
 	return SpeechInputSchema{
-		TextKey:       "text",
-		VoiceKey:      "speaker",
+		TextKey:       fieldText,
+		VoiceKey:      fieldSpeaker,
 		VoiceRequired: true,
 		OutputKind:    FileOutputURI,
 	}
@@ -123,11 +123,11 @@ type SpeechModel struct {
 	defaultOptions speech.Options
 }
 
-func NewSpeechModel(_ context.Context, config SpeechModelConfig) (*SpeechModel, error) {
+func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -217,12 +217,12 @@ func (s *SpeechModel) response(ctx context.Context, effectiveOptions speech.Opti
 
 	var outputMetadata metadata.Map
 	if contentType != "" {
-		if setErr := outputMetadata.Set("replicate/mime_type", contentType); setErr != nil {
+		if setErr := outputMetadata.Set(metadataMIMEType, contentType); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if milliseconds, present := final.predictTimeMilliseconds(); present {
-		if setErr := outputMetadata.Set("replicate/predict_time_ms", milliseconds); setErr != nil {
+		if setErr := outputMetadata.Set(metadataPredictTimeMilliseconds, milliseconds); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -240,15 +240,15 @@ func (s *SpeechModel) response(ctx context.Context, effectiveOptions speech.Opti
 		}
 		meta.CreatedAt = createdAt.UTC()
 	}
-	if err := meta.Extra.Set("replicate/prediction_id", final.ID); err != nil {
+	if err := meta.Extra.Set(metadataPredictionID, final.ID); err != nil {
 		return nil, err
 	}
 	if final.Version != "" {
-		if err := meta.Extra.Set("replicate/version", final.Version); err != nil {
+		if err := meta.Extra.Set(metadataVersion, final.Version); err != nil {
 			return nil, err
 		}
 	}
-	if err := meta.Extra.Set("replicate/audio_url", url); err != nil {
+	if err := meta.Extra.Set(metadataAudioURL, url); err != nil {
 		return nil, err
 	}
 	if err := meta.Extra.Set(SpeechResponseExtensionKey, final); err != nil {

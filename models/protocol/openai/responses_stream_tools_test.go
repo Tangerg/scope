@@ -40,6 +40,8 @@ func TestResponsesToolStreamHasOneIdentityAndLifecycle(t *testing.T) {
 		terminalItem string
 	}{
 		{name: "valid fragments", events: []modeltest.AnthropicEvent{start, arguments, done}, valid: true},
+		{name: "unseen completed tool"},
+		{name: "additional completed tool", events: []modeltest.AnthropicEvent{start, arguments, done}, terminalItem: doneItem + `,{"type":"function_call","id":"fc_2","call_id":"call_2","name":"extra","arguments":"{}","status":"completed"}`},
 		{name: "arguments completion", events: []modeltest.AnthropicEvent{start, arguments, argumentsDone, done}, valid: true},
 		{name: "arguments after arguments completion", events: []modeltest.AnthropicEvent{start, arguments, argumentsDone, arguments, done}},
 		{name: "changed arguments completion", events: []modeltest.AnthropicEvent{start, arguments, {Event: "response.function_call_arguments.done", Data: `{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc_1","arguments":"{\"target\":\"other\"}"}`}, done}},

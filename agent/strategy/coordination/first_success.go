@@ -68,7 +68,6 @@ func NewFirstSuccess(config FirstSuccessConfig) (*FirstSuccess, error) {
 	return &FirstSuccess{descriptor: descriptor, maxCandidates: config.MaxCandidates, accept: config.Accept}, nil
 }
 
-// ChildDeployments is empty: FirstSuccess starts only children its input names.
 func (*FirstSuccess) ChildDeployments() []agent.Deployment { return nil }
 
 func (f *FirstSuccess) Descriptor() agent.Descriptor {

@@ -13,7 +13,7 @@ import (
 
 func TestAudioTextRequiresReportedText(t *testing.T) {
 	for _, translation := range []bool{false, true} {
-		for _, body := range []string{`{}`, `{"text":null}`, `{"text":""}`} {
+		for _, body := range []string{`null`, `{}`, `{"text":null}`, `{"text":""}`} {
 			t.Run(body, func(t *testing.T) {
 				server := modeltest.JSONServer(http.StatusOK, body)
 				defer server.Close()

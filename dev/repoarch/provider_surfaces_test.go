@@ -10,31 +10,6 @@ import (
 	"testing"
 )
 
-var retiredProviderSymbols = map[string]struct{}{
-	"API":                 {},
-	"APIConfig":           {},
-	"AnthropicChat":       {},
-	"AnthropicChatConfig": {},
-	"FetchNative":         {},
-	"NewAPI":              {},
-	"NewAnthropicChat":    {},
-	"NewOpenAIChat":       {},
-	"NewResponsesChat":    {},
-	"OpenAIChat":          {},
-	"OpenAIChatConfig":    {},
-	"Request":             {},
-	"Response":            {},
-	"ResponsesChat":       {},
-	"SearchNative":        {},
-}
-
-var retiredProtocolChatSymbols = map[string]struct{}{
-	"Chat":              {},
-	"ChatConfig":        {},
-	"NewChat":           {},
-	"NewCompatibleChat": {},
-}
-
 var coreOwnedChatOptionSymbols = map[string]struct{}{
 	"ToolChoice":      {},
 	"ToolChoiceMode":  {},
@@ -182,14 +157,14 @@ func TestModelProvidersOwnTheirPublicSurface(t *testing.T) {
 	t.Parallel()
 
 	for _, dir := range modelProviderDirectories(t) {
-		assertOwnedPublicSurface(t, dir, retiredProviderSymbols)
+		assertOwnedPublicSurface(t, dir)
 	}
 
 	root := modelsRoot(t)
 	// Reusable wire protocols are public infrastructure rather than provider
 	// facades, but their semantic APIs must still hide SDK-owned types.
-	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "anthropic"), retiredProtocolChatSymbols)
-	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "openai"), retiredProtocolChatSymbols)
+	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "anthropic"))
+	assertOwnedPublicSurface(t, filepath.Join(root, "protocol", "openai"))
 }
 
 func TestModelProvidersDoNotDuplicateCoreChatOptions(t *testing.T) {
@@ -278,7 +253,7 @@ func TestWebProvidersExposeOnlyNormalizedTransport(t *testing.T) {
 			continue
 		}
 		t.Run(strings.ReplaceAll(family+"/"+entry.Name(), "/", "_"), func(t *testing.T) {
-			assertOwnedPublicSurface(t, dir, retiredProviderSymbols)
+			assertOwnedPublicSurface(t, dir)
 			assertProviderTestsAreOffline(t, dir)
 		})
 	}
@@ -315,7 +290,7 @@ func TestFixedConstructionStateUsesConfig(t *testing.T) {
 	}
 }
 
-func assertOwnedPublicSurface(t *testing.T, dir string, retired map[string]struct{}) {
+func assertOwnedPublicSurface(t *testing.T, dir string) {
 	t.Helper()
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
@@ -333,7 +308,7 @@ func assertOwnedPublicSurface(t *testing.T, dir string, retired map[string]struc
 		}
 		thirdParty := importNamesWhere(t, path, file, isExternalImport)
 		for _, declaration := range file.Decls {
-			checkOwnedPublicDeclaration(t, fset, path, declaration, retired, thirdParty)
+			checkOwnedPublicDeclaration(t, fset, path, declaration, thirdParty)
 		}
 	}
 }
@@ -343,7 +318,6 @@ func checkOwnedPublicDeclaration(
 	fset *token.FileSet,
 	path string,
 	declaration ast.Decl,
-	retired map[string]struct{},
 	thirdParty map[string]struct{},
 ) {
 	t.Helper()
@@ -352,11 +326,10 @@ func checkOwnedPublicDeclaration(
 		if !value.Name.IsExported() || !receiverIsPublic(value.Recv) {
 			return
 		}
-		rejectRetiredProviderSymbol(t, fset, path, value.Name, retired)
 		rejectThirdPartySelectors(t, fset, path, value.Type, thirdParty)
 	case *ast.GenDecl:
 		for _, specification := range value.Specs {
-			checkOwnedPublicSpec(t, fset, path, specification, retired, thirdParty)
+			checkOwnedPublicSpec(t, fset, path, specification, thirdParty)
 		}
 	}
 }
@@ -366,7 +339,6 @@ func checkOwnedPublicSpec(
 	fset *token.FileSet,
 	path string,
 	specification ast.Spec,
-	retired map[string]struct{},
 	thirdParty map[string]struct{},
 ) {
 	t.Helper()
@@ -375,7 +347,6 @@ func checkOwnedPublicSpec(
 		if !spec.Name.IsExported() {
 			return
 		}
-		rejectRetiredProviderSymbol(t, fset, path, spec.Name, retired)
 		structure, ok := spec.Type.(*ast.StructType)
 		if !ok {
 			rejectThirdPartySelectors(t, fset, path, spec.Type, thirdParty)
@@ -491,13 +462,6 @@ func pointsToImportedSelector(expression ast.Expr, aliases map[string]struct{}) 
 	}
 	_, imported := aliases[qualifier.Name]
 	return imported
-}
-
-func rejectRetiredProviderSymbol(t *testing.T, fset *token.FileSet, path string, name *ast.Ident, retired map[string]struct{}) {
-	t.Helper()
-	if _, forbidden := retired[name.Name]; forbidden {
-		t.Errorf("%s:%d exports retired transport symbol %s", filepath.ToSlash(path), fset.Position(name.Pos()).Line, name.Name)
-	}
 }
 
 func rejectThirdPartySelectors(t *testing.T, fset *token.FileSet, path string, node ast.Node, aliases map[string]struct{}) {

@@ -38,32 +38,27 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions, extension
 	if !found {
 		return nil
 	}
-	for _, field := range []string{"model", "input", "tools", "max_output_tokens", "temperature", "top_p", "stream"} {
-		if _, exists := fields[field]; exists {
+	for field := range fields {
+		if responsesRequestField(field).coreOwned() {
 			return fmt.Errorf("openai responses: extension %q field %q is owned by Core", extensionKey, field)
 		}
 	}
-	for _, field := range []string{"parallel_tool_calls", "tool_choice"} {
-		if _, exists := fields[field]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q is owned by options.tool_choice", extensionKey, field)
-		}
-	}
-	if raw, exists := fields["reasoning"]; exists {
+	if raw, exists := fields[string(responsesFieldReasoning)]; exists {
 		var reasoningFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &reasoningFields); err != nil {
-			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, "reasoning", err)
+			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, responsesFieldReasoning, err)
 		}
-		if _, exists := reasoningFields["effort"]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, "reasoning")
+		if _, exists := reasoningFields[string(responsesFieldReasoningEffort)]; exists {
+			return fmt.Errorf("openai responses: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, responsesFieldReasoning)
 		}
 	}
-	if raw, exists := fields["text"]; exists {
+	if raw, exists := fields[string(responsesFieldText)]; exists {
 		var textFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &textFields); err != nil {
-			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, "text", err)
+			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, responsesFieldText, err)
 		}
-		if _, exists := textFields["format"]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.format is owned by options.output_format", extensionKey, "text")
+		if _, exists := textFields[string(responsesFieldTextFormat)]; exists {
+			return fmt.Errorf("openai responses: extension %q field %q.format is owned by options.output_format", extensionKey, responsesFieldText)
 		}
 	}
 	return nil

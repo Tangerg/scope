@@ -12,6 +12,8 @@ import (
 
 type childCallKind string
 
+const childBatchWaitKey = "interaction.children"
+
 const (
 	childCallsTool     childCallKind = "tool"
 	childCallsDelegate childCallKind = "delegate"
@@ -285,7 +287,7 @@ func (c childCallBatch) childCount() int {
 // batch wait at a time and consumes its answer before opening the next, so a
 // fixed key never collides; WaitID owns the wait's identity.
 func (c childCallBatch) waitSpec(keys []agent.ChildKey) (agent.ChildWaitSpec, error) {
-	key, err := agent.ParseWaitKey("interaction.children")
+	key, err := agent.ParseWaitKey(childBatchWaitKey)
 	if err != nil {
 		return agent.ChildWaitSpec{}, err
 	}

@@ -22,9 +22,10 @@ type toolMiddleware struct {
 // most one model-requested batch. Only FinishReasonToolCalls authorizes
 // execution; other outcomes pass through. Every invocation is validated before
 // any Tool runs, then the batch executes serially followed by one model call.
-// Completed Tools are never rolled back: an execution failure returns
-// [ToolBatchError] and a failed follow-up call returns [ToolContinuationError],
-// both preserving the cause for errors.Is and errors.As. The middleware owns
+// Completed Tools are never rolled back: an execution failure retains
+// [ToolBatchError] and a failed follow-up call retains [ToolContinuationError]
+// behind a [chat.CallFailure] for the complete invocation. Diagnostic causes
+// remain inspectable through errors.Is and errors.As. The middleware owns
 // Tools and ToolChoice exclusively, so it cannot be stacked. Placed inside
 // history.Middleware.Call, history persists only fresh input and the final
 // answer; placed outside, it also records tool proposals and results.
@@ -65,13 +66,13 @@ func (t *toolMiddleware) call(
 	request *chat.Request,
 ) (*chat.Response, error) {
 	if request == nil {
-		return nil, fmt.Errorf("%w: nil Request", ErrInvalidToolBatch)
+		return nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: fmt.Errorf("%w: nil Request", ErrInvalidToolBatch)}
 	}
 	if len(request.Tools) != 0 || request.ToolChoice != nil {
-		return nil, fmt.Errorf(
+		return nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: fmt.Errorf(
 			"%w: request tools and tool choice must be empty because the middleware owns the tool contract",
 			ErrInvalidToolBatch,
-		)
+		)}
 	}
 	current := request.Clone()
 	current.Tools = t.cloneDefinitions()
@@ -85,14 +86,14 @@ func (t *toolMiddleware) call(
 	}
 	batch, err := t.prepare(calls)
 	if err != nil {
-		return nil, err
+		return nil, &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: err}
 	}
 	results, inputRequest, err := batch.execute(ctx)
 	if err != nil {
-		return nil, &ToolBatchError{
+		return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: &ToolBatchError{
 			completed: results, request: current,
 			proposal: response.Clone(), cause: err, inputRequest: inputRequest,
-		}
+		}}
 	}
 	current.Messages = append(
 		current.Messages,
@@ -101,7 +102,11 @@ func (t *toolMiddleware) call(
 	)
 	response, err = next.Call(ctx, current)
 	if err != nil {
-		return response, &ToolContinuationError{request: current, cause: err}
+		kind := chat.ClassifyFailure(err)
+		if kind == chat.CallFailureNotExecuted {
+			kind = chat.CallFailureFailed
+		}
+		return response, &chat.CallFailure{Kind: kind, Cause: &ToolContinuationError{request: current, cause: err}}
 	}
 	return response, nil
 }

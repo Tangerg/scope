@@ -59,4 +59,4 @@ func (t *ToolContent) UnmarshalJSON(data []byte) error {
 
 type wireToolContent ToolContent
 
-func (ToolContent) JSONSchemaAlias() any { return wireToolContent{} }
+func (ToolContent) JSONSchemaModel() any { return wireToolContent{} }

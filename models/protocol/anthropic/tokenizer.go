@@ -43,12 +43,12 @@ type TextCounter struct {
 	model string
 }
 
-func NewTextCounter(_ context.Context, config TextCounterConfig) (*TextCounter, error) {
+func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,

@@ -39,9 +39,13 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "together", Fields: []openai.TextReasoningField{openai.TextReasoning, openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways})
+	if err != nil {
+		return nil, fmt.Errorf("together: configure reasoning dialect: %w", err)
+	}
 	protocol, err := openai.NewCompatibleChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient},
-		openai.ReasoningReplayDialect("together"),
+		dialect,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("together: construct OpenAI-compatible chat: %w", err)

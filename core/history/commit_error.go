@@ -10,7 +10,8 @@ import (
 // It owns the exact batch submitted to Write, so recovery need not call the
 // model again. Outcome governs whether a suffix is safe to submit: uncertain
 // writes require reconciliation, and Accepted messages must not be appended again.
-// During streaming this error can follow the terminal model delta.
+// During streaming this error can follow the terminal model delta. Middleware
+// retains it behind a chat.CallFailure scoped to the complete invocation.
 type CommitError struct {
 	conversationID ConversationID
 	messages       []chat.Message

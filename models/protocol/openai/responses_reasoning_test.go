@@ -27,7 +27,7 @@ func TestResponsesReasoningReplayKeepsSegmentOwners(t *testing.T) {
 		`{"type":"response.reasoning_text.delta","item_id":"rs-1","content_index":0,"delta":"original content"}`,
 		`{"type":"response.output_item.done","item":` + firstItem + `}`,
 		`{"type":"response.output_item.done","item":` + secondItem + `}`,
-		`{"type":"response.output_text.delta","item_id":"answer","content_index":0,"delta":"answer"}`,
+		`{"type":"response.output_text.delta","item_id":"answer","output_index":2,"content_index":0,"delta":"answer"}`,
 		`{"type":"response.completed","response":{"id":"response-1","model":"model","status":"completed","output":[` + firstItem + `,` + secondItem + `,{"type":"message","id":"answer","role":"assistant","status":"completed","content":[{"type":"output_text","text":"answer","annotations":[]}]}]}}`,
 	}
 	var captured struct {

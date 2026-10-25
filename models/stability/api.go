@@ -10,6 +10,8 @@ import (
 	"strconv"
 
 	"github.com/go-resty/resty/v2"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type apiConfig struct {
@@ -29,22 +31,20 @@ type api struct {
 	http *resty.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
 
-	client := resty.New()
-	if config.HTTPClient != nil {
-		ownedClient := *config.HTTPClient
-		if ownedClient.Transport == nil {
-			ownedClient.Transport = http.DefaultTransport
-		}
-		client = resty.NewWithClient(&ownedClient)
+	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
+	if err != nil {
+		return nil, fmt.Errorf("stability: HTTP client: %w", err)
 	}
+	client := resty.NewWithClient(boundClient)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
-	client.SetBaseURL(cmp.Or(config.BaseURL, DefaultBaseURL)).
+	client.SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey)
 
 	return &api{http: client}, nil
@@ -73,17 +73,17 @@ func (g *generateRequest) formFields() map[string]string {
 			out[k] = v
 		}
 	}
-	put("prompt", g.Prompt)
-	put("negative_prompt", g.NegativePrompt)
-	put("aspect_ratio", g.AspectRatio)
-	put("model", g.Model)
-	put("output_format", g.OutputFormat)
-	put("style_preset", g.StylePreset)
+	put(fieldPrompt, g.Prompt)
+	put(fieldNegativePrompt, g.NegativePrompt)
+	put(fieldAspectRatio, g.AspectRatio)
+	put(fieldModel, g.Model)
+	put(fieldOutputFormat, g.OutputFormat)
+	put(fieldStylePreset, g.StylePreset)
 	if g.CFGScale != nil {
-		out["cfg_scale"] = strconv.FormatFloat(*g.CFGScale, 'f', -1, 64)
+		out[fieldCfgScale] = strconv.FormatFloat(*g.CFGScale, 'f', -1, 64)
 	}
 	if g.Seed != nil {
-		out["seed"] = strconv.FormatInt(*g.Seed, 10)
+		out[fieldSeed] = strconv.FormatInt(*g.Seed, 10)
 	}
 	return out
 }
@@ -91,18 +91,18 @@ func (g *generateRequest) formFields() map[string]string {
 func (g *generateRequest) validate() error {
 	if g.AspectRatio != "" {
 		switch g.AspectRatio {
-		case "16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21":
+		case aspectRatio16By9, aspectRatio1By1, aspectRatio21By9, aspectRatio2By3, aspectRatio3By2, aspectRatio4By5, aspectRatio5By4, aspectRatio9By16, aspectRatio9By21:
 		default:
 			return fmt.Errorf("stability: unsupported aspect_ratio %q", g.AspectRatio)
 		}
 	}
-	if g.OutputFormat != "" && g.OutputFormat != "jpeg" && g.OutputFormat != "png" && g.OutputFormat != "webp" {
+	if g.OutputFormat != "" && g.OutputFormat != outputFormatJPEG && g.OutputFormat != outputFormatPNG && g.OutputFormat != outputFormatWebP {
 		return fmt.Errorf("stability: output_format must be jpeg, png, or webp, got %q", g.OutputFormat)
 	}
-	if g.Seed != nil && (*g.Seed < 0 || *g.Seed > 4294967294) {
+	if g.Seed != nil && (*g.Seed < 0 || *g.Seed > maximumSeed) {
 		return fmt.Errorf("stability: seed must be between 0 and 4294967294, got %d", *g.Seed)
 	}
-	if g.CFGScale != nil && (*g.CFGScale < 1 || *g.CFGScale > 10) {
+	if g.CFGScale != nil && (*g.CFGScale < minimumCFGScale || *g.CFGScale > maximumCFGScale) {
 		return fmt.Errorf("stability: cfg_scale must be between 1 and 10, got %g", *g.CFGScale)
 	}
 	return nil
@@ -122,7 +122,7 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 	r := a.http.R().
 		SetContext(ctx).
 		SetMultipartFormData(req.formFields()).
-		SetHeader("Accept", cmp.Or(req.Mode, ResponseModeImage))
+		SetHeader(headerAccept, cmp.Or(req.Mode, ResponseModeImage))
 
 	resp, err := r.Post(path)
 	if err != nil {
@@ -134,7 +134,6 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 	return resp.Body(), resp.Header(), nil
 }
 
-// decodeJSON decodes Stability's JSON image envelope.
 func decodeJSON(body []byte) (*jsonResponse, error) {
 	var resp jsonResponse
 	if err := jsonv2.Unmarshal(body, &resp); err != nil {

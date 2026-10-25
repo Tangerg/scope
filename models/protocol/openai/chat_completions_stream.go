@@ -37,9 +37,13 @@ type openAIStreamState struct {
 }
 
 func newOpenAIStreamState(dialect Dialect) *openAIStreamState {
+	var response responseDialect
+	if dialect.response != nil {
+		response = dialect.response()
+	}
 	return &openAIStreamState{
 		tools:    make(map[int64]openAIStreamTool),
-		dialect:  dialect.response,
+		dialect:  response,
 		chunkKey: protocolStreamChunkExtensionKey(dialect.Provider),
 	}
 }

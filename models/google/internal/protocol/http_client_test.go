@@ -42,7 +42,7 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 				t.Fatal("SDK client lost host policy or shares mutable transport slot")
 			}
 
-			if owned == host || owned.Transport != router || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
+			if owned == host || owned.Transport == nil || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
 				t.Fatal("constructor changed or failed to preserve borrowed HTTP configuration")
 			}
 			redirectRequest, err := http.NewRequest(http.MethodGet, config.BaseURL, nil)
@@ -53,7 +53,7 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 				t.Fatal("host policy lost")
 			}
 			for _, client := range []*http.Client{host, owned} {
-				response, err := client.Get("scope-test://routing/")
+				response, err := client.Get(config.BaseURL)
 				if err != nil {
 					t.Fatal(err)
 				}

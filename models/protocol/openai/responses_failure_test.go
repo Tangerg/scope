@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/openai/openai-go/v3/responses"
@@ -13,7 +12,7 @@ func TestResponsesExplicitFailurePreservesExecutionEvidence(t *testing.T) {
 	for _, status := range []responses.ResponseStatus{responses.ResponseStatusFailed, responses.ResponseStatusCancelled} {
 		t.Run(string(status), func(t *testing.T) {
 			_, err := responsesTerminalDelta(&responses.Response{Status: status}, ResponsesResponseExtensionKey)
-			if !errors.Is(err, chat.ErrDefiniteFailure) || errors.Is(err, chat.ErrNotExecuted) {
+			if chat.ClassifyFailure(err) != chat.CallFailureFailed {
 				t.Fatalf("error=%v", err)
 			}
 		})

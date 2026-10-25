@@ -56,8 +56,8 @@ type ChatCompletions struct {
 	dialect  Dialect
 }
 
-func NewChatCompletions(_ context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
-	return newChatCompletions(config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: prepareOpenAIChatRequest})
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
+	return newChatCompletions(ctx, config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: prepareOpenAIChatRequest})
 }
 
 func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) error {
@@ -82,18 +82,18 @@ func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) er
 	return target.SetExtraField("stream_options", options)
 }
 
-func NewCompatibleChatCompletions(_ context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
-	return newChatCompletions(config, dialect)
+func NewCompatibleChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
+	return newChatCompletions(ctx, config, dialect)
 }
 
-func newChatCompletions(config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
+func newChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	if err := dialect.Validate(); err != nil {
 		return nil, fmt.Errorf("openai: dialect: %w", err)
 	}
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		APIKey:     config.APIKey,
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
@@ -140,7 +140,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := c.buildRequest(req)
 		if err != nil {
-			yield(nil, fmt.Errorf("%w: %w", corechat.ErrNotExecuted, err))
+			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
 			return
 		}
 
@@ -290,6 +290,9 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		params.Stop.OfStringArray = slices.Clone(options.Stop)
 	}
 	if options.Temperature != nil {
+		if c.dialect.ignores(ChatOptionTemperature) {
+			return newIgnoredOptionError(c.dialect.Provider, ChatOptionTemperature)
+		}
 		if limit := c.dialect.MaxTemperature; limit != nil && *options.Temperature > *limit {
 			return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
 				c.dialect.Provider, *limit, *options.Temperature)
@@ -297,6 +300,9 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		params.Temperature = openaisdk.Float(*options.Temperature)
 	}
 	if options.TopP != nil {
+		if c.dialect.ignores(ChatOptionTopP) {
+			return newIgnoredOptionError(c.dialect.Provider, ChatOptionTopP)
+		}
 		params.TopP = openaisdk.Float(*options.TopP)
 	}
 	if toolChoice != nil {

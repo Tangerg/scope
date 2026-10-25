@@ -126,7 +126,7 @@ type richFixtureModel struct {
 	Value int `json:"value" jsonschema:"minimum=1"`
 }
 
-func (richFixture) JSONSchemaAlias() any { return richFixtureModel{} }
+func (richFixture) JSONSchemaModel() any { return richFixtureModel{} }
 
 type nestedRichFixture struct{}
 
@@ -135,7 +135,7 @@ type nestedRichFixtureModel struct {
 	Wire  wireFixture `json:"wire"`
 }
 
-func (nestedRichFixture) JSONSchemaAlias() any { return nestedRichFixtureModel{} }
+func (nestedRichFixture) JSONSchemaModel() any { return nestedRichFixtureModel{} }
 
 func TestForRetainsDefinitionsInsideNestedWireModels(t *testing.T) {
 	type result struct {
@@ -160,7 +160,7 @@ type recursiveRichFixtureModel struct {
 	Next  *recursiveRichFixture `json:"next,omitzero"`
 }
 
-func (recursiveRichFixture) JSONSchemaAlias() any { return recursiveRichFixtureModel{} }
+func (recursiveRichFixture) JSONSchemaModel() any { return recursiveRichFixtureModel{} }
 
 func TestForRetainsRecursiveWireModelReferences(t *testing.T) {
 	schema, err := jsonschema.For[recursiveRichFixture]()

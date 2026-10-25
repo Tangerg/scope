@@ -408,4 +408,4 @@ type terminationWire struct {
 	UnresolvedEffectIDs []EffectID       `json:"unresolved_effect_ids,omitempty"`
 }
 
-func (Termination) JSONSchemaAlias() any { return terminationWire{} }
+func (Termination) JSONSchemaModel() any { return terminationWire{} }

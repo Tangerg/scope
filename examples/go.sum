@@ -1,17 +1,5 @@
 github.com/Tangerg/go-sdk v1.8.1-scope.3 h1:hMC4qrvwu38L4/bLwnPiCYi9BTRFQxGb6Cs97pa/CzQ=
 github.com/Tangerg/go-sdk v1.8.1-scope.3/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
-github.com/Tangerg/scope/agent v0.56.0 h1:GH/bWQerrxNjphC1HVPzI/DfWz77IhhdWyhbxCQNP04=
-github.com/Tangerg/scope/agent v0.56.0/go.mod h1:9hnyphKA1R1H3D2P9bo1XJ6vMo4/hb5wNqb2fHON6QA=
-github.com/Tangerg/scope/core v0.56.0 h1:2YJ1w9R/2zXW5AlJ6KZ80xMr861Z/avlhXbtSfvAJnE=
-github.com/Tangerg/scope/core v0.56.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/eval v0.56.0 h1:T7aBIHdu6rByHGkHQV3mUwUkuVDAdXD/G/3TSmrhPKU=
-github.com/Tangerg/scope/eval v0.56.0/go.mod h1:BjgE2Z3HbwIymi1SCg30h4yk3W7Y2pFYUbqPrqLywYE=
-github.com/Tangerg/scope/eval/trajectory v0.56.0 h1:unJVu8HSGWmi6EGIKQoJ1kvdfYfwkOyYghCXheOlAxU=
-github.com/Tangerg/scope/eval/trajectory v0.56.0/go.mod h1:OwkBukaaJSxO9RwKTYZFzPxhuxQQoZIfjCT6Opcb1ko=
-github.com/Tangerg/scope/mcp v0.56.0 h1:MyOAEKdaD0XarZlJT3cB/IXJs0Zqe2iQ7cjGnQOIKVA=
-github.com/Tangerg/scope/mcp v0.56.0/go.mod h1:cPuF5kDYTr5q9ctg84UoEl3ILYgyn7oVMjS8dZ9TmN4=
-github.com/Tangerg/scope/tools v0.56.0 h1:patfBkVk7FJbxk7MNddIMZ7uMJejQ4ssW2pvX5/pj5Q=
-github.com/Tangerg/scope/tools v0.56.0/go.mod h1:wYV3N71CxtJ8r+Qv3lBsdi5N1oCNnPnD7dKdHQ0c1cg=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/bluekeyes/go-gitdiff v0.9.0 h1:w+O6lkRBOqfGcwF0Lf6FFHQrhmxM0hCJW5+rbilGuSs=
