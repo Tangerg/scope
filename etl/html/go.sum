@@ -1,5 +1,9 @@
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
+github.com/Tangerg/scope/core v0.57.0 h1:2eLtAFD32G6UceP3scCbT05MDfwsOrV5bbS3OynFD9U=
+github.com/Tangerg/scope/core v0.57.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
+github.com/Tangerg/scope/etl v0.57.0 h1:5FUXDo2uJo385sEhUOPPE0aPWrwc8aSYazPneo+N6ZI=
+github.com/Tangerg/scope/etl v0.57.0/go.mod h1:XF0upzASHkroOnDapk5UHCNI/ZWDEAxQBj7Ja3+bo20=
 github.com/andybalholm/cascadia v1.3.5 h1:RLjq12WJy58dN6eCIQrz0bAGZkztHWsEPFxP53Y7Ms8=
 github.com/andybalholm/cascadia v1.3.5/go.mod h1:BLRmbRjpEtNKieZOCCvYj4RqN+KRA41GBe/5O+G93kM=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
