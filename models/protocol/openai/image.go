@@ -42,7 +42,6 @@ func (i ImageModelConfig) Validate() error {
 
 var _ image.Model = (*ImageModel)(nil)
 
-// ImageModel implements the OpenAI-compatible image protocol.
 type ImageModel struct {
 	api            *api
 	provider       string
@@ -85,7 +84,7 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 		return nil, errors.New("openai: image: width and height must be set together")
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(i.provider, "image"), "model", "prompt", "output_format", "size")
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(i.provider, "image"), "model", "prompt", "output_format", "size", "stream", "partial_images")
 	if err != nil {
 		return nil, err
 	}

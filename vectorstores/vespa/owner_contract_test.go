@@ -320,7 +320,7 @@ func TestVisitRejectsMalformedCountsAndIdentities(t *testing.T) {
 }
 
 func TestConfigRejectsInvalidEndpointAndResponseBound(t *testing.T) {
-	for _, endpoint := range []string{"", "relative", "file:///tmp/local", "http://host?query=1", "http://host#fragment", "http://user:password@host"} {
+	for _, endpoint := range []string{"", "relative", "file:///tmp/local", "http://host?query=1", "http://host?", "http://host/base?", "http://host#fragment", "http://host#", "http://host/base#", "http://user:password@host"} {
 		config := StoreConfig{Endpoint: endpoint, SchemaName: "scope", RankingProfile: "rank", EmbeddingModel: fixtureModel{}, DocumentBatcher: testBatcher{}}
 		if err := config.Validate(); err == nil {
 			t.Fatalf("invalid endpoint %q accepted", endpoint)

@@ -29,10 +29,12 @@ const maxGenerationEventBytes = 256 << 20
 // unchecked response converters are never entered.
 type GenerationClient struct{ config genai.ClientConfig }
 
-// NewGenerationClient uses a constructed SDK client's resolved authentication
-// and endpoint. It does not mutate the client or introduce response DTO copies.
-func NewGenerationClient(client *genai.Client) *GenerationClient {
-	return &GenerationClient{config: client.ClientConfig()}
+func NewGenerationClient(ctx context.Context, config ClientConfig) (*GenerationClient, error) {
+	api, err := newAPI(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	return api.generation, nil
 }
 
 func (g *GenerationClient) GenerateContent(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {

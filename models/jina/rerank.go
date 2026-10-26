@@ -28,7 +28,6 @@ func (r RerankModelConfig) Validate() error {
 
 var _ rerank.Model = (*RerankModel)(nil)
 
-// RerankModel implements the Core reranking contract with Jina.
 type RerankModel struct {
 	api            *api
 	defaultOptions rerank.Options

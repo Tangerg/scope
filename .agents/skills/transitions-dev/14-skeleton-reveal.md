@@ -123,19 +123,21 @@ The `@media (prefers-reduced-motion: reduce)` guard at the bottom of the snippet
 ```js
 const skel = document.querySelector(".t-skel");
 const skeleton = skel.querySelector(".t-skel-skeleton");
+let revealTimer = null;
 const cs = getComputedStyle(document.documentElement);
 const num = (name, fb) => {
   const v = parseFloat(cs.getPropertyValue(name));
   return Number.isFinite(v) ? v : fb;
 };
 
-// Call when async data arrives:
 function reveal() {
+  clearTimeout(revealTimer);
+  revealTimer = null;
   skel.classList.add("is-revealed");
 }
 
-// Demo replay: snap back, pulse, then reveal.
 function replay() {
+  clearTimeout(revealTimer);
   skel.classList.add("is-resetting");
   skel.classList.remove("is-revealed");
   skeleton.classList.remove("is-pulsing");
@@ -143,7 +145,7 @@ function replay() {
   skel.classList.remove("is-resetting");
   skeleton.classList.add("is-pulsing");
   const total = num("--pulse-dur", 1000) * num("--pulse-count", 1);
-  setTimeout(() => skel.classList.add("is-revealed"), total);
+  revealTimer = setTimeout(reveal, total);
 }
 ```
 

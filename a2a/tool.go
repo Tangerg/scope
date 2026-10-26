@@ -15,6 +15,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 var errEmptyToolName = errors.New("a2a: tool name must not be empty")
@@ -92,7 +93,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	)
 	defer func() {
 		if err != nil {
-			recordSpanError(span, err)
+			errortelemetry.Record(span, errortelemetry.Classify(err))
 		}
 		span.End()
 	}()

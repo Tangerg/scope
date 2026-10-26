@@ -172,7 +172,6 @@ func TestInputGateRejectsInvalidAnswerAtAdmissionAndKeepsWaitOpen(t *testing.T) 
 			t.Fatal("rejected answer closed the wait")
 		}
 
-		// The same wait still accepts a valid answer, which completes the gate.
 		goodID, goodErr := agent.ParseSignalID("signal:valid-answer")
 		if goodErr != nil {
 			t.Fatal(goodErr)

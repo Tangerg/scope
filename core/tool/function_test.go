@@ -12,6 +12,7 @@ import (
 	"weak"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -395,12 +396,11 @@ func TestContractDoesNotRetainFunctionExecutionResources(t *testing.T) {
 
 func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 	type input struct {
-		Signed       int8    `json:"signed,omitzero"`
-		Unsigned     uint64  `json:"unsigned,omitzero"`
-		Float        float32 `json:"float,omitzero"`
-		Bytes        []byte  `json:"bytes,omitempty"`
-		StringNumber int     `json:"string_number,omitzero,string"`
-		Value        any     `json:"value,omitzero"`
+		Signed   int8    `json:"signed,omitzero"`
+		Unsigned uint64  `json:"unsigned,omitzero"`
+		Float    float32 `json:"float,omitzero"`
+		Bytes    []byte  `json:"bytes,omitempty"`
+		Value    any     `json:"value,omitzero"`
 	}
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "representable"}, func(context.Context, input) (string, error) { return "accepted", nil })
 	if err != nil {
@@ -414,13 +414,13 @@ func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 		`{"signed":128}`, `{"signed":1.0}`, `{"signed":1e0}`,
 		`{"unsigned":-1}`, `{"unsigned":18446744073709551616}`,
 		`{"float":1e39}`, `{"bytes":"invalid base64"}`,
-		`{"string_number":"99999999999999999999999"}`, `{"value":1e999}`,
+		`{"value":1e999}`,
 	} {
 		if _, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "representable", Arguments: arguments}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%s) = %v, want invalid invocation", arguments, err)
 		}
 	}
-	for _, arguments := range []string{`{}`, `{"signed":-128}`, `{"signed":127}`, `{"unsigned":18446744073709551615}`, `{"float":1.25}`, `{"bytes":"aGk="}`, `{"string_number":"42"}`} {
+	for _, arguments := range []string{`{}`, `{"signed":-128}`, `{"signed":127}`, `{"unsigned":18446744073709551615}`, `{"float":1.25}`, `{"bytes":"aGk="}`} {
 		invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "representable", Arguments: arguments}, nil)
 		if err != nil {
 			t.Fatalf("valid input rejected: %s: %v", arguments, err)
@@ -428,6 +428,19 @@ func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 		if _, err := binding.Call(t.Context(), invocation); err != nil {
 			t.Fatalf("admitted input could not execute: %s: %v", arguments, err)
 		}
+	}
+}
+
+func TestFuncRejectsUnrepresentableStringNumberSchema(t *testing.T) {
+	type input struct {
+		Number int8 `json:"number,string"`
+	}
+	_, err := tool.NewFunc(tool.FuncConfig{Name: "quoted"}, func(context.Context, input) (string, error) {
+		t.Fatal("schema derivation executed the function")
+		return "", nil
+	})
+	if !errors.Is(err, tool.ErrInvalidTool) || !errors.Is(err, jsonschema.ErrInvalid) || !errors.Is(err, jsonschema.ErrUnsupportedStringTag) {
+		t.Fatalf("unrepresentable schema lost its construction error chain: %v", err)
 	}
 }
 

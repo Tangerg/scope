@@ -2,7 +2,6 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -42,6 +41,19 @@ type ChatRequestOptions struct {
 	PerformanceLatency                string            `json:"performance_latency,omitempty"`
 	RequestMetadata                   map[string]string `json:"request_metadata,omitempty"`
 	ServiceTier                       string            `json:"service_tier,omitempty"`
+}
+
+func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions ChatRequestOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return errors.New("bedrock: chat request options must be a JSON object")
+	}
+	*c = ChatRequestOptions(*decoded)
+	return nil
 }
 
 type GuardrailOptions struct {
@@ -247,20 +259,9 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 			options.ReasoningEffort, ChatRequestExtensionKey)
 	}
 
-	native, found, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)
+	native, _, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: extension %q: %w", ChatRequestExtensionKey, err)
-	}
-	if !found {
-		native = ChatRequestOptions{}
-	} else {
-		fields, _, decodeErr := req.Options.Extensions.Decode[map[string]json.RawMessage](ChatRequestExtensionKey)
-		if decodeErr != nil {
-			return nil, fmt.Errorf("bedrock: extension %q: %w", ChatRequestExtensionKey, decodeErr)
-		}
-		if _, exists := fields["json_schema"]; exists {
-			return nil, fmt.Errorf("bedrock: extension %q field %q is owned by options.output_format", ChatRequestExtensionKey, "json_schema")
-		}
 	}
 
 	system, messages, err := mapProtocolMessages(req.Messages)

@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	corererank "github.com/Tangerg/scope/core/rerank"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 

@@ -5,18 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
-)
 
-func skipWithoutBash(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not available")
-	}
-}
+	"github.com/Tangerg/scope/tools/content"
+)
 
 func skipWithoutRipgrep(t *testing.T) {
 	t.Helper()
@@ -25,13 +21,13 @@ func skipWithoutRipgrep(t *testing.T) {
 	}
 }
 
-func writeTemp(t *testing.T, dir, name, content string) string {
+func writeTemp(t *testing.T, dir, name, text string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return path
@@ -178,11 +174,11 @@ func TestLocalExecutor_Write_PreservesBOM(t *testing.T) {
 }
 
 func TestLocalExecutorWriteDoesNotDuplicateExistingFormat(t *testing.T) {
-	for _, content := range []string{"new\nstuff\n", "new\r\nstuff\r\n", utf8BOM + "new\r\nstuff\r\n"} {
-		t.Run(content, func(t *testing.T) {
+	for _, text := range []string{"new\nstuff\n", "new\r\nstuff\r\n", utf8BOM + "new\r\nstuff\r\n"} {
+		t.Run(text, func(t *testing.T) {
 			dir := t.TempDir()
 			path := writeTemp(t, dir, "a.txt", utf8BOM+"old\r\n")
-			result, err := mustLocalExecutor(t, dir).Write(t.Context(), WriteRequest{Path: path, Content: content})
+			result, err := mustLocalExecutor(t, dir).Write(t.Context(), WriteRequest{Path: path, Content: text})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,13 +208,13 @@ func TestLocalExecutor_Write_NULRejected(t *testing.T) {
 func TestLocalExecutor_Write_ConcurrentSamePath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "race.txt")
-	exec := mustLocalExecutor(t, dir)
+	executor := mustLocalExecutor(t, dir)
 	const N = 32
 	var wg sync.WaitGroup
 	for i := range N {
 		wg.Go(func() {
-			content := strings.Repeat("x", 1024) + "\n"
-			_, err := exec.Write(t.Context(), WriteRequest{Path: path, Content: content})
+			text := strings.Repeat("x", 1024) + "\n"
+			_, err := executor.Write(t.Context(), WriteRequest{Path: path, Content: text})
 			if err != nil {
 				t.Errorf("Write[%d]: %v", i, err)
 			}
@@ -395,11 +391,11 @@ func TestLocalExecutorApplyPatchGitHeadersNameRealPrefixDirectories(t *testing.T
 	if !slices.Equal(out.Files, want) {
 		t.Fatalf("ApplyPatch files = %+v, want %+v", out.Files, want)
 	}
-	for name, content := range map[string]string{
+	for name, text := range map[string]string{
 		"a/victim.txt": "new\n", "victim.txt": "old\n", "a/created.txt": "created\n", "b/after.txt": "moved\n", "b/new-empty": "",
 	} {
-		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != content {
-			t.Fatalf("%s = %q, %v; want %q", name, got, err, content)
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != text {
+			t.Fatalf("%s = %q, %v; want %q", name, got, err, text)
 		}
 	}
 	for _, name := range []string{"created.txt", "b/before.txt", "a/empty"} {
@@ -520,7 +516,6 @@ func TestLocalExecutor_ApplyPatch_InvalidRangeRejected(t *testing.T) {
 }
 
 func TestLocalExecutor_Glob_BasicAndDoublestar(t *testing.T) {
-	skipWithoutBash(t)
 	dir := t.TempDir()
 	writeTemp(t, dir, "a.go", "")
 	writeTemp(t, dir, "sub/b.go", "")
@@ -537,7 +532,6 @@ func TestLocalExecutor_Glob_BasicAndDoublestar(t *testing.T) {
 }
 
 func TestLocalExecutor_Glob_MaxResults(t *testing.T) {
-	skipWithoutBash(t)
 	dir := t.TempDir()
 	for i := range 10 {
 		writeTemp(t, dir, "file_"+string(rune('a'+i))+".txt", "")
@@ -683,8 +677,8 @@ func TestLocalExecutor_Grep_BoundsOversizeLine(t *testing.T) {
 		t.Fatal("a match line beyond the output budget was not reported as truncated")
 	}
 	for _, line := range out.Lines {
-		if len(line.Text) > grepOutputBudget {
-			t.Fatalf("returned a %d-byte line past the %d-byte budget", len(line.Text), grepOutputBudget)
+		if len(line.Content.Bytes()) > grepOutputBudget {
+			t.Fatalf("returned a %d-byte line past the %d-byte budget", len(line.Content.Bytes()), grepOutputBudget)
 		}
 	}
 }
@@ -711,23 +705,23 @@ func TestLocalExecutor_Grep_AsymmetricContext(t *testing.T) {
 		want          []GrepLine
 	}{
 		{"before only", 2, 0, []GrepLine{
-			{Path: "context.txt", Line: 1, Text: "before two", Kind: GrepLineContext},
-			{Path: "context.txt", Line: 2, Text: "before one", Kind: GrepLineContext},
-			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 1, Content: content.New([]byte("before two")), Kind: GrepLineContext},
+			{Path: "context.txt", Line: 2, Content: content.New([]byte("before one")), Kind: GrepLineContext},
+			{Path: "context.txt", Line: 3, Content: content.New([]byte("match")), Kind: GrepLineMatch},
 		}},
 		{"after only", 0, 2, []GrepLine{
-			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
-			{Path: "context.txt", Line: 4, Text: "after one", Kind: GrepLineContext},
-			{Path: "context.txt", Line: 5, Text: "after two", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 3, Content: content.New([]byte("match")), Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 4, Content: content.New([]byte("after one")), Kind: GrepLineContext},
+			{Path: "context.txt", Line: 5, Content: content.New([]byte("after two")), Kind: GrepLineContext},
 		}},
 		{"both", 1, 2, []GrepLine{
-			{Path: "context.txt", Line: 2, Text: "before one", Kind: GrepLineContext},
-			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
-			{Path: "context.txt", Line: 4, Text: "after one", Kind: GrepLineContext},
-			{Path: "context.txt", Line: 5, Text: "after two", Kind: GrepLineContext},
+			{Path: "context.txt", Line: 2, Content: content.New([]byte("before one")), Kind: GrepLineContext},
+			{Path: "context.txt", Line: 3, Content: content.New([]byte("match")), Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 4, Content: content.New([]byte("after one")), Kind: GrepLineContext},
+			{Path: "context.txt", Line: 5, Content: content.New([]byte("after two")), Kind: GrepLineContext},
 		}},
 		{"neither", 0, 0, []GrepLine{
-			{Path: "context.txt", Line: 3, Text: "match", Kind: GrepLineMatch},
+			{Path: "context.txt", Line: 3, Content: content.New([]byte("match")), Kind: GrepLineMatch},
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -737,7 +731,7 @@ func TestLocalExecutor_Grep_AsymmetricContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(out.Lines, test.want) || out.Truncated {
+			if !reflect.DeepEqual(out.Lines, test.want) || out.Truncated {
 				t.Fatalf("Grep = %#v, want %#v without truncation", out, test.want)
 			}
 		})

@@ -72,6 +72,9 @@ type speechStreamTransport struct {
 }
 
 func (s speechStreamTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	return &http.Response{
 		StatusCode: s.status, Header: http.Header{"Content-Type": []string{"audio/mpeg"}},
 		Body: s.body, Request: request,

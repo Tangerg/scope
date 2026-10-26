@@ -14,9 +14,6 @@ import (
 	skillstool "github.com/Tangerg/scope/tools/skills"
 )
 
-// ExampleNewTools exposes a skills source as three model-callable tools for
-// progressive disclosure. The tool set is fixed regardless of the source's
-// contents.
 func ExampleNewTools() {
 	source, err := skillsrc.NewRepository(fstest.MapFS{
 		"pdf-processing/SKILL.md": {Data: []byte("---\nname: pdf-processing\ndescription: Handle PDFs.\n---\nInstruction body.")},

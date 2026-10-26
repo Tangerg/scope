@@ -126,7 +126,7 @@ func TestLogAttributesStayTyped(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			attr := logKVToSlog(testCase.value)
+			attr := attributeToSlog(testCase.value)
 			if attr.Key != "k" {
 				t.Fatalf("key = %q", attr.Key)
 			}
@@ -136,11 +136,4 @@ func TestLogAttributesStayTyped(t *testing.T) {
 		})
 	}
 
-	composite := logKVToSlog(attribute.StringSlice("k", []string{"a", "b"}))
-	if composite.Value.Kind() != stdslog.KindString {
-		t.Fatalf("a composite value rendered as %v, want a string fallback", composite.Value.Kind())
-	}
-	if !strings.Contains(composite.Value.String(), "a") {
-		t.Fatalf("the composite fallback lost its content: %q", composite.Value.String())
-	}
 }

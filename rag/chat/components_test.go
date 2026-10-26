@@ -23,20 +23,15 @@ type fakeChatModel struct {
 	err     error
 	request *chat.Request
 	calls   int
-
-	captured string
 }
 
-func newFakeChatModel(_ *testing.T, reply string) *fakeChatModel {
+func newFakeChatModel(reply string) *fakeChatModel {
 	return &fakeChatModel{reply: reply}
 }
 
 func (f *fakeChatModel) Call(_ context.Context, req *chat.Request) (*chat.Response, error) {
 	f.calls++
 	f.request = req
-	if len(req.Messages) != 0 {
-		f.captured = req.Messages[len(req.Messages)-1].Text()
-	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -50,12 +45,19 @@ func (f *fakeChatModel) Call(_ context.Context, req *chat.Request) (*chat.Respon
 
 func (f *fakeChatModel) lastRequest() *chat.Request { return f.request }
 
+func (f *fakeChatModel) lastPrompt() string {
+	if f.request == nil || len(f.request.Messages) == 0 {
+		return ""
+	}
+	return f.request.Messages[len(f.request.Messages)-1].Text()
+}
+
 func TestRewriteTransformerAcceptsRootFieldTemplate(t *testing.T) {
 	prompt, err := chatclient.ParseTemplate(`{{with .Target}}Search {{.}} for {{$.Query}}{{end}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := newFakeChatModel(t, "rewritten question")
+	model := newFakeChatModel("rewritten question")
 	transformer, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model: model, TargetSearchSystem: "index", PromptTemplate: prompt,
 	})
@@ -67,8 +69,8 @@ func TestRewriteTransformerAcceptsRootFieldTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := transformer.Transform(t.Context(), query)
-	if err != nil || result.Text() != "rewritten question" || model.captured != "Search index for original question" || model.calls != 1 {
-		t.Fatalf("result=%q error=%v prompt=%q calls=%d", result.Text(), err, model.captured, model.calls)
+	if err != nil || result.Text() != "rewritten question" || model.lastPrompt() != "Search index for original question" || model.calls != 1 {
+		t.Fatalf("result=%q error=%v prompt=%q calls=%d", result.Text(), err, model.lastPrompt(), model.calls)
 	}
 }
 
@@ -376,7 +378,7 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := newFakeChatModel(t, "")
+	model := newFakeChatModel("")
 
 	for name, build := range map[string]func() error{
 		"multi-query expander": func() error {
@@ -424,7 +426,7 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 }
 
 func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
-	model := newFakeChatModel(t, `{"queries":[" variant 1 ","variant 1","hi","variant 2","variant 3"]}`)
+	model := newFakeChatModel(`{"queries":[" variant 1 ","variant 1","hi","variant 2","variant 3"]}`)
 	exp, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model:           model,
 		NumberOfQueries: 3,
@@ -457,7 +459,7 @@ func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
 }
 
 func TestMultiQueryExpander_IncludeOriginal(t *testing.T) {
-	model := newFakeChatModel(t, `{"queries":["v1","v2"]}`)
+	model := newFakeChatModel(`{"queries":["v1","v2"]}`)
 	exp, _ := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model:           model,
 		NumberOfQueries: 2,
@@ -475,7 +477,7 @@ func TestMultiQueryExpander_IncludeOriginal(t *testing.T) {
 }
 
 func TestMultiQueryExpanderRejectsEmptyModelOutput(t *testing.T) {
-	model := newFakeChatModel(t, `{"queries":[]}`)
+	model := newFakeChatModel(`{"queries":[]}`)
 	exp, _ := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{Model: model})
 
 	q, _ := rag.NewQuery("orig")
@@ -485,7 +487,7 @@ func TestMultiQueryExpanderRejectsEmptyModelOutput(t *testing.T) {
 }
 
 func TestMultiQueryExpanderRejectsIncompleteDistinctOutput(t *testing.T) {
-	model := newFakeChatModel(t, `{"queries":["variant","variant"]}`)
+	model := newFakeChatModel(`{"queries":["variant","variant"]}`)
 	expander, err := ragchat.NewMultiQueryExpander(ragchat.MultiQueryExpanderConfig{
 		Model: model, NumberOfQueries: 2,
 	})
@@ -509,7 +511,7 @@ func TestMultiQueryExpanderConfigRejectsMissingModel(t *testing.T) {
 }
 
 func TestCompressionTransformer_UsesHistory(t *testing.T) {
-	model := newFakeChatModel(t, "compressed query")
+	model := newFakeChatModel("compressed query")
 	tr, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
@@ -531,7 +533,7 @@ func TestCompressionTransformer_UsesHistory(t *testing.T) {
 	if out.Text() != "compressed query" {
 		t.Fatalf("Text = %q, want compressed query", out.Text())
 	}
-	if !strings.Contains(model.captured, "first turn") {
+	if !strings.Contains(model.lastPrompt(), "first turn") {
 		t.Fatal("history was not threaded into the prompt")
 	}
 }
@@ -546,7 +548,7 @@ func TestCompressionTransformerRejectsEmptyModelOutput(t *testing.T) {
 		{name: "blank query text", reply: " \n\t ", wantErr: ragchat.ErrEmptyModelOutput},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			transformer, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: newFakeChatModel(t, test.reply)})
+			transformer, err := ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: newFakeChatModel(test.reply)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -589,14 +591,14 @@ func TestCompressionTransformerPreservesUnsuccessfulCompletion(t *testing.T) {
 }
 
 func TestRewriteTransformerRequiresSearchTarget(t *testing.T) {
-	model := newFakeChatModel(t, "tightened query")
+	model := newFakeChatModel("tightened query")
 	if _, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{Model: model}); err == nil {
 		t.Fatal("missing search target must error")
 	}
 }
 
 func TestRewriteTransformer_HonorsCustomTarget(t *testing.T) {
-	model := newFakeChatModel(t, "tightened")
+	model := newFakeChatModel("tightened")
 	tr, _ := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model:              model,
 		TargetSearchSystem: "elasticsearch",
@@ -604,13 +606,13 @@ func TestRewriteTransformer_HonorsCustomTarget(t *testing.T) {
 
 	q, _ := rag.NewQuery("input")
 	_, _ = tr.Transform(t.Context(), q)
-	if !strings.Contains(model.captured, "elasticsearch") {
-		t.Fatalf("custom target not threaded: %q", model.captured)
+	if !strings.Contains(model.lastPrompt(), "elasticsearch") {
+		t.Fatalf("custom target not threaded: %q", model.lastPrompt())
 	}
 }
 
 func TestRewriteTransformerRejectsPaddedTarget(t *testing.T) {
-	model := newFakeChatModel(t, "tightened")
+	model := newFakeChatModel("tightened")
 	if _, err := ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{
 		Model:              model,
 		TargetSearchSystem: " elasticsearch ",
@@ -620,7 +622,7 @@ func TestRewriteTransformerRejectsPaddedTarget(t *testing.T) {
 }
 
 func TestTranslationTransformer_RequiresTargetLanguage(t *testing.T) {
-	model := newFakeChatModel(t, "")
+	model := newFakeChatModel("")
 	for _, target := range []string{"", "   ", " English "} {
 		if _, err := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 			Model:          model,
@@ -632,7 +634,7 @@ func TestTranslationTransformer_RequiresTargetLanguage(t *testing.T) {
 }
 
 func TestTranslationTransformer_TranslatesText(t *testing.T) {
-	model := newFakeChatModel(t, "你好")
+	model := newFakeChatModel("你好")
 	tr, _ := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{
 		Model:          model,
 		TargetLanguage: "Chinese",
@@ -649,7 +651,7 @@ func TestTranslationTransformer_TranslatesText(t *testing.T) {
 }
 
 func TestTranslationTransformer_PropagatesError(t *testing.T) {
-	model := newFakeChatModel(t, "")
+	model := newFakeChatModel("")
 	model.err = errors.New("boom")
 
 	tr, _ := ragchat.NewTranslationTransformer(ragchat.TranslationTransformerConfig{

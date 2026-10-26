@@ -2,11 +2,11 @@ package agent
 
 import (
 	"bytes"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -89,7 +89,7 @@ func TestDrainedSnapshotRejectsActiveDeepDescendant(t *testing.T) {
 	leaf.PauseReason = "unfinished descendant"
 	leaf.Finish = nil
 	wire.ProcessSnapshots[index] = controlValue(newProcessSnapshot(leaf))
-	if _, err := ParseTreeSnapshot(controlValue(jsonv2.Marshal(wire))); !errors.Is(err, ErrInvalidTreeSnapshot) {
+	if _, err := ParseTreeSnapshot(controlValue(wire.encode())); !errors.Is(err, ErrInvalidTreeSnapshot) || !strings.Contains(err.Error(), "answered child has not drained") {
 		t.Fatalf("drained outcome accepted active descendant: %v", err)
 	}
 }

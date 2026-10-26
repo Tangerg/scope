@@ -38,7 +38,6 @@ func (e EmbeddingModelConfig) Validate() error {
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
 
-// EmbeddingModel implements the OpenAI-compatible embedding protocol.
 type EmbeddingModel struct {
 	api            *api
 	provider       string

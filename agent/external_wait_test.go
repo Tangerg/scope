@@ -74,7 +74,6 @@ func TestExternalWaitSpecWireRoundTripsTheAcceptanceContract(t *testing.T) {
 	if restored.key != spec.key || restored.maxAnswerBytes != spec.maxAnswerBytes || restored.answerIsOutput != spec.answerIsOutput || !restored.answerSchema.Equal(spec.answerSchema) {
 		t.Fatalf("restored acceptance contract = %#v, want %#v", restored, spec)
 	}
-	// The restored contract enforces the same rule the wait opened with.
 	invalid := controlValue(NewSignal(controlValue(ParseSignalID("signal:invalid")), WaitID{}, []byte(`123`)))
 	if err := restored.admits(invalid); !errors.Is(err, ErrSignalRejected) {
 		t.Fatalf("restored contract admitted a schema-invalid answer: %v", err)

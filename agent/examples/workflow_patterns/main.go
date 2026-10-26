@@ -150,11 +150,7 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	process, err := engine.Start(ctx, root, input)
-	if err != nil {
-		return patternReport{}, executionEvidence{}, err
-	}
-	result, err := process.Await(ctx)
+	result, err := engine.Run(ctx, root, input)
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
@@ -162,7 +158,7 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	tree, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
+	tree, err := engine.CaptureTree(ctx, result.ProcessID())
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}

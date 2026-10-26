@@ -153,13 +153,11 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	maxTokens := int64(1024)
-	temperature := 0.2
+	maxTokens := int64(2048)
 	request.Options = corechat.Options{
 		Model:           "claude-opus-4-6",
 		MaxOutputTokens: &maxTokens,
 		Stop:            []string{"END"},
-		Temperature:     &temperature,
 	}
 	request.Tools = []corechat.ToolDefinition{{
 		Name:        "lookup",
@@ -167,7 +165,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"integer"}}}`),
 	}}
 	if err := request.Options.Extensions.Set(anthropic.RequestExtensionKey, map[string]any{
-		"thinking":      map[string]any{"type": "enabled", "budget_tokens": 512},
+		"thinking":      map[string]any{"type": "enabled", "budget_tokens": 1024},
 		"cache_control": map[string]any{"type": "ephemeral"},
 	}); err != nil {
 		t.Fatalf("SetExtension: %v", err)
@@ -251,11 +249,11 @@ func assertProtocolRequestEnvelope(t *testing.T, request *http.Request, body pro
 	if request.URL.Path != "/v1/messages" || request.Header.Get("x-api-key") != "test-key" || request.Header.Get("anthropic-version") == "" {
 		t.Errorf("request identity = %q/%q/%q", request.URL.Path, request.Header.Get("x-api-key"), request.Header.Get("anthropic-version"))
 	}
-	if body.Model != "claude-opus-4-6" || body.MaxTokens != 1024 || len(body.System) != 1 || len(body.Messages) != 3 || len(body.Tools) != 1 {
+	if body.Model != "claude-opus-4-6" || body.MaxTokens != 2048 || len(body.System) != 1 || len(body.Messages) != 3 || len(body.Tools) != 1 {
 		t.Errorf("request shape = model %q max %d system %d messages %d tools %d", body.Model, body.MaxTokens, len(body.System), len(body.Messages), len(body.Tools))
 		return false
 	}
-	if body.Thinking.Type != "enabled" || body.Thinking.BudgetTokens != 512 {
+	if body.Thinking.Type != "enabled" || body.Thinking.BudgetTokens != 1024 {
 		t.Errorf("thinking = %#v", body.Thinking)
 	}
 	if body.CacheControl.Type != "ephemeral" || body.Tools[0].CacheControl.Type != "" {

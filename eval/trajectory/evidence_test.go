@@ -14,7 +14,6 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-// recordedOutput is the completed output the recorded root Termination owns.
 func recordedOutput(t *testing.T, recorded trajectory.Trajectory) agent.Payload {
 	t.Helper()
 	output, completed := recorded.Termination().Output()

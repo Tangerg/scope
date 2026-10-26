@@ -230,9 +230,6 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 	if options.Model == "" {
 		return nil, errors.New("mistral: model is required in defaults or request options")
 	}
-	if options.TopK != nil {
-		return nil, errors.New("mistral: options.top_k is not supported")
-	}
 	if options.Temperature != nil && (*options.Temperature < 0 || *options.Temperature > maximumTemperature) {
 		return nil, fmt.Errorf("mistral: options.temperature must be between 0 and %g, got %v", maximumTemperature, *options.Temperature)
 	}
@@ -263,6 +260,7 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 		Messages:           messages,
 		Temperature:        options.Temperature,
 		TopP:               options.TopP,
+		TopK:               options.TopK,
 		MaxTokens:          options.MaxOutputTokens,
 		Stream:             stream,
 		Stop:               slices.Clone(options.Stop),

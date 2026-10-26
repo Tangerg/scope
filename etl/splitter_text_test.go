@@ -42,7 +42,10 @@ func TestTextSplitterPreservesMetadata(t *testing.T) {
 
 	doc, _ := document.NewDocument("a|b", nil)
 	_ = doc.Metadata.Set("src", "manual")
-	docs, _ := splitter.Split(t.Context(), []*document.Document{doc})
+	docs, err := splitter.Split(t.Context(), []*document.Document{doc})
+	if err != nil || len(docs) != 2 {
+		t.Fatalf("Split = %v, %v; want two chunks", docs, err)
+	}
 	for index, chunk := range docs {
 		if src, ok, _ := chunk.Metadata.Decode[string]("src"); !ok || src != "manual" {
 			t.Fatalf("chunk[%d] missing metadata", index)

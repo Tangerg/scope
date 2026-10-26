@@ -101,7 +101,7 @@ func TestTerminationCancelsDispatchAndStopsPreparedBatch(t *testing.T) {
 					if status != SettlementStatusUnknown && string(settled.settlement().Payload()) != `{"done":true}` {
 						t.Errorf("settlement payload = %s", settled.settlement().Payload())
 					}
-					tree := interruptedTreeSnapshot(t, engine, process, config)
+					tree := interruptedTreeSnapshot(t, engine, process)
 					// Preparing the batch asked for each Effect's policy; restoring
 					// terminal evidence must not ask again.
 					preparedQueries := dispatcher.replayQueries.Load()
@@ -253,7 +253,7 @@ func (c *cancellationDispatcher) Policy(Effect) EffectPolicy {
 	return EffectPolicy{Replay: ReplayPolicySameIdentity}
 }
 
-func interruptedTreeSnapshot(t *testing.T, engine *Engine, process *Process, config EngineConfig) TreeSnapshot {
+func interruptedTreeSnapshot(t *testing.T, engine *Engine, process *Process) TreeSnapshot {
 	t.Helper()
 
 	tree, err := engine.CaptureTree(t.Context(), process.Relation().RootID())

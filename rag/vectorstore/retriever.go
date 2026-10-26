@@ -71,6 +71,9 @@ func NewRetriever(config RetrieverConfig) (*Retriever, error) {
 }
 
 func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidates, error) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err := query.Validate(); err != nil {
 		return nil, err
 	}
@@ -78,6 +81,9 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	expr, err := r.buildFilter(ctx, query)
 	if err != nil {
 		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 
 	request := &corevs.SearchRequest{
@@ -91,6 +97,9 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	response, err := r.vectorStore.Search(ctx, request)
 	if err != nil {
 		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("rag: vector-store response: %w", err)

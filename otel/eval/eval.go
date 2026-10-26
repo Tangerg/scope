@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	coreeval "github.com/Tangerg/scope/eval"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 const (

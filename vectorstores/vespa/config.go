@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/samber/lo"
 
@@ -43,7 +44,7 @@ type StoreConfig struct {
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	endpoint, err := url.Parse(s.Endpoint)
-	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || endpoint.User != nil || strings.ContainsAny(s.Endpoint, "?#") {
 		return errors.New("vespa: Endpoint must be an absolute HTTP URL without credentials, query, or fragment")
 	}
 	if s.RankingProfile == "" {

@@ -51,7 +51,6 @@ func (s SpeechModelConfig) Validate() error {
 var _ speech.Model = (*SpeechModel)(nil)
 var _ speech.Streamer = (*SpeechModel)(nil)
 
-// SpeechModel implements the OpenAI-compatible speech protocol.
 type SpeechModel struct {
 	api              *api
 	provider         string

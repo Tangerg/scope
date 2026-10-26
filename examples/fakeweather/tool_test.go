@@ -2,6 +2,7 @@ package fakeweather
 
 import (
 	jsonv2 "encoding/json/v2"
+	"math"
 	"slices"
 	"testing"
 )
@@ -85,6 +86,51 @@ func TestToolSouthernSummerHourlyConditions(t *testing.T) {
 	for i, hour := range response.HourlyForecast {
 		if !slices.Contains(summerConditions, hour.Condition) {
 			t.Fatalf("southern summer hour %d has winter condition %q", i, hour.Condition)
+		}
+	}
+}
+
+func TestToolDetailSelectionPreservesTheWeatherReport(t *testing.T) {
+	for _, location := range []string{"Beijing", "Singapore", "Sao Paulo", "Atlantis"} {
+		for _, date := range []string{"2024-01-15", "2024-07-15"} {
+			request := Request{Location: location, Date: date, IncludeAirQuality: true, IncludeHourly: true}
+			complete := callWeatherTool(t, request)
+			for _, options := range [][2]bool{{false, false}, {true, false}, {false, true}} {
+				request.IncludeAirQuality, request.IncludeHourly = options[0], options[1]
+				selected := callWeatherTool(t, request)
+				want := complete
+				if !request.IncludeAirQuality {
+					want.AirQuality = nil
+				}
+				if !request.IncludeHourly {
+					want.HourlyForecast = nil
+				}
+				actual, actualErr := jsonv2.Marshal(selected)
+				expected, expectedErr := jsonv2.Marshal(want)
+				if actualErr != nil || expectedErr != nil || !slices.Equal(actual, expected) {
+					t.Fatalf("detail selection changed weather for %s on %s, air=%t hourly=%t:\n%s\nwant %s", location, date, options[0], options[1], actual, expected)
+				}
+			}
+		}
+	}
+}
+
+func TestToolDailyExtremaComeFromTheHourlyTemperatures(t *testing.T) {
+	for _, location := range []string{"Beijing", "London", "Singapore", "Dubai", "Reykjavik"} {
+		for _, date := range []string{"2024-01-15", "2024-07-15"} {
+			response := callWeatherTool(t, Request{Location: location, Date: date, IncludeHourly: true})
+			minimum, maximum, total := math.MaxInt, math.MinInt, 0
+			for _, hour := range response.HourlyForecast {
+				minimum, maximum = min(minimum, hour.Temperature), max(maximum, hour.Temperature)
+				total += hour.Temperature
+			}
+			mean := int(math.Round(float64(total) / float64(len(response.HourlyForecast))))
+			if response.Temperature.Value != mean {
+				t.Fatalf("%s on %s: daily mean %d contradicts hourly mean %d", location, date, response.Temperature.Value, mean)
+			}
+			if response.Temperature.Min != minimum || response.Temperature.Max != maximum {
+				t.Fatalf("%s on %s: daily range [%d,%d] contradicts hourly range [%d,%d]", location, date, response.Temperature.Min, response.Temperature.Max, minimum, maximum)
+			}
 		}
 	}
 }

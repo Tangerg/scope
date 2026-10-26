@@ -322,7 +322,8 @@ func assertProtocolRequestIdentity(t *testing.T, body protocolChatRequestWire) {
 func assertProtocolMessages(t *testing.T, messages []protocolMessageWire) {
 	t.Helper()
 	if len(messages) != 4 || messages[0].Role != "system" || messages[1].Role != "user" || messages[2].Role != "assistant" || messages[3].Role != "tool" {
-		t.Fatalf("messages = %#v", messages)
+		t.Errorf("messages = %#v", messages)
+		return
 	}
 	if messages[1].Content != "Describe this image." || len(messages[1].Images) != 1 || messages[1].Images[0] != "aW1hZ2U=" {
 		t.Errorf("user message = %#v", messages[1])

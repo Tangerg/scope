@@ -25,6 +25,9 @@ type responseTransportProbe struct {
 }
 
 func (r *responseTransportProbe) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	r.calls++
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: r.body, Request: request}, nil
 }

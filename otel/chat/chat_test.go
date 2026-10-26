@@ -22,8 +22,6 @@ import (
 type telemetryRig struct {
 	spans  *tracetest.SpanRecorder
 	reader *sdkmetric.ManualReader
-	traces *sdktrace.TracerProvider
-	meters *sdkmetric.MeterProvider
 }
 
 func newRig(t *testing.T, provider string) (otelchat.Middleware, *telemetryRig) {
@@ -44,7 +42,7 @@ func newRig(t *testing.T, provider string) (otelchat.Middleware, *telemetryRig) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return middleware, &telemetryRig{spans: spans, reader: reader, traces: traces, meters: meters}
+	return middleware, &telemetryRig{spans: spans, reader: reader}
 }
 
 func request(model string) *chat.Request {
@@ -578,11 +576,16 @@ func histogramInt64Sum(
 				t.Fatalf("metric %s is %T, want int64 histogram", name, value.Data)
 			}
 			var sum int64
+			var count uint64
 			for _, point := range histogram.DataPoints {
 				attr, found := point.Attributes.Value(key)
 				if found && attr.AsString() == want {
 					sum += point.Sum
+					count += point.Count
 				}
+			}
+			if count == 0 {
+				t.Fatalf("metric %q has no observations for %s=%q", name, key, want)
 			}
 			return sum
 		}

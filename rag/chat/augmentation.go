@@ -133,8 +133,8 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 }
 
 func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Augmentation, error) {
-	if err := ctx.Err(); err != nil {
-		return rag.Augmentation{}, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return rag.Augmentation{}, ctxErr
 	}
 	if err := query.Validate(); err != nil {
 		return rag.Augmentation{}, err
@@ -147,6 +147,9 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, cand
 	encodedContext, citations, err := c.formatContext(ctx, candidates)
 	if err != nil {
 		return rag.Augmentation{}, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return rag.Augmentation{}, ctxErr
 	}
 
 	augmentation, err := rag.NewAugmentation(c.assemble(encodedContext, query.Text()))

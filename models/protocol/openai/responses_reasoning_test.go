@@ -19,14 +19,14 @@ func TestResponsesReasoningReplayKeepsSegmentOwners(t *testing.T) {
 	secondItem := `{"type":"reasoning","id":"rs-2","summary":[],"encrypted_content":null,"status":"completed"}`
 	events := []string{
 		`{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs-1","summary":[],"encrypted_content":"incomplete encrypted content","status":"in_progress"}}`,
-		`{"type":"response.reasoning_summary_part.added","item_id":"rs-1","summary_index":0,"part":{"type":"summary_text","text":""}}`,
-		`{"type":"response.reasoning_summary_text.delta","item_id":"rs-1","summary_index":0,"delta":"first "}`,
-		`{"type":"response.reasoning_summary_text.delta","item_id":"rs-1","summary_index":0,"delta":"summary"}`,
-		`{"type":"response.reasoning_summary_part.added","item_id":"rs-1","summary_index":1,"part":{"type":"summary_text","text":""}}`,
-		`{"type":"response.content_part.added","item_id":"rs-1","content_index":0,"part":{"type":"reasoning_text","text":""}}`,
-		`{"type":"response.reasoning_text.delta","item_id":"rs-1","content_index":0,"delta":"original content"}`,
-		`{"type":"response.output_item.done","item":` + firstItem + `}`,
-		`{"type":"response.output_item.done","item":` + secondItem + `}`,
+		`{"type":"response.reasoning_summary_part.added","output_index":0,"item_id":"rs-1","summary_index":0,"part":{"type":"summary_text","text":""}}`,
+		`{"type":"response.reasoning_summary_text.delta","output_index":0,"item_id":"rs-1","summary_index":0,"delta":"first "}`,
+		`{"type":"response.reasoning_summary_text.delta","output_index":0,"item_id":"rs-1","summary_index":0,"delta":"summary"}`,
+		`{"type":"response.reasoning_summary_part.added","output_index":0,"item_id":"rs-1","summary_index":1,"part":{"type":"summary_text","text":""}}`,
+		`{"type":"response.content_part.added","output_index":0,"item_id":"rs-1","content_index":0,"part":{"type":"reasoning_text","text":""}}`,
+		`{"type":"response.reasoning_text.delta","output_index":0,"item_id":"rs-1","content_index":0,"delta":"original content"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":` + firstItem + `}`,
+		`{"type":"response.output_item.done","output_index":1,"item":` + secondItem + `}`,
 		`{"type":"response.output_text.delta","item_id":"answer","output_index":2,"content_index":0,"delta":"answer"}`,
 		`{"type":"response.completed","response":{"id":"response-1","model":"model","status":"completed","output":[` + firstItem + `,` + secondItem + `,{"type":"message","id":"answer","role":"assistant","status":"completed","content":[{"type":"output_text","text":"answer","annotations":[]}]}]}}`,
 	}

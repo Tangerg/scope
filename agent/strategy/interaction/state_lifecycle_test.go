@@ -172,3 +172,54 @@ func TestChildBatchSettlementIsAtomic(t *testing.T) {
 		t.Fatalf("settlement lost order, advertisement, or direct-result eligibility: %+v, %v", round, names)
 	}
 }
+
+func TestRestoreRejectsMissingRequestAndUnfundedRoundEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*executionState)
+	}{
+		{"missing request", func(s *executionState) { s.WorkingContext = nil }},
+		{"invalid request", func(s *executionState) { s.WorkingContext.Messages = nil }},
+		{"model count over budget", func(s *executionState) { s.ModelCallCount = 5 }},
+		{"round before first call", func(s *executionState) { s.ModelCallCount = 0; s.ToolRound.ChildBatch = nil }},
+		{"children before first call", func(s *executionState) { s.ModelCallCount = 0 }},
+		{"pending steer during model call", func(s *executionState) { s.ToolRound = nil }},
+		{"round without calls", func(s *executionState) {
+			s.ToolRound.ChildBatch = nil
+			message := chat.NewAssistantMessage(chat.NewTextPart("finished"))
+			s.ToolRound.Response = &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			definition := fuzzInteractionDefinition(t)
+			state := pendingSteerTestState(t)
+			test.change(&state)
+			envelope, err := state.snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if restored, err := definition.Restore(t.Context(), envelope); restored != nil || !errors.Is(err, ErrInvalidExecutionState) {
+				t.Fatalf("invalid recovery accepted: %T, %v", restored, err)
+			}
+		})
+	}
+}
+
+func TestCompletedInteractionRejectsFurtherStepsWithoutChangingItsMarker(t *testing.T) {
+	definition := fuzzInteractionDefinition(t)
+	state, err := (executionState{Completed: true}).snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := definition.Restore(t.Context(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transition, stepErr := restored.Step(t.Context(), nil); transition.Valid() || !errors.Is(stepErr, ErrInvalidExecutionState) {
+		t.Fatalf("completed interaction advanced: %+v, %v", transition, stepErr)
+	}
+	after, err := restored.Snapshot()
+	if err != nil || !bytes.Equal(state.Payload(), after.Payload()) {
+		t.Fatalf("completion marker changed: %v", err)
+	}
+}

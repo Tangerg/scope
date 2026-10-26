@@ -30,7 +30,13 @@ func (a apiConfig) validate() error {
 }
 
 type api struct {
-	v2 *cohereclientv2.Client
+	v2   *cohereclientv2.Client
+	http *http.Client
+}
+
+type nativeResponse[T any] struct {
+	value T
+	usage nativeUsage
 }
 
 func newAPI(ctx context.Context, config apiConfig) (*api, error) {
@@ -47,22 +53,34 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := []coherecore.RequestOption{option.WithToken(config.APIKey), option.WithBaseURL(baseURL), option.WithHTTPClient(&apiHTTPClient{client: client})}
+	options := []coherecore.RequestOption{option.WithToken(config.APIKey), option.WithBaseURL(baseURL), option.WithHTTPClient(client)}
 	reqOpts := coherecore.NewRequestOptions(options...)
 
-	return &api{v2: cohereclientv2.NewClient(reqOpts)}, nil
+	return &api{v2: cohereclientv2.NewClient(reqOpts), http: client}, nil
 }
 
-func (a *api) rerank(ctx context.Context, req *cohere.V2RerankRequest) (*cohere.V2RerankResponse, error) {
+func (a *api) rerank(ctx context.Context, req *cohere.V2RerankRequest) (*nativeResponse[*cohere.V2RerankResponse], error) {
 	if req == nil {
 		return nil, errors.New("cohere: request must not be nil")
 	}
-	return a.v2.Rerank(ctx, req)
+	response := new(nativeResponse[*cohere.V2RerankResponse])
+	var err error
+	response.value, err = a.v2.Rerank(ctx, req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
 
-func (a *api) embed(ctx context.Context, req *cohere.V2EmbedRequest) (*cohere.EmbedByTypeResponse, error) {
+func (a *api) embed(ctx context.Context, req *cohere.V2EmbedRequest) (*nativeResponse[*cohere.EmbedByTypeResponse], error) {
 	if req == nil {
 		return nil, errors.New("cohere: request must not be nil")
 	}
-	return a.v2.Embed(ctx, req)
+	response := new(nativeResponse[*cohere.EmbedByTypeResponse])
+	var err error
+	response.value, err = a.v2.Embed(ctx, req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }

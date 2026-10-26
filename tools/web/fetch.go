@@ -95,7 +95,11 @@ type FetchResponse struct {
 	Format  ContentFormat `json:"format"`
 }
 
-func (f *FetchResponse) Validate() error {
+func (f *FetchResponse) ValidateFor(request *FetchRequest) error {
+	prepared, err := request.Prepare()
+	if err != nil {
+		return err
+	}
 	if f == nil {
 		return ErrMissingFetchResponse
 	}
@@ -105,8 +109,8 @@ func (f *FetchResponse) Validate() error {
 	if f.Format == "" {
 		return fmt.Errorf("%w: response format is empty", ErrInvalidFetchResponse)
 	}
-	if err := f.Format.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidFetchResponse, err)
+	if f.Format != prepared.Format {
+		return fmt.Errorf("%w: response format %q differs from requested %q", ErrInvalidFetchResponse, f.Format, prepared.Format)
 	}
 	return nil
 }

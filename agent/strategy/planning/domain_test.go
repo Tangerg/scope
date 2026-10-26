@@ -335,3 +335,71 @@ func TestEvaluatePlanStopsAfterCanceledCost(t *testing.T) {
 		})
 	}
 }
+
+func TestProblemRejectsInapplicableIncompleteAndOverflowingPlans(t *testing.T) {
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
+	prepare := mustAction(t, planning.ActionConfig{
+		Name: "prepare", Description: "Prepare work.", Effects: []planning.Condition{ready}, Cost: planning.FixedCost(math.MaxFloat64),
+	})
+	finish := mustAction(t, planning.ActionConfig{
+		Name: "finish", Description: "Finish ready work.", Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done}, Cost: planning.FixedCost(math.MaxFloat64),
+	})
+	problem, err := planning.NewProblem(planning.WorldState{}, mustGoal(t, done), prepare, finish)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, names := range [][]string{{"finish"}, {"prepare"}, {"prepare", "finish"}} {
+		actions := make([]planning.PlannedAction, len(names))
+		for index, name := range names {
+			actions[index], err = planning.NewPlannedAction(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		plan, err := planning.NewPlan(actions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := problem.EvaluatePlan(t.Context(), plan); !errors.Is(err, planning.ErrInvalidPlan) {
+			t.Fatalf("invalid sequence %v was accepted: %v", names, err)
+		}
+	}
+	if _, err := (planning.Problem{}).EvaluatePlan(t.Context(), planning.Plan{}); !errors.Is(err, planning.ErrInvalidPlan) {
+		t.Fatalf("missing problem contract became a completed plan: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := problem.EvaluatePlan(ctx, planning.Plan{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled validation became a planning result: %v", err)
+	}
+}
+
+func TestPlanDecodingCannotReplaceAValidActionSequenceWithInvalidReferences(t *testing.T) {
+	planned, err := planning.NewPlannedAction("finish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planning.NewPlan([]planning.PlannedAction{planned})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"actions":[""]}`,
+		`{"actions":["invalid name"]}`,
+		`{"actions":[1]}`,
+	} {
+		if err := jsonv2.Unmarshal([]byte(raw), &plan); !errors.Is(err, planning.ErrInvalidPlan) {
+			t.Fatalf("invalid plan %s was accepted: %v", raw, err)
+		}
+		if actions := plan.Actions(); len(actions) != 1 || actions[0] != planned {
+			t.Fatalf("failed decode replaced the last valid plan: %v", actions)
+		}
+	}
+	if _, err := planning.NewPlan([]planning.PlannedAction{{}}); !errors.Is(err, planning.ErrInvalidPlan) {
+		t.Fatalf("invalid planned action was admitted: %v", err)
+	}
+	if _, err := jsonv2.Marshal(planning.PlannedAction{}); !errors.Is(err, planning.ErrInvalidPlan) {
+		t.Fatalf("invalid planned action became portable: %v", err)
+	}
+}

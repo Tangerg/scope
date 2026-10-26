@@ -5,12 +5,12 @@
 // the SDK production endpoint applies. Construction validates and freezes the
 // selected URL. The SDK does not reload environment credentials, endpoints, or
 // headers: APIKey, Headers, and HTTPClient belong to this binding. A nil HTTPClient
-// uses http.DefaultClient; the host supplies any additional transport policy.
+// retains the SDK's response-header deadline without limiting a streaming body.
 // The SDK still owns its version header and retry policy.
 //
 // Constructors:
 //
-//   - [NewMessages] — native /v1/messages. Full Claude surface:
+//   - [NewMessages] — native /v1/messages:
 //     extended thinking blocks, tool_use with signature continuity,
 //     citations, fine-grained tool-result content blocks,
 //     cache_control.
@@ -18,10 +18,12 @@
 // A successful stream begins with one message_start, opens each content block
 // before its deltas, and ends with message_stop after all blocks close and a
 // message_delta supplies the finish reason. Invalid event order or mismatched
-// delta types fail with [chat.ErrInvalidResponse]. Native server-tool and future
-// blocks remain in exact native event metadata without becoming local Tool
-// calls. Thinking and redacted blocks retain their identities through
-// aggregation and history replay.
+// delta types fail with [chat.ErrInvalidResponse]. Native server-tool blocks,
+// unrepresentable content, and pause_turn fail with [errors.ErrUnsupported]:
+// continuing these responses requires native content and tools that this
+// binding cannot replay. Previously emitted deltas remain observable; no local
+// Tool call or successful terminal response is fabricated. Thinking and redacted
+// blocks retain their identities through aggregation and history replay.
 //
 // Provider packages exposing an Anthropic-compatible endpoint reuse the
 // Messages protocol through [NewCompatibleMessages] and select one typed

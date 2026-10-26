@@ -24,8 +24,8 @@ func (m middlewareTool) Definition() chat.ToolDefinition {
 }
 
 func (m middlewareTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
-	completedOutput1, completedErr1 := m.call(ctx, invocation)
-	return tool.Result{Output: completedOutput1}, completedErr1
+	output, err := m.call(ctx, invocation)
+	return tool.Result{Output: output}, err
 }
 
 func TestToolMiddlewareExecutesSeriallyUntilFinalResponse(t *testing.T) {

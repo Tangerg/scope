@@ -49,8 +49,8 @@ func TestDirResourceRejectsADirectoryTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = ReadResource(t.Context(), repository, "folder-skill", "references", DefaultMaxResourceBytes)
-	if !errors.Is(err, ErrResourceNotRegular) && err == nil {
-		t.Fatal("a directory was served as a resource")
+	if !errors.Is(err, ErrResourceNotRegular) {
+		t.Fatalf("directory resource error = %v, want ErrResourceNotRegular", err)
 	}
 }
 

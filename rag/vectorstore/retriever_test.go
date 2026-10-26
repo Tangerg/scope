@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/rag"
@@ -16,6 +17,7 @@ type fakeVectorSearcher struct {
 	got         *vectorstore.SearchRequest
 	err         error
 	nilResponse bool
+	metadata    metadata.Map
 }
 
 func (f *fakeVectorSearcher) Search(_ context.Context, req *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
@@ -28,6 +30,7 @@ func (f *fakeVectorSearcher) Search(_ context.Context, req *vectorstore.SearchRe
 	}
 	doc, _ := document.NewDocument("hit", nil)
 	doc.ID = "hit"
+	doc.Metadata = f.metadata.Clone()
 	return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{{Document: doc, Score: 0.75}}}, nil
 }
 
@@ -110,7 +113,7 @@ func TestRetrieverFilterFuncReadsQueryValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &fakeVectorSearcher{}
+	store := &fakeVectorSearcher{metadata: metadata.Map{"tenant": []byte(`"acme"`), "year": []byte(`2021`)}}
 	r, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
 		VectorStore: store,
 		FilterFunc: func(_ context.Context, query rag.Query) (filter.Predicate, error) {

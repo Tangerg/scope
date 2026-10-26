@@ -13,6 +13,7 @@ const (
 
 	RerankRequestIDMetadataKey   = "cohere/request_id"
 	RerankSearchUnitsMetadataKey = "cohere/search_units"
+	BilledInputTokensMetadataKey = "cohere/billed_input_tokens"
 )
 
 // ModelRerankV35 names the rerank model this adapter is verified against, so a

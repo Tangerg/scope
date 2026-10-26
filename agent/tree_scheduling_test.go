@@ -191,7 +191,6 @@ func TestTreeSchedulingCommitsParkedStateUnderContinuousQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.writer.identity = incarnation
 	runtime.writer.establish(initial)
 	process.pause = pause{reason: "wait for explicit resumption"}
 	runtime.dequeueProcess()

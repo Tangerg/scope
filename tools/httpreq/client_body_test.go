@@ -141,7 +141,7 @@ func TestToolPreservesInterruptedPostResponseAsEvidence(t *testing.T) {
 	if !errors.Is(err, cause) || !reflect.DeepEqual(output, tool.Result{}) {
 		t.Fatalf("interrupted HTTP invocation = %+v, %v", output, err)
 	}
-	if failure, found := errors.AsType[*tool.Failure](err); found {
+	if failure, found := tool.ClassifyFailure(err); found {
 		t.Fatalf("interrupted HTTP response became a definite failure: %v", failure)
 	}
 	callErr, found := errors.AsType[*tool.CallError](err)

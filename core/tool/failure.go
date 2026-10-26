@@ -109,3 +109,40 @@ func (f *Failure) Output() chat.ToolOutput {
 	}
 	return f.output.Clone()
 }
+
+// ClassifyFailure finds the complete outcome of the current invocation.
+// Transparent wrapping preserves one Failure, but joined independent errors
+// require their enclosing owner to establish an outcome. Diagnostic traversal
+// with errors.As cannot distinguish those invocation boundaries.
+// Nil, invalid, and ambiguous failures establish no definite outcome.
+//
+//nolint:errorlint // errors.As would cross independent invocation boundaries.
+func ClassifyFailure(err error) (*Failure, bool) {
+	if lo.IsNil(err) {
+		return nil, false
+	}
+	if failure, ok := err.(*Failure); ok {
+		if failure.Validate() != nil {
+			return nil, false
+		}
+		return failure, true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return ClassifyFailure(wrapped.Unwrap())
+	case interface{ Unwrap() []error }:
+		var cause error
+		for _, candidate := range wrapped.Unwrap() {
+			if candidate == nil {
+				continue
+			}
+			if cause != nil {
+				return nil, false
+			}
+			cause = candidate
+		}
+		return ClassifyFailure(cause)
+	default:
+		return nil, false
+	}
+}

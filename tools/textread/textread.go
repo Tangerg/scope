@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/tools/internal/contextreader"
 )
 
 const (
@@ -117,10 +119,7 @@ func VisitLines(ctx context.Context, source io.Reader, limits Limits, visit func
 		return ErrInvalidLimits
 	}
 
-	counter := &byteCounter{reader: contextReader{
-		ctx:    ctx,
-		reader: io.LimitReader(source, limits.InputBytes+inputLimitProbeBytes),
-	}}
+	counter := &byteCounter{reader: contextreader.New(ctx, io.LimitReader(source, limits.InputBytes+inputLimitProbeBytes))}
 	reader := bufio.NewReaderSize(counter, scanBufferBytes)
 	scanner := lineScanner{limits: limits, visit: visit, line: make([]byte, 0, scanBufferBytes)}
 	for {
@@ -285,22 +284,6 @@ func validPrefix(line []byte, limit int) int {
 		prefix--
 	}
 	return prefix
-}
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (c contextReader) Read(buffer []byte) (int, error) {
-	if cause := context.Cause(c.ctx); cause != nil {
-		return 0, cause
-	}
-	read, err := c.reader.Read(buffer)
-	if cause := context.Cause(c.ctx); cause != nil {
-		return read, errors.Join(err, cause)
-	}
-	return read, err
 }
 
 type byteCounter struct {

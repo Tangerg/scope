@@ -1,7 +1,6 @@
 package chatclient
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -35,7 +34,7 @@ func (t *ToolBatchError) callFailure() *chat.CallFailure {
 		// The Tool reported a valid suspension, but this synchronous invocation
 		// cannot continue it. Its failure does not complete the logical Tool call.
 		kind = chat.CallFailureFailed
-	} else if failure, ok := errors.AsType[*tool.Failure](t.cause); ok && failure.Validate() == nil {
+	} else if _, definite := tool.ClassifyFailure(t.cause); definite {
 		kind = chat.CallFailureFailed
 	}
 	return &chat.CallFailure{Kind: kind, Cause: t}

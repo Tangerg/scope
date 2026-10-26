@@ -1,5 +1,5 @@
 // Package oracle implements Core vector-store capabilities using Oracle 23ai+
-// native VECTOR columns and database/sql with go-ora v2. The host supplies the
+// native VECTOR columns and database/sql with go-ora v3. The host supplies the
 // handle and owns its lifecycle; the adapter uses the driver's native CLOB and
 // BLOB bindings. An omitted schema is resolved once at construction and every
 // operation uses the resulting qualified table name.

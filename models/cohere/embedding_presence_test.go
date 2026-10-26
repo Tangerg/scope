@@ -16,7 +16,7 @@ func TestEmbeddingRequiresReportedCoordinates(t *testing.T) {
 		name, body   string
 		valid, usage bool
 	}{
-		{"missing", `{}`, false, false}, {"null", `{"embeddings":null}`, false, false}, {"missing_float", `{"embeddings":{}}`, false, false}, {"null_coordinate", `{"embeddings":{"float":[[null,1]]}}`, false, false}, {"missing_usage", `{"embeddings":{"float":[[0,1]]},"meta":{"billed_units":{}}}`, true, false}, {"zero_usage", `{"embeddings":{"float":[[0,1]]},"meta":{"billed_units":{"input_tokens":0}}}`, true, true},
+		{"missing", `{}`, false, false}, {"null", `{"embeddings":null}`, false, false}, {"missing_float", `{"embeddings":{}}`, false, false}, {"null_coordinate", `{"embeddings":{"float":[[null,1]]}}`, false, false}, {"missing_usage", `{"embeddings":{"float":[[0,1]]},"meta":{"billed_units":{}}}`, true, false}, {"zero_usage", `{"embeddings":{"float":[[0,1]]},"meta":{"tokens":{"input_tokens":0}}}`, true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			calls := 0

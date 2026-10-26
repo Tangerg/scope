@@ -1,41 +1,40 @@
 package a2a
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 const maxHTTPRedirects = 10
 
-type httpOrigin struct {
-	scheme string
-	host   string
-}
+type originSet map[httpclient.Origin]struct{}
 
-func (h httpOrigin) String() string {
-	return h.scheme + "://" + h.host
-}
-
-type originSet map[httpOrigin]struct{}
-
-func (o originSet) contains(origin httpOrigin) bool {
+func (o originSet) contains(origin httpclient.Origin) bool {
 	_, ok := o[origin]
 	return ok
 }
 
-func (o originSet) validate(target *url.URL) error {
-	origin, err := originFromURL(target)
+func (o originSet) validateRequest(request *http.Request) error {
+	if request == nil {
+		return fmt.Errorf("%w: request is nil", ErrOriginNotAllowed)
+	}
+	origin, err := httpclient.NewOrigin(request.Context(), request.URL)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOriginNotAllowed, err)
 	}
 	if !o.contains(origin) {
-		return fmt.Errorf("%w: %s", ErrOriginNotAllowed, origin)
+		return fmt.Errorf("%w: %s://%s", ErrOriginNotAllowed, request.URL.Scheme, request.URL.Host)
+	}
+	if err := origin.ValidateRequest(request); err != nil {
+		return fmt.Errorf("%w: %w", ErrOriginNotAllowed, err)
 	}
 	return nil
 }
@@ -43,22 +42,20 @@ func (o originSet) validate(target *url.URL) error {
 func (o originSet) restrict(base *http.Client) *http.Client {
 	client := *base
 	transport := client.Transport
-	if transport == nil {
+	if lo.IsNil(transport) {
 		transport = http.DefaultTransport
 	}
 	client.Transport = &originRoundTripper{base: transport, allowed: o}
 	previousRedirectPolicy := client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := o.validate(req.URL); err != nil {
-			return err
-		}
 		if previousRedirectPolicy != nil {
-			return previousRedirectPolicy(req, via)
-		}
-		if len(via) >= maxHTTPRedirects {
+			if err := previousRedirectPolicy(req, via); err != nil {
+				return err
+			}
+		} else if len(via) >= maxHTTPRedirects {
 			return fmt.Errorf("a2a: stopped after %d redirects", maxHTTPRedirects)
 		}
-		return nil
+		return o.validateRequest(req)
 	}
 	return &client
 }
@@ -71,7 +68,7 @@ type endpointOriginPolicy struct {
 func newEndpointOriginPolicy(cardURL string, allowedRPCOrigins []string) (endpointOriginPolicy, error) {
 	cardOrigin, err := originFromURLString(cardURL)
 	if err != nil {
-		return endpointOriginPolicy{}, fmt.Errorf("%w %q: %w", ErrInvalidCardURL, cardURL, err)
+		return endpointOriginPolicy{}, fmt.Errorf("%w: %w", ErrInvalidCardURL, err)
 	}
 	policy := endpointOriginPolicy{
 		cardOrigins: originSet{cardOrigin: {}},
@@ -80,7 +77,7 @@ func newEndpointOriginPolicy(cardURL string, allowedRPCOrigins []string) (endpoi
 	for _, rawOrigin := range allowedRPCOrigins {
 		origin, err := parseConfiguredOrigin(rawOrigin)
 		if err != nil {
-			return endpointOriginPolicy{}, fmt.Errorf("%w %q: %w", ErrInvalidRPCOrigin, rawOrigin, err)
+			return endpointOriginPolicy{}, fmt.Errorf("%w: %w", ErrInvalidRPCOrigin, err)
 		}
 		policy.rpcOrigins[origin] = struct{}{}
 	}
@@ -99,55 +96,32 @@ func (e endpointOriginPolicy) validateCard(card *sdka2a.AgentCard) error {
 		}
 		origin, err := originFromURLString(iface.URL)
 		if err != nil {
-			return fmt.Errorf("%w: supported interface %d URL %q: %w", ErrInvalidCard, i, iface.URL, err)
+			return fmt.Errorf("%w: supported interface %d URL: %w", ErrInvalidCard, i, err)
 		}
 		if !e.rpcOrigins.contains(origin) {
-			return fmt.Errorf("%w: supported interface %d uses %s", ErrOriginNotAllowed, i, origin)
+			return fmt.Errorf("%w: supported interface %d", ErrOriginNotAllowed, i)
 		}
 	}
 	return nil
 }
 
-func originFromURLString(rawURL string) (httpOrigin, error) {
+func originFromURLString(rawURL string) (httpclient.Origin, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return httpOrigin{}, fmt.Errorf("parse URL: %w", err)
+		return httpclient.Origin{}, fmt.Errorf("parse URL: %w", err)
 	}
-	return originFromURL(u)
+	return httpclient.NewOrigin(context.Background(), u)
 }
 
-func parseConfiguredOrigin(rawOrigin string) (httpOrigin, error) {
+func parseConfiguredOrigin(rawOrigin string) (httpclient.Origin, error) {
 	u, err := url.Parse(rawOrigin)
 	if err != nil {
-		return httpOrigin{}, fmt.Errorf("parse URL: %w", err)
+		return httpclient.Origin{}, fmt.Errorf("parse URL: %w", err)
 	}
-	if u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return httpOrigin{}, errors.New("must contain only scheme and host")
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return httpclient.Origin{}, errors.New("must contain only scheme and host")
 	}
-	return originFromURL(u)
-}
-
-func originFromURL(u *url.URL) (httpOrigin, error) {
-	if u == nil {
-		return httpOrigin{}, errors.New("URL is nil")
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return httpOrigin{}, fmt.Errorf("scheme %q is not HTTP or HTTPS", u.Scheme)
-	}
-	hostname := strings.ToLower(u.Hostname())
-	if hostname == "" {
-		return httpOrigin{}, errors.New("host is required")
-	}
-	port := u.Port()
-	if port == "" {
-		if scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-	return httpOrigin{scheme: scheme, host: net.JoinHostPort(hostname, port)}, nil
+	return httpclient.NewOrigin(context.Background(), u)
 }
 
 type originRoundTripper struct {
@@ -156,8 +130,17 @@ type originRoundTripper struct {
 }
 
 func (o *originRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := o.allowed.validate(req.URL); err != nil {
+	if err := o.allowed.validateRequest(req); err != nil {
+		if req != nil && req.Body != nil {
+			err = errors.Join(err, req.Body.Close())
+		}
 		return nil, err
 	}
 	return o.base.RoundTrip(req)
+}
+
+func (o *originRoundTripper) CloseIdleConnections() {
+	if closer, ok := o.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
 }

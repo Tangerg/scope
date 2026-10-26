@@ -15,7 +15,6 @@ func ExampleNewRepository() {
 	if err != nil {
 		panic(err)
 	}
-	// Lookup checks metadata for an already known name without reading its body.
 	if _, lookupErr := repository.Lookup(context.Background(), "review"); lookupErr != nil {
 		panic(lookupErr)
 	}

@@ -24,7 +24,8 @@ type fetchResponse struct {
 	Data fetchResponseData `json:"data"`
 }
 
-func (f *fetchResponse) toFetchResponse(format web.ContentFormat) (*web.FetchResponse, error) {
+func (f *fetchResponse) toFetchResponse(request *web.FetchRequest) (*web.FetchResponse, error) {
+	format := request.Format
 	var content *string
 	switch format {
 	case web.FormatMarkdown:
@@ -40,7 +41,7 @@ func (f *fetchResponse) toFetchResponse(format web.ContentFormat) (*web.FetchRes
 		return nil, fmt.Errorf("jina: %w: response is missing the %s payload", web.ErrInvalidFetchResponse, format)
 	}
 	response := &web.FetchResponse{Content: *content, Format: format}
-	if err := response.Validate(); err != nil {
+	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("jina: %w", err)
 	}
 	return response, nil

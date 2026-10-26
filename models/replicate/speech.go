@@ -118,7 +118,6 @@ var _ speech.Model = (*SpeechModel)(nil)
 // versioned schemas and must be constructed with the matching binding.
 type SpeechModel struct {
 	predictions    predictionRunner
-	model          string
 	inputSchema    SpeechInputSchema
 	defaultOptions speech.Options
 }
@@ -136,8 +135,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		return nil, err
 	}
 	return &SpeechModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultTTSPollTimeoutSeconds)*time.Second),
-		model:          config.DefaultOptions.Model,
+		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultTTSPollTimeoutSeconds)*time.Second, speech.ErrInvalidResponse),
 		inputSchema:    config.InputSchema,
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil
@@ -163,8 +161,8 @@ func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *pred
 	if err != nil {
 		return speech.Options{}, nil, err
 	}
-	if effectiveOptions.Model != s.model {
-		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model override %q does not match bound schema for %q", effectiveOptions.Model, s.model)
+	if effectiveOptions.Model != s.defaultOptions.Model {
+		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model override %q does not match bound schema for %q", effectiveOptions.Model, s.defaultOptions.Model)
 	}
 	if validateOptionsErr := s.inputSchema.validateOptions(effectiveOptions); validateOptionsErr != nil {
 		return speech.Options{}, nil, validateOptionsErr
@@ -199,7 +197,7 @@ func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *pred
 		return speech.Options{}, nil, inputErr
 	}
 	if s.inputSchema.VoiceRequired && effectiveOptions.Voice == "" {
-		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model %q requires Options.Voice", s.model)
+		return speech.Options{}, nil, fmt.Errorf("replicate: speech: model %q requires Options.Voice", s.defaultOptions.Model)
 	}
 	return effectiveOptions, apiReq, nil
 }

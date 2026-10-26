@@ -83,7 +83,7 @@ func TestOverlayPrecedence(t *testing.T) {
 		"only-glob/SKILL.md": skillFile("only-glob", "global only", "y"),
 	})
 
-	src := Overlay(project, global) // project first → higher precedence
+	src := Overlay(project, global)
 
 	list, err := src.List(context.Background())
 	if err != nil {
@@ -391,7 +391,7 @@ func TestOverlayObservesCancellationAfterSourceCalls(t *testing.T) {
 }
 
 func TestOverlayNoSources(t *testing.T) {
-	src := Overlay() // no sources
+	src := Overlay()
 
 	if got, err := src.List(context.Background()); err != nil || len(got) != 0 {
 		t.Errorf("List on empty overlay = (%v, %v), want (empty, nil)", got, err)

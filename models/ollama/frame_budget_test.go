@@ -25,7 +25,10 @@ func (f *frameBody) Close() error { f.closed = true; return nil }
 
 type frameTransport struct{ body *frameBody }
 
-func (f frameTransport) RoundTrip(*http.Request) (*http.Response, error) {
+func (f frameTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/x-ndjson"}}, Body: f.body}, nil
 }
 

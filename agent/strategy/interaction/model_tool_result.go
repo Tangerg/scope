@@ -25,10 +25,7 @@ func modelToolResult(call chat.ToolCall, outcome tool.Result, cause error) (chat
 			return chat.ToolResult{ID: call.ID, Name: call.Name, Output: outcome.Output.Clone()}, nil, false, nil
 		}
 	}
-	if failure, ok := errors.AsType[*tool.Failure](cause); ok {
-		if err := failure.Validate(); err != nil {
-			return chat.ToolResult{}, nil, false, err
-		}
+	if failure, ok := tool.ClassifyFailure(cause); ok {
 		return chat.ToolResult{ID: call.ID, Name: call.Name, Output: failure.Output(), IsError: true}, nil, failure.Kind() == tool.FailureKindRejected, nil
 	}
 	return chat.ToolResult{}, nil, false, cause

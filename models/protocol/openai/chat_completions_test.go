@@ -149,8 +149,9 @@ func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 }
 
 func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("request must fail before provider I/O")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		t.Error("request must fail before provider I/O")
+		http.Error(writer, "unexpected provider I/O", http.StatusBadRequest)
 	}))
 	t.Cleanup(server.Close)
 	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{

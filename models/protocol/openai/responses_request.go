@@ -175,10 +175,16 @@ func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInpu
 	for partIndex := range parts {
 		part := parts[partIndex]
 		switch part.Kind {
-		case corechat.PartText:
-			items = append(items, responsesEasyMessage(responses.EasyInputMessageRoleAssistant, part.Text))
-		case corechat.PartRefusal:
-			items = append(items, responsesEasyMessage(responses.EasyInputMessageRoleAssistant, part.Text))
+		case corechat.PartText, corechat.PartRefusal:
+			item := responsesEasyMessage(responses.EasyInputMessageRoleAssistant, part.Text)
+			identity, found, err := part.Metadata.Decode[responsesMessageIdentity](responsesMessageIdentityKey)
+			if err != nil {
+				return nil, fmt.Errorf("parts[%d].message identity: %w", partIndex, err)
+			}
+			if found {
+				item.OfMessage.Phase = responses.EasyInputMessagePhase(identity.Phase)
+			}
+			items = append(items, item)
 		case corechat.PartReasoning:
 			if len(part.ReasoningState) == 0 {
 				continue

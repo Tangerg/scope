@@ -3,6 +3,7 @@ package chat
 import (
 	"errors"
 	"strings"
+	"unicode/utf8"
 )
 
 // ReasoningEffort uses the selected model's vocabulary, not a fixed enum.
@@ -13,6 +14,9 @@ type ReasoningEffort string
 // Validate rejects values whose identity would change under trimming. Empty is
 // valid and asks the provider adapter to use the selected model's default.
 func (r ReasoningEffort) Validate() error {
+	if !utf8.ValidString(string(r)) {
+		return errors.New("reasoning effort must be valid UTF-8")
+	}
 	if r != ReasoningEffort(strings.TrimSpace(string(r))) {
 		return errors.New("reasoning effort must not have surrounding whitespace")
 	}

@@ -335,7 +335,11 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(observer.Close)
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{observer}})
+	committer, err := observer.WrapTreeCommitter(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer, EventListeners: []agent.EventListener{observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,6 +368,12 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if got := stringAttribute(process.Attributes(), "agent.process.activation"); got != "restored" {
 		t.Fatalf("restored Process activation = %q", got)
 	}
+	activation := spanByName(t, recorder.Ended(), "agent.committer.activate", 0)
+	if stringAttribute(activation.Attributes(), "agent.committer.outcome") != "acknowledged" ||
+		stringAttribute(activation.Attributes(), "agent.process.root_id") != original.Relation().ProcessID().String() ||
+		stringAttribute(activation.Attributes(), "agent.tree.incarnation_id") != stringAttribute(process.Attributes(), "agent.tree.incarnation_id") {
+		t.Fatalf("restoration activation lost its committed identity: %v", activation.Attributes())
+	}
 	var metrics metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &metrics); err != nil {
 		t.Fatal(err)
@@ -373,6 +383,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 		t, metricByName(t, metrics, "gen_ai.invoke_agent.duration"),
 		"agent.process.activation", "restored",
 	)
+	assertHistogramAttribute(t, metricByName(t, metrics, "agent.committer.duration"), "agent.committer.operation", "activate")
 }
 
 func TestObserverRejectsTypedNilTracerProvider(t *testing.T) {

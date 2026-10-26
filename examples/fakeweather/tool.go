@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -51,11 +52,30 @@ type Coordinates struct {
 }
 
 type Temperature struct {
-	Value     int    `json:"value"` // daily mean, not an instantaneous reading
-	Unit      string `json:"unit"`  // always "Celsius"
+	Value     int    `json:"value"`
+	Unit      string `json:"unit"`
 	FeelsLike int    `json:"feels_like"`
 	Min       int    `json:"min"`
 	Max       int    `json:"max"`
+}
+
+const (
+	hoursPerDay = 24
+	celsiusUnit = "Celsius"
+)
+
+func newTemperature(hourly [hoursPerDay]HourlyForecast, humidity int, windSpeed float64) Temperature {
+	minimum, maximum, total := hourly[0].Temperature, hourly[0].Temperature, 0
+	for _, forecast := range hourly {
+		minimum = min(minimum, forecast.Temperature)
+		maximum = max(maximum, forecast.Temperature)
+		total += forecast.Temperature
+	}
+	mean := int(math.Round(float64(total) / float64(len(hourly))))
+	return Temperature{
+		Value: mean, Unit: celsiusUnit, Min: minimum, Max: maximum,
+		FeelsLike: calculateFeelsLike(mean, humidity, windSpeed),
+	}
 }
 
 type Wind struct {

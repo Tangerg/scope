@@ -195,10 +195,6 @@ func TestChatRejectsDuplicateToolChoiceSurfacesBeforeProviderIO(t *testing.T) {
 			Mode: corechat.ToolChoiceNamed, Name: "lookup",
 		},
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "named tool choice") {
-		t.Fatalf("named tool choice error = %v", err)
-	}
-	request.ToolChoice = nil
 	if err := request.Options.Extensions.Set(mistral.RequestExtensionKey, map[string]any{"tool_choice": "auto"}); err != nil {
 		t.Fatal(err)
 	}

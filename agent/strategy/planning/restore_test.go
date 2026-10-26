@@ -259,3 +259,54 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreRequiresEvidenceThatTheCurrentActionWasApplicable(t *testing.T) {
+	ready := mustCondition(t, "world.ready", planning.TruthTrue)
+	done := mustCondition(t, "world.done", planning.TruthTrue)
+	action := mustAction(t, planning.ActionConfig{
+		Name: "finish", Description: "Finish ready work.",
+		Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done},
+	})
+	world := newManagedWorld(t)
+	child := newManagedDeployment(t, managedDeploymentConfig{
+		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
+		executors: map[string]planning.ActionExecutor{"finish": world.apply(action)}, sensor: world,
+	})
+	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range []planning.ActionBinding{mustDispatcherBinding(t, action), childBinding} {
+		definition := newManagedDefinition(t, managedDeploymentConfig{goal: mustGoal(t, done), bindings: []planning.ActionBinding{binding}})
+		for _, phase := range []string{"awaiting_action", "awaiting_sense"} {
+			for _, observation := range []planning.WorldState{
+				{},
+				mustWorldState(t, mustCondition(t, "world.ready", planning.TruthFalse)),
+				mustWorldState(t, ready),
+			} {
+				state, err := agent.EncodeExecutionState("planning", struct {
+					Phase             string              `json:"phase"`
+					Input             struct{}            `json:"input"`
+					WorldState        planning.WorldState `json:"world_state"`
+					CurrentActionName string              `json:"current_action_name"`
+				}{Phase: phase, WorldState: observation, CurrentActionName: action.Name()})
+				if err != nil {
+					t.Fatal(err)
+				}
+				restored, err := definition.Restore(t.Context(), state)
+				if !action.Applicable(observation) {
+					if restored != nil || !errors.Is(err, planning.ErrInvalidExecutionState) {
+						t.Fatalf("%s restored an action without its preconditions: %v, %v", phase, restored, err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf("%s rejected an applicable action: %v", phase, err)
+				}
+				if _, err := restored.Snapshot(); err != nil {
+					t.Fatalf("valid current action cannot be captured: %v", err)
+				}
+			}
+		}
+	}
+}

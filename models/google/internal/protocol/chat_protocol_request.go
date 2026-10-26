@@ -124,19 +124,9 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, config *genai.Genera
 
 func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.GenerateContentConfig, error) {
 	extensionKey := protocolKey(provider, "request")
-	raw, found, err := req.Options.Extensions.Decode[json.RawMessage](extensionKey)
+	config, fields, err := decodeGenerationConfig(req.Options.Extensions, extensionKey)
 	if err != nil {
-		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
-	}
-	if !found {
-		return &genai.GenerateContentConfig{}, nil
-	}
-	var fields map[string]json.RawMessage
-	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
-		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
-	}
-	if fields == nil {
-		return nil, fmt.Errorf("google: extension %q must be an object", extensionKey)
+		return nil, err
 	}
 	for _, field := range []struct{ name, owner string }{
 		{"temperature", "options.temperature"},
@@ -182,11 +172,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 			}
 		}
 	}
-	var config genai.GenerateContentConfig
-	if err := jsonv2.Unmarshal(raw, &config, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
-	}
-	return &config, nil
+	return config, nil
 }
 
 func mapProtocolThinkingLevel(effort corechat.ReasoningEffort) (genai.ThinkingLevel, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -45,7 +46,13 @@ func TestRecoveryFixtureWaitsForNewPausedProgress(t *testing.T) {
 			t.Fatal("gate did not retain the previous paused head")
 		}
 		returned := make(chan struct{})
-		go func() { waitForPausedStep(t, process, 2); close(returned) }()
+		waitContext, cancelWait := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancelWait()
+		var waitErr error
+		go func() {
+			waitErr = waitForPausedStepContext(waitContext, process, 2)
+			close(returned)
+		}()
 		synctest.Wait()
 		select {
 		case <-returned:
@@ -54,6 +61,9 @@ func TestRecoveryFixtureWaitsForNewPausedProgress(t *testing.T) {
 		}
 		close(committer.release)
 		<-returned
+		if waitErr != nil {
+			t.Error(waitErr)
+		}
 		if err := process.Kill(t.Context(), "cleanup"); err != nil {
 			t.Fatal(err)
 		}

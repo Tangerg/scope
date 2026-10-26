@@ -4,8 +4,8 @@
 //
 //   - /chat/completions — native structured content and thinking chunks, used
 //     via [NewChat];
-//   - /embeddings — OpenAI-compatible, used via [NewEmbeddingModel]
-//     (returns an [openai.EmbeddingModel]);
+//   - /embeddings — native output_dimension and float-vector projection,
+//     used via [NewEmbeddingModel];
 //   - /moderations — Mistral-native shape that doesn't match OpenAI's
 //     moderation response; [NewModerationModel] handles it directly.
 //

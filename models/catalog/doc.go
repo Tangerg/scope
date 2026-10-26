@@ -31,8 +31,11 @@
 //     own name rather than by openai.
 //   - pricing is an ascending array of rate bands in USD per million tokens.
 //     A band reprices the whole prompt, not the marginal tokens, so a call
-//     above a threshold bills entirely at that band. Omit pricing for a
-//     metadata-only row.
+//     above a threshold bills entirely at that band. Omitted pricing is unknown;
+//     one band with zero rates is free. Cost returns ErrUnknownPricing for an
+//     absent schedule and rejects invalid counts, rates, or numerical overflow.
+//     Cache rates are optional: nil uses the ordinary input rate, while a
+//     present zero rate is free. InputTokens includes cache reads and writes.
 //   - reasoning.supported is the authoritative "can reason" bit. levels and
 //     default_level apply only where effort is level-controlled; a
 //     token-budget reasoner is just supported.
@@ -50,4 +53,7 @@
 // model IDs come from that binding's ListModels method; the retired Sonar
 // catalog is not a description of Agent API models. Metadata from another
 // provider is not evidence of the same model's pricing or capabilities here.
+// The command under cmd/generate delegates to the tested internal generator;
+// source validation completes before output files are replaced. Each file is
+// replaced atomically, but an I/O failure can interrupt a multi-provider update.
 package catalog

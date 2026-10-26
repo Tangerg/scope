@@ -1,6 +1,7 @@
 package elevenlabs_test
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -117,5 +118,43 @@ func TestOfficialTranscriptionOptionsReachForm(t *testing.T) {
 	}
 	if _, err := model.Call(t.Context(), &transcription.Request{Audio: audio}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
+	for _, extension := range []string{`{"misspelled_option":true}`, `null`} {
+		t.Run(extension, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
+			t.Cleanup(server.Close)
+
+			transcriptionOptions := transcription.Options{Model: elevenlabs.ModelScribeV2}
+			if err := transcriptionOptions.Extensions.Set(elevenlabs.TranscriptionRequestExtensionKey, json.RawMessage(extension)); err != nil {
+				t.Fatal(err)
+			}
+			transcriptionModel, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			audio, err := media.NewBytes("audio/wav", []byte("audio"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, callErr := transcriptionModel.Call(t.Context(), &transcription.Request{Audio: audio}); callErr == nil || response != nil || calls != 0 {
+				t.Errorf("transcription response=%v error=%v calls=%d", response, callErr, calls)
+			}
+			calls = 0
+			speechOptions := speech.Options{Model: elevenlabs.ModelMultilingualV2, Voice: "voice-1"}
+			if setErr := speechOptions.Extensions.Set(elevenlabs.SpeechRequestExtensionKey, json.RawMessage(extension)); setErr != nil {
+				t.Fatal(setErr)
+			}
+			speechModel, err := elevenlabs.NewSpeechModel(t.Context(), elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, err := speechModel.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
+				t.Errorf("speech response=%v error=%v calls=%d", response, err, calls)
+			}
+		})
 	}
 }

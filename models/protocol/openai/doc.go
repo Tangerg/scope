@@ -38,6 +38,11 @@
 // Provider-specific fields not modeled by Core reach the wire through request
 // extensions scoped to the endpoint provider. Raw response details use that
 // same namespace, so compatible endpoints never leak OpenAI provider metadata.
+// Audio transcription and translation extensions use the SDK's typed multipart
+// fields. Unknown fields, nulls, and empty arrays are rejected because the SDK
+// cannot preserve them in that form. Their response_format must select JSON;
+// text, srt, and vtt require a different decoder. Image, transcription, and
+// translation calls own their unary mode, so extensions cannot enable streaming.
 //
 // Standard Chat Completions requests stream_options.include_usage by default
 // for both Call and Stream. Explicit false or null stream_options are respected;
@@ -57,6 +62,10 @@
 // one completed native item without text copies. Replay requires that complete
 // state and its Core text parts. Previously stored full native reasoning items
 // are rejected. Preserve signed content and native fields when replaying.
+// Completed reasoning must agree with streamed text and its item completion;
+// contradictory or unfinished items cannot produce a successful terminal delta.
+// Assistant message identity and phase remain separate from visible text so
+// commentary and final answers retain their original boundaries during replay.
 //
 // Provider packages with an OpenAI-compatible endpoint reuse the protocol
 // through [NewCompatibleChatCompletions] and select one typed [Dialect]. This

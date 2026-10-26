@@ -45,6 +45,19 @@ type EmbeddingRequestOptions struct {
 	Normalize *bool `json:"normalize,omitzero"`
 }
 
+func (e *EmbeddingRequestOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions EmbeddingRequestOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return errors.New("bedrock: embedding request options must be a JSON object")
+	}
+	*e = EmbeddingRequestOptions(*decoded)
+	return nil
+}
+
 type EmbeddingModelConfig struct {
 	DefaultOptions embedding.Options
 	Region         string

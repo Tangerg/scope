@@ -55,6 +55,18 @@ type api struct {
 	http *resty.Client
 }
 
+func (a *api) embedding(ctx context.Context, request *embeddingRequest) (*embeddingResponse, error) {
+	var result embeddingResponse
+	response, err := a.http.R().SetContext(ctx).SetBody(request).SetResult(&result).Post("/embeddings")
+	if err != nil {
+		return nil, fmt.Errorf("mistral: embedding request: %w", err)
+	}
+	if !response.IsSuccess() {
+		return nil, newAPIError("embeddings", response.StatusCode(), response.Header(), response.Body())
+	}
+	return &result, nil
+}
+
 func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err := config.validate(); err != nil {
 		return nil, err

@@ -36,7 +36,7 @@ func TestToolPreservesUnknownExecutionEvidence(t *testing.T) {
 	if !ok || !errors.Is(err, cause) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want CallError retaining original cause", err)
 	}
-	if failure, found := errors.AsType[*tool.Failure](err); found {
+	if failure, found := tool.ClassifyFailure(err); found {
 		t.Fatalf("uncertain collection became a definite failure: %v", failure)
 	}
 	var response Response
@@ -58,15 +58,41 @@ func TestToolPreservesBackendDefiniteOutcome(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		executable := mustTool(t, outputExecutor{err: errors.Join(ErrInvalidInput, failure)})
+		executable := mustTool(t, outputExecutor{err: fmt.Errorf("backend: %w", failure)})
 		output, err := invokeTestTool(t.Context(), executable, `{"command":"write"}`)
-		got, found := errors.AsType[*tool.Failure](err)
+		got, found := tool.ClassifyFailure(err)
 		if !found || got != failure || got.Kind() != kind || !reflect.DeepEqual(got.Output(), failure.Output()) {
 			t.Fatalf("definite outcome changed: %v", err)
 		}
 		if errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, chat.ToolOutput{}) {
 			t.Fatalf("diagnostic cause or redundant output crossed complete outcome boundary: %+v, %v", output, err)
 		}
+	}
+}
+
+func TestToolDoesNotPromoteAJoinedFailureToTheWholeOutcome(t *testing.T) {
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("one operation rejected")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := mustTool(t, outputExecutor{
+		output: Output{Stdout: []byte("partial observation"), ExitCode: -1},
+		err:    errors.Join(ErrInvalidInput, failure),
+	})
+	_, err = invokeTestTool(t.Context(), executable, `{"command":"run"}`)
+	if _, definite := tool.ClassifyFailure(err); definite || !errors.Is(err, ErrInvalidInput) || !errors.Is(err, failure) {
+		t.Fatalf("joined outcomes changed: %v", err)
+	}
+	observation, found := errors.AsType[*tool.CallError](err)
+	if !found {
+		t.Fatalf("execution observations were lost: %v", err)
+	}
+	var response Response
+	if err := jsonv2.Unmarshal(observation.Evidence().Details, &response); err != nil {
+		t.Fatal(err)
+	}
+	if string(response.Stdout.Bytes()) != "partial observation" || response.ExitCode != -1 {
+		t.Fatalf("execution observations changed: %+v", response)
 	}
 }
 

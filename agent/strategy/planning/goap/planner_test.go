@@ -334,3 +334,33 @@ func evaluatedCost(t *testing.T, problem planning.Problem, plan planning.Plan) f
 	}
 	return cost
 }
+
+func TestPlannerDoesNotChargeStaleFrontierEntriesAsExpansions(t *testing.T) {
+	resource := condition(t, "world.resource", planning.TruthTrue)
+	missing := condition(t, "world.missing", planning.TruthTrue)
+	done := condition(t, "world.done", planning.TruthTrue)
+	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
+		action(t, "expensive", nil, []planning.Condition{resource}, 5),
+		action(t, "cheaper", nil, []planning.Condition{resource}, 1),
+		action(t, "blocked", []planning.Condition{missing}, []planning.Condition{done}, 1),
+	)
+	_, found, err := goap.New(goap.Config{MaxExpansions: agent.NewQuota(2)}).Plan(t.Context(), problem)
+	if found || err != nil {
+		t.Fatalf("stale node exhausted the budget instead of completing the search: found=%t, %v", found, err)
+	}
+}
+
+func TestPlannerRejectsInvalidProblemsAndCumulativeCostOverflow(t *testing.T) {
+	if _, found, err := goap.New(goap.Config{}).Plan(t.Context(), planning.Problem{}); found || !errors.Is(err, planning.ErrInvalidProblem) {
+		t.Fatalf("invalid problem produced a plan: found=%t, %v", found, err)
+	}
+	ready := condition(t, "world.ready", planning.TruthTrue)
+	done := condition(t, "world.done", planning.TruthTrue)
+	problem := mustProblem(t, planning.WorldState{}, goal(t, done),
+		action(t, "prepare", nil, []planning.Condition{ready}, math.MaxFloat64),
+		action(t, "finish", []planning.Condition{ready}, []planning.Condition{done}, math.MaxFloat64),
+	)
+	if _, found, err := goap.New(goap.Config{}).Plan(t.Context(), problem); found || !errors.Is(err, planning.ErrInvalidActionCost) {
+		t.Fatalf("overflow became a usable plan: found=%t, %v", found, err)
+	}
+}

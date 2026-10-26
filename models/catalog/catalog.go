@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io/fs"
+	"path"
 	"strings"
 )
 
@@ -46,30 +47,52 @@ type catalogEntry struct {
 var entries = mustLoad()
 
 func mustLoad() map[string]catalogEntry {
-	files, err := fs.Glob(configs, "configs/*.json")
+	providers, err := loadCatalog(configs)
 	if err != nil {
-		panic(fmt.Errorf("catalog: glob configs: %w", err))
+		panic(err)
+	}
+	return providers
+}
+
+func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
+	files, err := fs.Glob(source, "configs/*.json")
+	if err != nil {
+		return nil, fmt.Errorf("catalog: glob configs: %w", err)
 	}
 	providers := make(map[string]catalogEntry, len(files))
 	for _, name := range files {
-		raw, err := configs.ReadFile(name)
+		raw, err := fs.ReadFile(source, name)
 		if err != nil {
-			panic(fmt.Errorf("catalog: read %s: %w", name, err))
+			return nil, fmt.Errorf("catalog: read %s: %w", name, err)
 		}
 		var config providerConfig
-		if err := jsonv2.Unmarshal(raw, &config); err != nil {
-			panic(fmt.Errorf("catalog: invalid config %s: %w", name, err))
+		if err := jsonv2.Unmarshal(raw, &config, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return nil, fmt.Errorf("catalog: invalid config %s: %w", name, err)
+		}
+		providerID := strings.TrimSuffix(path.Base(name), path.Ext(name))
+		if config.Provider != providerID {
+			return nil, fmt.Errorf("catalog: provider %q differs from file identity %q", config.Provider, providerID)
 		}
 		models := make(map[string]Model, len(config.Models))
 		for _, model := range config.Models {
+			if err := model.Validate(); err != nil {
+				return nil, fmt.Errorf("catalog: %s model %q: %w", name, model.ID, err)
+			}
+			if _, exists := models[model.ID]; exists {
+				return nil, fmt.Errorf("catalog: duplicate model %q in %s", model.ID, name)
+			}
 			models[model.ID] = model
 		}
-		providers[strings.ToLower(config.Provider)] = catalogEntry{
+		key := strings.ToLower(config.Provider)
+		if _, exists := providers[key]; exists {
+			return nil, fmt.Errorf("catalog: duplicate provider %q", config.Provider)
+		}
+		providers[key] = catalogEntry{
 			provider: Provider{ID: config.Provider, Models: config.Models},
 			models:   models,
 		}
 	}
-	return providers
+	return providers, nil
 }
 
 // Lookup returns one model for a provider/model pair. Provider matching is

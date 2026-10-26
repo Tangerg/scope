@@ -12,7 +12,7 @@ import (
 )
 
 func TestChatRerankerUsesStructuredOutputAndOwnsScores(t *testing.T) {
-	model := newFakeChatModel(t, `{"scores":[{"index":0,"score":0.4},{"index":1,"score":0.9}]}`)
+	model := newFakeChatModel(`{"scores":[{"index":0,"score":0.4},{"index":1,"score":0.9}]}`)
 	reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestChatRerankerValidatesCompleteRanking(t *testing.T) {
 		"invalid score":      `{"scores":[{"index":0,"score":1.1},{"index":1,"score":0.8}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: newFakeChatModel(t, reply)})
+			reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: newFakeChatModel(reply)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +68,7 @@ func TestChatRerankerValidatesCompleteRanking(t *testing.T) {
 }
 
 func TestChatRerankerHandlesEmptyAndUnformattableCandidates(t *testing.T) {
-	model := newFakeChatModel(t, `{"scores":[]}`)
+	model := newFakeChatModel(`{"scores":[]}`)
 	reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: model})
 	if err != nil {
 		t.Fatal(err)

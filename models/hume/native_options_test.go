@@ -1,6 +1,7 @@
 package hume_test
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -101,5 +102,26 @@ func TestSpeechRejectsDuplicateResponseMembers(t *testing.T) {
 	}
 	if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil {
 		t.Fatal("duplicate JSON accepted")
+	}
+}
+
+func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
+	for _, extension := range []string{`{"misspelled_option":true}`, `null`, `{"utterances":[{"voice":{"provider_name":"HUME_AI"}}]}`} {
+		t.Run(extension, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
+			t.Cleanup(server.Close)
+			options := speech.Options{Model: hume.ModelOctave2, Voice: "voice-1"}
+			if err := options.Extensions.Set(hume.SpeechRequestExtensionKey, json.RawMessage(extension)); err != nil {
+				t.Fatal(err)
+			}
+			model, err := hume.NewSpeechModel(t.Context(), hume.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
+				t.Fatalf("speech response=%v error=%v calls=%d", response, err, calls)
+			}
+		})
 	}
 }

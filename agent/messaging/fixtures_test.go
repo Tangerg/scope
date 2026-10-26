@@ -13,7 +13,6 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// senderStateKind names the sender ExecutionState kind its Snapshot writes and Restore reads.
 const senderStateKind = "test.sender"
 
 func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {

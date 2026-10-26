@@ -45,6 +45,9 @@ func TestEmbeddingBodyOwnsNoTransportOrClosePolicy(t *testing.T) {
 type nilNativeBodyTransport struct{ contentLength int64 }
 
 func (n nilNativeBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	return &http.Response{StatusCode: http.StatusOK, ContentLength: n.contentLength, Header: make(http.Header), Request: request}, nil
 }
 

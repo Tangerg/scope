@@ -3,8 +3,9 @@
 // implement only the capabilities they provide and own all content processing;
 // the tools only marshal JSON into port calls and back.
 //
-// Backends handle text files only: they must reject files that look binary and
-// Write content that contains NUL bytes.
+// Read and mutation backends handle text files only: they reject binary files
+// and Write content containing NUL bytes. Grep preserves matched bytes through
+// [GrepLine.Content] so legacy encodings do not corrupt or prevent JSON output.
 //
 // [LocalExecutor] is the local backend. [NewLocalExecutor] derives its own
 // handle from an already-open [os.Root] with an absolute Name, so the host keeps

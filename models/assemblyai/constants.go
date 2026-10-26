@@ -22,7 +22,7 @@ const (
 	// API call volume.
 	DefaultPollInterval = 2 * time.Second
 
-	// DefaultPollTimeout caps the total wait for one Call. Long audio
+	// DefaultPollTimeout caps polling after submission. Long audio
 	// (hour-scale lectures, podcasts) plus model warm-up can take a
 	// while, so the ceiling is set generously; callers wanting a
 	// tighter SLA should pass a ctx with their own deadline.

@@ -3,6 +3,7 @@ package vectorstore
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -230,6 +231,24 @@ func (s *SearchResult) Validate() error {
 	return nil
 }
 
+func (s *SearchResult) validateFilter(predicate filter.Predicate) error {
+	if predicate == nil {
+		return nil
+	}
+	values, err := s.Document.Metadata.Values()
+	if err != nil {
+		return fmt.Errorf("decode filter metadata: %w", err)
+	}
+	matches, err := filter.Match(predicate, values)
+	if err != nil {
+		return fmt.Errorf("evaluate metadata filter: %w", err)
+	}
+	if !matches {
+		return errors.New("document does not match the requested metadata filter")
+	}
+	return nil
+}
+
 func (s SearchResult) MarshalJSON() ([]byte, error) {
 	if err := (&s).Validate(); err != nil {
 		return nil, err
@@ -317,6 +336,9 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ValidateFor checks the response against the complete request contract. A
+// provider returning metadata outside the requested filter is a protocol breach;
+// silently dropping that result could hide a truncated search.
 func (s *SearchResponse) ValidateFor(request *SearchRequest) error {
 	if err := request.Validate(); err != nil {
 		return err
@@ -332,6 +354,9 @@ func (s *SearchResponse) ValidateFor(request *SearchRequest) error {
 		if result.Score < request.Options.MinScore {
 			return fmt.Errorf("%w: results[%d] score %v is below minimum score %v",
 				ErrInvalidResponse, index, result.Score, request.Options.MinScore)
+		}
+		if err := result.validateFilter(request.Options.Filter); err != nil {
+			return fmt.Errorf("%w: results[%d]: %w", ErrInvalidResponse, index, err)
 		}
 	}
 	return nil

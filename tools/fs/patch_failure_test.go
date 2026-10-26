@@ -76,7 +76,7 @@ func TestApplyPatchCommitFailurePreservesAcknowledgedChanges(t *testing.T) {
 			if !found {
 				t.Fatalf("tool error lost its evidence: %v", err)
 			}
-			if _, definite := errors.AsType[*tool.Failure](err); definite {
+			if _, definite := tool.ClassifyFailure(err); definite {
 				t.Fatalf("commit error became a definite failure: %v", err)
 			}
 			if decodeErr := jsonv2.Unmarshal(callErr.Evidence().Details, &out); decodeErr != nil {
@@ -113,30 +113,30 @@ func TestApplyPatchRejectsNULInTextHunkBeforeMutation(t *testing.T) {
 		name      string
 		setup     func(t *testing.T, root string)
 		patch     string
-		unchanged map[string]string // path -> required content; "" means must be absent
+		unchanged []patchPathExpectation
 	}{
 		{
 			name:      "create",
 			patch:     "--- /dev/null\n+++ created\n@@ -0,0 +1 @@\n+hello\x00world\n",
-			unchanged: map[string]string{"created": ""},
+			unchanged: []patchPathExpectation{{path: "created"}},
 		},
 		{
 			name:      "modify",
 			setup:     func(t *testing.T, root string) { writeTemp(t, root, "existing", "old\n") },
 			patch:     "--- existing\n+++ existing\n@@ -1 +1 @@\n-old\n+new\x00line\n",
-			unchanged: map[string]string{"existing": "old\n"},
+			unchanged: []patchPathExpectation{{path: "existing", content: new("old\n")}},
 		},
 		{
 			name:      "rename",
 			setup:     func(t *testing.T, root string) { writeTemp(t, root, "src.txt", "old\n") },
 			patch:     movePatch("src.txt", "dst.txt", "@@ -1 +1 @@\n-old\n+new\x00line\n"),
-			unchanged: map[string]string{"src.txt": "old\n", "dst.txt": ""},
+			unchanged: []patchPathExpectation{{path: "src.txt", content: new("old\n")}, {path: "dst.txt"}},
 		},
 		{
 			name: "multi-file last illegal",
 			patch: "--- /dev/null\n+++ clean\n@@ -0,0 +1 @@\n+legal\n" +
 				"--- /dev/null\n+++ newdir/dirty\n@@ -0,0 +1 @@\n+bad\x00content\n",
-			unchanged: map[string]string{"clean": "", "newdir": ""},
+			unchanged: []patchPathExpectation{{path: "clean"}, {path: "newdir"}},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -148,19 +148,29 @@ func TestApplyPatchRejectsNULInTextHunkBeforeMutation(t *testing.T) {
 			if !errors.Is(err, ErrBinaryFile) || !errors.Is(err, ErrMutationRejected) || len(out.Files) != 0 {
 				t.Fatalf("NUL hunk = %#v, %v; want ErrMutationRejected wrapping ErrBinaryFile", out, err)
 			}
-			for path, want := range test.unchanged {
-				data, readErr := os.ReadFile(filepath.Join(root, path))
-				if want == "" {
-					if !errors.Is(readErr, os.ErrNotExist) {
-						t.Fatalf("%s should be absent: %q, %v", path, data, readErr)
-					}
-					continue
-				}
-				if readErr != nil || string(data) != want {
-					t.Fatalf("%s = %q, %v; want unchanged %q", path, data, readErr, want)
-				}
+			for _, expected := range test.unchanged {
+				expected.assertUnchanged(t, root)
 			}
 		})
+	}
+}
+
+type patchPathExpectation struct {
+	path    string
+	content *string
+}
+
+func (p patchPathExpectation) assertUnchanged(t *testing.T, root string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, p.path))
+	if p.content == nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s should be absent: %q, %v", p.path, data, err)
+		}
+		return
+	}
+	if err != nil || string(data) != *p.content {
+		t.Fatalf("%s = %q, %v; want unchanged %q", p.path, data, err, *p.content)
 	}
 }
 

@@ -165,12 +165,12 @@ func (i *ImageModel) runGeneration(ctx context.Context, model string, request *g
 		return nil, nil, err
 	}
 	if async.ID == "" {
-		return nil, nil, errors.New("blackforestlabs: generation response has no task id")
+		return nil, nil, fmt.Errorf("%w: blackforestlabs: generation response has no task id", image.ErrInvalidResponse)
 	}
 	if async.PollingURL == "" {
 		return nil, nil, errors.New("blackforestlabs: generation response has no polling_url")
 	}
-	final, err := i.pollUntilDone(ctx, async.PollingURL)
+	final, err := i.pollUntilDone(ctx, async)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,7 +228,7 @@ func mapImageResponse(value *media.Media, async *asyncResponse, final *pollResul
 	return image.NewResponse([]*image.Output{output}, meta)
 }
 
-func (i *ImageModel) pollUntilDone(ctx context.Context, pollingURL string) (*pollResult, error) {
+func (i *ImageModel) pollUntilDone(ctx context.Context, submitted *asyncResponse) (*pollResult, error) {
 	deadline, cancel := context.WithTimeout(ctx, i.pollTimeout)
 	defer cancel()
 
@@ -236,9 +236,12 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, pollingURL string) (*pol
 	defer ticker.Stop()
 
 	for {
-		resp, err := i.api.getResult(deadline, pollingURL)
+		resp, err := i.api.getResult(deadline, submitted.PollingURL)
 		if err != nil {
 			return nil, err
+		}
+		if resp.ID != submitted.ID {
+			return nil, fmt.Errorf("%w: blackforestlabs: polled task id %q differs from submitted id %q", image.ErrInvalidResponse, resp.ID, submitted.ID)
 		}
 		switch resp.Status {
 		case pollStatusReady:

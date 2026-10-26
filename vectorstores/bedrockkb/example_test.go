@@ -25,6 +25,17 @@ type exampleSigV4Transport struct {
 }
 
 func (e exampleSigV4Transport) RoundTrip(request *http.Request) (*http.Response, error) {
+	signed, err := e.sign(request)
+	if err != nil {
+		if request.Body != nil {
+			err = errors.Join(err, request.Body.Close())
+		}
+		return nil, err
+	}
+	return e.base.RoundTrip(signed)
+}
+
+func (e exampleSigV4Transport) sign(request *http.Request) (*http.Request, error) {
 	if request.GetBody == nil {
 		return nil, errors.New("signing requires a replayable request body")
 	}
@@ -45,7 +56,7 @@ func (e exampleSigV4Transport) RoundTrip(request *http.Request) (*http.Response,
 	if err = e.signer.SignHTTP(request.Context(), credentials, signed, hex.EncodeToString(digest.Sum(nil)), "bedrock", e.region, time.Now()); err != nil {
 		return nil, err
 	}
-	return e.base.RoundTrip(signed)
+	return signed, nil
 }
 
 func ExampleNewStore() {

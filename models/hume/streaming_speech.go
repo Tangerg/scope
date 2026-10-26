@@ -52,7 +52,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		defer body.Close()
 
 		decoder := jsontext.NewDecoder(body)
-		lifecycle := snippetStream{snippets: make(map[string]snippetProgress)}
+		lifecycle := generationStream{snippets: make(map[string]snippetProgress)}
 		for {
 			var event ttsStreamEvent
 			if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
@@ -71,7 +71,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 				yield(nil, fmt.Errorf("hume: decode streamed JSON response: %w", err))
 				return
 			}
-			if event.Type != "audio" {
+			if event.Type != streamEventAudio {
 				yield(nil, fmt.Errorf("hume: unexpected streamed event type %q", event.Type))
 				return
 			}
@@ -89,48 +89,4 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			}
 		}
 	}
-}
-
-type snippetProgress struct {
-	generation string
-	request    string
-	next       int64
-	finished   bool
-}
-
-type snippetStream struct{ snippets map[string]snippetProgress }
-
-func (s *snippetStream) accept(event ttsStreamEvent) error {
-	if event.ChunkIndex == nil || event.IsLastChunk == nil {
-		return fmt.Errorf("%w: hume: streamed audio requires chunk_index and is_last_chunk", speech.ErrInvalidResponse)
-	}
-	if event.SnippetID == "" || event.GenerationID == "" || event.RequestID == "" {
-		return errors.New("hume: streamed audio is missing snippet identity")
-	}
-	progress, exists := s.snippets[event.SnippetID]
-	if !exists {
-		progress.generation, progress.request = event.GenerationID, event.RequestID
-	}
-	if progress.finished || progress.generation != event.GenerationID || progress.request != event.RequestID || *event.ChunkIndex != progress.next {
-		return errors.New("hume: streamed snippet has inconsistent identity, order or completion")
-	}
-	progress.next++
-	progress.finished = *event.IsLastChunk
-	s.snippets[event.SnippetID] = progress
-	return nil
-}
-
-// complete reports whether the stream delivered a well-formed generation. A clean
-// EOF is success only when at least one snippet arrived and every started snippet
-// reached its final chunk; an empty body carries no completion evidence and fails.
-func (s *snippetStream) complete() error {
-	if len(s.snippets) == 0 {
-		return errors.New("hume: stream ended before any audio snippet arrived")
-	}
-	for _, progress := range s.snippets {
-		if !progress.finished {
-			return errors.New("hume: stream ended before every snippet completed")
-		}
-	}
-	return nil
 }

@@ -2,13 +2,13 @@ package cohere
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 
 	cohere "github.com/cohere-ai/cohere-go/v2"
 
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/rerank"
 )
 
@@ -18,6 +18,19 @@ import (
 type RerankRequestOptions struct {
 	MaxTokensPerDoc *int `json:"max_tokens_per_doc,omitzero"`
 	Priority        *int `json:"priority,omitzero"`
+}
+
+func (r *RerankRequestOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions RerankRequestOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("cohere: rerank options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("cohere: rerank options must be an object")
+	}
+	*r = RerankRequestOptions(*decoded)
+	return nil
 }
 
 type RerankModelConfig struct {
@@ -74,12 +87,12 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*cohere.V2Rerank
 	return value, nil
 }
 
-func (r *RerankModel) buildResponse(apiResponse *cohere.V2RerankResponse) (*rerank.Response, error) {
-	if apiResponse == nil {
+func (r *RerankModel) buildResponse(apiResponse *nativeResponse[*cohere.V2RerankResponse]) (*rerank.Response, error) {
+	if apiResponse == nil || apiResponse.value == nil {
 		return nil, errors.New("cohere: rerank response is nil")
 	}
-	results := make([]*rerank.Result, len(apiResponse.Results))
-	for position, item := range apiResponse.Results {
+	results := make([]*rerank.Result, len(apiResponse.value.Results))
+	for position, item := range apiResponse.value.Results {
 		if item == nil {
 			return nil, fmt.Errorf("cohere: rerank response result %d is nil", position)
 		}
@@ -91,22 +104,19 @@ func (r *RerankModel) buildResponse(apiResponse *cohere.V2RerankResponse) (*rera
 	}
 
 	responseMetadata := &rerank.ResponseMetadata{}
-	var extra metadata.Map
-	if apiResponse.Id != nil {
-		if err := extra.Set(RerankRequestIDMetadataKey, *apiResponse.Id); err != nil {
+	extra, err := apiResponse.usage.metadata()
+	if err != nil {
+		return nil, err
+	}
+	if apiResponse.value.Id != nil {
+		if err := extra.Set(RerankRequestIDMetadataKey, *apiResponse.value.Id); err != nil {
 			return nil, err
 		}
 	}
-	if apiResponse.Meta != nil {
-		if apiResponse.Meta.Tokens != nil && apiResponse.Meta.Tokens.InputTokens != nil {
-			responseMetadata.Usage = &rerank.Usage{InputTokens: int64(*apiResponse.Meta.Tokens.InputTokens)}
-		}
-		if apiResponse.Meta.BilledUnits != nil && apiResponse.Meta.BilledUnits.SearchUnits != nil {
-			if err := extra.Set(RerankSearchUnitsMetadataKey, *apiResponse.Meta.BilledUnits.SearchUnits); err != nil {
-				return nil, err
-			}
-		}
+	if apiResponse.usage.Tokens.InputTokens != nil {
+		responseMetadata.Usage = &rerank.Usage{InputTokens: int64(*apiResponse.usage.Tokens.InputTokens)}
 	}
+
 	responseMetadata.Extra = extra
 	return rerank.NewResponse(results, responseMetadata)
 }

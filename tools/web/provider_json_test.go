@@ -19,9 +19,10 @@ import (
 )
 
 type testProvider struct {
-	name           string
-	searchEnvelope string
-	newClient      func(ctx context.Context, baseURL string, client *http.Client) (web.Searcher, error)
+	name                  string
+	searchEnvelope        string
+	missingSearchPayloads []string
+	newClient             func(ctx context.Context, baseURL string, client *http.Client) (web.Searcher, error)
 }
 
 func (t testProvider) searchPayload(count int) string {
@@ -33,25 +34,25 @@ func (t testProvider) searchPayload(count int) string {
 }
 
 var testProviders = []testProvider{
-	{"brave", `{"web":{"results":[%s]}}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "brave", searchEnvelope: `{"web":{"results":[%s]}}`, missingSearchPayloads: nil, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return brave.NewClient(ctx, brave.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"exa", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "exa", searchEnvelope: `{"results":[%s]}`, missingSearchPayloads: []string{`{}`, `{"results":null}`}, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return exa.NewClient(ctx, exa.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"firecrawl", `{"success":true,"data":{"web":[%s]}}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "firecrawl", searchEnvelope: `{"success":true,"data":{"web":[%s]}}`, missingSearchPayloads: []string{`{"success":true}`, `{"success":true,"data":null}`}, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return firecrawl.NewClient(ctx, firecrawl.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"jina", `{"data":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "jina", searchEnvelope: `{"data":[%s]}`, missingSearchPayloads: []string{`{}`, `{"data":null}`}, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return jina.NewClient(ctx, jina.Config{APIKey: "test", SearchBaseURL: url, FetchBaseURL: url, HTTPClient: client})
 	}},
-	{"perplexity", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "perplexity", searchEnvelope: `{"results":[%s]}`, missingSearchPayloads: []string{`{}`, `{"results":null}`}, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return perplexity.NewClient(ctx, perplexity.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"serper", `{"organic":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "serper", searchEnvelope: `{"organic":[%s]}`, missingSearchPayloads: nil, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return serper.NewClient(ctx, serper.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
-	{"tavily", `{"results":[%s]}`, func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
+	{name: "tavily", searchEnvelope: `{"results":[%s]}`, missingSearchPayloads: []string{`{}`, `{"results":null}`}, newClient: func(ctx context.Context, url string, client *http.Client) (web.Searcher, error) {
 		return tavily.NewClient(ctx, tavily.Config{APIKey: "test", BaseURL: url, HTTPClient: client})
 	}},
 }

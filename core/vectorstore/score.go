@@ -87,8 +87,8 @@ func ScoreFromDistance(distance float64) Score {
 	return Score(1 / (1 + max(0, distance)))
 }
 
-// ScoreFromInnerProduct maps an unbounded dot product monotonically into
-// (0, 1).
+// ScoreFromInnerProduct maps an unbounded dot product monotonically into [0, 1].
+// Finite precision saturates the logistic function at both endpoints.
 func ScoreFromInnerProduct(product float64) Score {
 	if math.IsNaN(product) || math.IsInf(product, 0) {
 		return Score(math.NaN())

@@ -84,8 +84,9 @@ func TestChatUsesCurrentKimiWireContract(t *testing.T) {
 }
 
 func TestChatRejectsK2ThinkingOptionsForK3(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("request must fail before transport")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		t.Error("request must fail before transport")
+		http.Error(writer, "unexpected request", http.StatusBadRequest)
 	}))
 	t.Cleanup(server.Close)
 	model, err := moonshot.NewChatCompletions(t.Context(), moonshot.ChatCompletionsConfig{

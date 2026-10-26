@@ -30,5 +30,11 @@
 // twice as relevant as a 0.45 — which is why Core calls a score
 // query-relative and not comparable across providers.
 //
+// Core usage records meta.tokens.input_tokens only. Billed input tokens can
+// differ from physical input tokens, so they remain separately addressable via
+// BilledInputTokensMetadataKey; billed search units use RerankSearchUnitsMetadataKey.
+// Missing token reports stay absent. Both kinds of counts retain exact integer
+// values without passing through the SDK's float64 representation.
+//
 // See https://docs.cohere.com/ for the full API reference.
 package cohere

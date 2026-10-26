@@ -19,21 +19,27 @@ const (
 	MetadataPageIndex  = "pdf.page"
 	MetadataPagesTotal = "pdf.pages.total"
 	MetadataSourceName = "pdf.source"
+	DefaultMaxPages    = 10_000
 )
 
 // ErrPartialRead accompanies usable output when one or more pages could not be read.
 var ErrPartialRead = errors.New("pdf reader: one or more pages could not be read")
 
+// ErrPageLimit prevents an untrusted page count from driving allocation or work.
+var ErrPageLimit = errors.New("pdf reader: page limit exceeded")
+
 // ReaderConfig controls PDF extraction. PerPage emits one document per readable
 // page. Password is used for encrypted PDFs. Metadata is cloned by NewReader,
 // and cannot contain the reader's page index, page total, or source keys. A zero
-// SourceBudget uses [etl.DefaultMaxSourceBytes].
+// SourceBudget uses [etl.DefaultMaxSourceBytes]. A zero MaxPages uses
+// [DefaultMaxPages], independently of the encoded source's byte size.
 type ReaderConfig struct {
 	PerPage      bool
 	SourceName   string
 	Password     string
 	Metadata     coremetadata.Map
 	SourceBudget etl.SourceBudget
+	MaxPages     int
 }
 
 type Reader struct {
@@ -43,6 +49,7 @@ type Reader struct {
 	sourceName    string
 	password      string
 	extraMetadata coremetadata.Map
+	maxPages      int
 }
 
 // NewReader rejects an oversized source here instead of while extracting,
@@ -65,6 +72,13 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 			config.SourceBudget.MaxBytes(),
 		)
 	}
+	if config.MaxPages < 0 {
+		return nil, errors.New("pdf reader: maximum pages must not be negative")
+	}
+	maxPages := config.MaxPages
+	if maxPages == 0 {
+		maxPages = DefaultMaxPages
+	}
 	r := &Reader{
 		source:        source,
 		size:          size,
@@ -72,6 +86,7 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 		sourceName:    config.SourceName,
 		password:      config.Password,
 		extraMetadata: config.Metadata.Clone(),
+		maxPages:      maxPages,
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("pdf reader: invalid metadata: %w", err)
@@ -107,6 +122,12 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 	total := pdfReader.NumPage()
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if total < 0 {
+		return nil, errors.New("pdf: malformed document: negative page count")
+	}
+	if total > r.maxPages {
+		return nil, fmt.Errorf("%w: declared %d pages; maximum is %d", ErrPageLimit, total, r.maxPages)
 	}
 	if r.perPage {
 		return r.readPages(ctx, pdfReader, total)
@@ -258,7 +279,7 @@ func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int) (text strin
 	}()
 	page := pdfReader.Page(pageIndex)
 	if page.V.IsNull() {
-		return "", nil
+		return "", fmt.Errorf("page %d: declared page is missing", pageIndex)
 	}
 	text, err = page.GetPlainText(nil)
 	if err != nil {

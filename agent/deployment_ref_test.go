@@ -140,7 +140,6 @@ func TestDeploymentRefRejectsInvalidIdentity(t *testing.T) {
 	}
 }
 
-// noChildBindings is the bindings digest of a leaf definition.
 func noChildBindings() Digest { return controlValue(childBindingsDigest(nil)) }
 
 func TestDeploymentRefDecodingRequiresItsBindingsDigest(t *testing.T) {

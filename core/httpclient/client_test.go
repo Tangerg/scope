@@ -138,6 +138,32 @@ func TestHostRedirectPolicyCannotChangeTheAuthorizedDestination(t *testing.T) {
 	}
 }
 
+func TestDefaultRedirectLimitClosesEveryResponseBody(t *testing.T) {
+	var bodies []*trackedBody
+	transport := &recordingTransport{roundTrip: func(request *http.Request) (*http.Response, error) {
+		body := &trackedBody{Reader: strings.NewReader("redirect")}
+		bodies = append(bodies, body)
+		response := reply(request, http.StatusTemporaryRedirect, "/loop")
+		response.Body = body
+		return response, nil
+	}}
+	client, err := httpclient.New(t.Context(), httpclient.Config{
+		BaseURL: "https://api.example", HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get("https://api.example/loop")
+	if err == nil || response == nil || len(bodies) != 10 {
+		t.Fatalf("redirect responses=%d response=%v error=%v", len(bodies), response, err)
+	}
+	for index, body := range bodies {
+		if body.closed != 1 {
+			t.Fatalf("response %d body closed %d times", index, body.closed)
+		}
+	}
+}
+
 func TestOriginGuardAppliesBeforeTheFirstTransportCall(t *testing.T) {
 	for _, change := range []string{"url", "host"} {
 		t.Run(change, func(t *testing.T) {

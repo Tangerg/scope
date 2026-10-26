@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Tangerg/scope/tools/internal/contextreader"
 	"github.com/Tangerg/scope/tools/textread"
 )
 
@@ -59,7 +60,7 @@ func readBoundedRootFile(ctx context.Context, root *os.Root, path string, maxByt
 	if info.Size() > maxBytes {
 		return nil, fmt.Errorf("%w: %s uses %d bytes; limit is %d", ErrFileTooLarge, path, info.Size(), maxBytes)
 	}
-	source := io.LimitReader(contextReader{ctx: ctx, reader: file}, maxBytes+1)
+	source := io.LimitReader(contextreader.New(ctx, file), maxBytes+1)
 	data, err := io.ReadAll(source)
 	if err != nil {
 		return nil, err
@@ -78,27 +79,11 @@ func detectRootFormat(ctx context.Context, root *os.Root, path string) (hadBOM, 
 	defer func() {
 		err = errors.Join(err, file.Close())
 	}()
-	prefix, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, formatDetectionBytes))
+	prefix, err := io.ReadAll(io.LimitReader(contextreader.New(ctx, file), formatDetectionBytes))
 	if err != nil {
 		return false, false, err
 	}
 	return bytes.HasPrefix(prefix, []byte(utf8BOM)), bytes.Contains(prefix, []byte("\r\n")), nil
-}
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (c contextReader) Read(buffer []byte) (int, error) {
-	if cause := context.Cause(c.ctx); cause != nil {
-		return 0, cause
-	}
-	read, err := c.reader.Read(buffer)
-	if cause := context.Cause(c.ctx); cause != nil {
-		return read, errors.Join(err, cause)
-	}
-	return read, err
 }
 
 // binarySniffLen matches git's heuristic — a NUL in the first 8 KiB

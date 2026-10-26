@@ -14,9 +14,11 @@ type episodeState struct {
 	Summary  string `json:"summary"`
 }
 
+const episodeRevisionLimit uint32 = 3
+
 func episodeDeployment() (agent.Deployment, error) {
 	stage, err := workflow.Transform("revise", func(_ context.Context, state episodeState) (episodeState, error) {
-		if state.Revision >= 3 {
+		if state.Revision >= episodeRevisionLimit {
 			return episodeState{}, errors.New("episode revision bound reached")
 		}
 		state.Revision++
@@ -38,7 +40,7 @@ func episodeBinding(definition agent.Definition) (agent.Deployment, error) {
 	return agent.NewDeployment(agent.DeploymentConfig{
 		Definition:           definition,
 		ImplementationDigest: agent.ComputeDigest([]byte("example-episode-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte(definition.Descriptor().Name() + "/revision-bound-3")),
+		ConfigurationDigest:  agent.ComputeDigest(fmt.Appendf(nil, "%s/revision-bound-%d", definition.Descriptor().Name(), episodeRevisionLimit)),
 	})
 }
 

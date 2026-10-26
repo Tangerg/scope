@@ -6,19 +6,20 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/bedrock"
 )
 
 func TestEmbeddingModel_Integration(t *testing.T) {
-	requireKey(t, "bedrock")
-	region := requireEnv(t, "AWS_REGION")
+	modeltest.RequireKey(t, "bedrock")
+	region := modeltest.RequireEnv(t, "AWS_REGION")
 
-	modelID, _ := lookupEnv("SCOPE_TEST_BEDROCK_EMBEDDING_MODEL")
+	modelID, _ := modeltest.LookupEnv("SCOPE_TEST_BEDROCK_EMBEDDING_MODEL")
 	if modelID == "" {
 		modelID = "amazon.titan-embed-text-v2:0"
 	}
 
-	runIntegrationEmbedding(t, integrationEmbeddingProbe{
+	modeltest.RunIntegrationEmbedding(t, modeltest.IntegrationEmbeddingProbe{
 		Provider: "bedrock",
 		Build: func(t *testing.T, _ string) embedding.Model {
 			t.Helper()

@@ -12,6 +12,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type ServerConfig struct {
@@ -143,7 +145,7 @@ func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: parse URL: %w", ErrInvalidRPCInterface, err)
 	}
-	if _, err := originFromURL(endpoint); err != nil {
+	if _, err := httpclient.NewOrigin(context.Background(), endpoint); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidRPCInterface, err)
 	}
 	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||

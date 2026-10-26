@@ -18,7 +18,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	corehistory "github.com/Tangerg/scope/core/history"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 const (

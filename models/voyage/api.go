@@ -65,6 +65,19 @@ type embeddingRequest struct {
 	EncodingFormat  string   `json:"encoding_format,omitempty"`
 }
 
+func (e *embeddingRequest) UnmarshalJSON(data []byte) error {
+	type wireRequest embeddingRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("voyage: embedding options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("voyage: embedding options must be an object")
+	}
+	*e = embeddingRequest(*decoded)
+	return nil
+}
+
 type embeddingResponse struct {
 	Object string `json:"object"`
 	Data   []struct {

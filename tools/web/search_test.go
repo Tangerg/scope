@@ -131,7 +131,7 @@ func TestSearchTool_Call_EmptyQuery(t *testing.T) {
 		t.Fatal("Call empty query: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"query":"   "}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	failure, ok := toolcontract.ClassifyFailure(err)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyQuery) {
 		t.Fatalf("Call blank query: err = %v, want FailureKindFailed wrapping ErrEmptyQuery", err)
 	}
@@ -170,7 +170,7 @@ func TestSearchTool_Call_DomainsMutuallyExclusive(t *testing.T) {
 	tool, _ := NewSearchTool(searcher)
 	_, err := invokeTestTool(t.Context(), tool,
 		`{"query":"x","allowed_domains":["a.com"],"blocked_domains":["b.com"]}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	failure, ok := toolcontract.ClassifyFailure(err)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrDomainsBothSides) {
 		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrDomainsBothSides", err)
 	}
@@ -197,7 +197,7 @@ func TestSearchTool_Call_UnsupportedFilterIsDefiniteFailure(t *testing.T) {
 	searcher := &fakeSearcher{err: fmt.Errorf("provider: %w: hourly recency", ErrUnsupportedFilter)}
 	tool, _ := NewSearchTool(searcher)
 	_, err := invokeTestTool(t.Context(), tool, `{"query":"hello","recency":"hour"}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	failure, ok := toolcontract.ClassifyFailure(err)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFilter) {
 		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFilter", err)
 	}

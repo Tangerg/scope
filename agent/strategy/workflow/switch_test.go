@@ -122,13 +122,24 @@ func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 			return numberOutput(input), nil
 		}),
 	), "switch-wrong-input")
+	wrongOutput := mustDeployment(t, mustDefinition(t, "test.workflow.switch_wrong_output",
+		mustTransform(t, "wrong", func(_ context.Context, input switchInput) (string, error) {
+			return input.Case, nil
+		}),
+	), "switch-wrong-output")
 	for name, cases := range map[string][]workflow.SwitchCase{
-		"empty": nil,
+		"empty":                 nil,
+		"missing deployment":    {{ID: "missing"}},
+		"invalid case identity": {{ID: "invalid name", Deployment: valid}},
 		"duplicate": {
 			{ID: "same", Deployment: valid, Budget: mustBudget(t)},
 			{ID: "same", Deployment: valid, Budget: mustBudget(t)},
 		},
 		"input mismatch": {{ID: "wrong", Deployment: wrongInput, Budget: mustBudget(t)}},
+		"output mismatch": {
+			{ID: "valid", Deployment: valid},
+			{ID: "wrong", Deployment: wrongOutput},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := workflow.Switch(workflow.SwitchConfig[switchInput]{

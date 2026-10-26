@@ -83,12 +83,25 @@ type ttsRequest struct {
 	Context               map[string]json.RawMessage `json:"context,omitzero"`
 	Format                map[string]json.RawMessage `json:"format,omitzero"`
 	IncludeTimestampTypes []string                   `json:"include_timestamp_types,omitempty"`
-	NumGenerations        int                        `json:"num_generations,omitzero"`
+	NumGenerations        *int                       `json:"num_generations,omitzero"`
 	SplitUtterances       *bool                      `json:"split_utterances,omitzero"`
 	StripHeaders          *bool                      `json:"strip_headers,omitzero"`
 	Temperature           *float64                   `json:"temperature,omitzero"`
 	Version               string                     `json:"version,omitempty"`
 	InstantMode           *bool                      `json:"instant_mode,omitzero"`
+}
+
+func (t *ttsRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions ttsRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("hume: request options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("hume: request options must be an object")
+	}
+	*t = ttsRequest(*decoded)
+	return nil
 }
 
 // ttsResponse is the JSON envelope. Generations[0].Audio is the
@@ -127,7 +140,7 @@ type ttsStreamEvent struct {
 }
 
 func (t *ttsStreamEvent) decodeAudio() ([]byte, error) {
-	if t.Type != "audio" {
+	if t.Type != streamEventAudio {
 		return nil, fmt.Errorf("hume: stream event type %q has no audio", t.Type)
 	}
 	if t.Audio == "" {
@@ -186,10 +199,9 @@ func (t *ttsStreamEvent) response(model string) (*speech.Response, error) {
 	return speech.NewResponse(output, responseMetadata)
 }
 
-// decodeAudio returns the raw audio bytes from the first generation.
 func (t *ttsResponse) decodeAudio() ([]byte, error) {
-	if len(t.Generations) == 0 {
-		return nil, errors.New("hume: TTS response has no generations")
+	if len(t.Generations) != 1 {
+		return nil, fmt.Errorf("%w: hume: TTS response requires exactly one generation, got %d", speech.ErrInvalidResponse, len(t.Generations))
 	}
 	if t.Generations[0].Audio == "" {
 		return nil, errors.New("hume: TTS response generation has no audio")

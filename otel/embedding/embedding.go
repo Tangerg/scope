@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	coreembedding "github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 

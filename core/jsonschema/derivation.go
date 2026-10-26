@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,13 @@ import (
 	"github.com/samber/lo"
 )
 
-const typeDefinitionPrefix = "go_"
+const (
+	typeDefinitionPrefix = "go_"
+	jsonFieldTag         = "json"
+	jsonSchemaFieldTag   = "jsonschema"
+	stringTagOption      = "string"
+	ignoredFieldTag      = "-"
+)
 
 // derivation owns the definition set across nested wire projections. A model's
 // placeholder exists before reflecting its wire type so recursive references
@@ -217,6 +224,7 @@ func constraintObjectShape(shape *reflection.Schema, definitions reflection.Defi
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
+	requireSupportedStringTags(typeOf)
 	switch typeOf {
 	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP](), reflect.TypeFor[url.URL]():
 		return nil
@@ -224,13 +232,8 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		return &reflection.Schema{Type: schemaTypeNumber}
 	}
 	stringModel := typeOf.Kind() == reflect.String && (typeOf.Implements(reflect.TypeFor[Enumerator]()) || typeOf.Implements(reflect.TypeFor[Patterned]()))
-	if !stringModel {
-		for _, codec := range []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[jsonv2.MarshalerTo](), reflect.TypeFor[encoding.TextMarshaler]()} {
-			if typeOf.Implements(codec) || reflect.PointerTo(typeOf).Implements(codec) {
-				panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaModel", typeOf))
-			}
-		}
-
+	if !stringModel && hasCustomEncoding(typeOf) {
+		panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaModel", typeOf))
 	}
 	if typeOf == reflect.TypeFor[[]byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
@@ -281,6 +284,38 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		definition.AllOf = append(definition.AllOf, constraint)
 	}
 	return definition
+}
+
+func requireSupportedStringTags(typeOf reflect.Type) {
+	if typeOf.Kind() != reflect.Struct {
+		return
+	}
+	for field := range typeOf.Fields() {
+		if !field.IsExported() && !field.Anonymous {
+			continue
+		}
+		tags := strings.Split(field.Tag.Get(jsonFieldTag), ",")
+		if tags[0] == ignoredFieldTag || field.Tag.Get(jsonSchemaFieldTag) == ignoredFieldTag || !slices.Contains(tags[1:], stringTagOption) {
+			continue
+		}
+		member := field.Type
+		for member.Kind() == reflect.Pointer {
+			member = member.Elem()
+		}
+		if member.Implements(reflect.TypeFor[Modeler]()) && hasCustomEncoding(member) {
+			continue
+		}
+		panic(fmt.Errorf("%w: field %v.%s", ErrUnsupportedStringTag, typeOf, field.Name))
+	}
+}
+
+func hasCustomEncoding(typeOf reflect.Type) bool {
+	for _, codec := range []reflect.Type{reflect.TypeFor[json.Marshaler](), reflect.TypeFor[jsonv2.MarshalerTo](), reflect.TypeFor[encoding.TextMarshaler]()} {
+		if typeOf.Implements(codec) || reflect.PointerTo(typeOf).Implements(codec) {
+			return true
+		}
+	}
+	return false
 }
 
 func requireValueReceiver(typeOf, iface reflect.Type, method string) {

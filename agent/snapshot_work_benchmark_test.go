@@ -178,7 +178,6 @@ func BenchmarkIdleDurableTreeInspection(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			runtime.writer.identity = incarnation
 			runtime.writer.establish(snapshot)
 			ctx, cancel := context.WithCancel(b.Context())
 			go runtime.run(ctx)

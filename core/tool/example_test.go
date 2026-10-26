@@ -80,7 +80,7 @@ func ExampleNewFailure() {
 		panic(err)
 	}
 	wrapped := fmt.Errorf("tool call: %w", failure)
-	result, found := errors.AsType[*tool.Failure](wrapped)
+	result, found := tool.ClassifyFailure(wrapped)
 	if !found {
 		panic("missing definite outcome")
 	}
@@ -117,7 +117,7 @@ func ExampleNewGuard() {
 		panic(err)
 	}
 	_, err = binding.Call(context.Background(), invocation)
-	failure, found := errors.AsType[*tool.Failure](err)
+	failure, found := tool.ClassifyFailure(err)
 	if !found {
 		panic(err)
 	}

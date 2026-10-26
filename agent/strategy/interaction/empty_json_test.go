@@ -76,8 +76,8 @@ func (e *emptyAnswerTool) Call(ctx context.Context, callInput tool.Invocation) (
 		return waitingInput(json.RawMessage(`{}`), json.RawMessage(`{}`), json.RawMessage(`null`))
 	}
 	e.received <- string(continuation.Response())
-	completedOutput1, completedErr1 := chat.NewJSONToolOutput(continuation.Response())
-	return tool.Result{Output: completedOutput1}, completedErr1
+	output, err := chat.NewJSONToolOutput(continuation.Response())
+	return tool.Result{Output: output}, err
 }
 
 func TestEmptyToolAnswersSurviveWaitingRecovery(t *testing.T) {

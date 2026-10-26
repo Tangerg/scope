@@ -91,15 +91,22 @@ const dropdown = document.querySelector(".t-dropdown");
 const closeMs = parseFloat(
   getComputedStyle(document.documentElement).getPropertyValue("--dropdown-close-dur")
 ) || 150;
+let closeTimer = null;
 
 function openDropdown() {
+  clearTimeout(closeTimer);
+  closeTimer = null;
   dropdown.classList.remove("is-closing");
   dropdown.classList.add("is-open");
 }
 function closeDropdown() {
+  clearTimeout(closeTimer);
   dropdown.classList.remove("is-open");
   dropdown.classList.add("is-closing");
-  setTimeout(() => dropdown.classList.remove("is-closing"), closeMs);
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    dropdown.classList.remove("is-closing");
+  }, closeMs);
 }
 ```
 

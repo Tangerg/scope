@@ -34,7 +34,7 @@ func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
 		host = "https://" + host
 	}
 	parsed, err := url.Parse(host)
-	if err != nil || parsed.Hostname() == "" || strings.TrimSpace(host) != host || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if err != nil || parsed.Hostname() == "" || strings.TrimSpace(host) != host || parsed.User != nil || strings.ContainsAny(host, "?#") || parsed.Path != "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("%w: native index has an invalid host", ErrIncompatibleIndex)
 	}
 	switch vector.Metric {

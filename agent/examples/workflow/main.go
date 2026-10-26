@@ -46,11 +46,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	process, err := engine.Start(ctx, root, input)
-	if err != nil {
-		return err
-	}
-	result, err := process.Await(ctx)
+	result, err := engine.Run(ctx, root, input)
 	if err != nil {
 		return err
 	}
@@ -62,7 +58,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	tree, err := engine.CaptureTree(ctx, process.Relation().ProcessID())
+	tree, err := engine.CaptureTree(ctx, result.ProcessID())
 	if err != nil {
 		return err
 	}

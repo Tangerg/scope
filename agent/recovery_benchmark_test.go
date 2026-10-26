@@ -90,7 +90,7 @@ func BenchmarkTreeRecoveryBoundary(b *testing.B) {
 					return validation.validate()
 				}},
 				{name: "encode", run: func() error {
-					benchmarkSnapshotBytesSink, err = jsonv2.Marshal(wire, jsonv2.Deterministic(true))
+					benchmarkSnapshotBytesSink, err = wire.encode()
 					return err
 				}},
 				{name: "hash", run: func() error {
@@ -210,7 +210,9 @@ func benchmarkRecoverableProcess(
 		b.Fatal(err)
 	}
 	b.Cleanup(func() { stopRecoveryBenchmarkProcess(b, process) })
-	waitForPausedStepContext(setupCtx, b, process, 1)
+	if waitErr := waitForPausedStepContext(setupCtx, process, 1); waitErr != nil {
+		b.Fatal(waitErr)
+	}
 	requests := make([]SignalRequest, sample.historyCount)
 	for index := range requests {
 		id, parseErr := ParseSignalID(fmt.Sprintf("signal:benchmark-history-%d", index))
@@ -223,28 +225,34 @@ func benchmarkRecoverableProcess(
 		}
 	}
 	if len(requests) > 0 {
-		if accepted, err := process.DeliverSignals(setupCtx, requests...); err != nil || !accepted {
-			b.Fatalf("history accepted=%t error=%v", accepted, err)
+		if accepted, deliveryErr := process.DeliverSignals(setupCtx, requests...); deliveryErr != nil || !accepted {
+			b.Fatalf("history accepted=%t error=%v", accepted, deliveryErr)
 		}
 	}
 	steps := uint64(1)
 	if !sample.pendingSignals {
-		if err := process.Resume(setupCtx); err != nil {
-			b.Fatal(err)
+		if resumeErr := process.Resume(setupCtx); resumeErr != nil {
+			b.Fatal(resumeErr)
 		}
 		steps = 2
-		waitForPausedStepContext(setupCtx, b, process, steps)
+		if waitErr := waitForPausedStepContext(setupCtx, process, steps); waitErr != nil {
+			b.Fatal(waitErr)
+		}
 	}
 	if sample.effectCount > 0 {
-		if err := process.Resume(setupCtx); err != nil {
-			b.Fatal(err)
+		if resumeErr := process.Resume(setupCtx); resumeErr != nil {
+			b.Fatal(resumeErr)
 		}
 		waitForUnknownSettlementContext(setupCtx, b, process)
 	}
 	wantUsage := Usage{
 		CommittedSteps: steps, PreparedEffects: uint64(sample.effectCount), AcceptedSignals: uint64(sample.historyCount),
 	}
-	if usage := inspectProcessSnapshotContext(setupCtx, b, process).Usage(); usage != wantUsage {
+	snapshot, err := inspectProcessSnapshotContext(setupCtx, process)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if usage := snapshot.Usage(); usage != wantUsage {
 		b.Fatalf("benchmark fixture usage=%+v, want %+v", usage, wantUsage)
 	}
 	if len(requests) > 0 {
@@ -274,6 +282,9 @@ func stopRecoveryBenchmarkProcess(b *testing.B, process *Process) {
 	result, err := process.Await(ctx)
 	if err != nil || result.Termination().Status() != StatusKilled {
 		b.Errorf("benchmark cleanup status=%s error=%v", result.Termination().Status(), err)
+	}
+	if err := process.Join(ctx); err != nil {
+		b.Errorf("benchmark cleanup join: %v", err)
 	}
 }
 
@@ -363,21 +374,25 @@ func waitForPausedStep(t testing.TB, process *Process, steps uint64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	waitForPausedStepContext(ctx, t, process, steps)
+	if err := waitForPausedStepContext(ctx, process, steps); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func waitForPausedStepContext(ctx context.Context, t testing.TB, process *Process, steps uint64) {
-	t.Helper()
+func waitForPausedStepContext(ctx context.Context, process *Process, steps uint64) error {
 	poll := time.NewTicker(time.Millisecond)
 	defer poll.Stop()
 	for {
-		snapshot := inspectProcessSnapshotContext(ctx, t, process)
+		snapshot, err := inspectProcessSnapshotContext(ctx, process)
+		if err != nil {
+			return err
+		}
 		if snapshot.Status() == StatusPaused && snapshot.Usage().CommittedSteps == steps {
-			return
+			return nil
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("Process status=%s steps=%d, want paused steps=%d: %v", snapshot.Status(), snapshot.Usage().CommittedSteps, steps, ctx.Err())
+			return fmt.Errorf("Process status=%s steps=%d, want paused steps=%d: %w", snapshot.Status(), snapshot.Usage().CommittedSteps, steps, ctx.Err())
 		case <-poll.C:
 		}
 	}

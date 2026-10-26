@@ -79,9 +79,19 @@ func resolvePromptTemplate(current *chatclient.Template, fallback string, requir
 
 func (m modelPrompt[T]) call(ctx context.Context, data any) (T, error) {
 	var zero T
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return zero, ctxErr
+	}
 	message, err := m.template.UserMessage(data)
 	if err != nil {
 		return zero, err
 	}
-	return m.client.Output(ctx, &corechat.Request{Messages: []corechat.Message{message}}, m.format)
+	output, err := m.client.Output(ctx, &corechat.Request{Messages: []corechat.Message{message}}, m.format)
+	if err != nil {
+		return zero, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return zero, ctxErr
+	}
+	return output, nil
 }

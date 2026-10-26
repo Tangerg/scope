@@ -176,8 +176,17 @@ func TestResponseAccumulatorUsesLatestUsageSnapshot(t *testing.T) {
 
 func TestResponseAccumulatorDoesNotManufacturePartialResponse(t *testing.T) {
 	var accumulator chat.ResponseAccumulator
+	if accumulator.HasDeltas() || (*chat.ResponseAccumulator)(nil).HasDeltas() {
+		t.Fatal("empty accumulator established stream evidence")
+	}
+	if err := accumulator.Add(nil); err == nil || accumulator.HasDeltas() {
+		t.Fatal("rejected delta established stream evidence")
+	}
 	if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("partial")}}); err != nil {
 		t.Fatal(err)
+	}
+	if !accumulator.HasDeltas() {
+		t.Fatal("admitted partial delta lost its execution evidence")
 	}
 	if accumulator.Text() != "partial" {
 		t.Fatalf("Text = %q", accumulator.Text())

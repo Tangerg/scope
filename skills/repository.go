@@ -199,7 +199,7 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, err)
 	}
 	frontmatter, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
-	closeErr := file.Close()
+	closeErr := errors.Join(file.Close(), contextError(ctx, "close skill"))
 	if closeErr != nil {
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, errors.Join(readErr, closeErr))
 	}

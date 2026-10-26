@@ -121,7 +121,6 @@ func TestRestoredPlanningActionRequiresBindingCapabilities(t *testing.T) {
 type planningActionBoundary struct {
 	agent.TreeCommitter
 	snapshot agent.TreeSnapshot
-	step     uint64
 	cause    error
 }
 
@@ -132,7 +131,6 @@ func (p *planningActionBoundary) CommitEffect(ctx context.Context, boundary agen
 	if boundary.Kind() == agent.EffectBoundaryKindPending &&
 		jsonv2.Unmarshal(boundary.Request().Effect().Payload(), &envelope, jsonv2.RejectUnknownMembers(false)) == nil && envelope.Action != nil {
 		p.snapshot = boundary.TreeSnapshot()
-		p.step = boundary.Request().StepSequence()
 		return p.cause
 	}
 	return p.TreeCommitter.CommitEffect(ctx, boundary)

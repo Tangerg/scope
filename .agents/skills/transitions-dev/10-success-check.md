@@ -117,7 +117,8 @@ The `:root` defaults below match the live tuning on [transitions.dev](https://tr
 @keyframes t-check-draw { to { stroke-dashoffset: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .t-success-check { animation: none !important; opacity: 1; }
+  .t-success-check { animation: none !important; }
+  .t-success-check[data-state="in"] { opacity: 1; }
   .t-success-check svg path { animation: none !important; stroke-dashoffset: 0 !important; }
 }
 ```

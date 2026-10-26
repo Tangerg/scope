@@ -38,7 +38,8 @@ type ClientConfig struct {
 	// BaseURL overrides the genai client endpoint. Optional —
 	// production users should leave it empty (the SDK picks the right
 	// host per Backend). Useful for mock servers / corporate proxies.
-	BaseURL string
+	BaseURL    string
+	APIVersion string
 
 	// HTTPClient is shared by the official Gen AI SDK and the Interactions
 	// transport. Optional.
@@ -101,6 +102,9 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	if config.BaseURL != "" {
 		clientCfg.HTTPOptions.BaseURL = config.BaseURL
 	}
+	if config.APIVersion != "" {
+		clientCfg.HTTPOptions.APIVersion = config.APIVersion
+	}
 
 	client, err := genai.NewClient(ctx, clientCfg)
 	if err != nil {
@@ -132,7 +136,7 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 		SetHeader("x-goog-api-key", config.APIKey).
 		SetHeader("Content-Type", "application/json")
 
-	return &api{client: client, transport: transport, generation: NewGenerationClient(client), interactionsHTTP: interactionsHTTP}, nil
+	return &api{client: client, transport: transport, generation: &GenerationClient{config: client.ClientConfig()}, interactionsHTTP: interactionsHTTP}, nil
 }
 
 func (a *api) chatCompletion(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {

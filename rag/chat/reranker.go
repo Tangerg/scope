@@ -124,8 +124,8 @@ func NewReranker(config RerankerConfig) (*Reranker, error) {
 // Refine ranks every candidate. Empty input is returned without a model call;
 // non-empty model output must cover each input index exactly once.
 func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Candidates, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	if err := query.Validate(); err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 		return nil, nil
 	}
 
-	encoded, err := r.encodeCandidates(candidates)
+	encoded, err := r.encodeCandidates(ctx, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +162,12 @@ func (r *Reranker) Refine(ctx context.Context, query rag.Query, candidates rag.C
 	return ordering.Refine(ctx, query, scored)
 }
 
-func (r *Reranker) encodeCandidates(candidates rag.Candidates) (string, error) {
+func (r *Reranker) encodeCandidates(ctx context.Context, candidates rag.Candidates) (string, error) {
 	input := make([]chatRerankingInput, len(candidates))
 	for index, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		content, err := r.formatter.Format(candidate.Document)
 		if err != nil {
 			return "", fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)

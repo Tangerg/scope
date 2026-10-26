@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/transcription"
 )
 
 const (
@@ -90,6 +92,19 @@ type jobOptions struct {
 	SegmentsToTranscribe []json.RawMessage          `json:"segments_to_transcribe,omitzero"`
 }
 
+func (j *jobOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions jobOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("revai: transcription options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("revai: transcription options must be an object")
+	}
+	*j = jobOptions(*decoded)
+	return nil
+}
+
 type sourceConfig struct {
 	URL         string            `json:"url"`
 	AuthHeaders map[string]string `json:"auth_headers,omitzero"`
@@ -105,6 +120,16 @@ type job struct {
 	Language        string    `json:"language"`
 }
 
+func (j *job) validateIdentity(expected string) error {
+	if j.ID == "" {
+		return fmt.Errorf("%w: revai: job requires id", transcription.ErrInvalidResponse)
+	}
+	if expected != "" && j.ID != expected {
+		return fmt.Errorf("%w: revai: polled job id %q differs from submitted id %q", transcription.ErrInvalidResponse, j.ID, expected)
+	}
+	return nil
+}
+
 func (a *api) submitURL(ctx context.Context, opts jobOptions) (*job, error) {
 	var out job
 	resp, err := a.http.R().
@@ -118,6 +143,9 @@ func (a *api) submitURL(ctx context.Context, opts jobOptions) (*job, error) {
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if err := out.validateIdentity(""); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }
@@ -144,17 +172,23 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string, opts jo
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
 	}
+	if err := out.validateIdentity(""); err != nil {
+		return nil, err
+	}
 	return &out, nil
 }
 
 func (a *api) getJob(ctx context.Context, id string) (*job, error) {
 	var out job
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(jobsPath + "/" + id)
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(jobsPath + "/" + url.PathEscape(id))
 	if err != nil {
 		return nil, fmt.Errorf("revai: get job failed: %w", err)
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if err := out.validateIdentity(id); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }
@@ -164,7 +198,7 @@ func (a *api) getTranscriptText(ctx context.Context, id string) (string, error) 
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetHeader(headerAccept, mediaTypeText).
-		Get(jobsPath + "/" + id + pathTranscriptSuffix)
+		Get(jobsPath + "/" + url.PathEscape(id) + pathTranscriptSuffix)
 	if err != nil {
 		return "", fmt.Errorf("revai: transcript fetch failed: %w", err)
 	}

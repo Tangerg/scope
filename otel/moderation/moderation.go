@@ -14,22 +14,20 @@ import (
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
 	"go.opentelemetry.io/otel/trace"
 
 	coremoderation "github.com/Tangerg/scope/core/moderation"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 
 const (
-	instrumentationName          = "github.com/Tangerg/scope/otel/moderation"
-	operationName                = "moderate"
-	operationDurationMetric      = "gen_ai.client.operation.duration"
-	operationDurationDescription = "GenAI client operation duration."
-	operationDurationUnit        = "s"
-	inputCountAttribute          = "gen_ai.request.input.count"
-	errorInvalidRequest          = "moderation.invalid_request"
-	errorInvalidOutput           = "moderation.invalid_response"
+	instrumentationName = "github.com/Tangerg/scope/otel/moderation"
+	operationName       = "moderate"
+	inputCountAttribute = "gen_ai.request.input.count"
+	errorInvalidRequest = "moderation.invalid_request"
+	errorInvalidOutput  = "moderation.invalid_response"
 )
 
 var (
@@ -58,7 +56,7 @@ type Middleware struct {
 	logger   log.Logger
 	provider string
 	tracer   trace.Tracer
-	duration metric.Float64Histogram
+	duration genaiconv.ClientOperationDuration
 }
 
 // NewMiddleware snapshots provider identity and resolves nil OTel providers to
@@ -79,12 +77,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if lo.IsNil(meterProvider) {
 		meterProvider = apiotel.GetMeterProvider()
 	}
-	duration, err := meterProvider.Meter(instrumentationName).Float64Histogram(
-		operationDurationMetric,
-		metric.WithDescription(operationDurationDescription),
-		metric.WithUnit(operationDurationUnit),
-		genaimetric.DurationBuckets(),
-	)
+	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName), genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
 	}
@@ -97,7 +90,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 }
 
 func (m Middleware) Wrap(next coremoderation.Model) (coremoderation.Model, error) {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
 		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	if lo.IsNil(next) {
@@ -159,17 +152,16 @@ func (m Middleware) finish(
 		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finishedAt)
 		attributes = append(attributes, errorType)
 	}
-	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), metric.WithAttributes(attributes...))
+	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
+		genaiconv.OperationNameAttr(operationName), genaiconv.ProviderNameAttr(m.provider), attributes...,
+	)
 }
 
 func (m Middleware) metricAttributes(
 	request *coremoderation.Request,
 	response *coremoderation.Response,
 ) []attribute.KeyValue {
-	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.provider),
-	}
+	var attributes []attribute.KeyValue
 	if request != nil && request.Options.Model != "" {
 		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
 	}

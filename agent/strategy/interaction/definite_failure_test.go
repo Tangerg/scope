@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -27,7 +28,7 @@ func TestDefiniteToolFailureSurvivesCancellationCauseAndTreeRestore(t *testing.T
 			var toolCalls, modelCalls atomic.Int32
 			executable, err := tool.NewFunc(tool.FuncConfig{Name: "partial", Description: "Report a definite partial outcome."}, func(context.Context, struct{}) (string, error) {
 				toolCalls.Add(1)
-				return "", errors.Join(errors.New("host diagnostic"), failure)
+				return "", fmt.Errorf("host diagnostic: %w", failure)
 			})
 			if err != nil {
 				t.Fatal(err)

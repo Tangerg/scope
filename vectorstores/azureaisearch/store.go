@@ -69,7 +69,7 @@ func (s *StoreConfig) applyDefaults() {
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	endpoint, err := url.Parse(s.Endpoint)
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.Trim(endpoint.Path, "/") != "" {
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || strings.ContainsAny(s.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
 		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
 	}
 	if s.IndexName == "" {
@@ -228,7 +228,7 @@ func (s *Store) selectIDs(ctx context.Context, predicate filter.Predicate) ([]st
 		if pageFilter != "" {
 			body["filter"] = pageFilter
 		}
-		rows, _, err := s.searchPage(ctx, body)
+		rows, err := s.searchDocuments(ctx, body)
 		if err != nil {
 			return nil, fmt.Errorf("azureaisearch: scan stored records: %w", err)
 		}

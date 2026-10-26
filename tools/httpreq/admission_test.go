@@ -71,7 +71,7 @@ func TestToolReportsUnsentRequestsAsDefiniteFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
 			err := callHTTPTool(t, countingTransport{calls: &calls}, tc.arguments)
-			failure, ok := errors.AsType[*tool.Failure](err)
+			failure, ok := tool.ClassifyFailure(err)
 			if !ok || failure.Kind() != tc.kind || !errors.Is(failure.Cause(), tc.sentinel) {
 				t.Fatalf("unsent request error = %v, want %s failure caused by %v", err, tc.kind, tc.sentinel)
 			}
@@ -91,7 +91,7 @@ func TestToolKeepsRejectedRedirectsUnknown(t *testing.T) {
 	if !errors.Is(err, httpreq.ErrHostNotAllowed) || calls.Load() != 1 {
 		t.Fatalf("redirect error = %v after %d calls", err, calls.Load())
 	}
-	if failure, ok := errors.AsType[*tool.Failure](err); ok {
+	if failure, ok := tool.ClassifyFailure(err); ok {
 		t.Fatalf("a request that was sent became a definite failure: %v", failure)
 	}
 }

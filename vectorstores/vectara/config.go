@@ -43,7 +43,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	address, err := url.Parse(cmp.Or(s.Endpoint, DefaultEndpoint))
-	if err != nil || (address.Scheme != "https" && address.Scheme != "http") || address.Host == "" || address.User != nil || address.RawQuery != "" || address.Fragment != "" {
+	if err != nil || (address.Scheme != "https" && address.Scheme != "http") || address.Host == "" || address.User != nil || strings.ContainsAny(s.Endpoint, "?#") {
 		return errors.New("vectara: Endpoint must be an HTTP origin or base path without user info, query or fragment")
 	}
 	if strings.TrimSpace(s.APIKey) == "" {

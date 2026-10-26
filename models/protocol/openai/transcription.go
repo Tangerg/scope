@@ -38,8 +38,6 @@ func (t TranscriptionModelConfig) Validate() error {
 
 var _ transcription.Model = (*TranscriptionModel)(nil)
 
-// TranscriptionModel implements the OpenAI-compatible transcription
-// protocol.
 type TranscriptionModel struct {
 	api            *api
 	provider       string
@@ -73,12 +71,10 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 		return nil, err
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(t.provider, "transcription"), "model", "file", "language")
+	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](effectiveOptions.Extensions, protocolModalityRequestExtensionKey(t.provider, "transcription"), "model", "file", "language")
 	if err != nil {
 		return nil, err
 	}
-	params := &openai.AudioTranscriptionNewParams{}
-	params.SetExtraFields(fields)
 
 	params.Model = effectiveOptions.Model
 	if effectiveOptions.Language != "" {

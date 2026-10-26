@@ -24,6 +24,9 @@ type regionalTransport struct {
 }
 
 func (r *regionalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	r.t.Helper()
 	status := http.StatusOK
 	header := http.Header{"Content-Type": {"application/json"}}

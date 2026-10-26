@@ -12,6 +12,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 type remoteTool struct {
@@ -50,7 +51,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	)
 	defer func() {
 		if err != nil {
-			recordSpanError(span, err)
+			errortelemetry.Record(span, errortelemetry.Classify(err))
 		}
 		span.End()
 	}()
@@ -67,6 +68,6 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	if err != nil {
 		return toolcontract.Result{}, fmt.Errorf("mcp: call tool %q: %w", remoteName, err)
 	}
-	completedOutput1, completedErr1 := remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
-	return toolcontract.Result{Output: completedOutput1}, completedErr1
+	output, err := remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
+	return toolcontract.Result{Output: output}, err
 }

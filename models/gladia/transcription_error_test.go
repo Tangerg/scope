@@ -54,6 +54,9 @@ func TestTranscriptionReportsProviderFailureCode(t *testing.T) {
 type transcriptionFailureTransport func(*http.Request) (*http.Response, error)
 
 func (t transcriptionFailureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	if request.URL.Host != "gladia.test" {
 		return nil, errors.New("unexpected external request")
 	}

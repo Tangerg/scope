@@ -21,6 +21,7 @@ import (
 	"github.com/Tangerg/scope/models/elevenlabs"
 	"github.com/Tangerg/scope/models/gladia"
 	"github.com/Tangerg/scope/models/google"
+	"github.com/Tangerg/scope/models/google/vertexai"
 	"github.com/Tangerg/scope/models/hume"
 	"github.com/Tangerg/scope/models/jina"
 	"github.com/Tangerg/scope/models/mistral"
@@ -82,6 +83,17 @@ func modelOriginCalls() []modelOriginCall {
 		}},
 		{name: "google interactions", header: "x-goog-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := google.NewImageModel(ctx, google.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: google.ModelGemini31FlashImage}})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
+			return err
+		}},
+		{name: "vertex image", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := vertexai.NewImageModel(ctx, vertexai.ImageModelConfig{
+				Client:         vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: endpoint, HTTPClient: client},
+				DefaultOptions: image.Options{Model: vertexai.ModelGemini3ProImage},
+			})
 			if err != nil {
 				return err
 			}
@@ -176,6 +188,9 @@ type modelOriginTransport struct {
 }
 
 func (m *modelOriginTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	status := http.StatusTemporaryRedirect
 	header := http.Header{"Content-Type": {"application/json"}, "X-Should-Retry": {"false"}}
 	var body io.ReadCloser = http.NoBody
@@ -211,7 +226,7 @@ func TestModelAPIRequestsRemainWithinTheirCredentialOrigin(t *testing.T) {
 					t.Fatalf("call never reached API origin: %v", err)
 				}
 				if destination.allowed {
-					if errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected == 0 || !strings.Contains(transport.credential, "sentinel") {
+					if errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected == 0 || provider.header != "" && !strings.Contains(transport.credential, "sentinel") {
 						t.Fatalf("same-origin request lost policy or credential: redirected=%d credential=%q error=%v", transport.redirected, transport.credential, err)
 					}
 				} else if transport.redirected != 0 || !errors.Is(err, httpclient.ErrOriginNotAllowed) {

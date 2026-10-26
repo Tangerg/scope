@@ -1,62 +1,21 @@
 package assemblyai
 
 import (
-	"errors"
 	"net/http"
-	"net/http/cookiejar"
 	"testing"
-	"time"
+
+	"github.com/Tangerg/scope/core/modeltest"
 )
 
-type borrowedTransport struct{ calls int }
-
-func (b *borrowedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	b.calls++
-	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody, Request: request}, nil
-}
-
 func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		t.Run(map[bool]string{false: "default transport", true: "explicit transport"}[explicit], func(t *testing.T) {
-			router := new(borrowedTransport)
-			previousDefault := http.DefaultTransport
-			http.DefaultTransport = router
-			defer func() { http.DefaultTransport = previousDefault }()
-			jar, err := cookiejar.New(nil)
+	modeltest.RunHTTPClientContract(t, modeltest.HTTPClientContract{
+		Build: func(t *testing.T, baseURL string, borrowed *http.Client) []*http.Client {
+			t.Helper()
+			adapter, err := newAPI(t.Context(), apiConfig{APIKey: "test", BaseURL: baseURL, HTTPClient: borrowed})
 			if err != nil {
 				t.Fatal(err)
 			}
-			redirectErr := errors.New("host redirect policy")
-			host := &http.Client{Timeout: time.Second, Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return redirectErr }}
-			if explicit {
-				host.Transport = router
-			}
-			config := apiConfig{APIKey: "test", BaseURL: "https://provider.example.test", HTTPClient: host}
-			adapter, err := newAPI(t.Context(), config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			owned := adapter.http.GetClient()
-			if owned == host || host.Transport != nil && !explicit || host.Jar != jar || host.Timeout != time.Second || http.DefaultTransport != router {
-				t.Fatal("constructor changed or failed to preserve borrowed HTTP configuration")
-			}
-			redirectRequest, err := http.NewRequest(http.MethodGet, config.BaseURL, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if owned.Timeout != host.Timeout || owned.Jar != jar || !errors.Is(owned.CheckRedirect(redirectRequest, nil), redirectErr) || !errors.Is(host.CheckRedirect(redirectRequest, nil), redirectErr) {
-				t.Fatal("host policy lost")
-			}
-			for _, client := range []*http.Client{host, owned} {
-				response, err := client.Get(config.BaseURL)
-				if err != nil {
-					t.Fatal(err)
-				}
-				response.Body.Close()
-			}
-			if router.calls != 2 {
-				t.Fatalf("transport calls=%d", router.calls)
-			}
-		})
-	}
+			return []*http.Client{adapter.http.GetClient()}
+		},
+	})
 }

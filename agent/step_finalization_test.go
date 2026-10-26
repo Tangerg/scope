@@ -79,7 +79,7 @@ func TestImmediateChildCompletionLimitReportsExecutionFailure(t *testing.T) {
 					if result.Usage() != (Usage{CommittedSteps: 1, PreparedEffects: 2, AcceptedSignals: 1}) {
 						t.Fatalf("rejected completion changed committed usage: %+v", result.Usage())
 					}
-					tree := interruptedTreeSnapshot(t, engine, root, config)
+					tree := interruptedTreeSnapshot(t, engine, root)
 					if len(tree.ProcessSnapshots()) != 2 {
 						t.Fatal("failed finalization lost the completed child")
 					}
@@ -194,7 +194,7 @@ func TestWaitConflictsAreRejectedBeforeDispatch(t *testing.T) {
 				wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 0 {
 				t.Fatalf("failed finalization adopted candidate state: %+v, %v", wire, err)
 			}
-			tree := interruptedTreeSnapshot(t, engine, process, config)
+			tree := interruptedTreeSnapshot(t, engine, process)
 			restoredEngine, err := NewEngine(config)
 			if err != nil {
 				t.Fatal(err)

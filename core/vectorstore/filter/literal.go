@@ -141,7 +141,7 @@ func (l *Literal) IsInteger() (bool, error) {
 	return number.IsInt(), nil
 }
 
-// Int64 converts an integral number literal without rounding.
+// AsInt64 converts an integral number literal without rounding.
 func (l *Literal) AsInt64() (int64, error) {
 	number, err := l.numberRat()
 	if err != nil {
@@ -157,7 +157,7 @@ func (l *Literal) AsInt64() (int64, error) {
 	return integer.Int64(), nil
 }
 
-// Int converts an integral number literal without rounding and rejects values
+// AsInt converts an integral number literal without rounding and rejects values
 // outside the platform int range.
 func (l *Literal) AsInt() (int, error) {
 	value, err := l.AsInt64()
@@ -171,7 +171,7 @@ func (l *Literal) AsInt() (int, error) {
 	return converted, nil
 }
 
-// Float64 converts a number for provider APIs that accept a double. Integral
+// AsFloat64 converts a number for provider APIs that accept a double. Integral
 // values are rejected when conversion would change their exact value.
 func (l *Literal) AsFloat64() (float64, error) {
 	number, err := l.numberRat()
@@ -192,7 +192,7 @@ func (l *Literal) AsFloat64() (float64, error) {
 	return value, nil
 }
 
-// Float32 converts a number for provider APIs that accept a float. It rejects
+// AsFloat32 converts a number for provider APIs that accept a float. It rejects
 // overflow and integral values that would be rounded.
 func (l *Literal) AsFloat32() (float32, error) {
 	number, err := l.numberRat()

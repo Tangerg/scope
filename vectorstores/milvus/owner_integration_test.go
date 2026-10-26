@@ -193,7 +193,7 @@ func TestLiveGroupsKeepNativeRawRank(t *testing.T) {
 	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "id_128" {
 		t.Fatalf("native raw rank changed: %v %v", response, err)
 	}

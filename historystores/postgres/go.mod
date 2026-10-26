@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/historystores/postgres
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.57.1
+	github.com/Tangerg/scope/core v0.58.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/samber/lo v1.53.0
 )

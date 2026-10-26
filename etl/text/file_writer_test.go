@@ -154,3 +154,29 @@ func TestFileWriterPreservesExistingFileOnRenderFailure(t *testing.T) {
 		t.Fatalf("existing file changed to %q", data)
 	}
 }
+
+func TestFileWriterRejectsInvalidDocumentsBeforeOpening(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "documents.txt")
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range []*document.Document{nil, {Text: "bad\xff"}} {
+		if err := writer.Write(t.Context(), []*document.Document{doc}); err == nil {
+			t.Fatal("invalid document accepted")
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("invalid input created destination: %v", err)
+		}
+	}
+}
+
+func TestFileWriterReportsDestinationOpenFailure(t *testing.T) {
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Write(t.Context(), []*document.Document{{Text: "content"}}); err == nil {
+		t.Fatal("directory destination accepted")
+	}
+}

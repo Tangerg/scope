@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Tangerg/scope/tools/content"
 )
 
 // Reader is the read backend used by ReadTool. Implementations must support
@@ -94,21 +96,21 @@ type editOperation struct {
 	ReplaceAll bool
 }
 
-func (e editOperation) apply(content, path string) (string, int, error) {
+func (e editOperation) apply(text, path string) (string, int, error) {
 	if e.OldString == "" {
 		return "", 0, errors.New("old_string must not be empty")
 	}
 	if e.OldString == e.NewString {
 		return "", 0, errors.New("new_string must differ from old_string")
 	}
-	occurrences := strings.Count(content, e.OldString)
+	occurrences := strings.Count(text, e.OldString)
 	if occurrences == 0 {
 		return "", 0, fmt.Errorf("old_string not found in %s", path)
 	}
 	if occurrences > 1 && !e.ReplaceAll {
 		return "", 0, fmt.Errorf("old_string matches %d times in %s — set replace_all=true to confirm", occurrences, path)
 	}
-	return strings.ReplaceAll(content, e.OldString, e.NewString), occurrences, nil
+	return strings.ReplaceAll(text, e.OldString, e.NewString), occurrences, nil
 }
 
 type GrepOutputMode string
@@ -157,10 +159,10 @@ func (g GrepLineKind) Valid() bool {
 func (g GrepLineKind) String() string { return string(g) }
 
 type GrepLine struct {
-	Path string       `json:"path"`
-	Line int          `json:"line"` // 1-based
-	Text string       `json:"text"`
-	Kind GrepLineKind `json:"kind"`
+	Path    string          `json:"path"`
+	Line    int             `json:"line"` // 1-based
+	Content content.Content `json:"content"`
+	Kind    GrepLineKind    `json:"kind"`
 }
 
 type GrepFileCount struct {

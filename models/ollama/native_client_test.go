@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/ollama"
 )
 
@@ -51,7 +52,7 @@ func TestNativeChatUsesOnlyTheDocumentedLocalHTTPContract(t *testing.T) {
 }
 
 func TestNativeChatReportsProviderStatusAndMessage(t *testing.T) {
-	server := jsonServer(http.StatusServiceUnavailable, `{"error":"daemon warming"}`)
+	server := modeltest.JSONServer(http.StatusServiceUnavailable, `{"error":"daemon warming"}`)
 	t.Cleanup(server.Close)
 	model, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 		DefaultOptions: corechat.Options{Model: "qwen3:8b"},
@@ -71,7 +72,7 @@ func TestNativeChatReportsProviderStatusAndMessage(t *testing.T) {
 }
 
 func TestNativeChatReportsSuccessfulStatusErrorFrame(t *testing.T) {
-	server := jsonServer(http.StatusOK, `{"error":"model is missing"}`)
+	server := modeltest.JSONServer(http.StatusOK, `{"error":"model is missing"}`)
 	t.Cleanup(server.Close)
 	model, err := ollama.NewChat(t.Context(), ollama.ChatConfig{
 		DefaultOptions: corechat.Options{Model: "missing"},

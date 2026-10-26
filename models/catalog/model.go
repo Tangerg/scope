@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -36,6 +38,22 @@ func (m Model) Clone() Model {
 	return m
 }
 
+func (m Model) Validate() error {
+	if m.ID == "" {
+		return errors.New("catalog: model ID is required")
+	}
+	if err := m.Pricing.Validate(); err != nil {
+		return err
+	}
+	if err := m.Reasoning.Validate(); err != nil {
+		return err
+	}
+	if err := m.Modalities.Validate(); err != nil {
+		return err
+	}
+	return m.Limits.Validate()
+}
+
 // Reasoning describes extended-thinking support.
 type Reasoning struct {
 	Supported    bool     `json:"supported,omitzero"`
@@ -47,6 +65,21 @@ func (r Reasoning) IsZero() bool {
 	return !r.Supported && len(r.Levels) == 0 && r.DefaultLevel == ""
 }
 
+func (r Reasoning) Validate() error {
+	if !r.Supported && (len(r.Levels) > 0 || r.DefaultLevel != "") {
+		return errors.New("catalog: reasoning controls require reasoning support")
+	}
+	for index, level := range r.Levels {
+		if level == "" || slices.Contains(r.Levels[:index], level) {
+			return errors.New("catalog: reasoning levels must be non-empty and unique")
+		}
+	}
+	if r.DefaultLevel != "" && !slices.Contains(r.Levels, r.DefaultLevel) {
+		return errors.New("catalog: default reasoning level must belong to the effort ladder")
+	}
+	return nil
+}
+
 // Limits contains token limits. Zero means unknown, not unlimited.
 type Limits struct {
 	ContextWindow   int64 `json:"context_window,omitzero"`
@@ -55,6 +88,13 @@ type Limits struct {
 }
 
 func (l Limits) IsZero() bool { return l == Limits{} }
+
+func (l Limits) Validate() error {
+	if l.ContextWindow < 0 || l.MaxInputTokens < 0 || l.MaxOutputTokens < 0 {
+		return errors.New("catalog: token limits must not be negative")
+	}
+	return nil
+}
 
 // Modality identifies a model input or output media type.
 type Modality string
@@ -68,6 +108,15 @@ const (
 	ModalityVideo Modality = "video"
 	ModalityPDF   Modality = "pdf"
 )
+
+func (m Modality) Validate() error {
+	switch m {
+	case ModalityText, ModalityImage, ModalityAudio, ModalityVideo, ModalityPDF:
+		return nil
+	default:
+		return fmt.Errorf("catalog: unsupported modality %q", m)
+	}
+}
 
 // Modalities lists accepted input and emitted output media types.
 type Modalities struct {
@@ -85,4 +134,18 @@ func (m Modalities) AcceptsInput(modality Modality) bool {
 
 func (m Modalities) EmitsOutput(modality Modality) bool {
 	return slices.Contains(m.Output, modality)
+}
+
+func (m Modalities) Validate() error {
+	for _, modalities := range [][]Modality{m.Input, m.Output} {
+		for index, modality := range modalities {
+			if err := modality.Validate(); err != nil {
+				return err
+			}
+			if slices.Contains(modalities[:index], modality) {
+				return fmt.Errorf("catalog: duplicate modality %q", modality)
+			}
+		}
+	}
+	return nil
 }

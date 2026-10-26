@@ -180,7 +180,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
 		return nil, fmt.Errorf("jina: fetch request: %w", err)
 	}
-	return raw.toFetchResponse(prepared.Format)
+	return raw.toFetchResponse(prepared)
 }
 
 func parseDate(s string) time.Time {

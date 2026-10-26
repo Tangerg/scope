@@ -6,10 +6,6 @@ import (
 	"github.com/Tangerg/scope/models/google"
 )
 
-// TestConstructorsRejectAnAbsentCredential is the one contract this module can
-// prove without a live account: a credential-gated provider must fail at
-// construction rather than at the first call, where the failure would surface
-// as a transport error the caller cannot distinguish from an outage.
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChat": func() error {

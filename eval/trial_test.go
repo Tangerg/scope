@@ -18,7 +18,7 @@ func TestTrialPreservesCandidateAndIndependentAssessmentFailure(t *testing.T) {
 	suite, err := eval.NewSuite(eval.SuiteConfig[eval.TrialSample[string, string]]{Assessments: []eval.Assessment[eval.TrialSample[string, string]]{
 		lo.Must(eval.NewAssessment(eval.AssessmentConfig[eval.TrialSample[string, string]]{ID: "patch", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
 			if sample.Execution.Status != eval.ExecutionBudgetExhausted || sample.Execution.Output == nil || *sample.Execution.Output != "candidate" {
-				t.Fatalf("assessment lost execution evidence: %+v", sample.Execution)
+				return eval.Report{}, fmt.Errorf("assessment lost execution evidence: %+v", sample.Execution)
 			}
 			score := eval.Score(1)
 			metric, err := eval.NewMetric(eval.MetricConfig{Name: "patch_present"})
@@ -145,7 +145,7 @@ func TestTrialRetainsCompletedExecutionWithoutCandidate(t *testing.T) {
 		ID: "tests", Evaluator: eval.EvaluatorFunc[eval.TrialSample[string, string]](func(_ context.Context, sample eval.TrialSample[string, string]) (eval.Report, error) {
 			assessed = true
 			if sample.Execution.Status != eval.ExecutionCompleted || sample.Execution.Output != nil {
-				t.Fatal("execution outcome was changed because no candidate exists")
+				return eval.Report{}, errors.New("execution outcome was changed because no candidate exists")
 			}
 			return eval.Report{}, noCandidate
 		}),

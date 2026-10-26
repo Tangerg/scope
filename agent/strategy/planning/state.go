@@ -128,6 +128,9 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if e.actionExcluded(e.CurrentActionName) {
 		return fmt.Errorf("%w: current Action is excluded", ErrInvalidExecutionState)
 	}
+	if !binding.action.Applicable(e.WorldState) {
+		return fmt.Errorf("%w: current Action was not applicable to its observed WorldState", ErrInvalidExecutionState)
+	}
 	if !binding.delegatesToChild() && e.Child != (childcall.Single{}) {
 		return fmt.Errorf("%w: Dispatcher Action retains child progress", ErrInvalidExecutionState)
 	}

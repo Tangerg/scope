@@ -94,8 +94,7 @@ func TestModelToolResultPreservesDefiniteFailureCauses(t *testing.T) {
 		}
 		for _, wrapped := range []error{
 			fmt.Errorf("host diagnostic: %w", failure),
-			errors.Join(errors.New("host diagnostic"), failure),
-			errors.Join(cause, failure),
+			errors.Join(nil, failure),
 		} {
 			result, required, _, err := modelToolResult(call, tool.Result{Output: output}, wrapped)
 			if err != nil || required != nil || !reflect.DeepEqual(result, chat.ToolResult{ID: call.ID, Name: call.Name, IsError: true, Output: output}) {
@@ -124,9 +123,25 @@ func TestModelToolResultKeepsDiagnosticCausesOutOfControlFlow(t *testing.T) {
 
 func TestModelToolResultRejectsInvalidFailureValues(t *testing.T) {
 	for _, failure := range []*tool.Failure{nil, {}} {
-		result, required, rejected, err := modelToolResult(chat.ToolCall{ID: "call", Name: "feedback", Arguments: `{}`}, tool.Result{}, fmt.Errorf("invalid outcome: %w", failure))
-		if !errors.Is(err, tool.ErrInvalidFailure) || required != nil || rejected || !reflect.DeepEqual(result, chat.ToolResult{}) {
+		cause := fmt.Errorf("invalid outcome: %w", failure)
+		result, required, rejected, err := modelToolResult(chat.ToolCall{ID: "call", Name: "feedback", Arguments: `{}`}, tool.Result{}, cause)
+		if !errors.Is(err, cause) || required != nil || rejected || !reflect.DeepEqual(result, chat.ToolResult{}) {
 			t.Fatalf("result=%+v required=%v rejected=%v error=%v", result, required, rejected, err)
 		}
+	}
+}
+
+func TestModelToolResultDoesNotPromoteJoinedFailure(t *testing.T) {
+	failure, err := tool.NewFailure(tool.FailureConfig{
+		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("one operation refused"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := errors.New("another operation lost its result")
+	cause := errors.Join(failure, unknown)
+	result, required, rejected, err := modelToolResult(chat.ToolCall{ID: "call", Name: "feedback", Arguments: `{}`}, tool.Result{}, cause)
+	if !errors.Is(err, failure) || !errors.Is(err, unknown) || required != nil || rejected || !reflect.DeepEqual(result, chat.ToolResult{}) {
+		t.Fatalf("independent outcomes became one definite result: result=%+v required=%v rejected=%v error=%v", result, required, rejected, err)
 	}
 }

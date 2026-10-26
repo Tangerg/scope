@@ -15,23 +15,23 @@ type recipe struct {
 
 func TestOutputFormatContracts(t *testing.T) {
 	text := Text()
-	if err := text.validate(); err != nil || text.contract.Type != chat.OutputFormatText {
-		t.Fatalf("Text = (%#v, %v)", text.contract, err)
+	if err := text.validate(); err != nil || text.contract().Type != chat.OutputFormatText {
+		t.Fatalf("Text = (%#v, %v)", text.contract(), err)
 	}
 	jsonFormat := JSON[recipe]()
-	if err := jsonFormat.validate(); err != nil || jsonFormat.contract.Type != chat.OutputFormatJSON {
-		t.Fatalf("JSON = (%#v, %v)", jsonFormat.contract, err)
+	if err := jsonFormat.validate(); err != nil || jsonFormat.contract().Type != chat.OutputFormatJSON {
+		t.Fatalf("JSON = (%#v, %v)", jsonFormat.contract(), err)
 	}
 	schemaFormat, err := JSONSchema[recipe](JSONSchemaConfig{Name: "recipe", Description: "A recipe"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract := schemaFormat.contract.Clone()
+	contract := schemaFormat.contract()
 	if contract.Type != chat.OutputFormatJSONSchema || contract.Name != "recipe" || contract.Schema[0] != '{' {
 		t.Fatalf("JSONSchema contract = %#v", contract)
 	}
 	contract.Schema[0] = '['
-	if schemaFormat.contract.Schema[0] != '{' {
+	if schemaFormat.contract().Schema[0] != '{' {
 		t.Fatal("Contract returned aliased schema bytes")
 	}
 	if _, err := JSONSchema[recipe](JSONSchemaConfig{}); !errors.Is(err, ErrInvalidOutputFormat) {
@@ -72,6 +72,26 @@ func TestOutputFormatDecodeStrictJSON(t *testing.T) {
 				t.Fatalf("Decode = (%#v, %v), want %#v", got, err, test.want)
 			}
 		})
+	}
+}
+
+func TestJSONSchemaOutputEnforcesTheProjectedContract(t *testing.T) {
+	type score struct {
+		Value int `json:"value" jsonschema:"minimum=1,maximum=3"`
+	}
+	format, err := JSONSchema[score](JSONSchemaConfig{Name: "score"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := format.contract()
+	contract.Schema[0] = '['
+	for _, value := range []string{`{"value":0}`, `{"value":4}`, `{}`, `{"value":2,"extra":true}`} {
+		if got, err := format.Decode(responseWithText(t, value)); !errors.Is(err, ErrInvalidOutput) || got != (score{}) {
+			t.Fatalf("Decode(%s) = %+v, %v; want rejected output", value, got, err)
+		}
+	}
+	if got, err := format.Decode(responseWithText(t, `{"value":2}`)); err != nil || got.Value != 2 {
+		t.Fatalf("valid constrained output = %+v, %v", got, err)
 	}
 }
 

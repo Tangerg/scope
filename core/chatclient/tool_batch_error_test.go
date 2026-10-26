@@ -54,7 +54,8 @@ func TestToolBatchFailureClassification(t *testing.T) {
 	}{
 		{name: "definite failure", cause: failure, kind: chat.CallFailureFailed},
 		{name: "wrapped definite failure", cause: fmt.Errorf("write: %w", failure), kind: chat.CallFailureFailed},
-		{name: "joined diagnostic", cause: errors.Join(errors.New("host diagnostic"), failure), kind: chat.CallFailureFailed},
+		{name: "joined independent failure", cause: errors.Join(errors.New("host outcome unknown"), failure), kind: chat.CallFailureUnknown},
+		{name: "single joined failure", cause: errors.Join(nil, failure), kind: chat.CallFailureFailed},
 		{name: "evidence around definite failure", cause: wrappedFailure, kind: chat.CallFailureFailed},
 		{name: "ordinary error", cause: cause, kind: chat.CallFailureUnknown},
 		{name: "non-final evidence", cause: evidence, kind: chat.CallFailureUnknown},

@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -174,7 +175,6 @@ func TestToolWaitingInputHasOnlyItsWaitIdentity(t *testing.T) {
 	}
 }
 
-// inputRequestsEqual compares the private fields of two requests for tests.
 func inputRequestsEqual(a, b tool.InputRequest) bool {
 	return bytes.Equal(a.Prompt(), b.Prompt()) &&
 		a.ResponseSchema().Equal(b.ResponseSchema()) &&
@@ -204,5 +204,63 @@ func TestToolInputWaitKeepsOnlyTheCurrentRequest(t *testing.T) {
 		if execution.state.InputRequest != nil {
 			t.Fatal("resume dispatch retained the old input request")
 		}
+	}
+}
+
+func TestToolRecoveryRejectsContinuationFactsOutsideTheirPhase(t *testing.T) {
+	definition, err := newToolDefinition("interaction.recovery.tools", "Validate continuation ownership.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	request, err := newInputRequest([]byte(`"confirm"`), []byte(`{"type":"boolean"}`), []byte(`null`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, err := agent.ParseWaitID("wait:continued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []toolExecutionState{
+		{Phase: toolReady},
+		{Phase: toolReady, Call: call, InputRequest: &request},
+		{Phase: toolAwaitingResult, Call: call, WaitID: &waitID},
+		{Phase: toolAwaitingWaitOpen, Call: call},
+		{Phase: toolPhase("unknown"), Call: call},
+	} {
+		envelope, err := agent.EncodeExecutionState(toolExecutionStateKind, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if restored, err := definition.Restore(t.Context(), envelope); restored != nil || !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("invalid tool state accepted: %+v, %v", state, err)
+		}
+	}
+}
+
+func TestToolExecutionRejectsCanceledOrMissingSignalsWithoutLosingItsState(t *testing.T) {
+	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	for _, phase := range []toolPhase{toolReady, toolAwaitingResult, toolCompleted} {
+		t.Run(string(phase), func(t *testing.T) {
+			execution := &toolExecution{state: toolExecutionState{Phase: phase, Call: call}}
+			before, err := execution.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if transition, stepErr := execution.Step(ctx, nil); transition.Valid() || !errors.Is(stepErr, context.Canceled) {
+				t.Fatalf("canceled tool advanced: %+v, %v", transition, stepErr)
+			}
+			if phase != toolReady {
+				if transition, stepErr := execution.Step(t.Context(), nil); transition.Valid() || !errors.Is(stepErr, ErrInvalidExecutionState) {
+					t.Fatalf("tool advanced without a signal: %+v, %v", transition, stepErr)
+				}
+			}
+			after, err := execution.Snapshot()
+			if err != nil || !bytes.Equal(before.Payload(), after.Payload()) {
+				t.Fatalf("rejected step changed tool state: %v", err)
+			}
+		})
 	}
 }

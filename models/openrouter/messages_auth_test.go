@@ -56,5 +56,8 @@ func TestMessagesUsesOpenRouterBearerAuthentication(t *testing.T) {
 type messagesAuthTransport func(*http.Request) (*http.Response, error)
 
 func (m messagesAuthTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	return m(request)
 }

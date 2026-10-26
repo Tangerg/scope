@@ -38,25 +38,29 @@ type api struct {
 }
 
 type predictionRunner struct {
-	api          *api
-	pollInterval time.Duration
-	pollTimeout  time.Duration
+	api             *api
+	pollInterval    time.Duration
+	pollTimeout     time.Duration
+	invalidResponse error
 }
 
-func newPredictionRunner(api *api, pollInterval, pollTimeout, defaultTimeout time.Duration) predictionRunner {
+func newPredictionRunner(api *api, pollInterval, pollTimeout, defaultTimeout time.Duration, invalidResponse error) predictionRunner {
 	if pollInterval == 0 {
 		pollInterval = time.Duration(DefaultPollIntervalSeconds) * time.Second
 	}
 	if pollTimeout == 0 {
 		pollTimeout = defaultTimeout
 	}
-	return predictionRunner{api: api, pollInterval: pollInterval, pollTimeout: pollTimeout}
+	return predictionRunner{api: api, pollInterval: pollInterval, pollTimeout: pollTimeout, invalidResponse: invalidResponse}
 }
 
 func (p predictionRunner) run(ctx context.Context, model string, request *predictionRequest) (*predictionResponse, error) {
 	submitted, err := p.api.createPrediction(ctx, model, request)
 	if err != nil {
 		return nil, err
+	}
+	if submitted.ID == "" {
+		return nil, fmt.Errorf("%w: replicate: submitted prediction requires id", p.invalidResponse)
 	}
 	return p.poll(ctx, submitted.ID)
 }
@@ -72,6 +76,9 @@ func (p predictionRunner) poll(ctx context.Context, id string) (*predictionRespo
 		response, err := p.api.getPrediction(deadline, id)
 		if err != nil {
 			return nil, err
+		}
+		if response.ID != id {
+			return nil, fmt.Errorf("%w: replicate: polled prediction id %q differs from submitted id %q", p.invalidResponse, response.ID, id)
 		}
 		switch response.Status {
 		case predictionStatusSucceeded:
@@ -135,6 +142,19 @@ type predictionRequest struct {
 	Input               map[string]json.RawMessage `json:"input"`
 	Webhook             string                     `json:"webhook,omitempty"`
 	WebhookEventsFilter []string                   `json:"webhook_events_filter,omitzero"`
+}
+
+func (p *predictionRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions predictionRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("replicate: prediction options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("replicate: prediction options must be an object")
+	}
+	*p = predictionRequest(*decoded)
+	return nil
 }
 
 // setInput encodes a Core-owned value as its own JSON token and stores it in the
@@ -322,7 +342,7 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, errors.New("replicate: prediction id must not be empty")
 	}
 	var out predictionResponse
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathPredictionPrefix + id)
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathPredictionPrefix + url.PathEscape(id))
 	if err != nil {
 		return nil, fmt.Errorf("replicate: poll failed: %w", err)
 	}

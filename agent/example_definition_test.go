@@ -22,9 +22,21 @@ type echoDefinition struct {
 	descriptor agent.Descriptor
 }
 
+const echoStateKind = "example.echo"
+
+type echoPhase string
+
+const (
+	echoPhaseReady        echoPhase = "ready"
+	echoPhaseAwaitingEcho echoPhase = "awaiting_echo"
+	echoPhaseCompleted    echoPhase = "completed"
+)
+
+var errEchoFailed = agent.NewClassifiedError(agent.FailureKindExternal, "example.echo.failed", "Echo dispatcher did not succeed.")
+
 type echoState struct {
-	Phase string `json:"phase"`
-	Value string `json:"value"`
+	Phase echoPhase `json:"phase"`
+	Value string    `json:"value"`
 }
 
 func (e echoDefinition) Descriptor() agent.Descriptor { return e.descriptor }
@@ -39,16 +51,16 @@ func (e echoDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &echoExecution{state: echoState{Phase: "ready", Value: value.Value}}, nil
+	return &echoExecution{state: echoState{Phase: echoPhaseReady, Value: value.Value}}, nil
 }
 
 func (echoDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	value, err := state.Decode[echoState]("example.echo")
+	value, err := state.Decode[echoState](echoStateKind)
 	if err != nil {
 		return nil, err
 	}
 	switch value.Phase {
-	case "ready", "awaiting_echo", "completed":
+	case echoPhaseReady, echoPhaseAwaitingEcho, echoPhaseCompleted:
 		return &echoExecution{state: value}, nil
 	default:
 		return nil, agent.ErrInvalidExecutionState
@@ -64,7 +76,7 @@ func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		return agent.Transition{}, err
 	}
 	switch e.state.Phase {
-	case "ready":
+	case echoPhaseReady:
 		if len(signals) != 0 {
 			return agent.Transition{}, agent.ErrInvalidSignal
 		}
@@ -76,21 +88,28 @@ func (e *echoExecution) Step(ctx context.Context, signals []agent.Signal) (agent
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		e.state.Phase = "awaiting_echo"
+		e.state.Phase = echoPhaseAwaitingEcho
 		return agent.Continue(0, effect)
-	case "awaiting_echo":
+	case echoPhaseAwaitingEcho:
 		if len(signals) != 1 {
 			return agent.Transition{}, agent.ErrInvalidSignal
 		}
-		var result echoOutput
-		if err := jsonv2.Unmarshal(signals[0].Payload(), &result, jsonv2.RejectUnknownMembers(true)); err != nil {
+		settlement, err := agent.ParseSettlement(signals[0])
+		if err != nil {
 			return agent.Transition{}, err
+		}
+		if settlement.Status() != agent.SettlementStatusSucceeded {
+			return agent.Transition{}, errEchoFailed
+		}
+		var result echoOutput
+		if decodeErr := jsonv2.Unmarshal(settlement.Payload(), &result, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+			return agent.Transition{}, decodeErr
 		}
 		output, err := agent.EncodePayload(result)
 		if err != nil {
 			return agent.Transition{}, err
 		}
-		e.state.Phase = "completed"
+		e.state.Phase = echoPhaseCompleted
 		return agent.Complete(1, output)
 	default:
 		return agent.Transition{}, agent.ErrInvalidExecutionState
@@ -102,7 +121,7 @@ func (e *echoExecution) Snapshot() (agent.ExecutionState, error) {
 	if err != nil {
 		return agent.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState("example.echo", payload)
+	return agent.ParseExecutionState(echoStateKind, payload)
 }
 
 func newEchoDefinition() (echoDefinition, error) {
@@ -115,7 +134,7 @@ func newEchoDefinition() (echoDefinition, error) {
 		return echoDefinition{}, err
 	}
 	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: "example.echo", Description: "Echoes a value through an Engine-managed Effect.",
+		Name: echoStateKind, Description: "Echoes a value through an Engine-managed Effect.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {

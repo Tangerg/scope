@@ -84,13 +84,13 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []string{"audio_url", "model"} {
+	for _, field := range []string{fieldAudioURL, fieldModel} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
 	}
-	if language, ok := nativeFields["language_config"].(map[string]any); ok {
-		if _, exists := language["languages"]; exists {
+	if language, ok := nativeFields[fieldLanguageConfig].(map[string]any); ok {
+		if _, exists := language[fieldLanguages]; exists {
 			return nil, fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)
 		}
 	}
@@ -137,22 +137,22 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	var outputMetadata metadata.Map
 	if len(final.Result.Transcription.Languages) > 0 {
-		if setErr := outputMetadata.Set("gladia/languages", final.Result.Transcription.Languages); setErr != nil {
+		if setErr := outputMetadata.Set(metadataLanguages, final.Result.Transcription.Languages); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if len(final.Result.Transcription.Utterances) > 0 {
-		if setErr := outputMetadata.Set("gladia/utterances", final.Result.Transcription.Utterances); setErr != nil {
+		if setErr := outputMetadata.Set(metadataUtterances, final.Result.Transcription.Utterances); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if final.Result.Translation != nil {
-		if setErr := outputMetadata.Set("gladia/translation", final.Result.Translation); setErr != nil {
+		if setErr := outputMetadata.Set(metadataTranslation, final.Result.Translation); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if final.Result.Summarization != nil {
-		if setErr := outputMetadata.Set("gladia/summarization", final.Result.Summarization); setErr != nil {
+		if setErr := outputMetadata.Set(metadataSummarization, final.Result.Summarization); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -166,7 +166,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 
 	meta := &transcription.ResponseMetadata{Model: apiReq.Model}
-	if err := meta.Extra.Set("gladia/transcript_id", final.ID); err != nil {
+	if err := meta.Extra.Set(metadataTranscriptID, final.ID); err != nil {
 		return nil, err
 	}
 	if err := meta.Extra.Set(ResponseExtensionKey, final.Raw); err != nil {

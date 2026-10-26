@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentruntime/types"
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/httpclient"
@@ -36,40 +35,6 @@ const (
 	SourceDocumentIDMetadataKey = "bedrockkb_document_id"
 	SourceLocationMetadataKey   = "bedrockkb_location"
 )
-
-// StoreConfig binds the native Retrieve REST boundary. The host owns HTTP
-// authentication, retries, timeouts and lifecycle; ingestion stays in Bedrock.
-type StoreConfig struct {
-	Endpoint string
-	// HTTPClient settings are captured; the host retains its transport and jar.
-	// Requests remain within Endpoint's origin even when redirects are followed.
-	HTTPClient                     *http.Client
-	KnowledgeBaseID                string
-	MaxResponseBytes               int64
-	RerankingModelConfiguration    *types.VectorSearchBedrockRerankingModelConfiguration
-	RerankingMetadataConfiguration *types.MetadataConfigurationForReranking
-	ImplicitFilterConfiguration    *types.ImplicitFilterConfiguration
-}
-
-func (s StoreConfig) Validate() error {
-	endpoint, err := url.Parse(s.Endpoint)
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.Trim(endpoint.Path, "/") != "" {
-		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
-	}
-	if s.HTTPClient == nil {
-		return errors.New("bedrockkb: HTTPClient is required")
-	}
-	if strings.TrimSpace(s.KnowledgeBaseID) == "" {
-		return errors.New("bedrockkb: KnowledgeBaseID is required")
-	}
-	if s.MaxResponseBytes < 0 || s.MaxResponseBytes == math.MaxInt64 {
-		return errors.New("bedrockkb: MaxResponseBytes must be nonnegative and below MaxInt64")
-	}
-	if s.RerankingMetadataConfiguration != nil && s.RerankingModelConfiguration == nil {
-		return errors.New("bedrockkb: reranking metadata requires a reranking model")
-	}
-	return nil
-}
 
 var _ vectorstore.Searcher = (*Store)(nil)
 
@@ -91,16 +56,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	policy, err := config.nativePolicy()
+	configuration, err := config.nativePolicy()
 	if err != nil {
-		return nil, err
-	}
-	encoded, err := jsonv2.Marshal(policy)
-	if err != nil {
-		return nil, err
-	}
-	var configuration nativeConfiguration
-	if err = jsonv2.Unmarshal(encoded, &configuration); err != nil {
 		return nil, err
 	}
 	store := &Store{
@@ -108,113 +65,6 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes), configuration: configuration,
 	}
 	return store, nil
-}
-
-func (s StoreConfig) nativePolicy() (map[string]any, error) {
-	config := make(map[string]any)
-	if s.RerankingModelConfiguration != nil {
-		if s.RerankingModelConfiguration.ModelArn == nil || strings.TrimSpace(*s.RerankingModelConfiguration.ModelArn) == "" {
-			return nil, errors.New("bedrockkb: reranking model ARN is required")
-		}
-		fields := make(metadata.Map, len(s.RerankingModelConfiguration.AdditionalModelRequestFields))
-		for key, value := range s.RerankingModelConfiguration.AdditionalModelRequestFields {
-			if lo.IsNil(value) {
-				return nil, fmt.Errorf("bedrockkb: nil reranking model field %q", key)
-			}
-			raw, err := value.MarshalSmithyDocument()
-			if err != nil {
-				return nil, err
-			}
-			fields[key] = raw
-		}
-		if err := fields.Validate(); err != nil {
-			return nil, err
-		}
-		model := map[string]any{"modelArn": *s.RerankingModelConfiguration.ModelArn}
-		if len(fields) != 0 {
-			model["additionalModelRequestFields"] = fields
-		}
-		reranking := map[string]any{"modelConfiguration": model}
-		if s.RerankingMetadataConfiguration != nil {
-			configured := s.RerankingMetadataConfiguration
-			selection := map[string]any{"selectionMode": configured.SelectionMode}
-			switch configured.SelectionMode {
-			case types.RerankingMetadataSelectionModeAll:
-				if !lo.IsNil(configured.SelectiveModeConfiguration) {
-					return nil, errors.New("bedrockkb: ALL reranking metadata cannot carry selective fields")
-				}
-			case types.RerankingMetadataSelectionModeSelective:
-				var name string
-				var fields []types.FieldForReranking
-				switch subset := configured.SelectiveModeConfiguration.(type) {
-				case *types.RerankingMetadataSelectiveModeConfigurationMemberFieldsToInclude:
-					if subset != nil {
-						name = "fieldsToInclude"
-						fields = subset.Value
-					}
-				case *types.RerankingMetadataSelectiveModeConfigurationMemberFieldsToExclude:
-					if subset != nil {
-						name = "fieldsToExclude"
-						fields = subset.Value
-					}
-				}
-				if name == "" || len(fields) == 0 {
-					return nil, errors.New("bedrockkb: SELECTIVE reranking metadata requires native fields")
-				}
-				projected := make([]map[string]any, len(fields))
-				for i, field := range fields {
-					if field.FieldName == nil || *field.FieldName == "" {
-						return nil, errors.New("bedrockkb: reranking metadata field name is required")
-					}
-					projected[i] = map[string]any{"fieldName": *field.FieldName}
-				}
-				selection["selectiveModeConfiguration"] = map[string]any{name: projected}
-			default:
-				return nil, errors.New("bedrockkb: unsupported native reranking metadata selection mode")
-			}
-			reranking["metadataConfiguration"] = selection
-		}
-		config["rerankingConfiguration"] = map[string]any{"type": types.VectorSearchRerankingConfigurationTypeBedrockRerankingModel, "bedrockRerankingConfiguration": reranking}
-	}
-	if s.ImplicitFilterConfiguration != nil {
-		if s.ImplicitFilterConfiguration.ModelArn == nil || *s.ImplicitFilterConfiguration.ModelArn == "" {
-			return nil, errors.New("bedrockkb: implicit filter model ARN is required")
-		}
-		attributes := make([]map[string]any, len(s.ImplicitFilterConfiguration.MetadataAttributes))
-		for i, attribute := range s.ImplicitFilterConfiguration.MetadataAttributes {
-			attributes[i] = map[string]any{"key": attribute.Key, "type": attribute.Type, "description": attribute.Description}
-		}
-		config["implicitFilterConfiguration"] = map[string]any{"modelArn": *s.ImplicitFilterConfiguration.ModelArn, "metadataAttributes": attributes}
-	}
-	return config, nil
-}
-
-type nativeConfiguration struct {
-	Count     int              `json:"numberOfResults"`
-	Mode      types.SearchType `json:"overrideSearchType"`
-	Reranking *struct {
-		Type    types.VectorSearchRerankingConfigurationType `json:"type"`
-		Bedrock struct {
-			Model    json.RawMessage `json:"modelConfiguration"`
-			Metadata json.RawMessage `json:"metadataConfiguration,omitzero"`
-			Count    int             `json:"numberOfRerankedResults"`
-		} `json:"bedrockRerankingConfiguration"`
-	} `json:"rerankingConfiguration,omitzero"`
-	Implicit json.RawMessage `json:"implicitFilterConfiguration,omitzero"`
-}
-
-func (n nativeConfiguration) forOptions(options vectorstore.SearchOptions) nativeConfiguration {
-	n.Count = options.ResultLimit()
-	n.Mode = types.SearchTypeSemantic
-	if options.EffectiveMode() == vectorstore.SearchModeHybrid {
-		n.Mode = types.SearchTypeHybrid
-	}
-	if n.Reranking != nil {
-		reranking := *n.Reranking
-		reranking.Bedrock.Count = options.ResultLimit()
-		n.Reranking = &reranking
-	}
-	return n
 }
 
 type retrievalResult struct {

@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/transcription"
 )
 
 type apiConfig struct {
@@ -45,7 +47,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
-		SetHeader("x-gladia-key", config.APIKey)
+		SetHeader(headerAPIKey, config.APIKey)
 	return &api{http: client}, nil
 }
 
@@ -85,6 +87,19 @@ type transcriptionRequest struct {
 	Sentences              *bool                      `json:"sentences,omitzero"`
 	PunctuationEnhanced    *bool                      `json:"punctuation_enhanced,omitzero"`
 	CustomMetadata         map[string]json.RawMessage `json:"custom_metadata,omitzero"`
+}
+
+func (t *transcriptionRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions transcriptionRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("gladia: transcription options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("gladia: transcription options must be an object")
+	}
+	*t = transcriptionRequest(*decoded)
+	return nil
 }
 
 func (t *transcriptionRequest) validate() error {
@@ -156,9 +171,9 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string) (*uploa
 	var out uploadResponse
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetMultipartField("audio", "audio", cmp.Or(mimeType, "application/octet-stream"), bytes.NewReader(audio)).
+		SetMultipartField(multipartAudio, multipartAudio, cmp.Or(mimeType, mediaTypeBinary), bytes.NewReader(audio)).
 		SetResult(&out).
-		Post("/upload")
+		Post(pathUpload)
 	if err != nil {
 		return nil, fmt.Errorf("gladia: upload failed: %w", err)
 	}
@@ -178,15 +193,18 @@ func (a *api) createTranscription(ctx context.Context, req *transcriptionRequest
 	var out transcriptionCreateResponse
 	resp, err := a.http.R().
 		SetContext(ctx).
-		SetHeader("Content-Type", "application/json").
+		SetHeader(headerContentType, mediaTypeJSON).
 		SetBody(req).
 		SetResult(&out).
-		Post("/pre-recorded")
+		Post(pathTranscription)
 	if err != nil {
 		return nil, fmt.Errorf("gladia: create failed: %w", err)
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("gladia: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if out.ID == "" {
+		return nil, fmt.Errorf("%w: gladia: created transcription requires id", transcription.ErrInvalidResponse)
 	}
 	return &out, nil
 }
@@ -196,12 +214,15 @@ func (a *api) getTranscription(ctx context.Context, id string) (*transcriptionRe
 		return nil, errors.New("gladia: transcription id must not be empty")
 	}
 	var out transcriptionResult
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get("/pre-recorded/" + id)
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathTranscriptionPrefix + url.PathEscape(id))
 	if err != nil {
 		return nil, fmt.Errorf("gladia: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("gladia: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if out.ID != id {
+		return nil, fmt.Errorf("%w: gladia: polled transcription id %q differs from submitted id %q", transcription.ErrInvalidResponse, out.ID, id)
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("gladia: preserve transcription response: %w", err)

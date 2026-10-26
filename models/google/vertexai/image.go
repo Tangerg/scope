@@ -2,6 +2,7 @@ package vertexai
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -45,6 +46,19 @@ type ImageGenerationOptions struct {
 	OutputCompressionQuality *int32         `json:"output_compression_quality,omitzero"`
 }
 
+func (i *ImageGenerationOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions ImageGenerationOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return errors.New("vertexai: image options must be an object")
+	}
+	*i = ImageGenerationOptions(*decoded)
+	return nil
+}
+
 var _ image.Model = (*ImageModel)(nil)
 
 // ImageModel implements Gemini native image generation on Vertex AI through
@@ -59,21 +73,13 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	clientConfig := &genai.ClientConfig{
-		Backend:    genai.BackendVertexAI,
-		Project:    config.Client.Project,
-		Location:   config.Client.Location,
-		HTTPClient: config.Client.HTTPClient,
-		HTTPOptions: genai.HTTPOptions{
-			APIVersion: vertexAPIVersion,
-			BaseURL:    config.Client.BaseURL,
-		},
-	}
-	client, err := genai.NewClient(ctx, clientConfig)
+	clientConfig := config.Client.protocol()
+	clientConfig.APIVersion = vertexAPIVersion
+	client, err := protocol.NewGenerationClient(ctx, clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("vertexai: create Gen AI client: %w", err)
 	}
-	return &ImageModel{client: protocol.NewGenerationClient(client), defaultOptions: config.DefaultOptions.Clone()}, nil
+	return &ImageModel{client: client, defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
 func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {

@@ -13,7 +13,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	corerag "github.com/Tangerg/scope/rag"
 )
 

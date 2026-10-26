@@ -44,23 +44,23 @@ func (l *LogExporter) Export(ctx context.Context, records []sdklog.Record) error
 		}
 		attrs := make([]stdslog.Attr, 0, 5)
 		if tid := rec.TraceID(); tid.IsValid() {
-			attrs = append(attrs, stdslog.String("trace_id", tid.String()))
+			attrs = append(attrs, stdslog.String(traceIDKey, tid.String()))
 		}
 		if sid := rec.SpanID(); sid.IsValid() {
-			attrs = append(attrs, stdslog.String("span_id", sid.String()))
+			attrs = append(attrs, stdslog.String(spanIDKey, sid.String()))
 		}
 		if scope := rec.InstrumentationScope().Name; scope != "" {
-			attrs = append(attrs, stdslog.String("scope", scope))
+			attrs = append(attrs, stdslog.String(scopeKey, scope))
 		}
 		if eventName := rec.EventName(); eventName != "" {
-			attrs = append(attrs, stdslog.String("event_name", eventName))
+			attrs = append(attrs, stdslog.String(eventNameKey, eventName))
 		}
 		attributes := make([]stdslog.Attr, 0, rec.AttributesLen())
 		rec.WalkAttributes(func(kv attribute.KeyValue) bool {
-			attributes = append(attributes, logKVToSlog(kv))
+			attributes = append(attributes, attributeToSlog(kv))
 			return true
 		})
-		attrs = append(attrs, stdslog.GroupAttrs("attributes", attributes...))
+		attrs = append(attrs, stdslog.GroupAttrs(attributesKey, attributes...))
 		l.logger.LogAttrs(ctx, severityToLevel(rec.Severity()), rec.Body().String(), attrs...)
 	}
 	return nil
@@ -94,21 +94,5 @@ func severityToLevel(s otellog.Severity) stdslog.Level {
 		return stdslog.LevelInfo
 	default:
 		return stdslog.LevelDebug
-	}
-}
-
-func logKVToSlog(kv attribute.KeyValue) stdslog.Attr {
-	key := string(kv.Key)
-	switch v := kv.Value; v.Type() {
-	case attribute.BOOL:
-		return stdslog.Bool(key, v.AsBool())
-	case attribute.INT64:
-		return stdslog.Int64(key, v.AsInt64())
-	case attribute.FLOAT64:
-		return stdslog.Float64(key, v.AsFloat64())
-	case attribute.STRING:
-		return stdslog.String(key, v.AsString())
-	default:
-		return stdslog.String(key, v.String())
 	}
 }

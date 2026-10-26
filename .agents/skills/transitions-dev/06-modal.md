@@ -74,21 +74,26 @@ The `@media (prefers-reduced-motion: reduce)` guard at the bottom of the snippet
 ## JavaScript orchestration
 
 ```js
-// Same close-then-cleanup pattern as the dropdown — modals scale from
-// --modal-scale up to 1, then on close dip to --modal-scale-close.
 const modal = document.querySelector(".t-modal");
 const closeMs = parseFloat(
   getComputedStyle(document.documentElement).getPropertyValue("--modal-close-dur")
 ) || 150;
+let closeTimer = null;
 
 function openModal() {
+  clearTimeout(closeTimer);
+  closeTimer = null;
   modal.classList.remove("is-closing");
   modal.classList.add("is-open");
 }
 function closeModal() {
+  clearTimeout(closeTimer);
   modal.classList.remove("is-open");
   modal.classList.add("is-closing");
-  setTimeout(() => modal.classList.remove("is-closing"), closeMs);
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    modal.classList.remove("is-closing");
+  }, closeMs);
 }
 ```
 

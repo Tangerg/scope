@@ -281,27 +281,22 @@ func responsesInterleavedEvents() []modeltest.AnthropicEvent {
 	return []modeltest.AnthropicEvent{
 		{Event: "response.created", Data: `{"type":"response.created","sequence_number":1,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"in_progress","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1}}`},
 
-		// reasoning item: added (id pickup) + text delta + done (signature)
 		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[],"status":"in_progress"}}`},
 		{Event: "response.reasoning_summary_text.delta", Data: `{"type":"response.reasoning_summary_text.delta","sequence_number":3,"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"想想看"}`},
 		{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","sequence_number":4,"output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"}}`},
 
-		// first text message: added + delta
 		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":5,"output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","status":"in_progress","content":[]}}`},
 		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":6,"item_id":"msg_1","output_index":1,"content_index":0,"delta":"先查天气：","logprobs":[]}`},
 		{Event: "response.output_text.annotation.added", Data: `{"type":"response.output_text.annotation.added","sequence_number":7,"item_id":"msg_1","output_index":1,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}}`},
 
-		// function call: added (gets id mapping rs_1 → call_w) + arg delta
 		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":8,"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"","status":"in_progress"}}`},
 		{Event: "response.function_call_arguments.delta", Data: `{"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_1","output_index":2,"delta":"{\"city\":\"BJ\"}"}`},
 
 		{Event: "response.output_item.done", Data: `{"type":"response.output_item.done","sequence_number":10,"output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"{\"city\":\"BJ\"}","status":"completed"}}`},
 
-		// trailing text
 		{Event: "response.output_item.added", Data: `{"type":"response.output_item.added","sequence_number":11,"output_index":3,"item":{"type":"message","id":"msg_2","role":"assistant","status":"in_progress","content":[]}}`},
 		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","sequence_number":12,"item_id":"msg_2","output_index":3,"content_index":0,"delta":"等结果。","logprobs":[]}`},
 
-		// completed: usage + finish reason via final Response.output
 		{Event: "response.completed", Data: `{"type":"response.completed","sequence_number":13,"response":{"id":"resp_x","object":"response","model":"gpt-5","created_at":1700000000,"status":"completed","error":null,"incomplete_details":null,"instructions":null,"metadata":null,"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"想想看"}],"encrypted_content":"enc_xyz","status":"completed"},{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"先查天气：","annotations":[{"type":"url_citation","url":"https://example.com/weather","title":"Weather source","start_index":0,"end_index":6}]}]},{"type":"function_call","id":"fc_1","call_id":"call_w","name":"weather","arguments":"{\"city\":\"BJ\"}","status":"completed"},{"type":"message","id":"msg_2","role":"assistant","status":"completed","content":[{"type":"output_text","text":"等结果。","annotations":[]}]}],"parallel_tool_calls":false,"temperature":1,"tool_choice":"auto","tools":[],"top_p":1,"usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":3}}}}`},
 	}
 }
@@ -314,16 +309,32 @@ func writeResponsesCompletion(writer http.ResponseWriter) {
 }
 
 func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
-	for _, body := range []string{`{}`, `null`, `{"input_tokens":null}`, `{"input_tokens":"bogus"}`, `{"input_tokens":-1}`, `{"input_tokens":0}`, `{"input_tokens":7}`} {
-		t.Run(body, func(t *testing.T) {
-			server := modeltest.JSONServer(http.StatusOK, body)
+	for _, test := range []struct {
+		body       string
+		wantTokens *int64
+	}{
+		{body: `{}`},
+		{body: `null`},
+		{body: `{"input_tokens":null}`},
+		{body: `{"input_tokens":"bogus"}`},
+		{body: `{"input_tokens":-1}`},
+		{body: `{"input_tokens":0}`, wantTokens: new(int64(0))},
+		{body: `{"input_tokens":7}`, wantTokens: new(int64(7))},
+	} {
+		t.Run(test.body, func(t *testing.T) {
+			server := modeltest.JSONServer(http.StatusOK, test.body)
 			defer server.Close()
 			model := newResponsesModel(t, server.URL, "model")
 			request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("text")))
 			count, err := model.CountInputTokens(t.Context(), request)
-			valid := body == `{"input_tokens":0}` || body == `{"input_tokens":7}`
-			if valid != (err == nil) {
-				t.Fatalf("count=%d err=%v", count, err)
+			if test.wantTokens == nil {
+				if err == nil {
+					t.Fatalf("invalid count accepted: count=%d", count)
+				}
+				return
+			}
+			if err != nil || count != *test.wantTokens {
+				t.Fatalf("count=%d want=%d err=%v", count, *test.wantTokens, err)
 			}
 		})
 	}

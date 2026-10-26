@@ -53,11 +53,25 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 }
 
 type embeddingRequest struct {
-	Model          string   `json:"model"`
-	Texts          []string `json:"texts"`
-	TaskType       string   `json:"task_type,omitempty"`
-	Dimensionality *int64   `json:"dimensionality,omitzero"`
-	LongTextMode   string   `json:"long_text_mode,omitempty"`
+	Model            string   `json:"model"`
+	Texts            []string `json:"texts"`
+	TaskType         string   `json:"task_type,omitempty"`
+	Dimensionality   *int64   `json:"dimensionality,omitzero"`
+	LongTextMode     string   `json:"long_text_mode,omitempty"`
+	MaxTokensPerText *int64   `json:"max_tokens_per_text,omitzero"`
+}
+
+func (e *embeddingRequest) UnmarshalJSON(data []byte) error {
+	type wireRequest embeddingRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("nomic: embedding options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("nomic: embedding options must be an object")
+	}
+	*e = embeddingRequest(*decoded)
+	return nil
 }
 
 type embeddingResponse struct {

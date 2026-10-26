@@ -2,14 +2,20 @@ package protocol
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
-	"slices"
+	"fmt"
+	"mime"
+	"strings"
 
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
+
+const speechMediaTypePrefix = "audio/"
 
 type speechBinding struct {
 	api            *api
@@ -43,23 +49,23 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 		return "", nil, nil, validateOptionsErr
 	}
 
-	cfgValue, _, err := effectiveOptions.Extensions.Decode[genai.GenerateContentConfig](protocolKey(s.provider, "speech_request"))
-
-	config := &cfgValue
+	config, fields, err := decodeGenerationConfig(effectiveOptions.Extensions, protocolKey(s.provider, "speech_request"))
 	if err != nil {
 		return "", nil, nil, err
 	}
-
-	// Force AUDIO output. The caller may have set ResponseModalities via
-	// Extra (e.g. ["AUDIO", "TEXT"] for hybrid response); preserve that
-	// when it already includes AUDIO, otherwise overwrite.
-	if !slices.Contains(config.ResponseModalities, string(genai.ModalityAudio)) {
-		config.ResponseModalities = []string{string(genai.ModalityAudio)}
+	if _, found := fields["responseModalities"]; found {
+		return "", nil, nil, errors.New("google: speech: responseModalities is owned by the audio capability")
 	}
-
-	if config.SpeechConfig != nil && config.SpeechConfig.VoiceConfig != nil {
-		return "", nil, nil, errors.New("google: speech: native voiceConfig is owned by Core Voice")
+	if raw, found := fields["speechConfig"]; found {
+		var speechFields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(raw, &speechFields); err != nil {
+			return "", nil, nil, err
+		}
+		if _, found := speechFields["voiceConfig"]; found {
+			return "", nil, nil, errors.New("google: speech: native voiceConfig is owned by Core Voice")
+		}
 	}
+	config.ResponseModalities = []string{string(genai.ModalityAudio)}
 	if effectiveOptions.Voice != "" {
 		if config.SpeechConfig == nil {
 			config.SpeechConfig = &genai.SpeechConfig{}
@@ -93,7 +99,7 @@ func (*speechBinding) validateOptions(options speech.Options) error {
 // terminating the whole stream.
 var errNoAudio = errors.New("google: tts chunk has no audio inline-data parts")
 
-func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse) (*speech.Response, error) {
+func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse, format *speechAudioFormat) (*speech.Response, error) {
 	if apiResp == nil || len(apiResp.Candidates) == 0 {
 		return nil, errNoAudio
 	}
@@ -105,12 +111,7 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 		return nil, errNoAudio
 	}
 
-	// Capture mime type from the first audio-bearing Part — preceding
-	// Parts may be thought / metadata with nil InlineData.
-	var (
-		audio    []byte
-		mimeType string
-	)
+	var audio []byte
 	for _, part := range apiResp.Candidates[0].Content.Parts {
 		if part == nil {
 			return nil, errors.New("google: speech: null content part")
@@ -118,8 +119,8 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 		if part.InlineData == nil || len(part.InlineData.Data) == 0 {
 			continue
 		}
-		if mimeType == "" {
-			mimeType = part.InlineData.MIMEType
+		if err := format.accept(part.InlineData.MIMEType); err != nil {
+			return nil, err
 		}
 		audio = append(audio, part.InlineData.Data...)
 	}
@@ -128,10 +129,8 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 	}
 
 	var outputMetadata metadata.Map
-	if mimeType != "" {
-		if err := outputMetadata.Set(protocolKey(s.provider, "mime_type"), mimeType); err != nil {
-			return nil, err
-		}
+	if err := outputMetadata.Set(protocolKey(s.provider, "mime_type"), string(*format)); err != nil {
+		return nil, err
 	}
 
 	output, err := speech.NewOutput(audio, outputMetadata)
@@ -145,4 +144,21 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse)
 	}
 
 	return speech.NewResponse(output, meta)
+}
+
+// Concatenated audio must retain one encoding and sample rate across all parts
+// and stream chunks; a new header cannot make earlier bytes use a new format.
+type speechAudioFormat string
+
+func (s *speechAudioFormat) accept(value string) error {
+	mediaType, parameters, err := mime.ParseMediaType(value)
+	if err != nil || !strings.HasPrefix(mediaType, speechMediaTypePrefix) {
+		return fmt.Errorf("google: %w: invalid speech MIME type %q", speech.ErrInvalidResponse, value)
+	}
+	canonical := speechAudioFormat(mime.FormatMediaType(mediaType, parameters))
+	if *s != "" && *s != canonical {
+		return fmt.Errorf("google: %w: speech format changed from %q to %q", speech.ErrInvalidResponse, *s, canonical)
+	}
+	*s = canonical
+	return nil
 }

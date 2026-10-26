@@ -63,6 +63,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		}
 
 		var pending *speech.Response
+		var format speechAudioFormat
 		finished := false
 		var servedModel string
 		for chunk, err := range s.binding.api.chatCompletionStream(ctx, modelName, contents, config) {
@@ -78,7 +79,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			if chunk.ModelVersion != "" {
 				servedModel = chunk.ModelVersion
 			}
-			resp, err := s.binding.buildTTSResponse(chunk)
+			resp, err := s.binding.buildTTSResponse(chunk, &format)
 			if err != nil {
 				if !errors.Is(err, errNoAudio) {
 					yield(nil, err)

@@ -45,7 +45,8 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Out
 	if err := format.validate(); err != nil {
 		return zero, err
 	}
-	response, err := c.call(ctx, req, &format.contract)
+	contract := format.contract()
+	response, err := c.call(ctx, req, &contract)
 	return format.decodeResponse(response, err)
 }
 

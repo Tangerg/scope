@@ -119,3 +119,51 @@ func TestExternalPackageCanComposeAndRunDefinition(t *testing.T) {
 		}
 	})
 }
+
+func TestExampleDefinitionDoesNotPublishFailedSettlementAsOutput(t *testing.T) {
+	definition, err := newEchoDefinition()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+		ReplayPolicy: agent.ReplayPolicyNever,
+		Calls: []agenttest.ScriptedCall{{
+			SettlementStatus: agent.SettlementStatusFailed, SettlementPayload: json.RawMessage(`{"value":"failed attempt"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+		Definition: definition, Dispatcher: dispatcher,
+		ImplementationDigest: agent.ComputeDigest([]byte("example-echo-failure")),
+		ConfigurationDigest:  agent.ComputeDigest([]byte("failed-settlement")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	input, err := agent.EncodePayload(echoInput{Value: "requested"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Run(t.Context(), deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, failed := result.Termination().Failure()
+	if !failed || failure.Kind() != agent.FailureKindExternal || failure.Code() != "example.echo.failed" {
+		t.Fatalf("failed settlement became a completed echo: %+v", result.Termination())
+	}
+	if _, present := result.Termination().Output(); present {
+		t.Fatal("failed settlement payload escaped as a successful output")
+	}
+}

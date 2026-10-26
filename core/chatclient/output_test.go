@@ -131,7 +131,7 @@ func TestClientOutputSnapshotsSchema(t *testing.T) {
 	if _, err := client.Output(t.Context(), textRequest("tea"), format); err != nil {
 		t.Fatal(err)
 	}
-	if format.contract.Schema[0] != '{' {
+	if format.contract().Schema[0] != '{' {
 		t.Fatal("provider mutation escaped the output format snapshot")
 	}
 }

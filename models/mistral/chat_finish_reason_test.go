@@ -6,10 +6,6 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// Mistral's own client types the field as one of five literals — stop, length,
-// model_length, error, tool_calls — or an unrecognized string. error used to
-// reach Other through the default branch, which files a documented value under
-// "not classified", the one thing Core reserves Other against.
 func TestFinishReasonCoversEveryDocumentedValue(t *testing.T) {
 	t.Parallel()
 

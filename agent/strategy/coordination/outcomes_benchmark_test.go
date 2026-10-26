@@ -36,7 +36,6 @@ func BenchmarkRecordOutcomes(b *testing.B) {
 	}
 }
 
-// benchmarkDeploymentRef names the Deployment every test candidate requests.
 func benchmarkDeploymentRef(t testing.TB) agent.DeploymentRef {
 	t.Helper()
 	schema, err := jsonschema.For[string]()

@@ -435,9 +435,6 @@ func testChildWaitSpec(t testing.TB, key string) ChildWaitSpec {
 	}
 }
 
-// openTestChildWait opens spec with the Signal the Engine would announce it by.
-// openTestChildWait opens waitID with the acknowledgement identity the wait
-// derives, as the Engine does.
 func openTestChildWait(t testing.TB, mailbox *signalMailbox, waitID WaitID, spec ChildWaitSpec) {
 	t.Helper()
 	opening := controlValue(NewSignal(waitID.openingSignalID(), waitID, childWaitOpenedPayload()))
@@ -471,4 +468,67 @@ func waitOpenings(wire mailboxWire) int {
 
 func mailboxRecordWire(signal Signal) signalRecordWire {
 	return newSignalRecord(signal).wire()
+}
+
+func TestMailboxRejectsConflictingWaitOpeningsAtomically(t *testing.T) {
+	key := controlValue(ParseWaitKey("approval"))
+	waitID := controlValue(ParseWaitID("wait:approval"))
+	spec := externalWaitSpecFor(key)
+	opening := controlValue(NewSignal(waitID.openingSignalID(), waitID, waitOpenedPayload()))
+	for _, test := range []struct {
+		name    string
+		prepare func(*signalMailbox)
+		spec    ExternalWaitSpec
+		signal  Signal
+	}{
+		{name: "invalid wait contract", signal: opening},
+		{name: "missing wait address", spec: spec, signal: mustMailboxSignal(t, "signal:opening", WaitID{}, waitOpenedPayload())},
+		{name: "external opening identity", spec: spec, signal: mustMailboxSignal(t, "signal:opening", waitID, waitOpenedPayload())},
+		{name: "unexpected opening content", spec: spec, signal: controlValue(NewSignal(waitID.openingSignalID(), waitID, []byte(`{}`)))},
+		{name: "duplicate wait identity", spec: spec, signal: opening, prepare: func(mailbox *signalMailbox) {
+			if err := mailbox.openWait(spec, opening); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "key already open", spec: spec, signal: opening, prepare: func(mailbox *signalMailbox) {
+			other := controlValue(ParseWaitID("wait:other"))
+			if err := mailbox.openWait(spec, controlValue(NewSignal(other.openingSignalID(), other, waitOpenedPayload()))); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mailbox := newSignalMailbox()
+			if test.prepare != nil {
+				test.prepare(&mailbox)
+			}
+			before := controlValue(jsonv2.Marshal(mailbox.wire()))
+			if err := mailbox.openWait(test.spec, test.signal); !errors.Is(err, errWaitState) {
+				t.Fatalf("invalid wait opening = %v", err)
+			}
+			if after := controlValue(jsonv2.Marshal(mailbox.wire())); !bytes.Equal(before, after) {
+				t.Fatal("rejected opening changed the mailbox")
+			}
+		})
+	}
+}
+
+func TestMailboxRestoreRejectsUnownedWaitAndSettlementEvidence(t *testing.T) {
+	waitID := controlValue(ParseWaitID("wait:restored"))
+	spec := externalWaitSpecFor(controlValue(ParseWaitKey("restored")))
+	for _, test := range []struct {
+		name   string
+		record signalRecordWire
+	}{
+		{"invalid signal", signalRecordWire{Payload: []byte(`null`)}},
+		{"invalid wait identity", signalRecordWire{ID: controlValue(ParseSignalID("signal:input")), WaitID: new(WaitID), Payload: []byte(`null`)}},
+		{"opening without wait identity", signalRecordWire{ID: waitID.openingSignalID(), Opens: &waitOpeningWire{External: &externalWaitSpecWire{Key: spec.Key()}}}},
+		{"external signal with settlement status", signalRecordWire{ID: controlValue(ParseSignalID("signal:input")), Status: SettlementStatusSucceeded, Payload: []byte(`null`)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := restoreSignalMailbox(mailboxWire{Signals: []signalRecordWire{test.record}}); err == nil {
+				t.Fatal("unowned mailbox evidence was accepted")
+			}
+		})
+	}
 }

@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -57,7 +58,7 @@ func TestMutationErrorsPreserveAcknowledgementsWithoutInventingOutcome(t *testin
 			if !errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, chat.ToolOutput{}) {
 				t.Fatalf("interrupted call = %+v, %v", output, err)
 			}
-			if failure, found := errors.AsType[*tool.Failure](err); found {
+			if failure, found := tool.ClassifyFailure(err); found {
 				t.Fatalf("interrupted mutation became a completed failure: %v", failure)
 			}
 			callErr, found := errors.AsType[*tool.CallError](err)
@@ -75,7 +76,7 @@ func TestMutationToolsPreserveBackendOutcomeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := interruptedMutation{err: errors.Join(ErrMutationRejected, failure)}
+	backend := interruptedMutation{err: fmt.Errorf("backend: %w", failure)}
 	write, err := NewWriteTool(backend)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +98,7 @@ func TestMutationToolsPreserveBackendOutcomeAuthority(t *testing.T) {
 		{tool: patch, arguments: `{"patch":"opaque remote request"}`},
 	} {
 		_, err := invokeTestTool(t.Context(), test.tool, test.arguments)
-		got, found := errors.AsType[*tool.Failure](err)
+		got, found := tool.ClassifyFailure(err)
 		if !found || got != failure || got.Kind() != tool.FailureKindRejected || !reflect.DeepEqual(got.Output(), failure.Output()) {
 			t.Fatalf("backend outcome changed: %v", err)
 		}
@@ -122,7 +123,7 @@ func TestMutationToolPreservesExplicitEvidenceBeforeRejectionClassification(t *t
 	if !found || got != callErr || !reflect.DeepEqual(got.Evidence(), want) {
 		t.Fatalf("explicit evidence was replaced by inferred outcome: %v", err)
 	}
-	if failure, definite := errors.AsType[*tool.Failure](err); definite {
+	if failure, definite := tool.ClassifyFailure(err); definite {
 		t.Fatalf("explicit evidence became a definite failure: %v", failure)
 	}
 }
@@ -155,7 +156,7 @@ func TestLocalMutationRejectionsRemainDefiniteToolFeedback(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := invokeTestTool(t.Context(), test.tool, test.arguments)
-			failure, found := errors.AsType[*tool.Failure](err)
+			failure, found := tool.ClassifyFailure(err)
 			if !found || failure.Kind() != tool.FailureKindFailed || !errors.Is(failure.Cause(), ErrMutationRejected) {
 				t.Fatalf("pre-commit rejection = %v", err)
 			}

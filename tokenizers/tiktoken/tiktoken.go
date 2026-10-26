@@ -145,6 +145,9 @@ func (t Tokenizer) Decode(ctx context.Context, tokens []int) (string, error) {
 		}
 		text.WriteString(decoded)
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	return text.String(), nil
 }
 

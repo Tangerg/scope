@@ -3,30 +3,30 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.57.1
-	github.com/Tangerg/scope/models/anthropic v0.57.1
-	github.com/Tangerg/scope/models/assemblyai v0.57.1
-	github.com/Tangerg/scope/models/bedrock v0.57.1
-	github.com/Tangerg/scope/models/blackforestlabs v0.57.1
-	github.com/Tangerg/scope/models/cohere v0.57.1
-	github.com/Tangerg/scope/models/elevenlabs v0.57.1
-	github.com/Tangerg/scope/models/gladia v0.57.1
-	github.com/Tangerg/scope/models/google v0.57.1
-	github.com/Tangerg/scope/models/hume v0.57.1
-	github.com/Tangerg/scope/models/jina v0.57.1
-	github.com/Tangerg/scope/models/luma v0.57.1
-	github.com/Tangerg/scope/models/mistral v0.57.1
-	github.com/Tangerg/scope/models/nomic v0.57.1
-	github.com/Tangerg/scope/models/ollama v0.57.1
-	github.com/Tangerg/scope/models/openai v0.57.1
-	github.com/Tangerg/scope/models/openrouter v0.57.1
-	github.com/Tangerg/scope/models/protocol/anthropic v0.57.1
-	github.com/Tangerg/scope/models/protocol/openai v0.57.1
-	github.com/Tangerg/scope/models/replicate v0.57.1
-	github.com/Tangerg/scope/models/revai v0.57.1
-	github.com/Tangerg/scope/models/voyage v0.57.1
-	github.com/Tangerg/scope/models/xiaomi v0.57.1
-	github.com/Tangerg/scope/tools v0.57.1
+	github.com/Tangerg/scope/core v0.58.0
+	github.com/Tangerg/scope/models/anthropic v0.58.0
+	github.com/Tangerg/scope/models/assemblyai v0.58.0
+	github.com/Tangerg/scope/models/bedrock v0.58.0
+	github.com/Tangerg/scope/models/blackforestlabs v0.58.0
+	github.com/Tangerg/scope/models/cohere v0.58.0
+	github.com/Tangerg/scope/models/elevenlabs v0.58.0
+	github.com/Tangerg/scope/models/gladia v0.58.0
+	github.com/Tangerg/scope/models/google v0.58.0
+	github.com/Tangerg/scope/models/hume v0.58.0
+	github.com/Tangerg/scope/models/jina v0.58.0
+	github.com/Tangerg/scope/models/luma v0.58.0
+	github.com/Tangerg/scope/models/mistral v0.58.0
+	github.com/Tangerg/scope/models/nomic v0.58.0
+	github.com/Tangerg/scope/models/ollama v0.58.0
+	github.com/Tangerg/scope/models/openai v0.58.0
+	github.com/Tangerg/scope/models/openrouter v0.58.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.58.0
+	github.com/Tangerg/scope/models/protocol/openai v0.58.0
+	github.com/Tangerg/scope/models/replicate v0.58.0
+	github.com/Tangerg/scope/models/revai v0.58.0
+	github.com/Tangerg/scope/models/voyage v0.58.0
+	github.com/Tangerg/scope/models/xiaomi v0.58.0
+	github.com/Tangerg/scope/tools v0.58.0
 )
 
 require (

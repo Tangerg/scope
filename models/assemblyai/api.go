@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/transcription"
 )
 
 type apiConfig struct {
@@ -85,6 +87,19 @@ type transcriptRequest struct {
 	WebhookURL                  string                     `json:"webhook_url,omitempty"`
 	WebhookAuthHeaderName       string                     `json:"webhook_auth_header_name,omitempty"`
 	SpeechUnderstanding         map[string]json.RawMessage `json:"speech_understanding,omitzero"`
+}
+
+func (t *transcriptRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions transcriptRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("assemblyai: transcription options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("assemblyai: transcription options must be an object")
+	}
+	*t = transcriptRequest(*decoded)
+	return nil
 }
 
 func (t *transcriptRequest) validate() error {
@@ -173,6 +188,9 @@ func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*tr
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
 	}
+	if out.ID == "" {
+		return nil, fmt.Errorf("%w: assemblyai: created transcript requires id", transcription.ErrInvalidResponse)
+	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("assemblyai: preserve create response: %w", err)
 	}
@@ -187,12 +205,15 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetResult(&out).
-		Get(pathTranscriptPrefix + id)
+		Get(pathTranscriptPrefix + url.PathEscape(id))
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: get transcript failed: %w", err)
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
+	}
+	if out.ID != id {
+		return nil, fmt.Errorf("%w: assemblyai: polled transcript id %q differs from submitted id %q", transcription.ErrInvalidResponse, out.ID, id)
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("assemblyai: preserve transcript response: %w", err)

@@ -82,7 +82,7 @@ func TestEmbeddingRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+				if err == nil || !strings.Contains(err.Error(), field) || calls != 0 {
 					t.Fatalf("requests=%d error=%v", calls, err)
 				}
 			})

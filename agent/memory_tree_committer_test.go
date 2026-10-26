@@ -108,3 +108,37 @@ func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryCommitterRejectsAbsentFactsWithoutMovingItsHead(t *testing.T) {
+	runtime, _ := newChildCompletionTestProcess(t)
+	store := runtime.engine.committer.(*MemoryTreeCommitter)
+	head := runtime.writer.head()
+	var missing *MemoryTreeCommitter
+	for _, committer := range []*MemoryTreeCommitter{missing, store} {
+		for _, commit := range []func() error{
+			func() error { return committer.ActivateTree(t.Context(), TreeActivation{}) },
+			func() error { return committer.CommitEffect(t.Context(), EffectBoundary{}) },
+			func() error { return committer.CommitCheckpoint(t.Context(), TreeCheckpoint{}) },
+		} {
+			if err := commit(); err == nil {
+				t.Fatal("absent fact was acknowledged")
+			}
+		}
+		if snapshot, found, err := committer.LoadTree(t.Context(), ProcessID{}); snapshot.Valid() || found || !errors.Is(err, ErrInvalidTreeSnapshot) {
+			t.Fatalf("missing root identity = %v, %t, %v", snapshot, found, err)
+		}
+	}
+	if snapshot, found, err := missing.LoadTree(t.Context(), head.RootID()); snapshot.Valid() || found || !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("missing store = %v, %t, %v", snapshot, found, err)
+	}
+	competing := controlValue(head.wire())
+	competing.IncarnationID = newTreeIncarnationID()
+	start := controlValue(newTreeCheckpoint(1, checkpointCauseCut, Digest{}, controlValue(newTreeSnapshot(competing))))
+	if err := store.CommitCheckpoint(t.Context(), start); !errors.Is(err, ErrTreeIncarnationConflict) {
+		t.Fatalf("another writer replaced the existing root: %v", err)
+	}
+	after, found, err := store.LoadTree(t.Context(), head.RootID())
+	if err != nil || !found || after.Digest() != head.Digest() || after.IncarnationID() != head.IncarnationID() {
+		t.Fatalf("rejected commit changed the acknowledged head: %v", err)
+	}
+}

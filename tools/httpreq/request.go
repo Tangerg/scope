@@ -72,12 +72,15 @@ func (r *Request) Validate() error {
 			return ErrHostHeaderOverride
 		}
 	}
-	if err := validateHeaderFields(r.Headers); err != nil {
-		return err
+	if headerErr := validateHeaderFields(r.Headers); headerErr != nil {
+		return headerErr
 	}
 	// The URL and Query both name query parameters; one name given by both
 	// would be sent twice and leave the server to pick a value.
-	urlQuery := parsed.Query()
+	urlQuery, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return fmt.Errorf("%w: query parameters cannot be checked for duplicate ownership: %w", ErrInvalidURL, err)
+	}
 	for name := range r.Query {
 		if urlQuery.Has(name) {
 			return fmt.Errorf("%w: %q", ErrDuplicateQueryParameter, name)

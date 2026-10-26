@@ -34,3 +34,12 @@ func TestCorpusBindingCannotRedirectTheAPIKey(t *testing.T) {
 		t.Fatalf("credential destinations=%v store=%v error=%v", transport.destinations, store, err)
 	}
 }
+
+func TestEndpointRejectsEmptyQueryAndFragment(t *testing.T) {
+	for _, endpoint := range []string{"https://api.example?", "https://api.example#", "https://api.example/base?", "https://api.example/base#"} {
+		config := StoreConfig{Endpoint: endpoint, APIKey: "credential", CorpusKey: "corpus", DocumentBatcher: testBatcher{}}
+		if err := config.Validate(); err == nil {
+			t.Fatalf("endpoint %q can absorb the corpus resource path", endpoint)
+		}
+	}
+}

@@ -220,7 +220,6 @@ var _ image.Model = (*ImageModel)(nil)
 // output contract; construct another adapter with the matching schema instead.
 type ImageModel struct {
 	predictions    predictionRunner
-	model          string
 	inputSchema    ImageInputSchema
 	defaultOptions image.Options
 }
@@ -238,8 +237,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 		return nil, err
 	}
 	return &ImageModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultPollTimeoutSeconds)*time.Second),
-		model:          config.DefaultOptions.Model,
+		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultPollTimeoutSeconds)*time.Second, image.ErrInvalidResponse),
 		inputSchema:    config.InputSchema.Clone(),
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil
@@ -265,8 +263,8 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 	if err != nil {
 		return image.Options{}, nil, err
 	}
-	if effectiveOptions.Model != i.model {
-		return image.Options{}, nil, fmt.Errorf("replicate: image: model override %q does not match bound schema for %q", effectiveOptions.Model, i.model)
+	if effectiveOptions.Model != i.defaultOptions.Model {
+		return image.Options{}, nil, fmt.Errorf("replicate: image: model override %q does not match bound schema for %q", effectiveOptions.Model, i.defaultOptions.Model)
 	}
 	if validateOptionsErr := i.inputSchema.validateOptions(effectiveOptions); validateOptionsErr != nil {
 		return image.Options{}, nil, validateOptionsErr
@@ -305,7 +303,7 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 	if effectiveOptions.OutputFormat != "" {
 		value, supported := i.inputSchema.OutputFormats[effectiveOptions.OutputFormat]
 		if !supported {
-			return image.Options{}, nil, fmt.Errorf("replicate: image: model %q does not support output format %q", i.model, effectiveOptions.OutputFormat)
+			return image.Options{}, nil, fmt.Errorf("replicate: image: model %q does not support output format %q", i.defaultOptions.Model, effectiveOptions.OutputFormat)
 		}
 		setInput(i.inputSchema.OutputFormatKey, value)
 	}

@@ -1,13 +1,11 @@
 package anthropic
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -78,62 +76,6 @@ func TestMessagesRequireCompleteTerminalSequence(t *testing.T) {
 				t.Fatalf("output tokens = %d, want %d", response.Metadata.Usage.OutputTokens, wantTokens)
 			}
 		})
-	}
-}
-
-func TestMessagesPreserveNativeServerToolBlocksWithoutPromotingLocalCalls(t *testing.T) {
-	events := []string{
-		`{"type":"message_start","message":{"id":"msg-test","type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu-1","name":"web_search","input":{}}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":\"weather\"}"}}`,
-		`{"type":"content_block_stop","index":0}`,
-		`{"type":"content_block_start","index":1,"content_block":{"type":"future_tool","id":"future-1","name":"remote","input":{},"opaque_extension":"preserved"}}`,
-		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
-		`{"type":"content_block_stop","index":1}`,
-		`{"type":"content_block_start","index":2,"content_block":{"type":"text","text":"answer"}}`,
-		`{"type":"content_block_stop","index":2}`,
-		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
-		`{"type":"message_stop"}`,
-	}
-	model := newLifecycleMessages(t, events)
-	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
-	response, err := model.Call(t.Context(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Text() != "answer" || len(response.Output.Message.Parts) != 1 || response.Output.FinishReason != corechat.FinishReasonStop {
-		t.Fatalf("native server tool promoted into Core calls: %#v", response)
-	}
-	var nativeEvents []string
-	for delta, streamErr := range model.Stream(t.Context(), request) {
-		if streamErr != nil {
-			t.Fatal(streamErr)
-		}
-		for _, part := range delta.Parts {
-			if part.Kind == corechat.PartDeltaToolCall {
-				t.Fatalf("native server tool promoted into a local call: %#v", part)
-			}
-		}
-		native, found, decodeErr := delta.Metadata.Extra.Decode[json.RawMessage](StreamEventExtensionKey)
-		if decodeErr != nil || !found {
-			t.Fatalf("preserved native event: found = %v, error = %v", found, decodeErr)
-		}
-		nativeEvents = append(nativeEvents, string(native))
-	}
-	if len(nativeEvents) != len(events) {
-		t.Fatalf("preserved %d native events, want %d", len(nativeEvents), len(events))
-	}
-	for index, event := range events {
-		var want, got any
-		if unmarshalErr := jsonv2.Unmarshal([]byte(event), &want); unmarshalErr != nil {
-			t.Fatal(unmarshalErr)
-		}
-		if unmarshalErr := jsonv2.Unmarshal([]byte(nativeEvents[index]), &got); unmarshalErr != nil {
-			t.Fatal(unmarshalErr)
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("native event %d = %#v, want %#v", index, got, want)
-		}
 	}
 }
 

@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/blackforestlabs
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.57.1
+	github.com/Tangerg/scope/core v0.58.0
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/samber/lo v1.53.0
 )

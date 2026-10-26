@@ -52,7 +52,6 @@ func ExampleApplyPatchTool_MutationPaths() {
 	if err != nil {
 		panic(err)
 	}
-	// Querying the prospective endpoints neither reads nor changes these files.
 	paths, err := patch.MutationPaths([]byte(`{"patch":"diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n"}`))
 	if err != nil {
 		panic(err)

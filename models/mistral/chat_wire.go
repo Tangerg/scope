@@ -33,13 +33,33 @@ type toolType string
 
 const toolTypeFunction toolType = "function"
 
-type toolChoice string
+type toolChoiceMode string
 
 const (
-	toolChoiceAuto toolChoice = "auto"
-	toolChoiceNone toolChoice = "none"
-	toolChoiceAny  toolChoice = "any"
+	toolChoiceAuto toolChoiceMode = "auto"
+	toolChoiceNone toolChoiceMode = "none"
+	toolChoiceAny  toolChoiceMode = "any"
 )
+
+type toolChoice struct {
+	mode toolChoiceMode
+	name string
+}
+
+func (t toolChoice) MarshalJSON() ([]byte, error) {
+	if t.name == "" {
+		return jsonv2.Marshal(t.mode)
+	}
+	var named struct {
+		Type     toolType `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	named.Type = toolTypeFunction
+	named.Function.Name = t.name
+	return jsonv2.Marshal(named)
+}
 
 type outputFormatType string
 
@@ -128,13 +148,14 @@ type chatCompletionRequest struct {
 	Messages          []chatMessage            `json:"messages"`
 	Temperature       *float64                 `json:"temperature,omitzero"`
 	TopP              *float64                 `json:"top_p,omitzero"`
+	TopK              *int64                   `json:"top_k,omitzero"`
 	MaxTokens         *int64                   `json:"max_tokens,omitzero"`
 	Stream            bool                     `json:"stream"`
 	Stop              []string                 `json:"stop,omitzero"`
 	PresencePenalty   *float64                 `json:"presence_penalty,omitzero"`
 	FrequencyPenalty  *float64                 `json:"frequency_penalty,omitzero"`
 	Tools             []chatTool               `json:"tools,omitempty"`
-	ToolChoice        toolChoice               `json:"tool_choice,omitempty"`
+	ToolChoice        *toolChoice              `json:"tool_choice,omitzero"`
 	ParallelToolCalls *bool                    `json:"parallel_tool_calls,omitzero"`
 	ResponseFormat    *responseFormat          `json:"response_format,omitzero"`
 	chatRequestOptions

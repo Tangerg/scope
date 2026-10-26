@@ -297,7 +297,7 @@ func TestEngineCapturesAndRestoresCompleteWaitingTree(t *testing.T) {
 			candidate.ProcessSnapshots[index] = changed
 			break
 		}
-		encoded, encodeErr := jsonv2.Marshal(candidate)
+		encoded, encodeErr := candidate.encode()
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}

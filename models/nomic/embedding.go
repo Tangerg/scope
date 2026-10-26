@@ -31,7 +31,6 @@ func (e EmbeddingModelConfig) Validate() error {
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
 
-// EmbeddingModel implements the Core embedding contract with Nomic.
 type EmbeddingModel struct {
 	api            *api
 	defaultOptions embedding.Options

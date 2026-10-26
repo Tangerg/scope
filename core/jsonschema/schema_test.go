@@ -349,15 +349,8 @@ func TestForSupportsCompositePointerAndEncodingSemantics(t *testing.T) {
 	if _, schemaErr := jsonschema.For[badPattern](); schemaErr == nil {
 		t.Fatal("invalid pattern succeeded")
 	}
-	encoded, err := jsonschema.For[stringEncoded]()
-	if err != nil {
-		t.Fatalf("encoding/json string option: %v", err)
-	}
-	if err := encoded.Validate([]byte(`{"value":"42"}`)); err != nil {
-		t.Fatalf("string-encoded field rejected its wire representation: %v", err)
-	}
-	if err := encoded.Validate([]byte(`{"value":42}`)); err == nil {
-		t.Fatal("string-encoded field accepted a JSON number")
+	if _, err := jsonschema.For[stringEncoded](); !errors.Is(err, jsonschema.ErrInvalid) || !errors.Is(err, jsonschema.ErrUnsupportedStringTag) {
+		t.Fatalf("string-encoded number established an unenforced numeric contract: %v", err)
 	}
 	if _, err := jsonschema.For[chan int](); err == nil {
 		t.Fatal("unsupported Go type succeeded")

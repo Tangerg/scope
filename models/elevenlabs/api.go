@@ -62,6 +62,19 @@ type ttsRequest struct {
 	OptimizeStreamingLatency *int    `json:"optimize_streaming_latency,omitzero"`
 }
 
+func (t *ttsRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions ttsRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("elevenlabs: request options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("elevenlabs: request options must be an object")
+	}
+	*t = ttsRequest(*decoded)
+	return nil
+}
+
 type ttsBody struct {
 	Text                            string                           `json:"text"`
 	ModelID                         string                           `json:"model_id,omitempty"`
@@ -147,6 +160,19 @@ type transcriptionRequest struct {
 	UseSpeakerLibrary     *bool    `json:"use_speaker_library,omitzero"`
 	DetectSpeakerRoles    *bool    `json:"detect_speaker_roles,omitzero"`
 	Keyterms              []string `json:"keyterms,omitzero"`
+}
+
+func (t *transcriptionRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions transcriptionRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("elevenlabs: request options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("elevenlabs: request options must be an object")
+	}
+	*t = transcriptionRequest(*decoded)
+	return nil
 }
 
 func (t *transcriptionRequest) form() (map[string]string, error) {

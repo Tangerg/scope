@@ -83,8 +83,8 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	if effectiveOptions.Model != ModelOctave1 && effectiveOptions.Model != ModelOctave2 {
 		return nil, fmt.Errorf("hume: speech: model must be %q or %q", ModelOctave1, ModelOctave2)
 	}
-	if body.NumGenerations > 1 {
-		return nil, errors.New("hume: speech: num_generations greater than 1 cannot be represented by Core's single-output response")
+	if body.NumGenerations != nil && *body.NumGenerations != 1 {
+		return nil, errors.New("hume: speech: num_generations must be 1 for Core's single-output response")
 	}
 	if len(body.Utterances) == 0 {
 		body.Utterances = []utterance{{}}
@@ -106,7 +106,7 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	body.Version = effectiveOptions.Model
 	if effectiveOptions.OutputFormat != "" {
 		switch effectiveOptions.OutputFormat {
-		case "mp3", "wav", "pcm":
+		case audioFormatMP3, audioFormatWAV, audioFormatPCM:
 		default:
 			return nil, errors.New("hume: speech: output_format must be mp3, wav, or pcm")
 		}

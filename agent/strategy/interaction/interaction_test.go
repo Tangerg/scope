@@ -180,6 +180,7 @@ func TestManagedInteractionPreservesUnknownToolOutcomes(t *testing.T) {
 		{name: "host failure", cause: errors.New("tool boundary unavailable")},
 		{name: "cancellation", cause: context.Canceled},
 		{name: "deadline", cause: context.DeadlineExceeded},
+		{name: "joined definite and unknown", cause: errors.Join(privateOutcome, errors.New("another operation lost its result"))},
 		{name: "panic", panics: true},
 		{name: "invalid output", invalidOutput: true},
 		{name: "authorization failed", cause: errors.New("private policy failure"), authorization: true},

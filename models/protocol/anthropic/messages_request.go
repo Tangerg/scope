@@ -58,7 +58,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		}
 		options = req.Options
 	}
-	for _, name := range []string{"model", "messages", "system", "tools", "max_tokens", "temperature", "tool_choice", "top_k", "top_p", "stop_sequences"} {
+	for _, name := range []string{"model", "messages", "system", "tools", "stream", "max_tokens", "temperature", "tool_choice", "top_k", "top_p", "stop_sequences"} {
 		if _, exists := fields[name]; exists {
 			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
 		}

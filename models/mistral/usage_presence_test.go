@@ -7,18 +7,19 @@ import (
 
 func TestUsageRequiresBothReportedTotals(t *testing.T) {
 	for _, sample := range []struct {
-		wire  string
-		known bool
+		wire          string
+		known         bool
+		input, output int64
 	}{
-		{`null`, false}, {`{}`, false}, {`{"prompt_tokens":3}`, false},
-		{`{"prompt_tokens":0,"completion_tokens":0}`, true},
-		{`{"prompt_tokens":3,"completion_tokens":2}`, true},
+		{`null`, false, 0, 0}, {`{}`, false, 0, 0}, {`{"prompt_tokens":3}`, false, 0, 0},
+		{`{"prompt_tokens":0,"completion_tokens":0}`, true, 0, 0},
+		{`{"prompt_tokens":3,"completion_tokens":2}`, true, 3, 2},
 	} {
 		var report *chatUsage
 		if err := jsonv2.Unmarshal([]byte(sample.wire), &report); err != nil {
 			t.Fatal(err)
 		}
-		if actual := report.usage(); (actual != nil) != sample.known {
+		if actual := report.usage(); (actual != nil) != sample.known || actual != nil && (actual.InputTokens != sample.input || actual.OutputTokens != sample.output) {
 			t.Fatalf("accounting %s = %+v", sample.wire, actual)
 		}
 	}

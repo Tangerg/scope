@@ -13,6 +13,7 @@ import (
 	"time"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
+	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/media"
@@ -81,9 +82,12 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	httpClient := config.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	httpClient := *http.DefaultClient
+	if config.HTTPClient != nil {
+		httpClient = *config.HTTPClient
+	}
+	if lo.IsNil(httpClient.Transport) {
+		httpClient.Transport = http.DefaultTransport
 	}
 	pollInterval := config.PollInterval
 	if pollInterval == 0 {
@@ -96,7 +100,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	return &ImageModel{
 		api:            api,
 		defaultOptions: config.DefaultOptions.Clone(),
-		httpClient:     httpClient,
+		httpClient:     &httpClient,
 		pollInterval:   pollInterval,
 		pollTimeout:    pollTimeout,
 		maxOutputBytes: cmp.Or(config.MaxOutputBytes, DefaultMaxOutputBytes),

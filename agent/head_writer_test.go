@@ -17,3 +17,25 @@ func TestHeadWriterStampsItsIdentityOnActivation(t *testing.T) {
 		t.Fatal("stored activation does not carry this writer's identity")
 	}
 }
+
+func TestHeadWriterAcceptsOnlyTheCurrentCommitAcknowledgment(t *testing.T) {
+	runtime, _, prospective := effectBoundaryFixture(t, 1, 64)
+	writer := runtime.writer
+	writer.committer = &recordingTreeCommitter{}
+	previous := writer.head()
+	commit := &treeCommit{kind: treeCommitCheckpoint, snapshot: prospective}
+	if err := writer.commitCheckpoint(t.Context(), commit, checkpointCauseCut); err != nil {
+		t.Fatal(err)
+	}
+	completion := receiveTreeRuntimeProbe(t, writer.done)
+	stale := treeCommitCompletion{commit: &treeCommit{kind: commit.kind, snapshot: prospective}}
+	if accepted, current := writer.settle(stale); current || accepted != nil || !writer.committing() || writer.head().Digest() != previous.Digest() || writer.sequence != 0 {
+		t.Fatal("another commit's acknowledgment displaced the current durable write")
+	}
+	if accepted, current := writer.settle(completion); !current || accepted != commit || completion.err != nil || writer.committing() || writer.head().Digest() != prospective.Digest() || writer.sequence != 1 {
+		t.Fatal("current acknowledgment did not adopt exactly one durable head")
+	}
+	if accepted, current := writer.settle(completion); current || accepted != nil || writer.sequence != 1 {
+		t.Fatal("duplicate acknowledgment advanced the durable sequence")
+	}
+}

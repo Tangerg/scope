@@ -14,7 +14,7 @@ func TestWebRejectsUnencodableOwnedText(t *testing.T) {
 	if _, err := (&FetchRequest{URL: "https://example.test/\xff"}).Prepare(); !errors.Is(err, ErrInvalidURL) {
 		t.Fatalf("Prepare() = %v", err)
 	}
-	if validationErr := (&FetchResponse{Content: "\xff", Format: FormatText}).Validate(); !errors.Is(validationErr, ErrInvalidFetchResponse) {
+	if validationErr := (&FetchResponse{Content: "\xff", Format: FormatText}).ValidateFor(&FetchRequest{URL: "https://example.test", Format: FormatText}); !errors.Is(validationErr, ErrInvalidFetchResponse) {
 		t.Fatalf("fetch Validate() = %v", validationErr)
 	}
 	for _, mutate := range []func(*SearchResponse){
@@ -70,7 +70,7 @@ func TestSearchPreservesTextAndPublishedInstant(t *testing.T) {
 		t.Fatal("search facts changed during encoding")
 	}
 	for _, content := range []string{"", value} {
-		if validationErr := (&FetchResponse{Content: content, Format: FormatText}).Validate(); validationErr != nil {
+		if validationErr := (&FetchResponse{Content: content, Format: FormatText}).ValidateFor(&FetchRequest{URL: "https://example.test", Format: FormatText}); validationErr != nil {
 			t.Fatal(validationErr)
 		}
 	}

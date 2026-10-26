@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+
+	"github.com/Tangerg/scope/tools/content"
 )
 
 type ripgrepEventType string
@@ -273,7 +275,12 @@ type budgetReader struct {
 
 func (b *budgetReader) Read(p []byte) (int, error) {
 	if b.decoder.remaining <= 0 {
-		return 0, errGrepOutputBudget
+		var probe [1]byte
+		n, err := b.reader.Read(probe[:])
+		if n > 0 {
+			return 0, errGrepOutputBudget
+		}
+		return 0, err
 	}
 	if len(p) > b.decoder.remaining {
 		p = p[:b.decoder.remaining]
@@ -324,11 +331,14 @@ func (r *ripgrepDecoder) acceptLine(event ripgrepEvent) error {
 	if match {
 		kind = GrepLineMatch
 	}
+	if line, terminated := strings.CutSuffix(text, "\n"); terminated {
+		text = strings.TrimSuffix(line, "\r")
+	}
 	r.addLine(GrepLine{
-		Path: r.sourcePath,
-		Line: line,
-		Text: strings.TrimSuffix(strings.TrimSuffix(text, "\n"), "\r"),
-		Kind: kind,
+		Path:    r.sourcePath,
+		Line:    line,
+		Content: content.New([]byte(text)),
+		Kind:    kind,
 	})
 	return nil
 }

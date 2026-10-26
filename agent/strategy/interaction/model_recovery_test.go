@@ -55,6 +55,11 @@ func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	messages := []chat.Message{chat.NewUserMessage(chat.NewTextPart("reduced"))}
+	for _, unbound := range []*interaction.Dispatcher{{}, nil} {
+		if settlement, settlementErr := unbound.SettleModelResult(request, textResponse("done"), messages); settlement.Valid() || !errors.Is(settlementErr, interaction.ErrInvalidDispatcherConfig) {
+			t.Fatalf("unbound dispatcher recovered an invocation: %v, %v", settlement, settlementErr)
+		}
+	}
 	for name, test := range map[string]struct {
 		request  agent.EffectRequest
 		response *chat.Response

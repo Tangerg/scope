@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -26,10 +27,10 @@ func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *
 				outcome ProcessInitializationOutcome,
 			) error {
 				if !outcome.Valid() {
-					t.Fatal("acknowledger received an invalid outcome")
+					return errors.New("acknowledger received an invalid outcome")
 				}
 				if _, published := engine.Process(outcome.Admission().Relation().ProcessID()); published {
-					t.Fatal("initialized outcome was acknowledged after Process publication")
+					return errors.New("initialized outcome was acknowledged after Process publication")
 				}
 				mu.Lock()
 				outcomes = append(outcomes, outcome)
@@ -243,7 +244,7 @@ func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *tes
 			outcome ProcessInitializationOutcome,
 		) error {
 			if outcome.Status() != ProcessInitializationOutcomeStatusFailed {
-				t.Fatalf("outcome status = %s, want failed", outcome.Status())
+				return fmt.Errorf("outcome status = %s, want failed", outcome.Status())
 			}
 			return acknowledgmentErr
 		}),

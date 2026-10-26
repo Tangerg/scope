@@ -655,7 +655,7 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 	return page, nil
 }
 
-// go-ora v2 cannot set isolation through TxOptions. Search needs a native
+// go-ora v3 cannot set isolation through TxOptions. Search needs a native
 // snapshot. Deletion locks the table before evaluation because SERIALIZABLE
 // can reject unchanged rows through Oracle's block-level conflict detection.
 // NOWAIT leaves lock contention explicit without queuing a native operation

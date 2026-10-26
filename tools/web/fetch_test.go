@@ -90,7 +90,7 @@ func TestFetchTool_Call_EmptyURL(t *testing.T) {
 		t.Fatal("Call empty url: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"url":"   "}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	failure, ok := toolcontract.ClassifyFailure(err)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyURL) {
 		t.Fatalf("Call blank url: err = %v, want FailureKindFailed wrapping ErrEmptyURL", err)
 	}
@@ -143,7 +143,7 @@ func TestFetchTool_Call_UnsupportedFormatIsDefiniteFailure(t *testing.T) {
 	fetcher := &fakeFetcher{err: fmt.Errorf("provider: %w: plain text", ErrUnsupportedFormat)}
 	tool, _ := NewFetchTool(fetcher)
 	_, err := invokeTestTool(t.Context(), tool, `{"url":"https://example.com","format":"text"}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](err)
+	failure, ok := toolcontract.ClassifyFailure(err)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFormat) {
 		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFormat", err)
 	}
@@ -162,6 +162,20 @@ func TestFetchToolRejectsInvalidProviderResponse(t *testing.T) {
 		if _, err := invokeTestTool(t.Context(), tool, `{"url":"https://example.com"}`); err == nil {
 			t.Fatalf("provider response %#v was accepted", response)
 		}
+	}
+}
+
+func TestFetchToolRejectsAResponseInAnotherFormat(t *testing.T) {
+	for _, format := range []ContentFormat{FormatHTML, FormatText} {
+		t.Run(string(format), func(t *testing.T) {
+			executable, err := NewFetchTool(&fakeFetcher{resp: &FetchResponse{Content: "body", Format: format}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := invokeTestTool(t.Context(), executable, `{"url":"https://example.com","format":"markdown"}`); !errors.Is(err, ErrInvalidFetchResponse) {
+				t.Fatalf("another format replaced the requested representation: %v", err)
+			}
+		})
 	}
 }
 

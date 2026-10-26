@@ -70,6 +70,19 @@ type ImageGenerationOptions struct {
 	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
 }
 
+func (i *ImageGenerationOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions ImageGenerationOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return errors.New("google: image options must be an object")
+	}
+	*i = ImageGenerationOptions(*decoded)
+	return nil
+}
+
 func (i *ImageGenerationOptions) validate(modelName string) error {
 	if i == nil {
 		return errors.New("google: image: nil provider options")

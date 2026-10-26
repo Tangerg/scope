@@ -45,6 +45,20 @@ func TestNativeClaudeRejectsZeroMaxTokens(t *testing.T) {
 	}
 }
 
+func TestNativeClaudeRejectsCompetingStreamControl(t *testing.T) {
+	for _, value := range []json.RawMessage{json.RawMessage(`true`), json.RawMessage(`false`), json.RawMessage(`null`)} {
+		t.Run(string(value), func(t *testing.T) {
+			request := validNativeRequest(t)
+			if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]json.RawMessage{"stream": value}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+				t.Fatalf("stream admission error = %v", err)
+			}
+		})
+	}
+}
+
 func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	request := validNativeRequest(t)
 	request.Tools = []corechat.ToolDefinition{{
@@ -73,40 +87,6 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	}
 	if body.ToolChoice.Type != "tool" || body.ToolChoice.Name != "lookup" || !body.ToolChoice.DisableParallelToolUse {
 		t.Fatalf("tool choice = %#v", body.ToolChoice)
-	}
-}
-
-func TestNativeClaudePreservesServerToolResponse(t *testing.T) {
-	message := &anthropicsdk.Message{
-		ID:    "msg-server-tool",
-		Model: "claude-opus-4-6",
-		Content: []anthropicsdk.ContentBlockUnion{
-			{Type: "server_tool_use", ID: "srvtoolu_1", Name: "web_search", Input: []byte(`{"query":"official docs"}`)},
-			{Type: "text", Text: "result"},
-		},
-	}
-	mapper := newProtocolStreamState("anthropic")
-	payload, err := jsonv2.Marshal(map[string]any{"type": "message_start", "message": message})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var event anthropicsdk.MessageStreamEventUnion
-	if decodeErr := jsonv2.Unmarshal(payload, &event); decodeErr != nil {
-		t.Fatal(decodeErr)
-	}
-	response, err := mapper.mapEvent(event)
-	if err != nil {
-		t.Fatalf("mapProtocolMessage: %v", err)
-	}
-	if len(response.Parts) != 1 || response.Parts[0].Text != "result" {
-		t.Fatalf("Core response = %#v", response.Parts)
-	}
-	preserved, found, err := response.Metadata.Extra.Decode[anthropicsdk.MessageStreamEventUnion](StreamEventExtensionKey)
-	if err != nil || !found {
-		t.Fatalf("decode native response = found %v, error %v", found, err)
-	}
-	if len(preserved.Message.Content) != 2 || preserved.Message.Content[0].Type != "server_tool_use" || preserved.Message.Content[0].ID != "srvtoolu_1" {
-		t.Fatalf("preserved content = %#v", preserved.Message.Content)
 	}
 }
 

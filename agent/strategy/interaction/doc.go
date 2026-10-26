@@ -59,8 +59,9 @@
 // Completed siblings retain their settlements when another call remains
 // unknown or waits for input. A valid tool.Failure produces its model-visible
 // error ToolResult and disposition; its Cause cannot turn it into
-// cancellation, input, or host control. Transparent wrappers and joined
-// diagnostics preserve that outcome. Ordinary errors, invalid output,
+// cancellation, input, or host control. Transparent single-cause wrappers
+// preserve that outcome; independent joined errors leave the invocation unknown.
+// Ordinary errors, invalid output,
 // cancellation, deadlines, and a panic from Tool.Call leave the Tool
 // Effect unknown until the Host settles it; terminating the Process retains
 // those identities without establishing that external work failed. A panic from

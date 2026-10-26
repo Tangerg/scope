@@ -31,8 +31,9 @@
 // observed. Token metrics retain known usage even when generation fails. Cache
 // and reasoning token counts are subsets of the totals.
 //
-// The a2a and mcp modules use the official OTel API directly at their own call
-// boundary, so this module has no adapter for them.
+// The errortelemetry package owns content-free error classification and
+// exception recording for these adapters and the a2a and mcp call boundaries.
+// Those protocol modules create their own spans through the official OTel API.
 //
 // # What never enters telemetry
 //

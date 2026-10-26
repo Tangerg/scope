@@ -18,7 +18,7 @@ Clearing a text field — search box, filter input, any field with a clear (×) 
   <div class="t-clear-mirror" aria-hidden="true">…</div>
   <div class="t-clear-placeholder" aria-hidden="true">Search</div>
   <div class="t-clear-glow" aria-hidden="true"></div>
-  <button class="t-clear-btn" aria-label="Clear">…</button>
+  <button type="button" class="t-clear-btn" aria-label="Clear">…</button>
 </div>
 ```
 
@@ -129,16 +129,15 @@ The `@media (prefers-reduced-motion: reduce)` guard at the bottom of the snippet
 ## JavaScript orchestration
 
 ```js
-// One clear routine per .t-clear. Reads timing/geometry from the
-// CSS variables each call so live tweaks apply without a reload.
 const root = document.documentElement;
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const num = (name, fb) => {
   const v = parseFloat(getComputedStyle(root).getPropertyValue(name));
   return Number.isFinite(v) ? v : fb;
 };
-// Minimal cubic-bezier(x1,y1,x2,y2) sampler so JS easing matches CSS.
+// Solving the curve's x coordinate first preserves CSS easing in JS frames.
 function bezier(str) {
-  const m = String(str).match(/cubic-bezier\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)/);
+  const m = String(str).trim().match(/^cubic-bezier\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)$/);
   if (!m) return (t) => t;
   const [x1, y1, x2, y2] = m.slice(1).map(parseFloat);
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
@@ -164,13 +163,27 @@ document.querySelectorAll(".t-clear").forEach((wrap) => {
   const glow   = wrap.querySelector(".t-clear-glow");
   const btn    = wrap.querySelector(".t-clear-btn");
   const canvas = document.createElement("canvas").getContext("2d");
-  let clearing = false;
+  let animationFrame = null;
 
   const sync = () => {
     const has = input.value.length > 0;
     wrap.classList.toggle("has-value", has);
-    if (has) mirror.textContent = input.value.replace(/ /g, "\u00a0");
+    mirror.textContent = input.value.replace(/ /g, "\u00a0");
   };
+
+  function cancelAnimation() {
+    if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    animationFrame = null;
+    wrap.classList.remove("is-clearing");
+    for (const element of [mirror, phold]) {
+      element.style.transform = "";
+      element.style.opacity = "";
+      element.style.filter = "";
+    }
+    glow.style.opacity = "0";
+    glow.style.background = "";
+    sync();
+  }
 
   function buildGlow(text) {
     canvas.font = getComputedStyle(input).font;
@@ -201,10 +214,15 @@ document.querySelectorAll(".t-clear").forEach((wrap) => {
   }
 
   function clearWithAnimation() {
-    if (clearing || !input.value) return;
-    clearing = true;
-    const keepFocus = document.activeElement === input;
-    mirror.textContent = input.value.replace(/ /g, "\u00a0");
+    if (!input.value) return;
+    const clearedValue = input.value;
+    cancelAnimation();
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    sync();
+    // Observers may synchronously retain or replace a controlled input value.
+    if (input.value || reducedMotion.matches) return;
+    mirror.textContent = clearedValue.replace(/ /g, "\u00a0");
 
     const total = num("--clear-dur", 1000);
     const outDur = num("--clear-out-dur", 400);
@@ -218,8 +236,6 @@ document.querySelectorAll(".t-clear").forEach((wrap) => {
     const easeOut = bezier(getComputedStyle(root).getPropertyValue("--clear-out-ease"));
     const easeIn  = bezier(getComputedStyle(root).getPropertyValue("--clear-in-ease"));
 
-    input.value = "";
-    wrap.classList.remove("has-value");
     wrap.classList.add("is-clearing");
     glow.style.background = buildGlow(mirror.textContent);
     glow.style.opacity = "0";
@@ -248,15 +264,9 @@ document.querySelectorAll(".t-clear").forEach((wrap) => {
       glow.style.opacity = (g * gOp).toFixed(3);
 
       if (el < total) {
-        requestAnimationFrame(tick);
+        animationFrame = requestAnimationFrame(tick);
       } else {
-        wrap.classList.remove("is-clearing");
-        [mirror, phold].forEach((el) => (el.style.cssText = ""));
-        mirror.textContent = "";
-        glow.style.opacity = "0";
-        glow.style.background = "";
-        clearing = false;
-        if (keepFocus) requestAnimationFrame(() => input.focus({ preventScroll: true }));
+        cancelAnimation();
       }
     })(performance.now());
   }
@@ -265,7 +275,10 @@ document.querySelectorAll(".t-clear").forEach((wrap) => {
   btn.addEventListener("pointerdown", keep);
   btn.addEventListener("mousedown", keep);
   btn.addEventListener("click", clearWithAnimation);
-  input.addEventListener("input", sync);
+  input.addEventListener("input", cancelAnimation);
+  reducedMotion.addEventListener("change", () => {
+    if (reducedMotion.matches) cancelAnimation();
+  });
   sync();
 });
 ```

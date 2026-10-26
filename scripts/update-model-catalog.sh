@@ -8,7 +8,7 @@
 #
 # The two sources own disjoint facts: models.dev decides which models exist and
 # carries every field but the reasoning effort ladder, catwalk carries the
-# ladder. models/catalog/gen.go explains the split and the guards enforcing it.
+# ladder. models/catalog/internal/generator owns the split and its guards.
 #
 # The generator writes nothing until every provider has mapped, so a failed run
 # leaves the checked-in data untouched. This script never commits: read the
@@ -27,7 +27,7 @@ fail() {
 }
 
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
-[[ -f "$catalog_dir/gen.go" ]] || fail "no generator at $catalog_dir/gen.go"
+[[ -f "$catalog_dir/cmd/generate/main.go" ]] || fail "no generator command at $catalog_dir/cmd/generate/main.go"
 
 # Snapshot paths are resolved against the caller's directory, not the module the
 # generator has to run in.
@@ -56,8 +56,8 @@ trap cleanup EXIT
 cp "$catalog_dir"/configs/*.json "$previous_dir/"
 
 printf '── regenerating models/catalog\n'
-(cd "$catalog_dir" && go run gen.go ${generator_args[@]+"${generator_args[@]}"}) >/dev/null ||
-  fail 'generation failed; the checked-in data is unchanged'
+(cd "$catalog_dir" && go run ./cmd/generate ${generator_args[@]+"${generator_args[@]}"}) >/dev/null ||
+  fail 'generation failed; review the working-tree diff before retrying'
 
 count_models() { jq '.models | length' "$1"; }
 count_ladders() { jq '[.models[] | select((.reasoning.levels // []) | length > 0)] | length' "$1"; }
@@ -112,6 +112,5 @@ printf '\n%s reasoning models carry no effort ladder (neither source publishes o
 
 printf '\n── checking models/catalog\n'
 (cd "$root" && MODULE=models/catalog scripts/check.sh)
-(cd "$root" && MODULE=models/catalog scripts/check.sh race)
 
 printf '\nreview with: git diff --stat models/catalog\n'

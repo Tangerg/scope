@@ -2,6 +2,7 @@ package cohere
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,6 +29,19 @@ type EmbeddingRequestOptions struct {
 	EmbeddingTypes []string `json:"embedding_types,omitzero"`
 	Truncate       *string  `json:"truncate,omitzero"`
 	Priority       *int     `json:"priority,omitzero"`
+}
+
+func (e *EmbeddingRequestOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions EmbeddingRequestOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("cohere: embedding options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("cohere: embedding options must be an object")
+	}
+	*e = EmbeddingRequestOptions(*decoded)
+	return nil
 }
 
 type EmbeddingModelConfig struct {
@@ -81,15 +95,6 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 
 func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2EmbedRequest, error) {
 	effectiveOptions := req.Options
-	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](EmbeddingRequestExtensionKey)
-	if err != nil {
-		return nil, err
-	}
-	for _, field := range []string{"model", "texts", "images", "inputs", "output_dimension"} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("cohere: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
-		}
-	}
 
 	options, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
@@ -146,21 +151,26 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 // local error: an extra embedding has nowhere to go, and an input the provider
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
-func (e *EmbeddingModel) buildResponse(apiResp *cohere.EmbedByTypeResponse, expectedResults int) (*embedding.Response, error) {
-	if apiResp.Embeddings == nil {
+func (e *EmbeddingModel) buildResponse(apiResp *nativeResponse[*cohere.EmbedByTypeResponse], expectedResults int) (*embedding.Response, error) {
+	if apiResp.value.Embeddings == nil {
 		return nil, errors.New("cohere: embed response has no float embeddings")
 	}
 
 	outputs := make([]*embedding.Output, expectedResults)
-	for index, vec := range apiResp.Embeddings.Float {
+	for index, vec := range apiResp.value.Embeddings.Float {
 		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
 			return nil, fmt.Errorf("cohere: embed response: %w", err)
 		}
 	}
 
 	meta := &embedding.ResponseMetadata{}
-	if apiResp.Meta != nil && apiResp.Meta.BilledUnits != nil && apiResp.Meta.BilledUnits.InputTokens != nil {
-		meta.Usage = &embedding.Usage{InputTokens: int64(*apiResp.Meta.BilledUnits.InputTokens)}
+	if apiResp.usage.Tokens.InputTokens != nil {
+		meta.Usage = &embedding.Usage{InputTokens: int64(*apiResp.usage.Tokens.InputTokens)}
+	}
+	var err error
+	meta.Extra, err = apiResp.usage.metadata()
+	if err != nil {
+		return nil, err
 	}
 
 	return embedding.NewResponse(outputs, meta)

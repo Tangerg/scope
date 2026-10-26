@@ -64,8 +64,6 @@ func TestSplitter_ReplacesLineageWhenSplittingUnidentifiedChunks(t *testing.T) {
 func TestSplitter_StampsChunkLineage(t *testing.T) {
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{
 		SplitFunc: func(_ context.Context, text string) ([]string, error) {
-			// Includes an empty chunk to verify it is dropped before
-			// chunk_index / chunk_total are computed.
 			return []string{"a", "", "b", "c"}, nil
 		},
 	})
@@ -108,7 +106,7 @@ func TestSplitter_NoParentIDWhenSourceUnidentified(t *testing.T) {
 		},
 	})
 
-	parent, _ := document.NewDocument("body", nil) // ID stays ""
+	parent, _ := document.NewDocument("body", nil)
 	chunks, _ := splitter.Split(t.Context(), []*document.Document{parent})
 
 	if _, ok := chunks[0].Metadata[etl.MetadataKeyParentID]; ok {

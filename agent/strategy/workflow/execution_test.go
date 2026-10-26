@@ -107,6 +107,41 @@ func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	}
 }
 
+func TestCompletedWorkflowCannotAdvanceOrChangeItsSnapshot(t *testing.T) {
+	definition := mustDefinition(t, "test.workflow.completed",
+		mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil }),
+	)
+	input, err := agent.EncodePayload(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stepErr := execution.Step(t.Context(), nil); stepErr != nil {
+		t.Fatal(stepErr)
+	}
+	completed, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := definition.Restore(t.Context(), completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stepErr := restored.Step(t.Context(), nil); !errors.Is(stepErr, workflow.ErrInvalidProtocol) {
+		t.Fatalf("completed execution Step = %v", stepErr)
+	}
+	after, err := restored.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after.Payload()) != string(completed.Payload()) || after.Kind() != completed.Kind() {
+		t.Fatalf("completed execution changed its checkpoint: %s -> %s", completed.Payload(), after.Payload())
+	}
+}
+
 func mustDeployment(t *testing.T, definition agent.Definition, identity string) agent.Deployment {
 	t.Helper()
 	deployment, err := agent.NewDeployment(agent.DeploymentConfig{

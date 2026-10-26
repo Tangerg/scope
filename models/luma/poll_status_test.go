@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/luma"
 )
 
@@ -20,13 +21,13 @@ import (
 func TestPollReportsAnUnrecognizedState(t *testing.T) {
 	t.Parallel()
 
-	server := muxServer(
-		route{Method: "POST", Contains: "/generations", Handle: func(w http.ResponseWriter, _ *http.Request) {
+	server := modeltest.MuxServer(
+		modeltest.Route{Method: "POST", Contains: "/generations", Handle: func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"id":"gen-1","created_at":"2026-07-31T08:00:00Z","model":"uni-1","state":"queued","type":"image","output":[]}`))
 		}},
-		route{Method: "GET", Contains: "/generations/", Handle: func(w http.ResponseWriter, _ *http.Request) {
+		modeltest.Route{Method: "GET", Contains: "/generations/", Handle: func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"gen-1","created_at":"2026-07-31T08:00:00Z","model":"uni-1","state":"transcending","type":"image","output":[]}`))
 		}},

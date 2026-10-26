@@ -151,5 +151,9 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	if content == nil {
 		return nil, fmt.Errorf("firecrawl: response is missing requested %s content", format)
 	}
-	return &web.FetchResponse{Content: *content, Format: format}, nil
+	result := &web.FetchResponse{Content: *content, Format: format}
+	if err := result.ValidateFor(prepared); err != nil {
+		return nil, fmt.Errorf("firecrawl: %w", err)
+	}
+	return result, nil
 }

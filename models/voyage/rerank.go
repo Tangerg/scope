@@ -2,6 +2,7 @@ package voyage
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +14,19 @@ import (
 // reranking result semantics.
 type RerankRequestOptions struct {
 	Truncation *bool `json:"truncation,omitzero"`
+}
+
+func (r *RerankRequestOptions) UnmarshalJSON(data []byte) error {
+	type wireOptions RerankRequestOptions
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("voyage: rerank options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("voyage: rerank options must be an object")
+	}
+	*r = RerankRequestOptions(*decoded)
+	return nil
 }
 
 type RerankModelConfig struct {
@@ -34,7 +48,6 @@ func (r RerankModelConfig) Validate() error {
 
 var _ rerank.Model = (*RerankModel)(nil)
 
-// RerankModel implements the Core reranking contract with Voyage.
 type RerankModel struct {
 	api            *api
 	defaultOptions rerank.Options

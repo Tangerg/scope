@@ -116,11 +116,11 @@ func TestWorkspaceCoversEveryProductModule(t *testing.T) {
 
 func TestAgentCoverageKeepsManagedConsumer(t *testing.T) {
 	t.Parallel()
-	script, err := os.ReadFile(filepath.Join(repositoryRoot(t), "scripts", "check-agent-coverage.sh"))
+	script, err := os.ReadFile(filepath.Join(repositoryRoot(t), "scripts", "check-coverage.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), `"../examples/agent/direct_vs_managed `) {
+	if !strings.Contains(string(script), `"examples/agent/direct_vs_managed `) {
 		t.Error("moved managed consumer lost its coverage budget")
 	}
 }
@@ -446,7 +446,7 @@ func TestPackageNamesDescribeTheirDirectories(t *testing.T) {
 			return err
 		}
 		directory := filepath.ToSlash(filepath.Dir(relative))
-		if file.Name.Name == "main" && containsPathSegment(directory, "examples") {
+		if file.Name.Name == "main" && (containsPathSegment(directory, "examples") || containsPathSegment(directory, "cmd")) {
 			return nil
 		}
 		want := filepath.Base(filepath.Dir(path))
@@ -524,9 +524,9 @@ func moduleLayer(dir string) int {
 	switch dir {
 	case "core", "skills", "models/catalog":
 		return 0
-	case "a2a", "agent", "etl", "eval", "mcp", "rag", "tools":
+	case "agent", "etl", "eval", "otel", "rag", "tools":
 		return 1
-	case "otel", "otel/agent":
+	case "a2a", "mcp", "otel/agent":
 		return 2
 	case "otel/eval", "otel/rag":
 		return 3
@@ -579,7 +579,10 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 		return target.dir == "eval" || target.dir == "agent"
 	}
 	if source.dir == "otel" {
-		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
+		return false
+	}
+	if source.dir == "a2a" || source.dir == "mcp" {
+		return target.dir == "otel"
 	}
 	// The otel submodules isolate their target's dependency: each requires only
 	// its decorated capability and, for the shared telemetry helpers, otel itself.

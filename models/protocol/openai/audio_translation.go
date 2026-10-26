@@ -85,12 +85,14 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 		return nil, rejectUnsupportedOptionsErr
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(a.provider, "translation"), "model", "file")
+	extensionKey := protocolModalityRequestExtensionKey(a.provider, "translation")
+	params, err := decodeAudioRequest[openai.AudioTranslationNewParams](effectiveOptions.Extensions, extensionKey, "model", "file")
 	if err != nil {
 		return nil, err
 	}
-	params := &openai.AudioTranslationNewParams{}
-	params.SetExtraFields(fields)
+	if openai.AudioResponseFormat(params.ResponseFormat) == openai.AudioResponseFormatDiarizedJSON {
+		return nil, fmt.Errorf("openai: extension %q response_format %q is not supported by audio translation", extensionKey, params.ResponseFormat)
+	}
 
 	params.Model = effectiveOptions.Model
 	params.File, err = audioFile(req.Audio)

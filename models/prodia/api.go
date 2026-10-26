@@ -53,6 +53,19 @@ type jobRequest struct {
 	Config map[string]json.RawMessage `json:"config"`
 }
 
+func (j *jobRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions jobRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("prodia: image options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("prodia: image options must be an object")
+	}
+	*j = jobRequest(*decoded)
+	return nil
+}
+
 // setConfig encodes a Core-owned value as its own JSON token and stores it in the
 // native config map. Keeping each value as raw JSON makes the open config subtree a
 // lossless representation, so a large integer never rounds through float64.

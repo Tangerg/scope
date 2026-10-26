@@ -264,6 +264,9 @@ func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
 		if _, err := root.Await(context.Background()); err != nil {
 			b.Fatal(err)
 		}
+		if err := root.Join(context.Background()); err != nil {
+			b.Fatal(err)
+		}
 		if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
 			b.Fatal(err)
 		}

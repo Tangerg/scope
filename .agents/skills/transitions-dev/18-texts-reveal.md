@@ -94,17 +94,24 @@ The `@media (prefers-reduced-motion: reduce)` guard at the bottom of the snippet
 
 ```js
 const block = document.querySelector(".t-stagger");
+let hideTimer = null;
 
 function showText() {
+  clearTimeout(hideTimer);
+  hideTimer = null;
   block.classList.remove("is-hiding");
   block.classList.remove("is-shown");
   void block.offsetHeight;
   block.classList.add("is-shown");
 }
 function hideText() {
+  clearTimeout(hideTimer);
   block.classList.add("is-hiding");
   block.classList.remove("is-shown");
-  setTimeout(() => block.classList.remove("is-hiding"), 200);
+  hideTimer = setTimeout(() => {
+    hideTimer = null;
+    block.classList.remove("is-hiding");
+  }, 200);
 }
 ```
 

@@ -313,8 +313,8 @@ func TestNativeSearchValidatesCurrentQueryRecords(t *testing.T) {
 		return f.Delete(ctx, v2.WithIDs("same"))
 	}
 	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
-	if response != nil || err == nil {
-		t.Fatalf("disappeared response=%v err=%v", response, err)
+	if err != nil || response == nil || len(response.Results) != 0 {
+		t.Fatalf("deleted native candidate did not produce an empty result: response=%v err=%v", response, err)
 	}
 }
 func TestNativeIPRankingAndWholeIndexValidation(t *testing.T) {
@@ -351,16 +351,24 @@ func TestNativeStrictRecordsAndCancellation(t *testing.T) {
 		if response != nil || err == nil || f.calls.Load() != calls {
 			t.Fatalf("invalid response=%v err=%v", response, err)
 		}
-		if current, err := NewStore(t.Context(), StoreConfig{Collection: f, EmbeddingModel: f.model, DocumentBatcher: nativeBatcher{}}); current != nil || err == nil {
-			t.Fatal("constructor accepted malformed stored records")
+		current, err := NewStore(t.Context(), StoreConfig{Collection: f, EmbeddingModel: f.model, DocumentBatcher: nativeBatcher{}})
+		if err != nil {
+			t.Fatalf("constructor attempted a source audit: %v", err)
+		}
+		if response, err := current.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); response != nil || err == nil {
+			t.Fatalf("native query accepted malformed returned metadata: response=%v err=%v", response, err)
 		}
 	}
 	f.clear(t)
 	if err := f.Upsert(t.Context(), v2.WithIDs("old"), v2.WithTexts("query"), v2.WithEmbeddings(ce.NewEmbeddingFromFloat32([]float32{1, 0})), v2.WithMetadatas(v2.NewDocumentMetadata(v2.NewStringAttribute("old", "field")))); err != nil {
 		t.Fatal(err)
 	}
-	if current, err := NewStore(t.Context(), StoreConfig{Collection: f, EmbeddingModel: f.model, DocumentBatcher: nativeBatcher{}}); current != nil || err == nil {
-		t.Fatal("constructor accepted flat metadata schema")
+	current, err := NewStore(t.Context(), StoreConfig{Collection: f, EmbeddingModel: f.model, DocumentBatcher: nativeBatcher{}})
+	if err != nil {
+		t.Fatalf("constructor attempted a source audit: %v", err)
+	}
+	if response, err := current.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); response != nil || err == nil {
+		t.Fatalf("native query accepted flat returned metadata: response=%v err=%v", response, err)
 	}
 	f.clear(t)
 	ctx, cancel := context.WithCancel(t.Context())

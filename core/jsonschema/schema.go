@@ -27,8 +27,9 @@ const (
 )
 
 var (
-	ErrInvalid    = errors.New("jsonschema: invalid schema")
-	ErrValidation = errors.New("jsonschema: instance validation failed")
+	ErrInvalid              = errors.New("jsonschema: invalid schema")
+	ErrValidation           = errors.New("jsonschema: instance validation failed")
+	ErrUnsupportedStringTag = errors.New("jsonschema: string tag requires a custom encoding and JSONSchemaModel")
 )
 
 // Modeler is implemented by values whose encoding/json/v2 representation is
@@ -123,6 +124,8 @@ type Schema struct {
 // schema and any deployment identities derived from it.
 // Custom encodings require Modeler, except standard-library types with known
 // wire contracts. Opaque Schema values cannot be derived from their Go fields.
+// A string tag requires a custom encoding and Modeler: numeric constraints do
+// not constrain JSON strings, and other ordinary types reject this tag in JSON v2.
 func For[T any]() (Schema, error) {
 	typeOf := reflect.TypeFor[T]()
 	definition, err := reflectType(typeOf)

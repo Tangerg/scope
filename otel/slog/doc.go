@@ -6,6 +6,8 @@
 // keeping them distinct from the SDK metadata and slog record fields. JSON
 // consumers read an application attribute at attributes[key]; TextHandler
 // renders it as attributes.key.
+// Attribute arrays, maps, bytes, empty values, and nonfinite numbers follow
+// the SDK's non-OTLP representation without flattening structured values.
 //
 //   - [SpanExporter] implements sdktrace.SpanExporter; install it with WithSyncer or WithBatcher.
 //   - [MetricExporter] implements sdkmetric.Exporter; install it with a PeriodicReader.

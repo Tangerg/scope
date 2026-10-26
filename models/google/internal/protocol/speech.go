@@ -71,7 +71,8 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 	if err := validateProtocolCompletion(apiResp); err != nil {
 		return nil, fmt.Errorf("google: speech: %w: %w", speech.ErrInvalidResponse, err)
 	}
-	return s.binding.buildTTSResponse(apiResp)
+	var format speechAudioFormat
+	return s.binding.buildTTSResponse(apiResp, &format)
 }
 
 func validateUnarySpeechModel(model string) error {

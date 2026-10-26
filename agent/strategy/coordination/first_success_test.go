@@ -287,7 +287,6 @@ func child(t testing.TB, engine *agent.Engine, root *agent.Process, key string) 
 	return nil
 }
 
-// outcomeKeys names each observed candidate; Candidates follows request order.
 func outcomeKeys(report coordination.FirstSuccessResult, candidates []agent.ChildSpec) []string {
 	var keys []string
 	for index, candidate := range report.Candidates {

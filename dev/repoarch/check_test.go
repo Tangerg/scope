@@ -33,6 +33,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 		"off:go mod tidy -diff",
 		"off:go test -count=1 ./...",
 		"lint",
+		"coverage:consumer",
 		"vuln:consumer",
 	}
 	for _, test := range []struct {
@@ -66,6 +67,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 			write("scripts/check.sh", script)
 			write("scripts/workspace-modules.sh", []byte("#!/usr/bin/env bash\necho consumer\n"))
 			write("scripts/module-packages.sh", []byte("#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n"))
+			write("scripts/check-coverage.sh", []byte("#!/usr/bin/env bash\nprintf 'coverage:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
 			write("scripts/check-vulnerabilities.sh", []byte("#!/usr/bin/env bash\nprintf 'vuln:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
 			write("bin/go", []byte(`#!/usr/bin/env bash
 printf '%s:go %s\n' "${GOWORK:-workspace}" "$*" >> "$CHECK_CALLS"
@@ -118,7 +120,7 @@ func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
 	if !invoked {
 		t.Error("CI no longer runs scripts/check.sh")
 	}
-	for _, script := range []string{"check-core-coverage.sh", "check-agent-coverage.sh", "check-provider-coverage.sh"} {
+	for _, script := range []string{"check-coverage.sh"} {
 		if strings.Contains(string(workflow), script) {
 			t.Errorf("CI restates the canonical coverage dispatch: %s", script)
 		}
@@ -127,40 +129,38 @@ func TestCIDoesNotRestateTheCheckSet(t *testing.T) {
 
 func TestCoverageSelectionDelegatesToOwnerAndPreservesFailure(t *testing.T) {
 	t.Parallel()
-	for _, selected := range []struct{ module, gate string }{
-		{"core", "core"}, {"agent", "agent"}, {"examples", "agent"},
-		{"models/alibaba", "provider"}, {"historystores/redis", "provider"}, {"vectorstores/redis", "provider"},
+	for _, selected := range []string{
+		"core", "agent", "examples", "etl/pdf", "eval", "tools", "otel/agent",
+		"models/alibaba", "historystores/redis", "vectorstores/redis", "dev/repoarch",
 	} {
 		for _, subset := range []bool{false, true} {
 			for _, fail := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/subset=%t/fail=%t", selected.module, subset, fail), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/subset=%t/fail=%t", selected, subset, fail), func(t *testing.T) {
 					fixture := newScriptFailureFixture(t, "check.sh")
-					fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' "+selected.module+"\n")
+					fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' "+selected+"\n")
 					fixture.write(t, "scripts/module-packages.sh", "#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n")
 					fixture.write(t, "scripts/check-vulnerabilities.sh", "#!/usr/bin/env bash\nexit 0\n")
 					fixture.write(t, "bin/go", "#!/usr/bin/env bash\nexit 0\n")
 					fixture.write(t, "bin/golangci-lint", "#!/usr/bin/env bash\nexit 0\n")
-					fixture.write(t, selected.module+"/go.mod", "module example.test/consumer\n")
-					for _, gate := range []string{"core", "agent", "provider"} {
-						fixture.write(t, "scripts/check-"+gate+"-coverage.sh", `#!/usr/bin/env bash
-printf '%s\n' '`+gate+`' >> "$SCRIPT_CALLS"
+					fixture.write(t, selected+"/go.mod", "module example.test/consumer\n")
+					fixture.write(t, "scripts/check-coverage.sh", `#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$SCRIPT_CALLS"
 if [[ "$SCRIPT_COVERAGE_FAILURE" == 1 ]]; then echo coverage-budget-failed >&2; exit 23; fi
 `)
-					}
 					failure := "0"
 					if fail {
 						failure = "1"
 					}
-					fixture.env = append(fixture.env, "MODULE="+selected.module, "FAST=0", "SCRIPT_COVERAGE_FAILURE="+failure)
+					fixture.env = append(fixture.env, "MODULE="+selected, "FAST=0", "SCRIPT_COVERAGE_FAILURE="+failure)
 					var args []string
 					if subset {
 						args = []string{"coverage"}
 					}
 					output, err := fixture.run(t, "check.sh", args...)
-					if fixture.calls(t) != selected.gate+"\n" || (err != nil) != fail {
+					if fixture.calls(t) != selected+"\n" || (err != nil) != fail {
 						t.Fatalf("coverage selection=%q error=%v output=%s", fixture.calls(t), err, output)
 					}
-					if fail && (!strings.Contains(output, selected.module+"/coverage") || strings.Contains(output, "all green")) {
+					if fail && (!strings.Contains(output, selected+"/coverage") || strings.Contains(output, "all green")) {
 						t.Fatalf("coverage failure became success: %s", output)
 					}
 				})

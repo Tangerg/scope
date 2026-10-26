@@ -11,21 +11,12 @@ import (
 )
 
 func TestSearchProvidersPreserveEmptyResultsAndRejectInvalidRecords(t *testing.T) {
-	envelopes := map[string]string{
-		"brave":      `{"web":{"results":[%s]}}`,
-		"exa":        `{"results":[%s]}`,
-		"firecrawl":  `{"success":true,"data":{"web":[%s]}}`,
-		"jina":       `{"data":[%s]}`,
-		"perplexity": `{"results":[%s]}`,
-		"serper":     `{"organic":[%s]}`,
-		"tavily":     `{"results":[%s]}`,
-	}
 	for _, provider := range testProviders {
 		for _, record := range []string{"", "null", "{}"} {
 			t.Run(provider.name+"/"+record, func(t *testing.T) {
 				client := newTestProvider(t, provider, func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = fmt.Fprintf(w, envelopes[provider.name], record)
+					_, _ = fmt.Fprintf(w, provider.searchEnvelope, record)
 				})
 				response, err := client.Search(t.Context(), &web.SearchRequest{Query: "scope"})
 				if record == "" {
@@ -74,15 +65,8 @@ func TestTavilyFetchedContentRequiresPresence(t *testing.T) {
 }
 
 func TestSearchProvidersDoNotInventEmptyResultsFromMissingPayloads(t *testing.T) {
-	payloads := map[string][]string{
-		"exa":        {`{}`, `{"results":null}`},
-		"perplexity": {`{}`, `{"results":null}`},
-		"tavily":     {`{}`, `{"results":null}`},
-		"jina":       {`{}`, `{"data":null}`},
-		"firecrawl":  {`{"success":true}`, `{"success":true,"data":null}`},
-	}
 	for _, provider := range testProviders {
-		for _, payload := range payloads[provider.name] {
+		for _, payload := range provider.missingSearchPayloads {
 			t.Run(provider.name+"/"+payload, func(t *testing.T) {
 				client := newTestProvider(t, provider, func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")

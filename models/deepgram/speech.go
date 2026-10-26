@@ -128,6 +128,9 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 		}
 		params.Speed = effectiveOptions.Speed
 	}
+	if err := params.validateMediaControls(); err != nil {
+		return "", nil, err
+	}
 
 	return req.Text, params, nil
 }

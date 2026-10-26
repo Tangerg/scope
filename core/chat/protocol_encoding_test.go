@@ -32,6 +32,10 @@ func TestProtocolValidationRejectsUnencodableStrings(t *testing.T) {
 		{"chat.ToolResult.ID", func(text string) validatedProtocolValue { return chat.ToolResult{ID: text, Name: "tool"} }, chat.ErrInvalidToolResult},
 		{"chat.ToolResult.Name", func(text string) validatedProtocolValue { return chat.ToolResult{ID: "call", Name: text} }, chat.ErrInvalidToolResult},
 		{"chat.Model", func(text string) validatedProtocolValue { return chat.Options{Model: text} }, chat.ErrInvalidOptions},
+		{"chat.ReasoningEffort", func(text string) validatedProtocolValue { return chat.ReasoningEffort(text) }, nil},
+		{"chat.Options.ReasoningEffort", func(text string) validatedProtocolValue {
+			return chat.Options{ReasoningEffort: chat.ReasoningEffort(text)}
+		}, chat.ErrInvalidOptions},
 		{"chat.Stop", func(text string) validatedProtocolValue { return chat.Options{Stop: []string{text}} }, chat.ErrInvalidOptions},
 		{"chat.Citation.URI", func(text string) validatedProtocolValue {
 			return chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.test/" + text}

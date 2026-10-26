@@ -20,7 +20,7 @@ import (
 	"github.com/samber/lo"
 
 	corechat "github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 

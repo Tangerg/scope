@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"testing/synctest"
 
 	"github.com/samber/lo"
 
@@ -321,44 +322,42 @@ func TestExperimentFailFastPreservesCaseIdentityAndStopsScheduling(t *testing.T)
 }
 
 func TestExperimentDefaultConcurrencyIsBounded(t *testing.T) {
-	started := make(chan struct{}, eval.DefaultMaxConcurrency+1)
-	release := make(chan struct{})
-	evaluator := eval.EvaluatorFunc[int](func(_ context.Context, _ int) (eval.Report, error) {
-		started <- struct{}{}
-		<-release
-		return scoredReport("quality", eval.VerdictPass, 1), nil
+	synctest.Test(t, func(t *testing.T) {
+		started := make(chan struct{}, eval.DefaultMaxConcurrency+1)
+		release := make(chan struct{})
+		evaluator := eval.EvaluatorFunc[int](func(_ context.Context, _ int) (eval.Report, error) {
+			started <- struct{}{}
+			<-release
+			return scoredReport("quality", eval.VerdictPass, 1), nil
+		})
+		cases := make([]eval.Case[int], eval.DefaultMaxConcurrency+1)
+		for index := range cases {
+			cases[index] = eval.Case[int]{ID: eval.CaseID(fmt.Sprintf("case-%d", index))}
+		}
+		dataset, err := eval.NewDataset("test-fixture", cases...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
+			Dataset: dataset, Suite: testSuite(t, evaluator),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := experiment.Run(t.Context())
+			done <- runErr
+		}()
+		synctest.Wait()
+		if got := len(started); got != eval.DefaultMaxConcurrency {
+			t.Errorf("concurrent assessments = %d, want %d", got, eval.DefaultMaxConcurrency)
+		}
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
 	})
-	cases := make([]eval.Case[int], eval.DefaultMaxConcurrency+1)
-	for index := range cases {
-		cases[index] = eval.Case[int]{ID: eval.CaseID(fmt.Sprintf("case-%d", index))}
-	}
-	dataset, err := eval.NewDataset("test-fixture", cases...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	experiment, err := eval.NewExperiment(eval.ExperimentConfig[int]{
-		Dataset: dataset, Suite: testSuite(t, evaluator),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, runErr := experiment.Run(t.Context())
-		done <- runErr
-	}()
-	for range eval.DefaultMaxConcurrency {
-		<-started
-	}
-	select {
-	case <-started:
-		t.Fatal("default concurrency exceeded its fixed bound")
-	default:
-	}
-	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestSuitePreservesHeterogeneousResultsAndExperimentSummarizesEachMetric(t *testing.T) {

@@ -9,6 +9,8 @@ import (
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 // Agent is the text-only boundary served by [NewHTTPHandler].
@@ -79,7 +81,7 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 		}
 
 		fail := func(err error) {
-			recordSpanError(span, err)
+			errortelemetry.Record(span, errortelemetry.Classify(err))
 			message := sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(taskFailureMessage))
 			yield(sdka2a.NewStatusUpdateEvent(execCtx, sdka2a.TaskStateFailed, message), nil)
 		}

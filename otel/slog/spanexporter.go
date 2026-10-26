@@ -44,28 +44,28 @@ func (s *SpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnl
 
 		sc := span.SpanContext()
 		attrs = append(attrs,
-			stdslog.String("trace_id", sc.TraceID().String()),
-			stdslog.String("span_id", sc.SpanID().String()),
-			stdslog.String("name", span.Name()),
-			stdslog.Duration("duration", span.EndTime().Sub(span.StartTime())),
+			stdslog.String(traceIDKey, sc.TraceID().String()),
+			stdslog.String(spanIDKey, sc.SpanID().String()),
+			stdslog.String(spanNameKey, span.Name()),
+			stdslog.Duration(durationKey, span.EndTime().Sub(span.StartTime())),
 		)
 
 		if parent := span.Parent(); parent.HasSpanID() {
-			attrs = append(attrs, stdslog.String("parent_span_id", parent.SpanID().String()))
+			attrs = append(attrs, stdslog.String(parentSpanIDKey, parent.SpanID().String()))
 		}
 
 		attributes := make([]stdslog.Attr, 0, len(span.Attributes()))
 		for _, kv := range span.Attributes() {
-			attributes = append(attributes, stdslog.Any(string(kv.Key), kv.Value.AsInterface()))
+			attributes = append(attributes, attributeToSlog(kv))
 		}
-		attrs = append(attrs, stdslog.GroupAttrs("attributes", attributes...))
+		attrs = append(attrs, stdslog.GroupAttrs(attributesKey, attributes...))
 
 		if evs := span.Events(); len(evs) > 0 {
 			names := make([]string, len(evs))
 			for i, ev := range evs {
 				names[i] = ev.Name
 			}
-			attrs = append(attrs, stdslog.Any("events", names))
+			attrs = append(attrs, stdslog.Any(eventsKey, names))
 		}
 
 		level := stdslog.LevelInfo

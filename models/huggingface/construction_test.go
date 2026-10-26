@@ -6,10 +6,6 @@ import (
 	"github.com/Tangerg/scope/models/huggingface"
 )
 
-// TestConstructorsRejectAnAbsentCredential is the one contract this module can
-// prove without a live account: a credential-gated provider must fail at
-// construction rather than at the first call, where the failure would surface
-// as a transport error the caller cannot distinguish from an outage.
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChatCompletions": func() error {
@@ -26,10 +22,7 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	}
 }
 
-// TestProviderIdentityIsStable pins the identifiers a composition root passes
-// to observability and a Host stores as provider identity. They are wire-facing
-// constants, so a rename is a breaking change rather than a refactor.
-func TestProviderIdentityIsStable(t *testing.T) {
+func TestProviderIdentifierIsPresent(t *testing.T) {
 	if huggingface.Provider == "" {
 		t.Fatal("Provider is empty")
 	}

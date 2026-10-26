@@ -179,7 +179,7 @@ func TestSkillPageFailuresAreExplicit(t *testing.T) {
 		{"load_skill", `{"name":"guide","cursor":{"offset":1,"snapshot":"` + strings.Repeat("a", 64) + `"}}`, ErrInvalidCursor},
 	} {
 		_, err := invokeTestTool(t.Context(), tools[test.name], test.args)
-		failure, ok := errors.AsType[*toolcontract.Failure](err)
+		failure, ok := toolcontract.ClassifyFailure(err)
 		if !ok || !errors.Is(failure.Cause(), test.cause) {
 			t.Fatalf("%s: %v", test.name, err)
 		}

@@ -49,13 +49,17 @@ func TestAssessmentOutcomeHasOneOwner(t *testing.T) {
 }
 
 func TestCanceledSuitePreservesUnstartedCause(t *testing.T) {
+	started := false
 	suite := testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
-		t.Fatal("assessment started after cancellation")
-		return eval.Report{}, nil
+		started = true
+		return eval.Report{}, errors.New("assessment started after cancellation")
 	}))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	result, err := suite.Run(ctx, 1)
+	if started {
+		t.Fatal("assessment started after cancellation")
+	}
 	if !errors.Is(err, context.Canceled) || result.Validate() != nil {
 		t.Fatalf("canceled run = %+v, %v", result, err)
 	}

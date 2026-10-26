@@ -61,8 +61,8 @@ func NewRefiner(config RefinerConfig) (*Refiner, error) {
 }
 
 func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Candidates) (rag.Candidates, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	if err := query.Validate(); err != nil {
 		return nil, err
@@ -74,9 +74,12 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 		return nil, nil
 	}
 
-	documents, err := r.formatDocuments(candidates)
+	documents, err := r.formatDocuments(ctx, candidates)
 	if err != nil {
 		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	request, requestErr := corererank.NewRequest(query.Text(), documents)
 	if requestErr != nil {
@@ -92,6 +95,9 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	if callErr != nil {
 		return nil, callErr
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("%w: model response: %w", rag.ErrInvalidReranking, err)
 	}
@@ -104,9 +110,12 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	return ranked, nil
 }
 
-func (r *Refiner) formatDocuments(candidates rag.Candidates) ([]string, error) {
+func (r *Refiner) formatDocuments(ctx context.Context, candidates rag.Candidates) ([]string, error) {
 	documents := make([]string, len(candidates))
 	for index, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		content, err := r.formatter.Format(candidate.Document)
 		if err != nil {
 			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)

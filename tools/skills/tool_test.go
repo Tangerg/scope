@@ -146,7 +146,7 @@ func TestReadSkillResourceRejectsInadmissibleRequestAsDefiniteFailure(t *testing
 		`{"name":"Bad Name","path":"ok.md"}`,
 	} {
 		_, callErr := invokeTestTool(t.Context(), readResource, arguments)
-		failure, ok := errors.AsType[*toolcontract.Failure](callErr)
+		failure, ok := toolcontract.ClassifyFailure(callErr)
 		if !ok || failure.Kind() != toolcontract.FailureKindFailed {
 			t.Fatalf("args %s: err = %v, want FailureKindFailed", arguments, callErr)
 		}
@@ -167,7 +167,7 @@ func TestLoadSkillRejectsInadmissibleNameAsDefiniteFailure(t *testing.T) {
 		}
 	}
 	_, callErr := invokeTestTool(t.Context(), load, `{"name":"Bad Name"}`)
-	failure, ok := errors.AsType[*toolcontract.Failure](callErr)
+	failure, ok := toolcontract.ClassifyFailure(callErr)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), skillsrc.ErrNameInvalid) {
 		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrNameInvalid", callErr)
 	}

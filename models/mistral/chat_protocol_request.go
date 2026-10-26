@@ -278,22 +278,22 @@ func mapChatTools(definitions []corechat.ToolDefinition) ([]chatTool, error) {
 	return tools, nil
 }
 
-func mapMistralToolChoice(choice *corechat.ToolChoice) (toolChoice, *bool, error) {
+func mapMistralToolChoice(choice *corechat.ToolChoice) (*toolChoice, *bool, error) {
 	if choice == nil {
-		return "", nil, nil
+		return nil, nil, nil
 	}
-	var mode toolChoice
+	mapped := &toolChoice{}
 	switch choice.Mode {
 	case corechat.ToolChoiceAuto:
-		mode = toolChoiceAuto
+		mapped.mode = toolChoiceAuto
 	case corechat.ToolChoiceNone:
-		mode = toolChoiceNone
+		mapped.mode = toolChoiceNone
 	case corechat.ToolChoiceRequired:
-		mode = toolChoiceAny
+		mapped.mode = toolChoiceAny
 	case corechat.ToolChoiceNamed:
-		return "", nil, errors.New("mistral: named tool choice is not supported")
+		mapped.name = choice.Name
 	default:
-		return "", nil, fmt.Errorf("mistral: unsupported tool choice mode %q", choice.Mode)
+		return nil, nil, fmt.Errorf("mistral: unsupported tool choice mode %q", choice.Mode)
 	}
 	var parallel *bool
 	switch choice.Parallelism {
@@ -303,7 +303,7 @@ func mapMistralToolChoice(choice *corechat.ToolChoice) (toolChoice, *bool, error
 	case corechat.ToolParallelismSingle:
 		parallel = new(false)
 	default:
-		return "", nil, fmt.Errorf("mistral: unsupported tool parallelism %q", choice.Parallelism)
+		return nil, nil, fmt.Errorf("mistral: unsupported tool parallelism %q", choice.Parallelism)
 	}
-	return mode, parallel, nil
+	return mapped, parallel, nil
 }

@@ -138,9 +138,7 @@ func assertMetadata[T comparable](t *testing.T, metadata coremetadata.Map, key s
 	}
 }
 
-// testPDF emits a complete PDF 1.4 byte stream with a valid xref table. It is
-// intentionally generated in memory: tests exercise the real parser without a
-// binary fixture whose offsets become opaque during review.
+// Generating the PDF keeps parser fixtures and xref offsets reviewable together.
 func testPDF(pages ...string) []byte {
 	if len(pages) == 0 {
 		panic("testPDF requires at least one page")

@@ -1,6 +1,7 @@
 package deepgram_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -39,24 +40,33 @@ func TestOfficialTranscriptionOptionsReachQuery(t *testing.T) {
 }
 
 func TestOfficialSpeechOptionsReachQuery(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.RawQuery; got != "bit_rate=32000&encoding=mp3&model=aura-2-thalia-en&sample_rate=24000&speed=1.1" {
-			t.Errorf("query=%q", got)
-		}
-		w.Header().Set("Content-Type", "audio/mpeg")
-		fmt.Fprint(w, "audio")
-	}))
-	defer server.Close()
-	opts := speech.Options{Model: "aura-2-thalia-en", OutputFormat: "mp3", Speed: 1.1}
-	if err := opts.Extensions.Set(deepgram.SpeechRequestExtensionKey, map[string]any{"sample_rate": 24000, "bit_rate": 32000}); err != nil {
-		t.Fatal(err)
-	}
-	model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		format, native, query, contentType string
+	}{
+		{"mp3", `{"bit_rate":32000}`, "bit_rate=32000&encoding=mp3&model=aura-2-thalia-en&speed=1.1", "audio/mpeg"},
+		{"wav", `{"sample_rate":24000}`, "container=wav&encoding=linear16&model=aura-2-thalia-en&sample_rate=24000&speed=1.1", "audio/wav"},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.RawQuery; got != test.query {
+					t.Errorf("query=%q; want %q", got, test.query)
+				}
+				w.Header().Set("Content-Type", test.contentType)
+				fmt.Fprint(w, "audio")
+			}))
+			defer server.Close()
+			opts := speech.Options{Model: "aura-2-thalia-en", OutputFormat: test.format, Speed: 1.1}
+			if err := opts.Extensions.Set(deepgram.SpeechRequestExtensionKey, json.RawMessage(test.native)); err != nil {
+				t.Fatal(err)
+			}
+			model, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -97,6 +107,44 @@ func TestExtraCannotOverrideBoundQueryFields(t *testing.T) {
 			}
 			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil {
 				t.Fatal("Extra field accepted")
+			}
+		})
+	}
+}
+
+func TestNativeOptionsRejectUnknownOrNullBeforeIO(t *testing.T) {
+	for _, extension := range []string{`{"misspelled_option":true}`, `null`} {
+		t.Run(extension, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
+			t.Cleanup(server.Close)
+
+			transcriptionOptions := transcription.Options{Model: "nova-3"}
+			if err := transcriptionOptions.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, json.RawMessage(extension)); err != nil {
+				t.Fatal(err)
+			}
+			transcriptionModel, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: transcriptionOptions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			audio, err := media.NewBytes("audio/wav", []byte("audio"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, callErr := transcriptionModel.Call(t.Context(), &transcription.Request{Audio: audio}); callErr == nil || response != nil || calls != 0 {
+				t.Errorf("transcription response=%v error=%v calls=%d", response, callErr, calls)
+			}
+			calls = 0
+			speechOptions := speech.Options{Model: "aura-2-thalia-en"}
+			if setErr := speechOptions.Extensions.Set(deepgram.SpeechRequestExtensionKey, json.RawMessage(extension)); setErr != nil {
+				t.Fatal(setErr)
+			}
+			speechModel, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speechOptions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response, err := speechModel.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || response != nil || calls != 0 {
+				t.Errorf("speech response=%v error=%v calls=%d", response, err, calls)
 			}
 		})
 	}

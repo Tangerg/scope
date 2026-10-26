@@ -257,3 +257,27 @@ func TestCompetitionStartSlotsMatchCandidatesInOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestCompetitionResultRejectsContradictoryCandidateFacts(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 2)
+	for _, report := range []FirstSuccessResult{
+		{},
+		{Candidates: []CandidateResult{{}}},
+		{Candidates: []CandidateResult{{Start: &starts[0], Outcome: &outcomes[0]}}},
+		{Candidates: []CandidateResult{{Start: &starts[0]}}},
+		{Winner: new(uint32(1)), Candidates: []CandidateResult{{Outcome: &outcomes[0]}}},
+		{Winner: new(uint32(0)), Candidates: []CandidateResult{{Start: &starts[0]}, {Outcome: &outcomes[1]}}},
+	} {
+		if report.Valid() {
+			t.Fatalf("incomplete or contradictory competition result was accepted: %+v", report)
+		}
+	}
+	for _, report := range []FirstSuccessResult{
+		{Candidates: []CandidateResult{{Outcome: &outcomes[0]}, {Outcome: &outcomes[1]}}},
+		{Winner: new(uint32(0)), Candidates: []CandidateResult{{Outcome: &outcomes[0]}, {Start: &starts[1]}}},
+	} {
+		if !report.Valid() {
+			t.Fatalf("complete result or winner with a pending competitor was rejected: %+v", report)
+		}
+	}
+}

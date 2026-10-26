@@ -37,15 +37,18 @@ var (
 // for its complete response. Pass one to [Client.Output], or call its Decode on
 // a response obtained elsewhere so every caller shares one decode rule.
 type OutputFormat[T any] struct {
-	contract chat.OutputFormat
-	decoder  func([]byte) (T, error)
+	formatType        chat.OutputFormatType
+	schemaName        string
+	schemaDescription string
+	schema            corejsonschema.Schema
+	decoder           func([]byte) (T, error)
 }
 
 // Text selects provider-native text output without post-processing.
 func Text() OutputFormat[string] {
 	return OutputFormat[string]{
-		contract: chat.OutputFormat{Type: chat.OutputFormatText},
-		decoder:  func(raw []byte) (string, error) { return string(raw), nil },
+		formatType: chat.OutputFormatText,
+		decoder:    func(raw []byte) (string, error) { return string(raw), nil },
 	}
 }
 
@@ -53,8 +56,8 @@ func Text() OutputFormat[string] {
 // when decoding T.
 func JSON[T any]() OutputFormat[T] {
 	return OutputFormat[T]{
-		contract: chat.OutputFormat{Type: chat.OutputFormatJSON},
-		decoder:  func(raw []byte) (T, error) { return decodeJSON[T](raw, nil) },
+		formatType: chat.OutputFormatJSON,
+		decoder:    decodeJSON[T],
 	}
 }
 
@@ -77,9 +80,20 @@ func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
 		return OutputFormat[T]{}, fmt.Errorf("%w: %w", ErrInvalidOutputFormat, err)
 	}
 	return OutputFormat[T]{
-		contract: contract,
-		decoder:  func(raw []byte) (T, error) { return decodeJSON[T](raw, &schema) },
+		formatType:        contract.Type,
+		schemaName:        contract.Name,
+		schemaDescription: contract.Description,
+		schema:            schema,
+		decoder:           decodeJSON[T],
 	}, nil
+}
+
+// The compiled schema owns both request bytes and response admission; a
+// retained wire copy could drift from the decoder's contract.
+func (o OutputFormat[T]) contract() chat.OutputFormat {
+	return chat.OutputFormat{
+		Type: o.formatType, Name: o.schemaName, Description: o.schemaDescription, Schema: o.schema.JSON(),
+	}
 }
 
 // validate guards against a zero-value format that skipped the constructors.
@@ -154,7 +168,14 @@ func (o OutputFormat[T]) completedText(output *chat.Output) (string, error) {
 }
 
 func (o OutputFormat[T]) decodeText(text string) (T, error) {
-	value, err := o.decoder([]byte(text))
+	raw := []byte(text)
+	if o.schema.Valid() {
+		if err := o.schema.Validate(raw); err != nil {
+			var zero T
+			return zero, fmt.Errorf("%w: decode: %w", ErrInvalidOutput, err)
+		}
+	}
+	value, err := o.decoder(raw)
 	if err != nil {
 		var zero T
 		return zero, fmt.Errorf("%w: decode: %w", ErrInvalidOutput, err)
@@ -162,13 +183,8 @@ func (o OutputFormat[T]) decodeText(text string) (T, error) {
 	return value, nil
 }
 
-func decodeJSON[T any](raw []byte, schema *corejsonschema.Schema) (T, error) {
+func decodeJSON[T any](raw []byte) (T, error) {
 	var decoded T
-	if schema != nil {
-		if err := schema.Validate(raw); err != nil {
-			return decoded, err
-		}
-	}
 	if err := jsonv2.Unmarshal(raw, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return decoded, err
 	}

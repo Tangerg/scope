@@ -72,10 +72,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 				Arguments: string(block.Input),
 			}))
 		default:
-			// Server-tool and future native blocks have no provider-neutral Core
-			// part. The source event remains available under
-			// StreamEventExtensionKey, so skipping them here is lossless.
-			continue
+			return nil, fmt.Errorf("anthropic: content[%d]: %w: content block %q cannot be replayed", i, errors.ErrUnsupported, block.Type)
 		}
 	}
 	return parts, nil
@@ -116,32 +113,24 @@ func protocolTotalInputTokens(uncached, cacheRead, cacheWrite int64) int64 {
 	return uncached + cacheRead + cacheWrite
 }
 
-func normalizeProtocolStopReason(reason anthropicsdk.StopReason) corechat.FinishReason {
+func normalizeProtocolStopReason(reason anthropicsdk.StopReason) (corechat.FinishReason, error) {
 	switch reason {
 	case "":
-		return ""
+		return "", nil
 	case anthropicsdk.StopReasonEndTurn, anthropicsdk.StopReasonStopSequence:
-		return corechat.FinishReasonStop
-	// All three leave a half-finished output that the caller continues to
-	// finish, which is what FinishReasonLength groups by. max_tokens is the
-	// budget the caller set; model_context_window_exceeded is the model's own
-	// window filling first, which Anthropic tells clients to "treat as
-	// truncated" all the same; and of pause_turn Anthropic says "we paused a
-	// long-running turn. You may provide the response back as-is in a
-	// subsequent request to let the model continue" — incomplete, with
-	// continuation as the remedy. Answering Other for a paused turn would hide
-	// it from every caller that decides whether to continue by reading the
-	// finish reason. The exact reason stays on the output either way.
-	case anthropicsdk.StopReasonMaxTokens,
-		anthropicsdk.StopReasonModelContextWindowExceeded,
-		anthropicsdk.StopReasonPauseTurn:
-		return corechat.FinishReasonLength
+		return corechat.FinishReasonStop, nil
+	case anthropicsdk.StopReasonMaxTokens, anthropicsdk.StopReasonModelContextWindowExceeded:
+		return corechat.FinishReasonLength, nil
 	case anthropicsdk.StopReasonToolUse:
-		return corechat.FinishReasonToolCalls
+		return corechat.FinishReasonToolCalls, nil
 	case anthropicsdk.StopReasonRefusal:
-		return corechat.FinishReasonRefusal
+		return corechat.FinishReasonRefusal, nil
+	case anthropicsdk.StopReasonPauseTurn:
+		// A paused server-tool loop requires native content and tools that this
+		// binding cannot faithfully replay through Core messages.
+		return "", fmt.Errorf("anthropic: %w: stop reason %q requires native server-tool continuation", errors.ErrUnsupported, reason)
 	default:
-		return corechat.FinishReasonOther
+		return corechat.FinishReasonOther, nil
 	}
 }
 
@@ -374,7 +363,10 @@ func (p *protocolStreamState) mapMessageStart(event anthropicsdk.MessageStartEve
 }
 
 func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEvent, response *corechat.ResponseDelta) error {
-	finish := normalizeProtocolStopReason(event.Delta.StopReason)
+	finish, err := normalizeProtocolStopReason(event.Delta.StopReason)
+	if err != nil {
+		return err
+	}
 	if finish != "" {
 		if p.finish != "" {
 			return fmt.Errorf("anthropic: stream: %w: more than one finish reason", corechat.ErrInvalidResponse)
@@ -482,18 +474,11 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 		}
 		return corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: block.ID, Name: block.Name}), true, nil
 	default:
-		return corechat.PartDelta{}, false, nil
+		return corechat.PartDelta{}, false, fmt.Errorf("anthropic: stream: %w: content block %q cannot be replayed", errors.ErrUnsupported, block.Type)
 	}
 }
 
 func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDeltaEvent, block protocolStreamBlock) (corechat.PartDelta, bool, error) {
-	switch block.kind {
-	case protocolBlockText, protocolBlockThinking, protocolBlockRedactedThinking, protocolBlockToolUse:
-	default:
-		// Native server-tool and future blocks remain in event metadata; their
-		// deltas cannot originate local Tool calls or visible Core content.
-		return corechat.PartDelta{}, false, nil
-	}
 	switch delta := event.Delta.AsAny().(type) {
 	case anthropicsdk.TextDelta:
 		if err := block.requireKind(protocolBlockText); err != nil {
@@ -542,7 +527,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 		}
 		return corechat.NewCitationDelta(citation), true, nil
 	default:
-		return corechat.PartDelta{}, false, nil
+		return corechat.PartDelta{}, false, fmt.Errorf("%w: content delta %q cannot be represented", errors.ErrUnsupported, event.Delta.Type)
 	}
 }
 

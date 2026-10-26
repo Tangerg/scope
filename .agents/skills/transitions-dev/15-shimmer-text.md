@@ -2,17 +2,12 @@
 
 ## When to use
 
-A loading / "thinking" label that shimmers — streaming status, "Generating…", any in-progress copy that should feel alive without a spinner. Pure CSS: duplicate the string into `data-text` on `.t-shimmer` and tune `--shimmer-base` / `--shimmer-highlight` per theme.
+A loading / "thinking" label that shimmers — streaming status, "Generating…", any in-progress copy that should feel alive without a spinner. Apply the gradient to the text itself and tune `--shimmer-base` / `--shimmer-highlight` per theme.
 
 ## HTML usage
 
 ```html
-<!-- Duplicate the visible string into data-text so the
-     ::before layer can mask the gradient onto the same
-     glyphs. Keep them in sync if the text changes. -->
-<span class="t-shimmer" data-text="Planning next moves">
-  Planning next moves
-</span>
+<span class="t-shimmer">Planning next moves</span>
 ```
 
 Pure CSS — no JS, no class toggling. Tune --shimmer-base /
@@ -44,30 +39,15 @@ The `:root` defaults below match the live tuning on [transitions.dev](https://tr
 ## CSS
 
 ```css
-/* Two-layer construction:
-   1. The base text renders normally in --shimmer-base.
-   2. ::before duplicates it via content: attr(data-text),
-      paints a transparent → highlight → transparent gradient
-      onto it, and clips that gradient to the glyphs via
-      background-clip: text. Animating background-position
-      sweeps the band across the text. */
 .t-shimmer {
-  position: relative;
   display: inline-block;
-  color: var(--shimmer-base);
-}
-.t-shimmer::before {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
   background-image: linear-gradient(
     90deg,
-    transparent          0%,
-    transparent         40%,
+    var(--shimmer-base)   0%,
+    var(--shimmer-base)  40%,
     var(--shimmer-highlight) 50%,
-    transparent         60%,
-    transparent        100%
+    var(--shimmer-base)  60%,
+    var(--shimmer-base) 100%
   );
   background-size: var(--shimmer-band) 100%;
   background-repeat: no-repeat;
@@ -83,7 +63,7 @@ The `:root` defaults below match the live tuning on [transitions.dev](https://tr
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .t-shimmer::before { animation: none !important; }
+  .t-shimmer { animation: none !important; }
 }
 ```
 

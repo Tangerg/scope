@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -99,22 +100,13 @@ func nextToolInputWait(t *testing.T, ctx context.Context, engine *agent.Engine, 
 	t.Helper()
 	for ctx.Err() == nil {
 		_, pending := captureToolInput(t, engine, root)
-		if !slicesContainsWaitID(answered, pending.WaitID()) {
+		if !slices.Contains(answered, pending.WaitID()) {
 			return pending
 		}
 		runtime.Gosched()
 	}
 	t.Fatal(ctx.Err())
 	return interaction.PendingToolInput{}
-}
-
-func slicesContainsWaitID(ids []agent.WaitID, id agent.WaitID) bool {
-	for _, candidate := range ids {
-		if candidate == id {
-			return true
-		}
-	}
-	return false
 }
 
 func TestInputRequestRejectsInvalidAndOversizedJSON(t *testing.T) {

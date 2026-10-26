@@ -120,7 +120,7 @@ func TestUnsuccessfulToolCallDiscardsStagedAdvertisements(t *testing.T) {
 		call: func(ctx context.Context, _ string) (string, error) {
 			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("business failure"), Output: chat.NewTextToolOutput("business failure")})
 			if err != nil {
-				t.Fatal(err)
+				return "", err
 			}
 			return "", failure
 		},

@@ -10,9 +10,9 @@ import (
 )
 
 func mutationError(operation string, response any, cause error) error {
-	_, definite := errors.AsType[*tool.Failure](cause)
-	_, observed := errors.AsType[*tool.CallError](cause)
-	if definite || observed || !errors.Is(cause, ErrMutationRejected) {
+	_, containsFailure := errors.AsType[*tool.Failure](cause)
+	_, containsEvidence := errors.AsType[*tool.CallError](cause)
+	if containsFailure || containsEvidence || !errors.Is(cause, ErrMutationRejected) {
 		return toolresult.WithEvidence(operation, response, cause)
 	}
 	cause = fmt.Errorf("%s: %w", operation, cause)

@@ -77,11 +77,22 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 }
 
 func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
-	for _, body := range []string{`{}`, `null`, `{"input_tokens":null}`, `{"input_tokens":"bogus"}`, `{"input_tokens":-1}`, `{"input_tokens":0}`, `{"input_tokens":7}`} {
-		t.Run(body, func(t *testing.T) {
+	for _, test := range []struct {
+		body       string
+		wantTokens *int64
+	}{
+		{body: `{}`},
+		{body: `null`},
+		{body: `{"input_tokens":null}`},
+		{body: `{"input_tokens":"bogus"}`},
+		{body: `{"input_tokens":-1}`},
+		{body: `{"input_tokens":0}`, wantTokens: new(int64(0))},
+		{body: `{"input_tokens":7}`, wantTokens: new(int64(7))},
+	} {
+		t.Run(test.body, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(body))
+				_, _ = w.Write([]byte(test.body))
 			}))
 			defer server.Close()
 			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
@@ -95,9 +106,14 @@ func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
 			request, _ := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("text")))
 			count, modelErr := model.CountInputTokens(t.Context(), request)
 			textCount, textErr := counter.CountText(t.Context(), "text")
-			valid := body == `{"input_tokens":0}` || body == `{"input_tokens":7}`
-			if valid != (modelErr == nil) || valid != (textErr == nil) || valid && count != int64(textCount) {
-				t.Fatalf("count=%d/%d errors=%v/%v", count, textCount, modelErr, textErr)
+			if test.wantTokens == nil {
+				if modelErr == nil || textErr == nil {
+					t.Fatalf("invalid count accepted: count=%d/%d errors=%v/%v", count, textCount, modelErr, textErr)
+				}
+				return
+			}
+			if modelErr != nil || textErr != nil || count != *test.wantTokens || int64(textCount) != *test.wantTokens {
+				t.Fatalf("count=%d/%d want=%d errors=%v/%v", count, textCount, *test.wantTokens, modelErr, textErr)
 			}
 		})
 	}

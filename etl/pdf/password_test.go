@@ -18,18 +18,7 @@ import (
 
 func TestWrongPDFPasswordTerminates(t *testing.T) {
 	if os.Getenv("SCOPE_TEST_PDF_PASSWORD_CHILD") == "1" {
-		var data bytes.Buffer
-		data.WriteString("%PDF-1.4\n")
-		offset := data.Len()
-		fmt.Fprintf(&data, "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 /ID [(scope-test)] /Encrypt << /Filter /Standard /V 1 /R 2 /Length 40 /O <%s> /U <%s> /P 0 >> >>\nstartxref\n%d\n%%%%EOF\n", strings.Repeat("00", 32), strings.Repeat("00", 32), offset)
-		reader, err := pdf.NewReader(bytes.NewReader(data.Bytes()), int64(data.Len()), pdf.ReaderConfig{Password: "incorrect"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = reader.Read(t.Context())
-		if !errors.Is(err, ledongthuc.ErrInvalidPassword) {
-			t.Fatalf("password error = %v", err)
-		}
+		assertWrongPassword(t)
 		return
 	}
 	executable, err := os.Executable()
@@ -42,5 +31,24 @@ func TestWrongPDFPasswordTerminates(t *testing.T) {
 	command.Env = append(os.Environ(), "SCOPE_TEST_PDF_PASSWORD_CHILD=1")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("password read did not terminate: %v\n%s", err, output)
+	}
+	// The bounded child first proves termination; this call then contributes
+	// the same password boundary to the parent coverage profile.
+	assertWrongPassword(t)
+}
+
+func assertWrongPassword(t *testing.T) {
+	t.Helper()
+	var data bytes.Buffer
+	data.WriteString("%PDF-1.4\n")
+	offset := data.Len()
+	fmt.Fprintf(&data, "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 /ID [(scope-test)] /Encrypt << /Filter /Standard /V 1 /R 2 /Length 40 /O <%s> /U <%s> /P 0 >> >>\nstartxref\n%d\n%%%%EOF\n", strings.Repeat("00", 32), strings.Repeat("00", 32), offset)
+	reader, err := pdf.NewReader(bytes.NewReader(data.Bytes()), int64(data.Len()), pdf.ReaderConfig{Password: "incorrect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reader.Read(t.Context())
+	if !errors.Is(err, ledongthuc.ErrInvalidPassword) {
+		t.Fatalf("password error = %v", err)
 	}
 }

@@ -61,8 +61,8 @@ type testTool struct {
 func (t testTool) Definition() corechat.ToolDefinition { return t.definition.Clone() }
 
 func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
-	completedOutput1, completedErr1 := t.call(ctx, invocation)
-	return tool.Result{Output: completedOutput1}, completedErr1
+	output, err := t.call(ctx, invocation)
+	return tool.Result{Output: output}, err
 }
 
 func connectPair(t *testing.T, ctx context.Context, registered ...tool.Tool) (*sdkmcp.ClientSession, func()) {

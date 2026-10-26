@@ -103,16 +103,18 @@ func TestEmbeddingMetadataUsesNativePresence(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for name, fields := range map[string]map[string]json.RawMessage{"output": response.Outputs[0].Metadata, "response": response.Metadata.Extra} {
-					keys := []string{"google/token_count", "google/truncated"}
-					if name == "response" {
-						keys = []string{"google/billable_character_count"}
-					}
-					for _, key := range keys {
-						raw, exists := fields[key]
-						if exists != reported || exists && string(raw) != "0" && string(raw) != "false" {
-							t.Fatalf("%s=%s exists=%t reported=%t", key, raw, exists, reported)
-						}
+				for _, field := range []struct {
+					key    string
+					fields map[string]json.RawMessage
+					want   string
+				}{
+					{"google/token_count", response.Outputs[0].Metadata, "0"},
+					{"google/truncated", response.Outputs[0].Metadata, "false"},
+					{"google/billable_character_count", response.Metadata.Extra, "0"},
+				} {
+					raw, exists := field.fields[field.key]
+					if exists != reported || exists && string(raw) != field.want {
+						t.Fatalf("%s=%s want=%s exists=%t reported=%t", field.key, raw, field.want, exists, reported)
 					}
 				}
 				if !strings.Contains(string(response.Metadata.Extra["google/embedding_response"]), `9007199254740993`) {

@@ -18,6 +18,9 @@ type numericTransport struct {
 }
 
 func (n *numericTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer request.Body.Close()
+	}
 	n.calls++
 	var err error
 	n.body, err = io.ReadAll(request.Body)

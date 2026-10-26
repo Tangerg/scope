@@ -2,6 +2,7 @@ package luma
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
@@ -22,11 +23,14 @@ type ImageRequestOptions struct {
 
 func (i *ImageRequestOptions) UnmarshalJSON(data []byte) error {
 	type wireOptions ImageRequestOptions
-	var decoded wireOptions
+	var decoded *wireOptions
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("luma: decode image options: %w", err)
 	}
-	*i = ImageRequestOptions(decoded)
+	if decoded == nil {
+		return errors.New("luma: image options must be an object")
+	}
+	*i = ImageRequestOptions(*decoded)
 	return nil
 }
 

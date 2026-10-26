@@ -13,6 +13,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
 // Atomic admission prevents partially registered catalogs. Handlers retain
@@ -79,7 +80,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 
 // Validator panics are host defects, even when they wrap a tool Failure.
 func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
-	recordSpanError(span, err)
+	errortelemetry.Record(span, errortelemetry.Classify(err))
 	if _, defect := errors.AsType[*toolcontract.InputValidationPanicError](err); defect {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "tool input validation failed"}
 	}
@@ -90,21 +91,17 @@ func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolRe
 }
 
 func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
-	recordSpanError(span, err)
+	errortelemetry.Record(span, errortelemetry.Classify(err))
 	protocolError := &jsonrpc.Error{
 		Code: jsonrpc.CodeInternalError, Message: "tool call did not produce a valid result",
 	}
-	failure, found := errors.AsType[*toolcontract.Failure](err)
+	failure, found := toolcontract.ClassifyFailure(err)
 	if !found {
-		return nil, protocolError
-	}
-	if validationErr := failure.Validate(); validationErr != nil {
-		recordSpanError(span, validationErr)
 		return nil, protocolError
 	}
 	result, err := mapServerToolOutput(failure.Output())
 	if err != nil {
-		recordSpanError(span, err)
+		errortelemetry.Record(span, errortelemetry.Classify(err))
 		return nil, protocolError
 	}
 	result.IsError = true

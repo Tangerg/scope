@@ -14,8 +14,8 @@ var (
 )
 
 type toolMiddleware struct {
-	bindings    map[string]tool.Binding
-	definitions []chat.ToolDefinition
+	bindings       []tool.Binding
+	bindingIndexes map[string]int
 }
 
 // NewSingleBatchToolMiddleware advertises a frozen Tool set and executes at
@@ -39,8 +39,8 @@ func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolBatch)
 	}
 	middleware := &toolMiddleware{
-		bindings:    make(map[string]tool.Binding, len(executables)),
-		definitions: make([]chat.ToolDefinition, 0, len(executables)),
+		bindings:       make([]tool.Binding, 0, len(executables)),
+		bindingIndexes: make(map[string]int, len(executables)),
 	}
 	for index, executable := range executables {
 		binding, err := tool.Bind(executable)
@@ -48,11 +48,11 @@ func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware
 			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidToolBatch, index, err)
 		}
 		definition := binding.Contract().Definition()
-		if _, duplicate := middleware.bindings[definition.Name]; duplicate {
+		if _, duplicate := middleware.bindingIndexes[definition.Name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Tool name %q", ErrInvalidToolBatch, definition.Name)
 		}
-		middleware.bindings[definition.Name] = binding
-		middleware.definitions = append(middleware.definitions, definition)
+		middleware.bindingIndexes[definition.Name] = len(middleware.bindings)
+		middleware.bindings = append(middleware.bindings, binding)
 	}
 	return middleware.wrap, nil
 }
@@ -78,7 +78,7 @@ func (t *toolMiddleware) call(
 		)}
 	}
 	current := request.Clone()
-	current.Tools = t.cloneDefinitions()
+	current.Tools = t.definitions()
 	response, err := next.Call(ctx, current)
 	if err != nil {
 		return response, err
@@ -116,7 +116,7 @@ func (t *toolMiddleware) call(
 }
 
 type preparedToolCall struct {
-	proposal   chat.ToolCall
+	id         string
 	binding    tool.Binding
 	invocation tool.Invocation
 }
@@ -133,16 +133,17 @@ func (t *toolMiddleware) prepare(calls []chat.ToolCall) (preparedToolBatch, erro
 			return nil, fmt.Errorf("%w: duplicate tool call ID %q", ErrInvalidToolBatch, call.ID)
 		}
 		seenIDs[call.ID] = struct{}{}
-		binding, exists := t.bindings[call.Name]
+		bindingIndex, exists := t.bindingIndexes[call.Name]
 		if !exists {
 			return nil, fmt.Errorf("%w: tool call[%d] names unbound tool %q", ErrInvalidToolBatch, index, call.Name)
 		}
+		binding := t.bindings[bindingIndex]
 		invocation, err := binding.Contract().Prepare(call, nil)
 		if err != nil {
 			return nil, fmt.Errorf("chatclient: prepare tool call[%d]: %w", index, err)
 		}
 		batch[index] = preparedToolCall{
-			proposal: call, binding: binding, invocation: invocation,
+			id: call.ID, binding: binding, invocation: invocation,
 		}
 	}
 	return batch, nil
@@ -162,15 +163,17 @@ func (p preparedToolBatch) execute(ctx context.Context) ([]chat.ToolResult, *too
 			request := *output.InputRequest
 			return results, &request, errors.New("chatclient: Tool requested external input; use a resumable runtime")
 		}
-		results = append(results, chat.ToolResult{ID: call.proposal.ID, Name: call.proposal.Name, Output: output.Output.Clone()})
+		results = append(results, chat.ToolResult{
+			ID: call.id, Name: call.binding.Contract().Definition().Name, Output: output.Output.Clone(),
+		})
 	}
 	return results, nil, nil
 }
 
-func (t *toolMiddleware) cloneDefinitions() []chat.ToolDefinition {
-	definitions := make([]chat.ToolDefinition, len(t.definitions))
-	for index := range t.definitions {
-		definitions[index] = t.definitions[index].Clone()
+func (t *toolMiddleware) definitions() []chat.ToolDefinition {
+	definitions := make([]chat.ToolDefinition, len(t.bindings))
+	for index, binding := range t.bindings {
+		definitions[index] = binding.Contract().Definition()
 	}
 	return definitions
 }

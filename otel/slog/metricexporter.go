@@ -57,13 +57,13 @@ func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetr
 				return sdkmetric.ErrExporterShutdown
 			}
 			attrs := []stdslog.Attr{
-				stdslog.String("metric", metric.Name),
-				stdslog.String("scope", sm.Scope.Name),
+				stdslog.String(metricNameKey, metric.Name),
+				stdslog.String(scopeKey, sm.Scope.Name),
 			}
 			if metric.Unit != "" {
-				attrs = append(attrs, stdslog.String("unit", metric.Unit))
+				attrs = append(attrs, stdslog.String(metricUnitKey, metric.Unit))
 			}
-			attrs = append(attrs, stdslog.String("value", m.summarize(metric.Data)))
+			attrs = append(attrs, stdslog.String(metricValueKey, m.summarize(metric.Data)))
 			m.logger.LogAttrs(ctx, stdslog.LevelInfo, "metric", attrs...)
 		}
 	}

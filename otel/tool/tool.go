@@ -18,7 +18,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/otel/internal/errortelemetry"
+	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
 

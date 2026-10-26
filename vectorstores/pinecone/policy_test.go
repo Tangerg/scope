@@ -41,6 +41,8 @@ func TestNativePolicyHasNoConfiguredCompetitorOrDefault(t *testing.T) {
 		"wrong name":          func(index *pineconesdk.Index) { index.Name = "other" },
 		"missing host":        func(index *pineconesdk.Index) { index.Host = "" },
 		"invalid host":        func(index *pineconesdk.Index) { index.Host = "http://:1234" },
+		"empty query":         func(index *pineconesdk.Index) { index.Host = "https://native.fixture?" },
+		"empty fragment":      func(index *pineconesdk.Index) { index.Host = "https://native.fixture#" },
 		"credentials":         func(index *pineconesdk.Index) { index.Host = "https://user@native.fixture" },
 		"host path":           func(index *pineconesdk.Index) { index.Host = "native.fixture/path" },
 		"missing schema":      func(index *pineconesdk.Index) { index.Schema = nil },
@@ -133,9 +135,6 @@ func TestConstructionUsesNativeSDKPolicyAndOwnsOnlyOpenedConnection(t *testing.T
 				}
 				if receiveErr := stream.RecvMsg(&emptypb.Empty{}); receiveErr != nil {
 					return receiveErr
-				}
-				if failure == "list denied" {
-					return status.Error(codes.PermissionDenied, "denied")
 				}
 				return stream.SendMsg(&emptypb.Empty{})
 			}))

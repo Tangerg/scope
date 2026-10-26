@@ -194,7 +194,10 @@ func (d *Dispatcher) dispatchModel(
 // Engine-minted request. messages must be the complete context actually sent to
 // the model, including any reduction; it is required even when unchanged.
 func (d *Dispatcher) SettleModelResult(request agent.EffectRequest, response *chat.Response, messages []chat.Message) (agent.Settlement, error) {
-	if d == nil || !request.Valid() || response == nil || len(messages) == 0 {
+	if d == nil || !d.definition.valid() {
+		return agent.Settlement{}, ErrInvalidDispatcherConfig
+	}
+	if !request.Valid() || response == nil || len(messages) == 0 {
 		return agent.Settlement{}, fmt.Errorf("%w: model recovery requires the original request, response, and effective messages", ErrInvalidProtocol)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload())
@@ -256,23 +259,32 @@ func (d *Dispatcher) observeModelSettled(ctx context.Context, invocation ModelIn
 
 func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvocation, request *chat.Request, emit agent.DeltaEmitter, remainingBytes int) (response *chat.Response, err error) {
 	d.observeModelStarted(ctx, invocation, request)
+	var accumulator chat.ResponseAccumulator
 	defer func() {
 		if value := recover(); value != nil {
+			if response == nil {
+				response, _ = accumulator.Response()
+			}
 			d.observeModelSettled(ctx, invocation, ModelSettlement{
-				Outcome: ModelOutcomeUnknown, Failure: agent.NormalizeDiagnostic(fmt.Sprint(value)),
+				Outcome: ModelOutcomeUnknown, Response: response, Failure: agent.NormalizeDiagnostic(fmt.Sprint(value)),
 			})
 			panic(value)
 		}
 		d.observeModelSettled(ctx, invocation, newModelSettlement(response, err))
 	}()
-	response, err = d.callModel(ctx, request, emit, remainingBytes)
+	response, err = d.callModel(ctx, request, emit, remainingBytes, &accumulator)
+	// Invalid trailing frames cannot retract terminal generation. A partial
+	// stream is not a Response, but still contradicts non-execution.
+	if response == nil && err != nil {
+		response, _ = accumulator.Response()
+	}
 	if response != nil {
 		if validateErr := response.Validate(); validateErr != nil {
 			return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: invalid model response: %w", errors.Join(err, validateErr))}
 		}
-		if chat.ClassifyFailure(err) == chat.CallFailureNotExecuted {
-			err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: model response contradicts non-execution: %w", err)}
-		}
+	}
+	if (response != nil || accumulator.HasDeltas()) && chat.ClassifyFailure(err) == chat.CallFailureNotExecuted {
+		err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: model generation contradicts non-execution: %w", err)}
 	}
 	if err != nil {
 		kind := chat.ClassifyFailure(err)
@@ -292,21 +304,18 @@ func (d *Dispatcher) callModel(
 	request *chat.Request,
 	emit agent.DeltaEmitter,
 	remainingBytes int,
+	accumulator *chat.ResponseAccumulator,
 ) (*chat.Response, error) {
 	if d.streamer == nil {
 		return d.model.Call(ctx, request)
 	}
-	var accumulator chat.ResponseAccumulator
 	sequence := d.streamer.Stream(ctx, request)
 	if sequence == nil {
 		return nil, errors.New("model streamer returned a nil sequence")
 	}
 	for delta, err := range sequence {
 		if err != nil {
-			// A terminal response can precede a middleware's failed postprocessing.
-			// Its evidence survives without turning the whole invocation into success.
-			response, _ := accumulator.Response()
-			return response, err
+			return nil, err
 		}
 		if delta == nil {
 			return nil, errors.New("model stream yielded a nil response Delta")

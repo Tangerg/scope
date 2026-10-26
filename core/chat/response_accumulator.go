@@ -55,6 +55,10 @@ func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 	return nil
 }
 
+// HasDeltas reports admitted stream evidence without promoting an incomplete
+// generation to a Response. Failed Add calls never establish this evidence.
+func (r *ResponseAccumulator) HasDeltas() bool { return r != nil && r.seen }
+
 // Text returns the currently accumulated visible text without manufacturing a
 // partial Response.
 func (r *ResponseAccumulator) Text() string {

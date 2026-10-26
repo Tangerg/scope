@@ -57,7 +57,7 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 				}
 				diagnostic := err
 				if viaTool {
-					failure, ok := errors.AsType[*toolcontract.Failure](err)
+					failure, ok := toolcontract.ClassifyFailure(err)
 					if !ok {
 						t.Fatalf("tool lost definite rejection: %v", err)
 					}

@@ -80,6 +80,19 @@ type listenParams struct {
 	Extra          url.Values `json:"extra,omitzero"`
 }
 
+func (l *listenParams) UnmarshalJSON(data []byte) error {
+	type wireOptions listenParams
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("deepgram: request options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("deepgram: request options must be an object")
+	}
+	*l = listenParams(*decoded)
+	return nil
+}
+
 func (l *listenParams) query() url.Values {
 	q := url.Values{}
 	if l == nil {
@@ -173,10 +186,23 @@ type speakParams struct {
 	Model      string     `json:"model,omitempty"`
 	Encoding   string     `json:"encoding,omitempty"`
 	Container  string     `json:"container,omitempty"`
-	SampleRate int        `json:"sample_rate,omitzero"`
-	BitRate    int        `json:"bit_rate,omitzero"`
+	SampleRate *int       `json:"sample_rate,omitzero"`
+	BitRate    *int       `json:"bit_rate,omitzero"`
 	Speed      float64    `json:"speed,omitzero"`
 	Extra      url.Values `json:"extra,omitzero"`
+}
+
+func (s *speakParams) UnmarshalJSON(data []byte) error {
+	type wireOptions speakParams
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("deepgram: request options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("deepgram: request options must be an object")
+	}
+	*s = speakParams(*decoded)
+	return nil
 }
 
 func (s *speakParams) query() url.Values {
@@ -198,16 +224,38 @@ func (s *speakParams) query() url.Values {
 	if s.Container != "" {
 		q.Set(fieldContainer, s.Container)
 	}
-	if s.SampleRate > 0 {
-		q.Set(fieldSampleRate, strconv.Itoa(s.SampleRate))
+	if s.SampleRate != nil {
+		q.Set(fieldSampleRate, strconv.Itoa(*s.SampleRate))
 	}
-	if s.BitRate > 0 {
-		q.Set(fieldBitRate, strconv.Itoa(s.BitRate))
+	if s.BitRate != nil {
+		q.Set(fieldBitRate, strconv.Itoa(*s.BitRate))
 	}
 	if s.Speed > 0 {
 		q.Set(fieldSpeed, strconv.FormatFloat(s.Speed, 'f', -1, 64))
 	}
 	return q
+}
+
+func (s *speakParams) validateMediaControls() error {
+	if s.SampleRate != nil {
+		if *s.SampleRate <= 0 {
+			return errors.New("deepgram: speech: sample_rate must be positive when supplied")
+		}
+		switch s.Encoding {
+		case formatMP3, formatOPUS, formatAAC:
+			return fmt.Errorf("deepgram: speech: sample_rate is not configurable for %q", s.Encoding)
+		}
+	}
+	if s.BitRate != nil {
+		if *s.BitRate <= 0 {
+			return errors.New("deepgram: speech: bit_rate must be positive when supplied")
+		}
+		switch s.Encoding {
+		case formatLINEAR16, formatMULAW, formatALAW, formatFLAC:
+			return fmt.Errorf("deepgram: speech: bit_rate is not configurable for %q", s.Encoding)
+		}
+	}
+	return nil
 }
 
 type speakRequest struct {

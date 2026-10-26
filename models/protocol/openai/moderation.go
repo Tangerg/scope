@@ -39,7 +39,6 @@ func (m ModerationModelConfig) Validate() error {
 
 var _ moderation.Model = (*ModerationModel)(nil)
 
-// ModerationModel implements the OpenAI-compatible moderation protocol.
 type ModerationModel struct {
 	api            *api
 	provider       string

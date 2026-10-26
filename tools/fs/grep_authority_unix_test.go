@@ -35,7 +35,7 @@ func TestGrepReadsOpenedFileAfterPathReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Lines) != 1 || result.Lines[0].Text != "inside-marker" || result.Lines[0].Path != "selected.txt" {
+	if len(result.Lines) != 1 || string(result.Lines[0].Content.Bytes()) != "inside-marker" || result.Lines[0].Path != "selected.txt" {
 		t.Fatalf("search escaped opened file: %+v", result)
 	}
 }

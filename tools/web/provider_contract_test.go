@@ -17,6 +17,9 @@ import (
 type providerTransport func(*http.Request) (*http.Response, error)
 
 func (p providerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Body != nil {
+		defer func() { _ = request.Body.Close() }()
+	}
 	return p(request)
 }
 

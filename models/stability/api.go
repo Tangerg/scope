@@ -66,6 +66,19 @@ type generateRequest struct {
 	Mode           string   `json:"-"`
 }
 
+func (g *generateRequest) UnmarshalJSON(data []byte) error {
+	type wireOptions generateRequest
+	var decoded *wireOptions
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("stability: image options: %w", err)
+	}
+	if decoded == nil {
+		return errors.New("stability: image options must be an object")
+	}
+	*g = generateRequest(*decoded)
+	return nil
+}
+
 func (g *generateRequest) formFields() map[string]string {
 	out := make(map[string]string)
 	put := func(k, v string) {

@@ -33,3 +33,27 @@ func TestNilEngineOperationsReportInvalidConfiguration(t *testing.T) {
 		t.Error("nil Engine reported observations")
 	}
 }
+
+func TestEngineRejectsTypedNilCollaboratorsBeforeStartingObservation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		configure func(*EngineConfig)
+	}{
+		{"admitter", func(config *EngineConfig) { config.ProcessAdmitter = ProcessAdmitterFunc(nil) }},
+		{"initialization acknowledger", func(config *EngineConfig) {
+			config.ProcessInitializationAcknowledger = ProcessInitializationAcknowledgerFunc(nil)
+		}},
+		{"resolver", func(config *EngineConfig) { config.DeploymentResolver = deploymentResolverFunc(nil) }},
+		{"event listener", func(config *EngineConfig) { config.EventListeners = []EventListener{EventListenerFunc(nil)} }},
+		{"delta listener", func(config *EngineConfig) { config.DeltaListeners = []DeltaListener{DeltaListenerFunc(nil)} }},
+		{"negative delta capacity", func(config *EngineConfig) { config.DeltaBufferCapacity = -1 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := EngineConfig{TreeCommitter: NewMemoryTreeCommitter()}
+			test.configure(&config)
+			if engine, err := NewEngine(config); engine != nil || !errors.Is(err, ErrInvalidEngineConfig) {
+				t.Fatalf("unusable collaborator admitted: %v, %v", engine, err)
+			}
+		})
+	}
+}

@@ -8,13 +8,13 @@ import (
 )
 
 type reportGenerator struct {
-	request Request
-	target  time.Time
-	rng     *rand.Rand
-	zone    climateZone
-	coords  Coordinates
-	profile climateProfile
-	month   int
+	location string
+	target   time.Time
+	rng      *rand.Rand
+	zone     climateZone
+	coords   Coordinates
+	profile  climateProfile
+	month    int
 }
 
 func generate(req *Request) (*Response, error) {
@@ -22,7 +22,15 @@ func generate(req *Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	return generator.report(), nil
+	report := generator.report()
+	// Detail selection cannot change random draws that establish the weather.
+	if !req.IncludeAirQuality {
+		report.AirQuality = nil
+	}
+	if !req.IncludeHourly {
+		report.HourlyForecast = nil
+	}
+	return report, nil
 }
 
 func newReportGenerator(req *Request) (*reportGenerator, error) {
@@ -35,13 +43,13 @@ func newReportGenerator(req *Request) (*reportGenerator, error) {
 	zone := identifyClimateZone(req.Location)
 	coords, knownCity := coordinatesFor(req.Location, rng)
 	return &reportGenerator{
-		request: *req,
-		target:  target,
-		rng:     rng,
-		zone:    zone,
-		coords:  coords,
-		profile: climateProfiles[zone],
-		month:   monthForLookup(target, coords.Latitude, knownCity),
+		location: req.Location,
+		target:   target,
+		rng:      rng,
+		zone:     zone,
+		coords:   coords,
+		profile:  climateProfiles[zone],
+		month:    monthForLookup(target, coords.Latitude, knownCity),
 	}, nil
 }
 
@@ -56,58 +64,40 @@ func (r *reportGenerator) report() *Response {
 	jitter := r.rng.IntN(5) - 2
 	current := clamp(mean+jitter, r.profile.floor, r.profile.ceiling)
 
-	minTemp := min(clamp(mean-r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
-	maxTemp := max(clamp(mean+r.profile.dailyAmplitude+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling), current)
-
 	candidates := r.zone.candidateConditions(current, r.month)
 	condition := candidates[r.rng.IntN(len(candidates))]
 
 	wind := r.wind(condition)
 	humidity := r.humidity(condition)
-	feelsLike := calculateFeelsLike(current, humidity, wind.Speed)
 	pressure := r.pressure(condition)
 	visibility := r.visibility(condition, humidity)
 	cloudCover := r.cloudCover(condition)
-	dewPoint := calculateDewPoint(current, humidity)
 
 	var precipitation *Precipitation
 	if condition.hasPrecipitation() {
 		precipitation = r.precipitation(condition, current)
 	}
 
-	var airQuality *AirQuality
-	if r.request.IncludeAirQuality {
-		airQuality = r.airQuality(condition)
-	}
-
+	airQuality := r.airQuality(condition)
 	uvIndex := r.uvIndex(condition, cloudCover)
 	astronomy := r.astronomy()
-
-	var hourlyForecast []HourlyForecast
-	if r.request.IncludeHourly {
-		hourlyForecast = r.hourlyForecast(mean, condition)
-	}
-
-	alerts := r.alerts(condition, current, wind.Speed)
-	description := buildDescription(condition, current, wind, humidity, precipitation)
+	hourlyForecast := r.hourlyForecast(current, condition)
+	temperature := newTemperature(hourlyForecast, humidity, wind.Speed)
+	dewPoint := calculateDewPoint(temperature.Value, humidity)
+	alerts := r.alerts(condition, temperature.Value, wind.Speed)
+	description := buildDescription(condition, temperature.Value, wind, humidity, precipitation)
 
 	startOfDay := time.Date(r.target.Year(), r.target.Month(), r.target.Day(), 0, 0, 0, 0, time.UTC)
-	endOfDay := startOfDay.Add(24 * time.Hour)
+	endOfDay := startOfDay.Add(hoursPerDay * time.Hour)
 
 	return &Response{
-		Location:    r.request.Location,
+		Location:    r.location,
 		Coordinates: r.coords,
 		Timestamp: TimeRange{
 			Start: startOfDay.Unix(),
 			End:   endOfDay.Unix(),
 		},
-		Temperature: Temperature{
-			Value:     current,
-			Unit:      "Celsius",
-			FeelsLike: feelsLike,
-			Min:       minTemp,
-			Max:       maxTemp,
-		},
+		Temperature:    temperature,
 		Condition:      condition,
 		Description:    description,
 		Humidity:       humidity,
@@ -120,16 +110,16 @@ func (r *reportGenerator) report() *Response {
 		AirQuality:     airQuality,
 		UVIndex:        uvIndex,
 		Astronomy:      astronomy,
-		HourlyForecast: hourlyForecast,
+		HourlyForecast: hourlyForecast[:],
 		Alerts:         alerts,
 		Source:         "fakeweather (synthesized; not real weather data)",
 		LastUpdated:    startOfDay.Unix(),
 	}
 }
 
-func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) []HourlyForecast {
-	out := make([]HourlyForecast, 24)
-	for i := range 24 {
+func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) [hoursPerDay]HourlyForecast {
+	var out [hoursPerDay]HourlyForecast
+	for i := range out {
 		hour := time.Date(r.target.Year(), r.target.Month(), r.target.Day(), i, 0, 0, 0, time.UTC)
 
 		variation := r.profile.dailyVariation(i)
@@ -165,7 +155,7 @@ func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) []H
 
 func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float64) []Alert {
 	var alerts []Alert
-	day := r.target.Add(24 * time.Hour)
+	day := r.target.Add(hoursPerDay * time.Hour)
 
 	if temp >= 35 {
 		severity := AlertSeverityModerate
@@ -405,7 +395,7 @@ func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
 	aq := &AirQuality{}
 	aqi := 50
 
-	if profile, ok := knownCities.lookup(r.request.Location); ok && profile.Polluted {
+	if profile, ok := knownCities.lookup(r.location); ok && profile.Polluted {
 		aqi = 80 + r.rng.IntN(40)
 	}
 

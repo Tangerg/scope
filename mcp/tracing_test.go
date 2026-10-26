@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
@@ -71,42 +70,6 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 		require.Equal(t, codes.Error, span.Status().Code)
 		require.Equal(t, want, span.Status().Description)
 		require.NotContains(t, fmt.Sprint(span.Attributes(), span.Events(), span.Status()), "private-tool-error-marker")
-	}
-}
-
-func TestErrorTelemetryClassifiesWrappedFailures(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		err  error
-		want string
-	}{
-		{name: "cancellation", err: context.Canceled, want: "context.canceled"},
-		{name: "deadline", err: context.DeadlineExceeded, want: "context.deadline_exceeded"},
-		{name: "ordinary error", err: errors.New("private-message"), want: "*errors.errorString"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(recorder))
-			defer func() {
-				if err := provider.Shutdown(context.Background()); err != nil {
-					t.Error(err)
-				}
-			}()
-			_, span := provider.Tracer("test").Start(t.Context(), "failure")
-			recordSpanError(span, fmt.Errorf("private-wrapper: %w", test.err))
-			span.End()
-			if len(recorder.Ended()) == 0 {
-				t.Fatal("expected a recorded span")
-			}
-			recorded := recorder.Ended()[0]
-			assertSpanErrorClassification(t, recorded, test.want)
-			if recorded.Status().Code != codes.Error || recorded.Status().Description != test.want {
-				t.Errorf("status = %v, want Error/%s", recorded.Status(), test.want)
-			}
-			if strings.Contains(fmt.Sprint(recorded.Attributes(), recorded.Events(), recorded.Status()), "private") {
-				t.Fatal("telemetry contains raw error content")
-			}
-		})
 	}
 }
 

@@ -46,7 +46,7 @@ func TestModelStreamAdmitsEncodedBytesBeforeAccumulation(t *testing.T) {
 					}
 				}
 			})}
-			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, limit)
+			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, limit, new(chat.ResponseAccumulator))
 			if response != nil || !errors.Is(err, ErrModelResponseTooLarge) || !closed {
 				t.Fatalf("response=%+v error=%v producer closed=%v", response, err, closed)
 			}
@@ -72,7 +72,7 @@ func TestModelStreamWithinBudgetMatchesAggregateResponse(t *testing.T) {
 		{streamer: streamer},
 		{model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return want.Clone(), nil })},
 	} {
-		got, err := dispatcher.callModel(t.Context(), nil, nil, 512)
+		got, err := dispatcher.callModel(t.Context(), nil, nil, 512, new(chat.ResponseAccumulator))
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("response=%+v error=%v", got, err)
 		}

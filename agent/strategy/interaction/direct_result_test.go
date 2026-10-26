@@ -25,7 +25,7 @@ func TestDirectResultToolFailuresReturnToModel(t *testing.T) {
 				if value.Index == failedIndex {
 					failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("execution failed"), Output: chat.NewTextToolOutput("execution failed")})
 					if err != nil {
-						t.Fatal(err)
+						return "", err
 					}
 					return "", failure
 				}

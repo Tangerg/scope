@@ -4,9 +4,9 @@
 //
 // Nomic-specific knobs that don't fit the generic surface — task_type
 // (search_query / search_document / classification / clustering for
-// asymmetric retrieval and downstream tasks) and long_text_mode —
-// are reached via the extension-threaded SDK params, see
-// [EmbeddingRequest] and [EmbeddingRequestExtensionKey].
+// asymmetric retrieval and downstream tasks), long_text_mode, and
+// max_tokens_per_text use [EmbeddingRequestExtensionKey]. Unknown controls
+// are rejected so a misspelled truncation policy cannot be silently lost.
 //
 // Nomic's /embedding/text request shape uses `texts` (not OpenAI's
 // `input`), `task_type` (not `input_type`), and `dimensionality`

@@ -236,3 +236,93 @@ func TestScriptedDispatcherSettlementStatuses(t *testing.T) {
 		})
 	}
 }
+
+func TestScriptedDispatcherKeepsCancellationAndUncertainOutcomesDistinct(t *testing.T) {
+	effect, err := agent.NewDispatcherEffect([]byte(`{"operation":"scripted"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+		ReplayPolicy: agent.ReplayPolicyNever,
+		Calls:        []agenttest.ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(`null`)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runScriptedEffect(t, reference, effect)
+	request := reference.Requests()[0]
+	cause := errors.New("transport lost after a delta")
+	delta := json.RawMessage(`{"token":"first"}`)
+	dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+		ReplayPolicy: agent.ReplayPolicyNever,
+		Calls:        []agenttest.ScriptedCall{{ExpectedEffect: &effect, Deltas: []json.RawMessage{delta}, Error: cause}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(delta)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if settlement, dispatchErr := dispatcher.Dispatch(ctx, request, nil); settlement.Valid() || !errors.Is(dispatchErr, context.Canceled) || dispatcher.Remaining() != 1 || len(dispatcher.Requests()) != 0 {
+		t.Fatalf("canceled call consumed a script or reported an outcome: %v, %v", settlement, dispatchErr)
+	}
+	var observed []string
+	settlement, err := dispatcher.Dispatch(t.Context(), request, func(data json.RawMessage) {
+		observed = append(observed, string(data))
+		clear(data)
+	})
+	if settlement.Valid() || !errors.Is(err, cause) || len(observed) != 1 || observed[0] != `{"token":"first"}` || dispatcher.Remaining() != 0 {
+		t.Fatalf("streaming failure lost evidence: outcome=%v, err=%v, deltas=%v", settlement, err, observed)
+	}
+	requests := dispatcher.Requests()
+	requests[0] = agent.EffectRequest{}
+	if !dispatcher.Requests()[0].Valid() {
+		t.Fatal("request history escaped its owner")
+	}
+}
+
+func TestScriptedDispatcherRejectsUnusableScriptAndMissingRequests(t *testing.T) {
+	effect, err := agent.NewDispatcherEffect([]byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := agent.Effect{}
+	for _, call := range []agenttest.ScriptedCall{
+		{ExpectedEffect: &invalid, SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(`null`)},
+		{SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(`{`)},
+	} {
+		if _, configErr := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{ReplayPolicy: agent.ReplayPolicyNever, Calls: []agenttest.ScriptedCall{call}}); !errors.Is(configErr, agenttest.ErrInvalidDispatchScript) {
+			t.Fatalf("unusable script = %v", configErr)
+		}
+	}
+	dispatcher, err := agenttest.NewScriptedDispatcher(agenttest.ScriptedDispatcherConfig{
+		ReplayPolicy: agent.ReplayPolicyNever,
+		Calls:        []agenttest.ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: agent.SettlementStatusSucceeded, SettlementPayload: []byte(`null`)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dispatcher.Dispatch(t.Context(), agent.EffectRequest{}, nil); !errors.Is(err, agenttest.ErrEffectMismatch) || !errors.Is(err, agent.ErrInvalidEffect) {
+		t.Fatalf("missing effect = %v", err)
+	}
+	var absent *agenttest.ScriptedDispatcher
+	if _, err := absent.Dispatch(t.Context(), agent.EffectRequest{}, nil); !errors.Is(err, agenttest.ErrInvalidDispatchScript) {
+		t.Fatal(err)
+	}
+	if absent.Policy(effect).Replay.Valid() || dispatcher.Policy(agent.Effect{}).Replay.Valid() || absent.Requests() != nil || absent.Remaining() != 0 {
+		t.Fatal("unconfigured dispatcher supplied policy or history")
+	}
+	var recorder *agenttest.ObservationRecorder
+	if recorder.Events() != nil || recorder.Deltas() != nil {
+		t.Fatal("missing recorder returned observations")
+	}
+	if _, err := recorder.AwaitEvent(t.Context(), func(agent.Event) bool { return true }); !errors.Is(err, agenttest.ErrInvalidEventPredicate) {
+		t.Fatal(err)
+	}
+	recorder = &agenttest.ObservationRecorder{}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := recorder.AwaitEvent(ctx, func(agent.Event) bool { return false }); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}

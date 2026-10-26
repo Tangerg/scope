@@ -211,10 +211,10 @@ func TestLiveConditionalDeletionRetainsMetadataUpdateAndRejectsCorruption(t *tes
 	if err == nil || response != nil {
 		t.Fatalf("native corrupt source became success: %v, %v", response, err)
 	}
-	if invalid, constructorErr := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+	if rebound, constructorErr := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 		return nil, errors.New("unexpected model call")
-	}), DocumentBatcher: integrationBatcher{}}); constructorErr == nil || invalid != nil {
-		t.Fatal("constructor accepted an incompatible namespace")
+	}), DocumentBatcher: integrationBatcher{}}); constructorErr != nil || rebound == nil {
+		t.Fatalf("constructor enumerated stored records: %v", constructorErr)
 	}
 }
 

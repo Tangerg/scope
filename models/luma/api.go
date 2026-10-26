@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
 	lumaoption "github.com/lumalabs/luma-agents-go/option"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/image"
 )
 
 type apiConfig struct {
@@ -66,7 +68,8 @@ func (a *api) createGeneration(ctx context.Context, params lumaagents.Generation
 	if a == nil || a.client == nil || a.client.Generations == nil {
 		return nil, errors.New("luma: nil API")
 	}
-	return admitGeneration(a.client.Generations.New(ctx, params))
+	generation, err := a.client.Generations.New(ctx, params)
+	return admitGeneration(generation, "", err)
 }
 
 func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagents.Generation, error) {
@@ -76,15 +79,22 @@ func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagen
 	if generationID == "" {
 		return nil, errors.New("luma: generation ID is required")
 	}
-	return admitGeneration(a.client.Generations.Get(ctx, generationID))
+	generation, err := a.client.Generations.Get(ctx, url.PathEscape(generationID))
+	return admitGeneration(generation, generationID, err)
 }
 
-func admitGeneration(generation *lumaagents.Generation, err error) (*lumaagents.Generation, error) {
+func admitGeneration(generation *lumaagents.Generation, expectedID string, err error) (*lumaagents.Generation, error) {
 	if err != nil {
 		return nil, err
 	}
 	if generation == nil {
-		return nil, errors.New("luma: generation response must be an object")
+		return nil, fmt.Errorf("%w: luma: generation response must be an object", image.ErrInvalidResponse)
+	}
+	if generation.ID == "" {
+		return nil, fmt.Errorf("%w: luma: generation response requires id", image.ErrInvalidResponse)
+	}
+	if expectedID != "" && generation.ID != expectedID {
+		return nil, fmt.Errorf("%w: luma: polled generation id %q differs from submitted id %q", image.ErrInvalidResponse, generation.ID, expectedID)
 	}
 	return generation, nil
 }

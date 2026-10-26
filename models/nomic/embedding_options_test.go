@@ -34,11 +34,17 @@ func TestEmbeddingUsesEffectiveDimensions(t *testing.T) {
 				if body["dimensionality"] != float64(test.wantDimension) {
 					t.Errorf("wire dimensions = %v", body["dimensionality"])
 				}
+				if body["max_tokens_per_text"] != float64(1024) || body["long_text_mode"] != "mean" {
+					t.Errorf("native token controls = %v", body)
+				}
 				w.Header().Set("Content-Type", "application/json")
 				fmt.Fprint(w, strings.ReplaceAll(`{"embeddings":[VECTOR]}`, "VECTOR", test.vector))
 			}))
 			defer server.Close()
 			defaults := embedding.Options{Model: "test-model", Dimensions: new(int64(2))}
+			if err := defaults.Extensions.Set(nomic.EmbeddingRequestExtensionKey, map[string]any{"max_tokens_per_text": 1024, "long_text_mode": "mean"}); err != nil {
+				t.Fatal(err)
+			}
 
 			model, err := nomic.NewEmbeddingModel(t.Context(), nomic.EmbeddingModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: defaults})
 			if err != nil {

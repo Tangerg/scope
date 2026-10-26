@@ -12,14 +12,8 @@ import (
 	"github.com/Tangerg/scope/models/mistral"
 )
 
-// Core states the rule this checks: an adapter "must not accept the effort and
-// send a request that never carried it". This one used to do exactly that --
-// TopK was refused explicitly while ReasoningEffort was neither mapped nor
-// rejected, so a caller's reasoning setting vanished between Call and the wire.
-//
-// Mistral's chat endpoint documents reasoning_effort as
-// "none"|"minimal"|"low"|"medium"|"high"|"xhigh", which is Core's vocabulary
-// without max, so every one of them travels.
+// Every supported effort must reach the wire; accepting one without projecting
+// it silently changes the caller's requested generation policy.
 func TestChatSendsThePortableReasoningEffort(t *testing.T) {
 	t.Parallel()
 
