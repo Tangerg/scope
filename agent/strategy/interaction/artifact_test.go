@@ -108,17 +108,17 @@ func validatedArtifact(candidate interaction.CompletionCandidate) (interaction.A
 }
 
 func validateArtifactPayload(artifact interaction.Artifact) error {
-	decoded, err := artifact.Decode[delegateResponse]()
+	decoded, err := artifact.Output().Decode[delegateResponse]()
 	if err != nil {
 		return fmt.Errorf("decode artifact: %w", err)
 	}
 	if decoded.Value != "artifact:evidence" {
 		return fmt.Errorf("decoded artifact = %#v", decoded)
 	}
-	_, mismatchErr := artifact.Decode[struct {
+	_, mismatchErr := artifact.Output().Decode[struct {
 		Other string `json:"other"`
 	}]()
-	if !errors.Is(mismatchErr, interaction.ErrInvalidArtifact) || !errors.Is(mismatchErr, agent.ErrInvalidPayload) {
+	if !errors.Is(mismatchErr, agent.ErrInvalidPayload) {
 		return fmt.Errorf("wrong typed decode error: %w", mismatchErr)
 	}
 	return nil
@@ -186,8 +186,8 @@ func TestCompletionDecisionContract(t *testing.T) {
 			}
 		})
 	}
-	if _, err := (interaction.Artifact{}).Decode[delegateResponse](); !errors.Is(err, interaction.ErrInvalidArtifact) {
-		t.Fatalf("DecodeArtifact(zero) error=%v", err)
+	if _, err := (interaction.Artifact{}).Output().Decode[delegateResponse](); !errors.Is(err, agent.ErrInvalidPayload) {
+		t.Fatalf("zero Artifact payload decode error=%v", err)
 	}
 }
 

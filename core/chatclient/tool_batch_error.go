@@ -1,6 +1,7 @@
 package chatclient
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -8,9 +9,12 @@ import (
 )
 
 // ToolBatchError preserves the original request, complete model proposal,
-// successful prefix, and failed call of a serial tool batch. Completed effects
-// have not been rolled back and later calls were not executed. The cause may be
-// a tool.Failure with acknowledged partial effects. It assigns no retry policy.
+// successful prefix, and call at which a serial tool batch stopped. Completed
+// effects have not been rolled back and later calls were not executed. The cause
+// may be a [tool.Failure] with acknowledged partial effects. The enclosing
+// [chat.CallFailure] is [chat.CallFailureFailed] for a definite Tool failure or
+// an unsupported input checkpoint; otherwise it is [chat.CallFailureUnknown].
+// Neither outcome assigns retry policy.
 type ToolBatchError struct {
 	completed    []chat.ToolResult
 	request      *chat.Request
@@ -24,6 +28,18 @@ func (t *ToolBatchError) Error() string {
 }
 
 func (t *ToolBatchError) Unwrap() error { return t.cause }
+
+func (t *ToolBatchError) callFailure() *chat.CallFailure {
+	kind := chat.CallFailureUnknown
+	if t.inputRequest != nil {
+		// The Tool reported a valid suspension, but this synchronous invocation
+		// cannot continue it. Its failure does not complete the logical Tool call.
+		kind = chat.CallFailureFailed
+	} else if failure, ok := errors.AsType[*tool.Failure](t.cause); ok && failure.Validate() == nil {
+		kind = chat.CallFailureFailed
+	}
+	return &chat.CallFailure{Kind: kind, Cause: t}
+}
 
 // InputRequest retains a Tool checkpoint when this synchronous batch cannot
 // continue it. It belongs to FailedCall and does not imply a completed ToolResult.
@@ -43,9 +59,9 @@ func (t *ToolBatchError) Completed() []chat.ToolResult {
 	return results
 }
 
-// FailedCall returns the original model proposal that failed during execution
-// or returned an invalid output. The proposal owns it, at len(Completed())
-// among its tool calls.
+// FailedCall returns the original model proposal at which the batch stopped:
+// the Tool failed, returned invalid output, or requested external input. The
+// proposal owns it, at len(Completed()) among its tool calls.
 func (t *ToolBatchError) FailedCall() chat.ToolCall {
 	calls, _ := toolCalls(t.proposal)
 	return calls[len(t.completed)]

@@ -22,15 +22,18 @@ type toolMiddleware struct {
 // most one model-requested batch. Only FinishReasonToolCalls authorizes
 // execution; other outcomes pass through. Every invocation is validated before
 // any Tool runs, then the batch executes serially followed by one model call.
+// A proposal that fails batch validation is returned with [chat.CallFailureFailed]
+// so its known generation and usage survive even though no Tool executed.
 // Completed Tools are never rolled back: an execution failure retains
 // [ToolBatchError] and a failed follow-up call retains [ToolContinuationError]
-// behind a [chat.CallFailure] for the complete invocation. Diagnostic causes
-// remain inspectable through errors.Is and errors.As. The middleware owns
-// Tools and ToolChoice exclusively, so it cannot be stacked. Placed inside
-// history.Middleware.Call, history persists only fresh input and the final
-// answer; placed outside, it also records tool proposals and results.
-// A Tool requesting external input stops the batch; ToolBatchError preserves
-// that checkpoint for inspection. This middleware has no continuation runtime.
+// behind a [chat.CallFailure] for the complete invocation. The retained errors
+// remain inspectable through errors.As; [tool.Failure] keeps its diagnostic boundary.
+// The middleware owns Tools and ToolChoice exclusively, so it cannot be stacked.
+// Placed inside history.Middleware.Call, history persists only fresh input and
+// the final answer; placed outside, it also records tool proposals and results.
+// A Tool requesting external input stops this invocation as [chat.CallFailureFailed]
+// because this middleware has no continuation runtime. ToolBatchError retains
+// the checkpoint without declaring the logical Tool call completed or failed.
 func NewSingleBatchToolMiddleware(executables ...tool.Tool) (chat.CallMiddleware, error) {
 	if len(executables) == 0 {
 		return nil, fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolBatch)
@@ -86,14 +89,15 @@ func (t *toolMiddleware) call(
 	}
 	batch, err := t.prepare(calls)
 	if err != nil {
-		return nil, &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: err}
+		return response, &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: err}
 	}
 	results, inputRequest, err := batch.execute(ctx)
 	if err != nil {
-		return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: &ToolBatchError{
+		failure := &ToolBatchError{
 			completed: results, request: current,
 			proposal: response.Clone(), cause: err, inputRequest: inputRequest,
-		}}
+		}
+		return nil, failure.callFailure()
 	}
 	current.Messages = append(
 		current.Messages,

@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -30,26 +29,9 @@ func (a Artifact) ToolCallID() string { return a.toolCallID }
 
 func (a Artifact) DelegateName() string { return a.delegateName }
 
+// Output is already validated against the exact Delegate Descriptor. Its
+// Payload owns typed decoding, without a separate Artifact conversion rule.
 func (a Artifact) Output() agent.Payload { return a.output }
-
-// Decode strictly decodes the output into T. Schema validation against the
-// exact Delegate Descriptor already happened when the Artifact was admitted.
-func (a Artifact) Decode[T any]() (T, error) {
-	var zero T
-	if !a.valid() {
-		return zero, ErrInvalidArtifact
-	}
-	value, err := a.output.Decode[T]()
-	if err != nil {
-		return zero, fmt.Errorf("%w: decode: %w", ErrInvalidArtifact, err)
-	}
-	return value, nil
-}
-
-func (a Artifact) valid() bool {
-	return a.modelCallSequence > 0 && a.toolCallID != "" &&
-		a.delegateName != "" && a.output.Valid()
-}
 
 func newArtifacts(records []artifactRecord) []Artifact {
 	values := make([]Artifact, len(records))

@@ -90,7 +90,7 @@ func TestToolInputAnswerQueuedBeforeWaitAdoptionSurvivesPauseAndRestore(t *testi
 				if err != nil {
 					t.Fatal(err)
 				}
-				answer, err := NewToolInputResponseSignal(answerID, waitID, json.RawMessage("true"))
+				answer, err := agent.NewSignalRequest(answerID, waitID, json.RawMessage("true"))
 				if err != nil {
 					t.Fatal(err)
 				}

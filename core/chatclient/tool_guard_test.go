@@ -2,6 +2,7 @@ package chatclient_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -64,5 +65,53 @@ func TestGuardedFuncToolMiddleware(t *testing.T) {
 	if err != nil || response.Text() != "done" || authorizations != 1 || executions != 1 || modelCalls != 2 {
 		t.Fatalf("response = %v, error = %v, authorizations = %d, executions = %d, model calls = %d",
 			response, err, authorizations, executions, modelCalls)
+	}
+}
+
+func TestToolMiddlewarePreservesGuardRejection(t *testing.T) {
+	var executions, modelCalls int
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "write"}, func(context.Context, struct{}) (string, error) {
+		executions++
+		return "written", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := tool.NewGuard(tool.GuardConfig{
+		Tool: executable,
+		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+			return false, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	middleware, err := chatclient.NewSingleBatchToolMiddleware(guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := chat.ToolCall{ID: "write", Name: "write", Arguments: `{}`}
+	model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		modelCalls++
+		return &chat.Response{Output: &chat.Output{
+			FinishReason: chat.FinishReasonToolCalls,
+			Message:      new(chat.NewAssistantMessage(chat.NewToolCallPart(call))),
+		}}, nil
+	}))
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("write")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := model.Call(t.Context(), request)
+	if response != nil || executions != 0 || modelCalls != 1 || chat.ClassifyFailure(err) != chat.CallFailureFailed {
+		t.Fatalf("response=%v executions=%d model calls=%d kind=%s error=%v", response, executions, modelCalls, chat.ClassifyFailure(err), err)
+	}
+	failure, ok := errors.AsType[*tool.Failure](err)
+	if !ok || failure.Kind() != tool.FailureKindRejected {
+		t.Fatalf("rejection lost: %v", err)
+	}
+	batch, ok := errors.AsType[*chatclient.ToolBatchError](err)
+	if !ok || len(batch.Completed()) != 0 || batch.FailedCall() != call {
+		t.Fatalf("batch evidence lost: %v", err)
 	}
 }

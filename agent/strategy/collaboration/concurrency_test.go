@@ -82,14 +82,7 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					}))
 					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}}))
 					decode := require(workflow.Transform("decode", func(_ context.Context, output interaction.Output) (Decision, error) {
-						if output.ModelResponse == nil {
-							return Decision{}, errors.New("missing model response")
-						}
-						value, err := agent.ParsePayload([]byte(output.ModelResponse.Text()))
-						if err != nil {
-							return Decision{}, err
-						}
-						return value.Decode[Decision]()
+						return chatclient.JSON[Decision]().Decode(output.ModelResponse)
 					}))
 					coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
 					config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
@@ -202,10 +195,14 @@ func TestCoordinatorSteersInteractionThroughItsCanonicalSignalContract(t *testin
 				}
 				output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
 				response := require(output.Decode[interaction.Output]())
-				if response.ModelCalls != 2 || response.ModelResponse == nil {
+				if response.ModelCalls != 2 {
 					return Decision{}, errors.New("invalid model continuation")
 				}
-				return finish(turn, response.ModelResponse.Text()), nil
+				text, err := chatclient.Text().Decode(response.ModelResponse)
+				if err != nil {
+					return Decision{}, err
+				}
+				return finish(turn, text), nil
 			}
 		}, worker)
 		engine := require(agent.NewEngine(agent.EngineConfig{

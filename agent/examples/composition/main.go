@@ -1,6 +1,6 @@
 // Command composition demonstrates that direct Engine embedding and a
-// cross-Strategy composed Agent use the same Definition/Execution/Process
-// contracts. It uses deterministic local components and requires no network.
+// cross-Strategy Agent composed from Workflow and Role atoms use the same
+// Definition/Execution/Process contracts. It requires no network.
 package main
 
 import (
@@ -14,26 +14,31 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/strategy/role"
+	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const (
-	compositionChildCount         = 2
-	compositionChildBudgetSteps   = 20
-	compositionChildBudgetEffects = 20
-	compositionChildBudgetSignals = 40
-	compositionWaitKey            = "composition"
+	compositionChildBudgetSteps    = 20
+	compositionChildBudgetEffects  = 20
+	compositionChildBudgetSignals  = 40
+	compositionBranchBudgetSteps   = 40
+	compositionBranchBudgetEffects = 40
+	compositionBranchBudgetSignals = 80
 )
 
-var compositionChildKeys = [compositionChildCount]string{"local", "model"}
+const (
+	compositionLocalIndex = iota
+	compositionModelIndex
+)
 
 // uppercaseStateKind names the Definition and its ExecutionState kind.
 const uppercaseStateKind = "example.uppercase"
 
-// compositionStateKind names the Definition and its ExecutionState kind.
-const compositionStateKind = "example.composition"
+const compositionName = "example.composition"
 
 func main() {
 	if err := run(context.Background(), os.Stdout); err != nil {
@@ -212,333 +217,89 @@ type compositionOutput struct {
 	Model string `json:"model"`
 }
 
-type compositionDefinition struct {
-	descriptor agent.Descriptor
-	local      agent.Deployment
-	model      agent.Deployment
-}
-
 func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, error) {
 	if !local.Valid() || !model.Valid() {
 		return agent.Deployment{}, agent.ErrInvalidDeployment
 	}
-	inputSchema, err := jsonschema.For[compositionInput]()
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	outputSchema, err := jsonschema.For[compositionOutput]()
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
-		Name: compositionStateKind, Description: "Compose deterministic local and model child Processes.",
-		InputSchema: inputSchema, OutputSchema: outputSchema,
-	})
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	definition := &compositionDefinition{descriptor: descriptor, local: local, model: model}
-	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-composition-configuration")),
-	})
-}
-
-func (c *compositionDefinition) Descriptor() agent.Descriptor { return c.descriptor }
-
-// ChildDeployments binds both children, so the Engine starts them without a
-// resolver and the composition's identity changes whenever either does.
-func (c *compositionDefinition) ChildDeployments() []agent.Deployment {
-	return []agent.Deployment{c.local, c.model}
-}
-
-func (c *compositionDefinition) Start(input agent.Payload) (agent.Execution, error) {
-	if err := c.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
-	decoded, err := input.Decode[compositionInput]()
-	if err != nil {
-		return nil, err
-	}
-	return &compositionExecution{
-		local: c.local.DeploymentRef(), model: c.model.DeploymentRef(),
-		state: compositionState{Phase: compositionReady, Prompt: decoded.Prompt},
-	}, nil
-}
-
-func (c *compositionDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	decoded, err := state.Decode[compositionState](compositionStateKind)
-	if err != nil {
-		return nil, err
-	}
-	if err := decoded.validate(); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return &compositionExecution{local: c.local.DeploymentRef(), model: c.model.DeploymentRef(), state: decoded}, nil
-}
-
-type compositionPhase string
-
-const (
-	compositionReady                 compositionPhase = "ready"
-	compositionAwaitingChildStarts   compositionPhase = "awaiting_child_starts"
-	compositionAwaitingChildWaitOpen compositionPhase = "awaiting_child_wait_open"
-	compositionWaitingChildren       compositionPhase = "waiting_children"
-	compositionCompleted             compositionPhase = "completed"
-)
-
-type compositionState struct {
-	Phase    compositionPhase  `json:"phase"`
-	Prompt   string            `json:"prompt"`
-	ChildIDs []agent.ProcessID `json:"child_ids,omitempty"`
-	WaitID   *agent.WaitID     `json:"wait_id,omitzero"`
-}
-
-func (c compositionState) phase() compositionPhase {
-	if c.Phase == compositionAwaitingChildStarts && len(c.ChildIDs) != 0 {
-		if c.WaitID != nil {
-			return compositionWaitingChildren
-		}
-		return compositionAwaitingChildWaitOpen
-	}
-	return c.Phase
-}
-
-func (c compositionState) validate() error {
-	valid := false
-	switch c.Phase {
-	case compositionReady, compositionCompleted:
-		valid = len(c.ChildIDs) == 0 && c.WaitID == nil
-	case compositionAwaitingChildStarts:
-		if len(c.ChildIDs) == 0 {
-			valid = c.WaitID == nil
-		} else {
-			valid = c.validChildren() && (c.WaitID == nil || c.WaitID.Valid())
-		}
-	}
-	if !valid {
-		return agent.ErrInvalidExecutionState
-	}
-	return nil
-}
-
-func (c compositionState) validChildren() bool {
-	return len(c.ChildIDs) == compositionChildCount && c.ChildIDs[0].Valid() && c.ChildIDs[1].Valid() &&
-		c.ChildIDs[0] != c.ChildIDs[1]
-}
-
-// compositionWaitSpec is the one wait the composition opens over children.
-func compositionWaitSpec(children []agent.ProcessID) (agent.ChildWaitSpec, error) {
-	waitKey, err := agent.ParseWaitKey(compositionWaitKey)
-	if err != nil {
-		return agent.ChildWaitSpec{}, err
-	}
-	return agent.ChildWaitSpec{
-		Boundary: agent.ChildWaitBoundaryDrained,
-		Key:      waitKey, Children: children, Condition: agent.AllChildren(),
-	}, nil
-}
-
-// waitOutcomes lets ChildWaitSatisfied.Matches correlate the answer with the
-// wait this state opened.
-func (c compositionState) waitOutcomes(completed agent.ChildWaitSatisfied) ([]agent.ChildOutcome, error) {
-	spec, err := compositionWaitSpec(c.ChildIDs)
-	if err != nil {
-		return nil, err
-	}
-	if c.WaitID == nil || !completed.Matches(*c.WaitID, spec) {
-		return nil, agent.ErrInvalidChildWait
-	}
-	return completed.Outcomes(), nil
-}
-
-type compositionExecution struct {
-	local agent.DeploymentRef
-	model agent.DeploymentRef
-	state compositionState
-}
-
-func (c *compositionExecution) Step(
-	_ context.Context,
-	signals []agent.Signal,
-) (agent.Transition, error) {
-	switch c.state.phase() {
-	case compositionReady:
-		if len(signals) != 0 {
-			return agent.Transition{}, agent.ErrInvalidSignal
-		}
-		return c.startChildren()
-	case compositionAwaitingChildStarts:
-		return c.waitForChildren(signals)
-	case compositionAwaitingChildWaitOpen:
-		if len(signals) == 0 {
-			return agent.Transition{}, errors.New("composition wait was not opened")
-		}
-		opened, err := agent.ParseChildWaitOpened(signals[0])
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		waitID := opened.WaitID()
-		c.state.WaitID = &waitID
-		return agent.Wait(1, opened.WaitID())
-	case compositionWaitingChildren:
-		return c.complete(signals)
-	default:
-		return agent.Transition{}, errors.New("composition execution cannot advance")
-	}
-}
-
-func (c *compositionExecution) startChildren() (agent.Transition, error) {
-	localInput, err := agent.EncodePayload(textInput{Text: c.state.Prompt})
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	modelInput, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
-		chat.NewUserMessage(chat.NewTextPart(c.state.Prompt)),
-	}})
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	localKey, err := agent.ParseChildKey(compositionChildKeys[0])
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	modelKey, err := agent.ParseChildKey(compositionChildKeys[1])
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	budget := agent.Budget{
+	leafBudget := agent.Budget{
 		Steps: agent.NewQuota(compositionChildBudgetSteps), Effects: agent.NewQuota(compositionChildBudgetEffects),
 		Signals: agent.NewQuota(compositionChildBudgetSignals),
 	}
-	localEffect, err := agent.NewChildStartEffect(agent.ChildSpec{
-		Key: localKey, DeploymentRef: c.local, Input: localInput, Budget: budget,
+	localBranch, err := newLocalBranch(local, leafBudget)
+	if err != nil {
+		return agent.Deployment{}, err
+	}
+	configuration, err := jsonv2.Marshal(leafBudget)
+	if err != nil {
+		return agent.Deployment{}, err
+	}
+	modelBranch, err := role.New(role.Config[compositionInput, string]{
+		Name: "example.composition.model", Description: "Adapt the model child to the composition's input and text output.",
+		Interaction: model, Budget: leafBudget,
+		BuildInput: func(_ context.Context, input compositionInput) (interaction.Input, error) {
+			return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
+		},
+		DecodeOutput: func(_ context.Context, output interaction.Output) (string, error) {
+			return chatclient.Text().Decode(output.ModelResponse)
+		},
+		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-model-role")),
+		ConfigurationDigest:  agent.ComputeDigest(configuration),
 	})
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Deployment{}, err
 	}
-	modelEffect, err := agent.NewChildStartEffect(agent.ChildSpec{
-		Key: modelKey, DeploymentRef: c.model, Input: modelInput, Budget: budget,
+	// Each branch budget includes the leaf's permanent allocation and the
+	// adapter's own Steps, Effects, and Signals.
+	branchBudget := agent.Budget{
+		Steps: agent.NewQuota(compositionBranchBudgetSteps), Effects: agent.NewQuota(compositionBranchBudgetEffects),
+		Signals: agent.NewQuota(compositionBranchBudgetSignals),
+	}
+	branches := []workflow.ForkBranch{
+		compositionLocalIndex: {ID: "local", Deployment: localBranch, Budget: branchBudget},
+		compositionModelIndex: {ID: "model", Deployment: modelBranch, Budget: branchBudget},
+	}
+	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
+		ID: "compose", WindowSize: uint32(len(branches)), Branches: branches,
+		Reduce: func(_ context.Context, _ compositionInput, results []string) (compositionOutput, error) {
+			return compositionOutput{Local: results[compositionLocalIndex], Model: results[compositionModelIndex]}, nil
+		},
 	})
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Deployment{}, err
 	}
-	c.state.Phase = compositionAwaitingChildStarts
-	return agent.Continue(0, localEffect, modelEffect)
+	return bindCompositionWorkflow(compositionName, "Compose local and model children under one managed Workflow.", []workflow.Stage{fork})
 }
 
-func (c *compositionExecution) waitForChildren(signals []agent.Signal) (agent.Transition, error) {
-	if len(signals) != compositionChildCount {
-		return agent.Transition{}, errors.New("composition requires two child-start results")
+func newLocalBranch(local agent.Deployment, budget agent.Budget) (agent.Deployment, error) {
+	input, inputErr := workflow.Transform("build_input", func(_ context.Context, input compositionInput) (textInput, error) {
+		return textInput{Text: input.Prompt}, nil
+	})
+	call, callErr := workflow.Call(workflow.CallConfig{ID: "run", Deployment: local, Budget: budget})
+	output, outputErr := workflow.Transform("decode_output", func(_ context.Context, output textOutput) (string, error) {
+		return output.Text, nil
+	})
+	if err := errors.Join(inputErr, callErr, outputErr); err != nil {
+		return agent.Deployment{}, err
 	}
-	children := make([]agent.ProcessID, compositionChildCount)
-	var failure *agent.Failure
-	for index, signal := range signals {
-		started, err := agent.ParseChildStartResult(signal)
-		if err != nil {
-			return agent.Transition{}, err
-		}
-		if startFailure, failed := started.Failure(); failed {
-			if failure == nil {
-				failure = &startFailure
-			}
-			continue
-		}
-		childID, present := started.ProcessID()
-		if !present {
-			return agent.Transition{}, agent.ErrInvalidChildStart
-		}
-		children[index] = childID
-	}
-	if failure != nil {
-		return agent.Fail(compositionChildCount, *failure)
-	}
-	spec, err := compositionWaitSpec(children)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	waitEffect, err := agent.NewChildWaitEffect(spec)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	c.state.ChildIDs = children
-	return agent.Continue(compositionChildCount, waitEffect)
+	return bindCompositionWorkflow("example.composition.local", "Adapt a pure Definition to the composition's input and text output.", []workflow.Stage{input, call, output})
 }
 
-func (c *compositionExecution) complete(
-	signals []agent.Signal,
-) (agent.Transition, error) {
-	if len(signals) == 0 {
-		return agent.Transition{}, errors.New("composition child results are missing")
-	}
-	completed, err := agent.ParseChildWaitSatisfied(signals[0])
+func bindCompositionWorkflow(name, description string, stages []workflow.Stage) (agent.Deployment, error) {
+	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{Name: name, Description: description, Stages: stages})
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Deployment{}, err
 	}
-	outcomes, err := c.state.waitOutcomes(completed)
+	configuration, err := jsonv2.Marshal(definition.Topology(), jsonv2.Deterministic(true))
 	if err != nil {
-		return agent.Transition{}, err
+		return agent.Deployment{}, err
 	}
-	var payloads [compositionChildCount]agent.Payload
-	for index, outcome := range outcomes {
-		result := outcome.Result()
-		if result.Termination().Status() != agent.StatusCompleted {
-			failure, failureErr := agent.NewFailure(
-				agent.FailureKindExecution, "example.child.failed", "a composition child did not complete",
-			)
-			if failureErr != nil {
-				return agent.Transition{}, failureErr
-			}
-			return agent.Fail(1, failure)
-		}
-		erased, present := result.Termination().Output()
-		if !present {
-			return agent.Transition{}, agent.ErrInvalidChildWait
-		}
-		payloads[index] = erased
-	}
-	output, err := decodeCompositionOutput(payloads[0], payloads[1])
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	erased, err := agent.EncodePayload(output)
-	if err != nil {
-		return agent.Transition{}, err
-	}
-	c.state.Phase = compositionCompleted
-	c.state.ChildIDs = nil
-	c.state.WaitID = nil
-	return agent.Complete(1, erased)
-}
-
-func decodeCompositionOutput(local, model agent.Payload) (compositionOutput, error) {
-	text, err := local.Decode[textOutput]()
-	if err != nil {
-		return compositionOutput{}, err
-	}
-	response, err := model.Decode[interaction.Output]()
-	if err != nil {
-		return compositionOutput{}, err
-	}
-	return compositionOutput{Local: text.Text, Model: response.ModelResponse.Text()}, nil
-}
-
-func (c *compositionExecution) Snapshot() (agent.ExecutionState, error) {
-	if err := c.state.validate(); err != nil {
-		return agent.ExecutionState{}, err
-	}
-	payload, err := jsonv2.Marshal(c.state)
-	if err != nil {
-		return agent.ExecutionState{}, err
-	}
-	return agent.ParseExecutionState(compositionStateKind, payload)
+	// The topology identifies the fixed wiring and grants; the implementation
+	// label identifies the pure adapters in this checked example.
+	return agent.NewDeployment(agent.DeploymentConfig{
+		Definition:           definition,
+		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
+		ConfigurationDigest:  agent.ComputeDigest(configuration),
+	})
 }
 
 type compositionModel struct{}
@@ -563,5 +324,3 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 }
 
 var _ agent.Definition = (*uppercaseDefinition)(nil)
-
-var _ agent.Definition = (*compositionDefinition)(nil)

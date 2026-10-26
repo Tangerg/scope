@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"text/template"
-	"text/template/parse"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -15,10 +14,13 @@ import (
 
 var ErrInvalidTemplate = errors.New("chatclient: invalid template")
 
+const (
+	promptTemplateName       = "prompt"
+	promptMissingKeyBehavior = "missingkey=error"
+)
+
 // Template is an immutable, parsed prompt template safe for concurrent use.
 // Rendering fails on missing map keys instead of emitting placeholder text.
-// Require inspects the complete parse tree, including pipelines, branches, and
-// root references such as $.Query.
 type Template struct {
 	source   string
 	compiled *template.Template
@@ -31,7 +33,7 @@ func ParseTemplate(source string) (*Template, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, fmt.Errorf("%w: source is empty", ErrInvalidTemplate)
 	}
-	compiled, err := template.New("prompt").Option("missingkey=error").Parse(source)
+	compiled, err := template.New(promptTemplateName).Option(promptMissingKeyBehavior).Parse(source)
 	if err != nil {
 		return nil, fmt.Errorf("%w: parse: %w", ErrInvalidTemplate, err)
 	}
@@ -56,24 +58,27 @@ func (t *Template) Render(data any) (string, error) {
 	return rendered.String(), nil
 }
 
+// Require counts reachable static field references that retain the Render input's
+// identity across scopes and called templates. It follows break and continue;
+// conditional references count without promising that each Render evaluates them.
+// Computed lookups and function-returned aliases are not inferred.
 func (t *Template) Require(names ...string) error {
 	if t == nil || t.compiled == nil {
 		return fmt.Errorf("%w: nil template", ErrInvalidTemplate)
 	}
-	used := make(map[string]struct{})
-	for _, associated := range t.compiled.Templates() {
-		tree := associated.Tree
-		if tree != nil && tree.Root != nil {
-			collectTemplateFields(tree.Root, used)
-		}
+	fields := templateFields{
+		compiled: t.compiled,
+		names:    make(map[string]struct{}),
+		visited:  make(map[templateFieldCall]struct{}),
 	}
+	fields.inspect(templateFieldCall{name: t.compiled.Name(), root: true})
 
 	var missing []string
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" {
 			return fmt.Errorf("%w: required field name is empty", ErrInvalidTemplate)
 		}
-		if _, ok := used[name]; !ok {
+		if _, ok := fields.names[name]; !ok {
 			missing = append(missing, name)
 		}
 	}
@@ -114,61 +119,4 @@ func (t *Template) UserMessage(data any, attachments ...*media.Media) (chat.Mess
 		return chat.Message{}, fmt.Errorf("%w: user message: %w", ErrInvalidTemplate, err)
 	}
 	return message, nil
-}
-
-func collectTemplateFields(node parse.Node, fields map[string]struct{}) {
-	if node == nil {
-		return
-	}
-	switch value := node.(type) {
-	case *parse.ListNode:
-		for _, child := range value.Nodes {
-			collectTemplateFields(child, fields)
-		}
-	case *parse.ActionNode:
-		collectTemplateFields(value.Pipe, fields)
-	case *parse.IfNode:
-		collectBranchFields(value.Pipe, value.List, value.ElseList, fields)
-	case *parse.RangeNode:
-		collectBranchFields(value.Pipe, value.List, value.ElseList, fields)
-	case *parse.WithNode:
-		collectBranchFields(value.Pipe, value.List, value.ElseList, fields)
-	case *parse.TemplateNode:
-		if value.Pipe != nil {
-			collectTemplateFields(value.Pipe, fields)
-		}
-	case *parse.PipeNode:
-		for _, command := range value.Cmds {
-			collectTemplateFields(command, fields)
-		}
-	case *parse.CommandNode:
-		for _, argument := range value.Args {
-			collectTemplateFields(argument, fields)
-		}
-	case *parse.FieldNode:
-		if len(value.Ident) > 0 {
-			fields[value.Ident[0]] = struct{}{}
-		}
-	case *parse.VariableNode:
-		if len(value.Ident) > 1 && value.Ident[0] == "$" {
-			fields[value.Ident[1]] = struct{}{}
-		}
-	case *parse.ChainNode:
-		collectTemplateFields(value.Node, fields)
-		if _, dot := value.Node.(*parse.DotNode); dot && len(value.Field) > 0 {
-			fields[value.Field[0]] = struct{}{}
-		}
-	}
-}
-
-func collectBranchFields(pipe *parse.PipeNode, list, elseList *parse.ListNode, fields map[string]struct{}) {
-	if pipe != nil {
-		collectTemplateFields(pipe, fields)
-	}
-	if list != nil {
-		collectTemplateFields(list, fields)
-	}
-	if elseList != nil {
-		collectTemplateFields(elseList, fields)
-	}
 }

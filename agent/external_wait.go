@@ -14,8 +14,8 @@ var ErrInvalidExternalWait = errors.New("agent: invalid external wait")
 // Host-answered wait. The mailbox that owns the wait validates every external
 // answer against it at admission, so a rejected answer never advances or closes
 // the wait and a correct answer can still arrive. Recovery rebuilds the contract
-// from the persisted opening, so the rule a restored wait enforces is the rule it
-// opened with.
+// from the persisted opening and checks retained pending answers against it.
+// Consumed answers retain only their historical digests.
 //
 // AnswerSchema, when valid, is the schema the answer payload must satisfy; an
 // invalid (zero) schema accepts any RFC 7493 JSON value. MaxAnswerBytes bounds

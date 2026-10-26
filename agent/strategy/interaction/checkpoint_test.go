@@ -140,7 +140,7 @@ func validCheckpointAnswer(
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrong, err := interaction.NewToolInputResponseSignal(invalidID, wrongWaitID, json.RawMessage(`"Ada"`))
+	wrong, err := agent.NewSignalRequest(invalidID, wrongWaitID, json.RawMessage(`"Ada"`))
 	if err != nil {
 		t.Fatal(err)
 	}

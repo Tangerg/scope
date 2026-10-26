@@ -100,7 +100,7 @@ func validatePlanningCompletion(_ context.Context, candidate interaction.Complet
 		return interaction.CompletionDecision{Feedback: "Complete both planned review tasks."}, nil
 	}
 	for index, artifact := range artifacts {
-		output, err := artifact.Decode[planning.Output]()
+		output, err := artifact.Output().Decode[planning.Output]()
 		if err != nil {
 			return interaction.CompletionDecision{}, err
 		}

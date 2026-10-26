@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/strategy/collaboration"
 	"github.com/Tangerg/scope/agent/strategy/coordination"
 	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/strategy/role"
 	"github.com/Tangerg/scope/agent/strategy/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
@@ -17,7 +18,7 @@ import (
 )
 
 // The deterministic local model exercises the same interaction Dispatcher a
-// provider model would use. The workflow owns the application's prompt and
+// provider model would use. The role owns the application's prompt and
 // typed-output adaptation; collaboration only consumes Turn and Decision.
 func ExampleDefinition() {
 	ctx := context.Background()
@@ -29,27 +30,7 @@ func ExampleDefinition() {
 	dispatcher := exampleValue(interaction.NewDispatcher(modelDefinition, interaction.DispatcherConfig{Model: client}))
 	model := exampleBinding(modelDefinition, dispatcher)
 	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(16), Signals: agent.NewQuota(32)}
-	render := exampleValue(workflow.Transform("render_turn", func(_ context.Context, turn collaboration.Turn) (interaction.Input, error) {
-		payload, err := jsonv2.Marshal(turn)
-		if err != nil {
-			return interaction.Input{}, err
-		}
-		return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(payload)))}}, nil
-	}))
-	call := exampleValue(workflow.Call(workflow.CallConfig{ID: "decide", Deployment: model, Budget: budget}))
-	decode := exampleValue(workflow.Transform("decode_decision", func(_ context.Context, output interaction.Output) (collaboration.Decision, error) {
-		if output.ModelResponse == nil {
-			return collaboration.Decision{}, errors.New("coordinator produced no model response")
-		}
-		value, err := agent.ParsePayload([]byte(output.ModelResponse.Text()))
-		if err != nil {
-			return collaboration.Decision{}, err
-		}
-		return value.Decode[collaboration.Decision]()
-	}))
-	coordinator := exampleBinding(exampleValue(workflow.NewDefinition(workflow.DefinitionConfig{
-		Name: "example.coordinator", Description: "Render a turn and decode a model decision.", Stages: []workflow.Stage{render, call, decode},
-	})), nil)
+	coordinator := exampleCoordinator(model, budget)
 	gate := exampleBinding(exampleValue(coordination.NewInputGate(coordination.InputGateConfig{
 		Name: "example.input", Description: "Wait for an external instruction.", RequestSchema: textSchema, AnswerSchema: textSchema,
 	})), nil)
@@ -84,6 +65,25 @@ func ExampleDefinition() {
 	fmt.Println(exampleValue(output.Decode[string]()))
 	// Output:
 	// coordinator continued while input was pending; reviewed: inspect deployment
+}
+
+func exampleCoordinator(model agent.Deployment, budget agent.Budget) agent.Deployment {
+	return exampleValue(role.New(role.Config[collaboration.Turn, collaboration.Decision]{
+		Name: "example.coordinator", Description: "Render a turn and decode a completed model decision.",
+		Interaction: model, Budget: budget,
+		BuildInput: func(_ context.Context, turn collaboration.Turn) (interaction.Input, error) {
+			payload, err := jsonv2.Marshal(turn)
+			if err != nil {
+				return interaction.Input{}, err
+			}
+			return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(payload)))}}, nil
+		},
+		DecodeOutput: func(_ context.Context, output interaction.Output) (collaboration.Decision, error) {
+			return chatclient.JSON[collaboration.Decision]().Decode(output.ModelResponse)
+		},
+		ImplementationDigest: agent.ComputeDigest([]byte("collaboration-coordinator-role")),
+		ConfigurationDigest:  agent.ComputeDigest(exampleValue(jsonv2.Marshal(budget))),
+	}))
 }
 
 type decisionModel struct{}

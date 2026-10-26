@@ -3,6 +3,7 @@ package chatclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -30,11 +31,75 @@ func TestToolBatchDoesNotClaimNestedModelNonExecution(t *testing.T) {
 	}
 }
 
+func TestToolBatchFailureClassification(t *testing.T) {
+	cause := errors.New("write outcome unavailable")
+	failure, err := tool.NewFailure(tool.FailureConfig{
+		Kind: tool.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput("write acknowledged; later work failed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := tool.NewCallError(tool.CallErrorConfig{Cause: cause, Evidence: chat.NewTextToolOutput("write started")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrappedFailure, err := tool.NewCallError(tool.CallErrorConfig{Cause: failure, Evidence: chat.NewTextToolOutput("write started")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		cause error
+		kind  chat.CallFailureKind
+	}{
+		{name: "definite failure", cause: failure, kind: chat.CallFailureFailed},
+		{name: "wrapped definite failure", cause: fmt.Errorf("write: %w", failure), kind: chat.CallFailureFailed},
+		{name: "joined diagnostic", cause: errors.Join(errors.New("host diagnostic"), failure), kind: chat.CallFailureFailed},
+		{name: "evidence around definite failure", cause: wrappedFailure, kind: chat.CallFailureFailed},
+		{name: "ordinary error", cause: cause, kind: chat.CallFailureUnknown},
+		{name: "non-final evidence", cause: evidence, kind: chat.CallFailureUnknown},
+		{name: "invalid failure", cause: new(tool.Failure), kind: chat.CallFailureUnknown},
+		{name: "typed nil failure", cause: (*tool.Failure)(nil), kind: chat.CallFailureUnknown},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var executions, modelCalls int
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "write"}, func(context.Context, struct{}) (string, error) {
+				executions++
+				return "", test.cause
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			middleware, err := NewSingleBatchToolMiddleware(executable)
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := chat.ToolCall{ID: "write", Name: "write", Arguments: `{}`}
+			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				modelCalls++
+				return toolCallResponse(call), nil
+			}))
+			response, err := model.Call(t.Context(), textRequest("write"))
+			if response != nil || executions != 1 || modelCalls != 1 || chat.ClassifyFailure(err) != test.kind || !errors.Is(err, test.cause) {
+				t.Fatalf("response=%v executions=%d model calls=%d kind=%s error=%v", response, executions, modelCalls, chat.ClassifyFailure(err), err)
+			}
+			batch, ok := errors.AsType[*ToolBatchError](err)
+			if !ok || len(batch.Completed()) != 0 || batch.FailedCall() != call {
+				t.Fatalf("batch evidence lost: %v", err)
+			}
+		})
+	}
+}
+
 func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		invalidOutput bool
-	}{{name: "execution failure"}, {name: "invalid output", invalidOutput: true}} {
+		kind          chat.CallFailureKind
+	}{
+		{name: "execution failure", kind: chat.CallFailureFailed},
+		{name: "invalid output", invalidOutput: true, kind: chat.CallFailureUnknown},
+	} {
 		t.Run(test.name, func(t *testing.T) {
 			cause := errors.New("write failed after partial progress")
 			failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput("partial write acknowledged")})
@@ -76,6 +141,9 @@ func TestToolBatchErrorPreservesCompletedEffectsAndFailedCall(t *testing.T) {
 			batchError, ok := errors.AsType[*ToolBatchError](err)
 			if !ok || response != nil || modelCalls != 1 || len(executed) != 2 {
 				t.Fatalf("response = %v, error = %v, model calls = %d, executed = %v", response, err, modelCalls, executed)
+			}
+			if kind := chat.ClassifyFailure(err); kind != test.kind {
+				t.Fatalf("failure kind = %s, want %s", kind, test.kind)
 			}
 			if !test.invalidOutput && (!errors.Is(failure.Cause(), cause) || !errors.Is(err, failure) || errors.Is(err, cause)) {
 				t.Fatalf("error lost failure cause: %v", err)
@@ -148,6 +216,9 @@ func TestSynchronousBatchRetainsInputCheckpointAndCompletedPrefix(t *testing.T) 
 	var failure *ToolBatchError
 	if response != nil || !errors.As(err, &failure) || len(failure.Completed()) != 1 || failure.FailedCall().ID != "second" || executable.calls != 2 || modelCalls != 1 {
 		t.Fatalf("response=%v error=%v tool calls=%d model calls=%d", response, err, executable.calls, modelCalls)
+	}
+	if kind := chat.ClassifyFailure(err); kind != chat.CallFailureFailed {
+		t.Fatalf("unsupported continuation kind = %s, want %s", kind, chat.CallFailureFailed)
 	}
 	request, present := failure.InputRequest()
 	if !present || string(request.Prompt()) != `"confirm?"` {

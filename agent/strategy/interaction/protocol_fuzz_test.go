@@ -10,6 +10,7 @@ import (
 
 	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func FuzzInteractionEffectProtocol(f *testing.F) {
@@ -143,11 +144,20 @@ func TestInputResponseRequiresPresentJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewToolInputResponseSignal(id, waitID, nil); err == nil {
+	processID, err := agent.ParseProcessID("process:answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := jsonschema.Parse([]byte(`true`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := PendingToolInput{processID: processID, waitID: waitID, prompt: json.RawMessage(`"answer"`), responseSchema: schema}
+	if _, err := pending.ResponseSignal(id, nil); err == nil {
 		t.Fatal("accepted a missing answer")
 	}
 	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
-		signal, err := NewToolInputResponseSignal(id, waitID, json.RawMessage(raw))
+		signal, err := pending.ResponseSignal(id, json.RawMessage(raw))
 		if err != nil {
 			t.Fatal(err)
 		}

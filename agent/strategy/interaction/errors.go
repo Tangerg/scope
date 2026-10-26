@@ -19,7 +19,6 @@ var (
 	ErrInvalidToolSet           = errors.New("interaction: invalid tool set")
 	ErrInvalidToolCallRef       = errors.New("interaction: invalid tool call reference")
 	ErrInvalidDelegate          = errors.New("interaction: invalid delegate")
-	ErrInvalidArtifact          = errors.New("interaction: invalid artifact")
 	ErrInvalidInput             = errors.New("interaction: invalid input")
 )
 

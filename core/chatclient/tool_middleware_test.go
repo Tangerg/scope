@@ -142,14 +142,17 @@ func TestToolMiddlewareRejectsEntireInvalidBatchBeforeExecution(t *testing.T) {
 				t.Fatal(err)
 			}
 			modelCalls := 0
+			proposal := toolCallResponse(
+				chat.ToolCall{ID: "first", Name: "write", Arguments: `{"value":"first"}`}, second,
+			)
+			proposal.Metadata = &chat.ResponseMetadata{ID: "proposal", Usage: &chat.Usage{InputTokens: 7, OutputTokens: 3}}
+			wantProposal := proposal.Clone()
 			model := middleware(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				modelCalls++
-				return toolCallResponse(
-					chat.ToolCall{ID: "first", Name: "write", Arguments: `{"value":"first"}`}, second,
-				), nil
+				return proposal, nil
 			}))
 			response, err := model.Call(t.Context(), textRequest("write"))
-			if err == nil || response != nil || executions != 0 || modelCalls != 1 {
+			if err == nil || !reflect.DeepEqual(response, wantProposal) || chat.ClassifyFailure(err) != chat.CallFailureFailed || executions != 0 || modelCalls != 1 {
 				t.Fatalf("response=%v error=%v executions=%d model calls=%d", response, err, executions, modelCalls)
 			}
 			if second.Name == "missing" && !errors.Is(err, ErrInvalidToolBatch) {

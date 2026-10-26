@@ -207,6 +207,14 @@ func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool
 	if !exists || !wait.answerableBy(record.source()) || wait.answer != nil {
 		return false, ErrSignalRejected
 	}
+	// Consumed history retains only a digest. Every retained answer payload
+	// must satisfy its wait during both live admission and restoration.
+	if wait.external != nil && record.payload != nil {
+		signal := Signal{id: record.id, waitID: record.waitID, payload: record.payload, status: record.status}
+		if err := wait.external.admits(signal); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
 }
 
@@ -720,15 +728,6 @@ func (s *signalMailbox) prepareAdmission(status Status, currentWaitID WaitID, si
 			// A duplicate does not excuse a conflict or unauthorized address later
 			// in the batch. Nothing is applied unless every entry passes preflight.
 			continue
-		}
-		// An external wait owns the acceptance contract for its Host answers, and
-		// only live admission has the answer payload to check it against: replay
-		// trusts the already-validated history. A rejected answer never advances the
-		// wait, so it stays open for a valid one.
-		if wait, ok := s.waits[record.waitID]; ok && wait.external != nil {
-			if err := wait.external.admits(signal); err != nil {
-				return nil, err
-			}
 		}
 		if waitID := record.waitID; waitID.Valid() {
 			if _, alreadyAnswered := answered[waitID]; alreadyAnswered {

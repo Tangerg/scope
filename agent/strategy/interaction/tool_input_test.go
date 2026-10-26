@@ -358,7 +358,7 @@ func testToolInputRestore(t *testing.T, facade bool, schema, value, invalid, res
 	if facade {
 		signal, err = pending.ResponseSignal(id, json.RawMessage(response))
 	} else {
-		signal, err = interaction.NewToolInputResponseSignal(id, pending.WaitID(), json.RawMessage(response))
+		signal, err = agent.NewSignalRequest(id, pending.WaitID(), json.RawMessage(response))
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func testToolInputRestore(t *testing.T, facade bool, schema, value, invalid, res
 		if parseErr != nil {
 			t.Fatal(parseErr)
 		}
-		valid, validErr := interaction.NewToolInputResponseSignal(validID, pending.WaitID(), json.RawMessage(value))
+		valid, validErr := agent.NewSignalRequest(validID, pending.WaitID(), json.RawMessage(value))
 		if validErr != nil {
 			t.Fatal(validErr)
 		}

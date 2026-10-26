@@ -44,14 +44,21 @@ func (p PendingToolInput) ResponseSignal(
 	if !p.Valid() {
 		return agent.SignalRequest{}, ErrInvalidPendingToolInput
 	}
-	signal, err := NewToolInputResponseSignal(id, p.waitID, response)
+	if len(response) == 0 || len(response) > tool.MaxInputBytes {
+		return agent.SignalRequest{}, fmt.Errorf("%w: response JSON must contain at most %d bytes", tool.ErrInvalidInputRequest, tool.MaxInputBytes)
+	}
+	input, err := agent.ParsePayload(response)
 	if err != nil {
-		return agent.SignalRequest{}, err
+		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", tool.ErrInvalidInputRequest, err)
+	}
+	response = input.JSON()
+	if len(response) > tool.MaxInputBytes {
+		return agent.SignalRequest{}, fmt.Errorf("%w: normalized response JSON exceeds %d bytes", tool.ErrInvalidInputRequest, tool.MaxInputBytes)
 	}
 	if err := p.responseSchema.Validate(response); err != nil {
 		return agent.SignalRequest{}, fmt.Errorf("%w: response: %w", tool.ErrInvalidInputRequest, err)
 	}
-	return signal, nil
+	return agent.NewSignalRequest(id, p.waitID, response)
 }
 
 // PendingToolInputs reads every current Tool input wait in a captured tree,
