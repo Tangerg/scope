@@ -15,6 +15,7 @@
 #   go             — the version in go.work
 #   golangci-lint, govulncheck — scripts/install-check-tools.sh
 #   jq             — used to parse vulnerability findings
+#   rg             — required by tools filesystem contracts
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
