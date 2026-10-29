@@ -11,10 +11,6 @@ type boundaryCodec struct {
 	cancel context.CancelFunc
 }
 
-func (b boundaryCodec) GetName() string { return "boundary" }
-
-func (b boundaryCodec) Count(string) (int, error) { return 1, b.err }
-
 func (b boundaryCodec) Encode(string) ([]uint, []string, error) {
 	if b.cancel != nil {
 		b.cancel()

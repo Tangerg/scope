@@ -8,7 +8,7 @@ require (
 	github.com/Tangerg/scope/etl v0.58.0
 	github.com/andybalholm/cascadia v1.3.5
 	github.com/samber/lo v1.53.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 )
 
 require (

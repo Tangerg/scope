@@ -3,6 +3,11 @@
 // lifetime, and collection provisioning. NewStore binds an existing collection;
 // Scope neither creates its schema nor configures a competing distance policy.
 //
+// Queries require the server's GraphQL API, which Weaviate has deprecated and
+// scheduled for removal from Weaviate Cloud on 2027-05-01. This adapter cannot
+// query a server with GraphQL disabled. The upstream migration requirements are
+// documented at https://docs.weaviate.io/weaviate/client-libraries/go.
+//
 // The collection requires one unnamed dense vector, vectorizer none, no tenants,
 // and exactly two text properties: content with searchable word tokenization,
 // and metadata with filterable field tokenization. Its native index owns cosine,

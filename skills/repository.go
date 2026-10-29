@@ -1,8 +1,6 @@
 package skills
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -198,7 +196,7 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 	if err != nil {
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, err)
 	}
-	frontmatter, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
+	frontmatter, _, readErr := readFrontmatter(ctx, file, r.limits.maxFrontmatterBytes)
 	closeErr := errors.Join(file.Close(), contextError(ctx, "close skill"))
 	if closeErr != nil {
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, errors.Join(readErr, closeErr))
@@ -209,7 +207,7 @@ func (r *Repository) Lookup(ctx context.Context, name string) (Summary, error) {
 		}
 		return Summary{}, fmt.Errorf("skills: %s: %w", operation, readErr)
 	}
-	skill, err := Parse(frontmatter)
+	skill, err := parseSkill(frontmatter, nil)
 	if ctxErr := contextError(ctx, operation); ctxErr != nil {
 		return Summary{}, errors.Join(err, ctxErr)
 	}
@@ -285,44 +283,6 @@ func (r *Repository) missingSkillFileError(ctx context.Context, name string, err
 		return errors.Join(err, closeErr)
 	}
 	return invalidSkill(name, err)
-}
-
-func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, error) {
-	limited := io.LimitReader(contextReader{ctx: ctx, reader: reader}, maxBytes+1)
-	buffered := bufio.NewReaderSize(limited, int(min(maxBytes+1, 4096)))
-
-	var document bytes.Buffer
-	var bytesRead int64
-	lineNumber := 0
-	for {
-		text, readErr := buffered.ReadString('\n')
-		if contextErr := contextError(ctx, "read frontmatter"); contextErr != nil {
-			return nil, errors.Join(readErr, contextErr)
-		}
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return nil, readErr
-		}
-		bytesRead += int64(len(text))
-		if bytesRead > maxBytes {
-			return nil, fmt.Errorf("%w: frontmatter exceeds %d bytes", ErrContentTooLarge, maxBytes)
-		}
-		line := strings.TrimSuffix(strings.TrimSuffix(text, "\n"), "\r")
-		if lineNumber == 0 {
-			line = strings.TrimPrefix(line, "\ufeff")
-			if line != frontmatterFence {
-				return nil, ErrNoFrontmatter
-			}
-		}
-		document.WriteString(line)
-		document.WriteByte('\n')
-		if lineNumber > 0 && line == frontmatterFence {
-			return document.Bytes(), nil
-		}
-		lineNumber++
-		if readErr != nil {
-			return nil, ErrNoFrontmatter
-		}
-	}
 }
 
 // OpenResource rejects lexical traversal; repositories returned by

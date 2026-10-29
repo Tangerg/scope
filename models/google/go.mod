@@ -6,7 +6,7 @@ require (
 	github.com/Tangerg/scope/core v0.58.0
 	github.com/Tangerg/scope/models/protocol/openai v0.58.0
 	github.com/go-resty/resty/v2 v2.17.2
-	google.golang.org/genai v1.75.0
+	google.golang.org/genai v1.77.0
 )
 
 require (
@@ -42,7 +42,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/api v0.304.0 // indirect

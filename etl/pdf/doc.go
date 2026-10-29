@@ -6,4 +6,9 @@
 // [MetadataPageIndex]. Extraction is text-only: tables, columns, and unusual
 // font encodings may come out in imperfect order, and scanned PDFs need OCR
 // upstream.
+//
+// SourceBudget and MaxPages limit encoded bytes and declared pages. They do not
+// bound expanded parser memory or interrupt an individual page decode. Hosts
+// accepting untrusted PDFs need an execution boundary that enforces memory and
+// time limits; the reader observes cancellation between parser calls.
 package pdf

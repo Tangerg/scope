@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/scope/core v0.58.0
-	github.com/tiktoken-go/tokenizer v0.8.1
+	github.com/tiktoken-go/tokenizer v0.10.0
 )
 
 require github.com/dlclark/regexp2/v2 v2.8.4 // indirect

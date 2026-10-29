@@ -245,6 +245,10 @@ func TestUnicodeNamesHaveOneSpelling(t *testing.T) {
 
 func TestParseNoFrontmatter(t *testing.T) {
 	for _, content := range []string{
+		"",
+		"---",
+		"---\nname: unfinished\ndescription: missing closing fence\n",
+		"+++\nname = 'toml'\n+++\nbody",
 		"no front matter here",
 		" ---\nname: padded-open\ndescription: invalid fence\n---\nbody",
 		"---\nname: padded-close\ndescription: invalid fence\n ---\nbody",
@@ -252,6 +256,23 @@ func TestParseNoFrontmatter(t *testing.T) {
 		if _, err := Parse([]byte(content)); !errors.Is(err, ErrNoFrontmatter) {
 			t.Errorf("Parse(%q) error = %v, want ErrNoFrontmatter", content, err)
 		}
+	}
+}
+
+func TestParseFrontmatterBoundaries(t *testing.T) {
+	for _, newline := range []string{"\n", "\r\n"} {
+		for _, prefix := range []string{"", "\ufeff"} {
+			content := prefix + strings.Join([]string{
+				"---", "name: boundary", "description: |", "  before", "  ---", "  after", "---",
+			}, newline)
+			skill, err := Parse([]byte(content))
+			if err != nil || skill.Instructions != "" || skill.Description != "before\n---\nafter\n" {
+				t.Fatalf("Parse(%q) = %#v, %v", content, skill, err)
+			}
+		}
+	}
+	if skill, err := Parse([]byte("---\n---\nbody")); skill != nil || !errors.Is(err, ErrNameEmpty) || !errors.Is(err, ErrDescriptionEmpty) {
+		t.Fatalf("empty metadata = %#v, %v", skill, err)
 	}
 }
 

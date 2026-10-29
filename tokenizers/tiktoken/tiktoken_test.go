@@ -104,6 +104,26 @@ func TestNewHonorsCancellationAndCodecIsConcurrent(t *testing.T) {
 	workers.Wait()
 }
 
+func TestDecodePreservesTokenByteFragments(t *testing.T) {
+	tokenizer, err := tiktoken.New(t.Context(), tiktoken.O200KBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		tokens []int
+		want   string
+	}{
+		{[]int{35895}, "\xe8\x96"},
+		{[]int{187, 186}, "\xff\xfe"},
+		{[]int{64, 35895, 65}, "a\xe8\x96b"},
+	} {
+		got, err := tokenizer.Decode(t.Context(), tc.tokens)
+		if err != nil || got != tc.want {
+			t.Fatalf("Decode(%v) = %q, %v; want %q", tc.tokens, got, err, tc.want)
+		}
+	}
+}
+
 func TestCountText(t *testing.T) {
 	tk, err := tiktoken.New(t.Context(), tiktoken.CL100KBase)
 	if err != nil {

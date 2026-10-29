@@ -60,10 +60,15 @@ var (
 	_ tokenizer.Tokenizer   = Tokenizer{}
 )
 
+type codec interface {
+	Encode(string) ([]uint, []string, error)
+	Decode([]uint) (string, error)
+}
+
 // Tokenizer encodes, decodes, and counts text with one tiktoken vocabulary.
 // It is safe for concurrent use.
 type Tokenizer struct {
-	encoding tiktokenlib.Codec
+	encoding codec
 	reserved map[int]string
 }
 
@@ -80,11 +85,9 @@ func New(ctx context.Context, encoding Encoding) (Tokenizer, error) {
 	if err != nil {
 		return Tokenizer{}, fmt.Errorf("tiktoken: initialize %q: %w", encoding, err)
 	}
-	// The codec lazily initializes its reverse vocabulary without synchronization.
-	// Finish that mutation before sharing this otherwise immutable instance.
-	if _, err := native.Decode(nil); err != nil {
-		return Tokenizer{}, fmt.Errorf("tiktoken: initialize reverse vocabulary: %w", err)
-	}
+	// Individual tokens can split a UTF-8 sequence; decoding must preserve their
+	// bytes until the complete sequence is assembled.
+	native.SetErrorMode(tiktokenlib.ErrorModeNone)
 	if err := ctx.Err(); err != nil {
 		return Tokenizer{}, err
 	}
