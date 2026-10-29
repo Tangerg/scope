@@ -52,3 +52,53 @@ func assertWrongPassword(t *testing.T) {
 		t.Fatalf("password error = %v", err)
 	}
 }
+
+func TestEncryptedDocumentsRequireTheCorrectPassword(t *testing.T) {
+	// These ReportLab pages were encrypted with pypdf using RC4-128 and AES-128.
+	// Real encryption dictionaries exercise the successful decryption path too.
+	for _, path := range []string{"testdata/encrypted-rc4.pdf", "testdata/encrypted-aes128.pdf"} {
+		t.Run(path, func(t *testing.T) {
+			payload, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, password := range []string{"", "wrong", "scope-password"} {
+				for _, perPage := range []bool{false, true} {
+					reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{
+						Password: password,
+						PerPage:  perPage,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					docs, err := reader.Read(t.Context())
+					if password != "scope-password" {
+						if len(docs) != 0 || !errors.Is(err, ledongthuc.ErrInvalidPassword) {
+							t.Fatalf("password=%q perPage=%t Read = %v, %v", password, perPage, docs, err)
+						}
+						continue
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := []string{"First page\n\nSecond page"}
+					if perPage {
+						want = []string{"First page", "Second page"}
+					}
+					if len(docs) != len(want) {
+						t.Fatalf("perPage=%t documents = %v", perPage, docs)
+					}
+					for index, doc := range docs {
+						if doc.Text != want[index] {
+							t.Fatalf("perPage=%t page=%d text = %q, want %q", perPage, index+1, doc.Text, want[index])
+						}
+						assertMetadata(t, doc.Metadata, pdf.MetadataPagesTotal, 2)
+						if perPage {
+							assertMetadata(t, doc.Metadata, pdf.MetadataPageIndex, index+1)
+						}
+					}
+				}
+			}
+		})
+	}
+}

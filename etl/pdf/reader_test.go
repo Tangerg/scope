@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -202,6 +203,23 @@ func TestWholeDocumentSkipsBlankPages(t *testing.T) {
 	}
 	if docs[0].Text != "Alpha\n\nOmega" {
 		t.Fatalf("text = %q", docs[0].Text)
+	}
+}
+
+func TestImageOnlyDocumentHasNoExtractableText(t *testing.T) {
+	// A ReportLab image-only page distinguishes a scan from an empty PDF page.
+	payload, err := os.ReadFile("testdata/image-only.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, perPage := range []bool{false, true} {
+		reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{PerPage: perPage})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if docs, err := reader.Read(t.Context()); len(docs) != 0 || err != nil {
+			t.Fatalf("perPage=%t Read = %v, %v", perPage, docs, err)
+		}
 	}
 }
 
