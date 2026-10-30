@@ -105,6 +105,38 @@ func TestLoadSkill(t *testing.T) {
 	}
 }
 
+func TestLoadSkillAcceptsFenceInsideYAMLBlockScalar(t *testing.T) {
+	const instructions = "\n    printf 'first'\n\tprintf 'second'\nline with hard break  \nnext line\n\n"
+	repository, err := skillsrc.NewRepository(fstest.MapFS{
+		"formatting/SKILL.md": {Data: []byte("---\nname: formatting\ndescription: |\n  Before\n  ---\n  After\n---\n" + instructions)},
+	}, skillsrc.RepositoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := NewTools(repository, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, executable := range built {
+		if executable.Definition().Name != "load_skill" {
+			continue
+		}
+		output, err := invokeTestTool(t.Context(), executable, `{"name":"formatting"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page TextPage
+		if err := jsonv2.Unmarshal([]byte(testOutputText(output)), &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.Content != instructions || page.NextCursor != nil {
+			t.Fatalf("load_skill = %#v, want complete instructions %q", page, instructions)
+		}
+		return
+	}
+	t.Fatal("load_skill tool is missing")
+}
+
 func TestReadSkillResource(t *testing.T) {
 	output, err := invokeTestTool(t.Context(), newTools(t)["read_skill_resource"], `{"name":"pdf-processing","path":"references/REFERENCE.md"}`)
 	if err != nil {
