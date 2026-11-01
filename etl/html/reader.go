@@ -1,22 +1,20 @@
 package html
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
-	"github.com/samber/lo"
 	htmlnode "golang.org/x/net/html"
 
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
 	"github.com/Tangerg/scope/etl/internal/origin"
+	etltext "github.com/Tangerg/scope/etl/text"
 )
 
 const (
@@ -38,29 +36,28 @@ type ReaderConfig struct {
 	SourceBudget       etl.SourceBudget
 }
 
+// Reader parses the sequential input consumed by [etltext.Reader]. Reopen the
+// original source for a new attempt; cancellation before reading leaves it intact.
 type Reader struct {
-	source          io.Reader
+	source          *etltext.Reader
 	selector        string
 	matcher         goquery.Matcher
-	sourceName      string
 	stripWhitespace bool
 	extraMetadata   coremetadata.Map
-	sourceBudget    etl.SourceBudget
 }
 
 // NewReader validates the selector without consuming source. The byte budget is
 // enforced by Read because io.Reader does not provide a source length.
 func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
-	if lo.IsNil(source) {
-		return nil, errors.New("html reader: source must not be nil")
+	input, err := etltext.NewReader(source, etltext.ReaderConfig{SourceName: config.SourceName, SourceBudget: config.SourceBudget})
+	if err != nil {
+		return nil, fmt.Errorf("html reader: %w", err)
 	}
 	r := &Reader{
-		source:          source,
+		source:          input,
 		selector:        config.Selector,
-		sourceName:      config.SourceName,
 		stripWhitespace: !config.PreserveWhitespace,
 		extraMetadata:   config.Metadata.Clone(),
-		sourceBudget:    config.SourceBudget,
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("html reader: invalid metadata: %w", err)
@@ -84,11 +81,17 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
+	input, err := r.source.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("html: read source: %w", err)
 	}
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(raw))
+	if len(input) == 0 {
+		return nil, nil
+	}
+	// HTML tokenization consumes UTF-8. The text reader owns the bounded
+	// stream and original revision; rendered DOM text has no proven byte span.
+	p := input[0].Provenance.Excerpt()
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(input[0].Text))
 	if err != nil {
 		return nil, fmt.Errorf("html: parse: %w", err)
 	}
@@ -96,103 +99,45 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	page := newPageInfo(doc)
-
-	if r.selector == "" {
-		docs, readErr := r.readWhole(ctx, doc, page)
-		if readErr != nil {
-			return nil, readErr
-		}
-		if len(docs) != 0 {
-			docs[0].Provenance = p
-		}
-		return docs, nil
+	selection := doc.Selection
+	if r.matcher != nil {
+		selection = doc.FindMatcher(r.matcher)
 	}
-	docs, err := r.readSelector(ctx, doc, page)
+	facts, err := r.pageMetadata(doc)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("html: page metadata: %w", err)
 	}
-	return origin.Parts(ctx, p, docs)
-}
-
-func (r *Reader) readWhole(ctx context.Context, doc *goquery.Document, page pageInfo) ([]*document.Document, error) {
-	body := r.extractText(doc.Selection)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if body == "" {
-		return nil, nil
-	}
-	d, err := r.buildDocument(body, page, "")
-	if err != nil {
-		return nil, fmt.Errorf("html: build document: %w", err)
-	}
-	return []*document.Document{d}, nil
-}
-
-func (r *Reader) readSelector(ctx context.Context, doc *goquery.Document, page pageInfo) ([]*document.Document, error) {
-	var (
-		docs     []*document.Document
-		buildErr error
-	)
-	doc.FindMatcher(r.matcher).EachWithBreak(func(_ int, sel *goquery.Selection) bool {
-		if ctx.Err() != nil {
-			return false // cancellation is reported after the loop
+	var docs []*document.Document
+	for _, node := range selection.Nodes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		body := r.extractText(sel)
+		body := r.extractText(node)
 		if body == "" {
-			return true
+			continue
 		}
-		d, err := r.buildDocument(body, page, r.selector)
-		if err != nil {
-			buildErr = err
-			return false
+		d, buildErr := document.NewDocument(body, nil)
+		if buildErr != nil {
+			return nil, fmt.Errorf("html: build document: %w", buildErr)
 		}
+		d.Metadata = facts.Clone()
 		docs = append(docs, d)
-		return true
-	})
+	}
+	if r.matcher != nil {
+		return origin.Parts(ctx, p, docs)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if buildErr != nil {
-		return nil, fmt.Errorf("html: build selector document: %w", buildErr)
+	if len(docs) > 0 {
+		docs[0].Provenance = p
 	}
 	return docs, nil
 }
 
-func (r *Reader) buildDocument(body string, page pageInfo, selector string) (*document.Document, error) {
-	doc, err := document.NewDocument(body, nil)
-	if err != nil {
-		return nil, err
-	}
-	doc.Metadata, err = r.buildMetadata(page, selector)
-	if err != nil {
-		return nil, fmt.Errorf("encode metadata: %w", err)
-	}
-	return doc, nil
-}
-
-func (r *Reader) buildMetadata(page pageInfo, selector string) (coremetadata.Map, error) {
-	md := r.extraMetadata.Clone()
-	if err := page.applyTo(&md); err != nil {
-		return nil, err
-	}
-	if selector != "" {
-		if err := md.Set(MetadataSelector, selector); err != nil {
-			return nil, err
-		}
-	}
-	if len(md) == 0 {
-		return nil, nil
-	}
-	return md, nil
-}
-
-func (r *Reader) extractText(sel *goquery.Selection) string {
+func (r *Reader) extractText(node *htmlnode.Node) string {
 	var content strings.Builder
-	for _, node := range sel.Nodes {
-		appendNodeText(&content, node)
-	}
+	appendNodeText(&content, node)
 	text := content.String()
 	if r.stripWhitespace {
 		text = strings.Join(strings.Fields(text), " ")
@@ -237,45 +182,32 @@ func textBoundaryElement(name string) bool {
 	}
 }
 
-type pageInfo struct {
-	title       string
-	description string
-	canonical   string
-}
-
-func newPageInfo(doc *goquery.Document) pageInfo {
-	var p pageInfo
-	p.title = strings.TrimSpace(doc.Find("head > title").First().Text())
-
+func (r *Reader) pageMetadata(doc *goquery.Document) (coremetadata.Map, error) {
+	title := strings.TrimSpace(doc.Find("head > title").First().Text())
+	var description, canonical string
 	doc.Find(`head > meta[name="description"]`).Each(func(_ int, s *goquery.Selection) {
-		if c, ok := s.Attr("content"); ok && p.description == "" {
-			p.description = strings.TrimSpace(c)
+		if c, ok := s.Attr("content"); ok && description == "" {
+			description = strings.TrimSpace(c)
 		}
 	})
 	// rel is a case-insensitive token list, so "canonical" may share it with other link types.
 	doc.Find(`head > link[rel~="canonical" i]`).Each(func(_ int, s *goquery.Selection) {
-		if href, ok := s.Attr("href"); ok && p.canonical == "" {
-			p.canonical = strings.TrimSpace(href)
+		if href, ok := s.Attr("href"); ok && canonical == "" {
+			canonical = strings.TrimSpace(href)
 		}
 	})
-	return p
-}
-
-func (p pageInfo) applyTo(metadata *coremetadata.Map) error {
-	for _, field := range [...]struct {
-		key   string
-		value string
-	}{
-		{MetadataTitle, p.title},
-		{MetadataDescription, p.description},
-		{MetadataCanonical, p.canonical},
+	facts := r.extraMetadata.Clone()
+	for _, field := range [...]struct{ key, value string }{
+		{MetadataTitle, title}, {MetadataDescription, description}, {MetadataCanonical, canonical}, {MetadataSelector, r.selector},
 	} {
-		if field.value == "" {
-			continue
-		}
-		if err := metadata.Set(field.key, field.value); err != nil {
-			return err
+		if field.value != "" {
+			if err := facts.Set(field.key, field.value); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return nil
+	if len(facts) == 0 {
+		return nil, nil
+	}
+	return facts, nil
 }

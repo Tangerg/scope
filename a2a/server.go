@@ -25,7 +25,7 @@ type ServerConfig struct {
 	// HTTP(S) URL. Its path is the exact RPC route; hosts own public-origin
 	// routing and reverse-proxy configuration. Its Capabilities must not declare
 	// push notifications or an extended agent card, which this handler does not
-	// provide; the declared streaming flag is enforced as advertised.
+	// provide. Streaming and declared input modes are enforced from the published snapshot.
 	Card *sdka2a.AgentCard
 
 	// TaskStore persists A2A task state and is required: the Host owns the store
@@ -51,8 +51,12 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if lo.IsNil(config.TaskStore) {
 		return nil, ErrNilTaskStore
 	}
-	return serveProtocol(config.Card, func(c sdka2a.AgentCapabilities) a2asrv.RequestHandler {
-		return a2asrv.NewHandler(exec, a2asrv.WithCapabilityChecks(&c), a2asrv.WithTaskStore(config.TaskStore))
+	return serveProtocol(config.Card, func(card *sdka2a.AgentCard) (a2asrv.RequestHandler, error) {
+		enforcer, enforcerErr := a2asrv.NewAgentCardEnforcer(card)
+		if enforcerErr != nil {
+			return nil, fmt.Errorf("%w %q: %w", ErrInvalidCard, card.Name, enforcerErr)
+		}
+		return a2asrv.NewHandler(exec, a2asrv.WithCallInterceptors(enforcer), a2asrv.WithTaskStore(config.TaskStore)), nil
 	})
 }
 
@@ -63,9 +67,9 @@ func NewProtocolHTTPHandler(card *sdka2a.AgentCard, handler a2asrv.RequestHandle
 	if lo.IsNil(handler) {
 		return nil, fmt.Errorf("a2a: protocol handler required")
 	}
-	return serveProtocol(card, func(sdka2a.AgentCapabilities) a2asrv.RequestHandler { return handler })
+	return serveProtocol(card, func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error) { return handler, nil })
 }
-func serveProtocol(source *sdka2a.AgentCard, bind func(sdka2a.AgentCapabilities) a2asrv.RequestHandler) (http.Handler, error) {
+func serveProtocol(source *sdka2a.AgentCard, bind func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error)) (http.Handler, error) {
 	if source == nil {
 		return nil, ErrNilCard
 	}
@@ -73,15 +77,17 @@ func serveProtocol(source *sdka2a.AgentCard, bind func(sdka2a.AgentCapabilities)
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := servedCapabilities(card)
-	if err != nil {
+	if err = validateServedCapabilities(card); err != nil {
 		return nil, err
 	}
 	rpcPath, err := serverRPCPath(card)
 	if err != nil {
 		return nil, err
 	}
-	requestHandler := bind(capabilities)
+	requestHandler, err := bind(card)
+	if err != nil {
+		return nil, err
+	}
 	cardHandler := a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded})
 
 	rpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
@@ -97,19 +103,15 @@ func serveProtocol(source *sdka2a.AgentCard, bind func(sdka2a.AgentCapabilities)
 	}), nil
 }
 
-// servedCapabilities is the single capability set the handler advertises and
-// enforces. The executor streams, so streaming follows the card's declaration;
-// the fixed construction wires no push store, sender, or extended-card producer,
-// so a card may not advertise either without the handler misrepresenting itself.
-func servedCapabilities(card *sdka2a.AgentCard) (sdka2a.AgentCapabilities, error) {
-	capabilities := card.Capabilities
+// The fixed handler installs no push store, sender, or extended-card producer.
+func validateServedCapabilities(card *sdka2a.AgentCard) error {
 	switch {
-	case capabilities.PushNotifications:
-		return sdka2a.AgentCapabilities{}, fmt.Errorf("%w %q: push notifications are not supported", ErrInvalidCard, card.Name)
-	case capabilities.ExtendedAgentCard:
-		return sdka2a.AgentCapabilities{}, fmt.Errorf("%w %q: an extended agent card is not supported", ErrInvalidCard, card.Name)
+	case card.Capabilities.PushNotifications:
+		return fmt.Errorf("%w %q: push notifications are not supported", ErrInvalidCard, card.Name)
+	case card.Capabilities.ExtendedAgentCard:
+		return fmt.Errorf("%w %q: an extended agent card is not supported", ErrInvalidCard, card.Name)
 	default:
-		return capabilities, nil
+		return nil
 	}
 }
 

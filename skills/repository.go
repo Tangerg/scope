@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"slices"
 	"strings"
 
@@ -40,11 +41,18 @@ func NewRepository(fsys fs.FS, config RepositoryConfig) (*Repository, error) {
 	return &Repository{fsys: fsys, limits: limits}, nil
 }
 
-// NewDirectoryRepository roots the filesystem at a directory so a skill cannot
-// escape it through a relative path, which matters because skill names reach
-// this layer from untrusted bundles.
-func NewDirectoryRepository(root string, config RepositoryConfig) (*Repository, error) {
-	return NewRepository(rootedFS(root), config)
+// NewDirectoryRepository borrows the Host's open directory. Renaming or
+// replacing its path cannot switch the repository to another tree. The Host
+// owns root: closing it prevents future opens but does not invalidate files
+// that callers have already acquired.
+func NewDirectoryRepository(root *os.Root, config RepositoryConfig) (*Repository, error) {
+	if root == nil {
+		return nil, ErrNilFilesystem
+	}
+	if _, err := root.Stat("."); err != nil {
+		return nil, err
+	}
+	return NewRepository(rootedFS{root: root}, config)
 }
 
 func (r *Repository) validate() error {

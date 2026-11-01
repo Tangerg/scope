@@ -51,18 +51,10 @@ func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*Mod
 	return &ModerationModel{api: api, defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
-func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (response *moderation.Response, err error) {
-	if err = req.Validate(); err != nil {
+func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*moderation.Response, error) {
+	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	// Mistral answers with one result per input in submission order and tags
-	// none of them, so counting the reply against the request is the only thing
-	// that keeps each verdict attached to the text it judged.
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
 
 	effectiveOptions, err := m.defaultOptions.Resolve(req.Options)
 	if err != nil {
@@ -94,7 +86,11 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (re
 		ID:    apiResp.ID,
 		Model: apiResp.Model,
 	}
-	return moderation.NewResponse(outputs, meta)
+	out := &moderation.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (m *ModerationModel) mapCategories(flags map[string]*bool, scores map[string]*float64) (moderation.Categories, error) {

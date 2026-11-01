@@ -33,9 +33,8 @@ func (m MessagesConfig) protocol() anthropicprotocol.MessagesConfig {
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*anthropicprotocol.Messages, error) {
 	return anthropicprotocol.NewMessages(ctx, config.protocol(), anthropicprotocol.Dialect{
-		Provider:       "anthropic",
-		MaxTemperature: 1,
-		RejectTopK:     true, RejectTopP: true, NativeJSONSchema: true},
+		Provider:         "anthropic",
+		NativeJSONSchema: true},
 	)
 }
 

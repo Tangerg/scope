@@ -61,3 +61,15 @@ func TestNonFiniteScoresRemainInvalid(t *testing.T) {
 		}
 	}
 }
+
+func TestImpossibleNativeDistancesNeverProduceSuccessfulMatches(t *testing.T) {
+	for _, s := range []vectorstore.Score{
+		vectorstore.ScoreFromDistance(-1), vectorstore.ScoreFromCosineDistance(-math.SmallestNonzeroFloat64),
+		vectorstore.ScoreFromCosineDistance(math.Nextafter(2, 3)), vectorstore.ScoreFromCosineSimilarity(-2),
+		vectorstore.ScoreFromCosineSimilarity(math.Nextafter(1, 2)),
+	} {
+		if err := s.Validate(); err == nil {
+			t.Fatalf("invalid metric became valid ranking %g", s)
+		}
+	}
+}

@@ -35,8 +35,10 @@ type ReaderConfig struct {
 	SourceBudget      etl.SourceBudget
 }
 
+// Read admits one attempt on the sequential source. Reopen the input to
+// retry after a failure; concurrent or later attempts return [etl.ErrSourceConsumed].
 type Reader struct {
-	source            io.Reader
+	source            *origin.Stream
 	parser            parser.Parser
 	headingSplitLevel int
 	sourceName        string
@@ -49,7 +51,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 		return nil, errors.New("markdown reader: source must not be nil")
 	}
 	r := &Reader{
-		source:            source,
+		source:            origin.NewStream(source),
 		parser:            parser.New(),
 		headingSplitLevel: config.HeadingSplitLevel,
 		sourceName:        config.SourceName,
@@ -75,7 +77,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
+	raw, p, err := r.source.Read(ctx, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("markdown: read source: %w", err)
 	}

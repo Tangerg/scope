@@ -101,8 +101,8 @@ func TestBindingCallsExplicitEndpointWithInvalidEnvironmentURL(t *testing.T) {
 			t.Errorf("request = %s %s", request.Method, request.URL)
 		}
 		for name, want := range map[string]string{
-			"X-Api-Key": "test-key", "Anthropic-Version": "2023-06-01", "X-Binding": "frozen",
-			"Authorization": "", "X-Environment": "",
+			"Authorization": "Bearer test-key", "Anthropic-Version": "2026-10-21", "X-Binding": "frozen",
+			"X-Api-Key": "", "X-Environment": "",
 		} {
 			if got := request.Header.Get(name); got != want {
 				t.Errorf("%s = %q; want %q", name, got, want)

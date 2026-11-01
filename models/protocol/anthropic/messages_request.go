@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/packages/param"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -34,7 +34,7 @@ const (
 	protocolUsageKey             = "anthropic/usage"
 )
 
-func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect) (*anthropicsdk.MessageNewParams, error) {
+func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect, allowSampling bool) (*anthropicsdk.MessageNewParams, error) {
 	options, err := defaults.Resolve(req.Options)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: options: %w", err)
@@ -64,6 +64,28 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
 		}
 	}
+	// The native API removed these keys entirely. Only compatible endpoints
+	// selecting the previous external wire contract receive their values.
+	for _, sampling := range []struct {
+		name  string
+		value any
+		set   bool
+	}{
+		{"temperature", options.Temperature, options.Temperature != nil},
+		{"top_k", options.TopK, options.TopK != nil},
+		{"top_p", options.TopP, options.TopP != nil},
+	} {
+		if !sampling.set {
+			continue
+		}
+		if !allowSampling {
+			return nil, fmt.Errorf("anthropic: options.%s is not supported by the native Messages API", sampling.name)
+		}
+		if fields == nil {
+			fields = make(map[string]any)
+		}
+		fields[sampling.name] = sampling.value
+	}
 	outputConfig, err := decodeOutputConfig(fields, extensionKey)
 	if err != nil {
 		return nil, err
@@ -84,29 +106,11 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	if options.PresencePenalty != nil {
 		return nil, errors.New("anthropic: options.presence_penalty is not supported")
 	}
-	if dialect.RejectTopK && options.TopK != nil {
-		return nil, errors.New("anthropic: options.top_k is not supported by current Claude models")
-	}
-	if dialect.RejectTopP && options.TopP != nil {
-		return nil, errors.New("anthropic: options.top_p is not supported by current Claude models")
-	}
-	if dialect.MaxTemperature > 0 && options.Temperature != nil && *options.Temperature > dialect.MaxTemperature {
-		return nil, fmt.Errorf("anthropic: options.temperature must be between 0 and %g", dialect.MaxTemperature)
-	}
 	params.Model = options.Model
 	if options.MaxOutputTokens != nil {
 		params.MaxTokens = *options.MaxOutputTokens
 	} else {
 		params.MaxTokens = protocolDefaultMaxTokens
-	}
-	if options.Temperature != nil {
-		params.Temperature = param.NewOpt(*options.Temperature)
-	}
-	if options.TopK != nil {
-		params.TopK = param.NewOpt(*options.TopK)
-	}
-	if options.TopP != nil {
-		params.TopP = param.NewOpt(*options.TopP)
 	}
 	if len(options.Stop) > 0 {
 		params.StopSequences = slices.Clone(options.Stop)
@@ -343,6 +347,9 @@ func mapProtocolUserParts(parts []corechat.Part) ([]anthropicsdk.ContentBlockPar
 	for i := range parts {
 		switch parts[i].Kind {
 		case corechat.PartText:
+			if len(parts[i].Citations) != 0 {
+				return nil, fmt.Errorf("%w: user text cannot carry Anthropic citations", errors.ErrUnsupported)
+			}
 			blocks = append(blocks, anthropicsdk.NewTextBlock(parts[i].Text))
 		case corechat.PartMedia:
 			block, err := mapProtocolMedia(parts[i].Media)

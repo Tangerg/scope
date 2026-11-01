@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/redis
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/samber/lo v1.53.0
 )

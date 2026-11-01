@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -100,7 +100,7 @@ func TestProtocolRequestMapsCoreReasoningEffort(t *testing.T) {
 	params, err := mapProtocolRequest(
 		corechat.Options{Model: "claude-opus-4-6"},
 		request,
-		Dialect{Provider: "anthropic"},
+		Dialect{Provider: "anthropic"}, false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestProtocolRequestMapsCoreReasoningEffort(t *testing.T) {
 	}
 
 	request.Options.ReasoningEffort = "turbo"
-	if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !strings.Contains(err.Error(), "unsupported value") {
+	if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false); err == nil || !strings.Contains(err.Error(), "unsupported value") {
 		t.Fatalf("unknown effort error = %v", err)
 	}
 }

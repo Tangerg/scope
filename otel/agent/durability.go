@@ -27,6 +27,12 @@ const (
 	durabilityUnresolved          = "unresolved"
 )
 
+// Observation decorates writes while retaining exactly the original read authority.
+type observedReadableStore struct {
+	*observedTreeCommitter
+	run.HeadReader
+}
+
 type observedTreeCommitter struct {
 	observer *Observer
 	next     run.Store

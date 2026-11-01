@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -86,9 +87,8 @@ func floatVector(values []float64, width int) ([]float32, error) {
 	if len(values) == 0 || (width != 0 && len(values) != width) {
 		return nil, errors.New("vespa: vector has inconsistent dimensions")
 	}
-	vector := make([]float32, len(values))
+	vector := embedding.Float32Vector(values)
 	for index, value := range values {
-		vector[index] = float32(value)
 		narrowed := float64(vector[index])
 		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsInf(narrowed, 0) || (value != 0 && narrowed == 0) {
 			return nil, errors.New("vespa: vector is not representable in float32")

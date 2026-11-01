@@ -111,11 +111,11 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 // local error: an extra embedding has nowhere to go, and an input the provider
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
-func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddingResponse, expectedResults int) (*embedding.Response, error) {
+func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddingResponse, req *embedding.Request) (*embedding.Response, error) {
 	if apiResp == nil {
 		return nil, fmt.Errorf("%w: google: missing embedding response", embedding.ErrInvalidResponse)
 	}
-	outputs := make([]*embedding.Output, expectedResults)
+	outputs := make([]*embedding.Output, len(req.Texts))
 	for index, item := range apiResp.Embeddings {
 		if item == nil {
 			return nil, fmt.Errorf("%w: google: embeddings[%d] is null", embedding.ErrInvalidResponse, index)
@@ -154,24 +154,24 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 		}
 	}
 
-	return embedding.NewResponse(outputs, meta)
-}
-
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
-	if err = req.Validate(); err != nil {
+	out := &embedding.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
 		return nil, err
 	}
-	effective := *req
-	effective.Options, err = e.defaultOptions.Resolve(req.Options)
+	return out, nil
+}
+
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
 	}
+	effective := *req
+	effective.Options = options
 	req = &effective
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
 
 	modelName, contents, config, err := e.buildAPIRequest(req)
 	if err != nil {
@@ -183,5 +183,5 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 		return nil, err
 	}
 
-	return e.buildResponse(modelName, apiResp, len(req.Texts))
+	return e.buildResponse(modelName, apiResp, req)
 }

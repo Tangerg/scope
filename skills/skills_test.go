@@ -675,7 +675,7 @@ func TestDirRejectsResourceSymlinkEscapingRoot(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestDirRejectsResourceSymlinkEscapingSkill(t *testing.T) {
 		t.Skipf("create symlink: %v", err)
 	}
 
-	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

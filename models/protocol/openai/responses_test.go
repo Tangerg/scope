@@ -319,7 +319,7 @@ func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
 		{body: `{}`},
 		{body: `null`},
 		{body: `{"input_tokens":null}`},
-		{body: `{"input_tokens":"bogus"}`},
+		{body: `{"input_tokens":"bogus"}`}, {body: `{"input_tokens":false}`}, {body: `{"input_tokens":"3"}`}, {body: `{"input_tokens":0.5}`}, {body: `{"input_tokens":9223372036854775808}`},
 		{body: `{"input_tokens":-1}`},
 		{body: `{"input_tokens":0}`, wantTokens: new(int64(0))},
 		{body: `{"input_tokens":7}`, wantTokens: new(int64(7))},

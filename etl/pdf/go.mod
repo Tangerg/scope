@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/etl/pdf
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
-	github.com/Tangerg/scope/etl v0.58.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/etl v0.58.1-0.20261101022437-7791a40140fd
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/samber/lo v1.53.0
 )

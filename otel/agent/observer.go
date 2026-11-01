@@ -705,7 +705,11 @@ func (o *Observer) WrapTreeCommitter(next run.Store) (run.Store, error) {
 	if lo.IsNil(next) {
 		return nil, fmt.Errorf("%w: tree committer must not be nil", ErrInvalidObserverConfig)
 	}
-	return &observedTreeCommitter{observer: o, next: next}, nil
+	decorated := &observedTreeCommitter{observer: o, next: next}
+	if heads, ok := next.(run.HeadReader); ok {
+		return observedReadableStore{observedTreeCommitter: decorated, HeadReader: heads}, nil
+	}
+	return decorated, nil
 }
 
 func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot run.TreeSnapshot, invoke func(context.Context) error) (err error) {

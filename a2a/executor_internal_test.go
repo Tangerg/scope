@@ -50,6 +50,7 @@ func TestHTTPFailureDoesNotPublishInternalDiagnostics(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPost, "/invoke", strings.NewReader(string(body)))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(sdka2a.SvcParamVersion, string(sdka2a.Version))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "private-http-error-marker") {

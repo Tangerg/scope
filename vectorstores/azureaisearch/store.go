@@ -18,6 +18,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -166,10 +167,7 @@ func (s *Store) coordinates(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("azureaisearch: %w: expected %d coordinates", vectorstore.ErrIncompatibleSpace, s.dimensions)
 	}
-	native := make([]float32, len(values))
-	for i, v := range values {
-		native[i] = float32(v)
-	}
+	native := embedding.Float32Vector(values)
 	if err := s.validateVector(native); err != nil {
 		return nil, err
 	}

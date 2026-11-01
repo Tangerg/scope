@@ -249,8 +249,8 @@ func serveProtocolChat(t *testing.T, writer http.ResponseWriter, request *http.R
 
 func assertProtocolRequestEnvelope(t *testing.T, request *http.Request, body protocolChatRequestBody) bool {
 	t.Helper()
-	if request.URL.Path != "/v1/messages" || request.Header.Get("x-api-key") != "test-key" || request.Header.Get("anthropic-version") == "" {
-		t.Errorf("request identity = %q/%q/%q", request.URL.Path, request.Header.Get("x-api-key"), request.Header.Get("anthropic-version"))
+	if request.URL.Path != "/v1/messages" || request.Header.Get("Authorization") != "Bearer test-key" || request.Header.Get("anthropic-version") == "" {
+		t.Errorf("request identity = %q/%q/%q", request.URL.Path, request.Header.Get("Authorization"), request.Header.Get("anthropic-version"))
 	}
 	if body.Model != "claude-opus-4-6" || body.MaxTokens != 2048 || len(body.System) != 1 || len(body.Messages) != 3 || len(body.Tools) != 1 {
 		t.Errorf("request shape = model %q max %d system %d messages %d tools %d", body.Model, body.MaxTokens, len(body.System), len(body.Messages), len(body.Tools))

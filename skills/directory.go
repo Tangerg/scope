@@ -8,10 +8,9 @@ import (
 	"syscall"
 )
 
-// rootedFS confines each open to its root without retaining a directory
-// descriptor between calls. os.OpenInRoot also prevents symbolic links from
-// escaping root, which os.DirFS deliberately does not guarantee.
-type rootedFS string
+// rootedFS borrows the authority granted by an open directory. A temporary
+// subroot confines relative resource symlinks to their selected skill.
+type rootedFS struct{ root *os.Root }
 
 func (r rootedFS) Open(name string) (fs.File, error) {
 	return r.openInDir(".", name)
@@ -24,16 +23,12 @@ type confinedResourceFS interface {
 }
 
 func (r rootedFS) openInDir(dir, name string) (fs.File, error) {
-	root, err := os.OpenRoot(string(r))
+	sub, err := r.root.OpenRoot(filepath.FromSlash(dir))
 	if err != nil {
 		return nil, err
 	}
-	sub, err := root.OpenRoot(filepath.FromSlash(dir))
-	if err != nil {
-		return nil, errors.Join(err, root.Close())
-	}
 	file, err := sub.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	closeErr := errors.Join(sub.Close(), root.Close())
+	closeErr := sub.Close()
 	if err != nil {
 		return nil, errors.Join(err, closeErr)
 	}

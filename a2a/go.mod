@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/a2a
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
-	github.com/Tangerg/scope/otel v0.58.0
-	github.com/a2aproject/a2a-go/v2 v2.6.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/otel v0.58.1-0.20261101022437-7791a40140fd
+	github.com/a2aproject/a2a-go/v2 v2.7.0
 	github.com/samber/lo v1.53.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0

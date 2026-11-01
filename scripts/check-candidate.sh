@@ -26,21 +26,14 @@ git -C "$tmp/tree" add -f -- .
 export GOFLAGS="${GOFLAGS:+$GOFLAGS }-buildvcs=false"
 export GOPROXY="file://$tmp/proxy,$(go env GOPROXY)"
 export GONOSUMDB="github.com/Tangerg/scope,$(go env GONOSUMDB)" GONOPROXY=none GOWORK=off
-# A module's tests can inspect a sibling consumer before that sibling runs.
-# Resolve its declared candidate versions with Go's own checksum verifier.
+# release.sh tidies after rewriting peers: a new peer can introduce external
+# dependencies that the published versions never loaded. Normalize only these
+# disposable manifests, before any test can inspect a sibling consumer.
 while IFS= read -r member; do
-  (
-    cd "$tmp/tree/$member"
-    direct=$(go mod edit -json | jq -r --arg v "$version" '.Require[]? | select(.Version == $v) | .Path')
-    if [[ -n "$direct" ]]; then
-      peers=()
-      while IFS= read -r peer; do peers+=("$peer"); done <<< "$direct"
-      go mod download "${peers[@]}"
-    fi
-  )
+  (cd "$tmp/tree/$member" && go mod tidy)
 done < "$tmp/modules"
 for mod in "${modules[@]}"; do
   if ! grep -Fqx -- "$mod" "$tmp/modules"; then echo "unknown workspace module: $mod" >&2; exit 2; fi
   echo "candidate $version: $mod"
-  (cd "$tmp/tree/$mod" && go test -mod=mod -count=1 ./...)
+  (cd "$tmp/tree/$mod" && go test -mod=readonly -count=1 ./...)
 done

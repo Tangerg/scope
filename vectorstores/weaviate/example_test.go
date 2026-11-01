@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	weaviateclient "github.com/weaviate/weaviate-go-client/v5/weaviate"
-
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/weaviate"
@@ -14,12 +12,13 @@ import (
 func ExampleNewStore() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	client, err := weaviateclient.NewClient(weaviateclient.Config{Host: "localhost:8080", Scheme: "http"})
+	client, err := weaviate.NewClient(ctx, weaviate.ClientConfig{Endpoint: "http://localhost:8080", GRPCAddress: "localhost:50051"})
 	if err != nil {
 		panic(err)
 	}
 	// The host has provisioned the current native collection described in GoDoc.
-	store, err := weaviate.NewStore(ctx, weaviate.StoreConfig{Client: client, ClassName: "Documents", Space: "paired-v1"})
+	defer client.Close()
+	store, err := weaviate.NewStore(ctx, weaviate.StoreConfig{Client: client, Collection: "Documents", Space: "paired-v1"})
 	if err != nil {
 		panic(err)
 	}

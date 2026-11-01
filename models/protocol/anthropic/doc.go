@@ -6,7 +6,10 @@
 // selected URL. The SDK does not reload environment credentials, endpoints, or
 // headers: APIKey, Headers, and HTTPClient belong to this binding. A nil HTTPClient
 // retains the SDK's response-header deadline without limiting a streaming body.
-// The SDK still owns its version header and retry policy.
+// The official binding uses the Anthropic v2 SDK's native API revision and
+// bearer authentication. Sampling controls are not accepted by that API.
+// Compatible bindings declare their own wire revision and credential header;
+// other headers cannot replace or add credentials. The SDK owns its retry policy.
 //
 // Constructors:
 //

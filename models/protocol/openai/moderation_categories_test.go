@@ -26,7 +26,7 @@ func TestModerationRequiresReportedCategoryFacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			model := &ModerationModel{}
-			if response, err := model.buildModerationResponse(&native); !errors.Is(err, moderation.ErrInvalidResponse) {
+			if response, err := model.buildModerationResponse(&native, &moderation.Request{Texts: []string{"text"}}); response != nil || !errors.Is(err, moderation.ErrInvalidResponse) {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
 		})
@@ -40,7 +40,7 @@ func TestModerationPreservesReportedCategorySet(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := &ModerationModel{}
-	response, err := model.buildModerationResponse(&native)
+	response, err := model.buildModerationResponse(&native, &moderation.Request{Texts: []string{"text"}})
 	if err != nil {
 		t.Fatal(err)
 	}

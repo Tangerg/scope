@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strconv"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
+	"encoding/json"
+
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
@@ -20,67 +21,98 @@ import (
 
 type nativeSchema struct{ metric string }
 
-func (n *nativeSchema) read(class *models.Class, name string, space vectorstore.SpaceID) error {
-	if class == nil || class.Class != name || class.Vectorizer != "none" || len(class.VectorConfig) != 0 || class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
-		return ErrIncompatibleClass
+type indexWire struct {
+	Distance string `json:"distance"`
+	Skip     bool   `json:"skip"`
+	Multi    struct {
+		Enabled bool `json:"enabled"`
+	} `json:"multivector"`
+}
+type propertyWire struct {
+	Name            string   `json:"name"`
+	DataType        []string `json:"dataType"`
+	Tokenization    string   `json:"tokenization"`
+	IndexSearchable *bool    `json:"indexSearchable"`
+	IndexFilterable *bool    `json:"indexFilterable"`
+}
+type vectorWire struct {
+	Vectorizer map[string]json.RawMessage `json:"vectorizer"`
+	IndexType  string                     `json:"vectorIndexType"`
+	Index      struct {
+		indexWire
+		HNSW indexWire `json:"hnsw"`
+		Flat indexWire `json:"flat"`
+	} `json:"vectorIndexConfig"`
+}
+type collectionWire struct {
+	Name         string `json:"class"`
+	Description  string `json:"description"`
+	MultiTenancy struct {
+		Enabled bool `json:"enabled"`
+	} `json:"multiTenancyConfig"`
+	Vectors    map[string]vectorWire `json:"vectorConfig"`
+	Properties []propertyWire        `json:"properties"`
+}
+
+func (n *nativeSchema) read(c *collectionWire, name string, space vectorstore.SpaceID) error {
+	if c == nil || c.Name != name || len(c.Vectors) != 1 || c.MultiTenancy.Enabled {
+		return fmt.Errorf("%w: wrong name, tenant or vector topology", ErrIncompatibleCollection)
 	}
-	if class.Description != space.StorageKey() {
+	if c.Description != space.StorageKey() {
 		return vectorstore.ErrIncompatibleSpace
 	}
-	config, ok := class.VectorIndexConfig.(map[string]any)
-	if !ok {
-		return ErrIncompatibleClass
+	v, found := c.Vectors[vectorName]
+	none, explicit := v.Vectorizer["none"]
+	if !found || len(v.Vectorizer) != 1 || !explicit || len(none) == 0 || none[0] != '{' {
+		return fmt.Errorf("%w: expected a self-provided dense vector named %q", ErrIncompatibleCollection, vectorName)
 	}
-	metric, ok := config["distance"].(string)
-	if !ok {
-		return ErrIncompatibleClass
+	idx := v.Index
+	if idx.Skip || idx.Multi.Enabled {
+		return fmt.Errorf("%w: disabled or multivector index", ErrIncompatibleCollection)
 	}
-	switch metric {
+	switch v.IndexType {
+	case "flat", "hnsw":
+	case "dynamic":
+		for _, sub := range []indexWire{idx.HNSW, idx.Flat} {
+			if sub.Skip || sub.Multi.Enabled || sub.Distance != "" && sub.Distance != idx.Distance {
+				return fmt.Errorf("%w: inconsistent dynamic index", ErrIncompatibleCollection)
+			}
+		}
+	default:
+		return fmt.Errorf("%w: unsupported index %q", ErrIncompatibleCollection, v.IndexType)
+	}
+	switch idx.Distance {
 	case distanceCosine, distanceDot, distanceL2Squared, distanceHamming, distanceManhattan:
 	default:
-		return ErrIncompatibleClass
+		return fmt.Errorf("%w: invalid distance %q", ErrIncompatibleCollection, idx.Distance)
 	}
-	if skip, ok := config["skip"].(bool); ok && skip {
-		return ErrIncompatibleClass
+	if len(c.Properties) != 3 {
+		return fmt.Errorf("%w: expected three document properties", ErrIncompatibleCollection)
 	}
-	if multi, ok := config["multivector"].(map[string]any); ok && multi["enabled"] == true {
-		return ErrIncompatibleClass
-	}
-	switch class.VectorIndexType {
-	case "hnsw", "flat", "dynamic":
-	default:
-		return ErrIncompatibleClass
-	}
-	if len(class.Properties) != 3 {
-		return ErrIncompatibleClass
-	}
-	seen := make(map[string]struct{})
-	for _, property := range class.Properties {
-		if property == nil || len(property.DataType) != 1 {
-			return ErrIncompatibleClass
+	seen := make(map[string]bool, 3)
+	for _, p := range c.Properties {
+		if seen[p.Name] || len(p.DataType) != 1 {
+			return fmt.Errorf("%w: invalid property %q", ErrIncompatibleCollection, p.Name)
 		}
-		if _, duplicate := seen[property.Name]; duplicate {
-			return ErrIncompatibleClass
-		}
-		seen[property.Name] = struct{}{}
-		switch property.Name {
-		case fieldTerms:
-			if property.DataType[0] != "text[]" || property.Tokenization != "field" || property.IndexFilterable != nil && !*property.IndexFilterable {
-				return ErrIncompatibleClass
-			}
+		seen[p.Name] = true
+		switch p.Name {
 		case fieldContent:
-			if property.DataType[0] != "text" || property.Tokenization != "word" || property.IndexSearchable != nil && !*property.IndexSearchable {
-				return ErrIncompatibleClass
+			if p.DataType[0] != "text" || p.Tokenization != "word" || p.IndexSearchable != nil && !*p.IndexSearchable {
+				return fmt.Errorf("%w: content must be searchable word text", ErrIncompatibleCollection)
 			}
-		case fieldMetadata:
-			if property.DataType[0] != "text" || property.Tokenization != "field" || property.IndexFilterable != nil && !*property.IndexFilterable {
-				return ErrIncompatibleClass
+		case fieldMetadata, fieldTerms:
+			want := "text"
+			if p.Name == fieldTerms {
+				want = "text[]"
+			}
+			if p.DataType[0] != want || p.Tokenization != "field" || p.IndexFilterable != nil && !*p.IndexFilterable {
+				return fmt.Errorf("%w: property %q must be filterable field %s", ErrIncompatibleCollection, p.Name, want)
 			}
 		default:
-			return ErrIncompatibleClass
+			return fmt.Errorf("%w: unexpected property %q", ErrIncompatibleCollection, p.Name)
 		}
 	}
-	n.metric = metric
+	n.metric = idx.Distance
 	return nil
 }
 
@@ -94,6 +126,9 @@ func (n nativeSchema) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 	}
 	switch n.metric {
 	case distanceCosine:
+		if raw < 0 || raw > 2 {
+			return 0, errors.New("weaviate: invalid native cosine distance")
+		}
 		return vectorstore.ScoreFromCosineDistance(raw), nil
 	case distanceDot:
 		return vectorstore.ScoreFromNegativeInnerProductDistance(raw), nil
@@ -127,17 +162,9 @@ func validateVector(vector []float32, dimensions int) error {
 	return nil
 }
 
-func decodeDocument(id string, properties map[string]any) (*document.Document, error) {
+func decodeDocument(id, text, facts string, reported []string) (*document.Document, error) {
 	if err := validateObjectID(id); err != nil {
 		return nil, err
-	}
-	if len(properties) != 3 {
-		return nil, errors.New("weaviate: native record does not have the current property shape")
-	}
-	text, textOK := properties[fieldContent].(string)
-	facts, factsOK := properties[fieldMetadata].(string)
-	if !textOK || !factsOK {
-		return nil, errors.New("weaviate: content and metadata must be strings")
 	}
 	doc := new(document.Document)
 	if err := document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
@@ -146,18 +173,6 @@ func decodeDocument(id string, properties map[string]any) (*document.Document, e
 	expected, err := nativeTerms(doc.Metadata)
 	if err != nil {
 		return nil, err
-	}
-	terms, ok := properties[fieldTerms].([]any)
-	if !ok || len(terms) != len(expected) {
-		return nil, errors.New("weaviate: malformed derived terms")
-	}
-	reported := make([]string, len(terms))
-	for i, v := range terms {
-		token, ok := v.(string)
-		if !ok {
-			return nil, errors.New("weaviate: invalid term type")
-		}
-		reported[i] = token
 	}
 	if !slices.Equal(expected, reported) {
 		return nil, errors.New("weaviate: terms differ from canonical metadata")
@@ -169,7 +184,7 @@ func decodeDocument(id string, properties map[string]any) (*document.Document, e
 	return doc, nil
 }
 
-func encodeRecord(doc *document.Document, name string) (*models.Object, error) {
+func encodeRecord(doc *document.Document) (*pb.BatchObject, error) {
 	if err := validateObjectID(doc.ID); err != nil {
 		return nil, err
 	}
@@ -181,38 +196,10 @@ func encodeRecord(doc *document.Document, name string) (*models.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &models.Object{ID: strfmt.UUID(doc.ID), Class: name, Properties: map[string]any{fieldContent: doc.Text, fieldMetadata: string(facts), fieldTerms: terms}}, nil
-}
-
-func graphQLVector(value any, dimensions int) error {
-	values, ok := value.([]any)
-	if !ok {
-		return errors.New("weaviate: query lacks the native dense vector")
-	}
-	vector := make([]float32, len(values))
-	for i, item := range values {
-		number, ok := item.(float64)
-		if !ok {
-			return errors.New("weaviate: query vector contains a non-number")
-		}
-		vector[i] = float32(number)
-	}
-	return validateVector(vector, dimensions)
-}
-
-func graphQLRelevance(additional map[string]any, mode vectorstore.SearchMode) (float64, error) {
-	if mode == vectorstore.SearchModeSemantic {
-		value, ok := additional[additionalDistance].(float64)
-		if !ok {
-			return 0, errors.New("weaviate: native distance is not a number")
-		}
-		return value, nil
-	}
-	text, ok := additional[additionalScore].(string)
-	if !ok {
-		return 0, errors.New("weaviate: native hybrid score is not a string")
-	}
-	return strconv.ParseFloat(text, 64)
+	return &pb.BatchObject{Uuid: doc.ID, Properties: &pb.BatchObject_Properties{
+		NonRefProperties:    &structpb.Struct{Fields: map[string]*structpb.Value{fieldContent: structpb.NewStringValue(doc.Text), fieldMetadata: structpb.NewStringValue(string(facts))}},
+		TextArrayProperties: []*pb.TextArrayProperties{{PropName: fieldTerms, Values: terms}},
+	}}, nil
 }
 
 type rankedDocument struct {

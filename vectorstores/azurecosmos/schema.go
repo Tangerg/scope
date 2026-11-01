@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -56,10 +57,7 @@ func newContainerSchema(properties *azcosmos.ContainerProperties, name, partitio
 }
 
 func (c containerSchema) narrow(vector []float64) ([]float32, error) {
-	narrowed := make([]float32, len(vector))
-	for i, v := range vector {
-		narrowed[i] = float32(v)
-	}
+	narrowed := embedding.Float32Vector(vector)
 	if err := c.validateVector(narrowed); err != nil {
 		return nil, err
 	}

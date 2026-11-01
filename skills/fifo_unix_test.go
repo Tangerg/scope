@@ -21,7 +21,7 @@ func TestDirectoryResourceRejectsFIFOWithoutBlocking(t *testing.T) {
 		if err := syscall.Mkfifo(filepath.Join(directory, "pipe"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+		repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +87,7 @@ func TestDirectoryMetadataRejectsFIFO(t *testing.T) {
 					}
 					defer writer.Close()
 				}
-				repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+				repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 				if err != nil {
 					t.Fatal(err)
 				}

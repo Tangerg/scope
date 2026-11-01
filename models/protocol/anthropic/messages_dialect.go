@@ -8,10 +8,7 @@ type Dialect struct {
 	// Provider scopes opaque reasoning state to the API that issued it. It is
 	// required even when the provider uses Anthropic's wire shape because signed
 	// thinking is not portable across vendors.
-	Provider       string
-	MaxTemperature float64
-	RejectTopK     bool
-	RejectTopP     bool
+	Provider string
 	// NativeJSONSchema reports whether this endpoint implements Anthropic's
 	// output_config.format JSON Schema control. Compatible providers that do not
 	// declare it reject that output format with ErrUnsupportedOutputFormat.

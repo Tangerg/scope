@@ -106,9 +106,9 @@ func TestEmbeddingDimensionsValidateEffectiveRequest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = model.Call(t.Context(), request)
-			if !errors.Is(err, embedding.ErrInvalidResponse) {
-				t.Fatalf("Call = %v", err)
+			response, callErr := model.Call(t.Context(), request)
+			if response != nil || !errors.Is(callErr, embedding.ErrInvalidResponse) {
+				t.Fatalf("Call = %v, %v", response, callErr)
 			}
 			if defaults && request.Options.Dimensions != nil {
 				t.Fatal("Call mutated request options")

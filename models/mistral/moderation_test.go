@@ -1,6 +1,7 @@
 package mistral_test
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -45,6 +46,16 @@ func TestModerationModel_Call_Mock(t *testing.T) {
 	if len(out.Outputs) == 0 {
 		t.Fatal("empty outputs")
 	}
+	// The peer still returns one verdict. It cannot authorize treating a
+	// two-input batch as checked, even when that one verdict was valid.
+	unmatched, err := moderation.NewRequest([]string{"first", "unchecked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial, callErr := m.Call(t.Context(), unmatched); partial != nil || !errors.Is(callErr, moderation.ErrInvalidResponse) {
+		t.Fatalf("incomplete moderation returned %+v, %v", partial, callErr)
+	}
+
 }
 
 func TestModerationRejectsDuplicateProviderJSONMembers(t *testing.T) {

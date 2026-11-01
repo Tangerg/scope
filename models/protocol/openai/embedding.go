@@ -73,6 +73,9 @@ func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*open
 	if err != nil {
 		return nil, err
 	}
+	if format, set := fields["encoding_format"]; set && format != string(openai.EmbeddingNewParamsEncodingFormatFloat) {
+		return nil, fmt.Errorf("%w: openai: embedding encoding_format must be float for a Core embedding", errors.ErrUnsupported)
+	}
 	params := &openai.EmbeddingNewParams{}
 	params.SetExtraFields(fields)
 
@@ -93,20 +96,25 @@ func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*open
 // error: an index the request cannot hold and a repeated index are refused as
 // they arrive, and an input the provider never answered stays nil and fails
 // when the Response is built, naming the text that went unanswered.
-func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingResponse, expectedResults int) (*embedding.Response, error) {
+func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingResponse, req *embedding.Request) (*embedding.Response, error) {
 	if apiResp == nil {
 		return nil, fmt.Errorf("%w: openai: embedding response is null", embedding.ErrInvalidResponse)
 	}
 	meta := &embedding.ResponseMetadata{
 		Model: apiResp.Model,
 	}
-	if apiResp.Usage.JSON.PromptTokens.Valid() {
-		meta.Usage = &embedding.Usage{InputTokens: apiResp.Usage.PromptTokens}
+	input, err := optionalCount(apiResp.Usage.JSON.PromptTokens)
+	if err != nil {
+		return nil, fmt.Errorf("%w: openai: input token usage: %w", embedding.ErrInvalidResponse, err)
+	}
+	if input != nil {
+		meta.Usage = &embedding.Usage{InputTokens: *input}
 	}
 
-	outputs := make([]*embedding.Output, expectedResults)
+	outputs := make([]*embedding.Output, len(req.Texts))
 	for position, item := range apiResp.Data {
-		if !item.JSON.Index.Valid() || !item.JSON.Embedding.Valid() {
+		index, indexed := responseIndex(item.JSON.Index)
+		if !indexed || !item.JSON.Embedding.Valid() {
 			return nil, fmt.Errorf("%w: openai: embedding result %d requires index and embedding", embedding.ErrInvalidResponse, position)
 		}
 		var coordinates []*float64
@@ -120,16 +128,20 @@ func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingR
 			}
 			values[coordinate] = *value
 		}
-		if err := embedding.PlaceOutput(outputs, int(item.Index), values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, int(index), values, nil); err != nil {
 			return nil, fmt.Errorf("openai: embeddings response: %w", err)
 		}
 	}
 
-	return embedding.NewResponse(outputs, meta)
+	out := &embedding.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
-	if err = req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
+	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 	options, err := e.defaultOptions.Resolve(req.Options)
@@ -139,11 +151,6 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	effectiveRequest := *req
 	effectiveRequest.Options = options
 	req = &effectiveRequest
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
 
 	apiReq, err := e.buildAPIEmbeddingRequest(req)
 	if err != nil {
@@ -155,5 +162,5 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 		return nil, err
 	}
 
-	return e.buildEmbeddingResponse(apiResp, len(req.Texts))
+	return e.buildEmbeddingResponse(apiResp, req)
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -67,6 +67,7 @@ func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
 		Headers:    config.Headers,
+		Provider:   dialect.Provider,
 	})
 	if err != nil {
 		return nil, err
@@ -102,11 +103,7 @@ func (m *Messages) CountInputTokens(ctx context.Context, req *corechat.Request) 
 	if err != nil {
 		return 0, err
 	}
-	response, err := m.api.countTokens(ctx, countParams)
-	if err != nil {
-		return 0, err
-	}
-	return response.InputTokens, nil
+	return m.api.countTokens(ctx, countParams)
 }
 
 // Stream performs one streaming Messages API request and yields provider
@@ -169,7 +166,7 @@ func (m *Messages) buildProtocolRequest(req *corechat.Request) (*anthropicsdk.Me
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("anthropic: request: %w", err)
 	}
-	params, err := mapProtocolRequest(m.defaults, req, m.dialect)
+	params, err := mapProtocolRequest(m.defaults, req, m.dialect, m.api.compatibleRevision)
 	if err != nil {
 		return nil, err
 	}

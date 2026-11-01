@@ -116,6 +116,10 @@ func (a AudioTranslationModelConfig) protocol() openaiprotocol.AudioTranslationM
 	return openaiprotocol.AudioTranslationModelConfig{Provider: protocolProvider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
 }
 
+// NewAudioTranslationModel translates an uploaded audio file synchronously.
+//
+// Deprecated: OpenAI has scheduled whisper-1 and this endpoint for shutdown on
+// February 26, 2027. Realtime translation requires a separate integration.
 func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*openaiprotocol.AudioTranslationModel, error) {
 	return openaiprotocol.NewAudioTranslationModel(ctx, config.protocol())
 }

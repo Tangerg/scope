@@ -90,7 +90,7 @@ func (m *ModerationModel) buildAPIModerationRequest(req *moderation.Request) (*o
 	return params, nil
 }
 
-func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResponse) (*moderation.Response, error) {
+func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResponse, req *moderation.Request) (*moderation.Response, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("%w: openai: moderation response is null", moderation.ErrInvalidResponse)
 	}
@@ -137,21 +137,17 @@ func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResp
 		Model: resp.Model,
 	}
 
-	return moderation.NewResponse(outputs, meta)
-}
-
-func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (response *moderation.Response, err error) {
-	if err = req.Validate(); err != nil {
+	out := &moderation.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
 		return nil, err
 	}
-	// The moderation results carry no index, so their order is the only thing
-	// tying a verdict to an input. Counting the reply against the request is
-	// what keeps each verdict attached to the text it judged.
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
+	return out, nil
+}
+
+func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*moderation.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 
 	apiReq, err := m.buildAPIModerationRequest(req)
 	if err != nil {
@@ -163,5 +159,5 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (re
 		return nil, err
 	}
 
-	return m.buildModerationResponse(apiResp)
+	return m.buildModerationResponse(apiResp, req)
 }

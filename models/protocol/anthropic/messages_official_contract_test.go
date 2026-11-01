@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
@@ -15,7 +15,7 @@ import (
 )
 
 func TestNativeClaudeSamplingContract(t *testing.T) {
-	dialect := Dialect{Provider: "anthropic", MaxTemperature: 1, RejectTopK: true, RejectTopP: true}
+	dialect := Dialect{Provider: "anthropic"}
 	tests := []struct {
 		name    string
 		options corechat.Options
@@ -23,14 +23,14 @@ func TestNativeClaudeSamplingContract(t *testing.T) {
 	}{
 		{name: "top k", options: corechat.Options{TopK: new(int64(10))}, want: "top_k is not supported"},
 		{name: "top p", options: corechat.Options{TopP: new(0.9)}, want: "top_p is not supported"},
-		{name: "temperature", options: corechat.Options{Temperature: new(1.1)}, want: "between 0 and 1"},
+		{name: "temperature", options: corechat.Options{Temperature: new(1.0)}, want: "temperature is not supported"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			request := validNativeRequest(t)
 			request.Options = tt.options
-			_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, dialect)
+			_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, dialect, false)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want substring %q", err, tt.want)
 			}
@@ -41,7 +41,7 @@ func TestNativeClaudeSamplingContract(t *testing.T) {
 func TestNativeClaudeRejectsZeroMaxTokens(t *testing.T) {
 	request := validNativeRequest(t)
 	request.Options.MaxOutputTokens = new(int64(0))
-	_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
+	_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false)
 	if err == nil || !strings.Contains(err.Error(), "max_output_tokens must be greater than zero") {
 		t.Fatalf("error = %v, want max_output_tokens validation failure", err)
 	}
@@ -54,7 +54,7 @@ func TestNativeClaudeRejectsCompetingStreamControl(t *testing.T) {
 			if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]json.RawMessage{"stream": value}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false); err == nil || !strings.Contains(err.Error(), "owned by Core") {
 				t.Fatalf("stream admission error = %v", err)
 			}
 		})
@@ -69,7 +69,7 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	request.ToolChoice = &corechat.ToolChoice{
 		Mode: corechat.ToolChoiceNamed, Name: "lookup", Parallelism: corechat.ToolParallelismSingle,
 	}
-	params, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
+	params, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

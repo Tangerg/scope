@@ -137,7 +137,7 @@ func TestOutputFormatDecodePublic(t *testing.T) {
 		t.Fatalf("zero format Decode error = %v", err)
 	}
 
-	if _, err := format.Decode(nil); !errors.Is(err, ErrInvalidOutput) {
+	if _, err := format.Decode(nil); !errors.Is(err, ErrInvalidOutput) || !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("nil response Decode error = %v", err)
 	}
 

@@ -106,11 +106,7 @@ func (r *Responses) CountInputTokens(ctx context.Context, req *corechat.Request)
 	if err != nil {
 		return 0, err
 	}
-	response, err := r.api.responseInputTokensCount(ctx, countParams)
-	if err != nil {
-		return 0, err
-	}
-	return response.InputTokens, nil
+	return r.api.responseInputTokensCount(ctx, countParams)
 }
 
 // Stream performs one streaming Responses API request and yields ordered Core

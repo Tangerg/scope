@@ -2,10 +2,21 @@ package skills
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func directoryRoot(t testing.TB, path string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
 
 func writeSkill(t *testing.T, root, name string) string {
 	t.Helper()
@@ -24,7 +35,7 @@ func TestDirResourceOpenFailsWhenTheSkillDirectoryIsGone(t *testing.T) {
 	root := t.TempDir()
 	directory := writeSkill(t, root, "vanishing-skill")
 
-	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +55,7 @@ func TestDirResourceRejectsADirectoryTarget(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "folder-skill")
 
-	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +78,11 @@ func TestOverlayOpensResourcesFromTheWinningSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := NewDirectoryRepository(winner, RepositoryConfig{})
+	first, err := NewDirectoryRepository(directoryRoot(t, winner), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewDirectoryRepository(loser, RepositoryConfig{})
+	second, err := NewDirectoryRepository(directoryRoot(t, loser), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +101,7 @@ func TestOverlayOpensResourcesFromTheWinningSource(t *testing.T) {
 func TestOverlayValidatesBeforeResolving(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "valid-skill")
-	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	repository, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,5 +121,75 @@ func TestOverlayValidatesBeforeResolving(t *testing.T) {
 				t.Fatalf("OpenResource(%q) error = %v, want ErrResourcePath", resource, err)
 			}
 		})
+	}
+}
+
+func TestDirectoryAuthorityCannotMoveToAReplacedPath(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "selected")
+	other := filepath.Join(parent, "unselected")
+	legitimate := writeSkill(t, root, "guide")
+	if err := os.WriteFile(filepath.Join(legitimate, "references/initial.txt"), []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	foreign := writeSkill(t, other, "guide")
+	if err := os.WriteFile(filepath.Join(foreign, "references/private.txt"), []byte("other grant"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := NewDirectoryRepository(directoryRoot(t, root), RepositoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(root, filepath.Join(parent, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(other, root); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	b, _, err := ReadResource(t.Context(), source, "guide", "references/private.txt", 128)
+	if err == nil || len(b) != 0 {
+		t.Fatalf("old grant read replacement content: %q %v", b, err)
+	}
+	b, _, err = ReadResource(t.Context(), source, "guide", "references/initial.txt", 128)
+	if err != nil || string(b) != "original" {
+		t.Fatalf("renaming revoked the original authority: %q %v", b, err)
+	}
+}
+
+func TestBorrowedDirectoryRejectsNewOperationsAfterHostClose(t *testing.T) {
+	if repository, err := NewDirectoryRepository(nil, RepositoryConfig{}); repository != nil || !errors.Is(err, ErrNilFilesystem) {
+		t.Fatalf("nil directory: %v %v", repository, err)
+	}
+	dir := t.TempDir()
+	bundle := writeSkill(t, dir, "guide")
+	if err := os.WriteFile(filepath.Join(bundle, "notes"), []byte("open file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	source, err := NewDirectoryRepository(root, RepositoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := source.OpenResource(t.Context(), "guide", "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err = root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = source.Lookup(t.Context(), "guide"); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("revoked root: %v", err)
+	}
+	if repository, closedErr := NewDirectoryRepository(root, RepositoryConfig{}); repository != nil || !errors.Is(closedErr, os.ErrClosed) {
+		t.Fatalf("admitted closed directory: %v %v", repository, closedErr)
+	}
+	b, err := io.ReadAll(file)
+	if err != nil || string(b) != "open file" {
+		t.Fatalf("acquired file: %q %v", b, err)
 	}
 }

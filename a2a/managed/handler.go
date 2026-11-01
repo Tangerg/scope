@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -61,7 +62,7 @@ var _ a2asrv.RequestHandler = (*handler)(nil)
 // runtime store before admitting any task. A nil or unsupported request is an
 // explicit protocol error; this handler never creates an independent task store.
 func NewHTTPHandler(cfg Config) (http.Handler, error) {
-	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || cfg.ViewBuffer < 0 {
+	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || !utf8.ValidString(cfg.Service) || cfg.ViewBuffer < 0 {
 		return nil, errors.New("a2a/managed: runtime, program, card, service and authority are required")
 	}
 	heads, err := cfg.Runtime.StartedTrees()
@@ -126,17 +127,24 @@ type taskKey struct {
 	start   run.StartID
 }
 
-func digest(parts ...string) string {
-	b, _ := jsonv2.Marshal(parts)
+func digest(parts ...string) (string, error) {
+	b, err := jsonv2.Marshal(parts)
+	if err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 func (h *handler) scope(ctx context.Context, tenant string) (string, error) {
 	authority, err := h.authority(ctx, tenant)
 	if err != nil || strings.TrimSpace(authority) == "" {
 		return "", sdk.ErrTaskNotFound
 	}
-	return "a2a:" + digest(h.service, authority), nil
+	key, err := digest(h.service, authority)
+	if err != nil {
+		return "", sdk.ErrTaskNotFound
+	}
+	return "a2a:" + key, nil
 }
 func newKey(scope string, m *sdk.Message) (taskKey, error) {
 	if m == nil || strings.TrimSpace(m.ID) == "" || len(m.ID) > 1024 || len(m.ContextID) > 1024 {
@@ -144,9 +152,16 @@ func newKey(scope string, m *sdk.Message) (taskKey, error) {
 	}
 	contextID := m.ContextID
 	if contextID == "" {
-		contextID = "ctx:" + digest(scope, m.ID)
+		id, err := digest(scope, m.ID)
+		if err != nil {
+			return taskKey{}, sdk.ErrInvalidParams
+		}
+		contextID = "ctx:" + id
 	}
-	key := digest(contextID, m.ID)
+	key, err := digest(contextID, m.ID)
+	if err != nil {
+		return taskKey{}, sdk.ErrInvalidParams
+	}
 	token := base64.RawURLEncoding.EncodeToString([]byte(contextID)) + "." + key
 	return parseKey(scope, sdk.TaskID(token))
 }
@@ -162,15 +177,19 @@ func parseKey(scope string, id sdk.TaskID) (taskKey, error) {
 		return taskKey{}, sdk.ErrTaskNotFound
 	}
 	text, err := base64.RawURLEncoding.DecodeString(c)
-	if err != nil || len(text) == 0 || len(text) > 1024 || base64.RawURLEncoding.EncodeToString(text) != c {
+	if err != nil || len(text) == 0 || len(text) > 1024 || !utf8.Valid(text) || base64.RawURLEncoding.EncodeToString(text) != c {
 		return taskKey{}, sdk.ErrTaskNotFound
 	}
-	return taskKey{id: id, context: string(text), start: run.StartID{Scope: scope, Key: digest(string(id))}}, nil
+	key, err := digest(string(id))
+	if err != nil {
+		return taskKey{}, sdk.ErrTaskNotFound
+	}
+	return taskKey{id: id, context: string(text), start: run.StartID{Scope: scope, Key: key}}, nil
 }
 func (h *handler) load(ctx context.Context, k taskKey) (run.TreeSnapshot, error) {
 	head, ok, err := h.heads.Load(ctx, k.start)
 	if err != nil {
-		return run.TreeSnapshot{}, err
+		return run.TreeSnapshot{}, sdk.ErrInternalError
 	}
 	if !ok {
 		return run.TreeSnapshot{}, sdk.ErrTaskNotFound
@@ -293,12 +312,24 @@ func (h *handler) admit(ctx context.Context, p *sdk.SendMessageRequest) (taskKey
 			return k, keyErr
 		}
 		_, startErr := h.runtime.Start(ctx, h.program, run.StartRequest[run.Payload]{ID: k.start, Input: payload})
-		if startErr != nil {
-			if _, accepted := errors.AsType[*run.StartAcceptedError](startErr); !accepted {
-				return taskKey{}, fmt.Errorf("%w: start: %w", sdk.ErrInvalidRequest, startErr)
-			}
+		if startErr == nil {
+			return k, nil
 		}
-		return k, nil
+		if _, unknown := errors.AsType[*run.StartError](startErr); unknown {
+			// The store may have installed the receipt. A different message ID
+			// could duplicate the operation. Host diagnostics stay off the wire.
+			return taskKey{}, sdk.NewError(sdk.ErrInternalError, "initial acceptance is uncertain; retry the same message and context IDs")
+		}
+		if _, accepted := errors.AsType[*run.StartAcceptedError](startErr); accepted {
+			return k, nil
+		}
+		if _, conflict := errors.AsType[*run.StartConflictError](startErr); conflict {
+			return taskKey{}, sdk.NewError(sdk.ErrInvalidRequest, "message identity already accepted a different input")
+		}
+		if errors.Is(startErr, run.ErrInvalidPayload) {
+			return taskKey{}, sdk.ErrInvalidParams
+		}
+		return taskKey{}, sdk.ErrInternalError
 	}
 	k, err := parseKey(scope, m.TaskID)
 	if err != nil {
@@ -320,7 +351,7 @@ func (h *handler) admit(ctx context.Context, p *sdk.SendMessageRequest) (taskKey
 		return k, sdk.ErrInvalidParams
 	}
 	if match, receiptErr := head.Answered(wait, payload); receiptErr != nil {
-		return k, fmt.Errorf("%w: %w", sdk.ErrInvalidRequest, receiptErr)
+		return k, sdk.NewError(sdk.ErrInvalidRequest, "answer is not consistent with the external wait")
 	} else if match {
 		return k, nil
 	}
@@ -329,7 +360,13 @@ func (h *handler) admit(ctx context.Context, p *sdk.SendMessageRequest) (taskKey
 		return k, fmt.Errorf("%w: run writer is not attached here", sdk.ErrUnsupportedOperation)
 	}
 	if err = local.Answer(ctx, wait, payload); err != nil {
-		return k, fmt.Errorf("%w: answer: %w", sdk.ErrInvalidRequest, err)
+		if errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidSignal) || errors.Is(err, run.ErrInvalidPayload) {
+			return k, sdk.NewError(sdk.ErrInvalidRequest, "answer does not match the external wait")
+		}
+		if errors.Is(err, run.ErrTreeIncarnationConflict) {
+			return k, sdk.ErrUnsupportedOperation
+		}
+		return k, sdk.NewError(sdk.ErrInternalError, "answer was not acknowledged; retry the same wait and answer")
 	}
 	return k, nil
 }
@@ -379,7 +416,10 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 		return nil, sdk.ErrTaskNotCancelable
 	}
 	if err = local.Cancel(ctx, "A2A cancellation requested"); err != nil {
-		return nil, fmt.Errorf("%w: %w", sdk.ErrTaskNotCancelable, err)
+		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrTreeIncarnationConflict) {
+			return nil, sdk.ErrTaskNotCancelable
+		}
+		return nil, sdk.NewError(sdk.ErrInternalError, "cancellation was not acknowledged; read the task status")
 	}
 	head, err = h.load(ctx, k)
 	if err != nil {

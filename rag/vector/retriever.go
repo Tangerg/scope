@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -107,7 +108,11 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	if err != nil {
 		return nil, err
 	}
-	response, err := r.vectorStore.Query(ctx, request)
+	// Validate the reply against the admitted grant even if a third-party
+	// adapter rewrites its local query while building a native request.
+	wire := *request
+	wire.Values = slices.Clone(request.Values)
+	response, err := r.vectorStore.Query(ctx, &wire)
 	if err != nil {
 		return nil, err
 	}

@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/tools
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
 	github.com/bluekeyes/go-gitdiff v0.9.0
-	github.com/bmatcuk/doublestar/v4 v4.10.3
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/samber/lo v1.53.0
 	golang.org/x/net v0.62.0
@@ -18,7 +18,7 @@ require (
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )

@@ -17,7 +17,7 @@ import (
 // implementation must not modify or retain them. The store scores a record
 // against the shared indexed vector, so an in-place write would corrupt the
 // index and race concurrent searches. Honoring this, Similarity may be called
-// concurrently, which is how [Store.Search] scans the index.
+// concurrently, which is how [Store.Query] scans the index.
 type Similarity func(left, right []float64) vectorstore.Score
 
 // CosineSimilarity is the default for [StoreConfig.Similarity] —
@@ -47,7 +47,9 @@ func CosineSimilarity(left, right []float64) vectorstore.Score {
 		magA += a * a
 		magB += b * b
 	}
-	return vectorstore.ScoreFromCosineSimilarity(dot / (math.Sqrt(magA) * math.Sqrt(magB)))
+	// The exact finite cosine is bounded; only this computation owns its rounding error.
+	ratio := dot / (math.Sqrt(magA) * math.Sqrt(magB))
+	return vectorstore.ScoreFromCosineSimilarity(max(-1, min(1, ratio)))
 }
 
 // DotProductSimilarity maps the unbounded inner product monotonically into

@@ -4,17 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
-	"github.com/go-resty/resty/v2"
+	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/tools/content"
 )
 
 // Client executes requests through an immutable network and resource policy.
 type Client struct {
-	transport *resty.Client
+	transport *http.Client
+	headers   http.Header
 	policy    clientPolicy
 }
 
@@ -24,19 +29,54 @@ func NewClient(config ClientConfig) (*Client, error) {
 		return nil, err
 	}
 
-	var transport *resty.Client
+	transport := new(http.Client)
 	if config.HTTPClient != nil {
-		// Resty's redirect policy mutates the underlying http.Client. A shallow
-		// clone preserves caller ownership while intentionally sharing Transport
-		// and Jar, whose concurrency contracts come from net/http.
-		httpClient := *config.HTTPClient
-		transport = resty.NewWithClient(&httpClient)
-	} else {
-		transport = resty.New()
+		*transport = *config.HTTPClient
 	}
-	transport.SetRedirectPolicy(resty.RedirectPolicyFunc(policy.checkRedirect))
-	transport.SetHeaders(config.DefaultHeaders)
-	return &Client{transport: transport, policy: policy}, nil
+	if lo.IsNil(transport.Transport) {
+		transport.Transport = http.DefaultTransport
+	}
+	hostRedirect := transport.CheckRedirect
+	transport.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := policy.checkRedirect(req, via); err != nil {
+			return err
+		}
+		if hostRedirect != nil {
+			if err := hostRedirect(req, via); err != nil {
+				return err
+			}
+			// A host callback may rewrite the destination or method.
+			if err := policy.checkRedirect(req, via); err != nil {
+				return err
+			}
+		}
+		if len(via) == 0 {
+			return nil
+		}
+		origin, err := httpclient.NewOrigin(req.Context(), via[0].URL)
+		if err != nil {
+			return err
+		}
+		destination, err := httpclient.NewOrigin(req.Context(), req.URL)
+		if err != nil {
+			return err
+		}
+		if origin != destination {
+			if req.Body != nil && req.Body != http.NoBody {
+				return ErrRedirectBody
+			}
+			// All carried headers can contain application secrets. The new
+			// origin's cookie jar and transport still apply on the actual send.
+			clear(req.Header)
+			req.Host = req.URL.Host
+		}
+		return nil
+	}
+	headers := make(http.Header, len(config.DefaultHeaders))
+	for name, value := range config.DefaultHeaders {
+		headers.Set(name, value)
+	}
+	return &Client{transport: transport, headers: headers, policy: policy}, nil
 }
 
 // Do applies the frozen client policy. If body reading or closure fails, the
@@ -54,26 +94,40 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	callContext, cancel := context.WithTimeout(ctx, prepared.timeout(c.policy.defaultTimeout))
 	defer cancel()
 
-	restyRequest := c.transport.R().
-		SetContext(callContext).
-		SetDoNotParseResponse(true).
-		SetHeaders(prepared.Headers).
-		SetQueryParams(prepared.Query)
+	var payload io.Reader
 	if prepared.Body != "" {
-		restyRequest.SetBody(prepared.Body)
+		payload = strings.NewReader(prepared.Body)
 	}
-
+	wire, err := http.NewRequestWithContext(callContext, string(prepared.Method), prepared.URL, payload)
+	if err != nil {
+		return nil, &admissionError{err}
+	}
+	if len(prepared.Query) != 0 {
+		values := wire.URL.Query()
+		for key, value := range prepared.Query {
+			values.Set(key, value)
+		}
+		wire.URL.RawQuery = values.Encode()
+	}
+	wire.Header = c.headers.Clone()
+	for name, value := range prepared.Headers {
+		wire.Header.Set(name, value)
+	}
+	if authority := wire.Header.Get("Host"); authority != "" {
+		wire.Host = authority
+		wire.Header.Del("Host")
+	}
 	startedAt := time.Now()
-	response, err := restyRequest.Execute(string(prepared.Method), prepared.URL)
+	response, err := c.transport.Do(wire)
 	if err != nil {
 		return nil, fmt.Errorf("httpreq: execute %s request to host %q: %w", prepared.Method, host, err)
 	}
-	bodyReader := response.RawBody()
+	bodyReader := response.Body
 	body, truncated, err := readCapped(bodyReader, c.policy.maxResponseBytes)
 	err = errors.Join(err, bodyReader.Close())
 	result := &Response{
-		Status:    response.StatusCode(),
-		Headers:   newResponseHeaders(response.Header()),
+		Status:    response.StatusCode,
+		Headers:   newResponseHeaders(response.Header),
 		Body:      content.New(body),
 		Truncated: truncated,
 		Duration:  time.Since(startedAt).String(),

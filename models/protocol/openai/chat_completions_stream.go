@@ -4,11 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
-	"time"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
@@ -24,6 +24,7 @@ type openAIStreamTool struct {
 }
 
 type openAIStreamState struct {
+	identity   streamIdentity
 	tools      map[int64]openAIStreamTool
 	sequence   uint64
 	dialect    responseDialect
@@ -51,16 +52,15 @@ func newOpenAIStreamState(dialect Dialect) *openAIStreamState {
 
 func (o *openAIStreamState) mapChunk(chunk openaisdk.ChatCompletionChunk) (*corechat.ResponseDelta, error) {
 	o.sequence++
-	mapped := &corechat.ResponseDelta{
-		Metadata: &corechat.ResponseMetadata{
-			ID:    chunk.ID,
-			Model: chunk.Model,
-			Usage: mapUsage(chunk.Usage),
-		},
+	if err := o.identity.bind(chunk.ID, chunk.Model, chunk.Created); err != nil {
+		return nil, err
 	}
-	if chunk.Created > 0 {
-		mapped.Metadata.CreatedAt = time.Unix(chunk.Created, 0).UTC()
+	mapped := &corechat.ResponseDelta{Metadata: o.identity.metadata()}
+	usage, err := mapUsage(chunk.Usage)
+	if err != nil {
+		return nil, err
 	}
+	mapped.Metadata.Usage = usage
 	if len(chunk.Choices) > 1 {
 		return nil, fmt.Errorf("openai: stream chunk has %d choices; Core supports one output", len(chunk.Choices))
 	}
@@ -90,6 +90,9 @@ func (o *openAIStreamState) finished() bool {
 func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
 	if delta == nil || o.stopReason == "" {
 		return nil, fmt.Errorf("openai: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
+	}
+	if o.stopReason == "tool_calls" && len(o.tools) == 0 {
+		return nil, fmt.Errorf("%w: openai: tool_calls finish reason without a tool call", corechat.ErrInvalidResponse)
 	}
 	// A Core tool-call delta cannot carry arguments without an id and a name,
 	// so an index is held back until both arrive -- OpenAI sends them on the
@@ -139,6 +142,9 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 }
 
 func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkChoice) ([]corechat.PartDelta, error) {
+	if field := choice.Delta.JSON.FunctionCall.Raw(); (field != "" && field != "null") || choice.FinishReason == "function_call" {
+		return nil, fmt.Errorf("%w: openai: deprecated function_call cannot identify a Core tool proposal", errors.ErrUnsupported)
+	}
 	if choice.Index != 0 {
 		return nil, fmt.Errorf("choice index is %d, want 0", choice.Index)
 	}
@@ -252,35 +258,41 @@ func stablePartsAsDeltas(parts []corechat.Part) ([]corechat.PartDelta, error) {
 }
 
 func (o *openAIStreamState) mapChunkTool(delta openaisdk.ChatCompletionChunkChoiceDeltaToolCall) (corechat.ToolCallDelta, bool, error) {
+	// Omitting the index cannot identify a fragment as belonging to call zero;
+	// the SDK represents missing and explicit zero with the same Go value.
+	index, indexed := responseIndex(delta.JSON.Index)
+	if !indexed {
+		return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool fragment requires a nonnegative index", corechat.ErrInvalidResponse)
+	}
 	if delta.Type != "" && delta.Type != "function" {
 		return corechat.ToolCallDelta{}, false, fmt.Errorf("unsupported type %q", delta.Type)
 	}
-	state := o.tools[delta.Index]
+	state := o.tools[index]
 	if delta.ID != "" {
 		if state.id != "" && state.id != delta.ID {
-			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed id from %q to %q", corechat.ErrInvalidResponse, delta.Index, state.id, delta.ID)
+			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed id from %q to %q", corechat.ErrInvalidResponse, index, state.id, delta.ID)
 		}
-		for index, tool := range o.tools {
-			if index != delta.Index && tool.id == delta.ID {
-				return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, delta.ID, delta.Index)
+		for otherIndex, tool := range o.tools {
+			if otherIndex != index && tool.id == delta.ID {
+				return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, delta.ID, index)
 			}
 		}
 		state.id = delta.ID
 	}
 	if delta.Function.Name != "" {
 		if state.name != "" && state.name != delta.Function.Name {
-			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed name from %q to %q", corechat.ErrInvalidResponse, delta.Index, state.name, delta.Function.Name)
+			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed name from %q to %q", corechat.ErrInvalidResponse, index, state.name, delta.Function.Name)
 		}
 		state.name = delta.Function.Name
 	}
 	state.pendingArguments += delta.Function.Arguments
-	o.tools[delta.Index] = state
+	o.tools[index] = state
 	if state.id == "" || state.name == "" {
 		return corechat.ToolCallDelta{}, false, nil
 	}
 	arguments := state.pendingArguments
 	state.pendingArguments = ""
-	o.tools[delta.Index] = state
+	o.tools[index] = state
 	return corechat.ToolCallDelta{
 		ID:        state.id,
 		Name:      state.name,

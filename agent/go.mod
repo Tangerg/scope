@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/agent
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
 	github.com/samber/lo v1.53.0
 )
 
@@ -14,6 +14,6 @@ require (
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

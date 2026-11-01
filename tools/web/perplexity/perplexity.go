@@ -115,7 +115,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
-	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
+	if err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("perplexity: search request: %w", err)
 	}
 	return raw.toSearchResponse(prepared)

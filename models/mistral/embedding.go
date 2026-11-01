@@ -100,14 +100,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, request *embedding.Request) (
 	if err != nil {
 		return nil, err
 	}
-	mapped, err := response.project(len(request.Texts))
-	if err != nil {
-		return nil, err
-	}
-	if err := mapped.ValidateFor(&effective); err != nil {
-		return nil, err
-	}
-	return mapped, nil
+	return response.project(&effective)
 }
 
 type embeddingRequest struct {
@@ -131,11 +124,11 @@ type embeddingResponse struct {
 	} `json:"usage"`
 }
 
-func (e *embeddingResponse) project(expected int) (*embedding.Response, error) {
+func (e *embeddingResponse) project(req *embedding.Request) (*embedding.Response, error) {
 	if e == nil {
 		return nil, fmt.Errorf("%w: mistral: missing embedding response", embedding.ErrInvalidResponse)
 	}
-	outputs := make([]*embedding.Output, expected)
+	outputs := make([]*embedding.Output, len(req.Texts))
 	for position, result := range e.Data {
 		if result == nil || result.Index == nil {
 			return nil, fmt.Errorf("%w: mistral: embedding result %d requires an index", embedding.ErrInvalidResponse, position)
@@ -160,5 +153,9 @@ func (e *embeddingResponse) project(expected int) (*embedding.Response, error) {
 	if e.Usage != nil && e.Usage.PromptTokens != nil {
 		meta.Usage = &embedding.Usage{InputTokens: *e.Usage.PromptTokens}
 	}
-	return embedding.NewResponse(outputs, meta)
+	out := &embedding.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

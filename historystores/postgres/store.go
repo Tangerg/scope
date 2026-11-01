@@ -33,20 +33,30 @@ type StoreConfig struct {
 	InitializeSchema bool
 }
 
+func (s StoreConfig) resolved() StoreConfig {
+	s.SchemaName = cmp.Or(s.SchemaName, DefaultSchemaName)
+	s.TableName = cmp.Or(s.TableName, DefaultTableName)
+	if s.InitializeSchema {
+		s.IndexName = cmp.Or(s.IndexName, s.TableName+DefaultIndexNameSuffix)
+	}
+	return s
+}
+
 func (s StoreConfig) Validate() error {
-	if s.Pool == nil {
+	effective := s.resolved()
+	if effective.Pool == nil {
 		return errors.New("postgres: pool is required")
 	}
 	for _, identifier := range [...]struct {
 		name  string
 		value string
 	}{
-		{name: "schema name", value: s.SchemaName},
-		{name: "table name", value: s.TableName},
-		{name: "index name", value: s.IndexName},
+		{name: "schema name", value: effective.SchemaName},
+		{name: "table name", value: effective.TableName},
+		{name: "index name", value: effective.IndexName},
 	} {
 		if identifier.value != "" && !validIdentifier(identifier.value) {
-			return fmt.Errorf("postgres: %s %q must be a valid unquoted identifier", identifier.name, identifier.value)
+			return fmt.Errorf("postgres: %s %q must be a valid unquoted identifier of at most %d bytes", identifier.name, identifier.value, maxIdentifierBytes)
 		}
 	}
 	return nil
@@ -93,11 +103,9 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	config.SchemaName = cmp.Or(config.SchemaName, DefaultSchemaName)
-	config.TableName = cmp.Or(config.TableName, DefaultTableName)
-	config.IndexName = cmp.Or(config.IndexName, config.TableName+DefaultIndexNameSuffix)
+	config = config.resolved()
 
-	qualified := config.SchemaName + "." + config.TableName
+	qualified := pgx.Identifier{config.SchemaName, config.TableName}.Sanitize()
 	s := &Store{
 		pool: config.Pool,
 		readSQL: fmt.Sprintf(
@@ -118,7 +126,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		),
 		schemaSQL: "SELECT message FROM " + qualified + " LIMIT 0",
 		createSQL: []string{
-			fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, config.SchemaName),
+			fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, pgx.Identifier{config.SchemaName}.Sanitize()),
 			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 				seq             BIGSERIAL    PRIMARY KEY,
 				conversation_id TEXT         NOT NULL,
@@ -127,7 +135,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 			)`, qualified),
 			fmt.Sprintf(
 				`CREATE INDEX IF NOT EXISTS %s ON %s (conversation_id, seq)`,
-				config.IndexName, qualified,
+				pgx.Identifier{config.IndexName}.Sanitize(), qualified,
 			),
 		},
 	}

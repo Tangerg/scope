@@ -40,9 +40,6 @@ func (c Client) EmbedTexts(ctx context.Context, texts []string) ([][]float64, er
 	if err != nil {
 		return nil, fmt.Errorf("embeddingclient: embed texts: %w", err)
 	}
-	if response == nil {
-		return nil, errors.New("embeddingclient: embed texts: model returned a nil response")
-	}
 	if err := response.ValidateFor(request); err != nil {
 		return nil, fmt.Errorf("embeddingclient: embed texts: invalid model response: %w", err)
 	}

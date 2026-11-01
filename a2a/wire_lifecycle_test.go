@@ -48,6 +48,7 @@ func wireA2ARPC(t *testing.T, endpoint, method, params string) json.RawMessage {
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(sdka2a.SvcParamVersion, string(sdka2a.Version))
 	client := &http.Client{Timeout: 5 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {

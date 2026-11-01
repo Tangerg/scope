@@ -102,8 +102,8 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 	return &EmbeddingModel{api: api, defaultOptions: config.DefaultOptions.Clone()}, nil
 }
 
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
-	if err = req.Validate(); err != nil {
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
+	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
@@ -113,15 +113,6 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 	effective := *req
 	effective.Options = effectiveOptions
 	req = &effective
-	// Titan embeds one text per invocation and Cohere embeds the batch in one,
-	// so the request-wide correspondence is only whole once a family path has
-	// finished. Each path still accounts for its own invocation; this asks the
-	// question the caller actually cares about.
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
 
 	nativeValue, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
@@ -169,7 +160,11 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 			return nil, err
 		}
 	}
-	return embedding.NewResponse(outputs, metadata)
+	out := &embedding.Response{Outputs: outputs, Metadata: metadata}
+	if err := out.ValidateFor(req); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 type embeddingFamily uint8

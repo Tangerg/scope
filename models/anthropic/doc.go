@@ -20,5 +20,7 @@
 //
 // Anthropic calls the layer "primarily intended to test and compare model
 // capabilities, and not considered a long-term or production-ready solution".
-// [NewMessages] is the native Messages surface and carries all of the above.
+// [NewMessages] implements the native 2026-10-21 Messages contract. It rejects
+// temperature, top_p and top_k (even at their former defaults) before sending
+// a request. Its API key is sent as an Authorization bearer credential.
 package anthropic

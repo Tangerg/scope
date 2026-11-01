@@ -57,7 +57,7 @@ func (r *Request) Validate() error {
 		return ErrEmptyURL
 	}
 	parsed, err := url.Parse(trimmedURL)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return ErrInvalidURL
 	}
 	method, err := r.Method.Normalize()

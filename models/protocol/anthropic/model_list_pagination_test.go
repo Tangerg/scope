@@ -24,7 +24,7 @@ func TestListModelsUsesSDKPaginationAndTotalBudget(t *testing.T) {
 		if request.URL.Path != "/gateway/v1/models" || request.URL.Query().Get("limit") != "2" {
 			t.Errorf("pagination URL = %s", request.URL)
 		}
-		if request.Header.Get("X-Api-Key") != "test-key" || request.Header.Get("Anthropic-Version") != "2023-06-01" {
+		if request.Header.Get("Authorization") != "Bearer test-key" || request.Header.Get("Anthropic-Version") != "2026-10-21" {
 			t.Error("pagination did not retain provider authentication")
 		}
 		writer.Header().Set("Content-Type", "application/json")

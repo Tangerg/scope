@@ -15,7 +15,7 @@ type RequestFields map[string]any
 
 func coreOwnedChatField(name string) bool {
 	switch name {
-	case "model", "messages", "tools", "frequency_penalty", "max_tokens", "max_completion_tokens", "parallel_tool_calls", "presence_penalty", "reasoning_effort", "response_format", "stop", "stream", "temperature", "tool_choice", "top_p":
+	case "model", "messages", "tools", "functions", "function_call", "frequency_penalty", "max_tokens", "max_completion_tokens", "parallel_tool_calls", "presence_penalty", "reasoning_effort", "response_format", "stop", "stream", "temperature", "tool_choice", "top_p":
 		return true
 	default:
 		return false

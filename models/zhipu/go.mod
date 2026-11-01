@@ -3,13 +3,13 @@ module github.com/Tangerg/scope/models/zhipu
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.58.0
-	github.com/Tangerg/scope/models/protocol/openai v0.58.0
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/models/protocol/anthropic v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/models/protocol/openai v0.58.1-0.20261101022437-7791a40140fd
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.81.0 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.84.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -17,7 +17,7 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.78.0 // indirect
+	github.com/openai/openai-go/v3 v3.91.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/samber/lo v1.53.0 // indirect

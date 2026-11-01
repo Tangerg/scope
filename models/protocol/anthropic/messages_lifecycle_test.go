@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
+
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
@@ -118,7 +120,7 @@ func TestMessagesReasoningBlocksRetainIdentityThroughHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			blocks := params.Messages[0].Content
+			blocks := params.Messages[0].OfAssistant.Content
 			if len(blocks) != 2 {
 				t.Fatalf("replayed %d thinking blocks, want 2: %#v", len(blocks), restored.Output.Message.Parts)
 			}
@@ -158,4 +160,36 @@ func newLifecycleMessages(t *testing.T, events []string) *Messages {
 		t.Fatal(err)
 	}
 	return model
+}
+
+func TestMessagesNeverTreatsUnreportedOrCoercedBlockIndexesAsZero(t *testing.T) {
+	start := `{"type":"message_start","message":{"id":"m","model":"model","role":"assistant","content":[]}}`
+	block := `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"id","name":"lookup","input":{}}}`
+	for _, raw := range []string{`"0"`, `0.5`, `false`, `null`, `9223372036854775808`, ""} {
+		index := ""
+		if raw != "" {
+			index = `"index":` + raw + ","
+		}
+		for _, event := range []string{
+			`{"type":"content_block_start",` + index + `"content_block":{"type":"text","text":"forged"}}`,
+			`{"type":"content_block_delta",` + index + `"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+			`{"type":"content_block_stop",` + index + `"irrelevant":0}`,
+		} {
+			state := newProtocolStreamState("anthropic")
+			for _, wire := range []string{start, block, event} {
+				var decoded anthropicsdk.MessageStreamEventUnion
+				if err := jsonv2.Unmarshal([]byte(wire), &decoded); err != nil {
+					t.Fatal(err)
+				}
+				delta, err := state.mapEvent(decoded)
+				if wire == event {
+					if delta != nil || !errors.Is(err, corechat.ErrInvalidResponse) {
+						t.Fatalf("ambiguous event %s was projected as %+v, %v", wire, delta, err)
+					}
+				} else if err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
 }

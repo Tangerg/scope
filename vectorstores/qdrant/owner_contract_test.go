@@ -78,8 +78,14 @@ func TestNativeRanksMergeBeforeCoreNormalization(t *testing.T) {
 			store.schema.metric, fixture.metric = metric, metric
 			for _, doc := range docs {
 				fixture.scores[doc.ID] = 40
+				if metric == qdrantclient.Distance_Cosine {
+					fixture.scores[doc.ID] = .4
+				}
 			}
 			fixture.scores[docs[len(docs)-1].ID] = 50
+			if metric == qdrantclient.Distance_Cosine {
+				fixture.scores[docs[len(docs)-1].ID] = .5
+			}
 			if metric == qdrantclient.Distance_Euclid || metric == qdrantclient.Distance_Manhattan {
 				fixture.scores[docs[len(docs)-1].ID] = 0
 			}

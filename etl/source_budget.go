@@ -17,6 +17,9 @@ const maxSupportedSourceBytes = math.MaxInt64 - 1
 var (
 	ErrInvalidSourceBudget = errors.New("etl: invalid source budget")
 	ErrNilSource           = errors.New("etl: source must not be nil")
+	// ErrSourceConsumed means this stream reader has already attempted its one
+	// read. Reopen the complete input to retry; the current offset is unknown.
+	ErrSourceConsumed = errors.New("etl: source stream already consumed")
 	// ErrSourceTooLarge reports that no partial payload is returned.
 	ErrSourceTooLarge = errors.New("etl: source exceeds byte budget")
 )

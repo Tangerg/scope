@@ -7,6 +7,11 @@
 // explicit credentials, endpoint, headers, and HTTP client without inheriting
 // unrelated SDK environment settings.
 //
+// Chat Completions accepts typed tools with identifiable calls. Deprecated
+// functions cannot be replayed as modern tool results. Native credential,
+// response identity and tool or embedding indexes never default to another
+// response or input. Core embeddings use numeric float vectors.
+//
 // Modalities exposed:
 //
 //   - chat (Chat Completions) via [NewChatCompletions] — tool calling, streaming,

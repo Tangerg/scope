@@ -56,6 +56,9 @@ type AudioTranslationModel struct {
 	defaultOptions transcription.Options
 }
 
+// NewAudioTranslationModel binds a provider's synchronous multipart
+// audio/translations endpoint. It requires this exact upload capability;
+// a realtime translation session does not implement the same operation.
 func NewAudioTranslationModel(ctx context.Context, config AudioTranslationModelConfig) (*AudioTranslationModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

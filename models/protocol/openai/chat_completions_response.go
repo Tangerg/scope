@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 
-	openaisdk "github.com/openai/openai-go/v3"
-
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
@@ -28,29 +26,6 @@ func audioMIME(format string) string {
 	}
 }
 
-func mapUsage(usage openaisdk.CompletionUsage) *corechat.Usage {
-	if usage.RawJSON() != "" {
-		if !usage.JSON.PromptTokens.Valid() || !usage.JSON.CompletionTokens.Valid() {
-			return nil
-		}
-	} else if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
-		return nil
-	}
-	mapped := corechat.Usage{
-		InputTokens:  usage.PromptTokens,
-		OutputTokens: usage.CompletionTokens,
-	}
-	if usage.CompletionTokensDetails.JSON.ReasoningTokens.Valid() || usage.CompletionTokensDetails.ReasoningTokens != 0 {
-		value := usage.CompletionTokensDetails.ReasoningTokens
-		mapped.ReasoningTokens = &value
-	}
-	if usage.PromptTokensDetails.JSON.CachedTokens.Valid() || usage.PromptTokensDetails.CachedTokens != 0 {
-		value := usage.PromptTokensDetails.CachedTokens
-		mapped.CacheReadInputTokens = &value
-	}
-	return &mapped
-}
-
 func normalizeFinishReason(reason string) corechat.FinishReason {
 	switch reason {
 	case "":
@@ -59,7 +34,7 @@ func normalizeFinishReason(reason string) corechat.FinishReason {
 		return corechat.FinishReasonStop
 	case "length":
 		return corechat.FinishReasonLength
-	case "tool_calls", "function_call":
+	case "tool_calls":
 		return corechat.FinishReasonToolCalls
 	case "content_filter":
 		return corechat.FinishReasonContentFilter

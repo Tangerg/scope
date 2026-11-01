@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func responsesTerminalDelta(response *responses.Response, extensionKey string) (*corechat.ResponseDelta, error) {
+func responsesTerminalDelta(response *responses.Response, extensionKey string, identity streamIdentity) (*corechat.ResponseDelta, error) {
 	if response == nil {
 		return nil, fmt.Errorf("%w: openai responses: nil response", corechat.ErrInvalidResponse)
 	}
@@ -19,11 +18,10 @@ func responsesTerminalDelta(response *responses.Response, extensionKey string) (
 	if err != nil {
 		return nil, err
 	}
-	metadata := &corechat.ResponseMetadata{
-		ID: response.ID, Model: string(response.Model), Usage: responsesUsage(response.Usage),
-	}
-	if response.CreatedAt > 0 {
-		metadata.CreatedAt = time.Unix(int64(response.CreatedAt), 0).UTC()
+	metadata := identity.metadata()
+	metadata.Usage, err = responsesUsage(response.Usage)
+	if err != nil {
+		return nil, err
 	}
 	if err := metadata.Extra.Set(extensionKey, json.RawMessage(response.RawJSON())); err != nil {
 		return nil, fmt.Errorf("openai responses: preserve native response: %w", err)
@@ -68,28 +66,4 @@ func responsesFinishReason(response *responses.Response) (corechat.FinishReason,
 		}
 	}
 	return finishReason, nil
-}
-
-func responsesUsage(usage responses.ResponseUsage) *corechat.Usage {
-	if usage.RawJSON() != "" {
-		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
-			return nil
-		}
-	} else if usage.InputTokens == 0 && usage.OutputTokens == 0 {
-		return nil
-	}
-	result := corechat.Usage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
-	if usage.OutputTokensDetails.JSON.ReasoningTokens.Valid() || usage.OutputTokensDetails.ReasoningTokens != 0 {
-		value := usage.OutputTokensDetails.ReasoningTokens
-		result.ReasoningTokens = &value
-	}
-	if usage.InputTokensDetails.JSON.CachedTokens.Valid() || usage.InputTokensDetails.CachedTokens != 0 {
-		value := usage.InputTokensDetails.CachedTokens
-		result.CacheReadInputTokens = &value
-	}
-	if usage.InputTokensDetails.JSON.CacheWriteTokens.Valid() || usage.InputTokensDetails.CacheWriteTokens != 0 {
-		value := usage.InputTokensDetails.CacheWriteTokens
-		result.CacheWriteInputTokens = &value
-	}
-	return &result
 }

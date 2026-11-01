@@ -126,9 +126,6 @@ func (f Format[T]) decodeResponse(response *chat.Response, responseErr error) (T
 	if responseErr != nil {
 		return zero, responseErr
 	}
-	if response == nil {
-		return zero, fmt.Errorf("%w: nil response", ErrInvalidOutput)
-	}
 	if err := response.Validate(); err != nil {
 		return zero, fmt.Errorf("%w: response: %w", ErrInvalidOutput, err)
 	}

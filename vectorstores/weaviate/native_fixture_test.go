@@ -6,214 +6,300 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
+	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	weaviateclient "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/google/uuid"
+	sdk "github.com/weaviate/weaviate-go-client/v6"
+
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/collections/vectorindex"
+	"github.com/weaviate/weaviate-go-client/v6/modules/selfprovided"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+// The peer serves the official HTTP and gRPC protocols.
 type nativeFixture struct {
-	t           *testing.T
-	mu          sync.Mutex
-	class       *models.Class
-	objects     map[string]*models.Object
-	batches     atomic.Int64
-	deletes     atomic.Int64
-	acknowledge func([]models.ObjectsGetResponse) []models.ObjectsGetResponse
-	queryID     *string
-
-	distances    map[string]float64
-	hybridScores map[string]float64
-	beforeQuery  func()
-	queryChange  func([]map[string]any) []map[string]any
-
-	groups      []int
-	hybrids     []int
-	scans       int
-	queryError  bool
-	sourceError bool
+	pb.UnimplementedWeaviateServer
+	apiKey                  string
+	t                       *testing.T
+	mu                      sync.Mutex
+	class                   *collections.Collection
+	wireClass               map[string]any
+	objects                 map[string]*pb.BatchObject
+	batches, deletes        atomic.Int64
+	batchReply              func(*pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
+	queryChange             func([]*pb.SearchResult) []*pb.SearchResult
+	distances, hybridScores map[string]float64
+	groups, hybrids         []int
+	scans                   atomic.Int64
+	queryError, sourceError bool
 }
 
-func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+func (n *nativeFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	writer.Header().Set("Content-Type", "application/json")
-	var response any
+	w.Header().Set("Content-Type", "application/json")
 	switch {
-	case request.URL.Path == "/v1/meta":
-		response = map[string]any{"version": "1.39.8"}
-	case request.Method == http.MethodGet && request.URL.Path == "/v1/schema/Documents":
-		response = n.class
-	case request.Method == http.MethodGet && request.URL.Path == "/v1/objects":
-		n.scans++
-		http.Error(writer, "source enumeration not granted", http.StatusForbidden)
-		return
-	case request.Method == http.MethodPost && request.URL.Path == "/v1/batch/objects":
-		n.batches.Add(1)
-		var body struct {
-			Objects []*models.Object `json:"objects"`
-		}
-		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+	case r.URL.Path == "/v1/meta":
+		_, _ = w.Write([]byte(`{"version":"1.39.8","grpcMaxMessageSize":16777216}`))
+	case r.URL.Path == "/v1/.well-known/openid-configuration":
+		http.NotFound(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/schema":
+		if err := jsonv2.UnmarshalRead(r.Body, &n.wireClass); err != nil {
 			n.t.Error(err)
-			http.Error(writer, "invalid objects", http.StatusBadRequest)
+			http.Error(w, "schema", 400)
 			return
 		}
-		var results []models.ObjectsGetResponse
-		for _, object := range body.Objects {
-			n.objects[object.ID.String()] = object
-			results = append(results, models.ObjectsGetResponse{Object: *object, Result: batchResult(models.ObjectsGetResponseAO2ResultStatusSUCCESS, nil)})
-		}
-		if n.acknowledge != nil {
-			results = n.acknowledge(results)
-		}
-		response = results
-	case request.Method == http.MethodPost && request.URL.Path == "/v1/graphql":
-		if n.queryError {
-			http.Error(writer, "native query unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var body struct {
-			Query string `json:"query"`
-		}
-		if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
-			n.t.Error(err)
-			return
-		}
-		if strings.Contains(body.Query, "certainty:") {
-			n.t.Error("native threshold hid strict result validation")
-		}
-		var terms []string
-		if found := regexp.MustCompile(`valueText:\s*(\[[^\]]*\])`).FindStringSubmatch(body.Query); found != nil {
-			if !strings.Contains(body.Query, fieldTerms) || !strings.Contains(body.Query, "ContainsAny") {
-				n.t.Error("filter must select exact precomputed terms")
-			}
-			if err := jsonv2.Unmarshal([]byte(found[1]), &terms); err != nil {
-				n.t.Fatal(err)
-			}
-			n.groups = append(n.groups, len(terms))
-		}
-		hybrid := strings.Contains(body.Query, "hybrid:")
-		if hybrid {
-			n.hybrids = append(n.hybrids, len(terms))
-		}
-		if n.beforeQuery != nil {
-			n.beforeQuery()
-			n.beforeQuery = nil
-		}
-		var items []map[string]any
-		for _, id := range slices.Sorted(maps.Keys(n.objects)) {
-			object := n.objects[id]
-			properties := object.Properties.(map[string]any)
-			if len(terms) != 0 {
-				got, _ := properties[fieldTerms].([]any)
-				if !slices.Contains(got, any(terms[0])) {
-					continue
-				}
-			}
-			nativeID := id
-			if n.queryID != nil {
-				nativeID = *n.queryID
-			}
-			additional := map[string]any{additionalID: nativeID, additionalVector: object.Vector}
-			if hybrid {
-				score := 1.0
-				if value, ok := n.hybridScores[id]; ok {
-					score = value
-				}
-				additional[additionalScore] = strconv.FormatFloat(score, 'g', -1, 64)
-			} else {
-				additional[additionalDistance] = n.distances[id]
-			}
-			items = append(items, map[string]any{fieldContent: properties[fieldContent], fieldMetadata: properties[fieldMetadata], fieldTerms: properties[fieldTerms], "_additional": additional})
-		}
-		if !hybrid {
-			slices.SortFunc(items, func(left, right map[string]any) int {
-				return cmp.Compare(left["_additional"].(map[string]any)[additionalDistance].(float64), right["_additional"].(map[string]any)[additionalDistance].(float64))
-			})
-		} else {
-			slices.SortFunc(items, func(left, right map[string]any) int {
-				leftScore, rightScore := 1.0, 1.0
-				if score, ok := n.hybridScores[left["_additional"].(map[string]any)[additionalID].(string)]; ok {
-					leftScore = score
-				}
-				if score, ok := n.hybridScores[right["_additional"].(map[string]any)[additionalID].(string)]; ok {
-					rightScore = score
-				}
-				return cmp.Compare(rightScore, leftScore)
-			})
-		}
-		found := regexp.MustCompile(`limit:\s*(\d+)`).FindStringSubmatch(body.Query)
-		if found == nil {
-			n.t.Error("native query lacks limit")
-			return
-		}
-		limit, err := strconv.Atoi(found[1])
-		if err != nil {
-			n.t.Error(err)
-			return
-		}
-		items = items[:min(len(items), limit)]
-		if n.queryChange != nil {
-			items = n.queryChange(items)
-		}
-		response = map[string]any{"data": map[string]any{"Get": map[string]any{"Documents": items}}}
-	case request.Method == http.MethodDelete && strings.HasPrefix(request.URL.Path, "/v1/objects/Documents/"):
+		_ = jsonv2.MarshalWrite(w, n.wireClass)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/schema/Documents":
+		// Weaviate fills these index defaults before returning a stored collection.
+		n.wireClass["invertedIndexConfig"] = map[string]any{"bm25": map[string]any{"b": 0.75, "k1": 1.2}}
+		n.wireClass["description"] = n.class.Description
+		_ = jsonv2.MarshalWrite(w, n.wireClass)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/objects/Documents/"):
 		n.deletes.Add(1)
-		id := strings.TrimPrefix(request.URL.Path, "/v1/objects/Documents/")
+		id := strings.TrimPrefix(r.URL.Path, "/v1/objects/Documents/")
 		if _, ok := n.objects[id]; !ok {
-			writer.WriteHeader(http.StatusNotFound)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		delete(n.objects, id)
-		writer.WriteHeader(http.StatusNoContent)
-		return
+		w.WriteHeader(http.StatusNoContent)
 	default:
-		n.t.Errorf("unexpected %s %s", request.Method, request.URL.Path)
-		http.NotFound(writer, request)
-		return
-	}
-	if err := jsonv2.MarshalWrite(writer, response); err != nil {
-		n.t.Error(err)
+		n.t.Errorf("unexpected native HTTP %s %s", r.Method, r.URL.Path)
+		http.NotFound(w, r)
 	}
 }
-
-func nativeClass(name, metric string) *models.Class {
-	return &models.Class{Class: name, Description: fixtureSpace.StorageKey(), Vectorizer: "none", VectorIndexType: "hnsw", VectorIndexConfig: map[string]any{"distance": metric}, Properties: []*models.Property{{Name: fieldContent, DataType: []string{"text"}, Tokenization: "word"}, {Name: fieldMetadata, DataType: []string{"text"}, Tokenization: "field"}, {Name: fieldTerms, DataType: []string{"text[]"}, Tokenization: "field", IndexFilterable: new(true), IndexSearchable: new(false)}}}
+func (n *nativeFixture) checkGrant(ctx context.Context) {
+	var want []string
+	if n.apiKey != "" {
+		want = []string{"Bearer " + n.apiKey}
+	}
+	if !slices.Equal(metadata.ValueFromIncomingContext(ctx, "authorization"), want) {
+		n.t.Error("wrong gRPC authorization scope")
+	}
 }
-
-func newNativeStore(t *testing.T, fixture *nativeFixture) *Store {
+func (n *nativeFixture) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.checkGrant(ctx)
+	n.batches.Add(1)
+	reply := &pb.BatchObjectsReply{}
+	if n.batchReply != nil {
+		var err error
+		reply, err = n.batchReply(req)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rejected := make(map[int32]bool)
+	for _, failure := range reply.Errors {
+		rejected[failure.Index] = true
+	}
+	for i, o := range req.Objects {
+		if o.Collection != "Documents" || len(o.Vectors) != 1 || o.Vectors[0].Name != vectorName {
+			n.t.Errorf("wrong native vector binding: %v", o.Vectors)
+		}
+		if !rejected[int32(i)] {
+			n.objects[o.Uuid] = o
+		}
+	}
+	return reply, nil
+}
+func (n *nativeFixture) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.checkGrant(ctx)
+	if n.queryError {
+		return nil, status.Error(codes.Unavailable, "native query unavailable")
+	}
+	hybrid := req.HybridSearch != nil
+	if !hybrid && req.NearVector == nil {
+		n.scans.Add(1)
+		if n.sourceError {
+			return nil, status.Error(codes.PermissionDenied, "source enumeration not granted")
+		}
+	}
+	if req.Collection != "Documents" || req.Limit == 0 || !slices.Equal(req.Metadata.GetVectors(), []string{vectorName}) {
+		n.t.Errorf("query lost collection, requested vector or native limit: %v", req)
+	}
+	near := req.NearVector
+	if hybrid {
+		near = req.HybridSearch.NearVector
+		// v6.0.0 serializes its public RelativeScore option using the server default.
+		if !req.Metadata.GetScore() || req.HybridSearch.Query == "" || !slices.Equal(req.HybridSearch.Properties, []string{fieldContent}) || (req.HybridSearch.FusionType != pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE && req.HybridSearch.FusionType != pb.Hybrid_FUSION_TYPE_UNSPECIFIED) {
+			n.t.Errorf("hybrid query lost lexical input, selected fields, native fusion or score: %v", req.HybridSearch)
+		}
+	} else if !req.Metadata.GetDistance() {
+		n.t.Error("missing distance selection")
+	}
+	if !slices.Equal(near.GetTargets().GetTargetVectors(), []string{vectorName}) || len(near.GetVectorForTargets()) != 1 || near.GetVectorForTargets()[0].Name != vectorName {
+		n.t.Errorf("missing named query coordinates: %v", near)
+	}
+	if !req.Metadata.GetUuid() || !slices.Equal(req.Properties.GetNonRefProperties(), []string{fieldContent, fieldMetadata, fieldTerms}) {
+		n.t.Errorf("missing hit identity or storage fields: %v", req)
+	}
+	var terms []string
+	if f := req.Filters; f != nil {
+		if f.Operator != pb.Filters_OPERATOR_CONTAINS_ANY || f.GetTarget().GetProperty() != fieldTerms {
+			n.t.Errorf("expected native ContainsAny over exact terms: %v", f)
+		}
+		terms = f.GetValueTextArray().GetValues()
+		n.groups = append(n.groups, len(terms))
+	}
+	if hybrid {
+		n.hybrids = append(n.hybrids, len(terms))
+	}
+	ids := slices.Sorted(maps.Keys(n.objects))
+	score := func(id string) float64 {
+		if hybrid {
+			if v, ok := n.hybridScores[id]; ok {
+				return v
+			}
+			return 1
+		}
+		return n.distances[id]
+	}
+	slices.SortStableFunc(ids, func(a, b string) int {
+		if hybrid {
+			return cmp.Compare(score(b), score(a))
+		}
+		return cmp.Compare(score(a), score(b))
+	})
+	var rows []*pb.SearchResult
+	for _, id := range ids {
+		o := n.objects[id]
+		props := o.GetProperties()
+		var rowTerms []string
+		for _, a := range props.GetTextArrayProperties() {
+			if a.PropName == fieldTerms {
+				rowTerms = a.Values
+			}
+		}
+		if len(terms) > 0 && !slices.ContainsFunc(terms, func(s string) bool { return slices.Contains(rowTerms, s) }) {
+			continue
+		}
+		fields := make(map[string]*pb.Value)
+		for _, key := range []string{fieldMetadata, fieldContent} {
+			if v, ok := props.GetNonRefProperties().GetFields()[key]; ok {
+				fields[key] = &pb.Value{Kind: &pb.Value_TextValue{TextValue: v.GetStringValue()}}
+			}
+		}
+		fields[fieldTerms] = &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: rowTerms}}}}}
+		uid := uuid.MustParse(id)
+		meta := &pb.MetadataResult{IdAsBytes: uid[:], Vectors: o.Vectors}
+		if hybrid {
+			meta.ScorePresent = true
+			meta.Score = float32(score(id))
+		} else {
+			meta.DistancePresent = true
+			meta.Distance = float32(score(id))
+		}
+		rows = append(rows, &pb.SearchResult{Metadata: meta, Properties: &pb.PropertiesResult{NonRefProps: &pb.Properties{Fields: fields}}})
+		if len(rows) == int(req.Limit) {
+			break
+		}
+	}
+	if n.queryChange != nil {
+		rows = n.queryChange(rows)
+	}
+	return &pb.SearchReply{Results: rows}, nil
+}
+func nativeClass(name, metric string) *collections.Collection {
+	return &collections.Collection{Name: name, Description: fixtureSpace.StorageKey(), Vectors: map[string]collections.VectorConfig{vectorName: {Vectorizer: selfprovided.Vectorizer, Index: vectorindex.HNSW{Distance: vectorindex.Distance(metric), FlatSearchCutoff: 1024}}}, Properties: []collections.Property{
+		{Name: fieldContent, DataType: collections.DataTypeText, Tokenization: collections.TokenizationWord},
+		{Name: fieldMetadata, DataType: collections.DataTypeText, Tokenization: collections.TokenizationField},
+		{Name: fieldTerms, DataType: collections.DataTypeTextArray, Tokenization: collections.TokenizationField, IndexFilterable: new(true), IndexSearchable: new(false)},
+	}}
+}
+func newNativeStore(t *testing.T, n *nativeFixture) *Store {
 	t.Helper()
-	fixture.t, fixture.objects = t, make(map[string]*models.Object)
-	if fixture.class == nil {
-		fixture.class = nativeClass("Documents", distanceCosine)
+	n.t = t
+	n.objects = make(map[string]*pb.BatchObject)
+	if n.class == nil {
+		n.class = nativeClass("Documents", distanceCosine)
 	}
-	server := httptest.NewServer(fixture)
-	t.Cleanup(server.Close)
-	client, err := weaviateclient.NewClient(weaviateclient.Config{Host: strings.TrimPrefix(server.URL, "http://"), Scheme: "http"})
+	rest := httptest.NewServer(n)
+	t.Cleanup(rest.Close)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, ClassName: "Documents", Space: fixtureSpace})
+	g := grpc.NewServer()
+	pb.RegisterWeaviateServer(g, n)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = g.Serve(listener) }()
+	t.Cleanup(func() { g.Stop(); <-done })
+	origin, err := url.Parse(rest.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewClient(t.Context(), ClientConfig{Endpoint: rest.URL, APIKey: n.apiKey, GRPCAddress: net.JoinHostPort(origin.Hostname(), port)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := c.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	admin := testAdmin(t, origin, port)
+	if _, err = admin.Collections.Create(t.Context(), *n.class); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewStore(t.Context(), StoreConfig{Client: c, Collection: "Documents", Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(fmt.Errorf("construct native store: %w", err))
 	}
-	return store
+	return s
+}
+
+// The independent SDK provisions disposable test collections anonymously.
+// Product calls never delegate authenticated REST to it.
+func testAdmin(t *testing.T, origin *url.URL, grpcPort string) *sdk.Client {
+	t.Helper()
+	port := origin.Port()
+	if port == "" {
+		if origin.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	c, err := sdk.NewClient(t.Context(), sdk.WithHost(origin.Hostname()), sdk.WithScheme(origin.Scheme), sdk.WithHTTPPort(port), sdk.WithGRPCPort(grpcPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := c.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	return c
 }
 
 const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
-func fixtureVector(text string) []float64 { return []float64{1, 0} }
+func fixtureVector(string) []float64 { return []float64{1, 0} }
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -221,9 +307,9 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
-func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		q.LexicalText = "native text"
 	}
-	return store.Query(ctx, q)
+	return s.Query(ctx, q)
 }

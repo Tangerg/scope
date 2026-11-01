@@ -44,10 +44,10 @@ func TestServerRejectsCapabilitiesItCannotFulfill(t *testing.T) {
 // extensionRequiredCode is the JSON-RPC code the SDK maps ErrExtensionSupportRequired to.
 const extensionRequiredCode = -32008
 
-// getTaskExtensionCode constructs a handler for a card carrying one extension,
+// getTaskAdmissionCode constructs a handler for a card carrying one extension,
 // optionally flips that existing element to required after construction, sends a
 // GetTask whose client activates no extension, and returns the JSON-RPC error code.
-func getTaskExtensionCode(t *testing.T, required, flipAfterBuild bool) int {
+func getTaskAdmissionCode(t *testing.T, version string, required, flipAfterBuild bool) int {
 	t.Helper()
 	card := &sdka2a.AgentCard{
 		Name:                "echo",
@@ -63,7 +63,11 @@ func getTaskExtensionCode(t *testing.T, required, flipAfterBuild bool) int {
 	}
 	body := `{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"missing"}}`
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader([]byte(body))))
+	request := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader([]byte(body)))
+	if version != "" {
+		request.Header.Set(sdka2a.SvcParamVersion, version)
+	}
+	handler.ServeHTTP(response, request)
 	var result struct {
 		Error *struct {
 			Code int `json:"code"`
@@ -78,17 +82,28 @@ func getTaskExtensionCode(t *testing.T, required, flipAfterBuild bool) int {
 	return result.Error.Code
 }
 
+// Missing or unsupported protocol versions fail negotiation before extensions
+// can admit the request. A versioned peer reaches extension admission below.
+func TestRawRequestsRequireTheAdvertisedProtocolVersion(t *testing.T) {
+	const versionNotSupportedCode = -32009
+	for _, offered := range []string{"", "9.0"} {
+		if got := getTaskAdmissionCode(t, offered, true, false); got != versionNotSupportedCode {
+			t.Errorf("offered=%q: JSON-RPC code=%d, want %d", offered, got, versionNotSupportedCode)
+		}
+	}
+}
+
 // The admission fact belongs to the construction boundary. A required extension
 // declared at construction must gate requests, but flipping an existing extension
 // element to required afterwards must not, because the caller no longer owns the
 // frozen capability the handler admits by.
 func TestServerFreezesExtensionAdmissionAgainstCallerMutation(t *testing.T) {
 	// Control: the gate is reachable and rejects a missing required extension.
-	if code := getTaskExtensionCode(t, true, false); code != extensionRequiredCode {
+	if code := getTaskAdmissionCode(t, string(sdka2a.Version), true, false); code != extensionRequiredCode {
 		t.Fatalf("required extension declared at construction: error code = %d, want %d", code, extensionRequiredCode)
 	}
 	// Mutating the existing element after construction must not change admission.
-	if code := getTaskExtensionCode(t, false, true); code == extensionRequiredCode {
+	if code := getTaskAdmissionCode(t, string(sdka2a.Version), false, true); code == extensionRequiredCode {
 		t.Fatal("flipping an existing extension element to required after construction changed admission")
 	}
 }

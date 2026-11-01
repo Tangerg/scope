@@ -64,7 +64,7 @@ func TestEmbeddingValidatesDefaultDimensions(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, _ := embedding.NewRequest([]string{"text"})
-	if _, err := model.Call(t.Context(), request); !errors.Is(err, embedding.ErrInvalidResponse) {
+	if response, err := model.Call(t.Context(), request); response != nil || !errors.Is(err, embedding.ErrInvalidResponse) {
 		t.Fatalf("default dimensions ignored: %v", err)
 	}
 	if request.Options.Dimensions != nil {

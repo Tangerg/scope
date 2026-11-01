@@ -9,10 +9,13 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
+// PostgreSQL silently truncates longer identifiers on standard builds.
+const maxIdentifierBytes = 63
+
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validIdentifier(value string) bool {
-	return identifierPattern.MatchString(value)
+	return len(value) <= maxIdentifierBytes && identifierPattern.MatchString(value)
 }
 
 func encodeMessages(messages []chat.Message) ([][]byte, error) {

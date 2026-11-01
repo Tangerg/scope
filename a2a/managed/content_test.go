@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -26,5 +27,14 @@ func TestJSONContentDoesNotRoundAnAgentAnswer(t *testing.T) {
 		if part == raw && string(out.JSON()) != `{"amount":9007199254740993}` {
 			t.Fatalf("lost integer: %s", out.JSON())
 		}
+	}
+}
+
+func TestInvalidHostAuthorityCannotCollapseTwoNamespaces(t *testing.T) {
+	h := &handler{service: "book", authority: func(_ context.Context, tenant string) (string, error) { return string([]byte{0xff}) + tenant, nil }}
+	a, ea := h.scope(t.Context(), "alice")
+	b, eb := h.scope(t.Context(), "bob")
+	if ea == nil || eb == nil {
+		t.Fatalf("invalid authorities granted task namespaces: alice=%q %v bob=%q %v", a, ea, b, eb)
 	}
 }

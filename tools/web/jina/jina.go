@@ -162,7 +162,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	search := newSearchRequest(prepared)
 	var raw searchResponse
 	httpRequest := c.searchHTTP.R().SetContext(ctx).SetQueryParamsFromValues(search.params())
-	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, search.path(), &raw); err != nil {
+	if err := providerhttp.Execute(httpRequest, http.MethodGet, search.path(), &raw); err != nil {
 		return nil, fmt.Errorf("jina: search request: %w", err)
 	}
 	return raw.toSearchResponse(prepared)
@@ -177,7 +177,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	httpRequest := c.fetchHTTP.R().SetContext(ctx).
 		SetHeader(respondWithHeader, string(prepared.Format)).
 		SetBody(&fetchRequest{URL: prepared.URL})
-	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
+	if err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
 		return nil, fmt.Errorf("jina: fetch request: %w", err)
 	}
 	return raw.toFetchResponse(prepared)

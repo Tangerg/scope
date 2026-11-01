@@ -76,7 +76,7 @@ func TestConfigAcceptsValidIdentifiers(t *testing.T) {
 }
 
 func TestWriteConfirmsNoEffectWhenTransactionCannotBegin(t *testing.T) {
-	pool := protocolPool(t, protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: messageDescription()})
+	pool := protocolPool(t, protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: messageDescription()})
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 	if err != nil {
 		t.Fatal(err)
@@ -89,5 +89,25 @@ func TestWriteConfirmsNoEffectWhenTransactionCannotBegin(t *testing.T) {
 	}
 	if outcome != (history.WriteOutcome{}) {
 		t.Fatalf("outcome = %+v, want no effect before transaction admission", outcome)
+	}
+}
+
+func TestNamesMustNotAliasPostgresTruncationOrCaseFolding(t *testing.T) {
+	cfg := postgres.StoreConfig{Pool: stubPool(), TableName: strings.Repeat("a", 64)}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("64-byte table name could alias another table")
+	}
+	cfg.TableName = strings.Repeat("b", 63)
+	if err := cfg.Validate(); err != nil {
+		t.Fatal("host-owned index name is irrelevant to reads", err)
+	}
+	cfg.InitializeSchema = true
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("derived index silently truncated")
+	}
+	ctx := t.Context()
+	pool := protocolPool(t, protocolStep{query: `SELECT message FROM "TenantA"."History" LIMIT 0`, replies: messageDescription()})
+	if _, err := postgres.NewStore(ctx, postgres.StoreConfig{Pool: pool, SchemaName: "TenantA", TableName: "History"}); err != nil {
+		t.Fatal(err)
 	}
 }

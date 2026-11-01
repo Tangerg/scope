@@ -8,13 +8,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/Tangerg/scope/core/httpclient"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/ssestream"
 )
 
 const (
@@ -27,6 +28,7 @@ type apiConfig struct {
 	BaseURL    string
 	HTTPClient *http.Client
 	Headers    http.Header
+	Provider   string
 }
 
 func (a apiConfig) validate() error {
@@ -57,18 +59,71 @@ func (a apiConfig) endpoint() (string, error) {
 	return baseURL, nil
 }
 
-func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, error) {
+// compatibleRevision is the deployed Messages contract of third-party gateways.
+const compatibleMessagesRevision = "2023-06-01"
+
+func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, bool, error) {
 	baseURL, err := a.endpoint()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: a.httpClient(), BaseURL: baseURL})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	options := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithAPIKey(a.APIKey)}
-	options = append(options, option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+	headers := make(http.Header, len(a.Headers))
 	for name, values := range a.Headers {
+		key := http.CanonicalHeaderKey(name)
+		if _, duplicate := headers[key]; duplicate {
+			return nil, false, fmt.Errorf("anthropic: duplicate header %q", key)
+		}
+		headers[key] = values
+	}
+	compatible := false
+	if versions, supplied := headers["Anthropic-Version"]; supplied {
+		if a.Provider == protocolProvider || len(versions) != 1 || versions[0] != compatibleMessagesRevision {
+			return nil, false, errors.New("anthropic: unsupported Messages revision for this binding")
+		}
+		compatible = true
+	}
+	// The API key is the only credential source. A gateway may select a
+	// different header, but cannot add a second key or send two credentials.
+	defaultKey := "Authorization"
+	if compatible {
+		defaultKey = "X-Api-Key"
+	}
+	auth := http.Header{}
+	expected := func(name string) string {
+		if name == "Authorization" {
+			return "Bearer " + a.APIKey
+		}
+		return a.APIKey
+	}
+	auth.Set(defaultKey, expected(defaultKey))
+	for _, name := range []string{"Authorization", "X-Api-Key", "Api-Key"} {
+		if values, present := headers[name]; present {
+			delete(headers, name)
+			if len(values) == 0 {
+				auth.Del(name)
+				continue
+			}
+			if len(values) != 1 || values[0] != expected(name) {
+				return nil, false, fmt.Errorf("anthropic: header %q conflicts with the bound API key", name)
+			}
+			auth.Set(name, values[0])
+		}
+	}
+	if len(auth) != 1 {
+		return nil, false, errors.New("anthropic: exactly one API credential header is required")
+	}
+	options := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithAPIKey(a.APIKey), option.WithBaseURL(baseURL), option.WithHTTPClient(client)}
+	if auth.Get("Authorization") == "" {
+		options = append(options, option.WithHeaderDel("Authorization"))
+		for name, values := range auth {
+			headers[name] = values
+		}
+	}
+	for name, values := range headers {
 		if len(values) == 0 {
 			options = append(options, option.WithHeaderDel(name))
 			continue
@@ -77,7 +132,7 @@ func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, 
 			options = append(options, option.WithHeader(name, value))
 		}
 	}
-	return options, nil
+	return options, compatible, nil
 }
 
 // WithoutEnvironmentDefaults also omits the SDK's HTTP default. Restore its
@@ -96,16 +151,17 @@ func (a apiConfig) httpClient() *http.Client {
 }
 
 type api struct {
-	client *anthropicsdk.Client
+	compatibleRevision bool
+	client             *anthropicsdk.Client
 }
 
 func newAPI(ctx context.Context, config apiConfig) (*api, error) {
-	options, err := config.requestOptions(ctx)
+	options, compatible, err := config.requestOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
 	client := anthropicsdk.NewClient(options...)
-	return &api{client: &client}, nil
+	return &api{client: &client, compatibleRevision: compatible}, nil
 }
 
 func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
@@ -168,18 +224,22 @@ func (a *api) chatCompletionStream(ctx context.Context, req *anthropicsdk.Messag
 	return a.client.Messages.NewStreaming(ctx, *req, opts...)
 }
 
-func (a *api) countTokens(ctx context.Context, req *anthropicsdk.MessageCountTokensParams, opts ...option.RequestOption) (*anthropicsdk.MessageTokensCount, error) {
+func (a *api) countTokens(ctx context.Context, req *anthropicsdk.MessageCountTokensParams, opts ...option.RequestOption) (int64, error) {
 	if req == nil {
-		return nil, errors.New("anthropic: request must not be nil")
+		return 0, errors.New("anthropic: request must not be nil")
 	}
 	response, err := a.wrapResult(a.client.Messages.CountTokens(ctx, *req, opts...))
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	if response == nil || !response.JSON.InputTokens.Valid() || response.InputTokens < 0 {
-		return nil, errors.New("anthropic: invalid input_tokens count")
+	if response == nil {
+		return 0, errors.New("anthropic: missing input_tokens count")
 	}
-	return response, nil
+	count, err := strconv.ParseInt(response.JSON.InputTokens.Raw(), 10, 64)
+	if err != nil || count < 0 {
+		return 0, errors.New("anthropic: invalid input_tokens count")
+	}
+	return count, nil
 }
 
 func (*api) wrapError(err error) error {

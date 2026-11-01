@@ -20,8 +20,10 @@ import (
 // arrays produce one document per element; every other JSON value produces one
 // document containing its raw representation. Numbers retain their source
 // spelling and are not restricted to the float64 range.
+// Read admits one attempt on the sequential source. Reopen the input to
+// retry after a failure; concurrent or later attempts return [etl.ErrSourceConsumed].
 type Reader struct {
-	source       io.Reader
+	source       *origin.Stream
 	sourceName   string
 	sourceBudget etl.SourceBudget
 }
@@ -38,14 +40,14 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("json reader: source must not be nil")
 	}
-	return &Reader{source: source, sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
+	return &Reader{source: origin.NewStream(source), sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
 }
 
 func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	data, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
+	data, p, err := r.source.Read(ctx, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("json reader: read source: %w", err)
 	}

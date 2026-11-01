@@ -101,8 +101,8 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 // local error: an extra embedding has nowhere to go, and an input the provider
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
-func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, expectedResults int) (*embedding.Response, error) {
-	outputs := make([]*embedding.Output, expectedResults)
+func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, req *embedding.Request) (*embedding.Response, error) {
+	outputs := make([]*embedding.Output, len(req.Texts))
 	for index, vec := range apiResp.Embeddings {
 		values := make([]float64, len(vec))
 		for i, value := range vec {
@@ -139,24 +139,24 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, expectedRes
 		meta.Usage = &embedding.Usage{InputTokens: *apiResp.PromptEvalCount}
 	}
 
-	return embedding.NewResponse(outputs, meta)
-}
-
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
-	if err = req.Validate(); err != nil {
+	out := &embedding.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
 		return nil, err
 	}
-	effective := *req
-	effective.Options, err = e.defaultOptions.Resolve(req.Options)
+	return out, nil
+}
+
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
 	}
+	effective := *req
+	effective.Options = options
 	req = &effective
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-		}
-	}()
 
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
@@ -168,5 +168,5 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 		return nil, err
 	}
 
-	return e.buildResponse(apiResp, len(req.Texts))
+	return e.buildResponse(apiResp, req)
 }

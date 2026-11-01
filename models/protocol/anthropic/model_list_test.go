@@ -22,13 +22,13 @@ func TestListModelsUsesTheBoundProvider(t *testing.T) {
 		if request.Method != http.MethodGet || request.URL.Path != "/proxy/prefix/v1/models" {
 			t.Errorf("request = %s %s", request.Method, request.URL)
 		}
-		if got := request.Header.Get("X-Api-Key"); got != "test-key" {
+		if got := request.Header.Get("Authorization"); got != "Bearer test-key" {
 			t.Errorf("authentication = %q", got)
 		}
 		if got := request.Header.Get("X-Provider-Binding"); got != "same-binding" {
 			t.Errorf("binding header = %q", got)
 		}
-		if got := request.Header.Get("Anthropic-Version"); got != "2023-06-01" {
+		if got := request.Header.Get("Anthropic-Version"); got != "2026-10-21" {
 			t.Errorf("version = %q", got)
 		}
 		if got := request.URL.Query().Get("limit"); got != "3" {

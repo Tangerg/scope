@@ -10,13 +10,15 @@ import (
 func TestUnfilteredSearchDoesNotEnumerateSource(t *testing.T) {
 	const id = "00000000-0000-0000-0000-000000000001"
 	store, fixture := indexedNativeStore(t, []*document.Document{{ID: id, Text: "text"}})
-	scans := fixture.scans
+	scans := fixture.scans.Load()
+	fixture.mu.Lock()
 	fixture.sourceError = true
+	fixture.mu.Unlock()
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != id {
 		t.Fatalf("native query = %v, %v", response, err)
 	}
-	if fixture.scans != scans {
+	if fixture.scans.Load() != scans {
 		t.Fatal("unfiltered query enumerated objects")
 	}
 }

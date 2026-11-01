@@ -32,7 +32,7 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 							t.Error(err)
 							return
 						}
-						_, _ = fmt.Fprintf(writer, `{"name":"Wire Agent","supportedInterfaces":[{"url":%s,"protocolBinding":%q,"protocolVersion":"1.0"}],"defaultInputModes":["text"],"defaultOutputModes":["text"]}`, url, binding)
+						_, _ = fmt.Fprintf(writer, `{"name":"Wire Agent","supportedInterfaces":[{"url":%s,"protocolBinding":%q,"protocolVersion":"1.0"}],"defaultInputModes":["text/plain"],"defaultOutputModes":["text/plain"]}`, url, binding)
 						return
 					}
 					var rpcID json.RawMessage

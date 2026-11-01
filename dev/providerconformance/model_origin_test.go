@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,9 +35,10 @@ import (
 )
 
 type modelOriginCall struct {
-	name   string
-	header string
-	call   func(context.Context, string, *http.Client) error
+	name     string
+	header   string // when fixed by this binding rather than its external SDK
+	noAPIKey bool
+	call     func(context.Context, string, *http.Client) error
 }
 
 func modelOriginCalls() []modelOriginCall {
@@ -49,7 +51,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.ListModels(ctx, 1, 1024)
 			return err
 		}},
-		{name: "anthropic", header: "X-Api-Key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "anthropic", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client})
 			if err != nil {
 				return err
@@ -89,7 +91,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
 			return err
 		}},
-		{name: "vertex image", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "vertex image", noAPIKey: true, call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := vertexai.NewImageModel(ctx, vertexai.ImageModelConfig{
 				Client:         vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: endpoint, HTTPClient: client},
 				DefaultOptions: image.Options{Model: vertexai.ModelGemini3ProImage},
@@ -180,16 +182,28 @@ func modelOriginCalls() []modelOriginCall {
 }
 
 type modelOriginTransport struct {
-	header     string
-	location   string
-	initial    int
-	redirected int
-	credential string
+	location    string
+	initial     int
+	redirected  int
+	first, last []originCredential
 }
+
+type originCredential struct{ name, value string }
 
 func (m *modelOriginTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	if request.Body != nil {
 		defer request.Body.Close()
+	}
+	// The protocol's own wire tests select the native auth header. Here the
+	// initial request is the reference: a redirect must preserve the same
+	// single credential, without adding one under another name.
+	var auth []originCredential
+	for name, values := range request.Header {
+		for _, v := range values {
+			if v == "sentinel" || v == "Bearer sentinel" {
+				auth = append(auth, originCredential{name, v})
+			}
+		}
 	}
 	status := http.StatusTemporaryRedirect
 	header := http.Header{"Content-Type": {"application/json"}, "X-Should-Retry": {"false"}}
@@ -197,10 +211,11 @@ func (m *modelOriginTransport) RoundTrip(request *http.Request) (*http.Response,
 	if request.URL.Path == "/finish" {
 		m.redirected++
 		status = http.StatusBadRequest
-		m.credential = request.Header.Get(m.header)
+		m.last = auth
 		body = io.NopCloser(strings.NewReader(`{"error":{"message":"test destination"}}`))
 	} else {
 		m.initial++
+		m.first = auth
 		header.Set("Location", m.location)
 	}
 	return &http.Response{StatusCode: status, Header: header, Body: body, Request: request}, nil
@@ -219,15 +234,25 @@ func TestModelAPIRequestsRemainWithinTheirCredentialOrigin(t *testing.T) {
 			{name: "HTTPS downgrade", location: "http://api.scope.test/finish"},
 		} {
 			t.Run(provider.name+"/"+destination.name, func(t *testing.T) {
-				transport := &modelOriginTransport{header: provider.header, location: destination.location}
+				transport := &modelOriginTransport{location: destination.location}
 				client := &http.Client{Transport: transport}
 				err := provider.call(t.Context(), endpoint, client)
 				if transport.initial == 0 {
 					t.Fatalf("call never reached API origin: %v", err)
 				}
+				wantCredentials := 1
+				if provider.noAPIKey {
+					wantCredentials = 0
+				}
+				if len(transport.first) != wantCredentials {
+					t.Fatalf("original credential count: got %d, want %d", len(transport.first), wantCredentials)
+				}
+				if provider.header != "" && !strings.EqualFold(provider.header, transport.first[0].name) {
+					t.Fatalf("credential header: got %s, want %s", transport.first[0].name, provider.header)
+				}
 				if destination.allowed {
-					if errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected == 0 || provider.header != "" && !strings.Contains(transport.credential, "sentinel") {
-						t.Fatalf("same-origin request lost policy or credential: redirected=%d credential=%q error=%v", transport.redirected, transport.credential, err)
+					if errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected == 0 || !slices.Equal(transport.first, transport.last) {
+						t.Fatalf("same-origin redirect changed credentials: before=%v after=%v redirected=%d error=%v", transport.first, transport.last, transport.redirected, err)
 					}
 				} else if transport.redirected != 0 || !errors.Is(err, httpclient.ErrOriginNotAllowed) {
 					t.Fatalf("unauthorized destination: redirected=%d error=%v", transport.redirected, err)

@@ -348,3 +348,63 @@ func TestNativeSessionsRemainIndependentOfHostDialog(t *testing.T) {
 		t.Fatalf("native owner: %v %v", result, err)
 	}
 }
+
+func TestOldMCPWriterDoesNotRepublishReplacedWait(t *testing.T) {
+	s := newService(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	client := s.connect(t, "authenticated-dialog", true)
+	pending, err := call(ctx, client, "", nil, "order")
+	if err != nil || !pending.NeedsInput() {
+		t.Fatalf("wait=%+v %v", pending, err)
+	}
+	views := must(s.runtime.StartedTrees())
+	id := run.StartID{Scope: "tenant:1", Key: "order:1"}
+	before, found, err := views.Load(ctx, id)
+	if err != nil || !found || len(before.Pending()) != 1 {
+		t.Fatalf("head=%v %v", found, err)
+	}
+	// Let the superseded local activation meet its fence and drain before
+	// tearing down the original service. No production path takes over implicitly.
+	t.Cleanup(func() {
+		clean, stop := context.WithTimeout(context.Background(), time.Second)
+		defer stop()
+		if old, ok := s.runtime.Process(before.RootID()); ok {
+			_ = old.Cancel(clean, "finish superseded activation")
+			_ = old.Join(clean)
+		}
+	})
+	next := must(run.New(ctx, run.Config{Store: s.store}))
+	t.Cleanup(func() { _ = next.Close(context.Background()) })
+	// Opening the child form, parking the child, and parking its parent may
+	// advance the head concurrently. A rejected CAS installed no activation;
+	// retry the deliberate takeover against the new authoritative head.
+	var fresh *run.Handle[decision]
+	for {
+		fresh, err = next.Recover(ctx, s.cfg.Program, before)
+		if !errors.Is(err, run.ErrTreeIncarnationConflict) {
+			break
+		}
+		before, found, err = views.Load(ctx, id)
+		if err != nil || !found || len(before.Pending()) != 1 {
+			t.Fatalf("load after CAS rejection: found=%t err=%v", found, err)
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = fresh.Answer(ctx, before.Pending()[0].WaitID, map[string]string{"city": "Paris"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = fresh.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := call(ctx, client, "", nil, "order")
+	if err != nil || result.NeedsInput() || len(result.Content) != 1 || result.Content[0].(*sdk.TextContent).Text != "Paris" {
+		t.Fatalf("superseded writer predicted another wait after durable completion: %+v %v", result, err)
+	}
+	retry, err := call(ctx, client, pending.RequestState, answer("accept", map[string]any{"city": "Paris"}), "order")
+	if err != nil || retry.NeedsInput() || len(retry.Content) != 1 || retry.Content[0].(*sdk.TextContent).Text != "Paris" {
+		t.Fatalf("accepted answer replay reached stale writer: %+v %v", retry, err)
+	}
+}

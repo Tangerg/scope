@@ -156,7 +156,7 @@ func (b *binding[I, O]) call(ctx context.Context, req *sdk.CallToolRequest) (out
 			}
 			return nil, errUnavailable
 		}
-		return observe(ctx, b, h, auth, run.WaitID{})
+		return observe(ctx, b, h, grant.StartID, auth, run.WaitID{})
 	}
 	t, err := b.issuer.open(req.Params.RequestState, auth)
 	if err != nil {
@@ -225,11 +225,12 @@ func (b *binding[I, O]) call(ctx context.Context, req *sdk.CallToolRequest) (out
 		return nil, errArguments
 	}
 	root, active := b.cfg.Runtime.Process(t.Root)
+	owns := active && root.TreeIncarnationID() == head.IncarnationID()
 	if !acknowledged {
 		if !pending {
 			return nil, errContinuation
 		}
-		if !active {
+		if !owns {
 			return nil, errUnavailable
 		}
 		owner, ok := b.cfg.Runtime.Process(t.Owner)
@@ -245,33 +246,57 @@ func (b *binding[I, O]) call(ctx context.Context, req *sdk.CallToolRequest) (out
 			}
 			return nil, errUnavailable
 		}
-	} else if !active {
+	} else if !owns {
 		return b.viewOnly(ctx, grant.StartID, t.Root, auth, t.Wait)
 	}
-	return observe(ctx, b, root, auth, t.Wait)
+	return observe(ctx, b, root, grant.StartID, auth, t.Wait)
 }
-func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
+
+// A newer writer can replace a blocked local activation without sending any
+// event to it. The store certifies the view; local notifications only wake reads.
+const ownershipRecheck = time.Second
+
+func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
+	var last run.Digest
+	read := func() (*sdk.CallToolResult, error) {
+		head, found, err := b.views.Load(ctx, id)
+		if err != nil || !found {
+			return nil, errUnavailable
+		}
+		if head.RootID() != h.ID() {
+			return nil, errContinuation
+		}
+		last = head.Digest()
+		out, err := b.project(head, auth, answered)
+		if out != nil || err != nil {
+			return out, err
+		}
+		if head.IncarnationID() != h.TreeIncarnationID() {
+			return nil, errUnavailable
+		}
+		return nil, nil
+	}
 	for ctx.Err() == nil {
-		gap := false
-		for observation, err := range h.Observe(ctx, run.Cursor{}, 16) {
-			if errors.Is(err, run.ErrObservationGap) {
-				gap = true
+		if out, err := read(); out != nil || err != nil {
+			return out, err
+		}
+		watch, stop := context.WithTimeout(ctx, ownershipRecheck)
+		retry := false
+		for event, err := range h.Observe(watch, run.Cursor{}, 16) {
+			if err != nil {
+				retry = errors.Is(err, run.ErrObservationGap) || errors.Is(err, context.DeadlineExceeded)
 				break
 			}
-			if err != nil {
-				return nil, errUnavailable
-			}
-			head := observation.Snapshot
-			if !head.Valid() {
-				continue
-			}
-			out, err := b.project(head, auth, answered)
-			if err != nil || out != nil {
-				return out, err
+			if event.Snapshot.Valid() && event.Snapshot.Digest() != last {
+				if out, readErr := read(); out != nil || readErr != nil {
+					stop()
+					return out, readErr
+				}
 			}
 		}
-		if !gap {
-			return nil, errUnavailable
+		stop()
+		if !retry {
+			return b.viewOnly(ctx, id, h.ID(), auth, answered)
 		}
 	}
 	return nil, errUnavailable

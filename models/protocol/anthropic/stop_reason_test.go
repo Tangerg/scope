@@ -3,7 +3,7 @@ package anthropic
 import (
 	"testing"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )

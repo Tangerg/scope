@@ -48,6 +48,13 @@ func TestAudioTextModels_Call_Mock(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			srv := modeltest.JSONServer(http.StatusOK, test.response, func(wire *http.Request) {
+				path := "/audio/transcriptions"
+				if test.name == "translation" {
+					path = "/audio/translations"
+				}
+				if wire.Method != http.MethodPost || wire.URL.Path != path || wire.Header.Get("Authorization") != "Bearer test-key" {
+					t.Fatalf("upload identity: method=%s path=%s credential=%q", wire.Method, wire.URL.Path, wire.Header.Get("Authorization"))
+				}
 				if err := wire.ParseMultipartForm(1 << 20); err != nil {
 					t.Error(err)
 					return

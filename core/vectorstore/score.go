@@ -66,6 +66,9 @@ func ScoreFromValue(value float64) Score {
 
 // ScoreFromCosineSimilarity maps cosine similarity from [-1, 1] to [0, 1].
 func ScoreFromCosineSimilarity(similarity float64) Score {
+	if similarity < minimumCosineSimilarity || similarity > maximumCosineSimilarity {
+		return Score(math.NaN())
+	}
 	return ScoreFromValue(
 		(similarity - minimumCosineSimilarity) /
 			(maximumCosineSimilarity - minimumCosineSimilarity),
@@ -74,17 +77,19 @@ func ScoreFromCosineSimilarity(similarity float64) Score {
 
 // ScoreFromCosineDistance maps 1-cosine-similarity from [0, 2] to [0, 1].
 func ScoreFromCosineDistance(distance float64) Score {
+	if distance < 0 {
+		return Score(math.NaN())
+	}
 	return ScoreFromCosineSimilarity(maximumCosineSimilarity - distance)
 }
 
 // ScoreFromDistance maps a non-negative, unbounded distance to (0, 1], where
-// zero is an exact match. Negative values, which only floating-point error
-// produces, are treated as zero.
+// zero is an exact match. An invalid native distance cannot establish a match.
 func ScoreFromDistance(distance float64) Score {
-	if math.IsNaN(distance) || math.IsInf(distance, 0) {
+	if distance < 0 || math.IsNaN(distance) || math.IsInf(distance, 0) {
 		return Score(math.NaN())
 	}
-	return Score(1 / (1 + max(0, distance)))
+	return Score(1 / (1 + distance))
 }
 
 // ScoreFromInnerProduct maps an unbounded dot product monotonically into [0, 1].

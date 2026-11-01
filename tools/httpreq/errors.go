@@ -19,5 +19,6 @@ var (
 	ErrDuplicateHeader         = errors.New("httpreq: header names one field more than once")
 	ErrInvalidHeaderField      = errors.New("httpreq: header name or value is not valid HTTP syntax")
 	ErrMethodNotAllowed        = errors.New("httpreq: method is not allowed by client policy")
+	ErrRedirectBody            = errors.New("httpreq: a redirect cannot replay a request body to another origin")
 	ErrRedirectLimitReached    = errors.New("httpreq: redirect limit reached")
 )

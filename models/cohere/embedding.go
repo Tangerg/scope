@@ -151,12 +151,12 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 // local error: an extra embedding has nowhere to go, and an input the provider
 // never answered stays nil and fails when the Response is built, naming the
 // text that went unanswered.
-func (e *EmbeddingModel) buildResponse(apiResp *nativeResponse[*cohere.EmbedByTypeResponse], expectedResults int) (*embedding.Response, error) {
+func (e *EmbeddingModel) buildResponse(apiResp *nativeResponse[*cohere.EmbedByTypeResponse], req *embedding.Request) (*embedding.Response, error) {
 	if apiResp.value.Embeddings == nil {
 		return nil, errors.New("cohere: embed response has no float embeddings")
 	}
 
-	outputs := make([]*embedding.Output, expectedResults)
+	outputs := make([]*embedding.Output, len(req.Texts))
 	for index, vec := range apiResp.value.Embeddings.Float {
 		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
 			return nil, fmt.Errorf("cohere: embed response: %w", err)
@@ -173,27 +173,24 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeResponse[*cohere.EmbedByTy
 		return nil, err
 	}
 
-	return embedding.NewResponse(outputs, meta)
-}
-
-func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (response *embedding.Response, err error) {
-	if err = req.Validate(); err != nil {
+	out := &embedding.Response{Outputs: outputs, Metadata: meta}
+	if err := out.ValidateFor(req); err != nil {
 		return nil, err
 	}
-	effectiveRequest := *req
-	effectiveRequest.Options, err = e.defaultOptions.Resolve(req.Options)
+	return out, nil
+}
+
+func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
 	}
+	effectiveRequest := *req
+	effectiveRequest.Options = options
 	req = &effectiveRequest
-	defer func() {
-		if err == nil {
-			err = response.ValidateFor(req)
-			if err != nil {
-				response = nil
-			}
-		}
-	}()
 
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
@@ -205,5 +202,5 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (resp
 		return nil, err
 	}
 
-	return e.buildResponse(apiResp, len(req.Texts))
+	return e.buildResponse(apiResp, req)
 }

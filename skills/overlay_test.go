@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -227,7 +229,7 @@ func TestOverlayRejectsInvalidSourceModels(t *testing.T) {
 }
 
 func TestListMissingDir(t *testing.T) {
-	repository, err := NewDirectoryRepository("/no/such/skills/dir", RepositoryConfig{})
+	repository, err := NewRepository(os.DirFS(filepath.Join(t.TempDir(), "missing")), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

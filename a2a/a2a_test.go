@@ -149,8 +149,8 @@ func TestRoundTrip(t *testing.T) {
 		SupportedInterfaces: []*sdka2a.AgentInterface{
 			sdka2a.NewAgentInterface(ts.URL+"/custom/rpc", sdka2a.TransportProtocolJSONRPC),
 		},
-		DefaultInputModes:  []string{"text"},
-		DefaultOutputModes: []string{"text"},
+		DefaultInputModes:  []string{"text/plain"},
+		DefaultOutputModes: []string{"text/plain"},
 		Capabilities:       sdka2a.AgentCapabilities{Streaming: true},
 		Skills: []sdka2a.AgentSkill{
 			{ID: "echo", Name: "Echo", Description: "Echo the input", Tags: []string{"echo"}},

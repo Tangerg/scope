@@ -122,7 +122,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
-	if _, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
+	if err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: search request: %w", err)
 	}
 	return raw.toSearchResponse(prepared)
@@ -143,7 +143,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		ExtractDepth: depthBasic,
 		Format:       string(format),
 	})
-	if _, err = providerhttp.Execute(httpRequest, http.MethodPost, extractPath, &raw); err != nil {
+	if err = providerhttp.Execute(httpRequest, http.MethodPost, extractPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: fetch request: %w", err)
 	}
 	content, err := raw.content(prepared.URL)

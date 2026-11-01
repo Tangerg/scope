@@ -23,12 +23,6 @@ const (
 	AnthropicStreamEventExtensionKey = "openrouter/anthropic_stream_event"
 )
 
-const (
-	headerAuthorization   = "Authorization"
-	headerAnthropicAPIKey = "X-Api-Key"
-	bearerAuthPrefix      = "Bearer "
-)
-
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -100,8 +94,9 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamMo
 		return nil, err
 	}
 	headers := providerHeaders(config.AppURL, config.AppTitle)
-	headers[headerAnthropicAPIKey] = nil
-	headers.Set(headerAuthorization, bearerAuthPrefix+config.APIKey)
+	headers.Set("Anthropic-Version", "2023-06-01")
+	headers["X-Api-Key"] = nil
+	headers.Set("Authorization", "Bearer "+config.APIKey)
 	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient,

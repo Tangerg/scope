@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
@@ -77,41 +78,6 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 		}
 	}
 	return parts, nil
-}
-
-func mapProtocolUsage(usage anthropicsdk.Usage) *corechat.Usage {
-	if usage.RawJSON() != "" {
-		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
-			return nil
-		}
-	} else if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CacheReadInputTokens == 0 && usage.CacheCreationInputTokens == 0 {
-		return nil
-	}
-
-	mapped := corechat.Usage{
-		InputTokens:  protocolTotalInputTokens(usage.InputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens),
-		OutputTokens: usage.OutputTokens,
-	}
-	if usage.OutputTokensDetails.JSON.ThinkingTokens.Valid() || usage.OutputTokensDetails.ThinkingTokens != 0 {
-		value := usage.OutputTokensDetails.ThinkingTokens
-		mapped.ReasoningTokens = &value
-	}
-	if usage.CacheReadInputTokens != 0 || usage.JSON.CacheReadInputTokens.Valid() {
-		value := usage.CacheReadInputTokens
-		mapped.CacheReadInputTokens = &value
-	}
-	if usage.CacheCreationInputTokens != 0 || usage.JSON.CacheCreationInputTokens.Valid() {
-		value := usage.CacheCreationInputTokens
-		mapped.CacheWriteInputTokens = &value
-	}
-	return &mapped
-}
-
-func protocolTotalInputTokens(uncached, cacheRead, cacheWrite int64) int64 {
-	// Anthropic reports fresh, cache-read, and cache-write input as disjoint
-	// counters. Core InputTokens is the total whose optional cache fields are
-	// breakdowns, so normalize instead of copying the similarly named field.
-	return uncached + cacheRead + cacheWrite
 }
 
 func normalizeProtocolStopReason(reason anthropicsdk.StopReason) (corechat.FinishReason, error) {
@@ -241,7 +207,7 @@ type protocolStreamState struct {
 	id             string
 	model          string
 	blocks         map[int64]protocolStreamBlock
-	usage          *corechat.Usage
+	usage          messagesUsage
 	finish         corechat.FinishReason
 	phase          protocolStreamPhase
 }
@@ -259,6 +225,15 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		return nil, fmt.Errorf("anthropic: stream: %w: event after message_stop", corechat.ErrInvalidResponse)
 	}
 	value := event.AsAny()
+	switch value.(type) {
+	case anthropicsdk.ContentBlockStartEvent, anthropicsdk.ContentBlockDeltaEvent, anthropicsdk.ContentBlockStopEvent:
+		// The SDK coerces missing, fractional and boolean positions to zero.
+		// Never bind content or tool arguments to another block on that basis.
+		index, err := strconv.ParseInt(event.JSON.Index.Raw(), 10, 64)
+		if err != nil || index < 0 {
+			return nil, fmt.Errorf("%w: anthropic: %s requires a nonnegative integer index", corechat.ErrInvalidResponse, event.Type)
+		}
+	}
 	_, startsMessage := value.(anthropicsdk.MessageStartEvent)
 	if value != nil && !startsMessage && p.phase == protocolStreamAwaitingStart {
 		return nil, fmt.Errorf("anthropic: stream: %w: %s before message_start", corechat.ErrInvalidResponse, event.Type)
@@ -284,9 +259,6 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		}
 		if _, exists := p.blocks[value.Index]; exists {
 			return nil, fmt.Errorf("anthropic: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, value.Index)
-		}
-		if value.Index < 0 {
-			return nil, fmt.Errorf("anthropic: stream: %w: negative content block index %d", corechat.ErrInvalidResponse, value.Index)
 		}
 		part, include, err := p.mapBlockStart(value)
 		if err != nil {
@@ -338,9 +310,11 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		}
 		p.phase = protocolStreamStopped
 	}
-	if p.usage != nil {
-		response.Metadata.Usage = new(*p.usage)
+	usage, err := p.usage.snapshot()
+	if err != nil {
+		return nil, err
 	}
+	response.Metadata.Usage = usage
 	if err := response.Validate(); err != nil {
 		return nil, fmt.Errorf("anthropic: mapped stream response: %w", err)
 	}
@@ -352,8 +326,7 @@ func (p *protocolStreamState) mapMessageStart(event anthropicsdk.MessageStartEve
 	p.model = string(event.Message.Model)
 	response.Metadata.ID = p.id
 	response.Metadata.Model = p.model
-	p.usage = mapProtocolUsage(event.Message.Usage)
-	if err := response.Metadata.Extra.Set(protocolUsageKey, event.Message.Usage); err != nil {
+	if err := p.usage.observe(event.Message.JSON.Usage.Raw(), response.Metadata); err != nil {
 		return nil, err
 	}
 	parts, err := mapProtocolContent(event.Message.Content, p.provider)
@@ -380,8 +353,7 @@ func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEve
 			return err
 		}
 	}
-	p.mergeDeltaUsage(event.Usage)
-	if err := response.Metadata.Extra.Set(protocolUsageKey, event.Usage); err != nil {
+	if err := p.usage.observe(event.JSON.Usage.Raw(), response.Metadata); err != nil {
 		return err
 	}
 	if event.Delta.StopSequence != "" {
@@ -529,43 +501,5 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 		return corechat.NewCitationDelta(citation), true, nil
 	default:
 		return corechat.PartDelta{}, false, fmt.Errorf("%w: content delta %q cannot be represented", errors.ErrUnsupported, event.Delta.Type)
-	}
-}
-
-func (p *protocolStreamState) mergeDeltaUsage(usage anthropicsdk.MessageDeltaUsage) {
-	if p.usage == nil {
-		if !usage.JSON.InputTokens.Valid() || !usage.JSON.OutputTokens.Valid() {
-			return
-		}
-		p.usage = &corechat.Usage{}
-	}
-	uncached := p.usage.InputTokens
-	if p.usage.CacheReadInputTokens != nil {
-		uncached -= *p.usage.CacheReadInputTokens
-	}
-	if p.usage.CacheWriteInputTokens != nil {
-		uncached -= *p.usage.CacheWriteInputTokens
-	}
-	if usage.JSON.InputTokens.Valid() || usage.InputTokens != 0 {
-		uncached = usage.InputTokens
-	}
-	if usage.JSON.OutputTokens.Valid() || usage.RawJSON() == "" {
-		p.usage.OutputTokens = usage.OutputTokens
-	}
-	if usage.OutputTokensDetails.ThinkingTokens != 0 || usage.OutputTokensDetails.JSON.ThinkingTokens.Valid() {
-		p.usage.ReasoningTokens = new(usage.OutputTokensDetails.ThinkingTokens)
-	}
-	if usage.CacheReadInputTokens != 0 || usage.JSON.CacheReadInputTokens.Valid() {
-		p.usage.CacheReadInputTokens = new(usage.CacheReadInputTokens)
-	}
-	if usage.CacheCreationInputTokens != 0 || usage.JSON.CacheCreationInputTokens.Valid() {
-		p.usage.CacheWriteInputTokens = new(usage.CacheCreationInputTokens)
-	}
-	p.usage.InputTokens = uncached
-	if p.usage.CacheReadInputTokens != nil {
-		p.usage.InputTokens += *p.usage.CacheReadInputTokens
-	}
-	if p.usage.CacheWriteInputTokens != nil {
-		p.usage.InputTokens += *p.usage.CacheWriteInputTokens
 	}
 }

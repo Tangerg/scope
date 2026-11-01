@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -70,7 +71,10 @@ func (e *Encoder) EncodeQuery(ctx context.Context, text string, options vectorst
 	if options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		q.LexicalText = text
 	}
-	return q, q.ValidateFor(e.space)
+	if checkErr := q.ValidateFor(e.space); checkErr != nil {
+		return nil, checkErr
+	}
+	return q, nil
 }
 
 func (e Encoding) encode(ctx context.Context, texts []string) ([][]float64, error) {
@@ -85,7 +89,10 @@ func (e Encoding) encode(ctx context.Context, texts []string) ([][]float64, erro
 		return nil, err
 	}
 	req.Options = e.Options.Clone()
-	res, err := e.Model.Call(ctx, req)
+	// The producer must not be able to redefine the request against which
+	// its cardinality and requested dimensions are checked.
+	wire := &embedding.Request{Texts: slices.Clone(req.Texts), Options: req.Options.Clone()}
+	res, err := e.Model.Call(ctx, wire)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +104,7 @@ func (e Encoding) encode(ctx context.Context, texts []string) ([][]float64, erro
 	}
 	result := make([][]float64, len(res.Outputs))
 	for i, output := range res.Outputs {
-		result[i] = output.Embedding
+		result[i] = slices.Clone(output.Embedding)
 	}
 	return result, nil
 }

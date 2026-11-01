@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/Tangerg/scope/core/httpclient"
@@ -171,18 +172,22 @@ func (a *api) responseNewStream(ctx context.Context, req *responses.ResponseNewP
 	return a.responses.NewStreaming(ctx, *req, opts...), nil
 }
 
-func (a *api) responseInputTokensCount(ctx context.Context, req *responses.InputTokenCountParams, opts ...option.RequestOption) (*responses.InputTokenCountResponse, error) {
+func (a *api) responseInputTokensCount(ctx context.Context, req *responses.InputTokenCountParams, opts ...option.RequestOption) (int64, error) {
 	if req == nil {
-		return nil, errors.New("openai: input token count request must not be nil")
+		return 0, errors.New("openai: input token count request must not be nil")
 	}
 	response, err := a.wrapResult(a.responses.InputTokens.Count(ctx, *req, opts...))
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	if response == nil || !response.JSON.InputTokens.Valid() || response.InputTokens < 0 {
-		return nil, errors.New("openai: invalid input_tokens count")
+	if response == nil {
+		return 0, errors.New("openai: missing input_tokens count")
 	}
-	return response, nil
+	count, err := strconv.ParseInt(response.JSON.InputTokens.Raw(), 10, 64)
+	if err != nil || count < 0 {
+		return 0, errors.New("openai: invalid input_tokens count")
+	}
+	return count, nil
 }
 
 func (a *api) embedding(ctx context.Context, req *openai.EmbeddingNewParams, opts ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
@@ -224,7 +229,12 @@ func (a *api) translation(ctx context.Context, req *openai.AudioTranslationNewPa
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
-	return a.wrapResult(a.audio.Translations.New(ctx, *req, opts...))
+	// Compatible endpoints still expose synchronous multipart translation.
+	// Realtime translation has a different transport and request lifecycle.
+	client := openai.Client{Options: a.audio.Options}
+	var response *openai.Translation
+	err := client.Post(ctx, "audio/translations", *req, &response, opts...)
+	return a.wrapResult(response, err)
 }
 
 func (*api) wrapError(err error) error {

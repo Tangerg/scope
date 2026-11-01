@@ -3,6 +3,7 @@
 package providerhttp
 
 import (
+	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -18,6 +19,7 @@ const (
 	mediaTypeJSON     = "application/json"
 	headerAccept      = "Accept"
 	headerContentType = "Content-Type"
+	maxResponseBytes  = 16 << 20
 )
 
 var errEmptyBody = errors.New("response body is empty")
@@ -32,7 +34,7 @@ func NewClient(ctx context.Context, config Config) (*resty.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(owned).SetBaseURL(config.BaseURL)
+	client := resty.NewWithClient(owned).SetBaseURL(config.BaseURL).SetResponseBodyLimit(maxResponseBytes)
 	client.SetHeader(headerAccept, mediaTypeJSON).SetHeader(headerContentType, mediaTypeJSON)
 	client.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
 	client.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
@@ -42,16 +44,17 @@ func NewClient(ctx context.Context, config Config) (*resty.Client, error) {
 // resty skips decoding, without reporting an error, for a 204 response or a
 // non-JSON Content-Type. Forcing the media type and requiring a body turns
 // those responses into failures instead of empty provider results.
-func Execute(request *resty.Request, method string, path string, result any) (*resty.Response, error) {
+func Execute(request *resty.Request, method string, path string, result any) error {
 	response, err := request.ForceContentType(mediaTypeJSON).SetResult(result).Execute(method, path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !response.IsSuccess() {
-		return nil, fmt.Errorf("HTTP %d: %s", response.StatusCode(), response.String())
+		// Upstream diagnostics can echo query text, access tokens or fetched content.
+		return fmt.Errorf("provider HTTP status %d", response.StatusCode())
 	}
-	if len(response.Body()) == 0 {
-		return nil, fmt.Errorf("HTTP %d: %w", response.StatusCode(), errEmptyBody)
+	if body := bytes.TrimSpace(response.Body()); len(body) == 0 || bytes.Equal(body, []byte("null")) {
+		return fmt.Errorf("HTTP %d: %w", response.StatusCode(), errEmptyBody)
 	}
-	return response, nil
+	return nil
 }

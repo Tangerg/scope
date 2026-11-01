@@ -135,7 +135,7 @@ func TestNewStoreRejectsNonBinarySchema(t *testing.T) {
 		t.Run(fmt.Sprint(oid), func(t *testing.T) {
 			replies := messageDescription()
 			replies[0].(*pgproto3.RowDescription).Fields[0].DataTypeOID = oid
-			pool := protocolPool(t, protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: replies})
+			pool := protocolPool(t, protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: replies})
 			store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 			if store != nil || err == nil || !strings.Contains(err.Error(), "bytea") {
 				t.Fatalf("non-binary schema accepted: store=%v error=%v", store, err)
@@ -145,7 +145,7 @@ func TestNewStoreRejectsNonBinarySchema(t *testing.T) {
 }
 
 func TestNewStorePreservesSchemaQueryFailure(t *testing.T) {
-	pool := protocolPool(t, protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Severity: "ERROR", Code: "42P01", Message: "table absent"}}})
+	pool := protocolPool(t, protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: []pgproto3.BackendMessage{&pgproto3.ErrorResponse{Severity: "ERROR", Code: "42P01", Message: "table absent"}}})
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 	var native *pgconn.PgError
 	if store != nil || !errors.As(err, &native) || native.Code != "42P01" {
@@ -156,7 +156,7 @@ func TestNewStorePreservesSchemaQueryFailure(t *testing.T) {
 func TestNewStorePreservesSchemaCompletionFailure(t *testing.T) {
 	replies := messageDescription()[:1]
 	replies = append(replies, &pgproto3.ErrorResponse{Severity: "ERROR", Code: "42501", Message: "query failed after description"})
-	pool := protocolPool(t, protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: replies})
+	pool := protocolPool(t, protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: replies})
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 	var native *pgconn.PgError
 	if store != nil || !errors.As(err, &native) || native.Code != "42501" {
@@ -170,10 +170,10 @@ func commandReply(tag string) []pgproto3.BackendMessage {
 
 func TestNewStoreInitializesBinarySchema(t *testing.T) {
 	pool := protocolPool(t,
-		protocolStep{query: "CREATE SCHEMA IF NOT EXISTS public", replies: commandReply("CREATE SCHEMA")},
-		protocolStep{query: "CREATE TABLE IF NOT EXISTS public.chat_history ( seq BIGSERIAL PRIMARY KEY, conversation_id TEXT NOT NULL, message BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now() )", replies: commandReply("CREATE TABLE")},
-		protocolStep{query: "CREATE INDEX IF NOT EXISTS chat_history_conversation_idx ON public.chat_history (conversation_id, seq)", replies: commandReply("CREATE INDEX")},
-		protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: messageDescription()},
+		protocolStep{query: "CREATE SCHEMA IF NOT EXISTS \"public\"", replies: commandReply("CREATE SCHEMA")},
+		protocolStep{query: "CREATE TABLE IF NOT EXISTS \"public\".\"chat_history\" ( seq BIGSERIAL PRIMARY KEY, conversation_id TEXT NOT NULL, message BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now() )", replies: commandReply("CREATE TABLE")},
+		protocolStep{query: "CREATE INDEX IF NOT EXISTS \"chat_history_conversation_idx\" ON \"public\".\"chat_history\" (conversation_id, seq)", replies: commandReply("CREATE INDEX")},
+		protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: messageDescription()},
 	)
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, InitializeSchema: true})
 	if err != nil || store == nil {
@@ -187,7 +187,7 @@ func TestWriteUsesNativeAcknowledgmentsAndCommitOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	insert := "INSERT INTO public.chat_history (conversation_id, message) VALUES ( 'conversation' , '\\x" + hex.EncodeToString(raw) + "' ::bytea)"
+	insert := "INSERT INTO \"public\".\"chat_history\" (conversation_id, message) VALUES ( 'conversation' , '\\x" + hex.EncodeToString(raw) + "' ::bytea)"
 	for _, test := range []struct {
 		name       string
 		insert     []pgproto3.BackendMessage
@@ -205,7 +205,7 @@ func TestWriteUsesNativeAcknowledgmentsAndCommitOutcome(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			pool := protocolPool(t,
-				protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: messageDescription()},
+				protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: messageDescription()},
 				protocolStep{query: "begin", replies: commandReply("BEGIN"), status: 'T'},
 				protocolStep{query: insert, replies: test.insert, status: 'T'},
 				protocolStep{query: test.finalSQL, replies: test.final},
@@ -250,8 +250,8 @@ func TestReadValidatesCanonicalWireAndNativeColumn(t *testing.T) {
 				wireValue = test.raw
 			}
 			pool := protocolPool(t,
-				protocolStep{query: "SELECT message FROM public.chat_history LIMIT 0", replies: messageDescription()},
-				protocolStep{query: "SELECT message FROM public.chat_history WHERE conversation_id = 'conversation' ORDER BY seq", replies: []pgproto3.BackendMessage{
+				protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: messageDescription()},
+				protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" WHERE conversation_id = 'conversation' ORDER BY seq", replies: []pgproto3.BackendMessage{
 					&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("message"), DataTypeOID: test.oid, DataTypeSize: -1, TypeModifier: -1}}},
 					&pgproto3.DataRow{Values: [][]byte{wireValue}},
 					&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},

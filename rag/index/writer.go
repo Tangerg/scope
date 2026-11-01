@@ -62,7 +62,12 @@ func (w *Writer) Write(ctx context.Context, documents []*document.Document) erro
 		}
 		docs[i] = doc.Clone()
 	}
-	if err := w.config.Destination.CheckDocuments(ctx, w.config.Encoder.Space(), docs); err != nil {
+	// Admission inspects a projection; it does not own the records subsequently encoded.
+	admission := make([]*document.Document, len(docs))
+	for i, doc := range docs {
+		admission[i] = doc.Clone()
+	}
+	if err := w.config.Destination.CheckDocuments(ctx, w.config.Encoder.Space(), admission); err != nil {
 		return err
 	}
 	var err error

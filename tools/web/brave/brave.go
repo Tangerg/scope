@@ -107,7 +107,7 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetQueryParams(newSearchRequest(prepared).params())
-	if _, err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
+	if err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("brave: search request: %w", err)
 	}
 	return raw.toSearchResponse(prepared)

@@ -3,25 +3,25 @@
 package weaviate
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	weaviateclient "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"net"
+
+	"github.com/google/uuid"
+	sdk "github.com/weaviate/weaviate-go-client/v6"
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/data"
+	"github.com/weaviate/weaviate-go-client/v6/query"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
@@ -29,7 +29,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-func liveWeaviateClient(t *testing.T, transport http.RoundTripper) *weaviateclient.Client {
+func liveWeaviateClient(t *testing.T) (*Client, *sdk.Client) {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_WEAVIATE_URL")
 	if endpoint == "" {
@@ -39,54 +39,76 @@ func liveWeaviateClient(t *testing.T, transport http.RoundTripper) *weaviateclie
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := weaviateclient.NewClient(weaviateclient.Config{Host: address.Host, Scheme: address.Scheme, ConnectionClient: &http.Client{Transport: transport, Timeout: 30 * time.Second}})
+	grpcPort := os.Getenv("SCOPE_WEAVIATE_GRPC_PORT")
+	if grpcPort == "" {
+		grpcPort = "50051"
+	}
+	client, err := NewClient(t.Context(), ClientConfig{Endpoint: address.String(), GRPCAddress: net.JoinHostPort(address.Hostname(), grpcPort)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return client
+	t.Cleanup(func() {
+		if closeErr := client.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	return client, testAdmin(t, address, grpcPort)
 }
 
-func liveWeaviateStore(t *testing.T, metric string, transport http.RoundTripper) (*Store, *weaviateclient.Client) {
+func liveWeaviateStore(t *testing.T, metric string) (*Store, *collections.Handle) {
 	t.Helper()
-	client := liveWeaviateClient(t, transport)
+	client, admin := liveWeaviateClient(t)
 	name := "ScopeNative_" + rand.Text()
 	class := nativeClass(name, metric)
-	// Exact native retrieval makes corpus membership and raw-distance order deterministic.
-	class.VectorIndexType = "flat"
-	if err := client.Schema().ClassCreator().WithClass(class).Do(t.Context()); err != nil {
+	if _, err := admin.Collections.Create(t.Context(), *class); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
-		if err := client.Schema().ClassDeleter().WithClassName(name).Do(ctx); err != nil {
+		if err := admin.Collections.Delete(ctx, name); err != nil {
 			t.Error(err)
 		}
 	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, ClassName: name, Space: fixtureSpace})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, Collection: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, client
+	return store, admin.Collections.Use(name)
 }
 
-func awaitWeaviateDocuments(ctx context.Context, store *Store, docs []*document.Document) error {
+func awaitWeaviateDocuments(ctx context.Context, collection *collections.Handle, docs []*document.Document) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	visibleCount := 0
 	for {
-		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
+		// Approximate nearest-neighbor search is not a complete inventory. Use
+		// a bounded non-ranking read of this disposable collection for visibility.
+		response, err := collection.Query.OverAll(ctx, query.OverAll{Limit: len(docs), ReturnProperties: []string{fieldContent, fieldMetadata, fieldTerms}})
 		if err != nil {
 			return fmt.Errorf("fixture visibility: %d of %d hits: %w", visibleCount, len(docs), err)
 		}
-		visibleCount = len(response.Results)
-		visible := len(response.Results) == len(docs)
+		visibleCount = len(response.Objects)
+		stored := make(map[string]*document.Document, len(response.Objects))
+		for _, o := range response.Objects {
+			text, textOK := o.Properties[fieldContent].(string)
+			facts, factsOK := o.Properties[fieldMetadata].(string)
+			terms, termsOK := o.Properties[fieldTerms].([]string)
+			if len(o.Properties) != 3 || !textOK || !factsOK || !termsOK {
+				return fmt.Errorf("invalid independently read native fields: %v", o.Properties)
+			}
+			doc, decodeErr := decodeDocument(o.UUID.String(), text, facts, terms)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			stored[doc.ID] = doc
+		}
+		visible := len(stored) == len(docs)
 		for _, doc := range docs {
-			visible = visible && slices.ContainsFunc(response.Results, func(hit *vectorstore.SearchResult) bool {
-				return hit.Document.ID == doc.ID && hit.Document.Metadata.Equal(doc.Metadata)
-			})
+			got := stored[doc.ID]
+			visible = visible && got != nil && got.Text == doc.Text && got.Metadata.Equal(doc.Metadata)
 		}
 		if visible {
 			return nil
@@ -103,11 +125,11 @@ func TestLiveNativeFilterAcrossModesAndMetrics(t *testing.T) {
 	docs := []*document.Document{{ID: "00000000-0000-4000-8000-000000000001", Text: "native text", Metadata: metadata.Map{"v": json.RawMessage(`"X"`)}}, {ID: "00000000-0000-4000-8000-000000000002", Text: "native text", Metadata: metadata.Map{"v": json.RawMessage(`["X"]`)}}}
 	for _, metric := range []string{distanceCosine, distanceDot, distanceL2Squared, distanceHamming, distanceManhattan} {
 		t.Run(metric, func(t *testing.T) {
-			s, c := liveWeaviateStore(t, metric, nil)
+			s, admin := liveWeaviateStore(t, metric)
 			if err := s.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
-			if err := awaitWeaviateDocuments(t.Context(), s, docs); err != nil {
+			if err := awaitWeaviateDocuments(t.Context(), admin, docs); err != nil {
 				t.Fatal(err)
 			}
 			for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid} {
@@ -124,15 +146,15 @@ func TestLiveNativeFilterAcrossModesAndMetrics(t *testing.T) {
 			if err := s.DeleteIDs(t.Context(), []string{docs[0].ID}); err != nil {
 				t.Fatal(err)
 			}
-			remaining, err := c.Data().ObjectsGetter().WithClassName(s.className).WithLimit(2).Do(t.Context())
-			if err != nil || len(remaining) != 1 || remaining[0].ID.String() != docs[1].ID {
+			remaining, err := fixtureQuery(t.Context(), s, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 2}})
+			if err != nil || len(remaining.Results) != 1 || remaining.Results[0].Document.ID != docs[1].ID {
 				t.Fatalf("remaining=%v err=%v", remaining, err)
 			}
 		})
 	}
 }
 func TestLiveExactMetadata(t *testing.T) {
-	store, _ := liveWeaviateStore(t, distanceCosine, nil)
+	store, admin := liveWeaviateStore(t, distanceCosine)
 	var docs []*document.Document
 	for i, facts := range []metadata.Map{nil, {}, {"huge": json.RawMessage(`1e1000`), "long": json.RawMessage(`1.00000000000000001`), "$native.key": json.RawMessage(`{"nested":[null,{},9007199254740993]}`), "content": json.RawMessage(`"business text"`)}} {
 		docs = append(docs, &document.Document{ID: fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1), Text: "native text🙂", Metadata: facts})
@@ -140,7 +162,7 @@ func TestLiveExactMetadata(t *testing.T) {
 	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	if err := awaitWeaviateDocuments(t.Context(), store, docs); err != nil {
+	if err := awaitWeaviateDocuments(t.Context(), admin, docs); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid} {
@@ -158,50 +180,14 @@ func TestLiveExactMetadata(t *testing.T) {
 	}
 }
 
-type liveWeaviateTransport struct {
-	mu     sync.Mutex
-	groups []int
-}
-
-func (l *liveWeaviateTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.Method == http.MethodPost && request.URL.Path == "/v1/graphql" {
-		raw, err := io.ReadAll(request.Body)
-		if err != nil {
-			return nil, err
-		}
-		if err = request.Body.Close(); err != nil {
-			return nil, err
-		}
-		request.Body = io.NopCloser(bytes.NewReader(raw))
-		var body struct {
-			Query string `json:"query"`
-		}
-		if err = jsonv2.Unmarshal(raw, &body); err != nil {
-			return nil, err
-		}
-		if found := regexp.MustCompile(`valueText:\s*(\[[^\]]*\])`).FindStringSubmatch(body.Query); found != nil {
-			var ids []string
-			if err = jsonv2.Unmarshal([]byte(found[1]), &ids); err != nil {
-				return nil, err
-			}
-			l.mu.Lock()
-			l.groups = append(l.groups, len(ids))
-			l.mu.Unlock()
-		}
-	}
-	return http.DefaultTransport.RoundTrip(request)
-}
-
 func TestLiveStrictSource(t *testing.T) {
-	trace := &liveWeaviateTransport{}
-	store, _ := liveWeaviateStore(t, distanceCosine, trace)
-	client := liveWeaviateClient(t, nil)
+	store, client := liveWeaviateStore(t, distanceCosine)
 	first, second := "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
 	docs := []*document.Document{{ID: first, Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`"x"`)}}, {ID: second, Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`"x"`)}}}
 	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Data().Updater().WithClassName(store.className).WithID(first).WithMerge().WithProperties(map[string]any{fieldMetadata: `{"key":1,"key":2}`}).Do(t.Context()); err != nil {
+	if err := client.Data.Update(t.Context(), data.Object{UUID: new(uuid.MustParse(first)), Properties: map[string]any{fieldMetadata: `{"key":1,"key":2}`}}); err != nil {
 		t.Fatal(err)
 	}
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "x"), MinScore: 1}})
@@ -211,8 +197,7 @@ func TestLiveStrictSource(t *testing.T) {
 }
 
 func TestLiveRawDistanceGroupsAndSingleHybridFusion(t *testing.T) {
-	trace := &liveWeaviateTransport{}
-	store, _ := liveWeaviateStore(t, distanceDot, trace)
+	store, admin := liveWeaviateStore(t, distanceDot)
 	var docs []*document.Document
 	for i := range 257 {
 		text := "other"
@@ -231,18 +216,45 @@ func TestLiveRawDistanceGroupsAndSingleHybridFusion(t *testing.T) {
 	if err := store.Upsert(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	if err := awaitWeaviateDocuments(t.Context(), store, docs); err != nil {
+	if err := awaitWeaviateDocuments(t.Context(), admin, docs); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid} {
-		trace.groups = nil
 		response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x"), Mode: mode}})
-		want := []int{1}
-		if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID || !slices.Equal(trace.groups, want) {
-			t.Fatalf("mode=%s groups=%v response=%v error=%v", mode, trace.groups, response, err)
+		if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID {
+			t.Fatalf("mode=%s response=%v error=%v", mode, response, err)
 		}
 		if mode == vectorstore.SearchModeSemantic && response.Results[0].Score != 1 {
 			t.Fatalf("expected saturated native dot score: %v", response.Results[0])
 		}
+	}
+}
+
+func TestLiveUpsertSameIdentityReplacesItsSourceAndKeywordProjection(t *testing.T) {
+	s, admin := liveWeaviateStore(t, distanceCosine)
+	const id = "00000000-0000-4000-8000-000000000017"
+	for _, revision := range []string{"first", "second"} {
+		doc := &document.Document{ID: id, Text: revision, Metadata: metadata.Map{}, Provenance: document.NewProvenance("urn:test:manual", []byte(revision))}
+		if err := doc.Metadata.Set("version", revision); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{doc})); err != nil {
+			t.Fatal(err)
+		}
+		if err := awaitWeaviateDocuments(t.Context(), admin, []*document.Document{doc}); err != nil {
+			t.Fatal(err)
+		}
+		hits, err := s.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("version", revision)}})
+		if err != nil || len(hits.Results) != 1 {
+			t.Fatalf("missing version %s: %v, %v", revision, hits, err)
+		}
+		got := hits.Results[0].Document
+		if got.Text != revision || got.Provenance == nil || got.Provenance.Revision != doc.Provenance.Revision {
+			t.Fatalf("stale source after acknowledged upsert: %+v", got)
+		}
+	}
+	old, err := s.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("version", "first")}})
+	if err != nil || len(old.Results) != 0 {
+		t.Fatalf("obsolete native keyword still selected a document: %v %v", old, err)
 	}
 }

@@ -496,3 +496,63 @@ func TestScopeRemoteToolCompletesTheManagedProtocolWait(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// lostStartReply persists an actual acceptance, then loses only its acknowledgment.
+type lostStartReply struct {
+	*run.MemoryStore
+	attempts  atomic.Int64
+	failReads atomic.Bool
+}
+
+func (l *lostStartReply) CommitCheckpoint(ctx context.Context, c run.TreeCheckpoint) error {
+	if err := l.MemoryStore.CommitCheckpoint(ctx, c); err != nil {
+		return err
+	}
+	if _, initial := c.Start(); initial && l.attempts.Add(1) == 1 {
+		return errors.New("private-backend-diagnostic")
+	}
+	return nil
+}
+
+func (l *lostStartReply) LoadTree(ctx context.Context, root run.ProcessID) (run.TreeSnapshot, bool, error) {
+	if l.failReads.Load() {
+		return run.TreeSnapshot{}, false, errors.New("private-read-diagnostic")
+	}
+	return l.MemoryStore.LoadTree(ctx, root)
+}
+
+func TestUnknownStartIsNotAClientRejection(t *testing.T) {
+	storage := &lostStartReply{MemoryStore: run.NewMemoryStore()}
+	rt, err := run.New(t.Context(), run.Config{Store: storage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := rt.Close(context.Background()); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	s := server(t, rt, program(t, &dispatch{}))
+	m := message("stable", "ask")
+	reply := rpc(t, s, "alice", "SendMessage", map[string]any{"message": m, "configuration": map[string]bool{"returnImmediately": true}})
+	var failure struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err = jsonv2.Unmarshal(reply.Error, &failure); err != nil || failure.Code != -32603 || !strings.Contains(failure.Message, "same") || strings.Contains(string(reply.Error), "private-backend-diagnostic") {
+		t.Fatalf("uncertain acceptance was not safely classified: %s %v", reply.Error, err)
+	}
+	task := send(t, s, m, true)
+	if task.ID == "" || storage.attempts.Load() != 1 {
+		t.Fatalf("retry did not reconcile the original acceptance: %+v commits=%d", task, storage.attempts.Load())
+	}
+	changed := rpc(t, s, "alice", "SendMessage", map[string]any{"message": message("stable", "different"), "configuration": map[string]bool{"returnImmediately": true}})
+	if err = jsonv2.Unmarshal(changed.Error, &failure); err != nil || failure.Code != -32600 || storage.attempts.Load() != 1 {
+		t.Fatalf("conflicting intent was not refused: %s %v", changed.Error, err)
+	}
+	storage.failReads.Store(true)
+	unavailable := rpc(t, s, "alice", "GetTask", map[string]any{"id": task.ID})
+	if err = jsonv2.Unmarshal(unavailable.Error, &failure); err != nil || failure.Code != -32603 || strings.Contains(string(unavailable.Error), "private-read-diagnostic") {
+		t.Fatalf("task read exposed a private storage diagnostic: %s %v", unavailable.Error, err)
+	}
+}

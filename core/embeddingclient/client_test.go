@@ -68,8 +68,8 @@ func TestClientRejectsInvalidBoundaries(t *testing.T) {
 	nilResponse, _ := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 		return nil, nil
 	}))
-	if _, err := nilResponse.EmbedTexts(t.Context(), []string{"text"}); err == nil {
-		t.Fatal("EmbedTexts accepted a nil response")
+	if vectors, err := nilResponse.EmbedTexts(t.Context(), []string{"text"}); vectors != nil || !errors.Is(err, embedding.ErrInvalidResponse) {
+		t.Fatalf("absent model response lost its classification: %v, %v", vectors, err)
 	}
 
 	want := errors.New("boom")

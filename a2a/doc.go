@@ -26,4 +26,6 @@
 // The text boundary rejects structured, binary and URI parts explicitly.
 // Independently encoded JSON-RPC and HTTP+JSON peers check result semantics;
 // raw JSON-RPC callers exercise stored-task continuation and cancellation.
+// Raw peers must offer the interface's advertised protocol version using
+// A2A-Version; an omitted version does not implicitly select this service.
 package a2a

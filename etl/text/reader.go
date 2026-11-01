@@ -16,8 +16,10 @@ import (
 )
 
 // Reader consumes source once within its configured memory budget.
+// Read admits one attempt on the sequential source. Reopen the input to
+// retry after a failure; concurrent or later attempts return [etl.ErrSourceConsumed].
 type Reader struct {
-	source       io.Reader
+	source       *origin.Stream
 	sourceName   string
 	sourceBudget etl.SourceBudget
 }
@@ -34,7 +36,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("text reader: source must not be nil")
 	}
-	return &Reader{source: source, sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
+	return &Reader{source: origin.NewStream(source), sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
 }
 
 // Read consumes the source and returns one document containing its text. Blank
@@ -43,7 +45,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	data, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
+	data, p, err := r.source.Read(ctx, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("text reader: read source: %w", err)
 	}

@@ -2,7 +2,10 @@
 // identifies the task and its acknowledged tree supplies status, artifacts
 // and outstanding questions. Reading or reconnecting never acquires a writer.
 // Hosts supply authentication and resource authority; the protocol token and
-// message/context IDs are not credentials.
+// message/context IDs are not credentials. If the initial commit has no
+// acknowledgment, retry the same message and context IDs with the same
+// input to reconcile its receipt. Changing the input conflicts with an
+// accepted identity; choosing a new message ID can start separate work.
 //
 // SendMessage accepts one plain text part or JSON carried losslessly as raw
 // bytes or text. SDK Data values with numbers cannot prove their original

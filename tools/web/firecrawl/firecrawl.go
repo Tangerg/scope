@@ -115,12 +115,12 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
-	response, err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw)
+	err = providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl: search request: %w", err)
 	}
 	if !raw.Success {
-		return nil, fmt.Errorf("firecrawl: search response reported failure: %s", response.String())
+		return nil, errors.New("firecrawl: search response reported failure")
 	}
 	return raw.toSearchResponse(prepared)
 }
@@ -140,12 +140,12 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		Formats:         []fetchFormat{{Type: string(format)}},
 		OnlyMainContent: true,
 	})
-	response, err := providerhttp.Execute(httpRequest, http.MethodPost, scrapePath, &raw)
+	err = providerhttp.Execute(httpRequest, http.MethodPost, scrapePath, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl: fetch request: %w", err)
 	}
 	if !raw.Success {
-		return nil, fmt.Errorf("firecrawl: fetch response reported failure: %s", response.String())
+		return nil, errors.New("firecrawl: fetch response reported failure")
 	}
 	content := raw.Data.content(format)
 	if content == nil {

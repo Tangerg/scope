@@ -5,7 +5,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
@@ -34,20 +35,26 @@ func TestLaterInvalidCoordinatesPreventEveryWrite(t *testing.T) {
 		s := newNativeStore(t, f)
 		b := fixtureBatch([]*document.Document{{ID: "00000000-0000-0000-0000-000000000001", Text: "text"}, {ID: "00000000-0000-0000-0000-000000000002", Text: "text"}})
 		b.Records[1].Values = bad
-		if err := s.Upsert(t.Context(), b); err == nil || f.batches.Load() != 0 || f.scans != 0 {
-			t.Fatalf("err=%v writes=%d scans=%d", err, f.batches.Load(), f.scans)
+		if err := s.Upsert(t.Context(), b); err == nil || f.batches.Load() != 0 || f.scans.Load() != 0 {
+			t.Fatalf("err=%v writes=%d scans=%d", err, f.batches.Load(), f.scans.Load())
 		}
 	}
 }
 func TestNativeHitsAreCheckedAgainstTheirOriginalMetadata(t *testing.T) {
-	for _, corrupt := range []func(*models.Object){
-		func(o *models.Object) { o.Properties.(map[string]any)[fieldMetadata] = `{"key":1,"key":2}` },
-		func(o *models.Object) { o.Properties.(map[string]any)[fieldMetadata] = `{"v":"no"}` },
-		func(o *models.Object) { o.Vector = nil },
+	for _, corrupt := range []func(*pb.BatchObject){
+		func(o *pb.BatchObject) {
+			o.Properties.NonRefProperties.Fields[fieldMetadata] = structpb.NewStringValue(`{"key":1,"key":2}`)
+		},
+		func(o *pb.BatchObject) {
+			o.Properties.NonRefProperties.Fields[fieldMetadata] = structpb.NewStringValue(`{"v":"no"}`)
+		},
+		func(o *pb.BatchObject) { o.Vectors = nil },
 	} {
 		id := "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4"
 		s, f := indexedNativeStore(t, []*document.Document{{ID: id, Text: "text", Metadata: metadata.Map{"v": json.RawMessage(`"x"`)}}})
+		f.mu.Lock()
 		corrupt(f.objects[id])
+		f.mu.Unlock()
 		r, err := s.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("v", "x"), MinScore: 1}})
 		if err == nil || r != nil {
 			t.Fatalf("invalid native hit=%v %v", r, err)
@@ -55,20 +62,21 @@ func TestNativeHitsAreCheckedAgainstTheirOriginalMetadata(t *testing.T) {
 	}
 }
 func TestNativeHybridScoresAndInvalidHitsNeverReturnPartialSuccess(t *testing.T) {
-	for _, fault := range []string{"score range", "score number", "score NaN", "wrong vector", "duplicate", "surplus", "query failure"} {
+	for _, fault := range []string{"score range", "missing score", "score NaN", "wrong vector", "duplicate", "surplus", "query failure"} {
 		t.Run(fault, func(t *testing.T) {
 			store, fixture := indexedNativeStore(t, []*document.Document{{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "text"}})
-			fixture.queryChange = func(items []map[string]any) []map[string]any {
-				additional := items[0]["_additional"].(map[string]any)
+			fixture.mu.Lock()
+			fixture.queryChange = func(items []*pb.SearchResult) []*pb.SearchResult {
+				additional := items[0].Metadata
 				switch fault {
 				case "score range":
-					additional[additionalScore] = "2"
-				case "score number":
-					additional[additionalScore] = .5
+					additional.Score = 2
+				case "missing score":
+					additional.ScorePresent = false
 				case "score NaN":
-					additional[additionalScore] = "NaN"
+					additional.Score = float32(math.NaN())
 				case "wrong vector":
-					additional[additionalVector] = nil
+					additional.Vectors = nil
 				case "duplicate":
 					items = append(items, items[0])
 				case "surplus":
@@ -77,10 +85,26 @@ func TestNativeHybridScoresAndInvalidHitsNeverReturnPartialSuccess(t *testing.T)
 				return items
 			}
 			fixture.queryError = fault == "query failure"
+			fixture.mu.Unlock()
 			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 2, MinScore: 1}})
 			if err == nil || response != nil {
 				t.Fatalf("invalid hit became success: %v %v", response, err)
 			}
 		})
+	}
+}
+
+func TestSemanticHitWithoutMeasuredDistanceFails(t *testing.T) {
+	f := &nativeFixture{queryChange: func(rows []*pb.SearchResult) []*pb.SearchResult {
+		rows[0].Metadata.DistancePresent = false
+		return rows
+	}}
+	s := newNativeStore(t, f)
+	if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "00000000-0000-4000-8000-000000000001", Text: "text"}})); err != nil {
+		t.Fatal(err)
+	}
+	response, err := s.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")})
+	if response != nil || err == nil {
+		t.Fatalf("missing distance became a perfect match: %v %v", response, err)
 	}
 }

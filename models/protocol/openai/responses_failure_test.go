@@ -11,7 +11,7 @@ import (
 func TestResponsesExplicitFailurePreservesExecutionEvidence(t *testing.T) {
 	for _, status := range []responses.ResponseStatus{responses.ResponseStatusFailed, responses.ResponseStatusCancelled} {
 		t.Run(string(status), func(t *testing.T) {
-			_, err := responsesTerminalDelta(&responses.Response{Status: status}, ResponsesResponseExtensionKey)
+			_, err := responsesTerminalDelta(&responses.Response{Status: status}, ResponsesResponseExtensionKey, streamIdentity{})
 			if chat.ClassifyFailure(err) != chat.CallFailureFailed {
 				t.Fatalf("error=%v", err)
 			}

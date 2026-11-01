@@ -3,14 +3,14 @@ module github.com/Tangerg/scope/a2a/managed
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/a2a v0.58.0
-	github.com/Tangerg/scope/agent v0.58.0
-	github.com/Tangerg/scope/core v0.58.0
-	github.com/a2aproject/a2a-go/v2 v2.6.0
+	github.com/Tangerg/scope/a2a v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/agent v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
+	github.com/a2aproject/a2a-go/v2 v2.7.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.58.0 // indirect
+	github.com/Tangerg/scope/otel v0.58.1-0.20261101022437-7791a40140fd // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -29,6 +29,5 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

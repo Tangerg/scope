@@ -50,7 +50,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	card := &sdka2a.AgentCard{
 		Name: "Failing Agent", Description: "Returns a failure",
 		SupportedInterfaces: []*sdka2a.AgentInterface{sdka2a.NewAgentInterface(server.URL+"/invoke", sdka2a.TransportProtocolJSONRPC)},
-		DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+		DefaultInputModes:   []string{"text/plain"}, DefaultOutputModes: []string{"text/plain"},
 		Capabilities: sdka2a.AgentCapabilities{Streaming: true},
 		Skills:       []sdka2a.AgentSkill{{ID: "fail", Name: "Fail", Description: "Return a failure", Tags: []string{"fail"}}},
 	}

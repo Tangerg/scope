@@ -305,3 +305,44 @@ func TestObserverRetainsDispatchOutcomeWhenSettlementCommitFails(t *testing.T) {
 		t.Fatal("missing successful effect span")
 	}
 }
+
+func TestStoreDecorationPreservesReadOnlyTaskViews(t *testing.T) {
+	h := newObserverHarness(t)
+	storage := run.NewMemoryStore()
+	for _, tc := range []struct {
+		name     string
+		store    run.Store
+		readable bool
+	}{
+		{"durable heads", storage, true}, {"write-only", struct{ run.Store }{storage}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decorated, err := h.observer.WrapTreeCommitter(tc.store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt, err := run.New(t.Context(), run.Config{Store: decorated})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if closeErr := rt.Close(t.Context()); closeErr != nil {
+					t.Error(closeErr)
+				}
+			}()
+			heads, err := rt.StartedTrees()
+			if !tc.readable {
+				if !errors.Is(err, errors.ErrUnsupported) || heads != nil {
+					t.Fatalf("granted nonexistent storage capability: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("instrumentation prevented read-only protocol registration: %v", err)
+			}
+			if _, ok, loadErr := heads.Load(t.Context(), run.StartID{Scope: "test", Key: "unstarted"}); ok || loadErr != nil {
+				t.Fatalf("missing head = %t %v", ok, loadErr)
+			}
+		})
+	}
+}

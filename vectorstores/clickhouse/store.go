@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -244,10 +245,9 @@ func (s *Store) narrow(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("%w: %d coordinates for ClickHouse width %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
 	}
-	v := make([]float32, len(values))
+	v := embedding.Float32Vector(values)
 	nonzero := false
-	for i, x := range values {
-		v[i] = float32(x)
+	for i := range v {
 		if math.IsInf(float64(v[i]), 0) || math.IsNaN(float64(v[i])) {
 			return nil, fmt.Errorf("%w: nonfinite float32", vectorstore.ErrInvalidRequest)
 		}

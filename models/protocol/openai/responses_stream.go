@@ -1,9 +1,10 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
-	"time"
 
+	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -11,10 +12,9 @@ import (
 )
 
 type responsesStreamState struct {
+	lastText             *responsesContentPosition
 	responseExtensionKey string
-	responseID           string
-	model                string
-	createdAt            time.Time
+	identity             streamIdentity
 	tools                responsesStreamTools
 	content              responsesStreamContent
 	reasoning            responsesStreamReasoning
@@ -29,6 +29,18 @@ func newResponsesStreamState(extensionKey string) *responsesStreamState {
 }
 
 func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion) (*corechat.ResponseDelta, error) {
+	for _, pos := range []struct {
+		name  string
+		field respjson.Field
+	}{
+		{"output_index", event.JSON.OutputIndex}, {"content_index", event.JSON.ContentIndex}, {"summary_index", event.JSON.SummaryIndex}, {"annotation_index", event.JSON.AnnotationIndex},
+	} {
+		if pos.field.Raw() != "" {
+			if _, valid := responseIndex(pos.field); !valid {
+				return nil, fmt.Errorf("%w: openai responses: %s must be a nonnegative integer", corechat.ErrInvalidResponse, pos.name)
+			}
+		}
+	}
 	var part *corechat.PartDelta
 	var err error
 	switch typed := event.AsAny().(type) {
@@ -41,10 +53,24 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		part, err = r.tools.add(typed)
 	case responses.ResponseTextDeltaEvent:
 		part, err = r.content.addText(typed)
+		if err == nil && part != nil {
+			r.lastText = &responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
+		}
 	case responses.ResponseOutputTextAnnotationAddedEvent:
 		citation, include, citationErr := responsesStreamCitation(typed.Annotation)
 		if citationErr != nil || !include {
 			return nil, citationErr
+		}
+		if !typed.JSON.OutputIndex.Valid() || !typed.JSON.ContentIndex.Valid() || !typed.JSON.AnnotationIndex.Valid() ||
+			typed.ItemID == "" || r.content.messages[typed.OutputIndex].ItemID != typed.ItemID {
+			return nil, fmt.Errorf("%w: openai responses: annotation is not bound to a reported message", corechat.ErrInvalidResponse)
+		}
+		position := responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
+		if evidence, known := r.content.segments[position]; !known || evidence.kind != responsesContentTypeText {
+			return nil, fmt.Errorf("%w: openai responses: annotation references unknown text", corechat.ErrInvalidResponse)
+		}
+		if r.lastText == nil || *r.lastText != position {
+			return nil, fmt.Errorf("%w: openai responses: Core cannot attach a delayed annotation to an earlier text segment", errors.ErrUnsupported)
 		}
 		return r.deltaResponse(corechat.NewCitationDelta(citation))
 	case responses.ResponseRefusalDeltaEvent:
@@ -54,22 +80,22 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
 		return nil, r.tools.finishArguments(typed)
 	case responses.ResponseReasoningTextDeltaEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseReasoningSummaryPartAddedEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseContentPartAddedEvent:
 		if typed.Part.Type != responsesReasoningContentText {
 			return nil, nil
 		}
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseOutputItemDoneEvent:
@@ -107,26 +133,7 @@ func (r *responsesStreamState) finishItem(event responses.ResponseOutputItemDone
 }
 
 func (r *responsesStreamState) bindResponseIdentity(response responses.Response) error {
-	if response.ID != "" {
-		if r.responseID != "" && r.responseID != response.ID {
-			return fmt.Errorf("%w: openai responses: response ID changed", corechat.ErrInvalidResponse)
-		}
-		r.responseID = response.ID
-	}
-	if response.Model != "" {
-		if r.model != "" && r.model != string(response.Model) {
-			return fmt.Errorf("%w: openai responses: response model changed", corechat.ErrInvalidResponse)
-		}
-		r.model = string(response.Model)
-	}
-	if response.CreatedAt > 0 {
-		createdAt := time.Unix(int64(response.CreatedAt), 0).UTC()
-		if !r.createdAt.IsZero() && r.createdAt != createdAt {
-			return fmt.Errorf("%w: openai responses: response creation time changed", corechat.ErrInvalidResponse)
-		}
-		r.createdAt = createdAt
-	}
-	return nil
+	return r.identity.bind(response.ID, string(response.Model), int64(response.CreatedAt))
 }
 
 func (r *responsesStreamState) terminalDelta(response responses.Response, status responses.ResponseStatus) (*corechat.ResponseDelta, error) {
@@ -147,12 +154,12 @@ func (r *responsesStreamState) terminalDelta(response responses.Response, status
 			return nil, err
 		}
 	}
-	return responsesTerminalDelta(&response, r.responseExtensionKey)
+	return responsesTerminalDelta(&response, r.responseExtensionKey, r.identity)
 }
 
 func (r *responsesStreamState) reasoningDelta(index int64, indexPresent bool, text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, error) {
 	if !indexPresent {
-		return nil, fmt.Errorf("%w: openai responses: reasoning delta requires an output index", corechat.ErrInvalidResponse)
+		return nil, fmt.Errorf("%w: openai responses: reasoning delta requires its output and segment indices", corechat.ErrInvalidResponse)
 	}
 	if err := r.reasoning.append(index, text, segment); err != nil {
 		return nil, err
@@ -169,9 +176,13 @@ func (r *responsesStreamState) reasoningDelta(index int64, indexPresent bool, te
 }
 
 func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, error) {
+	if part.Kind != corechat.PartDeltaText && part.Kind != corechat.PartDeltaCitation {
+		r.lastText = nil
+	}
+
 	response := &corechat.ResponseDelta{
 		Parts:    []corechat.PartDelta{part},
-		Metadata: &corechat.ResponseMetadata{ID: r.responseID, Model: r.model, CreatedAt: r.createdAt},
+		Metadata: r.identity.metadata(),
 	}
 	if err := response.Validate(); err != nil {
 		return nil, err

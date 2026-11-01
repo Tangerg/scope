@@ -56,7 +56,7 @@ func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) 
 	if len(via) >= defaultRedirectLimit {
 		return fmt.Errorf("%w: limit %d", ErrRedirectLimitReached, defaultRedirectLimit)
 	}
-	if request == nil || request.URL == nil {
+	if request == nil || request.URL == nil || request.URL.User != nil {
 		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
 	}
 	if request.URL.Scheme != "http" && request.URL.Scheme != "https" {

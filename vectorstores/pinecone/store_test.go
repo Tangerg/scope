@@ -175,11 +175,17 @@ func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
 				}
 				docs = append(docs, &document.Document{ID: fmt.Sprintf("id-%03d", i), Text: "text", Metadata: facts})
 				native.scores[docs[i].ID] = 40
+				if metric == pineconesdk.IndexMetricCosine {
+					native.scores[docs[i].ID] = .4
+				}
 				if metric == pineconesdk.IndexMetricEuclidean {
 					native.scores[docs[i].ID] = 100
 				}
 			}
 			native.scores[docs[len(docs)-1].ID] = 50
+			if metric == pineconesdk.IndexMetricCosine {
+				native.scores[docs[len(docs)-1].ID] = .5
+			}
 			if metric == pineconesdk.IndexMetricEuclidean {
 				native.scores[docs[len(docs)-1].ID] = 0
 			}

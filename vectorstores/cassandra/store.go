@@ -13,6 +13,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -252,7 +253,7 @@ func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord,
 	if err != nil {
 		return storedRecord{}, err
 	}
-	narrowed := narrow(vector)
+	narrowed := embedding.Float32Vector(vector)
 	if err := validateStoredVector(narrowed); err != nil {
 		return storedRecord{}, err
 	}
@@ -285,14 +286,6 @@ func validateStoredVector(vector []float32) error {
 		}
 	}
 	return nil
-}
-
-func narrow(v []float64) []float32 {
-	out := make([]float32, len(v))
-	for i, x := range v {
-		out[i] = float32(x)
-	}
-	return out
 }
 
 type storedCandidate struct {
@@ -422,7 +415,7 @@ func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vec
 	if len(request.Values) != s.dimensions {
 		return nil, vectorstore.ErrInvalidRequest
 	}
-	queryVector := narrow(request.Values)
+	queryVector := embedding.Float32Vector(request.Values)
 	if err = validateStoredVector(queryVector); err != nil {
 		return nil, err
 	}

@@ -4,8 +4,6 @@ import (
 	"math"
 	"testing"
 
-	weaviateclient "github.com/weaviate/weaviate-go-client/v5/weaviate"
-
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -24,7 +22,7 @@ func TestNativeMetricNormalizesOnlyThroughCore(t *testing.T) {
 
 func TestHybridPolicyRejectsNonfiniteAndOutOfRangeValues(t *testing.T) {
 	for _, alpha := range []float32{float32(math.NaN()), float32(math.Inf(1)), -.1, 1.01} {
-		config := StoreConfig{Client: new(weaviateclient.Client), ClassName: "Documents", HybridAlpha: &alpha, Space: fixtureSpace}
+		config := StoreConfig{Client: new(Client), Collection: "Documents", HybridAlpha: &alpha, Space: fixtureSpace}
 		if err := config.Validate(); err == nil {
 			t.Fatal("invalid hybrid policy was accepted")
 		}

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
+	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -28,11 +28,11 @@ func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 		fields["service_tier"] = "auto"
 		return nil
 	}}
-	params, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect)
+	params, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if params.OutputConfig.Effort != "" || params.ToolChoice.OfNone == nil || params.Messages[0].Content[0].OfText.Text != "prepared" {
+	if params.OutputConfig.Effort != "" || params.ToolChoice.OfNone == nil || params.Messages[0].OfUser.Content[0].OfText.Text != "prepared" {
 		t.Fatalf("prepared request = %#v", params)
 	}
 	if request.Options.Model != "" || request.ToolChoice.Mode != corechat.ToolChoiceAuto || request.Messages[0].Parts[0].Text != "hello" {
@@ -40,38 +40,40 @@ func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 	}
 }
 
-func TestConfiguredHeadersCanRemoveSDKDefault(t *testing.T) {
-	for _, removeDefault := range []bool{false, true} {
-		name := "native"
-		if removeDefault {
-			name = "compatible"
+func TestBindingOwnsCredentialAndWireRevision(t *testing.T) {
+	for _, key := range []string{"Authorization", "x-api-key", "api-key", "anThRoPiC-VeRsIoN"} {
+		config := apiConfig{APIKey: "native-key", BaseURL: "https://api.example.test", Headers: http.Header{key: []string{"other"}}}
+		if _, _, err := config.requestOptions(t.Context()); err == nil {
+			t.Fatalf("metadata overrode protected header %s", key)
 		}
-		t.Run(name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				_, exists := request.Header["X-Api-Key"]
-				if exists == removeDefault {
-					t.Errorf("X-Api-Key present = %t, want %t", exists, !removeDefault)
+	}
+	for _, item := range []struct {
+		name   string
+		header http.Header
+		want   map[string]string
+	}{
+		{"official", nil, map[string]string{"Authorization": "Bearer key", "Anthropic-Version": "2026-10-21"}},
+		{"compatible bearer", http.Header{"Anthropic-Version": []string{"2023-06-01"}, "X-Api-Key": nil, "Authorization": []string{"Bearer key"}}, map[string]string{"Authorization": "Bearer key", "Anthropic-Version": "2023-06-01"}},
+		{"compatible x-api-key", http.Header{"Anthropic-Version": []string{"2023-06-01"}}, map[string]string{"X-Api-Key": "key", "Anthropic-Version": "2023-06-01"}},
+		{"compatible api-key", http.Header{"Anthropic-Version": []string{"2023-06-01"}, "X-Api-Key": nil, "Api-Key": []string{"key"}}, map[string]string{"Api-Key": "key", "Anthropic-Version": "2023-06-01"}},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for _, key := range []string{"Authorization", "Api-Key", "X-Api-Key", "Anthropic-Version"} {
+					if got := r.Header.Values(key); len(got) > 1 || r.Header.Get(key) != item.want[key] {
+						t.Errorf("%s = %v, want %q", key, got, item.want[key])
+					}
 				}
-				if removeDefault && request.Header.Get("api-key") != "test-key" {
-					t.Error("configured provider authentication header is missing")
-				}
-				writer.Header().Set("Content-Type", "application/json")
-				_, _ = writer.Write([]byte(`{"input_tokens":1}`))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"input_tokens":1}`))
 			}))
 			defer server.Close()
-			var headers http.Header
-			if removeDefault {
-				headers = http.Header{"X-Api-Key": nil, "Api-Key": []string{"test-key"}}
-			}
-			transport, err := newAPI(t.Context(), apiConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), Headers: headers})
+			bound, err := newAPI(t.Context(), apiConfig{APIKey: "key", BaseURL: server.URL, HTTPClient: server.Client(), Headers: item.header})
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := transport.countTokens(t.Context(), &anthropicsdk.MessageCountTokensParams{
-				Model: "test-model", Messages: []anthropicsdk.MessageParam{anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("hello"))},
-			})
-			if err != nil || response.InputTokens != 1 {
-				t.Fatalf("CountTokens = %#v, %v", response, err)
+			if _, err = bound.countTokens(t.Context(), &anthropicsdk.MessageCountTokensParams{Model: "test", Messages: []anthropicsdk.MessageParam{anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("x"))}}); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
