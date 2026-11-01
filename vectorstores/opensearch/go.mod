@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/opensearch
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/core v0.59.0
 	github.com/opensearch-project/opensearch-go/v5 v5.1.3
 	github.com/samber/lo v1.53.0
 )
