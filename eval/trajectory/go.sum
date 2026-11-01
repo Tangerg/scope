@@ -1,9 +1,9 @@
-github.com/Tangerg/scope/agent v0.58.1-0.20261101022437-7791a40140fd h1:drk2wHJ25CUMykYepq7ZtrYR5M3bEBG+K4b8YqjzA1w=
-github.com/Tangerg/scope/agent v0.58.1-0.20261101022437-7791a40140fd/go.mod h1:BBYTGkTkL/61N/KACZWxXgINwJDby6ACAnhMzaBKyE8=
-github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd h1:OOYcT8ceA1DeQaX5iJ/8g6XgDCzZqfB+ISuSX2lsI6c=
-github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/eval v0.58.1-0.20261101022437-7791a40140fd h1:nb8UKbddROsPDd6cyXQUG/85zOTyg1ZBLbOjtRSeGeg=
-github.com/Tangerg/scope/eval v0.58.1-0.20261101022437-7791a40140fd/go.mod h1:tAlg8EoKslEPvC7PfupSwuTQEqeS1BuJMbnGVNB+zgs=
+github.com/Tangerg/scope/agent v0.59.0 h1:rLNEVzILUAfRQjzs+cwzQ/XuCrdshnyODBdE7Jbbqyo=
+github.com/Tangerg/scope/agent v0.59.0/go.mod h1:K8TLOxAf0KtZHfx9U26TqSPuj4vmo8cYOR39h0BuRwo=
+github.com/Tangerg/scope/core v0.59.0 h1:2WVra/d2lw9s7g+OsDpeuRadExN640ZtVzgdZUlOmso=
+github.com/Tangerg/scope/core v0.59.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
+github.com/Tangerg/scope/eval v0.59.0 h1:dQwrKBx5mGoremnEHsrwhMbX795Uj6/JKxI2eqkLHuY=
+github.com/Tangerg/scope/eval v0.59.0/go.mod h1:I9aNWYh1eFUjZOcj7jArID6sMeJrq3aUknmQdaKFAr8=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
@@ -22,8 +22,8 @@ github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 h1:1EYB5IzjZawrrnELUi78f9fPu57Hu
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.3/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
-go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
+go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
+go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 golang.org/x/sync v0.24.0 h1:iqiDrGoDgyuvAKrhLQthUEzU/R378N78gXbBjxed7oA=
 golang.org/x/sync v0.24.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
 golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=

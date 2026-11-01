@@ -3,13 +3,13 @@ module github.com/Tangerg/scope/models/minimax
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.58.1-0.20261101022437-7791a40140fd
-	github.com/Tangerg/scope/models/protocol/anthropic v0.58.1-0.20261101022437-7791a40140fd
-	github.com/Tangerg/scope/models/protocol/openai v0.58.1-0.20261101022437-7791a40140fd
+	github.com/Tangerg/scope/core v0.59.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.59.0
+	github.com/Tangerg/scope/models/protocol/openai v0.59.0
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.84.0 // indirect
+	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
